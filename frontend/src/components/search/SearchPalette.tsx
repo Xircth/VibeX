@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   Search as SearchIcon,
@@ -38,6 +39,7 @@ export function SearchPalette() {
     movePaletteSelection,
   } = useSearchStore();
 
+  const { t } = useTranslation(['panels', 'common']);
   const { openFilePreview } = usePanelActionsContext();
   const { projectId } = useProject();
   const navigate = useNavigate();
@@ -128,13 +130,13 @@ export function SearchPalette() {
     const conversations: PaletteResult[] = conversationResults.map((hit) => ({
       id: `conv:${hit.conversation_id}`,
       kind: 'conversation' as const,
-      title: hit.title || '未命名会话',
+      title: hit.title || t('searchPalette.untitledConversation'),
       subtitle: hit.snippet,
       conversationId: hit.conversation_id,
       workspaceId: hit.workspace_id,
     }));
     return [...conversations, ...files];
-  }, [fileResults, conversationResults]);
+  }, [fileResults, conversationResults, t]);
 
   const handleSelect = useCallback(
     (result: PaletteResult) => {
@@ -221,7 +223,7 @@ export function SearchPalette() {
         className="tahoe-popover relative mx-4 w-full max-w-[600px] overflow-hidden rounded-[14px]"
         role="dialog"
         aria-modal="true"
-        aria-label="快速搜索"
+        aria-label={t('searchPalette.dialogLabel')}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input row */}
@@ -230,7 +232,7 @@ export function SearchPalette() {
           <input
             ref={inputRef}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-            placeholder="搜索文件与会话..."
+            placeholder={t('searchPalette.placeholder')}
             value={paletteQuery}
             onChange={(e) => setPaletteQuery(e.target.value)}
           />
@@ -241,8 +243,8 @@ export function SearchPalette() {
           {results.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
               {paletteQuery.trim()
-                ? '未找到匹配结果'
-                : '搜索文件名，或输入 3+ 字符搜索会话内容'}
+                ? t('searchPalette.noResults')
+                : t('searchPalette.emptyHint')}
             </div>
           ) : (
             results.map((result, index) => (
@@ -281,17 +283,17 @@ export function SearchPalette() {
         <div className="flex items-center gap-4 border-t border-[var(--border-content)] px-3 py-1.5 text-[10px] text-muted-foreground">
           <span>
             <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">↑↓</kbd>{' '}
-            导航
+            {t('searchPalette.navigate')}
           </span>
           <span>
             <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">
               Enter
             </kbd>{' '}
-            打开
+            {t('searchPalette.open')}
           </span>
           <span>
             <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">Esc</kbd>{' '}
-            关闭
+            {t('common:close')}
           </span>
         </div>
       </div>

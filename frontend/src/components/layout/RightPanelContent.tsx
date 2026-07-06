@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
 import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
@@ -101,6 +102,7 @@ function CreateSessionOverlay({
   onSubmitCreate: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 p-6 backdrop-blur-md">
       <div className="relative w-full max-w-[360px] rounded-xl border border-border/70 bg-background/95 p-4 shadow-xl">
@@ -112,7 +114,9 @@ function CreateSessionOverlay({
           <span className="sr-only">Close</span>
         </button>
         <div className="mb-4 space-y-1">
-          <div className="text-sm font-semibold text-foreground">新建会话</div>
+          <div className="text-sm font-semibold text-foreground">
+            {t('rightPanelContent.newSession')}
+          </div>
         </div>
 
         <SessionCreationForm

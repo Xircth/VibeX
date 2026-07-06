@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   DockviewReact,
   type DockviewApi,
@@ -249,6 +250,7 @@ export function IDELayout({
   rightPanelContent,
   toolbarContent,
 }: IDELayoutProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -862,8 +864,8 @@ export function IDELayout({
               }`}
               title={
                 isEditorAreaVisible
-                  ? '隐藏编辑区和终端区'
-                  : '显示编辑区和终端区'
+                  ? t('ideLayout.hideEditorAndTerminal')
+                  : t('ideLayout.showEditorAndTerminal')
               }
               aria-pressed={isEditorAreaVisible}
             >
@@ -932,7 +934,7 @@ export function IDELayout({
                   setTabContextMenu(null);
                 }}
               >
-                在新的编辑区打开
+                {t('ideLayout.openInNewEditorGroup')}
               </button>
             </div>
           )}

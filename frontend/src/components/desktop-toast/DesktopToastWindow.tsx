@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Check, Loader2, Send, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AgentKind, type Session } from 'shared/types';
@@ -33,17 +35,21 @@ const SENT_DISMISS_MS = 1_600;
  * 解析会话应使用的 ACP 智能体类型：优先用规范字段 `agent_type`，回退到旧的
  * `executor` 键（架构报告 A-6 过渡期）。用于在独立通知窗口里直接发起追问。
  */
-function resolveAgentType(session: Session): AgentType {
+function resolveAgentType(
+  session: Session,
+  t: TFunction<['panels', 'common']>
+): AgentType {
   if (session.agent_type) {
     return session.agent_type as AgentType;
   }
   if (session.executor) {
     return agentTypeFromExecutor(session.executor as AgentKind);
   }
-  throw new Error('无法确定该会话的智能体类型');
+  throw new Error(t('desktopToast.resolveAgentTypeFailed'));
 }
 
 export function DesktopToastWindow() {
+  const { t } = useTranslation(['panels', 'common']);
   const [toasts, setToasts] = useState<DesktopToastItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -233,7 +239,7 @@ export function DesktopToastWindow() {
       try {
         const session = await sessionsApi.getById(toast.sessionId);
         await conversationApi.startTurn({
-          agentType: resolveAgentType(session),
+          agentType: resolveAgentType(session, t),
           workspaceId: toast.workspaceId,
           conversationId: toast.sessionId,
           text,
@@ -245,13 +251,15 @@ export function DesktopToastWindow() {
         setReplyError((previous) => ({
           ...previous,
           [toast.id]:
-            error instanceof Error ? error.message : '回复发送失败，请稍后重试。',
+            error instanceof Error
+              ? error.message
+              : t('desktopToast.replySendFailed'),
         }));
         // 失败后重新计时消失；用户若回来重试，聚焦输入框会再次暂停计时。
         scheduleRemoval(toast.id, DEFAULT_DURATION_MS);
       }
     },
-    [drafts, holdToast, replyStatus, scheduleRemoval]
+    [drafts, holdToast, replyStatus, scheduleRemoval, t]
   );
 
   return (
@@ -294,7 +302,7 @@ export function DesktopToastWindow() {
                   {status === 'sent' ? (
                     <div className="flex items-center gap-1.5 text-[11px] font-medium text-[hsl(var(--success))]">
                       <Check className="h-3.5 w-3.5 shrink-0" />
-                      已发送，可在主窗口查看回复
+                      {t('desktopToast.sentHint')}
                     </div>
                   ) : (
                     <>
@@ -302,8 +310,8 @@ export function DesktopToastWindow() {
                         <input
                           value={draft}
                           disabled={isSending}
-                          placeholder="直接回复…"
-                          aria-label="回复该会话"
+                          placeholder={t('desktopToast.replyPlaceholder')}
+                          aria-label={t('desktopToast.replyInputAriaLabel')}
                           className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-control)] px-2.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[hsl(var(--primary)/0.5)] disabled:opacity-60"
                           onChange={(event) => {
                             const value = event.target.value;
@@ -332,7 +340,7 @@ export function DesktopToastWindow() {
                         />
                         <button
                           type="button"
-                          aria-label="发送回复"
+                          aria-label={t('desktopToast.sendReplyAriaLabel')}
                           disabled={isSending || draft.trim().length === 0}
                           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] transition-opacity hover:opacity-90 disabled:opacity-40"
                           onClick={() => void handleReplySubmit(toast)}
@@ -346,11 +354,12 @@ export function DesktopToastWindow() {
                       </div>
                       {status === 'error' ? (
                         <div className="mt-1.5 text-[11px] text-[hsl(var(--destructive))]">
-                          {replyError[toast.id] ?? '回复发送失败，请稍后重试。'}
+                          {replyError[toast.id] ??
+                            t('desktopToast.replySendFailed')}
                         </div>
                       ) : (
                         <div className="mt-1.5 text-[11px] text-muted-foreground">
-                          点击上方卡片回到该会话
+                          {t('desktopToast.clickCardHint')}
                         </div>
                       )}
                     </>
@@ -360,7 +369,7 @@ export function DesktopToastWindow() {
                 <button
                   type="button"
                   className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground"
-                  aria-label="关闭通知"
+                  aria-label={t('desktopToast.closeAriaLabel')}
                   onClick={() => removeToast(toast.id)}
                 >
                   <X className="h-3.5 w-3.5" />

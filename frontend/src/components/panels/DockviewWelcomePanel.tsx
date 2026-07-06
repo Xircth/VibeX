@@ -6,37 +6,39 @@ import {
   Search,
   Terminal,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 
 const welcomeActions = [
   {
-    label: '浏览文件',
-    description: '从左侧文件树打开源码或文档。',
+    labelKey: 'welcomePanel.actionFilesLabel',
+    descriptionKey: 'welcomePanel.actionFilesDescription',
     icon: FolderOpen,
     action: 'files',
   },
   {
-    label: '搜索项目',
-    description: '按关键字定位实现、配置和说明。',
+    labelKey: 'welcomePanel.actionSearchLabel',
+    descriptionKey: 'welcomePanel.actionSearchDescription',
     icon: Search,
     action: 'search',
   },
   {
-    label: '查看差异',
-    description: '检查工作区当前改动。',
+    labelKey: 'welcomePanel.actionDiffsLabel',
+    descriptionKey: 'welcomePanel.actionDiffsDescription',
     icon: GitCompare,
     action: 'diffs',
   },
   {
-    label: '打开终端',
-    description: '在当前工作目录运行命令。',
+    labelKey: 'welcomePanel.actionTerminalLabel',
+    descriptionKey: 'welcomePanel.actionTerminalDescription',
     icon: Terminal,
     action: 'terminal',
   },
 ] as const;
 
 function DockviewWelcomePanel(_props: IDockviewPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { openOrFocusPanel, openDiffPreview, openNewTerminal } =
     usePanelActionsContext();
 
@@ -70,11 +72,12 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
             <FileSearch className="h-5 w-5" />
           </div>
           <p className="workspace-welcome__eyebrow">Workspace ready</p>
-          <h2 id="welcome-title">从这里接手代码。</h2>
-          <p className="workspace-welcome__copy">
-            选择一个入口开始阅读、搜索、审查或运行命令。编辑区会保留你打开的上下文。
-          </p>
-          <div className="workspace-welcome__actions" aria-label="工作区入口">
+          <h2 id="welcome-title">{t('welcomePanel.title')}</h2>
+          <p className="workspace-welcome__copy">{t('welcomePanel.copy')}</p>
+          <div
+            className="workspace-welcome__actions"
+            aria-label={t('welcomePanel.actionsAriaLabel')}
+          >
             {welcomeActions.map((item) => {
               const Icon = item.icon;
               return (
@@ -89,10 +92,10 @@ function DockviewWelcomePanel(_props: IDockviewPanelProps) {
                   </span>
                   <span className="min-w-0">
                     <span className="workspace-welcome__action-title">
-                      {item.label}
+                      {t(item.labelKey)}
                     </span>
                     <span className="workspace-welcome__action-description">
-                      {item.description}
+                      {t(item.descriptionKey)}
                     </span>
                   </span>
                 </button>

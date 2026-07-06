@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
@@ -29,6 +30,7 @@ import { isTerminalTabCloseKey } from './terminalTabClosePolicy';
 type TerminalCloseEvent = Pick<React.SyntheticEvent, 'stopPropagation'>;
 
 function DockviewTerminalPanel(props: IDockviewPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -186,9 +188,11 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
           terminal: selectedShell,
         });
       } catch (error) {
-        toast.error('无法打开外部终端', {
+        toast.error(t('terminalPanel.openExternalTerminalFailed'), {
           description:
-            error instanceof Error ? error.message : '请确认 Warp 已安装。',
+            error instanceof Error
+              ? error.message
+              : t('terminalPanel.confirmWarpInstalled'),
         });
       }
       return;
@@ -196,7 +200,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
 
     const tabId = generateTerminalTabId();
     addSession(workspaceId, tabId, selectedShell);
-  }, [addSession, selectedShell, workspaceId]);
+  }, [addSession, selectedShell, workspaceId, t]);
 
   if (!workspaceId) {
     return (

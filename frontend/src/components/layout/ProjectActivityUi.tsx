@@ -1,4 +1,6 @@
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { cn } from '@/lib/utils';
 import type {
   ProjectActivityAlert,
@@ -49,29 +51,29 @@ export function resolveProjectVisualStateMeta(
       };
     case 'success-unread':
       return {
-        label: '有刚完成未查看的会话',
+        label: i18n.t('panels:projectActivity.statusSuccessUnread'),
         dotClassName: 'bg-[hsl(var(--success))]',
         pulseClassName: 'animate-pulse',
       };
     case 'success':
       return {
-        label: '所有会话已完成且已查看',
+        label: i18n.t('panels:projectActivity.statusSuccess'),
         dotClassName: 'bg-[hsl(var(--success))]',
       };
     case 'error-unread':
       return {
-        label: '会话执行报错需查看',
+        label: i18n.t('panels:projectActivity.statusErrorUnread'),
         dotClassName: 'bg-destructive',
         pulseClassName: 'animate-pulse',
       };
     case 'error':
       return {
-        label: '会话报错已查看',
+        label: i18n.t('panels:projectActivity.statusError'),
         dotClassName: 'bg-destructive',
       };
     default:
       return {
-        label: '暂无会话',
+        label: i18n.t('panels:projectActivity.statusIdle'),
         dotClassName: 'bg-muted-foreground/60',
       };
   }
@@ -88,6 +90,8 @@ export function ProjectRecentSessionsPopover({
   align?: 'right' | 'top';
   style?: React.CSSProperties;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
+
   if (recentSessions.length === 0) {
     return null;
   }
@@ -101,7 +105,7 @@ export function ProjectRecentSessionsPopover({
       style={style}
     >
       <div className="mb-2 text-[11px] font-medium text-muted-foreground">
-        {projectName} · 最近会话
+        {projectName} · {t('projectActivity.recentSessions')}
       </div>
       <div className="space-y-1.5">
         {recentSessions.map((session) => (

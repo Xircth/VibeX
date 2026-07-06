@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { FolderTree, FolderOpen } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
@@ -65,6 +66,7 @@ function deriveRelativeFileTreePath(
  * rich file icons, git status, and file preview.
  */
 function DockviewFileTreePanel(_props: IDockviewPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const {
     rootPath,
     revealTarget,
@@ -393,7 +395,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: '选择项目文件夹',
+        title: t('fileTreePanel.pickFolderTitle'),
       });
       if (selected && typeof selected === 'string') {
         setRootPath(selected);
@@ -401,7 +403,7 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
     } catch {
       // User cancelled
     }
-  }, [setRootPath]);
+  }, [setRootPath, t]);
 
   const relativeRevealTarget = useMemo(() => {
     if (!rootPath || !revealTarget) {
@@ -429,14 +431,14 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
         <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-sm gap-3">
           <FolderTree className="h-8 w-8 opacity-40" />
           <div className="text-center space-y-2">
-            <p className="font-medium">文件管理器</p>
-            <p className="text-xs">未选择文件夹</p>
+            <p className="font-medium">{t('fileTreePanel.title')}</p>
+            <p className="text-xs">{t('fileTreePanel.noFolderSelected')}</p>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent hover:bg-accent/80 rounded transition-colors mx-auto"
               onClick={handlePickFolder}
             >
               <FolderOpen className="w-3 h-3" />
-              打开文件夹
+              {t('fileTreePanel.openFolder')}
             </button>
           </div>
         </div>

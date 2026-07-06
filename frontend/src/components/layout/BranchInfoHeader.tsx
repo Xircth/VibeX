@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
   ArrowDown,
@@ -169,6 +170,7 @@ function TargetBranchDropdown({
   worktreeId: string;
   useWorktree: boolean;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const { data: branches = [] } = useRepoBranches(repo.repo_id);
   const changeTargetBranch = useChangeTargetBranch(worktreeId, repo.repo_id);
   const isChangingTargetBranch = changeTargetBranch.isPending;
@@ -194,7 +196,7 @@ function TargetBranchDropdown({
 
   const handleRebase = useCallback(async () => {
     if (!useWorktree) {
-      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      setError(t('branchInfo.notInWorktree'));
       return;
     }
 
@@ -202,9 +204,9 @@ function TargetBranchDropdown({
     const result = await RebaseDialog.show({
       branches,
       initialTargetBranch: repo.target_branch_name,
-      title: '变基当前 Worktree',
-      description: '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
-      confirmLabel: '变基',
+      title: t('branchInfo.rebaseDialogTitle'),
+      description: t('branchInfo.rebaseDialogDescription'),
+      confirmLabel: t('branchInfo.rebaseConfirmLabel'),
     });
 
     if (result.action !== 'confirmed' || !result.branchName) {
@@ -234,7 +236,7 @@ function TargetBranchDropdown({
     } catch {
       setError('Rebase failed.');
     }
-  }, [branches, queryClient, repo, useWorktree, worktreeId]);
+  }, [branches, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
     <div className="flex flex-col items-start gap-1">
@@ -272,6 +274,7 @@ function RebaseButton({
   repo: RepoBranchStatus;
   useWorktree: boolean;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -279,7 +282,7 @@ function RebaseButton({
 
   const handleRebase = useCallback(async () => {
     if (!useWorktree) {
-      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      setError(t('branchInfo.notInWorktree'));
       return;
     }
 
@@ -287,9 +290,9 @@ function RebaseButton({
       branches,
       isRebasing: loading,
       initialTargetBranch: repo.target_branch_name,
-      title: '变基当前 Worktree',
-      description: '选择一个目标分支，将该分支的最新更改变基到当前 Worktree。',
-      confirmLabel: '变基',
+      title: t('branchInfo.rebaseDialogTitle'),
+      description: t('branchInfo.rebaseDialogDescription'),
+      confirmLabel: t('branchInfo.rebaseConfirmLabel'),
     });
 
     if (result.action !== 'confirmed' || !result.branchName) {
@@ -321,7 +324,7 @@ function RebaseButton({
     } finally {
       setLoading(false);
     }
-  }, [branches, loading, queryClient, repo, useWorktree, worktreeId]);
+  }, [branches, loading, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
     <div className="flex flex-col items-start gap-1">
@@ -348,6 +351,7 @@ function RebaseBackButton({
   repo: RepoBranchStatus;
   useWorktree: boolean;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -355,7 +359,7 @@ function RebaseBackButton({
 
   const handleRebaseBack = useCallback(async () => {
     if (!useWorktree) {
-      setError('当前未处于 Worktree 中，请手动切换目标分支。');
+      setError(t('branchInfo.notInWorktree'));
       return;
     }
 
@@ -363,10 +367,9 @@ function RebaseBackButton({
       branches,
       isRebasing: loading,
       initialTargetBranch: repo.target_branch_name,
-      title: '回基到目标分支',
-      description:
-        '选择一个目标分支。系统会先将该分支的最新更改变基到当前 Worktree，再把当前 Worktree 的更改合并回目标分支。',
-      confirmLabel: '回基',
+      title: t('branchInfo.rebaseBackDialogTitle'),
+      description: t('branchInfo.rebaseBackDialogDescription'),
+      confirmLabel: t('branchInfo.rebaseBackConfirmLabel'),
     });
 
     if (result.action !== 'confirmed' || !result.branchName) {
@@ -452,7 +455,7 @@ function RebaseBackButton({
     } finally {
       setLoading(false);
     }
-  }, [branches, loading, queryClient, repo, useWorktree, worktreeId]);
+  }, [branches, loading, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
     <div className="flex flex-col items-start gap-1">

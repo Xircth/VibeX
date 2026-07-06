@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type SyntheticEvent } from 'react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 import { PANEL_IDS } from '@/stores/useLayoutStore';
 import {
@@ -33,6 +34,7 @@ export function TerminalHeaderActions(props: IDockviewHeaderActionsProps) {
 }
 
 function TerminalHeaderActionsInner() {
+  const { t } = useTranslation(['panels', 'common']);
   const { activeWorktreeId } = useWorktree();
   const { config } = useUserSystem();
   const workspaceKey = getTerminalWorkspaceKey(activeWorktreeId);
@@ -60,9 +62,11 @@ function TerminalHeaderActionsInner() {
           terminal: selectedShell,
         });
       } catch (error) {
-        toast.error('无法打开外部终端', {
+        toast.error(t('terminalHeader.openExternalFailed'), {
           description:
-            error instanceof Error ? error.message : '请确认 Warp 已安装。',
+            error instanceof Error
+              ? error.message
+              : t('terminalHeader.confirmWarpInstalled'),
         });
       }
       return;
@@ -70,7 +74,7 @@ function TerminalHeaderActionsInner() {
 
     const tabId = generateTerminalTabId();
     addSession(workspaceKey, tabId, selectedShell);
-  }, [workspaceKey, addSession, selectedShell]);
+  }, [workspaceKey, addSession, selectedShell, t]);
 
   return (
     <div className="flex items-center gap-0.5 h-full px-1">

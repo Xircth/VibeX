@@ -1,5 +1,6 @@
 import type { IDockviewPanelProps } from 'dockview-react';
 import { Loader2, ScrollText } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import VirtualizedList from '@/components/logs/VirtualizedList';
 import { EntriesProvider } from '@/contexts/EntriesContext';
@@ -10,6 +11,7 @@ import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { buildSessionConversationKey } from '@/lib/conversationKeys';
 
 function DockviewLogsPanel(_props: IDockviewPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { activeWorktreeId } = useWorktree();
   const { data: attempt, isLoading: isLoadingAttempt } =
     useTaskAttemptWithSession(activeWorktreeId ?? undefined);
@@ -19,7 +21,7 @@ function DockviewLogsPanel(_props: IDockviewPanelProps) {
       <div className="h-full w-full flex items-center justify-center bg-background text-muted-foreground text-sm">
         <div className="text-center space-y-2">
           <ScrollText className="h-8 w-8 opacity-40 mx-auto" />
-          <p>选择一个工作区以查看日志</p>
+          <p>{t('logsPanel.selectWorkspaceToViewLogs')}</p>
         </div>
       </div>
     );

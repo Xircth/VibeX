@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { BriefcaseBusiness } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { desktopApi } from '@/lib/api';
@@ -5,6 +6,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 export function ProjectRailToggleButton() {
+  const { t } = useTranslation(['panels', 'common']);
   const { projects } = useProjects();
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
   const setRailVisible = useWindowProjectsStore(
@@ -27,8 +29,10 @@ export function ProjectRailToggleButton() {
           });
       }}
       data-project-rail-toggle="true"
-      aria-label={railVisible ? '隐藏项目栏' : '显示项目栏'}
-      title={railVisible ? '隐藏项目栏' : '显示项目栏'}
+      aria-label={
+        railVisible ? t('railToggle.hide') : t('railToggle.show')
+      }
+      title={railVisible ? t('railToggle.hide') : t('railToggle.show')}
     >
       <BriefcaseBusiness className="h-4 w-4" />
     </Button>

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useAttempt } from '@/hooks/useAttempt';
 import { useDiffStream } from '@/hooks/useDiffStream';
@@ -91,6 +92,7 @@ function formatTimestamp(timestamp: number): string {
 }
 
 function DockviewDiffsReviewPanel() {
+  const { t } = useTranslation(['panels', 'common']);
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -330,7 +332,9 @@ function DockviewDiffsReviewPanel() {
         <div className="text-center space-y-2">
           <GitCompare className="h-8 w-8 opacity-40 mx-auto" />
           <p className="font-medium">Diff Review</p>
-          <p className="text-xs">选择一个工作区以查看变更</p>
+          <p className="text-xs">
+            {t('diffsReviewPanel.selectWorkspaceToViewChanges')}
+          </p>
         </div>
       </div>
     );
@@ -339,7 +343,9 @@ function DockviewDiffsReviewPanel() {
   if (!isCommitMode && error) {
     return (
       <div className="m-4 rounded-lg border border-[hsl(var(--destructive)/0.28)] bg-[hsl(var(--destructive)/0.08)] p-4">
-        <div className="text-sm text-destructive">{`加载差异失败：${error}`}</div>
+        <div className="text-sm text-destructive">
+          {t('diffsReviewPanel.loadDiffFailed', { error: String(error) })}
+        </div>
       </div>
     );
   }
@@ -365,7 +371,7 @@ function DockviewDiffsReviewPanel() {
                 <button
                   onClick={clearCommitDiff}
                   className="shrink-0 p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                  title="返回工作区差异"
+                  title={t('diffsReviewPanel.backToWorktreeDiff')}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -411,7 +417,9 @@ function DockviewDiffsReviewPanel() {
         {diffs.length > 0 && (
           <div className="shrink-0 flex items-center gap-2 px-3 h-[33px] border-b border-border bg-muted/30">
             <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <span>{fileCount} 个文件已更改</span>
+              <span>
+                {t('diffsReviewPanel.filesChanged', { count: fileCount })}
+              </span>
               <span className="font-mono text-[hsl(var(--success))]">
                 +{added}
               </span>
@@ -424,7 +432,11 @@ function DockviewDiffsReviewPanel() {
               <button
                 onClick={handleCollapseAll}
                 className="p-1 rounded hover:bg-accent text-muted-foreground"
-                title={allCollapsed ? '展开所有' : '折叠所有'}
+                title={
+                  allCollapsed
+                    ? t('diffsReviewPanel.expandAll')
+                    : t('diffsReviewPanel.collapseAll')
+                }
               >
                 {allCollapsed ? (
                   <ChevronsDown className="h-3.5 w-3.5" />
@@ -471,13 +483,15 @@ function DockviewDiffsReviewPanel() {
                 <div className="flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>
-                    {isCommitMode ? '加载提交差异中…' : '加载变更中…'}
+                    {isCommitMode
+                      ? t('diffsReviewPanel.loadingCommitDiff')
+                      : t('diffsReviewPanel.loadingChanges')}
                   </span>
                 </div>
               ) : isCommitMode ? (
-                '该提交无文件变更'
+                t('diffsReviewPanel.commitNoFileChanges')
               ) : (
-                '尚未进行任何更改'
+                t('diffsReviewPanel.noChangesYet')
               )}
             </div>
           ) : (
@@ -516,7 +530,7 @@ function DockviewDiffsReviewPanel() {
             <button
               onClick={() => setSidebarCollapsed(false)}
               className="h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent/50 border-b border-border"
-              title="展开文件目录"
+              title={t('diffsReviewPanel.expandFileTree')}
             >
               <PanelRightOpen className="h-3.5 w-3.5" />
             </button>
@@ -529,7 +543,7 @@ function DockviewDiffsReviewPanel() {
                 <button
                   onClick={() => setSidebarCollapsed(true)}
                   className="p-0.5 rounded hover:bg-accent text-muted-foreground"
-                  title="收起"
+                  title={t('diffsReviewPanel.collapse')}
                 >
                   <PanelRightClose className="h-3.5 w-3.5" />
                 </button>
@@ -555,7 +569,9 @@ function DockviewDiffsReviewPanel() {
               </div>
               {/* Summary footer */}
               <div className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 border-t border-border text-[10px] text-muted-foreground">
-                <span>{fileCount} 个文件</span>
+                <span>
+                  {t('diffsReviewPanel.filesCount', { count: fileCount })}
+                </span>
                 <span className="text-muted-foreground/40">·</span>
                 <span className="font-mono text-[hsl(var(--success))]">+{added}</span>
                 <span className="font-mono text-destructive">-{deleted}</span>

@@ -6,6 +6,7 @@ import {
   useCallback,
 } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { useTranslation } from 'react-i18next';
 import { Search, ChevronRight } from 'lucide-react';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -16,6 +17,7 @@ import {
 } from '@/lib/api';
 
 function DockviewSearchPanel(_props: IDockviewPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { rootPath } = useFileTreeStore();
   const { openFilePreview } = usePanelActionsContext();
 
@@ -104,13 +106,16 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
   ]);
 
   const summaryText = useMemo(() => {
-    if (!rootPath) return '请先选择工作区';
-    if (!isSearchMode) return '输入关键词开始搜索';
-    if (isLoading) return '搜索中...';
+    if (!rootPath) return t('searchPanel.selectWorkspaceFirst');
+    if (!isSearchMode) return t('searchPanel.enterKeyword');
+    if (isLoading) return t('searchPanel.searching');
     if (error) return error;
-    if (!searchResults) return '输入关键词开始搜索';
-    return `${searchResults.file_count} 个文件，${searchResults.total_matches} 个匹配`;
-  }, [rootPath, isSearchMode, isLoading, error, searchResults]);
+    if (!searchResults) return t('searchPanel.enterKeyword');
+    return t('searchPanel.resultSummary', {
+      fileCount: searchResults.file_count,
+      matchCount: searchResults.total_matches,
+    });
+  }, [rootPath, isSearchMode, isLoading, error, searchResults, t]);
 
   const toggleExpanded = useCallback((path: string) => {
     setExpandedFiles((prev) => {
@@ -206,7 +211,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
           <input
             className="flex-1 min-w-0 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
             type="search"
-            placeholder="搜索文件内容..."
+            placeholder={t('searchPanel.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={!rootPath}
@@ -221,7 +226,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
               onClick={() => setCaseSensitive((prev) => !prev)}
-              title="区分大小写"
+              title={t('searchPanel.matchCase')}
             >
               Aa
             </button>
@@ -233,7 +238,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
               onClick={() => setWholeWord((prev) => !prev)}
-              title="全词匹配"
+              title={t('searchPanel.matchWholeWord')}
             >
               ab
             </button>
@@ -245,7 +250,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
               onClick={() => setIsRegex((prev) => !prev)}
-              title="正则表达式"
+              title={t('searchPanel.regex')}
             >
               .*
             </button>
@@ -257,7 +262,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
                   : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               }`}
               onClick={() => setShowDetails((prev) => !prev)}
-              title="更多选项"
+              title={t('searchPanel.moreOptions')}
             >
               ...
             </button>
@@ -270,14 +275,14 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
             <input
               className="bg-input rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none"
               type="text"
-              placeholder="包含的文件 (如: *.ts, src/**)"
+              placeholder={t('searchPanel.includePlaceholder')}
               value={includePattern}
               onChange={(e) => setIncludePattern(e.target.value)}
             />
             <input
               className="bg-input rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none"
               type="text"
-              placeholder="排除的文件 (如: node_modules, dist)"
+              placeholder={t('searchPanel.excludePlaceholder')}
               value={excludePattern}
               onChange={(e) => setExcludePattern(e.target.value)}
             />
@@ -290,7 +295,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
         </div>
         {searchResults?.truncated && (
           <div className="px-0.5 text-[10px] text-[hsl(var(--warning))]">
-            结果过多，仅显示部分匹配
+            {t('searchPanel.truncated')}
           </div>
         )}
       </div>
@@ -299,7 +304,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
       <div className="flex-1 overflow-y-auto min-h-0">
         {!rootPath ? null : !isSearchMode ? null : isLoading ? (
           <div className="flex items-center justify-center h-20 text-xs text-muted-foreground">
-            搜索中...
+            {t('searchPanel.searching')}
           </div>
         ) : error ? (
           <div className="flex items-center justify-center h-20 text-xs text-destructive px-2 text-center">
@@ -307,7 +312,7 @@ function DockviewSearchPanel(_props: IDockviewPanelProps) {
           </div>
         ) : !searchResults || searchResults.files.length === 0 ? (
           <div className="flex items-center justify-center h-20 text-xs text-muted-foreground">
-            未找到匹配结果
+            {t('searchPanel.noResults')}
           </div>
         ) : (
           searchResults.files.map((result) => renderFileResult(result))

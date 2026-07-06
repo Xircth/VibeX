@@ -1,1 +1,246 @@
-{}
+{
+  "fileTreePanel": {
+    "pickFolderTitle": "选择项目文件夹",
+    "title": "文件管理器",
+    "noFolderSelected": "未选择文件夹",
+    "openFolder": "打开文件夹"
+  },
+  "logsPanel": {
+    "selectWorkspaceToViewLogs": "选择一个工作区以查看日志"
+  },
+  "terminalPanel": {
+    "openExternalTerminalFailed": "无法打开外部终端",
+    "confirmWarpInstalled": "请确认 Warp 已安装。"
+  },
+  "diffsPanel": {
+    "loadFailed": "加载差异失败：{{error}}",
+    "expandAll": "展开所有差异",
+    "collapseAll": "折叠所有差异",
+    "filesChanged": "{{count}} 个文件已更改",
+    "noChanges": "尚未进行任何更改"
+  },
+  "welcomePanel": {
+    "actionFilesLabel": "浏览文件",
+    "actionFilesDescription": "从左侧文件树打开源码或文档。",
+    "actionSearchLabel": "搜索项目",
+    "actionSearchDescription": "按关键字定位实现、配置和说明。",
+    "actionDiffsLabel": "查看差异",
+    "actionDiffsDescription": "检查工作区当前改动。",
+    "actionTerminalLabel": "打开终端",
+    "actionTerminalDescription": "在当前工作目录运行命令。",
+    "title": "从这里接手代码。",
+    "copy": "选择一个入口开始阅读、搜索、审查或运行命令。编辑区会保留你打开的上下文。",
+    "actionsAriaLabel": "工作区入口"
+  },
+  "diffsReviewPanel": {
+    "selectWorkspaceToViewChanges": "选择一个工作区以查看变更",
+    "loadDiffFailed": "加载差异失败：{{error}}",
+    "backToWorktreeDiff": "返回工作区差异",
+    "filesChanged": "{{count}} 个文件已更改",
+    "expandAll": "展开所有",
+    "collapseAll": "折叠所有",
+    "loadingCommitDiff": "加载提交差异中…",
+    "loadingChanges": "加载变更中…",
+    "commitNoFileChanges": "该提交无文件变更",
+    "noChangesYet": "尚未进行任何更改",
+    "expandFileTree": "展开文件目录",
+    "collapse": "收起",
+    "filesCount": "{{count}} 个文件"
+  },
+  "kanbanPanel": {
+    "backToBoard": "返回看板",
+    "backToSessionHub": "返回会话中心",
+    "enterSessionHub": "进入会话中心",
+    "enterUsageDashboard": "进入计量统计",
+    "deleteSessionTitle": "删除会话",
+    "deleteSessionConfirm": "确定删除会话“{{name}}”吗？正在执行中的会话不会被删除。",
+    "loadingBoard": "正在加载会话看板...",
+    "newSession": "新建会话"
+  },
+  "dockPreviewPanel": {
+    "contentOnlyNotice": "本预览仅针对内容，无法完全保留原格式"
+  },
+  "railToggle": {
+    "hide": "隐藏项目栏",
+    "show": "显示项目栏"
+  },
+  "gitStash": {
+    "readFailed": "读取 stash 失败：{{error}}",
+    "operationFailed": "操作失败：{{error}}",
+    "nothingToStash": "没有可暂存的改动",
+    "stashedChanges": "已暂存改动",
+    "title": "储藏 (Stash)",
+    "notePlaceholder": "备注（可选）",
+    "stashButton": "储藏改动",
+    "empty": "暂无储藏。",
+    "popped": "已弹出储藏",
+    "pop": "弹出",
+    "applied": "已应用储藏",
+    "apply": "应用",
+    "dropped": "已删除储藏"
+  },
+  "toolbar": {
+    "hideEditorAndTerminal": "隐藏编辑区和终端区",
+    "showEditorAndTerminal": "显示编辑区和终端区",
+    "homeOrRecentProjects": "返回首页或打开最近项目",
+    "backToHome": "回到首页",
+    "recentProjects": "最近项目",
+    "noRecentProjects": "暂无最近项目"
+  },
+  "branchInfo": {
+    "notInWorktree": "当前未处于 Worktree 中，请手动切换目标分支。",
+    "rebaseDialogTitle": "变基当前 Worktree",
+    "rebaseDialogDescription": "选择一个目标分支，将该分支的最新更改变基到当前 Worktree。",
+    "rebaseConfirmLabel": "变基",
+    "rebaseBackDialogTitle": "回基到目标分支",
+    "rebaseBackDialogDescription": "选择一个目标分支。系统会先将该分支的最新更改变基到当前 Worktree，再把当前 Worktree 的更改合并回目标分支。",
+    "rebaseBackConfirmLabel": "回基"
+  },
+  "previewPanel": {
+    "devServerStartFailed": "启动开发服务器失败",
+    "workspaceNotFound": "当前工作区不存在",
+    "companionInstalled": "Web Companion 已安装并接入 {{repoName}}（{{entryPath}}）。将自动重启开发服务器。",
+    "installCompanionFailed": "安装 Web Companion 失败",
+    "title": "预览",
+    "selectWorkspaceHint": "选择工作区后即可查看开发预览。",
+    "previewOpened": "预览已正常打开",
+    "companionInstallHint": "若需点击页面元素回到编辑器，请安装并接入 Web Companion。安装完成后会自动重启开发服务器。",
+    "installCompanion": "安装 Companion",
+    "previewProblemTitle": "我们在预览您的应用程序时遇到问题：",
+    "devServerStartCheck": "开发服务器是否成功启动？可能有一个您需要解决的错误，或者可能需要安装依赖项。",
+    "devServerUrlQuestionPrefix": "您的开发服务器是否以格式打印 URL 和端口到终端 ",
+    "devServerUrlQuestionSuffix": " ？（这就是我们如何知道它正在运行）",
+    "stopDevServerAndFix": "停止开发服务器并解决问题",
+    "fixDevScript": "修复开发脚本"
+  },
+  "searchPanel": {
+    "selectWorkspaceFirst": "请先选择工作区",
+    "enterKeyword": "输入关键词开始搜索",
+    "searching": "搜索中...",
+    "resultSummary": "{{fileCount}} 个文件，{{matchCount}} 个匹配",
+    "searchPlaceholder": "搜索文件内容...",
+    "matchCase": "区分大小写",
+    "matchWholeWord": "全词匹配",
+    "regex": "正则表达式",
+    "moreOptions": "更多选项",
+    "includePlaceholder": "包含的文件 (如: *.ts, src/**)",
+    "excludePlaceholder": "排除的文件 (如: node_modules, dist)",
+    "truncated": "结果过多，仅显示部分匹配",
+    "noResults": "未找到匹配结果"
+  },
+  "ideLayout": {
+    "hideEditorAndTerminal": "隐藏编辑区和终端区",
+    "showEditorAndTerminal": "显示编辑区和终端区",
+    "openInNewEditorGroup": "在新的编辑区打开"
+  },
+  "worktreeSelector": {
+    "currentProjectBranch": "当前项目目录分支",
+    "nonWorktreeCheckout": "非 Worktree，选择后将先 checkout",
+    "copiedWorkspacePath": "已复制工作区路径",
+    "copyWorkspacePath": "复制工作区路径",
+    "noCopyablePath": "当前分支暂无可复制的工作区路径"
+  },
+  "newSessionPrompt": {
+    "emptyState": "当前工作区还没有会话",
+    "newSession": "新建会话"
+  },
+  "terminalHeader": {
+    "openExternalFailed": "无法打开外部终端",
+    "confirmWarpInstalled": "请确认 Warp 已安装。"
+  },
+  "rightPanelContent": {
+    "newSession": "新建会话"
+  },
+  "rightPanelSidebar": {
+    "devServerRunningTooltip": "开发服务器运行中，点击打开网络预览",
+    "devServerFailedTooltip": "开发服务器启动失败，点击查看预览与日志",
+    "openNetworkPreview": "打开网络预览"
+  },
+  "projectActivity": {
+    "statusSuccessUnread": "有刚完成未查看的会话",
+    "statusSuccess": "所有会话已完成且已查看",
+    "statusErrorUnread": "会话执行报错需查看",
+    "statusError": "会话报错已查看",
+    "statusIdle": "暂无会话",
+    "recentSessions": "最近会话"
+  },
+  "projectRail": {
+    "placeholderProjectName": "项目",
+    "deleteConfirmTitle": "删除项目“{{name}}”？",
+    "deleteConfirmMessage": "删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。",
+    "deleteSuccess": "已删除项目“{{name}}”",
+    "deleteFailed": "删除项目失败",
+    "deleteProjectAria": "删除项目 {{name}}",
+    "emptyState": "暂无项目",
+    "createProjectAria": "创建新项目",
+    "openProjectAria": "打开项目",
+    "closeRailAria": "关闭项目栏"
+  },
+  "searchPalette": {
+    "untitledConversation": "未命名会话",
+    "dialogLabel": "快速搜索",
+    "placeholder": "搜索文件与会话...",
+    "noResults": "未找到匹配结果",
+    "emptyHint": "搜索文件名，或输入 3+ 字符搜索会话内容",
+    "navigate": "导航",
+    "open": "打开"
+  },
+  "windowManager": {
+    "statusRunning": "运行中",
+    "statusDone": "已完成",
+    "statusInReview": "待检查",
+    "statusInProgress": "进行中",
+    "statusTodo": "待开始",
+    "statusIdle": "空闲",
+    "sessionFallbackName": "会话",
+    "projectFallbackName": "项目",
+    "sessionFailedTitle": "{{project}}：会话执行失败",
+    "sessionCompletedTitle": "{{project}}：会话已完成"
+  },
+  "panelRegistry": {
+    "fileExplorer": "文件管理器",
+    "gitManager": "Git 管理器",
+    "welcome": "欢迎",
+    "notes": "笔记",
+    "search": "搜索"
+  },
+  "ideIcon": {
+    "fileManager": "文件资源管理器"
+  },
+  "timeline": {
+    "resendMessageTitle": "重发这条消息",
+    "resendMessageBody": "将把这条消息之后的所有内容清除并在原位重新发送。\n\n是否同时把工作区文件回滚到这条消息发送前?\n\n恢复并重发 = 先回滚文件再发送\n仅重发 = 不改动文件直接发送",
+    "restoreAndResend": "恢复并重发",
+    "resendOnly": "仅重发"
+  },
+  "desktopToast": {
+    "resolveAgentTypeFailed": "无法确定该会话的智能体类型",
+    "replySendFailed": "回复发送失败，请稍后重试。",
+    "sentHint": "已发送，可在主窗口查看回复",
+    "replyPlaceholder": "直接回复…",
+    "replyInputAriaLabel": "回复该会话",
+    "sendReplyAriaLabel": "发送回复",
+    "clickCardHint": "点击上方卡片回到该会话",
+    "closeAriaLabel": "关闭通知"
+  },
+  "fileTreeMenu": {
+    "referenceNode": "引用 {{name}}",
+    "referenceToChat": "引用到聊天",
+    "loading": "加载中...",
+    "loadFailedRetry": "加载失败，点击重试",
+    "newFile": "新建文件",
+    "newFolder": "新建文件夹",
+    "refreshFileTree": "刷新文件树",
+    "collapseAllFolders": "折叠所有文件夹",
+    "expandAllFolders": "展开所有文件夹",
+    "copy": "复制",
+    "duplicate": "创建副本",
+    "copyRelativePath": "复制相对路径",
+    "copyAbsolutePath": "复制绝对路径",
+    "openInFileManager": "在文件管理器中打开",
+    "deleteFailed": "删除失败",
+    "duplicateFailed": "创建副本失败",
+    "createFileFailed": "创建文件失败",
+    "createFolderFailed": "创建文件夹失败"
+  }
+}

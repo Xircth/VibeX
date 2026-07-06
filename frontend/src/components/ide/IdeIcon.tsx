@@ -1,4 +1,6 @@
 import { Code2, FolderOpen } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { EditorType, ThemeMode } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
 
@@ -16,7 +18,10 @@ function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   return theme === ThemeMode.DARK ? 'dark' : 'light';
 }
 
-export function getIdeName(editorType: EditorType | undefined | null): string {
+export function getIdeName(
+  editorType: EditorType | undefined | null,
+  t?: TFunction<['panels', 'common']>
+): string {
   if (!editorType) return 'IDE';
   switch (editorType) {
     case EditorType.VS_CODE:
@@ -38,7 +43,7 @@ export function getIdeName(editorType: EditorType | undefined | null): string {
     case EditorType.GOOGLE_ANTIGRAVITY:
       return 'Antigravity';
     case EditorType.FILE_MANAGER:
-      return '文件资源管理器';
+      return t ? t('ideIcon.fileManager') : 'File Manager';
     default:
       // Guaranteed return keeps this total even if EditorType gains a variant
       // (the previous switch relied on exhaustiveness and tripped TS2366).
@@ -47,11 +52,12 @@ export function getIdeName(editorType: EditorType | undefined | null): string {
 }
 
 export function IdeIcon({ editorType, className = 'h-4 w-4' }: IdeIconProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const { theme } = useTheme();
   const resolvedTheme = getResolvedTheme(theme);
   const isDark = resolvedTheme === 'dark';
 
-  const ideName = getIdeName(editorType);
+  const ideName = getIdeName(editorType, t);
   let ideIconPath = '';
 
   if (editorType === EditorType.FILE_MANAGER) {

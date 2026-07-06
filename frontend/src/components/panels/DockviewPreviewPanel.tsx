@@ -9,6 +9,7 @@ import {
   type ComponentType,
 } from 'react';
 import DOMPurify from 'dompurify';
+import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
@@ -144,6 +145,7 @@ function ReadonlyDocumentPreview({
   content: string;
   format: 'text' | 'html';
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const sanitizedHtml = useMemo(
     () => (format === 'html' ? DOMPurify.sanitize(content) : ''),
     [content, format]
@@ -153,7 +155,7 @@ function ReadonlyDocumentPreview({
     <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
         <div className="rounded-lg border border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground shadow-sm">
-          本预览仅针对内容，无法完全保留原格式
+          {t('dockPreviewPanel.contentOnlyNotice')}
         </div>
         <div className="rounded-xl border border-border bg-background p-6 shadow-sm">
           {content.trim().length > 0 ? (

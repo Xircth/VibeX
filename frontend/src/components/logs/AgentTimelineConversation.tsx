@@ -9,6 +9,7 @@ import {
   useState,
 } from 'react';
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { AgentKind } from 'shared/types';
@@ -287,6 +288,7 @@ const AgentTimelineConversation = forwardRef<
   VirtualizedListRef,
   AgentTimelineConversationProps
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
+  const { t } = useTranslation(['panels', 'common']);
   const { config } = useUserSystem();
   const collapseProcess = config?.ai_message_default_collapsed ?? false;
   const prefersReducedMotion = useMediaQuery(
@@ -629,11 +631,10 @@ const AgentTimelineConversation = forwardRef<
       // webview). 'confirmed' = also roll back files; 'canceled' (button/dismiss)
       // = reset context only, leave files as-is.
       const choice = await ConfirmDialog.show({
-        title: '重发这条消息',
-        message:
-          '将把这条消息之后的所有内容清除并在原位重新发送。\n\n是否同时把工作区文件回滚到这条消息发送前?\n\n恢复并重发 = 先回滚文件再发送\n仅重发 = 不改动文件直接发送',
-        confirmText: '恢复并重发',
-        cancelText: '仅重发',
+        title: t('timeline.resendMessageTitle'),
+        message: t('timeline.resendMessageBody'),
+        confirmText: t('timeline.restoreAndResend'),
+        cancelText: t('timeline.resendOnly'),
         variant: 'default',
       });
       const restoreFiles = choice === 'confirmed';
@@ -681,6 +682,7 @@ const AgentTimelineConversation = forwardRef<
       attempt.session,
       conversationResetAndReload,
       getActiveExecutorProfile,
+      t,
     ]
   );
 

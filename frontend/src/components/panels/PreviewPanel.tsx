@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2, Wrench, X } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -160,6 +161,7 @@ interface PreviewPanelProps {
 export function PreviewPanel({
   workspaceId: panelWorkspaceId,
 }: PreviewPanelProps = {}) {
+  const { t } = useTranslation(['panels', 'common']);
   const [iframeError, setIframeError] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [companionReady, setCompanionReady] = useState(false);
@@ -233,7 +235,7 @@ export function PreviewPanel({
           ? error.message
           : typeof error === 'string'
             ? error
-            : '启动开发服务器失败';
+            : t('previewPanel.devServerStartFailed');
       setDevServerStartError(message);
     },
   });
@@ -592,7 +594,7 @@ export function PreviewPanel({
     },
     mutationFn: async () => {
       if (!attemptId) {
-        throw new Error('当前工作区不存在');
+        throw new Error(t('previewPanel.workspaceNotFound'));
       }
 
       return installWebCompanion({
@@ -605,7 +607,10 @@ export function PreviewPanel({
     onSuccess: (result) => {
       setCompanionInstallFeedback({
         type: 'success',
-        message: `Web Companion 已安装并接入 ${result.repoName}（${result.entryPath}）。将自动重启开发服务器。`,
+        message: t('previewPanel.companionInstalled', {
+          repoName: result.repoName,
+          entryPath: result.entryPath,
+        }),
       });
       clearBridgeBootstrap();
       previewIframeRef.current = null;
@@ -630,7 +635,9 @@ export function PreviewPanel({
     },
     onError: (error) => {
       const message =
-        error instanceof Error ? error.message : '安装 Web Companion 失败';
+        error instanceof Error
+          ? error.message
+          : t('previewPanel.installCompanionFailed');
       setCompanionInstallFeedback({
         type: 'error',
         message,
@@ -728,8 +735,8 @@ export function PreviewPanel({
     return (
       <div className="h-full flex items-center justify-center p-8">
         <div className="text-center text-muted-foreground">
-          <p className="text-lg font-medium">{'预览'}</p>
-          <p className="text-sm mt-2">{'选择工作区后即可查看开发预览。'}</p>
+          <p className="text-lg font-medium">{t('previewPanel.title')}</p>
+          <p className="text-sm mt-2">{t('previewPanel.selectWorkspaceHint')}</p>
         </div>
       </div>
     );
@@ -820,11 +827,11 @@ export function PreviewPanel({
           <Alert className="space-y-2 border-border bg-background/95">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1 text-sm">
-                <p className="font-medium">{'预览已正常打开'}</p>
+                <p className="font-medium">
+                  {t('previewPanel.previewOpened')}
+                </p>
                 <p className="text-muted-foreground">
-                  {
-                    '若需点击页面元素回到编辑器，请安装并接入 Web Companion。安装完成后会自动重启开发服务器。'
-                  }
+                  {t('previewPanel.companionInstallHint')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -836,7 +843,7 @@ export function PreviewPanel({
                 >
                   {installCompanionMutation.isPending
                     ? 'Installing…'
-                    : '安装 Companion'}
+                    : t('previewPanel.installCompanion')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -856,18 +863,14 @@ export function PreviewPanel({
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 space-y-2">
                 <p className="font-bold">
-                  {'我们在预览您的应用程序时遇到问题：'}
+                  {t('previewPanel.previewProblemTitle')}
                 </p>
                 <ol className="list-decimal list-inside space-y-2">
+                  <li>{t('previewPanel.devServerStartCheck')}</li>
                   <li>
-                    {
-                      '开发服务器是否成功启动？可能有一个您需要解决的错误，或者可能需要安装依赖项。'
-                    }
-                  </li>
-                  <li>
-                    {'您的开发服务器是否以格式打印 URL 和端口到终端 '}
+                    {t('previewPanel.devServerUrlQuestionPrefix')}
                     <code>http://localhost:3000</code>
-                    {' ？（这就是我们如何知道它正在运行）'}
+                    {t('previewPanel.devServerUrlQuestionSuffix')}
                   </li>
                 </ol>
                 <div className="flex gap-2">
@@ -879,7 +882,7 @@ export function PreviewPanel({
                     {isStoppingDevServer && (
                       <Loader2 className="mr-2 animate-spin" />
                     )}
-                    {'停止开发服务器并解决问题'}
+                    {t('previewPanel.stopDevServerAndFix')}
                   </Button>
                   {canFixDevScript && (
                     <Button
@@ -888,7 +891,7 @@ export function PreviewPanel({
                       className="gap-1"
                     >
                       <Wrench className="h-4 w-4" />
-                      {'修复开发脚本'}
+                      {t('previewPanel.fixDevScript')}
                     </Button>
                   )}
                 </div>

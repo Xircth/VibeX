@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Archive, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export function GitStashSection({
   hasChanges,
   onChanged,
 }: GitStashSectionProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const [expanded, setExpanded] = useState(false);
   const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [message, setMessage] = useState('');
@@ -35,9 +37,9 @@ export function GitStashSection({
     try {
       setStashes(await attemptsApi.listStashes(workspaceId, repoId));
     } catch (error) {
-      toast.error(`读取 stash 失败：${error}`);
+      toast.error(t('gitStash.readFailed', { error: String(error) }));
     }
-  }, [workspaceId, repoId]);
+  }, [workspaceId, repoId, t]);
 
   useEffect(() => {
     if (expanded) void refresh();
@@ -52,12 +54,12 @@ export function GitStashSection({
         await refresh();
         onChanged();
       } catch (error) {
-        toast.error(`操作失败：${error}`);
+        toast.error(t('gitStash.operationFailed', { error: String(error) }));
       } finally {
         setBusy(false);
       }
     },
-    [refresh, onChanged]
+    [refresh, onChanged, t]
   );
 
   const onStash = () =>
@@ -68,9 +70,9 @@ export function GitStashSection({
         message.trim() || null,
         true
       );
-      if (!stashed) throw new Error('没有可暂存的改动');
+      if (!stashed) throw new Error(t('gitStash.nothingToStash'));
       setMessage('');
-    }, '已暂存改动');
+    }, t('gitStash.stashedChanges'));
 
   return (
     <div className="border-t border-border">
@@ -85,7 +87,7 @@ export function GitStashSection({
           <ChevronRight className="h-3.5 w-3.5" />
         )}
         <Archive className="h-3.5 w-3.5" />
-        储藏 (Stash)
+        {t('gitStash.title')}
         {stashes.length > 0 ? (
           <span className="ml-1 rounded bg-muted px-1.5 text-[10px]">
             {stashes.length}
@@ -99,7 +101,7 @@ export function GitStashSection({
             <Input
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="备注（可选）"
+              placeholder={t('gitStash.notePlaceholder')}
               className="h-8 text-xs"
             />
             <Button
@@ -109,12 +111,14 @@ export function GitStashSection({
               disabled={busy || !hasChanges}
               onClick={onStash}
             >
-              储藏改动
+              {t('gitStash.stashButton')}
             </Button>
           </div>
 
           {stashes.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">暂无储藏。</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t('gitStash.empty')}
+            </p>
           ) : (
             <ul className="space-y-1">
               {stashes.map((s) => (
@@ -143,11 +147,11 @@ export function GitStashSection({
                         run(
                           () =>
                             attemptsApi.popStash(workspaceId, repoId, s.index),
-                          '已弹出储藏'
+                          t('gitStash.popped')
                         )
                       }
                     >
-                      弹出
+                      {t('gitStash.pop')}
                     </Button>
                     <Button
                       size="sm"
@@ -158,11 +162,11 @@ export function GitStashSection({
                         run(
                           () =>
                             attemptsApi.applyStash(workspaceId, repoId, s.index),
-                          '已应用储藏'
+                          t('gitStash.applied')
                         )
                       }
                     >
-                      应用
+                      {t('gitStash.apply')}
                     </Button>
                     <Button
                       size="sm"
@@ -173,11 +177,11 @@ export function GitStashSection({
                         run(
                           () =>
                             attemptsApi.dropStash(workspaceId, repoId, s.index),
-                          '已删除储藏'
+                          t('gitStash.dropped')
                         )
                       }
                     >
-                      删除
+                      {t('common:delete')}
                     </Button>
                   </div>
                 </li>

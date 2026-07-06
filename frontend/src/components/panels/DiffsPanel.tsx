@@ -1,5 +1,6 @@
 import { useDiffStream } from '@/hooks/useDiffStream';
 import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader } from '@/components/ui/loader';
 import { Button } from '@/components/ui/button';
 import DiffViewSwitch from '@/components/DiffViewSwitch';
@@ -48,6 +49,7 @@ const getDiffId = ({ diff, index }: { diff: Diff; index: number }) =>
   `${diff.newPath || diff.oldPath || index}`;
 
 export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const [loadingState, setLoadingState] = useState<
     'loading' | 'loaded' | 'timed-out'
   >('loading');
@@ -116,7 +118,9 @@ export function DiffsPanel({ selectedAttempt, gitOps }: DiffsPanelProps) {
   if (error) {
     return (
       <div className="m-4 rounded-lg border border-[hsl(var(--destructive)/0.28)] bg-[hsl(var(--destructive)/0.08)] p-4">
-        <div className="text-sm text-destructive">{`加载差异失败：${error}`}</div>
+        <div className="text-sm text-destructive">
+          {t('diffsPanel.loadFailed', { error: String(error) })}
+        </div>
       </div>
     );
   }
@@ -165,6 +169,7 @@ function DiffsPanelContent({
   gitOps,
   loading,
 }: DiffsPanelContentProps) {
+  const { t } = useTranslation(['panels', 'common']);
   return (
     <div className="h-full flex flex-col relative">
       {diffs.length > 0 && (
@@ -182,7 +187,9 @@ function DiffsPanelContent({
                       onClick={handleCollapseAll}
                       aria-pressed={allCollapsed}
                       aria-label={
-                        allCollapsed ? '展开所有差异' : '折叠所有差异'
+                        allCollapsed
+                          ? t('diffsPanel.expandAll')
+                          : t('diffsPanel.collapseAll')
                       }
                     >
                       {allCollapsed ? (
@@ -193,7 +200,9 @@ function DiffsPanelContent({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    {allCollapsed ? '展开所有差异' : '折叠所有差异'}
+                    {allCollapsed
+                      ? t('diffsPanel.expandAll')
+                      : t('diffsPanel.collapseAll')}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -205,7 +214,7 @@ function DiffsPanelContent({
               className="text-sm text-muted-foreground whitespace-nowrap"
               aria-live="polite"
             >
-              {`${fileCount} 个文件已更改`}{' '}
+              {t('diffsPanel.filesChanged', { count: fileCount })}{' '}
               <span className="text-[hsl(var(--success))]">
                 +{added}
               </span>{' '}
@@ -226,7 +235,7 @@ function DiffsPanelContent({
           </div>
         ) : diffs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            {'尚未进行任何更改'}
+            {t('diffsPanel.noChanges')}
           </div>
         ) : (
           diffs.map((diff, idx) => {

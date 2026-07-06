@@ -1,4 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { settingsWindowApi } from '@/lib/api';
 import { useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -292,6 +293,7 @@ function WorkspaceTabSwitcher() {
 }
 
 export function Toolbar() {
+  const { t } = useTranslation(['panels', 'common']);
   const { workspaceId, sessionId } = useParams<{
     workspaceId?: string;
     sessionId?: string;
@@ -411,8 +413,8 @@ export function Toolbar() {
                     onClick={toggleEditorArea}
                     aria-label={
                       isEditorAreaVisible
-                        ? '隐藏编辑区和终端区'
-                        : '显示编辑区和终端区'
+                        ? t('toolbar.hideEditorAndTerminal')
+                        : t('toolbar.showEditorAndTerminal')
                     }
                     aria-pressed={isEditorAreaVisible}
                     tabIndex={isWorkspaceTab ? 0 : -1}
@@ -422,8 +424,8 @@ export function Toolbar() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
                   {isEditorAreaVisible
-                    ? '隐藏编辑区和终端区'
-                    : '显示编辑区和终端区'}
+                    ? t('toolbar.hideEditorAndTerminal')
+                    : t('toolbar.showEditorAndTerminal')}
                 </TooltipContent>
               </Tooltip>
 
@@ -530,8 +532,8 @@ export function Toolbar() {
                 <button
                   type="button"
                   className="workspace-toolbar-button flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label="返回首页或打开最近项目"
-                  title="返回首页或打开最近项目"
+                  aria-label={t('toolbar.homeOrRecentProjects')}
+                  title={t('toolbar.homeOrRecentProjects')}
                 >
                   <Logo showText={false} size="window" />
                 </button>
@@ -539,10 +541,10 @@ export function Toolbar() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={handleOpenHome}>
                   <FolderOpen className="mr-2 h-4 w-4" />
-                  回到首页
+                  {t('toolbar.backToHome')}
                 </DropdownMenuItem>
                 <div className="px-2 py-1 text-[11px] text-muted-foreground">
-                  最近项目
+                  {t('toolbar.recentProjects')}
                 </div>
                 {recentProjects.length > 0 ? (
                   recentProjects.map((item) => (
@@ -556,7 +558,9 @@ export function Toolbar() {
                     </DropdownMenuItem>
                   ))
                 ) : (
-                  <DropdownMenuItem disabled>暂无最近项目</DropdownMenuItem>
+                  <DropdownMenuItem disabled>
+                    {t('toolbar.noRecentProjects')}
+                  </DropdownMenuItem>
                 )}
                 <DropdownMenuItem asChild>
                   <Link to="/local-projects">

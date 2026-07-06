@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -9,6 +10,7 @@ export function RightPanelNewSessionPrompt({
   onCreateSession: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   return (
     <div
       className={cn(
@@ -17,11 +19,11 @@ export function RightPanelNewSessionPrompt({
       )}
     >
       <p className="text-sm text-muted-foreground">
-        当前工作区还没有会话
+        {t('newSessionPrompt.emptyState')}
       </p>
       <Button className="gap-1.5" onClick={onCreateSession}>
         <Plus className="h-3.5 w-3.5" />
-        新建会话
+        {t('newSessionPrompt.newSession')}
       </Button>
     </div>
   );

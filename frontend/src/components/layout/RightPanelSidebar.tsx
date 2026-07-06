@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Terminal, List, GitCompareArrows, StickyNote, Globe } from 'lucide-react';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -22,6 +23,7 @@ function RightPanelSidebarContent({
   workspaceId?: string;
   sessionId?: string;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const { openNewTerminal, openDiffPreview, openNotes, openOrFocusPanel } =
     usePanelActionsContext();
   const { runningDevServers, devServerProcesses } = useDevServer(workspaceId);
@@ -44,10 +46,10 @@ function RightPanelSidebarContent({
       ? 'text-destructive hover:text-destructive hover:bg-destructive/10 bg-destructive/10'
       : 'text-muted-foreground hover:text-foreground hover:bg-accent';
   const networkTooltipLabel = hasRunningDevServer
-    ? '开发服务器运行中，点击打开网络预览'
+    ? t('rightPanelSidebar.devServerRunningTooltip')
     : hasFailedDevServer
-      ? '开发服务器启动失败，点击查看预览与日志'
-      : '打开网络预览';
+      ? t('rightPanelSidebar.devServerFailedTooltip')
+      : t('rightPanelSidebar.openNetworkPreview');
 
   const buttons = [
     { icon: Terminal, label: 'Open Terminal', onClick: openNewTerminal },

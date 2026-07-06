@@ -1,1 +1,246 @@
-{}
+{
+  "fileTreePanel": {
+    "pickFolderTitle": "Select project folder",
+    "title": "File Explorer",
+    "noFolderSelected": "No folder selected",
+    "openFolder": "Open Folder"
+  },
+  "logsPanel": {
+    "selectWorkspaceToViewLogs": "Select a workspace to view logs"
+  },
+  "terminalPanel": {
+    "openExternalTerminalFailed": "Failed to open external terminal",
+    "confirmWarpInstalled": "Please make sure Warp is installed."
+  },
+  "diffsPanel": {
+    "loadFailed": "Failed to load diff: {{error}}",
+    "expandAll": "Expand all diffs",
+    "collapseAll": "Collapse all diffs",
+    "filesChanged": "{{count}} files changed",
+    "noChanges": "No changes yet"
+  },
+  "welcomePanel": {
+    "actionFilesLabel": "Browse files",
+    "actionFilesDescription": "Open source code or docs from the file tree on the left.",
+    "actionSearchLabel": "Search project",
+    "actionSearchDescription": "Locate implementations, configuration, and docs by keyword.",
+    "actionDiffsLabel": "View diffs",
+    "actionDiffsDescription": "Inspect the workspace's current changes.",
+    "actionTerminalLabel": "Open terminal",
+    "actionTerminalDescription": "Run commands in the current working directory.",
+    "title": "Take over the code from here.",
+    "copy": "Pick an entry point to start reading, searching, reviewing, or running commands. The editor keeps the context you open.",
+    "actionsAriaLabel": "Workspace entry points"
+  },
+  "diffsReviewPanel": {
+    "selectWorkspaceToViewChanges": "Select a workspace to view changes",
+    "loadDiffFailed": "Failed to load diff: {{error}}",
+    "backToWorktreeDiff": "Back to worktree diff",
+    "filesChanged": "{{count}} files changed",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "loadingCommitDiff": "Loading commit diff…",
+    "loadingChanges": "Loading changes…",
+    "commitNoFileChanges": "This commit has no file changes",
+    "noChangesYet": "No changes yet",
+    "expandFileTree": "Expand file tree",
+    "collapse": "Collapse",
+    "filesCount": "{{count}} files"
+  },
+  "kanbanPanel": {
+    "backToBoard": "Back to board",
+    "backToSessionHub": "Back to session hub",
+    "enterSessionHub": "Go to session hub",
+    "enterUsageDashboard": "Go to usage stats",
+    "deleteSessionTitle": "Delete session",
+    "deleteSessionConfirm": "Are you sure you want to delete session “{{name}}”? Sessions in progress will not be deleted.",
+    "loadingBoard": "Loading session board...",
+    "newSession": "New session"
+  },
+  "dockPreviewPanel": {
+    "contentOnlyNotice": "This preview covers content only and cannot fully preserve the original formatting"
+  },
+  "railToggle": {
+    "hide": "Hide project rail",
+    "show": "Show project rail"
+  },
+  "gitStash": {
+    "readFailed": "Failed to read stash: {{error}}",
+    "operationFailed": "Operation failed: {{error}}",
+    "nothingToStash": "No changes to stash",
+    "stashedChanges": "Changes stashed",
+    "title": "Stash",
+    "notePlaceholder": "Note (optional)",
+    "stashButton": "Stash changes",
+    "empty": "No stashes yet.",
+    "popped": "Stash popped",
+    "pop": "Pop",
+    "applied": "Stash applied",
+    "apply": "Apply",
+    "dropped": "Stash dropped"
+  },
+  "toolbar": {
+    "hideEditorAndTerminal": "Hide editor and terminal areas",
+    "showEditorAndTerminal": "Show editor and terminal areas",
+    "homeOrRecentProjects": "Go home or open a recent project",
+    "backToHome": "Back to home",
+    "recentProjects": "Recent projects",
+    "noRecentProjects": "No recent projects"
+  },
+  "branchInfo": {
+    "notInWorktree": "Not currently in a Worktree. Please switch the target branch manually.",
+    "rebaseDialogTitle": "Rebase Current Worktree",
+    "rebaseDialogDescription": "Select a target branch to rebase its latest changes onto the current Worktree.",
+    "rebaseConfirmLabel": "Rebase",
+    "rebaseBackDialogTitle": "Rebase Back onto Target Branch",
+    "rebaseBackDialogDescription": "Select a target branch. The system first rebases that branch's latest changes onto the current Worktree, then merges the current Worktree's changes back into the target branch.",
+    "rebaseBackConfirmLabel": "Rebase Back"
+  },
+  "previewPanel": {
+    "devServerStartFailed": "Failed to start the dev server",
+    "workspaceNotFound": "The current workspace does not exist",
+    "companionInstalled": "Web Companion has been installed and integrated into {{repoName}} ({{entryPath}}). The dev server will restart automatically.",
+    "installCompanionFailed": "Failed to install Web Companion",
+    "title": "Preview",
+    "selectWorkspaceHint": "Select a workspace to view the dev preview.",
+    "previewOpened": "Preview opened successfully",
+    "companionInstallHint": "To click page elements and jump back to the editor, install and integrate Web Companion. The dev server will restart automatically once installation completes.",
+    "installCompanion": "Install Companion",
+    "previewProblemTitle": "We ran into a problem previewing your application:",
+    "devServerStartCheck": "Did the dev server start successfully? There may be an error you need to fix, or you may need to install dependencies.",
+    "devServerUrlQuestionPrefix": "Does your dev server print the URL and port to the terminal in the format ",
+    "devServerUrlQuestionSuffix": " ? (This is how we know it is running)",
+    "stopDevServerAndFix": "Stop the dev server and fix the problem",
+    "fixDevScript": "Fix dev script"
+  },
+  "searchPanel": {
+    "selectWorkspaceFirst": "Select a workspace first",
+    "enterKeyword": "Enter a keyword to start searching",
+    "searching": "Searching...",
+    "resultSummary": "{{fileCount}} files, {{matchCount}} matches",
+    "searchPlaceholder": "Search file contents...",
+    "matchCase": "Match case",
+    "matchWholeWord": "Match whole word",
+    "regex": "Regular expression",
+    "moreOptions": "More options",
+    "includePlaceholder": "Files to include (e.g. *.ts, src/**)",
+    "excludePlaceholder": "Files to exclude (e.g. node_modules, dist)",
+    "truncated": "Too many results, showing partial matches only",
+    "noResults": "No matching results found"
+  },
+  "ideLayout": {
+    "hideEditorAndTerminal": "Hide editor and terminal areas",
+    "showEditorAndTerminal": "Show editor and terminal areas",
+    "openInNewEditorGroup": "Open in new editor group"
+  },
+  "worktreeSelector": {
+    "currentProjectBranch": "Current project directory branch",
+    "nonWorktreeCheckout": "Not a Worktree; will checkout first when selected",
+    "copiedWorkspacePath": "Workspace path copied",
+    "copyWorkspacePath": "Copy workspace path",
+    "noCopyablePath": "No copyable workspace path for the current branch"
+  },
+  "newSessionPrompt": {
+    "emptyState": "No sessions in this workspace yet",
+    "newSession": "New Session"
+  },
+  "terminalHeader": {
+    "openExternalFailed": "Failed to open external terminal",
+    "confirmWarpInstalled": "Please make sure Warp is installed."
+  },
+  "rightPanelContent": {
+    "newSession": "New Session"
+  },
+  "rightPanelSidebar": {
+    "devServerRunningTooltip": "Dev server running, click to open network preview",
+    "devServerFailedTooltip": "Dev server failed to start, click to view preview and logs",
+    "openNetworkPreview": "Open network preview"
+  },
+  "projectActivity": {
+    "statusSuccessUnread": "A recently finished session hasn't been viewed",
+    "statusSuccess": "All sessions finished and viewed",
+    "statusErrorUnread": "Session error needs review",
+    "statusError": "Session error reviewed",
+    "statusIdle": "No sessions",
+    "recentSessions": "Recent sessions"
+  },
+  "projectRail": {
+    "placeholderProjectName": "Project",
+    "deleteConfirmTitle": "Delete project \"{{name}}\"?",
+    "deleteConfirmMessage": "Deleting this project will remove all sessions and workspace data under it. This action cannot be undone.",
+    "deleteSuccess": "Deleted project \"{{name}}\"",
+    "deleteFailed": "Failed to delete project",
+    "deleteProjectAria": "Delete project {{name}}",
+    "emptyState": "No projects yet",
+    "createProjectAria": "Create new project",
+    "openProjectAria": "Open project",
+    "closeRailAria": "Close project rail"
+  },
+  "searchPalette": {
+    "untitledConversation": "Untitled conversation",
+    "dialogLabel": "Quick search",
+    "placeholder": "Search files and conversations...",
+    "noResults": "No matching results found",
+    "emptyHint": "Search file names, or type 3+ characters to search conversation content",
+    "navigate": "Navigate",
+    "open": "Open"
+  },
+  "windowManager": {
+    "statusRunning": "Running",
+    "statusDone": "Completed",
+    "statusInReview": "Awaiting review",
+    "statusInProgress": "In progress",
+    "statusTodo": "Not started",
+    "statusIdle": "Idle",
+    "sessionFallbackName": "Session",
+    "projectFallbackName": "Project",
+    "sessionFailedTitle": "{{project}}: Session execution failed",
+    "sessionCompletedTitle": "{{project}}: Session completed"
+  },
+  "panelRegistry": {
+    "fileExplorer": "File Explorer",
+    "gitManager": "Git Manager",
+    "welcome": "Welcome",
+    "notes": "Notes",
+    "search": "Search"
+  },
+  "ideIcon": {
+    "fileManager": "File Manager"
+  },
+  "timeline": {
+    "resendMessageTitle": "Resend this message",
+    "resendMessageBody": "This will clear everything after this message and resend it in its original position.\n\nAlso roll back workspace files to before this message was sent?\n\nRestore & resend = roll back files first, then send\nResend only = send without changing files",
+    "restoreAndResend": "Restore & resend",
+    "resendOnly": "Resend only"
+  },
+  "desktopToast": {
+    "resolveAgentTypeFailed": "Unable to determine the agent type for this session",
+    "replySendFailed": "Failed to send reply. Please try again later.",
+    "sentHint": "Sent — you can view the reply in the main window",
+    "replyPlaceholder": "Reply directly…",
+    "replyInputAriaLabel": "Reply to this session",
+    "sendReplyAriaLabel": "Send reply",
+    "clickCardHint": "Click the card above to return to this session",
+    "closeAriaLabel": "Close notification"
+  },
+  "fileTreeMenu": {
+    "referenceNode": "Reference {{name}}",
+    "referenceToChat": "Reference to chat",
+    "loading": "Loading...",
+    "loadFailedRetry": "Failed to load, click to retry",
+    "newFile": "New File",
+    "newFolder": "New Folder",
+    "refreshFileTree": "Refresh file tree",
+    "collapseAllFolders": "Collapse all folders",
+    "expandAllFolders": "Expand all folders",
+    "copy": "Copy",
+    "duplicate": "Duplicate",
+    "copyRelativePath": "Copy relative path",
+    "copyAbsolutePath": "Copy absolute path",
+    "openInFileManager": "Open in file manager",
+    "deleteFailed": "Failed to delete",
+    "duplicateFailed": "Failed to create duplicate",
+    "createFileFailed": "Failed to create file",
+    "createFolderFailed": "Failed to create folder"
+  }
+}

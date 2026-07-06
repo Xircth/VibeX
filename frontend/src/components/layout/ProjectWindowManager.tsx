@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -26,22 +28,25 @@ import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 
-function getSessionStatusLabel(session: KanbanProjectSessionRecord) {
+function getSessionStatusLabel(
+  session: KanbanProjectSessionRecord,
+  t: TFunction<['panels', 'common']>
+) {
   if (session.isRunning) {
-    return '运行中';
+    return t('windowManager.statusRunning');
   }
 
   switch (session.status) {
     case 'done':
-      return '已完成';
+      return t('windowManager.statusDone');
     case 'inreview':
-      return '待检查';
+      return t('windowManager.statusInReview');
     case 'inprogress':
-      return '进行中';
+      return t('windowManager.statusInProgress');
     case 'todo':
-      return '待开始';
+      return t('windowManager.statusTodo');
     default:
-      return '空闲';
+      return t('windowManager.statusIdle');
   }
 }
 
@@ -88,6 +93,7 @@ function ProjectActivityTracker({
   isActive: boolean;
   enableNotifications?: boolean;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const navigate = useNavigate();
   const { config } = useUserSystem();
   const { projectsById } = useProjects();
@@ -161,7 +167,7 @@ function ProjectActivityTracker({
         taskId: session.taskId,
         title: session.fullName,
         subtitle: session.workspaceDisplayLabel,
-        statusLabel: getSessionStatusLabel(session),
+        statusLabel: getSessionStatusLabel(session, t),
         visualState,
         updatedAt: session.updatedAt,
       } as const;
@@ -175,7 +181,7 @@ function ProjectActivityTracker({
       hasSessions: sessions.length > 0,
       recentSessions,
     };
-  }, [isLoading, sessions]);
+  }, [isLoading, sessions, t]);
 
   useEffect(() => {
     const nextSignature = JSON.stringify(snapshot);
@@ -226,8 +232,8 @@ function ProjectActivityTracker({
       return Array.from(firstPrompt).slice(0, 6).join('');
     }
 
-    return summary.display_name?.trim() || '会话';
-  }, []);
+    return summary.display_name?.trim() || t('windowManager.sessionFallbackName');
+  }, [t]);
 
   const isMainWindowCurrentlyFocused = useCallback(async () => {
     try {
@@ -283,11 +289,15 @@ function ProjectActivityTracker({
           )[0];
 
           const kind = workspace.is_errored ? 'error' : 'success';
-          const projectName = projectsById[projectId]?.name ?? '项目';
+          const projectName =
+            projectsById[projectId]?.name ??
+            t('windowManager.projectFallbackName');
           const title =
             kind === 'error'
-              ? `${projectName}：会话执行失败`
-              : `${projectName}：会话已完成`;
+              ? t('windowManager.sessionFailedTitle', { project: projectName })
+              : t('windowManager.sessionCompletedTitle', {
+                  project: projectName,
+                });
           const sessionName = resolveSummaryDisplayName(latestSummary);
           const workspaceName =
             latestSummary.workspace_name ?? workspace.name ?? workspace.branch;
@@ -373,6 +383,7 @@ function ProjectActivityTracker({
     projectsById,
     resolveSummaryDisplayName,
     setProjectAlert,
+    t,
     workspacesWithStatus,
   ]);
 

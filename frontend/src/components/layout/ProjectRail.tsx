@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen, Plus, Trash2, X } from 'lucide-react';
 import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -28,6 +29,7 @@ import {
 } from '@/lib/projectDeleteUi';
 
 export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
+  const { t } = useTranslation(['panels', 'common']);
   const { projects, isLoading: isProjectsLoading } = useProjects();
   const { projectId } = useProject();
   const switchProject = useProjectSwitcher();
@@ -240,7 +242,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
         if (shouldShowPlaceholderProjects) {
           return {
             id,
-            name: '项目',
+            name: t('projectRail.placeholderProjectName'),
           };
         }
 
@@ -249,7 +251,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
       .filter((project): project is { id: string; name: string } =>
         Boolean(project)
       );
-  }, [effectiveProjects, orderedProjectIds, shouldShowPlaceholderProjects]);
+  }, [effectiveProjects, orderedProjectIds, shouldShowPlaceholderProjects, t]);
 
   useEffect(() => {
     if (standalone) {
@@ -442,10 +444,10 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     event?.stopPropagation();
 
     const result = await ConfirmDialog.show({
-      title: `删除项目“${targetProject.name}”？`,
-      message: '删除项目将移除该项目下的所有会话与工作区数据，此操作不可撤销。',
-      confirmText: '删除',
-      cancelText: '取消',
+      title: t('projectRail.deleteConfirmTitle', { name: targetProject.name }),
+      message: t('projectRail.deleteConfirmMessage'),
+      confirmText: t('common:delete'),
+      cancelText: t('common:cancel'),
       variant: 'destructive',
       contentClassName: PROJECT_DELETE_CONFIRM_CLASSNAME,
       contentStyle: PROJECT_DELETE_CONFIRM_STYLE,
@@ -458,12 +460,12 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
     try {
       await projectsApi.delete(targetProject.id);
       toast.success(
-        `已删除项目“${targetProject.name}”`,
+        t('projectRail.deleteSuccess', { name: targetProject.name }),
         PROJECT_DELETE_TOAST_OPTIONS
       );
     } catch (error) {
       console.error('Failed to delete project from project rail:', error);
-      toast.error('删除项目失败', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.error(t('projectRail.deleteFailed'), PROJECT_DELETE_TOAST_OPTIONS);
     }
   };
 
@@ -527,7 +529,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                   {Array.from(project.name)
                     .slice(0, 2)
                     .join('')
-                    .toUpperCase() || '项目'}
+                    .toUpperCase() || t('projectRail.placeholderProjectName')}
                 </span>
                 {visualState === 'loading' ? (
                   <span className="project-rail-status-dot-shell absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full">
@@ -558,8 +560,12 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
                       event
                     )
                   }
-                  aria-label={`删除项目 ${project.name}`}
-                  title={`删除项目 ${project.name}`}
+                  aria-label={t('projectRail.deleteProjectAria', {
+                    name: project.name,
+                  })}
+                  title={t('projectRail.deleteProjectAria', {
+                    name: project.name,
+                  })}
                 >
                   <Trash2 className="h-2.5 w-2.5" />
                 </button>
@@ -584,7 +590,7 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
         !isProjectsLoading &&
         !isResolvingStandaloneProjects ? (
           <div className="px-2 py-6 text-center text-[11px] text-muted-foreground">
-            暂无项目
+            {t('projectRail.emptyState')}
           </div>
         ) : null}
       </div>
@@ -602,8 +608,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           size="icon"
           className="project-rail-action-button h-8 w-8 rounded-lg"
           onClick={handleCreateProject}
-          aria-label="创建新项目"
-          title="创建新项目"
+          aria-label={t('projectRail.createProjectAria')}
+          title={t('projectRail.createProjectAria')}
         >
           <Plus className="h-4 w-4" />
         </Button>
@@ -613,8 +619,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
           size="icon"
           className="project-rail-action-button h-8 w-8 rounded-lg"
           onClick={handleOpenProject}
-          aria-label="打开项目"
-          title="打开项目"
+          aria-label={t('projectRail.openProjectAria')}
+          title={t('projectRail.openProjectAria')}
         >
           <FolderOpen className="h-4 w-4" />
         </Button>
@@ -625,8 +631,8 @@ export function ProjectRail({ standalone = false }: { standalone?: boolean }) {
             size="icon"
             className="project-rail-action-button h-8 w-8 rounded-lg"
             onClick={handleCloseRail}
-            aria-label="关闭项目栏"
-            title="关闭项目栏"
+            aria-label={t('projectRail.closeRailAria')}
+            title={t('projectRail.closeRailAria')}
           >
             <X className="h-4 w-4" />
           </Button>

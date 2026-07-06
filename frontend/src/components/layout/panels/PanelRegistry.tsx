@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
@@ -204,20 +205,44 @@ export interface PanelMeta {
   defaultPosition: 'left' | 'center' | 'bottom';
 }
 
-export const PANEL_META: PanelMeta[] = [
-  { id: PANEL_IDS.FILE_TREE, title: '文件管理器', defaultPosition: 'left' },
-  { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
-  { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
-  {
-    id: PANEL_IDS.DEV_PREVIEW,
-    title: 'Dev Preview',
-    defaultPosition: 'center',
-  },
-  { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
-  { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },
-  { id: PANEL_IDS.GIT, title: 'Git 管理器', defaultPosition: 'left' },
-  { id: PANEL_IDS.WELCOME, title: '欢迎', defaultPosition: 'center' },
-  { id: PANEL_IDS.LOGS, title: 'Logs', defaultPosition: 'center' },
-  { id: PANEL_IDS.NOTES, title: '笔记', defaultPosition: 'center' },
-  { id: PANEL_IDS.SEARCH, title: '搜索', defaultPosition: 'left' },
-];
+export function usePanelMeta(): PanelMeta[] {
+  const { t } = useTranslation(['panels', 'common']);
+
+  return [
+    {
+      id: PANEL_IDS.FILE_TREE,
+      title: t('panelRegistry.fileExplorer'),
+      defaultPosition: 'left',
+    },
+    { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
+    { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
+    {
+      id: PANEL_IDS.DEV_PREVIEW,
+      title: 'Dev Preview',
+      defaultPosition: 'center',
+    },
+    { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },
+    { id: PANEL_IDS.TERMINAL, title: 'Terminal', defaultPosition: 'bottom' },
+    {
+      id: PANEL_IDS.GIT,
+      title: t('panelRegistry.gitManager'),
+      defaultPosition: 'left',
+    },
+    {
+      id: PANEL_IDS.WELCOME,
+      title: t('panelRegistry.welcome'),
+      defaultPosition: 'center',
+    },
+    { id: PANEL_IDS.LOGS, title: 'Logs', defaultPosition: 'center' },
+    {
+      id: PANEL_IDS.NOTES,
+      title: t('panelRegistry.notes'),
+      defaultPosition: 'center',
+    },
+    {
+      id: PANEL_IDS.SEARCH,
+      title: t('panelRegistry.search'),
+      defaultPosition: 'left',
+    },
+  ];
+}

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, ChevronDown, Copy, GitBranch } from 'lucide-react';
@@ -28,7 +30,10 @@ import {
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 
-function getBranchOptionDescription(option: WorkspaceBranchOption) {
+function getBranchOptionDescription(
+  option: WorkspaceBranchOption,
+  t: TFunction<['panels', 'common']>
+) {
   if (option.useWorktree) {
     return option.workspace?.name?.trim()
       ? `${option.workspace.name} · Git Worktree`
@@ -36,11 +41,12 @@ function getBranchOptionDescription(option: WorkspaceBranchOption) {
   }
 
   return option.isCurrentProjectBranch
-    ? '当前项目目录分支'
-    : '非 Worktree，选择后将先 checkout';
+    ? t('worktreeSelector.currentProjectBranch')
+    : t('worktreeSelector.nonWorktreeCheckout');
 }
 
 export function WorktreeSelector() {
+  const { t } = useTranslation(['panels', 'common']);
   const [open, setOpen] = useState(false);
   const [copiedWorkspaceId, setCopiedWorkspaceId] = useState<string | null>(
     null
@@ -287,7 +293,7 @@ export function WorktreeSelector() {
                     </span>
                   </div>
                   <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                    {getBranchOptionDescription(option)}
+                    {getBranchOptionDescription(option, t)}
                   </span>
                 </div>
                 <button
@@ -296,9 +302,9 @@ export function WorktreeSelector() {
                   title={
                     copyPath
                       ? copiedWorkspaceId === option.existingWorkspaceId
-                        ? '已复制工作区路径'
-                        : '复制工作区路径'
-                      : '当前分支暂无可复制的工作区路径'
+                        ? t('worktreeSelector.copiedWorkspacePath')
+                        : t('worktreeSelector.copyWorkspacePath')
+                      : t('worktreeSelector.noCopyablePath')
                   }
                   disabled={!copyPath}
                   onMouseDown={(event) => event.preventDefault()}

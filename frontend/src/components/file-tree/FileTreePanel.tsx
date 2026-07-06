@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import {
   FilePlus,
   FolderPlus,
@@ -77,17 +78,6 @@ export type FileTreePanelProps = {
   revealTarget?: FileTreeRevealTarget | null;
 };
 
-const FILE_TREE_LABELS = {
-  newFile: '\u65b0\u5efa\u6587\u4ef6',
-  newFolder: '\u65b0\u5efa\u6587\u4ef6\u5939',
-  copy: '\u590d\u5236',
-  duplicate: '\u521b\u5efa\u526f\u672c',
-  copyRelativePath: '\u590d\u5236\u76f8\u5bf9\u8def\u5f84',
-  copyAbsolutePath: '\u590d\u5236\u7edd\u5bf9\u8def\u5f84',
-  openInFileManager: '\u5728\u6587\u4ef6\u7ba1\u7406\u5668\u4e2d\u6253\u5f00',
-  delete: '\u5220\u9664',
-} as const;
-
 export function FileTreePanel({
   workspaceName,
   workspacePath,
@@ -104,6 +94,7 @@ export function FileTreePanel({
   lazyLoadAllDirectories = false,
   revealTarget = null,
 }: FileTreePanelProps) {
+  const { t } = useTranslation(['panels', 'common']);
   const directoryEntries = directories ?? EMPTY_DIRECTORIES;
   const ignoredFileEntries = gitignoredFiles ?? EMPTY_SET;
   const ignoredDirectoryEntries = gitignoredDirectories ?? EMPTY_SET;
@@ -750,10 +741,10 @@ export function FileTreePanel({
         onRefreshFiles?.();
       } catch (e) {
         console.error('Failed to trash item:', e);
-        toast.error('删除失败');
+        toast.error(t('fileTreeMenu.deleteFailed'));
       }
     },
-    [resolvePath, onRefreshFiles, selectedNodePath]
+    [resolvePath, onRefreshFiles, selectedNodePath, t]
   );
 
   const duplicateItem = useCallback(
@@ -764,10 +755,10 @@ export function FileTreePanel({
         onRefreshFiles?.();
       } catch (e) {
         console.error('Failed to duplicate item:', e);
-        toast.error('创建副本失败');
+        toast.error(t('fileTreeMenu.duplicateFailed'));
       }
     },
-    [resolvePath, onRefreshFiles]
+    [resolvePath, onRefreshFiles, t]
   );
 
   const openNewFilePrompt = useCallback((parentFolder: string) => {
@@ -796,11 +787,11 @@ export function FileTreePanel({
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create file:', e);
-      toast.error('创建文件失败');
+      toast.error(t('fileTreeMenu.createFileFailed'));
     }
     setNewFileParent(null);
     setNewFileName('');
-  }, [newFileName, newFileParent, resolvePath, onRefreshFiles]);
+  }, [newFileName, newFileParent, resolvePath, onRefreshFiles, t]);
 
   const cancelNewFile = useCallback(() => {
     setNewFileParent(null);
@@ -833,11 +824,11 @@ export function FileTreePanel({
       onRefreshFiles?.();
     } catch (e) {
       console.error('Failed to create folder:', e);
-      toast.error('创建文件夹失败');
+      toast.error(t('fileTreeMenu.createFolderFailed'));
     }
     setNewFolderParent(null);
     setNewFolderName('');
-  }, [newFolderName, newFolderParent, resolvePath, onRefreshFiles]);
+  }, [newFolderName, newFolderParent, resolvePath, onRefreshFiles, t]);
 
   const cancelNewFolder = useCallback(() => {
     setNewFolderParent(null);
@@ -1373,8 +1364,8 @@ export function FileTreePanel({
                 event.stopPropagation();
                 onInsertText(getFileTreeMentionText(node.path, node.type));
               }}
-              aria-label={`引用 ${node.name}`}
-              title="引用到聊天"
+              aria-label={t('fileTreeMenu.referenceNode', { name: node.name })}
+              title={t('fileTreeMenu.referenceToChat')}
             >
               <Plus size={10} aria-hidden />
             </button>
@@ -1396,7 +1387,9 @@ export function FileTreePanel({
         {isLazyFolder && isExpanded && node.children.length === 0 && (
           <div className="file-tree-children">
             {isLazyLoading ? (
-              <div className="file-tree-lazy-state">加载中...</div>
+              <div className="file-tree-lazy-state">
+                {t('fileTreeMenu.loading')}
+              </div>
             ) : lazyLoadError ? (
               <button
                 type="button"
@@ -1404,7 +1397,7 @@ export function FileTreePanel({
                 onClick={() => void loadLazyDirectoryChildren(node.path)}
                 title={lazyLoadError}
               >
-                加载失败，点击重试
+                {t('fileTreeMenu.loadFailedRetry')}
               </button>
             ) : null}
           </div>
@@ -1460,8 +1453,8 @@ export function FileTreePanel({
               type="button"
               className="ghost icon-button file-tree-root-action"
               onClick={() => openNewFilePrompt(selectedParentFolder)}
-              aria-label="新建文件"
-              title="新建文件"
+              aria-label={t('fileTreeMenu.newFile')}
+              title={t('fileTreeMenu.newFile')}
             >
               <FilePlus size={14} aria-hidden />
             </button>
@@ -1469,8 +1462,8 @@ export function FileTreePanel({
               type="button"
               className="ghost icon-button file-tree-root-action"
               onClick={() => openNewFolderPrompt(selectedParentFolder)}
-              aria-label="新建文件夹"
-              title="新建文件夹"
+              aria-label={t('fileTreeMenu.newFolder')}
+              title={t('fileTreeMenu.newFolder')}
             >
               <FolderPlus size={14} aria-hidden />
             </button>
@@ -1479,8 +1472,8 @@ export function FileTreePanel({
               className="ghost icon-button file-tree-root-action"
               onClick={() => onRefreshFiles?.()}
               disabled={!onRefreshFiles}
-              aria-label="刷新文件树"
-              title="刷新文件树"
+              aria-label={t('fileTreeMenu.refreshFileTree')}
+              title={t('fileTreeMenu.refreshFileTree')}
             >
               <RefreshCw
                 size={14}
@@ -1494,9 +1487,15 @@ export function FileTreePanel({
               onClick={toggleAllFolders}
               disabled={!hasFolders}
               aria-label={
-                allVisibleExpanded ? '折叠所有文件夹' : '展开所有文件夹'
+                allVisibleExpanded
+                  ? t('fileTreeMenu.collapseAllFolders')
+                  : t('fileTreeMenu.expandAllFolders')
               }
-              title={allVisibleExpanded ? '折叠所有文件夹' : '展开所有文件夹'}
+              title={
+                allVisibleExpanded
+                  ? t('fileTreeMenu.collapseAllFolders')
+                  : t('fileTreeMenu.expandAllFolders')
+              }
             >
               <SquareMinus size={14} aria-hidden />
             </button>
@@ -1560,7 +1559,7 @@ export function FileTreePanel({
                   openNewFilePrompt(contextMenuParentFolder);
                 }}
               >
-                <span>{FILE_TREE_LABELS.newFile}</span>
+                <span>{t('fileTreeMenu.newFile')}</span>
               </button>
               <button
                 type="button"
@@ -1570,7 +1569,7 @@ export function FileTreePanel({
                   openNewFolderPrompt(contextMenuParentFolder);
                 }}
               >
-                <span>{FILE_TREE_LABELS.newFolder}</span>
+                <span>{t('fileTreeMenu.newFolder')}</span>
               </button>
               <div className="relative">
                 <button
@@ -1583,7 +1582,7 @@ export function FileTreePanel({
                     setCopySubmenuOpen((prev) => !prev);
                   }}
                 >
-                  <span>{FILE_TREE_LABELS.copy}</span>
+                  <span>{t('fileTreeMenu.copy')}</span>
                 </button>
                 {copySubmenuOpen ? (
                   <div className="absolute left-full top-0 z-10 ml-1 min-w-[220px] overflow-visible rounded-xl border border-border/80 bg-popover/95 p-1.5 text-popover-foreground shadow-2xl backdrop-blur-md">
@@ -1596,7 +1595,7 @@ export function FileTreePanel({
                           void duplicateItem(contextMenu.relativePath);
                         }}
                       >
-                        <span>{FILE_TREE_LABELS.duplicate}</span>
+                        <span>{t('fileTreeMenu.duplicate')}</span>
                       </button>
                     ) : null}
                     <button
@@ -1607,7 +1606,7 @@ export function FileTreePanel({
                         void copyRelativePath(contextMenu.relativePath);
                       }}
                     >
-                      <span>{FILE_TREE_LABELS.copyRelativePath}</span>
+                      <span>{t('fileTreeMenu.copyRelativePath')}</span>
                     </button>
                     <button
                       type="button"
@@ -1617,7 +1616,7 @@ export function FileTreePanel({
                         void copyAbsolutePath(contextMenu.relativePath);
                       }}
                     >
-                      <span>{FILE_TREE_LABELS.copyAbsolutePath}</span>
+                      <span>{t('fileTreeMenu.copyAbsolutePath')}</span>
                     </button>
                   </div>
                 ) : null}
@@ -1633,7 +1632,7 @@ export function FileTreePanel({
                   );
                 }}
               >
-                <span>{FILE_TREE_LABELS.openInFileManager}</span>
+                <span>{t('fileTreeMenu.openInFileManager')}</span>
               </button>
               {contextMenu.relativePath ? (
                 <button
@@ -1647,7 +1646,7 @@ export function FileTreePanel({
                     );
                   }}
                 >
-                  <span>{FILE_TREE_LABELS.delete}</span>
+                  <span>{t('common:delete')}</span>
                 </button>
               ) : null}
             </div>,

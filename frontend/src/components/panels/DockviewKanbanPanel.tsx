@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import {
@@ -74,6 +75,7 @@ function createEmptyStatusBuckets(): Record<
 }
 
 export function KanbanBoard() {
+  const { t } = useTranslation(['panels', 'common']);
   const { panelView, goToBoard, goToSessionHub, goToUsageDashboard } =
     useKanbanSessionContext();
 
@@ -97,14 +99,16 @@ export function KanbanBoard() {
   };
 
   const getLeftArrowLabel = () => {
-    if (panelView === 'sessionHub') return '返回看板';
-    if (panelView === 'usageDashboard') return '返回会话中心';
+    if (panelView === 'sessionHub') return t('kanbanPanel.backToBoard');
+    if (panelView === 'usageDashboard')
+      return t('kanbanPanel.backToSessionHub');
     return '';
   };
 
   const getRightArrowLabel = () => {
-    if (panelView === 'board') return '进入会话中心';
-    if (panelView === 'sessionHub') return '进入计量统计';
+    if (panelView === 'board') return t('kanbanPanel.enterSessionHub');
+    if (panelView === 'sessionHub')
+      return t('kanbanPanel.enterUsageDashboard');
     return '';
   };
 
@@ -172,6 +176,7 @@ export function KanbanBoard() {
 }
 
 function SessionKanbanBoard() {
+  const { t } = useTranslation(['panels', 'common']);
   const { projectId } = useProject();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
   const { pruneSessions, replaceRightSession } = useKanbanSessionContext();
@@ -307,10 +312,12 @@ function SessionKanbanBoard() {
   const handleDeleteSession = useCallback(
     async (session: KanbanProjectSessionRecord) => {
       const result = await ConfirmDialog.show({
-        title: '删除会话',
-        message: `确定删除会话“${session.fullName}”吗？正在执行中的会话不会被删除。`,
-        confirmText: '删除',
-        cancelText: '取消',
+        title: t('kanbanPanel.deleteSessionTitle'),
+        message: t('kanbanPanel.deleteSessionConfirm', {
+          name: session.fullName,
+        }),
+        confirmText: t('common:delete'),
+        cancelText: t('common:cancel'),
         variant: 'destructive',
       });
 
@@ -337,13 +344,13 @@ function SessionKanbanBoard() {
         console.error('Failed to delete session:', error);
       }
     },
-    [pruneSessions, queryClient, sessions]
+    [pruneSessions, queryClient, sessions, t]
   );
 
   if (isLoading) {
     return (
       <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-        正在加载会话看板...
+        {t('kanbanPanel.loadingBoard')}
       </div>
     );
   }
@@ -410,6 +417,7 @@ function SessionKanbanColumn({
   ) => void | Promise<void>;
   onCreateTask: () => void;
 }) {
+  const { t } = useTranslation(['panels', 'common']);
   const { isOver, setNodeRef } = useDroppable({ id: columnKey });
 
   return (
@@ -435,7 +443,7 @@ function SessionKanbanColumn({
           type="button"
           onClick={onCreateTask}
           className="kanban-add-button flex h-6 w-6 items-center justify-center rounded-md transition-colors"
-          title="新建会话"
+          title={t('kanbanPanel.newSession')}
         >
           <span className="text-sm leading-none">+</span>
         </button>

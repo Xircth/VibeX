@@ -802,6 +802,59 @@ impl GitCli {
         Ok(())
     }
 
+    /// Stash the working tree. Returns false when there was nothing to stash.
+    pub fn stash_push(
+        &self,
+        worktree_path: &Path,
+        message: Option<&str>,
+        include_untracked: bool,
+    ) -> Result<bool, GitCliError> {
+        let mut args: Vec<String> = vec!["stash".into(), "push".into()];
+        if include_untracked {
+            args.push("--include-untracked".into());
+        }
+        if let Some(message) = message.map(str::trim).filter(|m| !m.is_empty()) {
+            args.push("--message".into());
+            args.push(message.to_string());
+        }
+        let out = self.git(worktree_path, args)?;
+        Ok(!out.contains("No local changes to save"))
+    }
+
+    /// List the stash stack as raw `stash@{N}<0x1f>subject` lines.
+    pub fn stash_list_raw(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        self.git(
+            worktree_path,
+            ["stash", "list", "--format=%gd%x1f%gs"],
+        )
+    }
+
+    /// Apply a stash (keeps it in the stack).
+    pub fn stash_apply(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["stash", "apply", &format!("stash@{{{index}}}")])
+            .map(|_| ())
+    }
+
+    /// Apply a stash and drop it from the stack.
+    pub fn stash_pop(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["stash", "pop", &format!("stash@{{{index}}}")])
+            .map(|_| ())
+    }
+
+    /// Discard a stash without applying it.
+    pub fn stash_drop(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["stash", "drop", &format!("stash@{{{index}}}")])
+            .map(|_| ())
+    }
+
+    /// Return the patch for a stash entry (`git stash show -p`).
+    pub fn stash_show(&self, worktree_path: &Path, index: usize) -> Result<String, GitCliError> {
+        self.git(
+            worktree_path,
+            ["stash", "show", "-p", &format!("stash@{{{index}}}")],
+        )
+    }
+
     /// Get unified diff content for all changed files (both staged and unstaged vs HEAD).
     /// Returns raw diff output as a string.
     pub fn get_diff_all(&self, worktree_path: &Path) -> Result<String, GitCliError> {

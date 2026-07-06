@@ -7,6 +7,7 @@ mod diff_ops;
 mod init_ops;
 mod panel_ops;
 mod remote_ops;
+mod stash_ops;
 mod stats_ops;
 mod types;
 mod validation;

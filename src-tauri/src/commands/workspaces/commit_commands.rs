@@ -88,3 +88,93 @@ pub async fn git_create_branch_at_commit(
     git.create_branch_at_commit(&worktree_path, &branch_name, &sha)
         .map_err(|e| AppError::Internal(format!("git create branch failed: {e}")))
 }
+
+#[tauri::command]
+pub async fn stash_workspace(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    message: Option<String>,
+    include_untracked: bool,
+) -> Result<bool, AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_push(&worktree_path, message.as_deref(), include_untracked)
+        .map_err(|e| AppError::Internal(format!("git stash push failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn list_workspace_stashes(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+) -> Result<Vec<git::StashEntry>, AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_list(&worktree_path)
+        .map_err(|e| AppError::Internal(format!("git stash list failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn apply_workspace_stash(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    index: usize,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_apply(&worktree_path, index)
+        .map_err(|e| AppError::Internal(format!("git stash apply failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn pop_workspace_stash(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    index: usize,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_pop(&worktree_path, index)
+        .map_err(|e| AppError::Internal(format!("git stash pop failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn drop_workspace_stash(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    index: usize,
+) -> Result<(), AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_drop(&worktree_path, index)
+        .map_err(|e| AppError::Internal(format!("git stash drop failed: {e}")))
+}
+
+#[tauri::command]
+pub async fn show_workspace_stash(
+    state: tauri::State<'_, AppState>,
+    workspace_id: Uuid,
+    repo_id: Uuid,
+    index: usize,
+) -> Result<String, AppError> {
+    let (worktree_path, _workspace) = resolve_worktree_path(&state, workspace_id, repo_id).await?;
+    state
+        .deployment
+        .git()
+        .stash_show(&worktree_path, index)
+        .map_err(|e| AppError::Internal(format!("git stash show failed: {e}")))
+}

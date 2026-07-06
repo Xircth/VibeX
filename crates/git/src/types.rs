@@ -109,6 +109,48 @@ pub struct GitFileStatusEntry {
     pub deletions: i32,
 }
 
+/// One entry in the stash stack. `index` is the 0-based position in
+/// `git stash list` (i.e. `stash@{index}`); `message` is the stash subject.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct StashEntry {
+    pub index: usize,
+    pub message: String,
+    /// The branch the stash was created on, parsed from the subject when present.
+    #[ts(optional)]
+    pub branch: Option<String>,
+}
+
+/// Parse `git stash list --format=%gd%x1f%gs` output. Each line is
+/// `stash@{N}<0x1f>WIP on <branch>: <hash> <subject>`; the 0x1f unit separator
+/// keeps subjects that contain spaces intact.
+pub fn parse_stash_list(raw: &str) -> Vec<StashEntry> {
+    raw.lines()
+        .filter_map(|line| {
+            let (selector, subject) = line.split_once('\u{1f}')?;
+            let index = selector
+                .trim()
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse::<usize>()
+                .ok()?;
+            let message = subject.trim().to_string();
+            // Subjects look like "WIP on main: 1a2b3c commit subject" or
+            // "On main: custom message".
+            let branch = message
+                .strip_prefix("WIP on ")
+                .or_else(|| message.strip_prefix("On "))
+                .and_then(|rest| rest.split_once(':'))
+                .map(|(branch, _)| branch.trim().to_string())
+                .filter(|branch| !branch.is_empty());
+            Some(StashEntry {
+                index,
+                message,
+                branch,
+            })
+        })
+        .collect()
+}
+
 /// Detailed git status response with staged/unstaged file grouping.
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct DetailedGitStatus {
@@ -258,4 +300,43 @@ pub enum DiffTarget<'p> {
         repo_path: &'p Path,
         commit_sha: &'p str,
     },
+}
+
+#[cfg(test)]
+mod stash_parse_tests {
+    use super::*;
+
+    #[test]
+    fn parses_indices_and_messages() {
+        let raw = "stash@{0}\u{1f}WIP on main: 1a2b3c fix bug\nstash@{1}\u{1f}On feature/x: my note";
+        let entries = parse_stash_list(raw);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 0);
+        assert_eq!(entries[0].message, "WIP on main: 1a2b3c fix bug");
+        assert_eq!(entries[0].branch.as_deref(), Some("main"));
+        assert_eq!(entries[1].index, 1);
+        assert_eq!(entries[1].branch.as_deref(), Some("feature/x"));
+    }
+
+    #[test]
+    fn empty_output_is_empty_list() {
+        assert!(parse_stash_list("").is_empty());
+        assert!(parse_stash_list("\n\n").is_empty());
+    }
+
+    #[test]
+    fn malformed_lines_are_skipped() {
+        // No unit separator → skipped; valid line still parsed.
+        let raw = "garbage line\nstash@{0}\u{1f}WIP on main: subj";
+        let entries = parse_stash_list(raw);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].index, 0);
+    }
+
+    #[test]
+    fn subject_without_branch_prefix_has_none() {
+        let raw = "stash@{0}\u{1f}some freeform subject";
+        let entries = parse_stash_list(raw);
+        assert_eq!(entries[0].branch, None);
+    }
 }

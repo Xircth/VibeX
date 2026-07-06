@@ -30,6 +30,7 @@ import {
 } from '@/hooks/git';
 import { GitStagingArea } from './GitStagingArea';
 import { GitCommitBox } from './GitCommitBox';
+import { GitStashSection } from './GitStashSection';
 import { GitLogView } from './GitLogView';
 import { GitBranchList } from './GitBranchList';
 import { GitIssuesView } from './GitIssuesView';
@@ -361,6 +362,15 @@ export function GitPanel() {
               />
             </div>
           </div>
+
+          {workspaceId && repoId ? (
+            <GitStashSection
+              workspaceId={workspaceId}
+              repoId={repoId}
+              hasChanges={stagedFiles.length > 0 || unstagedFiles.length > 0}
+              onChanged={refreshStatus}
+            />
+          ) : null}
         </div>
       )}
 

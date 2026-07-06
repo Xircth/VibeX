@@ -28,6 +28,7 @@ import type {
   CommitDetail,
   ResetMode,
   Diff,
+  StashEntry,
 } from 'shared/types';
 
 import type { WorkspaceWithSession } from '@/types/attempt';
@@ -461,6 +462,66 @@ export const attemptsApi = {
     sha: string
   ): Promise<void> => {
     return tauriInvoke<void>('git_cherry_pick', { workspaceId, repoId, sha });
+  },
+
+  stash: async (
+    workspaceId: string,
+    repoId: string,
+    message: string | null,
+    includeUntracked: boolean
+  ): Promise<boolean> => {
+    return tauriInvoke<boolean>('stash_workspace', {
+      workspaceId,
+      repoId,
+      message,
+      includeUntracked,
+    });
+  },
+
+  listStashes: async (
+    workspaceId: string,
+    repoId: string
+  ): Promise<StashEntry[]> => {
+    return tauriInvoke<StashEntry[]>('list_workspace_stashes', {
+      workspaceId,
+      repoId,
+    });
+  },
+
+  applyStash: async (
+    workspaceId: string,
+    repoId: string,
+    index: number
+  ): Promise<void> => {
+    return tauriInvoke<void>('apply_workspace_stash', {
+      workspaceId,
+      repoId,
+      index,
+    });
+  },
+
+  popStash: async (
+    workspaceId: string,
+    repoId: string,
+    index: number
+  ): Promise<void> => {
+    return tauriInvoke<void>('pop_workspace_stash', {
+      workspaceId,
+      repoId,
+      index,
+    });
+  },
+
+  dropStash: async (
+    workspaceId: string,
+    repoId: string,
+    index: number
+  ): Promise<void> => {
+    return tauriInvoke<void>('drop_workspace_stash', {
+      workspaceId,
+      repoId,
+      index,
+    });
   },
 
   revertCommit: async (

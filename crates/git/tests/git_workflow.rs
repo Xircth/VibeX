@@ -564,3 +564,38 @@ fn squash_merge_libgit2_sets_author_without_user() {
         assert_eq!(email.as_deref(), Some("noreply@vibex.com"));
     }
 }
+
+#[test]
+fn stash_push_list_pop_roundtrip() {
+    let td = TempDir::new().unwrap();
+    let repo_path = init_repo_main(&td);
+    let s = GitService::new();
+
+    // Baseline commit.
+    write_file(&repo_path, "a.txt", "one\n");
+    add_path(&repo_path, "a.txt");
+    s.commit(&repo_path, "baseline").unwrap();
+
+    // Modify a tracked file, then stash it.
+    write_file(&repo_path, "a.txt", "two\n");
+    assert!(s.stash_push(&repo_path, Some("wip"), false).unwrap());
+
+    // The stash exists and the working tree reverted to the committed content.
+    let list = s.stash_list(&repo_path).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].index, 0);
+    assert_eq!(fs::read_to_string(repo_path.join("a.txt")).unwrap(), "one\n");
+
+    // show returns a non-empty patch.
+    assert!(s.stash_show(&repo_path, 0).unwrap().contains("a.txt"));
+
+    // Pop restores the change and empties the stack.
+    s.stash_pop(&repo_path, 0).unwrap();
+    assert_eq!(fs::read_to_string(repo_path.join("a.txt")).unwrap(), "two\n");
+    assert!(s.stash_list(&repo_path).unwrap().is_empty());
+
+    // With a clean tree, stash_push reports nothing to stash.
+    add_path(&repo_path, "a.txt");
+    s.commit(&repo_path, "two").unwrap();
+    assert!(!s.stash_push(&repo_path, None, false).unwrap());
+}

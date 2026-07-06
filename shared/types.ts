@@ -1021,3 +1021,9 @@ export type TimelineTextStream = "text" | "reasoning";
 export type ConversationSessionModes = { current?: string | null, modes: Array<AgentSessionMode>, };
 
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";
+
+export type StashEntry = { index: number, message: string,
+/**
+ * The branch the stash was created on, parsed from the subject when present.
+ */
+branch?: string, };

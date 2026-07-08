@@ -342,7 +342,16 @@ function TerminalTabContent({
   onSessionId: (tabId: string, sessionId: string) => void;
   onOpenUrl: (url: string) => void;
 }) {
-  const shouldConnectTerminal = isActive && isPanelVisible;
+  // Latch the connection: once a tab has been shown, keep its terminal
+  // mounted through visibility flaps (panel toggles, layout transforms).
+  // Repeated dispose/re-attach cycles drop keystrokes typed mid-transition.
+  const [hasConnected, setHasConnected] = useState(false);
+  useEffect(() => {
+    if (isActive && isPanelVisible && !hasConnected) {
+      setHasConnected(true);
+    }
+  }, [hasConnected, isActive, isPanelVisible]);
+  const shouldConnectTerminal = hasConnected || (isActive && isPanelVisible);
   const { containerRef, error, refit } = useTauriTerminal({
     workspaceId,
     tabId,

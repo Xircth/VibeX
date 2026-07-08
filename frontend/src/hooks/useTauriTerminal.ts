@@ -186,6 +186,7 @@ export function useTauriTerminal({
   const inputFlushScheduledRef = useRef(false);
   const inputWriteInFlightRef = useRef(false);
   const inputGenerationRef = useRef(0);
+  const inputRetryCountRef = useRef(0);
 
   useEffect(() => {
     onSessionIdRef.current = onSessionId;
@@ -199,7 +200,7 @@ export function useTauriTerminal({
     sessionIdRef.current = sessionId ?? null;
   }, [sessionId]);
 
-  const disposeView = useCallback(() => {
+  const disposeView = useCallback((options?: { preserveInput?: boolean }) => {
     initializeVersionRef.current += 1;
 
     if (pendingInitObserverRef.current) {
@@ -237,7 +238,13 @@ export function useTauriTerminal({
     }
 
     inputGenerationRef.current += 1;
-    pendingInputRef.current = '';
+    // Keep queued keystrokes across re-initializations (visibility flaps,
+    // panel remounts): fast typing coalesces trailing characters into a
+    // pending chunk, and wiping it here is exactly how "cd .." degrades to
+    // "c". Only a real unmount clears the queue.
+    if (!options?.preserveInput) {
+      pendingInputRef.current = '';
+    }
     inputFlushScheduledRef.current = false;
     inputWriteInFlightRef.current = false;
     fitAddonRef.current = null;
@@ -266,8 +273,21 @@ export function useTauriTerminal({
       sessionId,
       data: encodeBase64(data),
     })
+      .then(() => {
+        inputRetryCountRef.current = 0;
+      })
       .catch((err) => {
         console.error('Failed to write to terminal:', err);
+        // Re-queue the chunk so a transient failure (e.g. a session mid
+        // re-attach) doesn't silently swallow keystrokes; bounded so a dead
+        // session can't loop forever.
+        if (
+          inputGenerationRef.current === inputGeneration &&
+          inputRetryCountRef.current < 3
+        ) {
+          inputRetryCountRef.current += 1;
+          pendingInputRef.current = data + pendingInputRef.current;
+        }
       })
       .finally(() => {
         if (inputGenerationRef.current !== inputGeneration) {
@@ -306,7 +326,7 @@ export function useTauriTerminal({
     async (container: HTMLDivElement) => {
       if (!workspaceId || !enabled) return;
 
-      disposeView();
+      disposeView({ preserveInput: true });
 
       if (!mountedRef.current) return;
       errorRef.current = null;
@@ -535,6 +555,12 @@ export function useTauriTerminal({
         terminal.onData((data) => {
           enqueueTerminalInput(data);
         });
+
+        // Deliver keystrokes queued while the terminal was re-initializing.
+        if (pendingInputRef.current && !inputFlushScheduledRef.current) {
+          inputFlushScheduledRef.current = true;
+          queueMicrotask(flushTerminalInput);
+        }
       }
 
       terminal.onResize(({ cols, rows }) => {
@@ -566,6 +592,7 @@ export function useTauriTerminal({
       readOnly,
       disposeView,
       enqueueTerminalInput,
+      flushTerminalInput,
     ]
   );
 

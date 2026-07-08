@@ -1,6 +1,7 @@
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
@@ -46,30 +47,35 @@ export function TokenUsageIndicator({
   const ariaLabel = `\u4e0a\u4e0b\u6587\u5360\u7528 ${percentage}%\uff0c${usedLabel} / ${windowLabel} tokens`;
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          className="composer-control inline-flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-full p-0"
-          aria-label={ariaLabel}
-          title={ariaLabel}
-        >
+    // Self-contained provider: this indicator is also mounted outside the
+    // composer (e.g. the status bar ring), where no ancestor TooltipProvider
+    // exists. Nested Radix providers are harmless.
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
           <span
-            className="composer-token-usage-ring inline-flex h-4 w-4 items-center justify-center rounded-full"
-            style={ringStyle}
-            aria-hidden="true"
+            className="composer-control inline-flex h-5 w-5 shrink-0 cursor-default items-center justify-center rounded-full p-0"
+            aria-label={ariaLabel}
+            title={ariaLabel}
           >
             <span
-              className="composer-token-usage-core h-2.5 w-2.5 rounded-full"
-              style={coreStyle}
-            />
+              className="composer-token-usage-ring inline-flex h-4 w-4 items-center justify-center rounded-full"
+              style={ringStyle}
+              aria-hidden="true"
+            >
+              <span
+                className="composer-token-usage-core h-2.5 w-2.5 rounded-full"
+                style={coreStyle}
+              />
+            </span>
           </span>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        {'\u4e0a\u4e0b\u6587\u5360\u7528'}
-        {': '}
-        {percentage}% - {usedLabel} / {windowLabel} tokens
-      </TooltipContent>
-    </Tooltip>
+        </TooltipTrigger>
+        <TooltipContent>
+          {'\u4e0a\u4e0b\u6587\u5360\u7528'}
+          {': '}
+          {percentage}% - {usedLabel} / {windowLabel} tokens
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

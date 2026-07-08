@@ -14,6 +14,10 @@ export const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.TERMINAL,
 ]);
 
+export const SESSION_PANEL_IDS: ReadonlySet<string> = new Set([
+  PANEL_IDS.AI_CHAT,
+]);
+
 export const PLACEHOLDER_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.WELCOME,
 ]);
@@ -51,8 +55,15 @@ export function isBottomGroup(group: DockviewGroupLike): boolean {
   );
 }
 
+export function isSessionGroup(group: DockviewGroupLike): boolean {
+  return (
+    group.id === GROUP_IDS.RIGHT ||
+    group.panels.some((panel) => SESSION_PANEL_IDS.has(panel.id))
+  );
+}
+
 export function isEditorGroup(group: DockviewGroupLike): boolean {
-  return !isLeftGroup(group) && !isBottomGroup(group);
+  return !isLeftGroup(group) && !isBottomGroup(group) && !isSessionGroup(group);
 }
 
 export function isSplittableEditorPanel(panel: DockviewPanelLike): boolean {

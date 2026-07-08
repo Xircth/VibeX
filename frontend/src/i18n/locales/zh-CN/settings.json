@@ -49,6 +49,27 @@
       "description": "选择界面显示语言。即时生效并记住。",
       "label": "界面语言",
       "hint": "当前为渐进式双语，部分界面仍为中文，将逐步完善。"
+    },
+    "layout": {
+      "title": "页面布局",
+      "description": "在示意图中拖动区域重新排列，点击下方保存后生效。Workspace 与 Kanban 页面分别设置。",
+      "workspaceLabel": "Workspace 页面",
+      "kanbanLabel": "Kanban 页面",
+      "dragHint": "拖动一个区域到另一个位置即可互换；区域大小跟随区域移动，不随位置改变。",
+      "kanbanHint": "会话列表（A）、会话监控（B）与会话执行区（C）的排列。",
+      "hint": "仍可在页面中拖动分隔线调整各区域大小。",
+      "reset": "恢复默认",
+      "zones": {
+        "dock": "侧栏面板",
+        "workspace": "工作区",
+        "session": "会话",
+        "terminal": "终端"
+      },
+      "kanbanZones": {
+        "list": "会话列表",
+        "monitor": "会话监控",
+        "session": "会话执行"
+      }
     }
   },
   "shortcuts": {
@@ -634,7 +655,11 @@
     "filesChangedCollapsed": "`files changed` 默认折叠",
     "filesChangedCollapsedHint": "控制新的会话 Hook 文件变更摘要是否默认折叠。",
     "aiMessageCollapsed": "AI 消息默认折叠",
-    "aiMessageCollapsedHint": "包含命令输出的 AI 最终消息默认只显示结果。"
+    "aiMessageCollapsedHint": "包含命令输出的 AI 最终消息默认只显示结果。",
+    "crashReportsTitle": "崩溃报告",
+    "crashReportsDescription": "本地优先的崩溃诊断（opt-in）",
+    "crashReportsToggle": "启动时提示未处理的崩溃报告",
+    "crashReportsPrivacy": "崩溃时应用会把报告（时间、版本、系统、panic 信息与调用栈）写入本机数据目录，最多保留 20 份。开启后，下次启动会展示完整内容，由你决定是否在 GitHub 提交 issue；任何内容都不会自动上传。"
   },
   "agents": {
     "loadFailed": "无法加载 Agent 设置。",

@@ -14,7 +14,10 @@ import {
   useLayoutStore,
 } from '@/stores/useLayoutStore';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';
-import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
+import {
+  applyLeftGroupHeaderHiding,
+  syncDockviewGroupRegistry,
+} from '@/utils/dockviewHelpers';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   buildPreviewPanelParams,
@@ -30,9 +33,12 @@ import {
   isEditorGroup,
   isLeftGroup,
   isPlaceholderPanelId,
+  isSessionGroup,
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
+  SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
+import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
@@ -132,6 +138,13 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       .sort(compareEditorGroups);
   }, []);
 
+  const getRightGroup = useCallback((dockviewApi: DockviewApi) => {
+    return (
+      dockviewApi.getGroup(GROUP_IDS.RIGHT) ??
+      dockviewApi.groups.find((group) => isSessionGroup(group))
+    );
+  }, []);
+
   const normalizeEditorGroupIds = useCallback(
     (dockviewApi: DockviewApi) => {
       const leftGroup = getLeftGroup(dockviewApi);
@@ -158,9 +171,29 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         getGroupElement(bottomGroup)?.classList.add('dv-header-hidden');
       }
 
+      const rightGroup = getRightGroup(dockviewApi);
+      if (rightGroup) {
+        (rightGroup as { id: string }).id = GROUP_IDS.RIGHT;
+        rightGroup.locked = 'no-drop-target';
+        try {
+          const model = (
+            rightGroup as {
+              model?: { header?: { hidden?: boolean } };
+            }
+          ).model;
+          if (typeof model?.header?.hidden !== 'undefined') {
+            model.header.hidden = true;
+          }
+        } catch {
+          // Ignore internal model access failures and rely on CSS class fallback.
+        }
+        getGroupElement(rightGroup)?.classList.add('dv-header-hidden');
+      }
+
+      syncDockviewGroupRegistry(dockviewApi);
       applyLeftGroupHeaderHiding(dockviewApi);
     },
-    [getBottomGroup, getLeftGroup]
+    [getBottomGroup, getLeftGroup, getRightGroup]
   );
 
   const ensureWelcomeEditorGroup = useCallback(() => {
@@ -185,7 +218,10 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     const referencePanel =
       bottomReferencePanel ??
       leftGroup?.panels[0] ??
-      dockviewApi.panels.find((panel) => !BOTTOM_PANEL_IDS.has(panel.id));
+      dockviewApi.panels.find(
+        (panel) =>
+          !BOTTOM_PANEL_IDS.has(panel.id) && !SESSION_PANEL_IDS.has(panel.id)
+      );
 
     const welcomePanel = dockviewApi.addPanel({
       id: PANEL_IDS.WELCOME,
@@ -386,6 +422,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const applyDefaultTerminalHeight = useCallback(
+    (bottomGroup: NonNullable<ReturnType<DockviewApi['getGroup']>>) => {
+      // Only meaningful while the terminal zone is the bottom strip; when the
+      // arrangement moves it into a column its height is the full grid.
+      if (slotOfZone(getLayoutArrangement(), 'terminal') !== 'bottom') return;
+
+      try {
+        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+      } catch {
+        // Ignore resize failures while the layout is settling.
+      }
+    },
+    []
+  );
+
   const openNewTerminal = useCallback(() => {
     const dockviewApi = apiRef.current;
     if (!dockviewApi) return;
@@ -398,11 +449,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       bottomGroup.api.setVisible(nextVisible);
       if (nextVisible) {
         existingTerminal.api.setActive();
-        try {
-          bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-        } catch {
-          // Ignore resize failures while the layout is settling.
-        }
+        applyDefaultTerminalHeight(bottomGroup);
       }
       return;
     }
@@ -416,12 +463,21 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
       });
       terminalPanel.api.setActive();
-      try {
-        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-      } catch {
-        // Ignore resize failures while the layout is settling.
-      }
+      applyDefaultTerminalHeight(bottomGroup);
       normalizeEditorGroupIds(dockviewApi);
+      return;
+    }
+
+    if (existingTerminal && !bottomGroup) {
+      // The terminal panel exists but its group wasn't recognized (e.g. a
+      // transient state during a layout transform): toggle its own group
+      // instead of re-adding a duplicate panel, which would throw.
+      const group = existingTerminal.group;
+      const nextVisible = !group.api.isVisible;
+      group.api.setVisible(nextVisible);
+      if (nextVisible) {
+        existingTerminal.api.setActive();
+      }
       return;
     }
 
@@ -446,14 +502,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
     });
     terminalPanel.api.setActive();
-    try {
-      bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-    } catch {
-      // Ignore resize failures while the layout is settling.
-    }
+    applyDefaultTerminalHeight(bottomGroup);
 
     normalizeEditorGroupIds(dockviewApi);
   }, [
+    applyDefaultTerminalHeight,
     ensureWelcomeEditorGroup,
     getBottomGroup,
     getEditorGroups,
@@ -687,7 +740,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           referencePanel,
           direction: 'left',
           hideHeader: true,
-          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 220,
+          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
         });
 
         if (savedLeftWidth > 0) {
@@ -764,7 +817,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           referencePanel,
           direction: 'left',
           hideHeader: true,
-          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 220,
+          initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
         });
 
         if (savedLeftWidth > 0) {

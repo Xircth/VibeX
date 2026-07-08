@@ -22,8 +22,8 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
     });
 
-    it('should have default right panel width of 520', () => {
-      expect(useLayoutStore.getState().rightPanelWidth).toBe(520);
+    it('should have default right panel width of 620', () => {
+      expect(useLayoutStore.getState().rightPanelWidth).toBe(620);
     });
 
     it('should have kanban as active tab by default', () => {
@@ -70,7 +70,7 @@ describe('useLayoutStore', () => {
     });
 
     it('should clamp width to maximum 900', () => {
-      useLayoutStore.getState().setRightPanelWidth(1000);
+      useLayoutStore.getState().setRightPanelWidth(1500);
       expect(useLayoutStore.getState().rightPanelWidth).toBe(900);
     });
   });
@@ -112,7 +112,7 @@ describe('useLayoutStore', () => {
 
       const reset = useLayoutStore.getState();
       expect(reset.isFileTreeVisible).toBe(true);
-      expect(reset.rightPanelWidth).toBe(520);
+      expect(reset.rightPanelWidth).toBe(620);
       expect(reset.isRightPanelVisible).toBe(true);
       expect(reset.activeTab).toBe('workspace');
       expect(reset.serializedLayout).toBeNull();

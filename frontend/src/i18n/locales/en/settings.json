@@ -49,6 +49,27 @@
       "description": "Choose the interface display language. Applies instantly and is remembered.",
       "label": "Interface language",
       "hint": "Bilingual coverage is progressive — some screens are still Chinese-only and will be completed over time."
+    },
+    "layout": {
+      "title": "Page layout",
+      "description": "Drag the zones in the diagrams to rearrange them; changes apply after saving below. The Workspace and Kanban pages are configured separately.",
+      "workspaceLabel": "Workspace page",
+      "kanbanLabel": "Kanban page",
+      "dragHint": "Drag one zone onto another to swap them; each zone keeps its size when moved.",
+      "kanbanHint": "Arrangement of the session list (A), session monitor (B), and session execution area (C).",
+      "hint": "You can still drag the dividers on each page to resize the zones.",
+      "reset": "Reset to default",
+      "zones": {
+        "dock": "Sidebar panels",
+        "workspace": "Workspace",
+        "session": "Sessions",
+        "terminal": "Terminal"
+      },
+      "kanbanZones": {
+        "list": "Session list",
+        "monitor": "Session monitor",
+        "session": "Session execution"
+      }
     }
   },
   "shortcuts": {
@@ -634,7 +655,11 @@
     "filesChangedCollapsed": "`files changed` collapsed by default",
     "filesChangedCollapsedHint": "Controls whether the new session hook file-change summary is collapsed by default.",
     "aiMessageCollapsed": "AI messages collapsed by default",
-    "aiMessageCollapsedHint": "Final AI messages containing command output show only the result by default."
+    "aiMessageCollapsedHint": "Final AI messages containing command output show only the result by default.",
+    "crashReportsTitle": "Crash reports",
+    "crashReportsDescription": "Local-first crash diagnostics (opt-in)",
+    "crashReportsToggle": "Prompt about unhandled crash reports on startup",
+    "crashReportsPrivacy": "On a crash the app writes a report (time, version, OS, panic message and backtrace) to the local data directory, keeping at most 20. When enabled, the next launch shows the full content and you decide whether to file a GitHub issue — nothing is ever uploaded automatically."
   },
   "agents": {
     "loadFailed": "Unable to load agent settings.",

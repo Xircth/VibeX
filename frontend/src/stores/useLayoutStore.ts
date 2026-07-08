@@ -29,6 +29,7 @@ export type PanelId = (typeof PANEL_IDS)[keyof typeof PANEL_IDS];
 export const GROUP_IDS = {
   LEFT: 'group-left',
   BOTTOM: 'group-bottom',
+  RIGHT: 'group-right',
 } as const;
 
 export type GroupId = (typeof GROUP_IDS)[keyof typeof GROUP_IDS];
@@ -54,6 +55,9 @@ interface LayoutState {
   /** Width of the right (AI chat) panel in pixels */
   rightPanelWidth: number;
 
+  /** Width of the session slot on the kanban page in pixels */
+  kanbanSessionWidth: number;
+
   /** Whether the right (AI chat) panel is visible */
   isRightPanelVisible: boolean;
 
@@ -69,6 +73,7 @@ interface LayoutState {
   toggleFileTree: () => void;
   setFileTreeVisible: (visible: boolean) => void;
   setRightPanelWidth: (width: number) => void;
+  setKanbanSessionWidth: (width: number) => void;
   toggleRightPanel: () => void;
   setRightPanelVisible: (visible: boolean) => void;
   toggleEditorArea: () => void;
@@ -78,13 +83,16 @@ interface LayoutState {
   resetLayout: () => void;
 }
 
-const DEFAULT_RIGHT_PANEL_WIDTH = 520;
+const DEFAULT_RIGHT_PANEL_WIDTH = 620;
+const DEFAULT_KANBAN_SESSION_WIDTH = 520;
 const MIN_RIGHT_PANEL_WIDTH = 400;
+const MAX_RIGHT_PANEL_WIDTH = 900;
 
 interface LayoutSnapshot {
   serializedLayout: SerializedDockview | null;
   isFileTreeVisible: boolean;
   rightPanelWidth: number;
+  kanbanSessionWidth: number;
   isRightPanelVisible: boolean;
   isEditorAreaVisible: boolean;
   activeTab: WorkspaceTab;
@@ -94,10 +102,36 @@ const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
   serializedLayout: null,
   isFileTreeVisible: true,
   rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+  kanbanSessionWidth: DEFAULT_KANBAN_SESSION_WIDTH,
   isRightPanelVisible: true,
   isEditorAreaVisible: true,
   activeTab: 'kanban',
 };
+
+function clampSessionWidth(width: number): number {
+  return Math.max(
+    MIN_RIGHT_PANEL_WIDTH,
+    Math.min(MAX_RIGHT_PANEL_WIDTH, width)
+  );
+}
+
+/**
+ * Sanitize a persisted session width. Values above the maximum are treated
+ * as corrupted (an interim build briefly synced the flexible center-slot
+ * remainder into this preference) and reset to the given default.
+ */
+function sanitizeSessionWidth(
+  width: number | null | undefined,
+  defaultWidth: number
+): number {
+  if (width == null || width === 420 || width === 500) {
+    return defaultWidth;
+  }
+  if (width > MAX_RIGHT_PANEL_WIDTH) {
+    return defaultWidth;
+  }
+  return clampSessionWidth(width);
+}
 
 function buildProjectLayoutState(
   partial?: Partial<LayoutSnapshot> | null
@@ -105,15 +139,14 @@ function buildProjectLayoutState(
   return {
     ...DEFAULT_LAYOUT_SNAPSHOT,
     ...partial,
-    rightPanelWidth:
-      partial?.rightPanelWidth == null ||
-      partial.rightPanelWidth === 420 ||
-      partial.rightPanelWidth === 500
-        ? DEFAULT_RIGHT_PANEL_WIDTH
-        : Math.max(
-            MIN_RIGHT_PANEL_WIDTH,
-            Math.min(900, partial.rightPanelWidth)
-          ),
+    rightPanelWidth: sanitizeSessionWidth(
+      partial?.rightPanelWidth,
+      DEFAULT_RIGHT_PANEL_WIDTH
+    ),
+    kanbanSessionWidth: sanitizeSessionWidth(
+      partial?.kanbanSessionWidth,
+      DEFAULT_KANBAN_SESSION_WIDTH
+    ),
   };
 }
 
@@ -122,6 +155,7 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
     serializedLayout: state.serializedLayout,
     isFileTreeVisible: state.isFileTreeVisible,
     rightPanelWidth: state.rightPanelWidth,
+    kanbanSessionWidth: state.kanbanSessionWidth,
     isRightPanelVisible: state.isRightPanelVisible,
     isEditorAreaVisible: state.isEditorAreaVisible,
     activeTab: state.activeTab,
@@ -133,6 +167,7 @@ function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
     serializedLayout: nextSnapshot.serializedLayout,
     isFileTreeVisible: nextSnapshot.isFileTreeVisible,
     rightPanelWidth: nextSnapshot.rightPanelWidth,
+    kanbanSessionWidth: nextSnapshot.kanbanSessionWidth,
     isRightPanelVisible: nextSnapshot.isRightPanelVisible,
     isEditorAreaVisible: nextSnapshot.isEditorAreaVisible,
     activeTab: nextSnapshot.activeTab,
@@ -211,10 +246,7 @@ export const useLayoutStore = create<LayoutState>()(
 
       setRightPanelWidth: (width) =>
         set((state) => {
-          const nextWidth = Math.max(
-            MIN_RIGHT_PANEL_WIDTH,
-            Math.min(900, width)
-          );
+          const nextWidth = clampSessionWidth(width);
 
           return {
             rightPanelWidth: nextWidth,
@@ -223,6 +255,22 @@ export const useLayoutStore = create<LayoutState>()(
               [state.currentProjectKey]: {
                 ...getCurrentSnapshot(state),
                 rightPanelWidth: nextWidth,
+              },
+            },
+          };
+        }),
+
+      setKanbanSessionWidth: (width) =>
+        set((state) => {
+          const nextWidth = clampSessionWidth(width);
+
+          return {
+            kanbanSessionWidth: nextWidth,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                kanbanSessionWidth: nextWidth,
               },
             },
           };
@@ -341,8 +389,8 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 18,
-      migrate: (persistedState) => {
+      version: 21,
+      migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const legacySnapshot = buildProjectLayoutState({
           serializedLayout: null,
@@ -359,6 +407,12 @@ export const useLayoutStore = create<LayoutState>()(
         ).reduce<Record<string, LayoutSnapshot>>(
           (accumulator, [projectKey, projectState]) => {
             accumulator[projectKey] = buildProjectLayoutState(projectState);
+            // One-time reset for v<21 snapshots: interim builds persisted
+            // corrupted zone sizes, so rebuild the grid with fresh defaults
+            // (panel sizes only; visibility flags and tabs are kept).
+            if (version < 21) {
+              accumulator[projectKey].serializedLayout = null;
+            }
             return accumulator;
           },
           {}

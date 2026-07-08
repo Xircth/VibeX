@@ -30,7 +30,12 @@ import {
   getKanbanPanelTranslateX,
 } from '@/lib/kanbanPanelView';
 import type { SessionStatus } from '@/lib/api';
+import {
+  kanbanSlotOfZone,
+  useKanbanArrangement,
+} from '@/lib/layoutArrangement';
 import { KanbanSessionHub } from '@/components/kanban/KanbanSessionHub';
+import { KanbanSessionSlot } from '@/components/kanban/KanbanSessionSlot';
 import { KanbanUsageDashboard } from '@/components/kanban/KanbanUsageDashboard';
 import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
 import {
@@ -78,6 +83,14 @@ export function KanbanBoard() {
   const { t } = useTranslation(['panels', 'common']);
   const { panelView, goToBoard, goToSessionHub, goToUsageDashboard } =
     useKanbanSessionContext();
+  const kanbanArrangement = useKanbanArrangement();
+  const sessionSlotSide = kanbanSlotOfZone(kanbanArrangement, 'session');
+  // The center slot only exists inside the session hub; on the other views
+  // the session column docks to the outer edge instead.
+  const outerSessionSide: 'left' | 'right' =
+    sessionSlotSide === 'left' ? 'left' : 'right';
+  const outerSessionActive =
+    sessionSlotSide !== 'center' || panelView !== 'sessionHub';
 
   const showLeftArrow = shouldShowLeftArrow(panelView);
   const showRightArrow = shouldShowRightArrow(panelView);
@@ -107,70 +120,88 @@ export function KanbanBoard() {
 
   const getRightArrowLabel = () => {
     if (panelView === 'board') return t('kanbanPanel.enterSessionHub');
-    if (panelView === 'sessionHub')
-      return t('kanbanPanel.enterUsageDashboard');
+    if (panelView === 'sessionHub') return t('kanbanPanel.enterUsageDashboard');
     return '';
   };
 
   return (
-    <div
-      className="kanban-shell group relative h-full w-full overflow-hidden"
-      data-panel="kanban"
-    >
-      {/* Left arrow button */}
-      {showLeftArrow && (
-        <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
-          <div className="flex h-24 w-full items-center">
-            <button
-              type="button"
-              onClick={handleLeftArrowClick}
-              aria-label={getLeftArrowLabel()}
-              className={cn(
-                'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
-                'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
-              )}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+    <div className="flex h-full w-full" data-panel="kanban">
+      {outerSessionSide === 'left' && (
+        <KanbanSessionSlot side="left" active={outerSessionActive} />
       )}
-
-      {/* Right arrow button */}
-      {showRightArrow && (
-        <div className="absolute inset-y-0 right-0 z-20 flex w-10 items-center">
-          <div className="flex h-24 w-full items-center justify-end">
-            <button
-              type="button"
-              onClick={handleRightArrowClick}
-              aria-label={getRightArrowLabel()}
-              className={cn(
-                'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
-                'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
-              )}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
+      <div className="kanban-shell group relative h-full min-w-0 flex-1 overflow-hidden">
+        {/* Left arrow button */}
+        {showLeftArrow && (
+          <div className="absolute inset-y-0 left-0 z-20 flex w-10 items-center">
+            <div className="flex h-24 w-full items-center">
+              <button
+                type="button"
+                onClick={handleLeftArrowClick}
+                aria-label={getLeftArrowLabel()}
+                className={cn(
+                  'kanban-nav-arrow ml-1 flex h-11 w-7 -translate-x-2 items-center justify-center rounded-r-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
+                  'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
+                )}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div
-        className="flex h-full w-[300%] transition-transform duration-300 ease-out"
-        style={{
-          transform: getKanbanPanelTranslateX(panelView),
-        }}
-      >
-        <div className="h-full w-1/3 shrink-0">
-          <SessionKanbanBoard />
-        </div>
-        <div className="h-full w-1/3 shrink-0 border-x border-border/60">
-          <KanbanSessionHub />
-        </div>
-        <div className="h-full w-1/3 shrink-0">
-          <KanbanUsageDashboard />
+        {/* Right arrow button */}
+        {showRightArrow && (
+          <div className="absolute inset-y-0 right-0 z-20 flex w-10 items-center">
+            <div className="flex h-24 w-full items-center justify-end">
+              <button
+                type="button"
+                onClick={handleRightArrowClick}
+                aria-label={getRightArrowLabel()}
+                className={cn(
+                  'kanban-nav-arrow mr-1 flex h-11 w-7 translate-x-2 items-center justify-center rounded-l-full border opacity-0 transition-[opacity,transform,background-color,border-color,color] duration-200',
+                  'pointer-events-none group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-x-0 focus-visible:opacity-100'
+                )}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div
+          className="flex h-full w-[300%] transition-transform duration-300 ease-out"
+          style={{
+            transform: getKanbanPanelTranslateX(panelView),
+          }}
+        >
+          <div className="h-full w-1/3 shrink-0">
+            <SessionKanbanBoard />
+          </div>
+          <div className="h-full w-1/3 shrink-0 border-x border-border/60">
+            <KanbanSessionHub
+              zoneOrder={[
+                kanbanArrangement.left,
+                kanbanArrangement.center,
+                kanbanArrangement.right,
+              ]}
+              sessionSlot={
+                sessionSlotSide === 'center' ? (
+                  <KanbanSessionSlot
+                    side="center"
+                    active={panelView === 'sessionHub'}
+                  />
+                ) : null
+              }
+            />
+          </div>
+          <div className="h-full w-1/3 shrink-0">
+            <KanbanUsageDashboard />
+          </div>
         </div>
       </div>
+      {outerSessionSide === 'right' && (
+        <KanbanSessionSlot side="right" active={outerSessionActive} />
+      )}
     </div>
   );
 }
@@ -208,8 +239,7 @@ function SessionKanbanBoard() {
     (Object.values(buckets) as KanbanProjectSessionRecord[][]).forEach(
       (list) => {
         list.sort(
-          (a, b) =>
-            dateTimestamp(b.updatedAt) - dateTimestamp(a.updatedAt)
+          (a, b) => dateTimestamp(b.updatedAt) - dateTimestamp(a.updatedAt)
         );
       }
     );

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Languages, Loader2, Maximize2, Sun, Type } from 'lucide-react';
+import {
+  Languages,
+  LayoutGrid,
+  Loader2,
+  Maximize2,
+  Sun,
+  Type,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ThemeMode, type Config } from 'shared/types';
 import { UI_ZOOM_LEVELS, getUiZoom, setUiZoom } from '@/lib/uiZoom';
@@ -25,10 +32,21 @@ import { tauriEmit } from '@/lib/tauriApi';
 import { toPrettyCase } from '@/utils/string';
 
 import {
+  arrangementsEqual,
+  setKanbanArrangement,
+  setLayoutArrangement,
+  useKanbanArrangement,
+  useLayoutArrangement,
+} from '@/lib/layoutArrangement';
+import {
   SettingsActionBar,
   SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
+import {
+  KanbanLayoutSchematic,
+  WorkspaceLayoutSchematic,
+} from './LayoutArrangementSchematic';
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
@@ -41,6 +59,14 @@ export function AppearanceSettings() {
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
   const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
+  const savedWorkspaceArrangement = useLayoutArrangement();
+  const savedKanbanArrangement = useKanbanArrangement();
+  const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
+    savedWorkspaceArrangement
+  );
+  const [kanbanArrangementDraft, setKanbanArrangementDraft] = useState(
+    savedKanbanArrangement
+  );
 
   useEffect(() => {
     if (config) {
@@ -48,9 +74,31 @@ export function AppearanceSettings() {
     }
   }, [config]);
 
+  useEffect(() => {
+    setWorkspaceArrangementDraft(savedWorkspaceArrangement);
+  }, [savedWorkspaceArrangement]);
+
+  useEffect(() => {
+    setKanbanArrangementDraft(savedKanbanArrangement);
+  }, [savedKanbanArrangement]);
+
   const hasUnsavedChanges = useMemo(() => {
-    return !!config && !!draft && draft.theme !== config.theme;
-  }, [config, draft]);
+    return (
+      (!!config && !!draft && draft.theme !== config.theme) ||
+      !arrangementsEqual(
+        workspaceArrangementDraft,
+        savedWorkspaceArrangement
+      ) ||
+      !arrangementsEqual(kanbanArrangementDraft, savedKanbanArrangement)
+    );
+  }, [
+    config,
+    draft,
+    kanbanArrangementDraft,
+    savedKanbanArrangement,
+    savedWorkspaceArrangement,
+    workspaceArrangementDraft,
+  ]);
 
   const updateTheme = useCallback((theme: ThemeMode) => {
     setDraft((previous) => (previous ? { ...previous, theme } : previous));
@@ -60,6 +108,11 @@ export function AppearanceSettings() {
     if (!draft) return;
     setSaving(true);
     try {
+      // Layout arrangements apply on save (localStorage + storage-event
+      // sync to the main window), not while dragging the schematic.
+      setLayoutArrangement(workspaceArrangementDraft);
+      setKanbanArrangement(kanbanArrangementDraft);
+
       const saved = await updateAndSaveConfig(draft);
       if (saved) {
         setTheme(draft.theme);
@@ -74,6 +127,8 @@ export function AppearanceSettings() {
     if (config) {
       setDraft(structuredClone(config));
     }
+    setWorkspaceArrangementDraft(savedWorkspaceArrangement);
+    setKanbanArrangementDraft(savedKanbanArrangement);
   };
 
   if (loading) {
@@ -226,6 +281,44 @@ export function AppearanceSettings() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={LayoutGrid}
+          title={t('appearance.layout.title')}
+          description={t('appearance.layout.description')}
+        >
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-3">
+              <div>
+                <Label>{t('appearance.layout.workspaceLabel')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.layout.dragHint')}
+                </p>
+              </div>
+              <WorkspaceLayoutSchematic
+                value={workspaceArrangementDraft}
+                onChange={setWorkspaceArrangementDraft}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <div>
+                <Label>{t('appearance.layout.kanbanLabel')}</Label>
+                <p className="settings-row__description">
+                  {t('appearance.layout.kanbanHint')}
+                </p>
+              </div>
+              <KanbanLayoutSchematic
+                value={kanbanArrangementDraft}
+                onChange={setKanbanArrangementDraft}
+              />
+            </div>
+
+            <p className="settings-row__description">
+              {t('appearance.layout.hint')}
+            </p>
           </div>
         </SettingsSection>
       </div>

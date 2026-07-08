@@ -1,10 +1,12 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -27,6 +29,7 @@ import { useUserSystem } from '@/components/ConfigProvider';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
+import type { KanbanZone } from '@/lib/layoutArrangement';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
 import { paths } from '@/lib/paths';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
@@ -105,7 +108,17 @@ function resolveRestoredSessionName(
   return candidateName;
 }
 
-export function KanbanSessionHub() {
+interface KanbanSessionHubProps {
+  /** Left-to-right zone order for the hub row (list / monitor / session). */
+  zoneOrder?: readonly KanbanZone[];
+  /** Rendered between list and monitor when the session zone sits center. */
+  sessionSlot?: ReactNode;
+}
+
+export function KanbanSessionHub({
+  zoneOrder = ['list', 'monitor', 'session'],
+  sessionSlot = null,
+}: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -934,97 +947,111 @@ export function KanbanSessionHub() {
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  const sidebarElement = (
+    <SessionHubSidebar
+      width={sessionListWidth}
+      isLoading={isLoading}
+      sessions={activeSessionsWithOptimisticStatus}
+      archivedSessions={archivedSessionsWithOptimisticStatus}
+      groupedSessions={groupedSessions}
+      flatSessions={flatSessions}
+      workspaces={workspaces}
+      workspaceBranchOptions={workspaceBranchOptions}
+      profiles={profiles}
+      createMode={createMode}
+      createWorkspaceValue={createWorkspaceValue}
+      createSessionName={createSessionName}
+      selectedExecutorProfile={selectedExecutorProfile}
+      repoBranchConfigs={repoBranchConfigs}
+      isLoadingRepoBranches={isLoadingRepoBranches}
+      isCreatePopoverOpen={isCreatePopoverOpen}
+      sortField={sortField}
+      workspaceFilterIds={workspaceFilterIds}
+      executorFilterValues={executorFilterValues}
+      executorFilterOptions={executorFilterOptions}
+      expandedSections={expandedSections}
+      isDeleteMode={isDeleteMode}
+      selectedSessionIdSet={selectedSessionIdSet}
+      deleteErrorMessage={deleteErrorMessage}
+      deleteSuccessMessage={deleteSuccessMessage}
+      isDeletingSessions={isDeletingSessions}
+      canCreateSession={canCreateSession}
+      isCreatePending={createSessionMutation.isPending}
+      createError={createSessionMutation.error}
+      displayedCount={displayedCount}
+      monitorPlacements={monitorPlacements}
+      currentExecutionPlacement={currentExecutionPlacement}
+      openingSessionId={openingSessionId}
+      isArchiveView={isArchiveView}
+      onResizeMouseDown={handleSessionListResizeMouseDown}
+      onArchiveViewChange={handleArchiveViewChange}
+      onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
+      onCreateSession={() =>
+        createSessionMutation.mutate({
+          workspaceValue: createWorkspaceValueRef.current,
+          sessionName: createSessionNameRef.current,
+          executorProfile: selectedExecutorProfileRef.current,
+          mode: createMode,
+        })
+      }
+      onCreateModeChange={setCreateMode}
+      onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
+      onCreateSessionNameChange={updateCreateSessionName}
+      onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
+      onRepoBranchChange={setRepoBranch}
+      onSortFieldChange={setSortField}
+      onWorkspaceFilterIdsChange={setWorkspaceFilterIds}
+      onExecutorFilterValuesChange={setExecutorFilterValues}
+      onResetViewState={handleResetViewState}
+      onToggleDeleteMode={handleToggleDeleteMode}
+      onCancelDeleteMode={handleCancelDeleteMode}
+      onDeleteSelectedSessions={handleDeleteSelectedSessions}
+      onSessionClick={handleSessionClick}
+      onToggleSessionSelection={handleToggleSessionSelection}
+      onDeleteSession={handleDeleteSession}
+      onRenameSession={async (session, name) => {
+        await renameSessionMutation.mutateAsync({
+          sessionId: session.id,
+          name,
+          workspaceId: session.workspace.id,
+        });
+      }}
+      onSessionStatusChange={(session, nextStatus) => {
+        void handleSessionStatusChange(session, nextStatus);
+      }}
+      onRestoreArchivedSession={(session) => {
+        void handleRestoreArchivedSession(session);
+      }}
+      onExpandedChange={(status, expanded) => {
+        setExpandedSections((current) => ({
+          ...current,
+          [status as SessionStatusKey]: expanded,
+        }));
+      }}
+    />
+  );
+
+  const monitorElement = (
+    <SessionHubMonitor
+      monitorRecords={monitorRecords}
+      canUseRightPanelForSessions={canUseRightPanelForSessions}
+      onOpenInExecutionArea={handleOpenInExecutionArea}
+      onCancelMonitor={handleCancelMonitor}
+    />
+  );
+
   return (
     <TooltipProvider delayDuration={120}>
       <div className="session-hub-shell flex h-full min-h-0">
-        <SessionHubSidebar
-          width={sessionListWidth}
-          isLoading={isLoading}
-          sessions={activeSessionsWithOptimisticStatus}
-          archivedSessions={archivedSessionsWithOptimisticStatus}
-          groupedSessions={groupedSessions}
-          flatSessions={flatSessions}
-          workspaces={workspaces}
-          workspaceBranchOptions={workspaceBranchOptions}
-          profiles={profiles}
-          createMode={createMode}
-          createWorkspaceValue={createWorkspaceValue}
-          createSessionName={createSessionName}
-          selectedExecutorProfile={selectedExecutorProfile}
-          repoBranchConfigs={repoBranchConfigs}
-          isLoadingRepoBranches={isLoadingRepoBranches}
-          isCreatePopoverOpen={isCreatePopoverOpen}
-          sortField={sortField}
-          workspaceFilterIds={workspaceFilterIds}
-          executorFilterValues={executorFilterValues}
-          executorFilterOptions={executorFilterOptions}
-          expandedSections={expandedSections}
-          isDeleteMode={isDeleteMode}
-          selectedSessionIdSet={selectedSessionIdSet}
-          deleteErrorMessage={deleteErrorMessage}
-          deleteSuccessMessage={deleteSuccessMessage}
-          isDeletingSessions={isDeletingSessions}
-          canCreateSession={canCreateSession}
-          isCreatePending={createSessionMutation.isPending}
-          createError={createSessionMutation.error}
-          displayedCount={displayedCount}
-          monitorPlacements={monitorPlacements}
-          currentExecutionPlacement={currentExecutionPlacement}
-          openingSessionId={openingSessionId}
-          isArchiveView={isArchiveView}
-          onResizeMouseDown={handleSessionListResizeMouseDown}
-          onArchiveViewChange={handleArchiveViewChange}
-          onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
-          onCreateSession={() =>
-            createSessionMutation.mutate({
-              workspaceValue: createWorkspaceValueRef.current,
-              sessionName: createSessionNameRef.current,
-              executorProfile: selectedExecutorProfileRef.current,
-              mode: createMode,
-            })
-          }
-          onCreateModeChange={setCreateMode}
-          onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
-          onCreateSessionNameChange={updateCreateSessionName}
-          onSelectedExecutorProfileChange={updateSelectedExecutorProfile}
-          onRepoBranchChange={setRepoBranch}
-          onSortFieldChange={setSortField}
-          onWorkspaceFilterIdsChange={setWorkspaceFilterIds}
-          onExecutorFilterValuesChange={setExecutorFilterValues}
-          onResetViewState={handleResetViewState}
-          onToggleDeleteMode={handleToggleDeleteMode}
-          onCancelDeleteMode={handleCancelDeleteMode}
-          onDeleteSelectedSessions={handleDeleteSelectedSessions}
-          onSessionClick={handleSessionClick}
-          onToggleSessionSelection={handleToggleSessionSelection}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={async (session, name) => {
-            await renameSessionMutation.mutateAsync({
-              sessionId: session.id,
-              name,
-              workspaceId: session.workspace.id,
-            });
-          }}
-          onSessionStatusChange={(session, nextStatus) => {
-            void handleSessionStatusChange(session, nextStatus);
-          }}
-          onRestoreArchivedSession={(session) => {
-            void handleRestoreArchivedSession(session);
-          }}
-          onExpandedChange={(status, expanded) => {
-            setExpandedSections((current) => ({
-              ...current,
-              [status as SessionStatusKey]: expanded,
-            }));
-          }}
-        />
-
-        <SessionHubMonitor
-          monitorRecords={monitorRecords}
-          canUseRightPanelForSessions={canUseRightPanelForSessions}
-          onOpenInExecutionArea={handleOpenInExecutionArea}
-          onCancelMonitor={handleCancelMonitor}
-        />
+        {zoneOrder.map((zone) => (
+          <Fragment key={zone}>
+            {zone === 'list'
+              ? sidebarElement
+              : zone === 'monitor'
+                ? monitorElement
+                : sessionSlot}
+          </Fragment>
+        ))}
       </div>
     </TooltipProvider>
   );

@@ -3,10 +3,12 @@ import {
   useCallback,
   useEffect,
   lazy,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -29,9 +31,29 @@ import {
   useLayoutStore,
 } from '@/stores/useLayoutStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import {
+  RightPanelSlotContext,
+  type SessionPanelPlacement,
+} from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { applyLeftGroupHeaderHiding } from '@/utils/dockviewHelpers';
+import {
+  applyLeftGroupHeaderHiding,
+  syncDockviewGroupRegistry,
+} from '@/utils/dockviewHelpers';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
+import {
+  arrangementsEqual,
+  getLayoutArrangement,
+  isDefaultArrangement,
+  slotOfZone,
+  useLayoutArrangement,
+  type LayoutArrangement,
+  type LayoutZone,
+} from '@/lib/layoutArrangement';
+import {
+  arrangeSerializedLayout,
+  type ArrangeLayoutOptions,
+} from '@/utils/dockviewLayoutTransform';
 import { SearchPalette } from '@/components/search/SearchPalette';
 import { useWorkspaceShortcuts } from '@/hooks/useWorkspaceShortcuts';
 import {
@@ -42,13 +64,15 @@ import {
   isBottomGroup,
   isEditorGroup,
   isLeftGroup,
+  isSessionGroup,
   isSplittableEditorPanel,
   LEFT_PANEL_IDS,
+  SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
 
 const LAYOUT = {
-  LEFT_PANEL_DEFAULT_WIDTH: 220,
+  LEFT_PANEL_DEFAULT_WIDTH: 200,
   LEFT_PANEL_MIN_WIDTH: 200,
   LEFT_PANEL_MAX_RATIO: 0.4,
   LAYOUT_RESTORE_DELAY_MS: 100,
@@ -92,6 +116,66 @@ function getBottomGroup(api: DockviewApi): DockviewGroup | undefined {
   );
 }
 
+function getRightGroup(api: DockviewApi): DockviewGroup | undefined {
+  return (
+    api.getGroup(GROUP_IDS.RIGHT) ??
+    api.groups.find((group) => isSessionGroup(group))
+  );
+}
+
+function zoneGroup(
+  api: DockviewApi,
+  zone: LayoutZone
+): DockviewGroup | undefined {
+  switch (zone) {
+    case 'dock':
+      return getLeftGroup(api);
+    case 'terminal':
+      return getBottomGroup(api);
+    case 'session':
+      return getRightGroup(api);
+    default:
+      return getEditorGroups(api)[0];
+  }
+}
+
+/**
+ * Verify the visible zone groups appear left-to-right in the order the
+ * arrangement prescribes. Ad-hoc group re-creation paths (e.g. restoring the
+ * dock next to the editor) can scramble the column order; a mismatch here
+ * triggers a re-apply of the arrangement, which normalizes the grid.
+ */
+function zoneOrderMatchesArrangement(
+  api: DockviewApi,
+  arrangement: LayoutArrangement
+): boolean {
+  let previousLeft = Number.NEGATIVE_INFINITY;
+  for (const slot of ['left', 'center', 'right'] as const) {
+    const group = zoneGroup(api, arrangement[slot]);
+    if (!group?.api.isVisible) continue;
+
+    const rect = getGroupElement(group)?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) continue;
+
+    if (rect.left <= previousLeft) return false;
+    previousLeft = rect.left;
+  }
+  return true;
+}
+
+function hideGroupHeader(group: DockviewGroup) {
+  try {
+    const model = (group as { model?: { header?: { hidden?: boolean } } })
+      .model;
+    if (typeof model?.header?.hidden !== 'undefined') {
+      model.header.hidden = true;
+    }
+  } catch {
+    // Ignore internal model access failures and rely on CSS class fallback.
+  }
+  getGroupElement(group)?.classList.add('dv-header-hidden');
+}
+
 function getEditorGroups(api: DockviewApi): DockviewGroup[] {
   return api.groups
     .filter((group) => isEditorGroup(group))
@@ -108,19 +192,17 @@ function normalizeGroupIds(api: DockviewApi) {
   if (bottomGroup) {
     (bottomGroup as { id: string }).id = GROUP_IDS.BOTTOM;
     bottomGroup.locked = 'no-drop-target';
-    try {
-      const model = (
-        bottomGroup as { model?: { header?: { hidden?: boolean } } }
-      ).model;
-      if (typeof model?.header?.hidden !== 'undefined') {
-        model.header.hidden = true;
-      }
-    } catch {
-      // Ignore internal model access failures and rely on CSS class fallback.
-    }
-    getGroupElement(bottomGroup)?.classList.add('dv-header-hidden');
+    hideGroupHeader(bottomGroup);
   }
 
+  const rightGroup = getRightGroup(api);
+  if (rightGroup) {
+    (rightGroup as { id: string }).id = GROUP_IDS.RIGHT;
+    rightGroup.locked = 'no-drop-target';
+    hideGroupHeader(rightGroup);
+  }
+
+  syncDockviewGroupRegistry(api);
   applyLeftGroupHeaderHiding(api);
 }
 
@@ -149,6 +231,29 @@ function buildDefaultLayout(api: DockviewApi) {
       direction: 'within',
     },
   });
+
+  const rightGroup = api.addGroup({
+    id: GROUP_IDS.RIGHT,
+    referencePanel: welcomePanel,
+    direction: 'right',
+    hideHeader: true,
+    initialWidth: useLayoutStore.getState().rightPanelWidth,
+  });
+
+  api.addPanel({
+    id: PANEL_IDS.AI_CHAT,
+    component: PANEL_IDS.AI_CHAT,
+    title: 'Sessions',
+    position: {
+      referenceGroup: rightGroup,
+      direction: 'within',
+    },
+    inactive: true,
+  });
+  rightGroup.locked = 'no-drop-target';
+  if (!useLayoutStore.getState().isRightPanelVisible) {
+    rightGroup.api.setVisible(false);
+  }
 
   const bottomGroup = api.addGroup({
     id: GROUP_IDS.BOTTOM,
@@ -193,7 +298,10 @@ function ensureWelcomeEditorGroup(api: DockviewApi): DockviewGroup | undefined {
   const referencePanel =
     bottomReferencePanel ??
     leftGroup?.panels[0] ??
-    api.panels.find((panel) => !BOTTOM_PANEL_IDS.has(panel.id));
+    api.panels.find(
+      (panel) =>
+        !BOTTOM_PANEL_IDS.has(panel.id) && !SESSION_PANEL_IDS.has(panel.id)
+    );
 
   const welcomePanel = api.addPanel({
     id: PANEL_IDS.WELCOME,
@@ -258,18 +366,17 @@ export function IDELayout({
   const apiRef = useRef<DockviewApi | null>(null);
   const dockviewRootRef = useRef<HTMLDivElement>(null);
   const tabContextMenuRef = useRef<HTMLDivElement>(null);
-  const resizeHandleRef = useRef<HTMLDivElement>(null);
   const { activeWorktreeId } = useWorktree();
   const {
     serializedLayout,
     setSerializedLayout,
     isRightPanelVisible,
-    rightPanelWidth,
     setRightPanelWidth,
     isEditorAreaVisible,
     toggleEditorArea,
     activeTab,
   } = useLayoutStore();
+  const arrangement = useLayoutArrangement();
   const effectiveWorkspaceId = activeWorktreeId ?? workspaceId ?? null;
   const routeTab = workspaceId || sessionId ? 'workspace' : null;
   const effectiveActiveTab = routeTab ?? activeTab;
@@ -280,8 +387,18 @@ export function IDELayout({
   const isResettingRef = useRef(false);
   const isClampingRef = useRef(false);
   const prevSerializedLayoutRef = useRef(serializedLayout);
+  const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
+  const lastSelfHealAtRef = useRef(0);
   const [tabContextMenu, setTabContextMenu] =
     useState<TabContextMenuState | null>(null);
+  // Detached element hosting the session (C zone) content; the workspace
+  // dockview panel and the kanban session slot re-parent it between them.
+  const [sessionContentHost] = useState<HTMLDivElement | null>(() => {
+    if (typeof document === 'undefined') return null;
+    const element = document.createElement('div');
+    element.className = 'h-full w-full min-w-0 overflow-hidden';
+    return element;
+  });
 
   const {
     setDockviewApi,
@@ -296,6 +413,8 @@ export function IDELayout({
   serializedLayoutRef.current = serializedLayout;
   const isWorkspaceEditorAreaCollapsed =
     effectiveActiveTab === 'workspace' && !isEditorAreaVisible;
+  const isCollapsedRef = useRef(isWorkspaceEditorAreaCollapsed);
+  isCollapsedRef.current = isWorkspaceEditorAreaCollapsed;
 
   const applyDefaultSizes = useCallback(
     (
@@ -311,13 +430,33 @@ export function IDELayout({
       }
 
       try {
+        const currentArrangement = getLayoutArrangement();
+
         const leftGroup = getLeftGroup(api);
-        if (leftGroup?.api.isVisible) {
+        if (
+          leftGroup?.api.isVisible &&
+          slotOfZone(currentArrangement, 'dock') !== 'center' &&
+          slotOfZone(currentArrangement, 'dock') !== 'bottom'
+        ) {
           leftGroup.api.setSize({ width: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH });
         }
 
+        const rightGroup = getRightGroup(api);
+        if (
+          rightGroup?.api.isVisible &&
+          slotOfZone(currentArrangement, 'session') !== 'center' &&
+          slotOfZone(currentArrangement, 'session') !== 'bottom'
+        ) {
+          rightGroup.api.setSize({
+            width: useLayoutStore.getState().rightPanelWidth,
+          });
+        }
+
         const bottomGroup = getBottomGroup(api);
-        if (bottomGroup?.api.isVisible) {
+        if (
+          bottomGroup?.api.isVisible &&
+          slotOfZone(currentArrangement, 'terminal') === 'bottom'
+        ) {
           bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
         }
       } catch {
@@ -345,6 +484,14 @@ export function IDELayout({
         maxLeftWidth > LAYOUT.LEFT_PANEL_MIN_WIDTH
       ) {
         leftGroup.api.setSize({ width: maxLeftWidth });
+      } else if (
+        leftGroup.api.width > 0 &&
+        leftGroup.api.width < LAYOUT.LEFT_PANEL_MIN_WIDTH &&
+        api.width > LAYOUT.LEFT_PANEL_MIN_WIDTH * 3
+      ) {
+        // A proportional squeeze (e.g. an oversized sibling column) can crush
+        // the dock to a sliver; restore its minimum usable width.
+        leftGroup.api.setSize({ width: LAYOUT.LEFT_PANEL_MIN_WIDTH });
       }
     } catch {
       // Ignore clamp failures during intermediate layout changes.
@@ -352,6 +499,67 @@ export function IDELayout({
       isClampingRef.current = false;
     }
   }, []);
+
+  const buildArrangeOptions = useCallback((): ArrangeLayoutOptions => {
+    const layoutState = useLayoutStore.getState();
+    return {
+      fallbackSizes: {
+        dock: { width: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH },
+        session: { width: layoutState.rightPanelWidth },
+        terminal: { height: DEFAULT_TERMINAL_PANEL_HEIGHT },
+      },
+      sessionVisible: layoutState.isRightPanelVisible,
+    };
+  }, []);
+
+  // Refs so applyArrangement can reach logic declared later in this
+  // component (tab visibility enforcement, full rebuild fallback) without
+  // dependency-order gymnastics.
+  const enforceTabVisibilityRef = useRef<(api: DockviewApi) => void>(() => {});
+  const rebuildDefaultLayoutRef = useRef<(api: DockviewApi) => void>(() => {});
+
+  /** Re-shape the live dockview grid to match the configured arrangement. */
+  const applyArrangement = useCallback(
+    (api: DockviewApi, nextArrangement: LayoutArrangement) => {
+      appliedArrangementRef.current = nextArrangement;
+      isResettingRef.current = true;
+      try {
+        // Renamed group ids must be re-synced into dockview's registry or
+        // fromJSON() on a populated instance throws while clearing.
+        syncDockviewGroupRegistry(api);
+        const next = arrangeSerializedLayout(
+          api.toJSON(),
+          nextArrangement,
+          buildArrangeOptions()
+        );
+        api.fromJSON(next);
+        normalizeGroupIds(api);
+      } catch (error) {
+        console.warn(
+          'Failed to apply layout arrangement, rebuilding default.',
+          error
+        );
+        // fromJSON can fail mid-clear and leave a partial grid — recover
+        // with a clean rebuild instead of persisting the broken state.
+        rebuildDefaultLayoutRef.current(api);
+        isResettingRef.current = false;
+        return;
+      } finally {
+        isResettingRef.current = false;
+      }
+
+      // fromJSON restores serialized visibility; re-assert what the active
+      // tab expects (e.g. dock/terminal stay hidden on the kanban board).
+      enforceTabVisibilityRef.current(api);
+
+      try {
+        setSerializedLayout(api.toJSON());
+      } catch {
+        // Ignore serialization failures during arrangement transitions.
+      }
+    },
+    [buildArrangeOptions, setSerializedLayout]
+  );
 
   const rebuildDefaultLayout = useCallback(
     (api: DockviewApi, persistAfterBuild: boolean = true) => {
@@ -379,6 +587,24 @@ export function IDELayout({
       }
 
       buildDefaultLayout(api);
+
+      const currentArrangement = getLayoutArrangement();
+      appliedArrangementRef.current = currentArrangement;
+      if (!isDefaultArrangement(currentArrangement)) {
+        try {
+          api.fromJSON(
+            arrangeSerializedLayout(
+              api.toJSON(),
+              currentArrangement,
+              buildArrangeOptions()
+            )
+          );
+          normalizeGroupIds(api);
+        } catch {
+          // Keep the default arrangement if the transform fails.
+        }
+      }
+
       isResettingRef.current = false;
       requestAnimationFrame(() =>
         applyDefaultSizes(api, LAYOUT.DEFAULT_SIZE_RETRIES, () => {
@@ -392,8 +618,24 @@ export function IDELayout({
         })
       );
     },
-    [applyDefaultSizes, setSerializedLayout]
+    [applyDefaultSizes, buildArrangeOptions, setSerializedLayout]
   );
+  rebuildDefaultLayoutRef.current = rebuildDefaultLayout;
+
+  // Terminal visibility captured when the kanban page force-hides the strip,
+  // so returning to the workspace restores the user's previous choice.
+  const terminalVisibleBeforeKanbanRef = useRef<boolean | null>(null);
+
+  const hideWorkspaceZonesForKanban = useCallback((api: DockviewApi) => {
+    const bottomGroup = getBottomGroup(api);
+    if (bottomGroup) {
+      if (terminalVisibleBeforeKanbanRef.current === null) {
+        terminalVisibleBeforeKanbanRef.current = bottomGroup.api.isVisible;
+      }
+      bottomGroup.api.setVisible(false);
+    }
+    getLeftGroup(api)?.api.setVisible(false);
+  }, []);
 
   const ensureWorkspacePanelsVisible = useCallback(
     (api: DockviewApi) => {
@@ -430,6 +672,8 @@ export function IDELayout({
       leftGroup.api.setVisible(true);
 
       let bottomGroup = getBottomGroup(api);
+      const hadBottomGroup = !!bottomGroup;
+      const wasTerminalVisible = bottomGroup?.api.isVisible ?? false;
       if (!bottomGroup) {
         const editorGroup =
           getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
@@ -459,20 +703,84 @@ export function IDELayout({
         });
       }
 
-      bottomGroup.api.setVisible(true);
-      const terminalPanel = api.getPanel(PANEL_IDS.TERMINAL);
-      if (terminalPanel && !terminalPanel.api.isVisible) {
-        terminalPanel.api.setActive();
+      // The terminal toggle owns the zone's visibility — ensure must not
+      // force-show it. Only restore the pre-kanban state when returning
+      // from the kanban page (which force-hides the strip).
+      const restoredFromKanban = terminalVisibleBeforeKanbanRef.current;
+      terminalVisibleBeforeKanbanRef.current = null;
+      const shouldShowTerminal = hadBottomGroup
+        ? (restoredFromKanban ?? wasTerminalVisible)
+        : false;
+      if (bottomGroup.api.isVisible !== shouldShowTerminal) {
+        bottomGroup.api.setVisible(shouldShowTerminal);
       }
-      try {
-        bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
-      } catch {
-        // Ignore size restoration failures during layout transitions.
+      if (shouldShowTerminal) {
+        const terminalPanel = api.getPanel(PANEL_IDS.TERMINAL);
+        if (terminalPanel && !terminalPanel.api.isVisible) {
+          terminalPanel.api.setActive();
+        }
+        if (slotOfZone(getLayoutArrangement(), 'terminal') === 'bottom') {
+          try {
+            bottomGroup.api.setSize({ height: DEFAULT_TERMINAL_PANEL_HEIGHT });
+          } catch {
+            // Ignore size restoration failures during layout transitions.
+          }
+        }
       }
       normalizeGroupIds(api);
     },
     [effectiveActiveTab, effectiveWorkspaceId]
   );
+
+  const ensureSessionPanel = useCallback((api: DockviewApi) => {
+    let rightGroup = getRightGroup(api);
+    if (!rightGroup) {
+      const editorGroup =
+        getEditorGroups(api)[0] ?? ensureWelcomeEditorGroup(api);
+      const referencePanel = editorGroup?.panels[0];
+      if (!referencePanel) return undefined;
+
+      rightGroup = api.addGroup({
+        id: GROUP_IDS.RIGHT,
+        referencePanel,
+        direction: 'right',
+        hideHeader: true,
+        initialWidth: useLayoutStore.getState().rightPanelWidth,
+      });
+    }
+
+    if (!api.getPanel(PANEL_IDS.AI_CHAT)) {
+      api.addPanel({
+        id: PANEL_IDS.AI_CHAT,
+        component: PANEL_IDS.AI_CHAT,
+        title: 'Sessions',
+        position: {
+          referenceGroup: rightGroup.id,
+          direction: 'within',
+        },
+        inactive: true,
+      });
+    }
+
+    rightGroup.locked = 'no-drop-target';
+    normalizeGroupIds(api);
+    return rightGroup;
+  }, []);
+
+  enforceTabVisibilityRef.current = (api: DockviewApi) => {
+    if (effectiveActiveTab !== 'workspace') {
+      hideWorkspaceZonesForKanban(api);
+      return;
+    }
+
+    if (isWorkspaceEditorAreaCollapsed) return;
+
+    try {
+      ensureWorkspacePanelsVisible(api);
+    } catch {
+      // Ignore restore failures; the workspace-tab effect retries.
+    }
+  };
 
   const registerDndGuard = useCallback((api: DockviewApi) => {
     return api.onWillShowOverlay((event) => {
@@ -486,12 +794,19 @@ export function IDELayout({
 
       const isSourceLeftPanel = LEFT_PANEL_IDS.has(draggedPanelId);
       const isSourceBottomPanel = BOTTOM_PANEL_IDS.has(draggedPanelId);
-      const isSourceEditorPanel = !isSourceLeftPanel && !isSourceBottomPanel;
+      const isSourceSessionPanel = SESSION_PANEL_IDS.has(draggedPanelId);
+      const isSourceEditorPanel =
+        !isSourceLeftPanel && !isSourceBottomPanel && !isSourceSessionPanel;
       const isTargetLeftGroup = isLeftGroup(targetGroup);
       const isTargetBottomGroup = isBottomGroup(targetGroup);
       const isTargetEditorGroup = isEditorGroup(targetGroup);
 
       if (isSourceBottomPanel || isTargetBottomGroup) {
+        event.preventDefault();
+        return;
+      }
+
+      if (isSourceSessionPanel || isSessionGroup(targetGroup)) {
         event.preventDefault();
         return;
       }
@@ -524,9 +839,19 @@ export function IDELayout({
       setDockviewApi(api);
 
       const layout = serializedLayoutRef.current;
+      const currentArrangement = getLayoutArrangement();
+      appliedArrangementRef.current = currentArrangement;
       if (layout) {
         try {
-          api.fromJSON(layout);
+          // Normalizing through the arrangement transform also migrates
+          // pre-session-group layouts by synthesizing the session group.
+          api.fromJSON(
+            arrangeSerializedLayout(
+              layout,
+              currentArrangement,
+              buildArrangeOptions()
+            )
+          );
           normalizeGroupIds(api);
         } catch (error) {
           console.warn(
@@ -537,10 +862,13 @@ export function IDELayout({
         }
       } else {
         buildDefaultLayout(api);
+        if (!isDefaultArrangement(currentArrangement)) {
+          applyArrangement(api, currentArrangement);
+        }
         requestAnimationFrame(() => applyDefaultSizes(api));
       }
 
-      ensureWorkspacePanelsVisible(api);
+      enforceTabVisibilityRef.current(api);
 
       const dndGuardDisposable = registerDndGuard(api);
       const removePanelDisposable = api.onDidRemovePanel((panel) => {
@@ -579,6 +907,14 @@ export function IDELayout({
           return;
         }
 
+        if (panel.id === PANEL_IDS.AI_CHAT) {
+          const rightGroup = ensureSessionPanel(api);
+          rightGroup?.api.setVisible(
+            useLayoutStore.getState().isRightPanelVisible
+          );
+          return;
+        }
+
         normalizeGroupIds(api);
         if (getEditorGroups(api).length === 0) {
           ensureWelcomeEditorGroup(api);
@@ -611,11 +947,45 @@ export function IDELayout({
           normalizeGroupIds(api);
           clampPanelWidths(api);
 
+          // Self-heal: if some code path re-created a zone group in the
+          // wrong column, snap the grid back to the configured arrangement.
+          // Cooldown guards against churn if a mismatch were ever persistent.
+          const currentArrangement = getLayoutArrangement();
+          if (
+            !zoneOrderMatchesArrangement(api, currentArrangement) &&
+            Date.now() - lastSelfHealAtRef.current > 5000
+          ) {
+            lastSelfHealAtRef.current = Date.now();
+            applyArrangement(api, currentArrangement);
+            return;
+          }
+
           const persistLayout = () => {
             try {
               setSerializedLayout(api.toJSON());
             } catch {
               // Ignore serialization failures during transient layout states.
+            }
+
+            // Keep the stored session width in sync so default rebuilds and
+            // cross-slot moves reuse the user's last column width. Center and
+            // bottom slots are skipped: there the group width is the flexible
+            // remainder / plain column width, not a meaningful column memory.
+            try {
+              const rightGroup = getRightGroup(api);
+              const sessionSlot = slotOfZone(getLayoutArrangement(), 'session');
+              if (
+                rightGroup?.api.isVisible &&
+                sessionSlot !== 'center' &&
+                sessionSlot !== 'bottom' &&
+                rightGroup.api.width > 0 &&
+                rightGroup.api.width !==
+                  useLayoutStore.getState().rightPanelWidth
+              ) {
+                setRightPanelWidth(rightGroup.api.width);
+              }
+            } catch {
+              // Ignore width sync failures during transient layout states.
             }
           };
 
@@ -643,12 +1013,15 @@ export function IDELayout({
       };
     },
     [
+      applyArrangement,
       applyDefaultSizes,
+      buildArrangeOptions,
       clampPanelWidths,
-      ensureWorkspacePanelsVisible,
+      ensureSessionPanel,
       rebuildDefaultLayout,
       registerDndGuard,
       setDockviewApi,
+      setRightPanelWidth,
       setSerializedLayout,
     ]
   );
@@ -674,7 +1047,8 @@ export function IDELayout({
   useEffect(() => {
     const api = apiRef.current;
     if (!api) return;
-    if (effectiveActiveTab !== 'workspace' && !effectiveWorkspaceId) return;
+    if (effectiveActiveTab !== 'workspace') return;
+    if (isWorkspaceEditorAreaCollapsed) return;
 
     const frame = requestAnimationFrame(() => {
       try {
@@ -693,19 +1067,87 @@ export function IDELayout({
     effectiveActiveTab,
     effectiveWorkspaceId,
     ensureWorkspacePanelsVisible,
+    isWorkspaceEditorAreaCollapsed,
     rebuildDefaultLayout,
   ]);
 
+  // The kanban board replaces the dock/workspace/terminal zones; only the
+  // session zone stays interactive next to it.
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || effectiveWorkspaceId || effectiveActiveTab === 'workspace')
-      return;
+    if (!api || effectiveActiveTab === 'workspace') return;
 
-    const bottomGroup = getBottomGroup(api);
-    if (bottomGroup) {
-      bottomGroup.api.setVisible(false);
+    hideWorkspaceZonesForKanban(api);
+  }, [effectiveActiveTab, hideWorkspaceZonesForKanban]);
+
+  // Re-shape the grid when the arrangement preference changes (e.g. from the
+  // settings window, synced through the storage event).
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api) return;
+    if (
+      appliedArrangementRef.current &&
+      arrangementsEqual(appliedArrangementRef.current, arrangement)
+    ) {
+      return;
     }
-  }, [effectiveActiveTab, effectiveWorkspaceId]);
+
+    applyArrangement(api, arrangement);
+  }, [arrangement, applyArrangement]);
+
+  // Session zone visibility follows the store flag and content availability.
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api) return;
+
+    const shouldShow = isRightPanelVisible && !!rightPanelContent;
+    const rightGroup =
+      getRightGroup(api) ?? (shouldShow ? ensureSessionPanel(api) : undefined);
+    if (!rightGroup) return;
+
+    if (rightGroup.api.isVisible !== shouldShow) {
+      rightGroup.api.setVisible(shouldShow);
+    }
+  }, [ensureSessionPanel, isRightPanelVisible, rightPanelContent]);
+
+  // Collapsed editor area: hide every zone except the session zone so it can
+  // take over the full dockview canvas.
+  useEffect(() => {
+    const api = apiRef.current;
+    if (!api || effectiveActiveTab !== 'workspace') return;
+
+    if (isWorkspaceEditorAreaCollapsed) {
+      getLeftGroup(api)?.api.setVisible(false);
+      getBottomGroup(api)?.api.setVisible(false);
+      for (const group of getEditorGroups(api)) {
+        group.api.setVisible(false);
+      }
+      return;
+    }
+
+    for (const group of getEditorGroups(api)) {
+      if (!group.api.isVisible) {
+        group.api.setVisible(true);
+      }
+    }
+    try {
+      ensureWorkspacePanelsVisible(api);
+    } catch {
+      // Ignore restore failures; the workspace-tab effect retries.
+    }
+  }, [
+    effectiveActiveTab,
+    ensureWorkspacePanelsVisible,
+    isWorkspaceEditorAreaCollapsed,
+  ]);
+
+  const sessionPlacement = useMemo<SessionPanelPlacement>(
+    () => ({
+      host: rightPanelContent ? sessionContentHost : null,
+      placement: effectiveActiveTab === 'kanban' ? 'kanban' : 'workspace',
+    }),
+    [effectiveActiveTab, rightPanelContent, sessionContentHost]
+  );
 
   useEffect(() => {
     const root = dockviewRootRef.current;
@@ -782,40 +1224,6 @@ export function IDELayout({
     };
   }, []);
 
-  // Abort controller for the active resize drag's document listeners, so they
-  // are removed if the layout unmounts mid-resize (mouseup would never fire).
-  const resizeAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => resizeAbortRef.current?.abort(), []);
-
-  const handleResizeMouseDown = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
-
-      const startX = event.clientX;
-      const startWidth = rightPanelWidth;
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = startX - moveEvent.clientX;
-        setRightPanelWidth(startWidth + delta);
-      };
-
-      const handleMouseUp = () => {
-        resizeAbortRef.current?.abort();
-        resizeAbortRef.current = null;
-      };
-
-      // Bind to a fresh AbortController so the unmount effect can also remove
-      // these document listeners if the layout unmounts mid-resize.
-      resizeAbortRef.current?.abort();
-      const resizeController = new AbortController();
-      resizeAbortRef.current = resizeController;
-      const { signal } = resizeController;
-      document.addEventListener('mousemove', handleMouseMove, { signal });
-      document.addEventListener('mouseup', handleMouseUp, { signal });
-    },
-    [rightPanelWidth, setRightPanelWidth]
-  );
-
   useWorkspaceShortcuts();
 
   return (
@@ -874,98 +1282,66 @@ export function IDELayout({
           </div>
         ) : null}
 
-        <div
-          className={
-            isWorkspaceEditorAreaCollapsed
-              ? 'hidden'
-              : 'relative flex-1 min-w-0'
-          }
-          ref={dockviewRootRef}
-        >
-          <div
-            className={
-              effectiveActiveTab === 'kanban'
-                ? 'pointer-events-none h-full opacity-0'
-                : 'h-full'
-            }
-            aria-hidden={effectiveActiveTab === 'kanban'}
-          >
-            <DockviewReact
-              components={panelComponents}
-              defaultTabComponent={WorkspaceDockviewTab}
-              onReady={handleReady}
-              className="dockview-theme-light dockview-theme-ayu"
-              disableFloatingGroups={true}
-            />
-          </div>
-
-          {effectiveActiveTab === 'kanban' && (
-            <div className="kanban-overlay absolute inset-0 z-10">
-              <Suspense
-                fallback={
-                  <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                    <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                      <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                      <span>Loading Kanban...</span>
-                    </div>
-                  </div>
-                }
-              >
-                <LazyKanbanBoard />
-              </Suspense>
-            </div>
-          )}
-
-          {tabContextMenu && (
-            <div
-              ref={tabContextMenuRef}
-              className="fixed z-50 min-w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
-              style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
-            >
-              <div className="px-2 py-1 text-xs text-muted-foreground">
-                {tabContextMenu.title}
-              </div>
-              <button
-                type="button"
-                className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canOpenPanelInNewEditorGroup(tabContextMenu.panelId)}
-                onClick={() => {
-                  openPanelInNewEditorGroup(tabContextMenu.panelId);
-                  setTabContextMenu(null);
-                }}
-              >
-                {t('ideLayout.openInNewEditorGroup')}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {isRightPanelVisible && rightPanelContent && (
-          <>
-            {!isWorkspaceEditorAreaCollapsed ? (
-              <div
-                ref={resizeHandleRef}
-                className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
-                onMouseDown={handleResizeMouseDown}
+        <RightPanelSlotContext.Provider value={sessionPlacement}>
+          <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
+            <div className="h-full">
+              <DockviewReact
+                components={panelComponents}
+                defaultTabComponent={WorkspaceDockviewTab}
+                onReady={handleReady}
+                className="dockview-theme-light dockview-theme-ayu"
+                disableFloatingGroups={true}
               />
-            ) : null}
-            <div
-              className={
-                isWorkspaceEditorAreaCollapsed
-                  ? 'workspace-right-panel z-20 min-w-0 flex-1 overflow-hidden'
-                  : 'workspace-right-panel z-20 shrink-0 overflow-hidden'
-              }
-              style={
-                isWorkspaceEditorAreaCollapsed
-                  ? undefined
-                  : { width: rightPanelWidth }
-              }
-            >
-              {rightPanelContent}
             </div>
-          </>
-        )}
+
+            {effectiveActiveTab === 'kanban' && (
+              <div className="kanban-overlay absolute inset-0 z-10">
+                <Suspense
+                  fallback={
+                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                        <span>Loading Kanban...</span>
+                      </div>
+                    </div>
+                  }
+                >
+                  <LazyKanbanBoard />
+                </Suspense>
+              </div>
+            )}
+
+            {tabContextMenu && (
+              <div
+                ref={tabContextMenuRef}
+                className="fixed z-50 min-w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
+                style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
+              >
+                <div className="px-2 py-1 text-xs text-muted-foreground">
+                  {tabContextMenu.title}
+                </div>
+                <button
+                  type="button"
+                  className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={
+                    !canOpenPanelInNewEditorGroup(tabContextMenu.panelId)
+                  }
+                  onClick={() => {
+                    openPanelInNewEditorGroup(tabContextMenu.panelId);
+                    setTabContextMenu(null);
+                  }}
+                >
+                  {t('ideLayout.openInNewEditorGroup')}
+                </button>
+              </div>
+            )}
+          </div>
+        </RightPanelSlotContext.Provider>
       </div>
+
+      {rightPanelContent && sessionContentHost
+        ? createPortal(rightPanelContent, sessionContentHost)
+        : null}
 
       <StatusBar />
     </div>

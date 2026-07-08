@@ -429,7 +429,10 @@
   .dv-split-view-container.dv-horizontal
   > .dv-sash-container
   > .dv-sash.dv-enabled {
-  position: relative;
+  /* Keep the base .dv-sash `position: absolute` and `z-index: 99`:
+     `position: relative` makes multiple sashes stack in normal flow (any
+     sash after the first lands below the container and disappears), and a
+     lower z-index lets high-z panel content swallow the sash. */
   overflow: visible;
   width: 1px;
   margin-left: 0;
@@ -437,6 +440,20 @@
   transition:
     background-color 0.15s ease,
     opacity 0.15s ease;
+}
+
+/* Invisible grab zone: the visual divider is 1px, matching the retired
+   custom right-panel handle's 11px hit area so sashes stay draggable. */
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-horizontal
+  > .dv-sash-container
+  > .dv-sash.dv-enabled::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 11px;
 }
 
 [class*='dockview-theme-ayu']
@@ -486,7 +503,6 @@
   .dv-split-view-container.dv-vertical
   > .dv-sash-container
   > .dv-sash.dv-enabled {
-  position: relative;
   overflow: visible;
   height: 1px;
   margin-top: 0;
@@ -494,6 +510,18 @@
   transition:
     background-color 0.15s ease,
     opacity 0.15s ease;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-split-view-container.dv-vertical
+  > .dv-sash-container
+  > .dv-sash.dv-enabled::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  height: 11px;
 }
 
 [class*='dockview-theme-ayu']

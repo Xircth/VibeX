@@ -27,6 +27,7 @@ import {
   EDITOR_GROUP_PREFIX,
   GROUP_IDS,
   MAX_EDITOR_GROUPS,
+  MIN_RIGHT_PANEL_WIDTH,
   PANEL_IDS,
   useLayoutStore,
 } from '@/stores/useLayoutStore';
@@ -52,6 +53,7 @@ import {
 } from '@/lib/layoutArrangement';
 import {
   arrangeSerializedLayout,
+  serializedLayoutMatchesArrangement,
   type ArrangeLayoutOptions,
 } from '@/utils/dockviewLayoutTransform';
 import { SearchPalette } from '@/components/search/SearchPalette';
@@ -72,14 +74,40 @@ import {
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
 
 const LAYOUT = {
-  LEFT_PANEL_DEFAULT_WIDTH: 200,
+  // Default zone widths are fractions of the full grid width: A (dock) 20%,
+  // C (session) 30%. Defaults only — the user can drag either column to any
+  // width and that choice persists; nothing snaps it back.
+  LEFT_PANEL_DEFAULT_RATIO: 0.2,
+  SESSION_PANEL_DEFAULT_RATIO: 0.3,
   LEFT_PANEL_MIN_WIDTH: 200,
-  LEFT_PANEL_MAX_RATIO: 0.4,
   LAYOUT_RESTORE_DELAY_MS: 100,
-  DEFAULT_SIZE_RETRIES: 15,
+  // Frame budget for the width-stability wait in applyDefaultSizes. Window
+  // restore can animate for a few hundred ms; waiting costs nothing while the
+  // width is still changing.
+  DEFAULT_SIZE_RETRIES: 30,
   LAYOUT_CHANGE_DEBOUNCE_MS: 500,
   IDLE_PERSIST_TIMEOUT_MS: 1000,
 } as const;
+
+/**
+ * Percentage-based default widths, floored at each zone's usable minimum for
+ * small windows. Percentages survive dockview's proportional rescaling, so a
+ * default applied against a still-animating window width settles at the same
+ * visual proportions once the window reaches its final size.
+ */
+function defaultDockWidth(gridWidth: number): number {
+  return Math.max(
+    LAYOUT.LEFT_PANEL_MIN_WIDTH,
+    Math.round(gridWidth * LAYOUT.LEFT_PANEL_DEFAULT_RATIO)
+  );
+}
+
+function defaultSessionWidth(gridWidth: number): number {
+  return Math.max(
+    MIN_RIGHT_PANEL_WIDTH,
+    Math.round(gridWidth * LAYOUT.SESSION_PANEL_DEFAULT_RATIO)
+  );
+}
 
 type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;
 type DockviewPanel = NonNullable<ReturnType<DockviewApi['getPanel']>>;
@@ -219,7 +247,7 @@ function buildDefaultLayout(api: DockviewApi) {
     referencePanel: welcomePanel,
     direction: 'left',
     hideHeader: true,
-    initialWidth: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH,
+    initialWidth: defaultDockWidth(api.width),
   });
 
   api.addPanel({
@@ -237,7 +265,7 @@ function buildDefaultLayout(api: DockviewApi) {
     referencePanel: welcomePanel,
     direction: 'right',
     hideHeader: true,
-    initialWidth: useLayoutStore.getState().rightPanelWidth,
+    initialWidth: defaultSessionWidth(api.width),
   });
 
   api.addPanel({
@@ -420,11 +448,17 @@ export function IDELayout({
     (
       api: DockviewApi,
       retries: number = LAYOUT.DEFAULT_SIZE_RETRIES,
-      onDone?: () => void
+      onDone?: () => void,
+      lastWidth: number = -1
     ) => {
-      if (api.width <= 0 && retries > 0) {
+      // Wait until the container width is stable across two consecutive
+      // frames, not merely > 0: at startup the window is still animating to
+      // its restored size, and pixel sizes applied against a transient small
+      // width get proportionally rescaled by dockview afterwards (an inflated
+      // dock and a crushed session column), then persisted.
+      if ((api.width <= 0 || api.width !== lastWidth) && retries > 0) {
         requestAnimationFrame(() =>
-          applyDefaultSizes(api, retries - 1, onDone)
+          applyDefaultSizes(api, retries - 1, onDone, api.width)
         );
         return;
       }
@@ -438,7 +472,7 @@ export function IDELayout({
           slotOfZone(currentArrangement, 'dock') !== 'center' &&
           slotOfZone(currentArrangement, 'dock') !== 'bottom'
         ) {
-          leftGroup.api.setSize({ width: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH });
+          leftGroup.api.setSize({ width: defaultDockWidth(api.width) });
         }
 
         const rightGroup = getRightGroup(api);
@@ -447,9 +481,7 @@ export function IDELayout({
           slotOfZone(currentArrangement, 'session') !== 'center' &&
           slotOfZone(currentArrangement, 'session') !== 'bottom'
         ) {
-          rightGroup.api.setSize({
-            width: useLayoutStore.getState().rightPanelWidth,
-          });
+          rightGroup.api.setSize({ width: defaultSessionWidth(api.width) });
         }
 
         const bottomGroup = getBottomGroup(api);
@@ -478,19 +510,14 @@ export function IDELayout({
       const leftGroup = getLeftGroup(api);
       if (!leftGroup?.api.isVisible) return;
 
-      const maxLeftWidth = api.width * LAYOUT.LEFT_PANEL_MAX_RATIO;
+      // No width policing beyond this: the user owns both column widths.
+      // Only a dock crushed to an unusable sliver (a proportional squeeze
+      // from an oversized sibling column) is restored to its minimum.
       if (
-        leftGroup.api.width > maxLeftWidth &&
-        maxLeftWidth > LAYOUT.LEFT_PANEL_MIN_WIDTH
-      ) {
-        leftGroup.api.setSize({ width: maxLeftWidth });
-      } else if (
         leftGroup.api.width > 0 &&
         leftGroup.api.width < LAYOUT.LEFT_PANEL_MIN_WIDTH &&
         api.width > LAYOUT.LEFT_PANEL_MIN_WIDTH * 3
       ) {
-        // A proportional squeeze (e.g. an oversized sibling column) can crush
-        // the dock to a sliver; restore its minimum usable width.
         leftGroup.api.setSize({ width: LAYOUT.LEFT_PANEL_MIN_WIDTH });
       }
     } catch {
@@ -502,10 +529,11 @@ export function IDELayout({
 
   const buildArrangeOptions = useCallback((): ArrangeLayoutOptions => {
     const layoutState = useLayoutStore.getState();
+    const gridWidth = apiRef.current?.width ?? 0;
     return {
       fallbackSizes: {
-        dock: { width: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH },
-        session: { width: layoutState.rightPanelWidth },
+        dock: { width: defaultDockWidth(gridWidth) },
+        session: { width: defaultSessionWidth(gridWidth) },
         terminal: { height: DEFAULT_TERMINAL_PANEL_HEIGHT },
       },
       sessionVisible: layoutState.isRightPanelVisible,
@@ -653,7 +681,7 @@ export function IDELayout({
           referencePanel,
           direction: 'left',
           hideHeader: true,
-          initialWidth: LAYOUT.LEFT_PANEL_DEFAULT_WIDTH,
+          initialWidth: defaultDockWidth(api.width),
         });
       }
 
@@ -745,7 +773,7 @@ export function IDELayout({
         referencePanel,
         direction: 'right',
         hideHeader: true,
-        initialWidth: useLayoutStore.getState().rightPanelWidth,
+        initialWidth: defaultSessionWidth(api.width),
       });
     }
 
@@ -843,14 +871,19 @@ export function IDELayout({
       appliedArrangementRef.current = currentArrangement;
       if (layout) {
         try {
-          // Normalizing through the arrangement transform also migrates
-          // pre-session-group layouts by synthesizing the session group.
+          // A layout already matching the arrangement restores VERBATIM — the
+          // transform re-synthesizes the grid and loses user-dragged widths
+          // (e.g. with the editor area collapsed). It only runs when needed:
+          // pre-session-group migration or an arrangement change since the
+          // layout was persisted.
           api.fromJSON(
-            arrangeSerializedLayout(
-              layout,
-              currentArrangement,
-              buildArrangeOptions()
-            )
+            serializedLayoutMatchesArrangement(layout, currentArrangement)
+              ? layout
+              : arrangeSerializedLayout(
+                  layout,
+                  currentArrangement,
+                  buildArrangeOptions()
+                )
           );
           normalizeGroupIds(api);
         } catch (error) {

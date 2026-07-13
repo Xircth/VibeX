@@ -58,6 +58,16 @@ function buildDiffPreviewPanelId(filePath: string): string {
   return `${DIFF_PREVIEW_PANEL_ID_PREFIX}${filePath.replace(/\\/g, '/')}`;
 }
 
+// Stable id for image-URL preview panels; URLs (data:/proxy) can be far too
+// long to embed in a dockview panel id, so hash them instead.
+function buildImagePreviewPanelId(imageUrl: string): string {
+  let hash = 5381;
+  for (let i = 0; i < imageUrl.length; i++) {
+    hash = ((hash << 5) + hash + imageUrl.charCodeAt(i)) | 0;
+  }
+  return `image:${(hash >>> 0).toString(36)}`;
+}
+
 function buildSplitPanelId(panelId: string, targetGroupId: string): string {
   return `${panelId}::split::${targetGroupId}`;
 }
@@ -69,10 +79,12 @@ function isDiffPreviewPanelId(panelId: string): boolean {
 export interface PanelActions {
   openOrFocusPanel: (panelId: string, title: string) => void;
   openFilePreview: (filePath: string, options?: OpenFilePreviewOptions) => void;
-  revealInFileTree: (
-    path: string,
-    options?: RevealInFileTreeOptions
+  openImagePreview: (
+    imageUrl: string,
+    options?: { title?: string | null }
   ) => void;
+  openWebPreview: (url: string) => void;
+  revealInFileTree: (path: string, options?: RevealInFileTreeOptions) => void;
   openDiffPreview: () => void;
   openDiffPreviewAtPath: (
     path: string,
@@ -101,11 +113,14 @@ const PanelActionsContext = createContext<PanelActions | null>(null);
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const apiRef = useRef<DockviewApi | null>(null);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
+  const webPreviewRequestNonceRef = useRef(0);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
   const clearGitDiffTargetPath = useGitDiffNavigationStore(
     (state) => state.clearTargetPath
   );
-  const setFileTreeVisible = useLayoutStore((state) => state.setFileTreeVisible);
+  const setFileTreeVisible = useLayoutStore(
+    (state) => state.setFileTreeVisible
+  );
   const revealInTree = useFileTreeStore((state) => state.revealInTree);
   const setSelectedFilePath = useFileTreeStore(
     (state) => state.setSelectedFilePath
@@ -340,6 +355,78 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       panel?.api.setActive();
     },
     [addPanelToActiveEditorGroup, revealInTree, setSelectedFilePath]
+  );
+
+  const openImagePreview = useCallback(
+    (imageUrl: string, options?: { title?: string | null }) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      const panelId = buildImagePreviewPanelId(imageUrl);
+      const title = options?.title?.trim() || 'Image';
+      const params = {
+        filePath: '',
+        mode: 'editor',
+        diffViewMode: 'split',
+        modifiedContent: null,
+        originalContent: null,
+        displayPath: options?.title ?? null,
+        location: null,
+        imageUrl,
+      };
+
+      const existingPanel = dockviewApi.getPanel(panelId);
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        if (existingPanel.title !== title) {
+          existingPanel.api.setTitle(title);
+        }
+        existingPanel.group.api.setVisible(true);
+        existingPanel.api.setActive();
+        return;
+      }
+
+      const panel = addPanelToActiveEditorGroup({
+        id: panelId,
+        component: PANEL_IDS.PREVIEW,
+        title,
+        params,
+      });
+
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
+  );
+
+  const openWebPreview = useCallback(
+    (url: string) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
+
+      webPreviewRequestNonceRef.current += 1;
+      const params = {
+        requestedUrl: url,
+        requestedUrlNonce: webPreviewRequestNonceRef.current,
+      };
+
+      const existingPanel = dockviewApi.getPanel(PANEL_IDS.WEB_PREVIEW);
+      if (existingPanel) {
+        existingPanel.api.updateParameters(params);
+        existingPanel.group.api.setVisible(true);
+        existingPanel.api.setActive();
+        return;
+      }
+
+      const panel = addPanelToActiveEditorGroup({
+        id: PANEL_IDS.WEB_PREVIEW,
+        component: PANEL_IDS.WEB_PREVIEW,
+        title: 'Web Preview',
+        params,
+      });
+
+      panel?.api.setActive();
+    },
+    [addPanelToActiveEditorGroup]
   );
 
   const syncDiffPreviewPanelQueue = useCallback(() => {
@@ -1040,6 +1127,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     () => ({
       openOrFocusPanel,
       openFilePreview,
+      openImagePreview,
+      openWebPreview,
       revealInFileTree,
       openDiffPreview,
       openDiffPreviewAtPath,
@@ -1070,6 +1159,8 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openDiffPreview,
       openDiffPreviewAtPath,
       openFilePreview,
+      openImagePreview,
+      openWebPreview,
       revealInFileTree,
       openLogs,
       openNewTerminal,

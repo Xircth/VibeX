@@ -68,7 +68,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     (url: string) => {
       const normalizedUrl = detectDevserverUrl(url)?.url ?? url;
       setOverrideUrl(normalizedUrl);
-      openOrFocusPanel(PANEL_IDS.DEV_PREVIEW, 'Dev Preview');
+      openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
     },
     [openOrFocusPanel, setOverrideUrl]
   );

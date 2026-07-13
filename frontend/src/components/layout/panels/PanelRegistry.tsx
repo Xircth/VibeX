@@ -18,8 +18,8 @@ const LazyKanbanPanel = React.lazy(
 const LazyFileTreePanel = React.lazy(
   () => import('@/components/panels/DockviewFileTreePanel')
 );
-const LazyDevPreviewPanel = React.lazy(
-  () => import('@/components/panels/DockviewDevPreviewPanel')
+const LazyWebPreviewPanel = React.lazy(
+  () => import('@/components/panels/DockviewWebPreviewPanel')
 );
 const LazyDiffPanel = React.lazy(
   () => import('@/components/panels/DockviewDiffsReviewPanel')
@@ -69,7 +69,7 @@ const PANEL_COMPONENT_MAP: Record<
   // Keep Preview eagerly loaded to avoid occasional unresolved lazy chunk state
   // in packaged desktop builds.
   [PANEL_IDS.PREVIEW]: DockviewPreviewPanel,
-  [PANEL_IDS.DEV_PREVIEW]: LazyDevPreviewPanel,
+  [PANEL_IDS.WEB_PREVIEW]: LazyWebPreviewPanel,
   [PANEL_IDS.DIFFS]: LazyDiffPanel,
   [PANEL_IDS.TERMINAL]: LazyTerminalPanel,
   [PANEL_IDS.AI_CHAT]: LazyAIChatPanel,
@@ -99,6 +99,11 @@ export const panelComponents: Record<
     },
   ])
 );
+
+// Safety net for serialized layouts that escaped the v22 store migration
+// (e.g. restored from a backup): the Web Preview panel's pre-rename
+// component id still resolves.
+panelComponents['dev-preview'] = panelComponents[PANEL_IDS.WEB_PREVIEW];
 
 const MAX_WORKSPACE_TAB_TITLE_CHARS = 6;
 
@@ -217,8 +222,8 @@ export function usePanelMeta(): PanelMeta[] {
     { id: PANEL_IDS.KANBAN, title: 'Kanban', defaultPosition: 'center' },
     { id: PANEL_IDS.PREVIEW, title: 'Preview', defaultPosition: 'center' },
     {
-      id: PANEL_IDS.DEV_PREVIEW,
-      title: 'Dev Preview',
+      id: PANEL_IDS.WEB_PREVIEW,
+      title: 'Web Preview',
       defaultPosition: 'center',
     },
     { id: PANEL_IDS.DIFFS, title: 'Diffs', defaultPosition: 'center' },

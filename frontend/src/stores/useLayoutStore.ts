@@ -10,7 +10,9 @@ export const PANEL_IDS = {
   KANBAN: 'kanban',
   FILE_TREE: 'file-tree',
   PREVIEW: 'preview',
-  DEV_PREVIEW: 'dev-preview',
+  // Web Preview (built-in browser / dev-server preview). Renamed from
+  // 'dev-preview'; persisted layouts are migrated in this store's `migrate`.
+  WEB_PREVIEW: 'web-preview',
   DIFFS: 'diffs',
   TERMINAL: 'terminal',
   AI_CHAT: 'ai-chat',
@@ -85,7 +87,8 @@ interface LayoutState {
 
 const DEFAULT_RIGHT_PANEL_WIDTH = 620;
 const DEFAULT_KANBAN_SESSION_WIDTH = 520;
-const MIN_RIGHT_PANEL_WIDTH = 400;
+/** Exported so the workspace dockview can self-heal a crushed session column. */
+export const MIN_RIGHT_PANEL_WIDTH = 400;
 const MAX_RIGHT_PANEL_WIDTH = 900;
 
 interface LayoutSnapshot {
@@ -160,6 +163,28 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
     isEditorAreaVisible: state.isEditorAreaVisible,
     activeTab: state.activeTab,
   };
+}
+
+/**
+ * v22 rename: the Web Preview panel id changed from 'dev-preview' to
+ * 'web-preview'. Serialized dockview layouts reference the id in several
+ * places (panels map keys, panel ids, contentComponent, group views /
+ * activeView), so rewrite every exact "dev-preview" string value. Quoted
+ * matching keeps longer strings (titles, file paths) untouched.
+ */
+function renameWebPreviewPanelId(
+  layout: SerializedDockview | null
+): SerializedDockview | null {
+  if (!layout) return layout;
+  try {
+    const json = JSON.stringify(layout);
+    if (!json.includes('"dev-preview"')) return layout;
+    return JSON.parse(
+      json.replaceAll('"dev-preview"', '"web-preview"')
+    ) as SerializedDockview;
+  } catch {
+    return layout;
+  }
 }
 
 function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
@@ -389,7 +414,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 21,
+      version: 23,
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const legacySnapshot = buildProjectLayoutState({
@@ -411,6 +436,21 @@ export const useLayoutStore = create<LayoutState>()(
             // corrupted zone sizes, so rebuild the grid with fresh defaults
             // (panel sizes only; visibility flags and tabs are kept).
             if (version < 21) {
+              accumulator[projectKey].serializedLayout = null;
+            } else if (version < 22) {
+              // v22: Web Preview panel id renamed from 'dev-preview'.
+              accumulator[projectKey].serializedLayout =
+                renameWebPreviewPanelId(
+                  accumulator[projectKey].serializedLayout
+                );
+            }
+            // v23: zone defaults became percentage-based (dock 20% / session
+            // 30% of the grid width) and restores are now verbatim, so
+            // snapshots persisted under the old fixed-pixel defaults (or the
+            // startup-scaling artifact: inflated dock, crushed session)
+            // would keep their bad widths forever. One-time grid reset;
+            // visibility flags and the active tab are kept.
+            if (version < 23) {
               accumulator[projectKey].serializedLayout = null;
             }
             return accumulator;

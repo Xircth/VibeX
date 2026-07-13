@@ -60,13 +60,15 @@ export interface ArrangeLayoutOptions {
   sessionVisible?: boolean;
 }
 
-const ZONE_DEFAULT_SIZES: Record<LayoutZone, { width: number; height: number }> =
-  {
-    dock: { width: 200, height: 220 },
-    workspace: { width: 560, height: 320 },
-    session: { width: 620, height: 320 },
-    terminal: { width: 360, height: 200 },
-  };
+const ZONE_DEFAULT_SIZES: Record<
+  LayoutZone,
+  { width: number; height: number }
+> = {
+  dock: { width: 200, height: 220 },
+  workspace: { width: 560, height: 320 },
+  session: { width: 620, height: 320 },
+  terminal: { width: 360, height: 200 },
+};
 
 const FALLBACK_GRID_WIDTH = 1280;
 const FALLBACK_GRID_HEIGHT = 800;
@@ -204,6 +206,42 @@ function synthesizeSessionLeaf(visible: boolean): SerializedLeaf {
     },
     visible,
   };
+}
+
+/**
+ * True when a serialized layout is already in the canonical shape for
+ * `arrangement`, so a restore can `fromJSON` it verbatim instead of running
+ * the rebuild transform. The transform re-synthesizes the grid and can only
+ * approximate column widths from measurements — a lossy step (e.g. it resets
+ * user-dragged widths when the editor area is collapsed) that must be
+ * reserved for actual arrangement changes and legacy-layout migration, never
+ * for a plain restore: a faithful restore preserves user-dragged widths,
+ * group ids, and visibility exactly.
+ */
+export function serializedLayoutMatchesArrangement(
+  layout: SerializedDockview,
+  arrangement: LayoutArrangement
+): boolean {
+  const root = layout.grid?.root as SerializedNode | undefined;
+  if (!root || isLeafNode(root)) return false;
+  if (layout.grid.orientation !== Orientation.HORIZONTAL) return false;
+  const columns = root.data;
+  if (columns.length !== 3) return false;
+
+  const [left, center, right] = columns.map((column) => [
+    ...zonesInNode(column),
+  ]);
+  const isExactly = (zones: LayoutZone[], expected: LayoutZone) =>
+    zones.length === 1 && zones[0] === expected;
+
+  if (!isExactly(left, arrangement.left)) return false;
+  if (!isExactly(right, arrangement.right)) return false;
+  // The center column holds the center zone, optionally with the bottom-slot
+  // zone as a strip underneath it.
+  if (!center.includes(arrangement.center)) return false;
+  return center.every(
+    (zone) => zone === arrangement.center || zone === arrangement.bottom
+  );
 }
 
 export function arrangeSerializedLayout(

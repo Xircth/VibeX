@@ -156,10 +156,16 @@ function createClickedElementPayload(
 
 interface PreviewPanelProps {
   workspaceId?: string;
+  /** URL the panel was asked to load (e.g. a link clicked in a conversation). */
+  requestedUrl?: string | null;
+  /** Changes whenever a new open request arrives, so the same URL re-applies. */
+  requestedUrlNonce?: number;
 }
 
 export function PreviewPanel({
   workspaceId: panelWorkspaceId,
+  requestedUrl = null,
+  requestedUrlNonce = 0,
 }: PreviewPanelProps = {}) {
   const { t } = useTranslation(['panels', 'common']);
   const [iframeError, setIframeError] = useState(false);
@@ -308,6 +314,16 @@ export function PreviewPanel({
   useEffect(() => {
     setSessionPreviewUrl(null);
   }, [customUrl]);
+
+  // Apply an externally requested URL (e.g. a conversation link opened in the
+  // Web Preview panel). Session-scoped only: it does not persist an override.
+  useEffect(() => {
+    if (!requestedUrl) return;
+    const normalized = normalizePreviewUrl(requestedUrl);
+    if (normalized) {
+      setSessionPreviewUrl(normalized);
+    }
+  }, [requestedUrl, requestedUrlNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -731,12 +747,14 @@ export function PreviewPanel({
 
   const canFixDevScript = Boolean(attemptId && repos.length > 0);
 
-  if (!attemptId) {
+  if (!attemptId && !sessionPreviewUrl) {
     return (
       <div className="h-full flex items-center justify-center p-8">
         <div className="text-center text-muted-foreground">
           <p className="text-lg font-medium">{t('previewPanel.title')}</p>
-          <p className="text-sm mt-2">{t('previewPanel.selectWorkspaceHint')}</p>
+          <p className="text-sm mt-2">
+            {t('previewPanel.selectWorkspaceHint')}
+          </p>
         </div>
       </div>
     );
@@ -827,9 +845,7 @@ export function PreviewPanel({
           <Alert className="space-y-2 border-border bg-background/95">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1 text-sm">
-                <p className="font-medium">
-                  {t('previewPanel.previewOpened')}
-                </p>
+                <p className="font-medium">{t('previewPanel.previewOpened')}</p>
                 <p className="text-muted-foreground">
                   {t('previewPanel.companionInstallHint')}
                 </p>

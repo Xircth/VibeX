@@ -6,9 +6,9 @@ use agents::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
         ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
-        ConversationPermissionResponse, ConversationPlanEntry, ConversationRowOpBatch,
-        ConversationSessionModes, ConversationTerminalPatch, ConversationToolCallPatch,
-        ConversationUsage,
+        ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationRowOpBatch, ConversationSessionModes,
+        ConversationTerminalPatch, ConversationToolCallPatch, ConversationUsage,
     },
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
@@ -17,13 +17,15 @@ use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     workspace::Workspace,
 };
-use tokio::sync::Mutex;
 use deployment::Deployment;
 use futures::StreamExt;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
-use tokio::time::{self, Duration, MissedTickBehavior};
+use tokio::{
+    sync::Mutex,
+    time::{self, Duration, MissedTickBehavior},
+};
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -54,20 +56,16 @@ pub async fn emit_conversation_row_ops_after(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    let new_records = match ConversationEventRecord::events_since(
-        pool,
-        conversation_id,
-        after_sequence,
-        2000,
-    )
-    .await
-    {
-        Ok(records) => records,
-        Err(error) => {
-            tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
-            return;
-        }
-    };
+    let new_records =
+        match ConversationEventRecord::events_since(pool, conversation_id, after_sequence, 2000)
+            .await
+        {
+            Ok(records) => records,
+            Err(error) => {
+                tracing::warn!(%conversation_id, %error, "row-op emit: reading events failed");
+                return;
+            }
+        };
     if new_records.is_empty() {
         return;
     }
@@ -530,14 +528,8 @@ async fn flush_pending_conversation_events<D: Deployment + ?Sized>(
     projectors: &ConversationRowProjectors,
     coalescer: &mut ConversationEventCoalescer,
 ) -> bool {
-    append_and_emit_conversation_events(
-        pool,
-        deployment,
-        app_handle,
-        projectors,
-        coalescer.flush(),
-    )
-    .await
+    append_and_emit_conversation_events(pool, deployment, app_handle, projectors, coalescer.flush())
+        .await
 }
 
 async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
@@ -870,6 +862,29 @@ fn map_agent_event_to_conversation_event(
                 auto: *auto,
             },
         }),
+        AgentEvent::ElicitationRequested { request } => {
+            Some(ConversationEvent::QuestionRequested {
+                request: ConversationQuestionRequest {
+                    question_id: request.id.to_string(),
+                    prompt: request.message.clone(),
+                    options: Vec::new(),
+                    schema: Some(request.requested_schema.clone()),
+                },
+            })
+        }
+        AgentEvent::ElicitationResponded {
+            elicitation_id,
+            response,
+        } => Some(ConversationEvent::QuestionResponded {
+            question_id: elicitation_id.to_string(),
+            response: ConversationQuestionResponse {
+                answer: response.summary(),
+                content: match response {
+                    agents::AgentElicitationResponse::Accept { content } => Some(content.clone()),
+                    _ => None,
+                },
+            },
+        }),
         AgentEvent::TerminalCreated { terminal } => Some(ConversationEvent::TerminalUpdated {
             terminal: ConversationTerminalPatch {
                 terminal_id: terminal.id.to_string(),
@@ -971,6 +986,8 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
     match event {
         AgentEvent::PermissionRequested { .. }
         | AgentEvent::PermissionResponded { .. }
+        | AgentEvent::ElicitationRequested { .. }
+        | AgentEvent::ElicitationResponded { .. }
         | AgentEvent::TerminalCreated { .. }
         | AgentEvent::TerminalOutput { .. } => "host",
         AgentEvent::MessageChunk { .. }

@@ -12,7 +12,8 @@ use uuid::Uuid;
 
 use crate::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
-    AgentConnectionManagerEvent, AgentContentBlock, AgentError, AgentEvent, AgentEventEnvelope,
+    AgentConnectionManagerEvent, AgentContentBlock, AgentElicitationId, AgentElicitationResponse,
+    AgentError, AgentEvent, AgentEventEnvelope,
     AgentPermissionId, AgentPermissionRequest, AgentPermissionResponse, AgentPromptId,
     AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult,
     AgentSessionConfigOverride, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus,
@@ -61,6 +62,13 @@ pub struct RespondAgentPermissionInput {
     pub connection_id: AgentConnectionId,
     pub permission_id: AgentPermissionId,
     pub response: AgentPermissionResponse,
+}
+
+#[derive(Debug, Clone)]
+pub struct RespondAgentElicitationInput {
+    pub connection_id: AgentConnectionId,
+    pub elicitation_id: AgentElicitationId,
+    pub response: AgentElicitationResponse,
 }
 
 #[derive(Debug, Clone)]
@@ -644,6 +652,54 @@ impl AgentRuntime {
             .await
     }
 
+    /// Immediately switch the live session's ACP mode (`session/set_mode`).
+    /// Resolves the connection from the session like [`Self::fork_session`];
+    /// errors when the session has no live connection or a turn is in flight —
+    /// callers then keep the choice as a next-turn override.
+    pub async fn set_session_mode(
+        &self,
+        session_id: AgentSessionId,
+        mode_id: impl Into<String>,
+    ) -> AgentResult<()> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .set_session_mode(connection_id, session_id, mode_id)
+            .await
+    }
+
+    /// Immediately change one agent-advertised session config option
+    /// (`session/set_config_option`, e.g. model or permission mode). Same
+    /// resolution and in-flight-turn caveats as [`Self::set_session_mode`].
+    pub async fn set_session_config_option(
+        &self,
+        session_id: AgentSessionId,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> AgentResult<()> {
+        let connection_id = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .map(|session| session.snapshot.connection_id)
+        };
+        let Some(connection_id) = connection_id else {
+            return Err(AgentError::SessionNotFound(session_id.to_string()));
+        };
+        self.connection_manager
+            .set_session_config_option(connection_id, session_id, key, value)
+            .await
+    }
+
     pub async fn send_prompt(
         &self,
         input: SendAgentPromptInput,
@@ -854,6 +910,12 @@ impl AgentRuntime {
     pub async fn respond_permission(&self, input: RespondAgentPermissionInput) -> AgentResult<()> {
         self.connection_manager
             .respond_permission(input.connection_id, input.permission_id, input.response)
+            .await
+    }
+
+    pub async fn respond_elicitation(&self, input: RespondAgentElicitationInput) -> AgentResult<()> {
+        self.connection_manager
+            .respond_elicitation(input.connection_id, input.elicitation_id, input.response)
             .await
     }
 

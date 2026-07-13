@@ -1,13 +1,20 @@
-import { Check, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, Loader2, Wrench } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { AgentAvailabilityState } from '@/hooks/useAgentAvailability';
 
 interface AgentAvailabilityIndicatorProps {
   availability: AgentAvailabilityState;
+  /** When provided, the not-found state renders an inline quick-fix button. */
+  onQuickFix?: () => void;
+  fixing?: boolean;
+  fixError?: string | null;
 }
 
 export function AgentAvailabilityIndicator({
   availability,
+  onQuickFix,
+  fixing = false,
+  fixError = null,
 }: AgentAvailabilityIndicatorProps) {
   const { t } = useTranslation(['app', 'common']);
 
@@ -47,6 +54,43 @@ export function AgentAvailabilityIndicator({
           <p className="text-xs text-muted-foreground pl-6">
             {t('agentAvailability.installationFoundDescription')}
           </p>
+        </>
+      )}
+      {availability.status === 'not_found' && (
+        <>
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-warning" />
+            <span className="text-warning">
+              {t('agentAvailability.notFoundTitle')}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground pl-6">
+            {t('agentAvailability.notFoundDescription')}
+          </p>
+          {onQuickFix ? (
+            <div className="pl-6 pt-1">
+              <button
+                type="button"
+                onClick={onQuickFix}
+                disabled={fixing}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                {fixing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Wrench className="h-3.5 w-3.5" />
+                )}
+                {fixing
+                  ? t('agentAvailability.fixing')
+                  : t('agentAvailability.fixNow')}
+              </button>
+            </div>
+          ) : null}
+          {fixError ? (
+            <p className="pl-6 text-xs text-destructive">
+              {t('agentAvailability.fixFailed', { error: fixError })}
+            </p>
+          ) : null}
         </>
       )}
     </div>

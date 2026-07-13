@@ -11,13 +11,17 @@ use std::{
 use agent_client_protocol as acp;
 use agent_client_protocol::{
     Agent, ConnectionTo,
-    schema::{
+    schema::ProtocolVersion,
+    schema::v1::{
         AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
         CancelNotification, ClientCapabilities, ClientResponse, ContentBlock,
-        CreateTerminalResponse, ForkSessionRequest, ImageContent, Implementation,
+        CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
+        ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
+        ElicitationContentValue, ElicitationFormCapabilities, ElicitationMode, ElicitationScope,
+        ForkSessionRequest, ImageContent, Implementation,
         InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
         NewSessionRequest,
-        PermissionOptionKind, PromptRequest, ProtocolVersion, ReleaseTerminalResponse,
+        PermissionOptionKind, PromptRequest, ReleaseTerminalResponse,
         RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
         SelectedPermissionOutcome, SessionConfigKind,
         SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
@@ -42,7 +46,8 @@ use tokio_util::{
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
 use crate::{
-    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentError,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock,
+    AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse, AgentError,
     AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
@@ -227,6 +232,27 @@ pub enum AgentConnectionCommand {
         permission_id: String,
         response: AgentPermissionResponse,
     },
+    RespondElicitation {
+        elicitation_id: String,
+        response: AgentElicitationResponse,
+    },
+    /// Switch the live ACP session's mode immediately (`session/set_mode`),
+    /// outside the prompt lifecycle. Mid-turn requests are rejected so the
+    /// command loop never blocks on an agent that answers slowly while
+    /// streaming; callers fall back to a next-turn override.
+    SetSessionMode {
+        session_id: AgentSessionId,
+        mode_id: String,
+        result_tx: oneshot::Sender<AgentResult<()>>,
+    },
+    /// Change one agent-advertised config option immediately
+    /// (`session/set_config_option`, e.g. model / permission mode).
+    SetSessionConfigOption {
+        session_id: AgentSessionId,
+        key: String,
+        value: String,
+        result_tx: oneshot::Sender<AgentResult<()>>,
+    },
     Disconnect,
 }
 
@@ -401,6 +427,22 @@ impl AgentConnectionManager {
         .await
     }
 
+    pub async fn respond_elicitation(
+        &self,
+        connection_id: AgentConnectionId,
+        elicitation_id: AgentElicitationId,
+        response: AgentElicitationResponse,
+    ) -> AgentResult<()> {
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::RespondElicitation {
+                elicitation_id: elicitation_id.to_string(),
+                response,
+            },
+        )
+        .await
+    }
+
     pub async fn resume_session(
         &self,
         connection_id: AgentConnectionId,
@@ -440,6 +482,58 @@ impl AgentConnectionManager {
         .await?;
         result_rx.await.map_err(|_| {
             AgentError::Runtime("agent connection closed before session fork completed".into())
+        })?
+    }
+
+    /// Immediately switch the session's mode via ACP `session/set_mode`
+    /// (matched against the modes the agent advertised). Errors while a turn is
+    /// in flight — callers keep the choice as a next-turn override instead.
+    pub async fn set_session_mode(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        mode_id: impl Into<String>,
+    ) -> AgentResult<()> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::SetSessionMode {
+                session_id,
+                mode_id: mode_id.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before session mode change completed".into())
+        })?
+    }
+
+    /// Immediately change one agent-advertised config option (model, permission
+    /// mode, …) via ACP `session/set_config_option`. Same in-flight-turn caveat
+    /// as [`Self::set_session_mode`].
+    pub async fn set_session_config_option(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> AgentResult<()> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::SetSessionConfigOption {
+                session_id,
+                key: key.into(),
+                value: value.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime(
+                "agent connection closed before session config change completed".into(),
+            )
         })?
     }
 
@@ -500,6 +594,7 @@ struct AgentConnectionRunner {
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
     auto_approve_mode: AgentAutoApproveMode,
     delegation_injector: Option<Arc<dyn DelegationInjector>>,
     // Per-session streaming-text accumulator shared with the ACP client bridge so
@@ -528,6 +623,13 @@ struct PendingPermission {
     tx: oneshot::Sender<AgentPermissionResponse>,
 }
 
+#[derive(Debug)]
+struct PendingElicitation {
+    elicitation_id: AgentElicitationId,
+    session_id: AgentSessionId,
+    tx: oneshot::Sender<AgentElicitationResponse>,
+}
+
 /// Owned inputs for [`AgentConnectionRunner::run_prompt`], bundled into one
 /// struct so the method stays under clippy's argument-count threshold.
 struct RunPromptRequest {
@@ -552,6 +654,7 @@ impl AgentConnectionRunner {
             session_map: Arc::new(RwLock::new(HashMap::new())),
             session_controls: Arc::new(RwLock::new(HashMap::new())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
+            pending_elicitations: Arc::new(Mutex::new(HashMap::new())),
             auto_approve_mode,
             delegation_injector,
             stream_dedup: Arc::new(Mutex::new(HashMap::new())),
@@ -669,6 +772,39 @@ impl AgentConnectionRunner {
                     self.respond_pending_permission(&permission_id, response)
                         .await
                 }
+                AgentConnectionCommand::RespondElicitation {
+                    elicitation_id,
+                    response,
+                } => {
+                    self.respond_pending_elicitation(&elicitation_id, response)
+                        .await
+                }
+                AgentConnectionCommand::SetSessionMode {
+                    session_id,
+                    mode_id,
+                    result_tx,
+                } => {
+                    // No ACP server behind the in-memory driver — acknowledge and
+                    // emit the change so mode-switch flows are exercisable in tests.
+                    self.emit(Some(session_id), None, AgentEvent::ModeChanged { mode_id });
+                    let _ = result_tx.send(Ok(()));
+                }
+                AgentConnectionCommand::SetSessionConfigOption {
+                    session_id,
+                    key,
+                    value,
+                    result_tx,
+                } => {
+                    self.emit(
+                        Some(session_id),
+                        None,
+                        AgentEvent::ConfigChanged {
+                            key,
+                            value: serde_json::json!(value),
+                        },
+                    );
+                    let _ = result_tx.send(Ok(()));
+                }
                 AgentConnectionCommand::Disconnect => break,
             }
         }
@@ -745,6 +881,7 @@ impl AgentConnectionRunner {
                     key: "model".to_string(),
                     label: "Model".to_string(),
                     description: Some("Fixture model selector".to_string()),
+                    category: Some("model".to_string()),
                     value: Some(serde_json::json!("fixture-model")),
                     choices: vec![AgentSessionConfigChoice {
                         value: serde_json::json!("fixture-model"),
@@ -965,7 +1102,9 @@ impl AgentConnectionRunner {
             self.snapshot.connection_id,
             self.event_tx.clone(),
             Arc::clone(&self.session_map),
+            Arc::clone(&self.session_controls),
             Arc::clone(&self.pending_permissions),
+            Arc::clone(&self.pending_elicitations),
             self.auto_approve_mode,
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
@@ -1002,7 +1141,15 @@ impl AgentConnectionRunner {
                 let initialize = conn
                     .send_request(
                         InitializeRequest::new(ProtocolVersion::LATEST)
-                            .client_capabilities(ClientCapabilities::new().terminal(true))
+                            .client_capabilities(
+                                ClientCapabilities::new().terminal(true).elicitation(
+                                    // Form mode only: it covers AskUserQuestion and MCP
+                                    // form elicitations. URL mode needs a browser hand-off
+                                    // flow the app doesn't have yet.
+                                    ElicitationCapabilities::new()
+                                        .form(ElicitationFormCapabilities::new()),
+                                ),
+                            )
                             .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
                     )
                     .block_task();
@@ -1116,6 +1263,35 @@ impl AgentConnectionRunner {
                                 .respond_pending_permission(&permission_id, response)
                                 .await;
                         }
+                        AgentConnectionCommand::RespondElicitation {
+                            elicitation_id,
+                            response,
+                        } => {
+                            runner
+                                .respond_pending_elicitation(&elicitation_id, response)
+                                .await;
+                        }
+                        AgentConnectionCommand::SetSessionMode {
+                            session_id,
+                            mode_id,
+                            result_tx,
+                        } => {
+                            let result = runner
+                                .set_live_session_mode(&conn, session_id, &mode_id)
+                                .await;
+                            let _ = result_tx.send(result);
+                        }
+                        AgentConnectionCommand::SetSessionConfigOption {
+                            session_id,
+                            key,
+                            value,
+                            result_tx,
+                        } => {
+                            let result = runner
+                                .set_live_session_config_option(&conn, session_id, &key, &value)
+                                .await;
+                            let _ = result_tx.send(result);
+                        }
                         AgentConnectionCommand::Disconnect => break,
                     }
                 }
@@ -1225,8 +1401,8 @@ impl AgentConnectionRunner {
                 working_dir,
             )
         {
-            request.mcp_servers.push(acp::schema::McpServer::Stdio(
-                acp::schema::McpServerStdio::new(server.name, server.command).args(server.args),
+            request.mcp_servers.push(acp::schema::v1::McpServer::Stdio(
+                acp::schema::v1::McpServerStdio::new(server.name, server.command).args(server.args),
             ));
         }
         let response = conn.send_request(request).block_task().await?;
@@ -1356,14 +1532,20 @@ impl AgentConnectionRunner {
         ))
         .block_task()
         .await?;
-        self.session_controls
-            .write()
-            .await
-            .entry(session_id)
-            .or_default()
-            .modes
-            .get_or_insert(modes)
-            .current_mode_id = SessionModeId::new(mode_id.clone());
+        let snapshot = {
+            let mut controls = self.session_controls.write().await;
+            let stored = controls.entry(session_id).or_default().modes.get_or_insert(modes);
+            stored.current_mode_id = SessionModeId::new(mode_id.clone());
+            stored.clone()
+        };
+        // Emit the full state (persisted by the conversation projection) plus the
+        // lightweight ModeChanged signal for live listeners.
+        let (modes, current) = agent_session_modes_from_acp(snapshot);
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionModes { modes, current },
+        );
         self.emit(Some(session_id), None, AgentEvent::ModeChanged { mode_id });
         Ok(())
     }
@@ -1431,6 +1613,47 @@ impl AgentConnectionRunner {
             },
         );
         Ok(())
+    }
+
+    /// Resolve the live ACP session and apply a mode change right now (idle
+    /// path of the immediate `SetSessionMode` command).
+    async fn set_live_session_mode(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        session_id: AgentSessionId,
+        mode_id: &str,
+    ) -> AgentResult<()> {
+        let acp_session_id = self.session_map.read().await.get(&session_id).cloned();
+        let Some(acp_session_id) = acp_session_id else {
+            return Err(AgentError::Runtime(
+                "no live ACP session yet; the mode will apply when the next turn starts".into(),
+            ));
+        };
+        self.apply_mode_override(conn, &acp_session_id, session_id, mode_id)
+            .await
+            .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))
+    }
+
+    /// Resolve the live ACP session and apply a config-option change right now
+    /// (idle path of the immediate `SetSessionConfigOption` command).
+    async fn set_live_session_config_option(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        session_id: AgentSessionId,
+        key: &str,
+        value: &str,
+    ) -> AgentResult<()> {
+        let acp_session_id = self.session_map.read().await.get(&session_id).cloned();
+        let Some(acp_session_id) = acp_session_id else {
+            return Err(AgentError::Runtime(
+                "no live ACP session yet; the setting will apply when the next turn starts".into(),
+            ));
+        };
+        self.apply_config_override(conn, &acp_session_id, session_id, key, value)
+            .await
+            .map_err(|error| {
+                AgentError::Runtime(format!("session/set_config_option failed: {error}"))
+            })
     }
 
     fn emit_override_diagnostic(
@@ -1505,7 +1728,7 @@ impl AgentConnectionRunner {
                     // permission still pending in the in-memory map; otherwise its
                     // oneshot sender leaks and the runtime/DB state diverge. The
                     // cancel/disconnect arms below already do this.
-                    self.cancel_pending_permissions(session_id).await;
+                    self.cancel_pending_interactions(session_id).await;
                     match result {
                         Ok(response) => {
                             self.emit(
@@ -1541,15 +1764,18 @@ impl AgentConnectionRunner {
                 // forever. Polls cheaply; the real measure is `last_activity`,
                 // refreshed by every session notification, so a legitimately
                 // streaming long turn is never killed. Skipped while a permission
-                // decision is pending (that wait produces no activity).
+                // decision or an elicitation answer is pending (those waits
+                // produce no activity).
                 _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    if self.has_pending_permission_for(session_id).await {
+                    if self.has_pending_permission_for(session_id).await
+                        || self.has_pending_elicitation_for(session_id).await
+                    {
                         continue;
                     }
                     if self.last_activity.lock().await.elapsed() < idle_timeout {
                         continue;
                     }
-                    self.cancel_pending_permissions(session_id).await;
+                    self.cancel_pending_interactions(session_id).await;
                     let _ = conn.send_notification(CancelNotification::new(SessionId::new(
                         acp_session_id.clone(),
                     )));
@@ -1572,7 +1798,7 @@ impl AgentConnectionRunner {
                         Some(AgentConnectionCommand::Cancel { session_id: cancel_session, prompt_id: cancel_prompt })
                             if cancel_session == session_id && cancel_prompt == prompt_id =>
                         {
-                            self.cancel_pending_permissions(session_id).await;
+                            self.cancel_pending_interactions(session_id).await;
                             conn.send_notification(CancelNotification::new(SessionId::new(acp_session_id.clone())))?;
                             self.emit(
                                 Some(session_id),
@@ -1591,7 +1817,7 @@ impl AgentConnectionRunner {
                             // The connection is going away mid-turn. Fail the turn
                             // so it doesn't hang at "生成中"; clear the cursor so
                             // run()'s fallback doesn't double-emit.
-                            self.cancel_pending_permissions(session_id).await;
+                            self.cancel_pending_interactions(session_id).await;
                             let _ = conn.send_notification(CancelNotification::new(SessionId::new(
                                 acp_session_id.clone(),
                             )));
@@ -1615,6 +1841,10 @@ impl AgentConnectionRunner {
                             *self.last_activity.lock().await = Instant::now();
                             self.respond_pending_permission(&permission_id, response).await;
                         }
+                        Some(AgentConnectionCommand::RespondElicitation { elicitation_id, response }) => {
+                            *self.last_activity.lock().await = Instant::now();
+                            self.respond_pending_elicitation(&elicitation_id, response).await;
+                        }
                         Some(AgentConnectionCommand::ForkSession { result_tx, .. }) => {
                             // A fork can't be taken mid-turn: the session state is
                             // actively mutating, so we'd branch a partial context.
@@ -1623,6 +1853,17 @@ impl AgentConnectionRunner {
                             // misleading "connection closed before session fork").
                             let _ = result_tx.send(Err(AgentError::Runtime(
                                 "cannot fork the session while a turn is in progress; wait for it to finish"
+                                    .into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::SetSessionMode { result_tx, .. })
+                        | Some(AgentConnectionCommand::SetSessionConfigOption { result_tx, .. }) => {
+                            // Applying these mid-turn would block this loop on a
+                            // request the agent may not answer until the turn ends.
+                            // Reject; the caller keeps the choice as a next-turn
+                            // override instead.
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot change session settings while a turn is in progress; the choice will apply on the next turn"
                                     .into(),
                             )));
                         }
@@ -1686,7 +1927,7 @@ impl AgentConnectionRunner {
             .any(|pending| pending.session_id == session_id)
     }
 
-    async fn cancel_pending_permissions(&self, session_id: AgentSessionId) {
+    async fn cancel_pending_interactions(&self, session_id: AgentSessionId) {
         let pending = {
             let mut pending_permissions = self.pending_permissions.lock().await;
             let permission_ids = pending_permissions
@@ -1711,6 +1952,77 @@ impl AgentConnectionRunner {
                     permission_id: pending.permission_id,
                     response,
                     auto: false,
+                },
+            );
+        }
+        self.cancel_pending_elicitations(session_id).await;
+    }
+
+    async fn respond_pending_elicitation(
+        &self,
+        elicitation_id: &str,
+        response: AgentElicitationResponse,
+    ) {
+        let pending = self.pending_elicitations.lock().await.remove(elicitation_id);
+        if let Some(pending) = pending {
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::ElicitationResponded {
+                    elicitation_id: pending.elicitation_id,
+                    response,
+                },
+            );
+        } else {
+            self.emit(
+                None,
+                None,
+                AgentEvent::RawAcpDiagnostic {
+                    raw: serde_json::json!({
+                        "kind": "unknown_elicitation_response",
+                        "elicitation_id": elicitation_id,
+                    }),
+                },
+            );
+        }
+    }
+
+    /// Is the agent blocked waiting on a user answer to an elicitation for this
+    /// session? Like a permission wait, this produces no ACP activity, so the
+    /// idle watchdog must not mistake it for a hang.
+    async fn has_pending_elicitation_for(&self, session_id: AgentSessionId) -> bool {
+        self.pending_elicitations
+            .lock()
+            .await
+            .values()
+            .any(|pending| pending.session_id == session_id)
+    }
+
+    async fn cancel_pending_elicitations(&self, session_id: AgentSessionId) {
+        let pending = {
+            let mut pending_elicitations = self.pending_elicitations.lock().await;
+            let elicitation_ids = pending_elicitations
+                .iter()
+                .filter(|(_, pending)| pending.session_id == session_id)
+                .map(|(elicitation_id, _)| elicitation_id.clone())
+                .collect::<Vec<_>>();
+
+            elicitation_ids
+                .into_iter()
+                .filter_map(|elicitation_id| pending_elicitations.remove(&elicitation_id))
+                .collect::<Vec<_>>()
+        };
+
+        for pending in pending {
+            let response = AgentElicitationResponse::Cancel;
+            let _ = pending.tx.send(response.clone());
+            self.emit(
+                Some(pending.session_id),
+                None,
+                AgentEvent::ElicitationResponded {
+                    elicitation_id: pending.elicitation_id,
+                    response,
                 },
             );
         }
@@ -1803,7 +2115,12 @@ struct AcpClientBridge {
     connection_id: AgentConnectionId,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+    // Shared with the owning runner: session-notification pushes (mode / config
+    // updates) must keep the stored controls authoritative for later
+    // set_mode/set_config_option matching.
+    session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+    pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
     auto_approve_mode: AgentAutoApproveMode,
     // Shared with the owning `AgentConnectionRunner` so a turn boundary can reset
     // it; keyed by ACP session id.
@@ -1814,11 +2131,14 @@ struct AcpClientBridge {
 }
 
 impl AcpClientBridge {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         connection_id: AgentConnectionId,
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
+        session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
         pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
+        pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
         auto_approve_mode: AgentAutoApproveMode,
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
@@ -1827,7 +2147,9 @@ impl AcpClientBridge {
             connection_id,
             event_tx,
             session_map,
+            session_controls,
             pending_permissions,
+            pending_elicitations,
             auto_approve_mode,
             stream_dedup,
             last_activity,
@@ -1867,6 +2189,9 @@ impl AcpClientBridge {
             AgentRequest::RequestPermissionRequest(args) => Ok(
                 ClientResponse::RequestPermissionResponse(self.request_permission(args).await?),
             ),
+            AgentRequest::CreateElicitationRequest(args) => Ok(
+                ClientResponse::CreateElicitationResponse(self.create_elicitation(args).await?),
+            ),
             AgentRequest::CreateTerminalRequest(args) => Ok(
                 ClientResponse::CreateTerminalResponse(self.create_terminal(args).await?),
             ),
@@ -1878,7 +2203,7 @@ impl AcpClientBridge {
                     .ok_or_else(acp::Error::invalid_params)?;
                 let mut response = TerminalOutputResponse::new(snapshot.output, snapshot.truncated);
                 if let Some(AgentTerminalExit::Code { code }) = snapshot.exit {
-                    let exit_status = agent_client_protocol::schema::TerminalExitStatus::new()
+                    let exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new()
                         .exit_code(code as u32);
                     response = response.exit_status(exit_status);
                 }
@@ -1902,7 +2227,7 @@ impl AcpClientBridge {
                     .wait_for_exit(terminal_id.into())
                     .await
                     .ok_or_else(acp::Error::invalid_params)?;
-                let mut exit_status = agent_client_protocol::schema::TerminalExitStatus::new();
+                let mut exit_status = agent_client_protocol::schema::v1::TerminalExitStatus::new();
                 if let AgentTerminalExit::Code { code } = exit {
                     exit_status = exit_status.exit_code(code as u32);
                 }
@@ -2008,6 +2333,66 @@ impl AcpClientBridge {
         )))
     }
 
+    /// Handle ACP `elicitation/create` (unstable): the agent asks the user for
+    /// structured input — Claude Code's `AskUserQuestion` and MCP elicitations
+    /// arrive here. Blocks the ACP request until the user answers; the pending
+    /// entry is cancelled by the same paths that cancel pending permissions.
+    async fn create_elicitation(
+        &self,
+        args: CreateElicitationRequest,
+    ) -> Result<CreateElicitationResponse, acp::Error> {
+        let ElicitationMode::Form(form) = args.mode else {
+            // Only form mode is advertised; decline anything else instead of
+            // erroring so a nonconforming agent degrades gracefully.
+            return Ok(CreateElicitationResponse::new(ElicitationAction::Decline));
+        };
+        let ElicitationScope::Session(session_scope) = &form.scope else {
+            // Request-scoped elicitations (pre-session auth/config) have no
+            // conversation to surface in yet.
+            tracing::warn!("declining request-scoped elicitation — no session to route it to");
+            return Ok(CreateElicitationResponse::new(ElicitationAction::Decline));
+        };
+        let acp_session = session_scope.session_id.0.to_string();
+        let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
+            tracing::warn!(
+                acp_session = %acp_session,
+                "elicitation/create for unknown ACP session — rejecting instead of \
+                 routing to a phantom session the UI can never answer"
+            );
+            return Err(acp::Error::invalid_params());
+        };
+
+        let elicitation_id = AgentElicitationId::new();
+        let request = AgentElicitationRequest {
+            id: elicitation_id,
+            session_id,
+            message: args.message,
+            requested_schema: serde_json::to_value(&form.requested_schema)
+                .map_err(acp::Error::into_internal_error)?,
+        };
+        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+            connection_id: self.connection_id,
+            session_id: Some(session_id),
+            prompt_id: None,
+            event: AgentEvent::ElicitationRequested { request },
+        });
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_elicitations.lock().await.insert(
+            elicitation_id.to_string(),
+            PendingElicitation {
+                elicitation_id,
+                session_id,
+                tx,
+            },
+        );
+
+        let response = rx.await.unwrap_or(AgentElicitationResponse::Cancel);
+        Ok(CreateElicitationResponse::new(elicitation_response_action(
+            response,
+        )))
+    }
+
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
         // the in-flight prompt alive for the idle watchdog in `run_prompt`.
@@ -2072,12 +2457,51 @@ impl AcpClientBridge {
             SessionUpdate::AvailableCommandsUpdate(update) => Some(AgentEvent::AvailableCommands {
                 commands: agent_available_commands_from_acp(update.available_commands),
             }),
-            SessionUpdate::CurrentModeUpdate(update) => Some(AgentEvent::ModeChanged {
-                mode_id: update.current_mode_id.0.to_string(),
-            }),
-            SessionUpdate::ConfigOptionUpdate(update) => Some(AgentEvent::SessionConfigOptions {
-                options: agent_session_config_options_from_acp(update.config_options),
-            }),
+            SessionUpdate::CurrentModeUpdate(update) => {
+                let mode_id = update.current_mode_id.0.to_string();
+                // Keep the stored mode state authoritative and re-emit the FULL
+                // state: a bare ModeChanged is not persisted by the conversation
+                // projection, so a late-joining UI would otherwise miss the switch.
+                if let Some(session_id) = session_id {
+                    let snapshot: Option<SessionModeState> = {
+                        let mut controls = self.session_controls.write().await;
+                        let entry = controls.entry(session_id).or_default();
+                        match entry.modes.as_mut() {
+                            Some(modes) => {
+                                modes.current_mode_id =
+                                    SessionModeId::new(update.current_mode_id.0.to_string());
+                                Some(modes.clone())
+                            }
+                            None => None,
+                        }
+                    };
+                    if let Some(snapshot) = snapshot {
+                        let (modes, current) = agent_session_modes_from_acp(snapshot);
+                        let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                            connection_id: self.connection_id,
+                            session_id: Some(session_id),
+                            prompt_id: None,
+                            event: AgentEvent::SessionModes { modes, current },
+                        });
+                    }
+                }
+                Some(AgentEvent::ModeChanged { mode_id })
+            }
+            SessionUpdate::ConfigOptionUpdate(update) => {
+                // Mirror the pushed options into the stored controls so later
+                // `session/set_config_option` matching never works off stale data.
+                if let Some(session_id) = session_id {
+                    self.session_controls
+                        .write()
+                        .await
+                        .entry(session_id)
+                        .or_default()
+                        .config_options = update.config_options.clone();
+                }
+                Some(AgentEvent::SessionConfigOptions {
+                    options: agent_session_config_options_from_acp(update.config_options),
+                })
+            }
             SessionUpdate::UsageUpdate(update) => Some(AgentEvent::Usage {
                 usage: AgentUsage {
                     used: update.used,
@@ -2116,7 +2540,7 @@ impl AcpClientBridge {
 
     async fn create_terminal(
         &self,
-        args: agent_client_protocol::schema::CreateTerminalRequest,
+        args: agent_client_protocol::schema::v1::CreateTerminalRequest,
     ) -> Result<CreateTerminalResponse, acp::Error> {
         let acp_session = args.session_id.0.to_string();
         let Some(session_id) = self.agent_session_for_acp(acp_session.clone()).await else {
@@ -2259,7 +2683,7 @@ fn config_option_matches(option: &AcpSessionConfigOption, key: &str) -> bool {
 }
 
 fn find_select_choice<'a>(
-    select: &'a agent_client_protocol::schema::SessionConfigSelect,
+    select: &'a agent_client_protocol::schema::v1::SessionConfigSelect,
     key: &str,
     value: &str,
 ) -> Option<&'a SessionConfigSelectOption> {
@@ -2469,6 +2893,12 @@ fn agent_session_config_option_from_acp(
         key: option.id.0.to_string(),
         label: option.name,
         description: option.description,
+        // Serialized form of the ACP category enum ("mode" / "model" / …).
+        category: option.category.as_ref().and_then(|category| {
+            serde_json::to_value(category)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string))
+        }),
         value,
         choices,
     }
@@ -2534,6 +2964,30 @@ fn permission_response_outcome(response: AgentPermissionResponse) -> RequestPerm
             RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id))
         }
         AgentPermissionResponse::Cancelled => RequestPermissionOutcome::Cancelled,
+    }
+}
+
+fn elicitation_response_action(response: AgentElicitationResponse) -> ElicitationAction {
+    match response {
+        AgentElicitationResponse::Accept { content } => {
+            // The wire type only admits primitive values; anything else the UI
+            // slipped in is dropped rather than failing the whole answer.
+            let validated = content
+                .as_object()
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(key, value)| {
+                            serde_json::from_value::<ElicitationContentValue>(value.clone())
+                                .ok()
+                                .map(|value| (key.clone(), value))
+                        })
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                })
+                .unwrap_or_default();
+            ElicitationAction::Accept(ElicitationAcceptAction::new().content(validated))
+        }
+        AgentElicitationResponse::Decline => ElicitationAction::Decline,
+        AgentElicitationResponse::Cancel => ElicitationAction::Cancel,
     }
 }
 
@@ -2707,9 +3161,9 @@ mod tests {
         let state = SessionModeState::new(
             "ask",
             vec![
-                agent_client_protocol::schema::SessionMode::new("ask", "Ask")
+                agent_client_protocol::schema::v1::SessionMode::new("ask", "Ask")
                     .description(Some("Confirm before editing".to_string())),
-                agent_client_protocol::schema::SessionMode::new("act", "Act"),
+                agent_client_protocol::schema::v1::SessionMode::new("act", "Act"),
             ],
         );
 
@@ -2733,9 +3187,9 @@ mod tests {
                 "Model",
                 "gpt-5",
                 vec![
-                    agent_client_protocol::schema::SessionConfigSelectOption::new("gpt-5", "GPT-5")
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new("gpt-5", "GPT-5")
                         .description(Some("Balanced".to_string())),
-                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                         "gpt-5-codex",
                         "GPT-5 Codex",
                     ),
@@ -2747,11 +3201,11 @@ mod tests {
                 "Reasoning",
                 "high",
                 vec![
-                    agent_client_protocol::schema::SessionConfigSelectGroup::new(
+                    agent_client_protocol::schema::v1::SessionConfigSelectGroup::new(
                         "effort",
                         "Effort",
                         vec![
-                            agent_client_protocol::schema::SessionConfigSelectOption::new(
+                            agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                                 "high", "High",
                             ),
                         ],
@@ -2786,11 +3240,11 @@ mod tests {
                 "Model",
                 "claude-opus-4-8",
                 vec![
-                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                         "claude-opus-4-8",
                         "Claude Opus 4.8",
                     ),
-                    agent_client_protocol::schema::SessionConfigSelectOption::new(
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                         "claude-sonnet-4-5",
                         "Claude Sonnet 4.5",
                     ),
@@ -2814,8 +3268,8 @@ mod tests {
             "Permissions",
             "ask",
             vec![
-                agent_client_protocol::schema::SessionConfigSelectOption::new("ask", "Ask"),
-                agent_client_protocol::schema::SessionConfigSelectOption::new(
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new("ask", "Ask"),
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                     "auto",
                     "Auto Approve",
                 ),
@@ -2834,8 +3288,8 @@ mod tests {
     fn maps_acp_available_commands_to_agent_payload() {
         let commands = vec![
             AcpAvailableCommand::new("compact", "Compact context").input(
-                agent_client_protocol::schema::AvailableCommandInput::Unstructured(
-                    agent_client_protocol::schema::UnstructuredCommandInput::new("focus"),
+                agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
+                    agent_client_protocol::schema::v1::UnstructuredCommandInput::new("focus"),
                 ),
             ),
         ];

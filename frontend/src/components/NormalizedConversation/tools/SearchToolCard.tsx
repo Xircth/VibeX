@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Check, Copy, ExternalLink, Globe, Search } from 'lucide-react';
 import type { NormalizedEntry } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { getToolSummary } from '../conversation-entry-utils';
@@ -42,6 +43,7 @@ export function SearchToolCard({
   const summary = getToolSummary(toolEntry, entry.content.trim());
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
   const [copied, triggerCopied] = useTemporaryFlag(1500);
+  const openLink = useOpenLink();
 
   const handleCopy = useCallback(async () => {
     try {
@@ -54,8 +56,8 @@ export function SearchToolCard({
 
   const handleOpenLink = useCallback(() => {
     if (!canOpenLink) return;
-    window.open(detail, '_blank', 'noopener,noreferrer');
-  }, [canOpenLink, detail]);
+    openLink(detail);
+  }, [canOpenLink, detail, openLink]);
 
   if (!toolEntry || !actionType) return null;
 

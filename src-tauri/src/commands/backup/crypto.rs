@@ -19,9 +19,13 @@
 
 use std::io::{self, Cursor, Read};
 
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::aead::stream::{DecryptorBE32, EncryptorBE32};
-use aes_gcm::{Aes256Gcm, KeyInit};
+use aes_gcm::{
+    Aes256Gcm, KeyInit,
+    aead::{
+        generic_array::GenericArray,
+        stream::{DecryptorBE32, EncryptorBE32},
+    },
+};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use rand::RngCore;

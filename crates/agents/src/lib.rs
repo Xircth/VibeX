@@ -8,6 +8,7 @@ pub mod config;
 pub mod conversation;
 pub mod delegation_inject;
 pub mod distribution;
+pub mod elicitation;
 pub mod error;
 pub mod events;
 pub mod filesystem;
@@ -21,6 +22,7 @@ pub mod mcp_file;
 pub mod metadata;
 pub mod parsers;
 pub mod permissions;
+pub mod plan_usage;
 pub mod preflight;
 pub mod registry;
 pub mod runtime;
@@ -50,6 +52,7 @@ pub use distribution::{
     AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
     SystemCommand, current_platform,
 };
+pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use error::{AgentError, AgentResult};
 pub use events::{
     AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
@@ -64,7 +67,8 @@ pub use history::{
 };
 pub use host::{AgentHost, HostRequestError};
 pub use ids::{
-    AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId,
+    AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
+    AgentTerminalId,
 };
 pub use installer::{
     AgentInstallPlan, AgentInstallStatus, AgentPreflight, AgentPreflightIssue,
@@ -89,6 +93,10 @@ pub use permissions::{
     AgentPermissionResponse, RemotePermissionIntent, decide_auto_permission_response,
     decide_remote_permission_response,
 };
+pub use plan_usage::{
+    AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
+    probe_plan_usage,
+};
 pub use preflight::{
     AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,
     AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
@@ -96,8 +104,8 @@ pub use preflight::{
 pub use registry::{AgentRegistryEntry, AgentKind, all_agent_types, registry_entry};
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
-    RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot,
-    SendAgentPromptInput,
+    RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
+    RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};

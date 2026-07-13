@@ -66,6 +66,7 @@ function detail(): DbConversationDetail {
       rows: [],
     },
     projection_version: 2,
+    session_config_options: [],
   };
 }
 

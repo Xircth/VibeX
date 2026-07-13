@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
+import { readCachedSessionControls } from '@/features/conversation/sessionControlsCache';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,13 @@ export function SessionCreationForm({
   const { t } = useTranslation(['tasks', 'common']);
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
   const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
+  // When the agent is known to advertise its own ACP modes/models (cached from
+  // a previous session), hide the static profile-derived model/permission
+  // pickers here — the composer offers the agent's real options right after
+  // creation, applied on the first turn.
+  const agentAdvertisesControls = Boolean(
+    readCachedSessionControls(selectedExecutorProfile?.executor)
+  );
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const selectedWorkspaceOption = findWorkspaceBranchOption(
     workspaceBranchOptions,
@@ -173,6 +181,7 @@ export function SessionCreationForm({
           onChange={onSelectedExecutorProfileChange}
           disabled={isSubmitting}
           dropdownSide={dropdownSide}
+          suppressAcpManagedControls={agentAdvertisesControls}
           className={cn(
             'flex flex-wrap items-center gap-2',
             compact ? 'grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]' : ''

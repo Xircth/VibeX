@@ -2,9 +2,7 @@
 
 use std::sync::Arc;
 
-use agents::{
-    AgentKind, ids::AgentConnectionId, runtime::AgentRuntime,
-};
+use agents::{AgentKind, ids::AgentConnectionId, runtime::AgentRuntime};
 use async_trait::async_trait;
 use db::models::session::{Session, SessionStatus};
 use delegation::{

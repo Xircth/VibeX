@@ -4,14 +4,18 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentPermissionResponse, AgentSessionConfigOverride, AgentKind, AgentSessionId,
-    ImportedAgentMessageRole, ImportedAgentSession,
+    AgentElicitationResponse, AgentKind, AgentPermissionResponse, AgentSessionConfigOption,
+    AgentSessionConfigOverride, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationInputBlock,
-        ConversationRowPage, ConversationTimeline, ConversationTimelinePage,
-        ConversationTimelineRow, ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
+        ConversationRowPage, ConversationSessionModes, ConversationTimeline,
+        ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch, MessageTurn,
+        SessionStats, TurnUsage,
     },
+};
+use conversations::{
+    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
 };
 use db::models::{
     conversation::{
@@ -21,9 +25,6 @@ use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
-};
-use conversations::{
-    CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
 };
 use executors::profile::ExecutorProfileId;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,14 @@ pub struct DbConversationDetail {
     pub session_stats: Option<SessionStats>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_flight_user_turn_id: Option<String>,
+    /// Latest agent-advertised session modes, hydrated from the event log so a
+    /// reopened conversation renders the real ACP pickers immediately.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_modes: Option<ConversationSessionModes>,
+    /// Latest agent-advertised config options (model / permission / …), same
+    /// hydration contract as `session_modes`.
+    #[serde(default)]
+    pub session_config_options: Vec<AgentSessionConfigOption>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -135,6 +144,29 @@ pub struct ConversationPermissionResponseRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConversationQuestionResponseRequest {
+    pub conversation_id: String,
+    pub question_id: String,
+    pub response: AgentElicitationResponse,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSetSessionModeRequest {
+    pub conversation_id: String,
+    pub mode_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSetSessionConfigOptionRequest {
+    pub conversation_id: String,
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationCancelTurnRequest {
     pub conversation_id: String,
     #[serde(default)]
@@ -191,6 +223,8 @@ pub async fn conversation_detail_core(
         )
         .then(|| turn.id.to_string())
     });
+    let session_modes = latest_session_modes(pool, id).await?;
+    let session_config_options = latest_session_config_options(pool, id).await?;
     Ok(Some(DbConversationDetail {
         summary,
         turns,
@@ -200,7 +234,49 @@ pub async fn conversation_detail_core(
         projection_version: CONVERSATION_PROJECTION_VERSION,
         session_stats,
         in_flight_user_turn_id,
+        session_modes,
+        session_config_options,
     }))
+}
+
+/// Latest agent-advertised session-mode state from the event log (None until the
+/// agent's first `session/new` advertises modes).
+async fn latest_session_modes(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Option<ConversationSessionModes>, AppError> {
+    let record =
+        ConversationEventRecord::latest_of_kind(pool, conversation_id, "session_mode_updated")
+            .await?;
+    Ok(record.and_then(|record| {
+        match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+            Ok(ConversationEvent::SessionModeUpdated { current, modes }) => {
+                Some(ConversationSessionModes { current, modes })
+            }
+            _ => None,
+        }
+    }))
+}
+
+/// Latest agent-advertised config options (model / permission / …) from the event log.
+async fn latest_session_config_options(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> Result<Vec<AgentSessionConfigOption>, AppError> {
+    let record = ConversationEventRecord::latest_of_kind(
+        pool,
+        conversation_id,
+        "session_config_options_updated",
+    )
+    .await?;
+    Ok(record
+        .and_then(|record| {
+            match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
+                Ok(ConversationEvent::SessionConfigOptionsUpdated { options }) => Some(options),
+                _ => None,
+            }
+        })
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -356,7 +432,14 @@ pub async fn conversation_start_turn(
         })
         .await;
 
-    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(
+        &app,
+        &state.conversation_row_projectors,
+        &pool,
+        conversation_id,
+        previous_last_sequence,
+    )
+    .await;
 
     let (turn, _prompt) = result?;
     Ok(turn)
@@ -385,10 +468,18 @@ async fn emit_conversation_events_after(
     after_sequence: i64,
 ) {
     // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
-        .await;
+    crate::events::emit_conversation_row_ops_after(
+        app,
+        projectors,
+        pool,
+        conversation_id,
+        after_sequence,
+    )
+    .await;
     // IM channels still consume the raw event envelopes.
-    if let Ok(page) = conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+    if let Ok(page) =
+        conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
+    {
         for event in page.events {
             if let Err(error) =
                 crate::commands::chat_channel::notify_conversation_event(&event).await
@@ -417,8 +508,72 @@ pub async fn conversation_respond_permission(
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(conversation_id, request.permission_id, request.response)
         .await;
-    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(
+        &app,
+        &state.conversation_row_projectors,
+        &pool,
+        conversation_id,
+        previous_last_sequence,
+    )
+    .await;
     result.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn conversation_respond_question(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: ConversationQuestionResponseRequest,
+) -> Result<(), AppError> {
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    let pool = state.deployment.db().pool.clone();
+    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
+    let result = ConversationSessionService::new(state.conversation_context())
+        .respond_question(conversation_id, request.question_id, request.response)
+        .await;
+    emit_conversation_events_after(
+        &app,
+        &state.conversation_row_projectors,
+        &pool,
+        conversation_id,
+        previous_last_sequence,
+    )
+    .await;
+    result.map_err(Into::into)
+}
+
+/// Immediately switch the conversation's live ACP session mode
+/// (`session/set_mode`). The agent's `ModeChanged` event flows back through the
+/// normal conversation event pipeline. Fails when no live session exists or a
+/// turn is in flight — the frontend keeps the choice as a next-turn override.
+#[tauri::command]
+pub async fn conversation_set_session_mode(
+    state: tauri::State<'_, AppState>,
+    request: ConversationSetSessionModeRequest,
+) -> Result<(), AppError> {
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .set_session_mode(conversation_id, request.mode_id)
+        .await
+        .map_err(Into::into)
+}
+
+/// Immediately change one agent-advertised session config option
+/// (`session/set_config_option`, e.g. model / permission mode). Same live-session
+/// and in-flight-turn caveats as [`conversation_set_session_mode`].
+#[tauri::command]
+pub async fn conversation_set_session_config_option(
+    state: tauri::State<'_, AppState>,
+    request: ConversationSetSessionConfigOptionRequest,
+) -> Result<(), AppError> {
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .set_session_config_option(conversation_id, request.key, request.value)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -434,7 +589,14 @@ pub async fn conversation_cancel_turn(
     let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(conversation_id, request.reason)
         .await;
-    emit_conversation_events_after(&app, &state.conversation_row_projectors, &pool, conversation_id, previous_last_sequence).await;
+    emit_conversation_events_after(
+        &app,
+        &state.conversation_row_projectors,
+        &pool,
+        conversation_id,
+        previous_last_sequence,
+    )
+    .await;
     result.map_err(Into::into)
 }
 
@@ -509,9 +671,10 @@ pub async fn conversation_search(
     limit: Option<i64>,
 ) -> Result<Vec<conversations::ConversationSearchHit>, AppError> {
     let workspace_id = match workspace_id {
-        Some(raw) => Some(Uuid::parse_str(&raw).map_err(|error| {
-            AppError::BadRequest(format!("invalid workspace id: {error}"))
-        })?),
+        Some(raw) => Some(
+            Uuid::parse_str(&raw)
+                .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?,
+        ),
         None => None,
     };
     let pool = &state.deployment.db().pool;
@@ -589,9 +752,13 @@ pub async fn conversation_fork(
             .await
         {
             Ok(forked_external_id) => {
-                if let Err(error) =
-                    DbConversationSummary::bind_external_id(pool, new_id, &forked_external_id, agent_type)
-                        .await
+                if let Err(error) = DbConversationSummary::bind_external_id(
+                    pool,
+                    new_id,
+                    &forked_external_id,
+                    agent_type,
+                )
+                .await
                 {
                     tracing::warn!(%error, "failed to bind forked ACP session to conversation");
                 }

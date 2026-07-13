@@ -356,12 +356,22 @@ pub struct ConversationQuestionRequest {
     pub prompt: String,
     #[serde(default)]
     pub options: Vec<String>,
+    /// ACP form-elicitation requested schema (JSON Schema with primitive-typed
+    /// properties). When present the frontend renders a structured form; the
+    /// plain `options` list is a degraded fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ConversationQuestionResponse {
+    /// Human-readable one-line summary shown in the timeline.
     pub answer: String,
+    /// Raw accepted form content keyed by property name; `None` for
+    /// declined/cancelled answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -923,6 +933,7 @@ mod event_sourced_tests {
                     question_id: "q1".to_string(),
                     prompt: "Continue?".to_string(),
                     options: vec!["yes".to_string(), "no".to_string()],
+                    schema: None,
                 },
             },
             ConversationEvent::FeedbackRequested {

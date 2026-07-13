@@ -29,7 +29,7 @@ function RightPanelSidebarContent({
   const { runningDevServers, devServerProcesses } = useDevServer(workspaceId);
 
   const handleOpenPreview = useCallback(() => {
-    openOrFocusPanel(PANEL_IDS.DEV_PREVIEW, 'Dev Preview');
+    openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
   }, [openOrFocusPanel]);
 
   const hasRunningDevServer = runningDevServers.length > 0;

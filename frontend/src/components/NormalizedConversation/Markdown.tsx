@@ -16,8 +16,9 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
-import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
+import { useOpenLink } from '@/hooks/useOpenLink';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { CodeBlock, CompactCodeBlock, extractLanguageTag } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
@@ -126,24 +127,23 @@ function isMarkdownImagePath(value: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i.test(candidate);
 }
 
-function resolveLocalMarkdownImageSrc(
+function resolveLocalMarkdownImagePath(
   src: string,
   workspacePath?: string | null
 ): string | null {
   if (!src) return null;
   if (src.startsWith('file://')) {
-    return convertFileSrc(src.replace(/^file:\/\//i, ''));
+    return src.replace(/^file:\/\//i, '');
   }
   if (isAbsoluteLocalPath(src)) {
-    return convertFileSrc(src);
+    return src;
   }
   if (!workspacePath || src.includes('://') || src.startsWith('#')) {
     return null;
   }
 
   const normalizedRelative = src.replace(/^\.?[\\/]/, '');
-  const absolutePath = `${workspacePath.replace(/[\\/]+$/, '')}/${normalizedRelative}`;
-  return convertFileSrc(absolutePath);
+  return `${workspacePath.replace(/[\\/]+$/, '')}/${normalizedRelative}`;
 }
 
 function parseHref(href: string): URL | null {
@@ -336,18 +336,36 @@ function MarkdownImage({
     isVibeImage ? normalizedSrc : '',
     taskId
   );
+  const localImagePath =
+    isVibeImage || isRenderableRemoteImage(normalizedSrc)
+      ? null
+      : resolveLocalMarkdownImagePath(normalizedSrc, workspacePath);
   const imageUrl = isVibeImage
     ? metadata?.proxy_url
     : isRenderableRemoteImage(normalizedSrc)
       ? normalizedSrc
-      : resolveLocalMarkdownImageSrc(normalizedSrc, workspacePath);
+      : localImagePath
+        ? convertFileSrc(localImagePath)
+        : null;
   const label = alt || title || metadata?.file_name || normalizedSrc || 'Image';
+  const panelActions = useOptionalPanelActionsContext();
+  const openImagePreview = useOpenImagePreview();
 
   const handleClick = useCallback(
     (event: MouseEvent) => {
       if (!imageUrl) return;
       event.preventDefault();
-      ImagePreviewDialog.show({
+
+      // Workspace-local images open as a regular file preview tab so the
+      // file tree stays in sync; everything else opens as an image tab.
+      if (localImagePath && panelActions) {
+        panelActions.openFilePreview(localImagePath, {
+          title: metadata?.file_name ?? title ?? label,
+        });
+        return;
+      }
+
+      openImagePreview({
         imageUrl,
         altText: label,
         fileName: metadata?.file_name ?? title ?? label,
@@ -355,7 +373,15 @@ function MarkdownImage({
         sizeBytes: metadata?.size_bytes,
       });
     },
-    [imageUrl, label, metadata, title]
+    [
+      imageUrl,
+      label,
+      localImagePath,
+      metadata,
+      openImagePreview,
+      panelActions,
+      title,
+    ]
   );
 
   if (isVibeImage && isLoading) {
@@ -411,13 +437,21 @@ const REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
 
 type MarkdownComponentContext = {
   panelActions: ReturnType<typeof useOptionalPanelActionsContext>;
+  openLink: (url: string) => void;
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
 };
 
+// Inline-code text is looser than link hrefs (prose like `either/or`, globs,
+// shell flags); only treat it as a folder path when it looks like one.
+function isCleanDirectoryCandidate(text: string): boolean {
+  return !/[\s*?<>|"']/.test(text);
+}
+
 function createMarkdownComponents({
   panelActions,
+  openLink,
   taskAttemptId,
   taskId,
   workspacePath,
@@ -433,15 +467,25 @@ function createMarkdownComponents({
         text,
         workspacePath
       );
+      const isClickableFile = pathTarget?.nodeType === 'file';
+      const isClickableFolder =
+        pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text);
 
-      if (pathTarget?.nodeType === 'file') {
+      if (pathTarget && (isClickableFile || isClickableFolder)) {
         const handleClick = (event: MouseEvent<HTMLElement>) => {
           event.preventDefault();
           event.stopPropagation();
-          panelActions?.openFilePreview(pathTarget.path, {
-            displayPath: pathTarget.displayPath,
-            title: pathTarget.displayPath,
-          });
+          if (isClickableFile) {
+            panelActions?.openFilePreview(pathTarget.path, {
+              displayPath: pathTarget.displayPath,
+              title: pathTarget.displayPath,
+            });
+          } else {
+            panelActions?.revealInFileTree(pathTarget.path, {
+              displayPath: pathTarget.displayPath,
+              nodeType: 'folder',
+            });
+          }
         };
 
         return (
@@ -507,7 +551,7 @@ function createMarkdownComponents({
           ? href
           : undefined;
 
-      const handleClick = async (event: MouseEvent<HTMLAnchorElement>) => {
+      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
         if (pathTarget) {
           event.preventDefault();
           event.stopPropagation();
@@ -542,13 +586,7 @@ function createMarkdownComponents({
         }
 
         event.preventDefault();
-
-        try {
-          const { open } = await import('@tauri-apps/plugin-shell');
-          await open(href);
-        } catch {
-          window.open(href, '_blank', 'noopener,noreferrer');
-        }
+        openLink(href);
       };
 
       return (
@@ -608,6 +646,7 @@ export const Markdown = memo(function Markdown({
   softBreaks,
 }: MarkdownProps) {
   const panelActions = useOptionalPanelActionsContext();
+  const openLink = useOpenLink();
 
   const normalizedValue = useMemo(
     () => prepareConversationMarkdown(value, { softBreaks }),
@@ -626,11 +665,12 @@ export const Markdown = memo(function Markdown({
     () =>
       createMarkdownComponents({
         panelActions,
+        openLink,
         taskAttemptId,
         taskId,
         workspacePath,
       }),
-    [panelActions, taskAttemptId, taskId, workspacePath]
+    [openLink, panelActions, taskAttemptId, taskId, workspacePath]
   );
 
   return (

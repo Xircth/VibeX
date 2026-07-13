@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
-import type { TokenUsageInfo } from 'shared/types';
+import type { AgentSessionConfigOption, TokenUsageInfo } from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 
 const EMPTY_SESSION_MODES: ConversationSessionModesState = {
@@ -17,26 +17,32 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
   modes: [],
 };
 
+const EMPTY_SESSION_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
   setEntries: (entries: PatchTypeWithKey[]) => void;
   setTokenUsageInfo: (info: TokenUsageInfo | null) => void;
   setSessionModes: (modes: ConversationSessionModesState) => void;
+  setSessionConfigOptions: (options: AgentSessionConfigOption[]) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
   sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
 }
 
 type EntriesRuntimeValue = {
   entries: PatchTypeWithKey[];
   tokenUsageInfo: TokenUsageInfo | null;
   sessionModes: ConversationSessionModesState;
+  sessionConfigOptions: AgentSessionConfigOption[];
 };
 
 const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   entries: [],
   tokenUsageInfo: null,
   sessionModes: EMPTY_SESSION_MODES,
+  sessionConfigOptions: EMPTY_SESSION_CONFIG_OPTIONS,
 };
 
 function sessionModesEqual(
@@ -53,6 +59,19 @@ function sessionModesEqual(
       mode.description === other.description
     );
   });
+}
+
+function sessionConfigOptionsEqual(
+  a: AgentSessionConfigOption[],
+  b: AgentSessionConfigOption[]
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  // Options carry JSON values (current value + choices); structural compare via
+  // stable serialization is proportionate to their tiny size.
+  return a.every(
+    (option, index) => JSON.stringify(option) === JSON.stringify(b[index])
+  );
 }
 
 function tokenUsageEqual(
@@ -201,6 +220,32 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setSessionConfigOptions = useCallback(
+    (options: AgentSessionConfigOption[]) => {
+      if (
+        sessionConfigOptionsEqual(
+          localValueRef.current.sessionConfigOptions,
+          options
+        )
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        sessionConfigOptions: options,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const reset = useCallback(() => {
     localValueRef.current = EMPTY_RUNTIME_VALUE;
 
@@ -218,11 +263,20 @@ export const EntriesProvider = ({
       setEntries,
       setTokenUsageInfo,
       setSessionModes,
+      setSessionConfigOptions,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
       sessionModes: localValue.sessionModes,
+      sessionConfigOptions: localValue.sessionConfigOptions,
     }),
-    [localValue, reset, setEntries, setTokenUsageInfo, setSessionModes]
+    [
+      localValue,
+      reset,
+      setEntries,
+      setTokenUsageInfo,
+      setSessionModes,
+      setSessionConfigOptions,
+    ]
   );
 
   return (

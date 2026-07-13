@@ -5,15 +5,15 @@ use std::{
 
 use agents::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConfigSurface, AgentConnectionId,
-    AgentConnectionSnapshot, AgentContentBlock, AgentHistorySource, AgentInstallPlan,
-    AgentMcpConfig, AgentMcpSurface, AgentPermissionId,
-    AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime,
-    AgentSessionId, AgentSessionSnapshot, AgentSkillsSurface, AgentTerminalId,
-    AgentTerminalOutputSnapshot, AgentKind, CancelAgentPromptInput, ConnectAgentInput,
-    ImportedAgentSession, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot,
-    SendAgentPromptInput, all_agent_types, claude_config_path, codex_config_path, config_surface,
-    default_history_sources, default_mcp_config_path, import_history_source, mcp_file_config,
-    mcp_surface, opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
+    AgentConnectionSnapshot, AgentContentBlock, AgentHistorySource, AgentInstallPlan, AgentKind,
+    AgentMcpConfig, AgentMcpSurface, AgentPermissionId, AgentPermissionResponse, AgentPromptId,
+    AgentPromptSnapshot, AgentRegistryEntry, AgentRuntime, AgentSessionId, AgentSessionSnapshot,
+    AgentSkillsSurface, AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput,
+    ConnectAgentInput, ImportedAgentSession, PlanUsageResult, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
+    claude_config_path, codex_config_path, config_surface, default_history_sources,
+    default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
+    opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
     terminal::agent_terminal_registry, write_agent_mcp_config,
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -648,6 +648,14 @@ pub async fn agent_mcp_write(request: AgentMcpWriteRequest) -> Result<(), AppErr
     write_agent_mcp_config(&path, &surface, &request.config)
         .await
         .map_err(AppError::from)
+}
+
+/// Probe subscription plan usage for an agent. Runs outside the ACP runtime:
+/// Codex via a one-shot `codex app-server` call, Claude Code via the OAuth
+/// usage endpoint with locally stored CLI credentials.
+#[tauri::command]
+pub async fn agent_plan_usage(request: AgentTypeRequest) -> Result<PlanUsageResult, AppError> {
+    Ok(agents::plan_usage::probe_plan_usage(request.agent_type).await)
 }
 
 fn parse_uuid(label: &str, value: &str) -> Result<Uuid, AppError> {

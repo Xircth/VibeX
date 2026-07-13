@@ -21,6 +21,7 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
   usePanelActionsContext: () => ({
     openFilePreview: panelMocks.openFilePreview,
   }),
+  useOptionalPanelActionsContext: () => null,
 }));
 
 vi.mock('@/components/common/RawLogText', () => ({
@@ -35,6 +36,7 @@ vi.mock('@/components/ui/wysiwyg', () => ({
 
 vi.mock('@/components/ConfigProvider', () => ({
   useUserSystem: () => ({ config: { theme: 'light' } }),
+  useOptionalUserSystem: () => null,
 }));
 
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
@@ -209,6 +211,8 @@ describe('conversation tool cards', () => {
   });
 
   it('opens and copies web fetch targets without expanding the card', async () => {
+    // The Tauri shell plugin is unavailable in jsdom, so the system-browser
+    // opener falls back to window.open.
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
 
     render(
@@ -228,10 +232,12 @@ describe('conversation tool cards', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开链接' }));
     fireEvent.click(screen.getByRole('button', { name: '复制 URL' }));
 
-    expect(openSpy).toHaveBeenCalledWith(
-      'https://example.com/docs',
-      '_blank',
-      'noopener,noreferrer'
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://example.com/docs',
+        '_blank',
+        'noopener,noreferrer'
+      )
     );
     await waitFor(() =>
       expect(clipboardWrite).toHaveBeenCalledWith('https://example.com/docs')

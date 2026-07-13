@@ -42,8 +42,10 @@ pub fn handle_menu_event(app: &AppHandle, id: &str) -> bool {
 /// invisible (no StatusNotifierWatcher) even on success, so nothing assumes it
 /// exists.
 pub fn install_tray_icon(app: &AppHandle) -> tauri::Result<()> {
-    use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::{
+        menu::{MenuBuilder, MenuItem, PredefinedMenuItem},
+        tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    };
 
     let show_item = MenuItem::with_id(app, TRAY_MENU_ID_SHOW, "显示 VibeX", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, TRAY_MENU_ID_HIDE, "隐藏窗口", true, None::<&str>)?;

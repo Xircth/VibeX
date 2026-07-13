@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     conversation::SessionLoadFailureReason,
-    ids::{AgentConnectionId, AgentPermissionId, AgentPromptId, AgentSessionId, AgentTerminalId},
+    elicitation::{AgentElicitationRequest, AgentElicitationResponse},
+    ids::{
+        AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
+        AgentTerminalId,
+    },
     permissions::{AgentPermissionRequest, AgentPermissionResponse},
     registry::AgentKind,
     state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot},
@@ -104,6 +108,11 @@ pub struct AgentSessionConfigOption {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// ACP semantic category (`mode` / `model` / `model_config` / `thought_level` / …),
+    /// used by the UI to group selectors and dedupe the `mode` option against the
+    /// dedicated session-mode picker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -246,6 +255,15 @@ pub enum AgentEvent {
         #[serde(default)]
         auto: bool,
     },
+    /// The agent asked the user for structured input (ACP `elicitation/create`,
+    /// form mode) — e.g. Claude Code's `AskUserQuestion`.
+    ElicitationRequested {
+        request: AgentElicitationRequest,
+    },
+    ElicitationResponded {
+        elicitation_id: AgentElicitationId,
+        response: AgentElicitationResponse,
+    },
     TerminalCreated {
         terminal: AgentTerminalSnapshot,
     },
@@ -335,6 +353,7 @@ mod tests {
                     key: "model".to_string(),
                     label: "Model".to_string(),
                     description: None,
+                    category: Some("model".to_string()),
                     value: Some(serde_json::json!("gpt-5.4")),
                     choices: vec![AgentSessionConfigChoice {
                         value: serde_json::json!("gpt-5.4"),

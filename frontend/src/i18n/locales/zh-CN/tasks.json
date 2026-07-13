@@ -162,7 +162,7 @@
   },
   "noServerContent": {
     "startFailedTitle": "开发服务器启动失败",
-    "title": "启动项目开发服务器",
+    "title": "启动网页预览",
     "descriptionWithScript": "你可以直接启动开发服务器，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。",
     "descriptionWithoutScript": "请输入启动命令，或在会话输入框中使用 #启动项目开发服务器 标签提示 Agent 处理启动。",
     "previewUrlLabel": "预览 URL",
@@ -182,6 +182,9 @@
   "sessionModeSelector": {
     "title": "会话模式",
     "fallbackLabel": "模式"
+  },
+  "sessionConfigSelector": {
+    "fallbackLabel": "选项"
   },
   "readyContent": {
     "back": "后退",
@@ -281,7 +284,40 @@
     "prevPage": "上一页",
     "nextPage": "下一页",
     "tooltipCost": "费用：{{cost}}",
-    "tooltipSessions": "{{count}} 个会话"
+    "tooltipSessions": "{{count}} 个会话",
+    "planUsage": {
+      "claudeTitle": "Claude Code 套餐",
+      "codexTitle": "Codex 套餐",
+      "claudeSource": "读取本机 Claude Code 登录凭据，数据与 CLI 内 /usage 面板一致",
+      "codexSource": "通过 codex app-server 读取账号限额（独立于会话运行时）",
+      "planLabel": "{{plan}} 套餐",
+      "refresh": "刷新",
+      "loading": "正在读取额度…",
+      "used": "已用 {{percent}}%",
+      "remaining": "剩余 {{percent}}%",
+      "resetsSoon": "即将重置",
+      "resetsInMinutes": "{{count}} 分钟后重置",
+      "resetsInHours": "{{count}} 小时后重置",
+      "resetsInDays": "{{count}} 天后重置",
+      "creditsBalance": "赠送额度余额：{{balance}}",
+      "creditsUnlimited": "额度不限量",
+      "windowFiveHour": "5 小时窗口",
+      "windowSevenDay": "每周窗口（全部模型）",
+      "windowSevenDayOpus": "每周窗口（Opus）",
+      "windowSevenDaySonnet": "每周窗口（Sonnet）",
+      "windowExtraUsage": "额外用量（本月）",
+      "windowPrimary": "主限额窗口",
+      "windowSecondary": "次限额窗口",
+      "windowHours": "{{count}} 小时窗口",
+      "windowDays": "{{count}} 天窗口",
+      "noWindows": "账号未返回任何限额窗口",
+      "reasonUnsupported": "该 agent 不提供套餐额度信息",
+      "reasonCliNotFound": "未找到 CLI，请先安装并登录",
+      "reasonNotLoggedIn": "未检测到登录凭据，请先在对应 CLI 中登录",
+      "reasonTokenExpired": "登录凭据已过期：请打开对应 CLI 执行任意对话刷新凭据后重试",
+      "errorTitle": "读取失败",
+      "hint": "额度数据直接读取本机 CLI 凭据与官方接口，不经过任何第三方服务"
+    }
   },
   "composerCompact": {
     "unknownError": "未知错误",
@@ -317,5 +353,9 @@
     "changeTargetBranch": "更改目标分支",
     "selectRepo": "选择仓库",
     "branchStatusUnavailable": "无法获取分支状态。您仍然可以更改目标分支。"
+  },
+  "effortSlider": {
+    "faster": "更快",
+    "smarter": "更强"
   }
 }

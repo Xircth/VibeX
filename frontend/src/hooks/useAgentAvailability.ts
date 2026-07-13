@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AgentKind } from 'shared/types';
 import { configApi } from '../lib/api';
 
@@ -9,11 +9,18 @@ export type AgentAvailabilityState =
   | { status: 'not_found' }
   | null;
 
+export interface AgentAvailability {
+  availability: AgentAvailabilityState;
+  /** Re-run the availability probe (e.g. after a quick fix was applied). */
+  recheck: () => void;
+}
+
 export function useAgentAvailability(
   agent: AgentKind | null | undefined
-): AgentAvailabilityState {
+): AgentAvailability {
   const [availability, setAvailability] =
     useState<AgentAvailabilityState>(null);
+  const [probeToken, setProbeToken] = useState(0);
 
   useEffect(() => {
     if (!agent) {
@@ -21,10 +28,12 @@ export function useAgentAvailability(
       return;
     }
 
+    let cancelled = false;
     const checkAvailability = async () => {
       setAvailability({ status: 'checking' });
       try {
         const info = await configApi.checkAgentAvailability(agent);
+        if (cancelled) return;
 
         // Map backend enum to frontend state
         switch (info.type) {
@@ -40,12 +49,19 @@ export function useAgentAvailability(
         }
       } catch (error) {
         console.error('Failed to check agent availability:', error);
-        setAvailability(null);
+        if (!cancelled) setAvailability(null);
       }
     };
 
-    checkAvailability();
-  }, [agent]);
+    void checkAvailability();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent, probeToken]);
 
-  return availability;
+  const recheck = useCallback(() => {
+    setProbeToken((token) => token + 1);
+  }, []);
+
+  return { availability, recheck };
 }

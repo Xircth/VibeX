@@ -30,7 +30,7 @@ import {
   type ProjectUsageStatistics,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { CodexPlanDashboard } from '@/components/kanban/CodexPlanDashboard';
+import { PlanUsageDashboard } from '@/components/kanban/PlanUsageDashboard';
 
 type UsageTab = 'overview' | 'models' | 'sessions' | 'plan';
 type DateRange = '7d' | '30d' | 'all';
@@ -158,21 +158,24 @@ export function KanbanUsageDashboard() {
     setSessionPage(1);
   }, [dateRange, selectedTarget, sessionSortBy]);
 
-  const formatDate = useCallback((timestamp: number): string => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const formatDate = useCallback(
+    (timestamp: number): string => {
+      const date = new Date(timestamp);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return t('usageDashboard.today');
-    if (diffDays === 1) return t('usageDashboard.yesterday');
-    if (diffDays < 7) return t('usageDashboard.daysAgo', { count: diffDays });
+      if (diffDays === 0) return t('usageDashboard.today');
+      if (diffDays === 1) return t('usageDashboard.yesterday');
+      if (diffDays < 7) return t('usageDashboard.daysAgo', { count: diffDays });
 
-    return date.toLocaleDateString('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-    });
-  }, [t]);
+      return date.toLocaleDateString('zh-CN', {
+        month: 'short',
+        day: 'numeric',
+      });
+    },
+    [t]
+  );
 
   const formatRelativeTime = useCallback(
     (timestamp: number): string => {
@@ -183,7 +186,8 @@ export function KanbanUsageDashboard() {
       const diffHour = Math.floor(diffMin / 60);
 
       if (diffSec < 60) return t('usageDashboard.justNow');
-      if (diffMin < 60) return t('usageDashboard.minutesAgo', { count: diffMin });
+      if (diffMin < 60)
+        return t('usageDashboard.minutesAgo', { count: diffMin });
       if (diffHour < 24)
         return t('usageDashboard.hoursAgo', { count: diffHour });
 
@@ -212,9 +216,7 @@ export function KanbanUsageDashboard() {
               : 'text-[hsl(var(--success))]'
           )}
         >
-          {isUp
-            ? t('usageDashboard.trendUp')
-            : t('usageDashboard.trendDown')}{' '}
+          {isUp ? t('usageDashboard.trendUp') : t('usageDashboard.trendDown')}{' '}
           {Math.abs(value).toFixed(1)}%
         </span>
       );
@@ -420,9 +422,7 @@ export function KanbanUsageDashboard() {
                 title={tab.label}
                 className={cn(
                   'kanban-usage-tab flex items-center justify-center rounded-md px-2 py-3 transition-colors',
-                  activeTab === tab.key
-                    ? tab.activeColor
-                    : ''
+                  activeTab === tab.key ? tab.activeColor : ''
                 )}
                 onClick={() => setActiveTab(tab.key)}
               >
@@ -433,7 +433,7 @@ export function KanbanUsageDashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 pl-24">
-          {activeTab === 'plan' ? <CodexPlanDashboard /> : null}
+          {activeTab === 'plan' ? <PlanUsageDashboard /> : null}
 
           {activeTab !== 'plan' ? (
             <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
@@ -778,8 +778,7 @@ export function KanbanUsageDashboard() {
                           className={cn(
                             'flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold',
                             index === 0 && 'kanban-rank-first',
-                            index === 1 &&
-                              'bg-muted text-muted-foreground',
+                            index === 1 && 'bg-muted text-muted-foreground',
                             index === 2 && 'kanban-rank-third',
                             index >= 3 && 'bg-muted text-muted-foreground'
                           )}

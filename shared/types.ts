@@ -396,7 +396,18 @@ auto_update_enabled: boolean,
 /**
  * Automatically install or update local dependencies on startup.
  */
-auto_install_local_dependencies: boolean, };
+auto_install_local_dependencies: boolean,
+/**
+ * Opt-in: surface locally captured crash reports on startup so the user
+ * can review the full content and choose to file a GitHub issue.
+ * Capture itself is always local-only; nothing is sent automatically.
+ */
+crash_reports_enabled: boolean,
+/**
+ * How links clicked in conversation content open: system browser or the
+ * built-in Web Preview panel.
+ */
+link_open_behavior: LinkOpenBehavior, };
 
 export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, };
 
@@ -723,7 +734,7 @@ export type AgentErrorEvent = { message: string,
  */
 code?: string | null, raw?: JsonValue | null, };
 
-export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "session_linked", acp_session_id: string, agent_type: AgentKind, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_load_failed", reason: SessionLoadFailureReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "delegation_started", parent_tool_use_id: string,
+export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentConnectionSnapshot, } | { "kind": "session_created", snapshot: AgentSessionSnapshot, } | { "kind": "session_linked", acp_session_id: string, agent_type: AgentKind, } | { "kind": "prompt_started", snapshot: AgentPromptSnapshot, } | { "kind": "message_chunk", content: AgentContentBlock, } | { "kind": "thought_chunk", content: AgentContentBlock, } | { "kind": "tool_call", tool_call: AgentToolCall, } | { "kind": "tool_call_update", update: AgentToolCallUpdate, } | { "kind": "plan", plan: AgentPlan, } | { "kind": "usage", usage: AgentUsage, } | { "kind": "session_modes", modes: Array<AgentSessionMode>, current?: string | null, } | { "kind": "mode_changed", mode_id: string, } | { "kind": "session_config_options", options: Array<AgentSessionConfigOption>, } | { "kind": "config_changed", key: string, value: JsonValue, } | { "kind": "available_commands", commands: Array<AgentAvailableCommand>, } | { "kind": "session_load_failed", reason: SessionLoadFailureReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "session_config_stale", reason?: string | null, } | { "kind": "permission_requested", request: AgentPermissionRequest, } | { "kind": "permission_responded", permission_id: AgentPermissionId, response: AgentPermissionResponse, auto: boolean, } | { "kind": "elicitation_requested", request: AgentElicitationRequest, } | { "kind": "elicitation_responded", elicitation_id: AgentElicitationId, response: AgentElicitationResponse, } | { "kind": "terminal_created", terminal: AgentTerminalSnapshot, } | { "kind": "terminal_output", output: AgentTerminalOutput, } | { "kind": "prompt_finished", finished: AgentPromptFinished, } | { "kind": "delegation_started", parent_tool_use_id: string,
 /**
  * The child's `sessions.id` — the conversation the user can open.
  */
@@ -821,7 +832,13 @@ export type AgentAvailableCommand = { name: string, description?: string | null,
 
 export type AgentSessionConfigChoice = { value: JsonValue, label: string, description?: string | null, };
 
-export type AgentSessionConfigOption = { key: string, label: string, description?: string | null, value?: JsonValue | null, choices?: Array<AgentSessionConfigChoice>, };
+export type AgentSessionConfigOption = { key: string, label: string, description?: string | null,
+/**
+ * ACP semantic category (`mode` / `model` / `model_config` / `thought_level` / …),
+ * used by the UI to group selectors and dedupe the `mode` option against the
+ * dedicated session-mode picker.
+ */
+category?: string | null, value?: JsonValue | null, choices?: Array<AgentSessionConfigChoice>, };
 
 export type AgentSessionMode = { id: string, label: string, description?: string | null, };
 
@@ -877,7 +894,17 @@ export type DbConversationDetail = { summary: DbConversationSummary,
  * Derived from `timeline` for transitional consumers only. The timeline is
  * the canonical rendering contract.
  */
-turns: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null, };
+turns: Array<MessageTurn>, timeline: ConversationTimeline, active_binding?: ConversationActiveBinding | null, current_turn?: ConversationCurrentTurn | null, projection_version: number, session_stats?: SessionStats | null, in_flight_user_turn_id?: string | null,
+/**
+ * Latest agent-advertised session modes, hydrated from the event log so a
+ * reopened conversation renders the real ACP pickers immediately.
+ */
+session_modes?: ConversationSessionModes | null,
+/**
+ * Latest agent-advertised config options (model / permission / …), same
+ * hydration contract as `session_modes`.
+ */
+session_config_options: Array<AgentSessionConfigOption>, };
 
 export type PlanEntry = { content: string,
 /**
@@ -943,9 +970,24 @@ options?: Array<AgentPermissionOption>, };
 
 export type ConversationPlanEntry = { id: string, content: string, status: string, priority?: string | null, };
 
-export type ConversationQuestionRequest = { question_id: string, prompt: string, options: Array<string>, };
+export type ConversationQuestionRequest = { question_id: string, prompt: string, options: Array<string>,
+/**
+ * ACP form-elicitation requested schema (JSON Schema with primitive-typed
+ * properties). When present the frontend renders a structured form; the
+ * plain `options` list is a degraded fallback.
+ */
+schema?: JsonValue | null, };
 
-export type ConversationQuestionResponse = { answer: string, };
+export type ConversationQuestionResponse = {
+/**
+ * Human-readable one-line summary shown in the timeline.
+ */
+answer: string,
+/**
+ * Raw accepted form content keyed by property name; `None` for
+ * declined/cancelled answers.
+ */
+content?: JsonValue | null, };
 
 export type ConversationSessionNotice = { title: string, message?: string | null, severity: string, };
 
@@ -1064,4 +1106,60 @@ direction: string, event: string | null,
  */
 status: string, detail: string | null, created_at: string, };
 
+export type AgentPlanUsage = { planType: string | null, windows: Array<PlanUsageWindow>, credits: PlanCredits | null, };
+
+export type PlanCredits = { balance: string | null, unlimited: boolean, };
+
+export type PlanUsageResult = { "type": "OK", usage: AgentPlanUsage, } | { "type": "UNAVAILABLE", reason: PlanUsageUnavailableReason, } | { "type": "ERROR", message: string, };
+
+export enum PlanUsageUnavailableReason { UNSUPPORTED_AGENT = "UNSUPPORTED_AGENT", CLI_NOT_FOUND = "CLI_NOT_FOUND", NOT_LOGGED_IN = "NOT_LOGGED_IN", TOKEN_EXPIRED = "TOKEN_EXPIRED" }
+
+export type PlanUsageWindow = {
+/**
+ * Stable window identifier the frontend maps to a localized label.
+ * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
+ * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`.
+ */
+id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
+
+export type CrashReportMeta = { id: string, createdAtMs: number | null, };
+
+export type CrashReportsInfo = {
+/**
+ * `owner/repo` used to prefill a GitHub issue; None when unresolvable.
+ */
+repository: string | null, reports: Array<CrashReportMeta>, };
+
+export type AttentionInbox = {
+/**
+ * Sorted: blocking items first (permission, question), then failures,
+ * then review; newest first within each kind.
+ */
+items: Array<AttentionItem>,
+/**
+ * Number of items actively blocking an agent right now.
+ */
+blockingCount: number, };
+
+export type AttentionItem = { kind: AttentionItemKind, sessionId: string, workspaceId: string, taskId: string, projectId: string, projectName: string, sessionName: string | null, agentType: string | null, detail: string | null, happenedAtMs: number | null, };
+
+export enum AttentionItemKind { PENDING_PERMISSION = "PENDING_PERMISSION", PENDING_QUESTION = "PENDING_QUESTION", TURN_FAILED = "TURN_FAILED", TURN_INTERRUPTED = "TURN_INTERRUPTED", IN_REVIEW = "IN_REVIEW" }
+
+export type AgentElicitationId = string;
+
+export type AgentElicitationRequest = { id: AgentElicitationId, session_id: AgentSessionId,
+/**
+ * Human-readable message describing what input is needed.
+ */
+message: string,
+/**
+ * ACP form-mode requested schema: a JSON Schema object whose properties
+ * are primitives (string/enum, number, integer, boolean, string-array).
+ */
+requested_schema: JsonValue, };
+
+export type AgentElicitationResponse = { "action": "accept", content: JsonValue, } | { "action": "decline" } | { "action": "cancel" };
+
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";
+
+export type LinkOpenBehavior = "ExternalBrowser" | "BuiltinPreview";

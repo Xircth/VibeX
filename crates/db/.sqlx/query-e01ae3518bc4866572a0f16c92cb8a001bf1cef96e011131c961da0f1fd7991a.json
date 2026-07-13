@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO toolbox_paint_images (id, prompt, revised_prompt, model, size, file_path, mime_type, size_bytes, created_at)\n               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n               RETURNING id as \"id!: Uuid\",\n                         prompt as \"prompt!\",\n                         revised_prompt,\n                         model as \"model!\",\n                         size,\n                         file_path as \"file_path!\",\n                         mime_type as \"mime_type!\",\n                         size_bytes as \"size_bytes!\",\n                         created_at as \"created_at!: DateTime<Utc>\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "prompt!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "revised_prompt",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "model!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "size",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_path!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "mime_type!",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "size_bytes!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 8,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e01ae3518bc4866572a0f16c92cb8a001bf1cef96e011131c961da0f1fd7991a"
+}

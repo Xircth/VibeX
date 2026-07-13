@@ -20,7 +20,7 @@ import WYSIWYGEditor, {
   SESSION_INPUT_MARKDOWN_PRESET,
   SESSION_INPUT_TEXT_CLASS_NAME,
 } from '@/components/ui/wysiwyg';
-import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { AgentCapability } from '@/lib/api/config';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -242,6 +242,7 @@ function UserMessageImageAttachment({
     taskAttemptId,
     image.path
   );
+  const openImagePreview = useOpenImagePreview();
   const [cachedImageUrl, setCachedImageUrl] = useState<string | null>(() =>
     getCachedUserMessageImageUrl(image.path)
   );
@@ -309,14 +310,14 @@ function UserMessageImageAttachment({
   const handlePreview = useCallback(() => {
     if (!imageUrl || imageLoadFailed) return;
 
-    ImagePreviewDialog.show({
+    openImagePreview({
       imageUrl,
       altText: label,
       fileName: metadata?.file_name ?? label,
       format: metadata?.format ?? undefined,
       sizeBytes: metadata?.size_bytes,
     });
-  }, [imageLoadFailed, imageUrl, label, metadata]);
+  }, [imageLoadFailed, imageUrl, label, metadata, openImagePreview]);
 
   return (
     <button

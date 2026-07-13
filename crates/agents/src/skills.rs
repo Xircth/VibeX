@@ -818,6 +818,12 @@ fn place_skill(src: &Path, dest: &Path, link: bool) -> Result<(), SkillError> {
 
 /// Apply an exact hosting target set: present in selected agents (or all when
 /// global), absent from the rest; recorded in the global store iff `global`.
+///
+/// `src` is a short-lived staging snapshot the caller deletes right after this
+/// returns, so symlinks must never point at it. Global hosting first
+/// materializes a real copy in the global store (~/.vibex/skills) and links
+/// the agents to that; non-global hosting has no persistent link source, so
+/// it always copies into the agent dirs regardless of `link`.
 fn apply_hosting(
     src: &Path,
     skill_id: &str,
@@ -825,21 +831,26 @@ fn apply_hosting(
     agents: &BTreeSet<String>,
     link: bool,
 ) -> Result<(), SkillError> {
+    let vibex = vibex_skills_dir().join(skill_id);
+    let (agent_src, agent_link) = if global {
+        place_skill(src, &vibex, false)?;
+        (vibex.clone(), link)
+    } else {
+        (src.to_path_buf(), false)
+    };
+
     for agent in ALL_AGENTS {
         let Some(dir) = agent_primary_skill_dir(agent) else {
             continue;
         };
         let dest = dir.join(skill_id);
         if global || agents.contains(agent_key(agent)) {
-            place_skill(src, &dest, link)?;
+            place_skill(&agent_src, &dest, agent_link)?;
         } else {
             remove_if_exists(&dest)?;
         }
     }
-    let vibex = vibex_skills_dir().join(skill_id);
-    if global {
-        place_skill(src, &vibex, link)?;
-    } else {
+    if !global {
         remove_if_exists(&vibex)?;
     }
     Ok(())

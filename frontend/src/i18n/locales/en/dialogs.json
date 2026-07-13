@@ -252,5 +252,15 @@
     "back": "Back",
     "next": "Next",
     "complete": "Done"
+  },
+  "crashReport": {
+    "title": "Crash report from the previous run",
+    "description": "The app crashed during its previous run. Below is the full report stored on this machine — submitting it is entirely your call.",
+    "loading": "Loading report…",
+    "loadFailed": "Failed to read the report: {{error}}",
+    "privacyNote": "The report only lives on this machine. “Submit on GitHub” copies the full report to your clipboard and opens a prefilled GitHub issue in the browser (long reports are truncated — paste from the clipboard to complete). If you don't click, nothing leaves this machine.",
+    "later": "Later",
+    "discard": "Delete report",
+    "submitToGithub": "Submit on GitHub"
   }
 }

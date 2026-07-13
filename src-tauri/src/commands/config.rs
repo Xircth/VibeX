@@ -1,8 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use agents::{
-    AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities,
-};
+use agents::{AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities};
 use db::models::execution_process::ExecutionProcess;
 use executors::{executors::AgentKind, profile::ExecutorConfigs};
 use serde::{Deserialize, Serialize};

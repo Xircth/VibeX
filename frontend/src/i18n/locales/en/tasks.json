@@ -162,7 +162,7 @@
   },
   "noServerContent": {
     "startFailedTitle": "Failed to start dev server",
-    "title": "Start project dev server",
+    "title": "Start web preview",
     "descriptionWithScript": "You can start the dev server directly, or use the #start-project-dev-server tag in the session input to have the Agent handle the startup.",
     "descriptionWithoutScript": "Enter a start command, or use the #start-project-dev-server tag in the session input to have the Agent handle the startup.",
     "previewUrlLabel": "Preview URL",
@@ -182,6 +182,9 @@
   "sessionModeSelector": {
     "title": "Session Mode",
     "fallbackLabel": "Mode"
+  },
+  "sessionConfigSelector": {
+    "fallbackLabel": "Option"
   },
   "readyContent": {
     "back": "Back",
@@ -281,7 +284,40 @@
     "prevPage": "Previous",
     "nextPage": "Next",
     "tooltipCost": "Cost: {{cost}}",
-    "tooltipSessions": "{{count}} sessions"
+    "tooltipSessions": "{{count}} sessions",
+    "planUsage": {
+      "claudeTitle": "Claude Code plan",
+      "codexTitle": "Codex plan",
+      "claudeSource": "Reads local Claude Code credentials; matches the CLI /usage panel",
+      "codexSource": "Read via codex app-server (independent of the session runtime)",
+      "planLabel": "{{plan}} plan",
+      "refresh": "Refresh",
+      "loading": "Loading usage…",
+      "used": "{{percent}}% used",
+      "remaining": "{{percent}}% left",
+      "resetsSoon": "Resets soon",
+      "resetsInMinutes": "Resets in {{count}} min",
+      "resetsInHours": "Resets in {{count}} h",
+      "resetsInDays": "Resets in {{count}} d",
+      "creditsBalance": "Credit balance: {{balance}}",
+      "creditsUnlimited": "Unlimited credits",
+      "windowFiveHour": "5-hour window",
+      "windowSevenDay": "Weekly window (all models)",
+      "windowSevenDayOpus": "Weekly window (Opus)",
+      "windowSevenDaySonnet": "Weekly window (Sonnet)",
+      "windowExtraUsage": "Extra usage (this month)",
+      "windowPrimary": "Primary limit window",
+      "windowSecondary": "Secondary limit window",
+      "windowHours": "{{count}}-hour window",
+      "windowDays": "{{count}}-day window",
+      "noWindows": "The account returned no rate-limit windows",
+      "reasonUnsupported": "This agent does not expose plan usage",
+      "reasonCliNotFound": "CLI not found — install and log in first",
+      "reasonNotLoggedIn": "No login credentials detected — log in with the CLI first",
+      "reasonTokenExpired": "Credentials expired: run any prompt in the CLI to refresh, then retry",
+      "errorTitle": "Failed to read usage",
+      "hint": "Usage is read from local CLI credentials and official endpoints only — no third-party service involved"
+    }
   },
   "composerCompact": {
     "unknownError": "Unknown error",
@@ -317,5 +353,9 @@
     "changeTargetBranch": "Change Target Branch",
     "selectRepo": "Select Repository",
     "branchStatusUnavailable": "Unable to fetch branch status. You can still change the target branch."
+  },
+  "effortSlider": {
+    "faster": "Faster",
+    "smarter": "Smarter"
   }
 }

@@ -1,4 +1,5 @@
 pub mod agent_setting;
+pub mod attention;
 pub mod automation;
 pub mod chat_channel_message_log;
 pub mod conversation;

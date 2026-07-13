@@ -1,4 +1,5 @@
 import { tauriInvoke } from '@/lib/tauriApi';
+import type { PlanUsageResult } from 'shared/types';
 import type {
   AgentAvailableCommand,
   AgentConfigSurface,
@@ -140,15 +141,15 @@ export const agentsApi = {
   ): Promise<AgentSessionSnapshot> =>
     tauriInvoke('agent_resume_session', { request }),
 
-  sendPrompt: (
-    request: AgentSendPromptRequest
-  ): Promise<AgentPromptSnapshot> =>
+  sendPrompt: (request: AgentSendPromptRequest): Promise<AgentPromptSnapshot> =>
     tauriInvoke('agent_send_prompt', { request }),
 
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
     tauriInvoke('agent_cancel_prompt', { request }),
 
-  disconnect: (request: AgentConnectionRequest): Promise<AgentConnectionSnapshot> =>
+  disconnect: (
+    request: AgentConnectionRequest
+  ): Promise<AgentConnectionSnapshot> =>
     tauriInvoke('agent_disconnect', { request }),
 
   respondPermission: (request: AgentRespondPermissionRequest): Promise<void> =>
@@ -170,11 +171,15 @@ export const agentsApi = {
   readConfig: (request: AgentTypeRequest): Promise<AgentConfigFile | null> =>
     tauriInvoke('agent_config_read', { request }),
 
-  writeConfig: (request: AgentTypeRequest & { content: string }): Promise<void> =>
-    tauriInvoke('agent_config_write', { request }),
+  writeConfig: (
+    request: AgentTypeRequest & { content: string }
+  ): Promise<void> => tauriInvoke('agent_config_write', { request }),
 
   readMcp: (request: AgentTypeRequest): Promise<AgentMcpConfigFile | null> =>
     tauriInvoke('agent_mcp_list', { request }),
+
+  planUsage: (request: AgentTypeRequest): Promise<PlanUsageResult> =>
+    tauriInvoke('agent_plan_usage', { request }),
 
   writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
     tauriInvoke('agent_mcp_write', { request }),

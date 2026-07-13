@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, ImageIcon, Loader2 } from 'lucide-react';
 import type { ImageData } from 'shared/types';
-import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 
 /**
  * A generated image in the unified ACP timeline. Renders the real image block
@@ -18,6 +18,7 @@ export function GeneratedImageCard({
   revisedPrompt: string | null;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
+  const openImagePreview = useOpenImagePreview();
   const src = useMemo(() => {
     if (!image) return null;
     return image.uri ?? `data:${image.mime_type};base64,${image.data}`;
@@ -55,9 +56,7 @@ export function GeneratedImageCard({
       <button
         type="button"
         className="block w-full bg-muted/30 p-2 text-left"
-        onClick={() =>
-          ImagePreviewDialog.show({ imageUrl: src, altText, fileName })
-        }
+        onClick={() => openImagePreview({ imageUrl: src, altText, fileName })}
         aria-label={t('generatedImageCard.previewLabel')}
         title={t('generatedImageCard.previewLabel')}
       >

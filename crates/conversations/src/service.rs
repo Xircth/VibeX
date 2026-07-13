@@ -1,14 +1,17 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
-    AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentKind, AgentPermissionId,
+    AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentElicitationId,
+    AgentElicitationResponse, AgentKind, AgentPermissionId,
     AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRuntime,
     AgentSessionConfigOverride, AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput,
-    RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput,
+    RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
+    SendAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
+        ConversationQuestionResponse,
     },
 };
 use db::models::{
@@ -377,6 +380,90 @@ impl ConversationSessionService {
             Some(format!("permission:{permission_id}:responded")),
         )
         .await?;
+        Ok(())
+    }
+
+    /// Answer a pending agent question (ACP elicitation). Mirrors
+    /// [`Self::respond_permission`]: forward to the runtime (which unblocks the
+    /// agent's `elicitation/create` request) and append the response event so
+    /// the timeline row settles even if the runtime's own event races.
+    pub async fn respond_question(
+        &self,
+        conversation_id: Uuid,
+        question_id: String,
+        response: AgentElicitationResponse,
+    ) -> Result<(), ConversationServiceError> {
+        let (connection_id, turn_id) = self
+            .runtime_connection_and_turn(conversation_id)
+            .await
+            .ok_or_else(|| {
+                ConversationServiceError::BadRequest(
+                    "Conversation has no active Agent connection for question response".to_string(),
+                )
+            })?;
+        let question_uuid = Uuid::parse_str(&question_id).map_err(|error| {
+            ConversationServiceError::BadRequest(format!(
+                "invalid question id `{question_id}`: {error}"
+            ))
+        })?;
+        self.ctx
+            .agent_runtime
+            .respond_elicitation(RespondAgentElicitationInput {
+                connection_id,
+                elicitation_id: AgentElicitationId(question_uuid),
+                response: response.clone(),
+            })
+            .await?;
+        self.append_event(
+            conversation_id,
+            turn_id,
+            "host",
+            ConversationEvent::QuestionResponded {
+                question_id: question_id.clone(),
+                response: ConversationQuestionResponse {
+                    answer: response.summary(),
+                    content: match response {
+                        AgentElicitationResponse::Accept { content } => Some(content),
+                        _ => None,
+                    },
+                },
+            },
+            Some(format!("question:{question_id}:responded")),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Immediately switch the conversation's live ACP session mode
+    /// (`session/set_mode`). The resulting `ModeChanged` agent event flows back
+    /// through the normal event pipeline, so no conversation event is appended
+    /// here. Errors when there is no live session or a turn is in flight — the
+    /// frontend then keeps the choice as a next-turn override.
+    pub async fn set_session_mode(
+        &self,
+        conversation_id: Uuid,
+        mode_id: String,
+    ) -> Result<(), ConversationServiceError> {
+        self.ctx
+            .agent_runtime
+            .set_session_mode(AgentSessionId(conversation_id), mode_id)
+            .await?;
+        Ok(())
+    }
+
+    /// Immediately change one agent-advertised session config option
+    /// (`session/set_config_option`, e.g. model or permission mode). Same
+    /// caveats as [`Self::set_session_mode`].
+    pub async fn set_session_config_option(
+        &self,
+        conversation_id: Uuid,
+        key: String,
+        value: String,
+    ) -> Result<(), ConversationServiceError> {
+        self.ctx
+            .agent_runtime
+            .set_session_config_option(AgentSessionId(conversation_id), key, value)
+            .await?;
         Ok(())
     }
 

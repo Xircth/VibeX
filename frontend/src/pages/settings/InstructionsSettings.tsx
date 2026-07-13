@@ -29,7 +29,6 @@ import { Textarea } from '@/components/ui/textarea';
 import type { AgentType } from '@/features/agents/types';
 import { cn } from '@/lib/utils';
 import { instructionsApi, type Instruction } from '@/lib/api';
-import { SettingsPageHeader } from './SettingsUi';
 
 type LeftTab = 'local' | 'market';
 type Selection =
@@ -380,7 +379,7 @@ export function InstructionsSettings() {
 
     if (loading) {
       return (
-        <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('instructions.loading')}
         </div>
@@ -389,10 +388,13 @@ export function InstructionsSettings() {
 
     if (items.length === 0) {
       return (
-        <div className="settings-empty-state py-10 text-center">
-          {leftTab === 'local'
-            ? t('instructions.emptyLocal')
-            : t('instructions.emptyMarket')}
+        <div className="flex flex-col items-center gap-2 py-10 text-center">
+          <MessageSquareText className="h-6 w-6 text-muted-foreground/40" />
+          <p className="text-xs text-muted-foreground">
+            {leftTab === 'local'
+              ? t('instructions.emptyLocal')
+              : t('instructions.emptyMarket')}
+          </p>
         </div>
       );
     }
@@ -404,26 +406,29 @@ export function InstructionsSettings() {
           key={`${leftTab}:${item.id}`}
           type="button"
           className={cn(
-            'w-full rounded-md border px-3 py-2 text-left transition-colors',
+            'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
             active
-              ? 'border-primary/60 bg-primary/10'
+              ? 'border-primary/60 bg-primary/5'
               : 'border-transparent hover:bg-foreground/[0.05]'
           )}
           onClick={() =>
             leftTab === 'local' ? selectLocal(item) : selectMarket(item)
           }
         >
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          <div className="flex items-center gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
               #{item.name}
             </span>
             {leftTab === 'market' ? (
-              <Badge variant="secondary" className="h-5 text-[10px]">
+              <Badge
+                variant="secondary"
+                className="h-5 shrink-0 px-1.5 text-[9px]"
+              >
                 {t('instructions.officialBadge')}
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          <p className="mt-1 line-clamp-1 text-[10px] leading-4 text-muted-foreground">
             {item.description ?? item.content}
           </p>
         </button>
@@ -441,94 +446,93 @@ export function InstructionsSettings() {
           : t('instructions.preview');
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <SettingsPageHeader
-        title={t('instructions.title')}
-        description={t('instructions.description')}
-      />
+    <div className="flex h-full min-h-0 gap-4">
+      <aside className="flex w-[340px] shrink-0 flex-col gap-3">
+        <div className="flex items-center gap-1 rounded-lg border bg-muted-foreground/[0.06] p-0.5">
+          {(['local', 'market'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setLeftTab(tab)}
+              className={cn(
+                'flex-1 rounded-md py-1.5 text-xs font-medium transition-colors',
+                leftTab === tab
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tab === 'local'
+                ? t('instructions.tabLocal')
+                : t('instructions.tabMarket')}
+            </button>
+          ))}
+        </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[320px_minmax(0,1fr)] gap-4">
-        <aside className="settings-surface flex min-h-0 flex-col rounded-lg">
-          <div className="border-b p-3">
-            <div className="grid grid-cols-2 gap-1 rounded-md border bg-muted-foreground/[0.06] p-0.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'h-8 text-xs',
-                  leftTab === 'local' && 'bg-background shadow-sm'
-                )}
-                onClick={() => setLeftTab('local')}
-              >
-                {t('instructions.tabLocal')}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  'h-8 text-xs',
-                  leftTab === 'market' && 'bg-background shadow-sm'
-                )}
-                onClick={() => setLeftTab('market')}
-              >
-                {t('instructions.tabMarket')}
-              </Button>
-            </div>
-
-            <div className="relative mt-3">
+        <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-card">
+          <div className="p-2.5">
+            <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t('instructions.searchPlaceholder')}
-                className="pl-8"
+                className="h-8 pl-8 text-xs"
               />
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
             {renderList()}
           </div>
 
           {leftTab === 'local' ? (
-            <div className="flex gap-2 border-t p-3">
+            <div className="flex gap-2 border-t p-2.5">
               <Button
                 variant="outline"
-                size="icon"
+                size="sm"
                 type="button"
+                className="h-8 w-8 shrink-0 p-0"
                 onClick={refreshLocal}
                 disabled={loadingLocal}
                 title={t('instructions.refresh')}
               >
                 <RefreshCw
-                  className={cn('h-4 w-4', loadingLocal && 'animate-spin')}
+                  className={cn('h-3.5 w-3.5', loadingLocal && 'animate-spin')}
                 />
               </Button>
-              <Button type="button" className="flex-1" onClick={startNew}>
-                <Plus className="mr-2 h-4 w-4" />
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 flex-1 text-xs"
+                onClick={startNew}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {t('instructions.newInstruction')}
               </Button>
             </div>
           ) : (
-            <div className="flex gap-2 border-t p-3">
+            <div className="flex gap-2 border-t p-2.5">
               <Button
                 variant="outline"
-                className="flex-1"
+                size="sm"
+                className="h-8 flex-1 text-xs"
                 type="button"
                 onClick={refreshMarket}
                 disabled={loadingMarket}
               >
-                <Store className="mr-2 h-4 w-4" />
+                <Store className="mr-1.5 h-3.5 w-3.5" />
                 {t('instructions.refreshMarket')}
               </Button>
             </div>
           )}
-        </aside>
+        </div>
+      </aside>
 
-        <section className="settings-surface min-h-0 overflow-y-auto rounded-lg p-4">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {!selection ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
-              <MessageSquareText className="h-10 w-10 opacity-35" />
+              <MessageSquareText className="h-10 w-10 opacity-30" />
               <p className="mt-3 text-sm">{t('instructions.selectPrompt')}</p>
             </div>
           ) : (
@@ -621,8 +625,8 @@ export function InstructionsSettings() {
               </div>
             </div>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

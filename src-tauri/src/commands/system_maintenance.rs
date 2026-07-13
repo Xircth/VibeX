@@ -546,7 +546,7 @@ async fn check_latest_release() -> AppReleaseStatus {
     }
 }
 
-fn update_repository() -> Option<String> {
+pub(crate) fn update_repository() -> Option<String> {
     std::env::var("VIBEX_UPDATE_REPO")
         .ok()
         .and_then(|value| normalize_github_repo(&value))

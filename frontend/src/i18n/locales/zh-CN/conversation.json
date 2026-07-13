@@ -194,5 +194,11 @@
     "workspaceIdPlaceholder": "导入目标工作区 ID",
     "importButton": "导入",
     "textareaPlaceholder": "导出的会话包 JSON 会显示在这里，也可以粘贴会话包 JSON 后导入。"
+  },
+  "questionRequestCard": {
+    "title": "智能体提问",
+    "submit": "提交",
+    "decline": "拒绝回答",
+    "answered": "已回答"
   }
 }

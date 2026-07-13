@@ -103,6 +103,7 @@ function emptyDetail(rows: TimelineRow[] = []): DbConversationDetail {
       rows,
     },
     projection_version: 2,
+    session_config_options: [],
   };
 }
 

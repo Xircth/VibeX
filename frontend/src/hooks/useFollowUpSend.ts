@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
-import type { ExecutorProfileId } from 'shared/types';
+import type { AgentSessionConfigOverride, ExecutorProfileId } from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildAgentPrompt,
@@ -28,6 +28,8 @@ type Args = {
   executorProfileId: ExecutorProfileId | null;
   /** Composer-selected, agent-advertised session mode applied to this turn. */
   modeOverride?: string | null;
+  /** Pending agent-advertised config overrides (model / permission …) for this turn. */
+  configOverrides?: AgentSessionConfigOverride[];
   clearComments: () => void;
   onBeforeSend?: () => void;
   onAfterSendCleanup: () => void | Promise<void>;
@@ -47,6 +49,7 @@ export function useFollowUpSend({
   reviewMarkdown,
   executorProfileId,
   modeOverride,
+  configOverrides,
   clearComments,
   onBeforeSend,
   onAfterSendCleanup,
@@ -135,6 +138,7 @@ export function useFollowUpSend({
         displayText: displayPrompt,
         images,
         modeOverride,
+        configOverrides,
       });
       if (!isSlashCommand) {
         clearComments();
@@ -167,6 +171,7 @@ export function useFollowUpSend({
     reviewMarkdown,
     executorProfileId,
     modeOverride,
+    configOverrides,
     clearComments,
     onBeforeSend,
     onAfterSendCleanup,

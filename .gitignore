@@ -95,3 +95,6 @@ logs/
 !crates/executors/src/logs/
 !crates/executors/src/logs/**
 *.log
+
+# Claude Code isolated worktrees (parallel agents)
+.claude/worktrees/

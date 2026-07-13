@@ -9,7 +9,12 @@
     "loginDetectedTitle": "检测到最近使用",
     "loginDetectedDescription": "找到此代理的最近身份验证凭据",
     "installationFoundTitle": "检测到以前使用",
-    "installationFoundDescription": "找到代理配置。您可能需要登录才能使用它。"
+    "installationFoundDescription": "找到代理配置。您可能需要登录才能使用它。",
+    "notFoundTitle": "未检测到该代理",
+    "notFoundDescription": "未找到此代理的安装或登录记录。可尝试一键修复自动执行安装动作；登录仍需在对应 CLI 中完成，之后可在 设置 → Agents 继续处理。",
+    "fixNow": "一键修复",
+    "fixing": "正在修复…",
+    "fixFailed": "修复失败：{{error}}"
   },
   "diffCard": {
     "loadingContent": "加载文件内容中…",

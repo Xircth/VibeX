@@ -31,6 +31,39 @@ function groupBy<T>(items: T[], key: (item: T) => string): [string, T[]][] {
   return [...map.entries()];
 }
 
+/**
+ * Registry ids/groups become i18n key segments; strip the characters i18next
+ * treats specially (':' is its namespace separator) plus spaces/commas.
+ */
+function shortcutKeySlug(value: string): string {
+  return value.replace(/[:,\s]+/g, '_');
+}
+
+type Translate = (key: string, options?: { defaultValue: string }) => string;
+
+/** Localized binding description, falling back to the registry's English. */
+function bindingLabel(
+  t: Translate,
+  id: string,
+  fallbackDescription: string
+): string {
+  return t(`shortcuts.bindings.${shortcutKeySlug(id)}`, {
+    defaultValue: fallbackDescription,
+  });
+}
+
+function groupLabel(t: Translate, group: string): string {
+  return t(`shortcuts.groups.${shortcutKeySlug(group)}`, {
+    defaultValue: group,
+  });
+}
+
+function scopeLabel(t: Translate, scope: string): string {
+  return t(`shortcuts.scopes.${shortcutKeySlug(scope)}`, {
+    defaultValue: scope,
+  });
+}
+
 /** A single rebindable shortcut row: shows keys, captures a new chord, resets. */
 function ShortcutRow({
   binding,
@@ -53,13 +86,15 @@ function ShortcutRow({
     <div className="settings-row flex items-center justify-between gap-4">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{binding.description}</span>
+          <span className="text-sm font-medium">
+            {bindingLabel(t, binding.id, binding.description)}
+          </span>
           {binding.scopes?.map((scope) => (
             <span
               key={scope}
               className="settings-meta-chip px-1.5 py-0.5 text-[10px]"
             >
-              {scope}
+              {scopeLabel(t, scope)}
             </span>
           ))}
           {conflicts.length > 0 ? (
@@ -67,7 +102,9 @@ function ShortcutRow({
               className="rounded px-1.5 py-0.5 text-[10px] text-destructive"
               title={conflicts
                 .map((c) =>
-                  t('shortcuts.conflictWith', { description: c.description })
+                  t('shortcuts.conflictWith', {
+                    description: bindingLabel(t, c.id, c.description),
+                  })
                 )
                 .join('\n')}
             >
@@ -155,7 +192,12 @@ export function ShortcutSettings() {
       event.stopImmediatePropagation();
 
       // Bare Escape cancels the capture (can't rebind onto Escape in v1).
-      if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (
+        event.key === 'Escape' &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
         setCapturingId(null);
         setCaptureError(false);
         return;
@@ -321,7 +363,7 @@ export function ShortcutSettings() {
             {groupedBindings.map(([group, bindings]) => (
               <div key={group} className="space-y-1.5">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {group}
+                  {groupLabel(t, group)}
                 </div>
                 <div className="settings-card divide-y divide-[var(--border-content)] overflow-hidden rounded-lg border">
                   {bindings.map((binding) => (
@@ -362,9 +404,11 @@ export function ShortcutSettings() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm">{binding.description}</span>
+                    <span className="text-sm">
+                      {bindingLabel(t, binding.id, binding.description)}
+                    </span>
                     <span className="settings-meta-chip px-1.5 py-0.5 text-[10px]">
-                      {binding.group}
+                      {groupLabel(t, binding.group)}
                     </span>
                   </div>
                 </div>

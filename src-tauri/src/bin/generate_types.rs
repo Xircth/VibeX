@@ -3,11 +3,12 @@ use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 use agents::{
     AgentAutoApproveMode, AgentAvailabilityInfo, AgentAvailableCommand, AgentCapability,
     AgentConfigStrategy, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
-    AgentConnectionStatus, AgentContentBlock, AgentDistribution, AgentErrorEvent, AgentEvent,
+    AgentConnectionStatus, AgentContentBlock, AgentDistribution, AgentElicitationId,
+    AgentElicitationRequest, AgentElicitationResponse, AgentErrorEvent, AgentEvent,
     AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentInstallPlan,
     AgentInstallStatus, AgentMcpConfig, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId,
     AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
-    AgentPermissionResponse, AgentPlan, AgentPreflight, AgentPreflightIssue,
+    AgentPermissionResponse, AgentPlan, AgentPlanUsage, AgentPreflight, AgentPreflightIssue,
     AgentPreflightSeverity, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
     AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice, AgentSessionConfigOption,
     AgentSessionConfigOverride, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
@@ -15,8 +16,8 @@ use agents::{
     AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
     AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
     AgentUsage, CommandParts, DelegationResultSummary, ImportedAgentMessage,
-    ImportedAgentMessageRole, ImportedAgentSession, PathTemplate, PlatformBinary, RuntimeSnapshot,
-    SystemCommand,
+    ImportedAgentMessageRole, ImportedAgentSession, PathTemplate, PlanCredits, PlanUsageResult,
+    PlanUsageUnavailableReason, PlanUsageWindow, PlatformBinary, RuntimeSnapshot, SystemCommand,
     conversation::{
         AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
         ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
@@ -28,15 +29,18 @@ use agents::{
         ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
         ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
         ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
-        ConversationSessionNotice,
-        ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
-        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
-        ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn, PlanEntry,
-        SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-        TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationSessionNotice, ConversationSummary, ConversationTerminalPatch,
+        ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
+        ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData,
+        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
+use api_types::AgentKind;
+use conversations::ConversationSearchHit;
 use db::models::{
+    automation::{Automation, AutomationInput, AutomationRun},
+    chat_channel_message_log::ChatChannelMessageLog,
     conversation::DbConversationSummary,
     scratch::DraftFollowUpData,
     session::{CreateSession, Session, SessionStatus},
@@ -48,17 +52,14 @@ use executors::{
     executors::{SlashCommandDescription, SlashCommandKind},
     profile::ExecutorProfileId,
 };
-use api_types::AgentKind;
-use conversations::ConversationSearchHit;
-use db::models::automation::{Automation, AutomationInput, AutomationRun};
-use db::models::chat_channel_message_log::ChatChannelMessageLog;
-use git::GitBranch;
-use git::StashEntry;
-use services::services::config::Config;
+use git::{GitBranch, StashEntry};
+use services::services::config::{Config, LinkOpenBehavior};
 use ts_rs::TS;
 use vibex::{
     commands::{
+        attention::{AttentionInbox, AttentionItem, AttentionItemKind},
         conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
+        crash_reports::{CrashReportMeta, CrashReportsInfo},
         sessions::{SessionContinuityMode, SessionSummary},
     },
     conversation_bundle::{ConversationExportResult, ConversationImportResult},
@@ -222,6 +223,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionContinuityMode>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
+    insert_declaration::<LinkOpenBehavior>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
     // Single agent-identity enum (ADR-0002). Replaces the former AgentKind +
@@ -249,6 +251,16 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
     insert_declaration::<AgentAvailabilityInfo>(&mut decls);
+    insert_declaration::<PlanUsageWindow>(&mut decls);
+    insert_declaration::<PlanCredits>(&mut decls);
+    insert_declaration::<AgentPlanUsage>(&mut decls);
+    insert_declaration::<PlanUsageUnavailableReason>(&mut decls);
+    insert_declaration::<PlanUsageResult>(&mut decls);
+    insert_declaration::<CrashReportMeta>(&mut decls);
+    insert_declaration::<CrashReportsInfo>(&mut decls);
+    insert_declaration::<AttentionItemKind>(&mut decls);
+    insert_declaration::<AttentionItem>(&mut decls);
+    insert_declaration::<AttentionInbox>(&mut decls);
     insert_declaration::<AgentRegistryEntry>(&mut decls);
     insert_declaration::<AgentDistribution>(&mut decls);
     insert_declaration::<PlatformBinary>(&mut decls);
@@ -295,6 +307,9 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentPermissionOption>(&mut decls);
     insert_declaration::<AgentPermissionRequest>(&mut decls);
     insert_declaration::<AgentPermissionResponse>(&mut decls);
+    insert_declaration::<AgentElicitationId>(&mut decls);
+    insert_declaration::<AgentElicitationRequest>(&mut decls);
+    insert_declaration::<AgentElicitationResponse>(&mut decls);
     insert_declaration::<AgentTerminalCreateRequest>(&mut decls);
     insert_declaration::<AgentTerminalEnvVar>(&mut decls);
     insert_declaration::<AgentTerminalOutputSnapshot>(&mut decls);

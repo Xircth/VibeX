@@ -3,5 +3,20 @@
   "offline": "离线",
   "automationFailureTitle": "自动化运行失败",
   "backgroundTasksTitle": "{{count}} 个后台任务运行中",
-  "updateAvailableTitle": "有新版本可更新"
+  "updateAvailableTitle": "有新版本可更新",
+  "attentionInbox": {
+    "title": "需要你处理",
+    "empty": "当前没有需要你处理的事项",
+    "blockingCount": "{{count}} 项阻塞 agent",
+    "kindPermission": "等待权限批准",
+    "kindQuestion": "等待你的回答",
+    "kindFailed": "回合失败",
+    "kindInterrupted": "回合被中断",
+    "kindInReview": "等待评审",
+    "unnamedSession": "未命名会话",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
+  }
 }

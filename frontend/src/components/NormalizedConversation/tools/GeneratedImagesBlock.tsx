@@ -2,8 +2,8 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImageIcon, Loader2 } from 'lucide-react';
 import type { JsonValue, NormalizedEntry } from 'shared/types';
-import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 import { renderJson } from '../conversation-entry-utils';
 import {
   ToolCardShell,
@@ -35,8 +35,7 @@ function dataUrlFromRecord(value: JsonValue | null | undefined): string | null {
   if (!isRecord(value)) return null;
 
   const dataBase64 = readString(value, ['data_base64', 'base64', 'b64_json']);
-  const mimeType =
-    readString(value, ['mime_type', 'mimeType']) || 'image/png';
+  const mimeType = readString(value, ['mime_type', 'mimeType']) || 'image/png';
 
   return dataBase64 && mimeType.startsWith('image/')
     ? `data:${mimeType};base64,${dataBase64}`
@@ -160,6 +159,7 @@ export function GeneratedImagesBlock({
     taskAttemptId,
     imagePath ?? ''
   );
+  const openImagePreview = useOpenImagePreview();
 
   const prompt = readString(action?.arguments, ['prompt', 'description']);
   const revisedPrompt = readString(resultValue, [
@@ -182,19 +182,20 @@ export function GeneratedImagesBlock({
     metadata?.file_name ||
     imagePath ||
     'Generated image';
-  const showImage = isRenderableImageUrl(imagePath) && previewImageUrl && !error;
+  const showImage =
+    isRenderableImageUrl(imagePath) && previewImageUrl && !error;
 
   const handlePreview = useCallback(() => {
     if (!previewImageUrl || error) return;
 
-    ImagePreviewDialog.show({
+    openImagePreview({
       imageUrl: previewImageUrl,
       altText: label,
       fileName: metadata?.file_name ?? label,
       format: metadata?.format ?? undefined,
       sizeBytes: metadata?.size_bytes,
     });
-  }, [error, label, metadata, previewImageUrl]);
+  }, [error, label, metadata, openImagePreview, previewImageUrl]);
 
   if (!toolEntry || !action) return null;
 

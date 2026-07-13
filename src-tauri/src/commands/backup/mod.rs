@@ -540,7 +540,10 @@ pub async fn backup_restore_stage(
         let bytes = general_purpose::STANDARD
             .decode(&entry.bytes_base64)
             .map_err(|error| {
-                AppError::BadRequest(format!("Invalid backup payload for {}: {error}", entry.path))
+                AppError::BadRequest(format!(
+                    "Invalid backup payload for {}: {error}",
+                    entry.path
+                ))
             })?;
 
         let file_name = target

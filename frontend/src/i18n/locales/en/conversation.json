@@ -194,5 +194,11 @@
     "workspaceIdPlaceholder": "Target workspace ID for import",
     "importButton": "Import",
     "textareaPlaceholder": "The exported conversation bundle JSON appears here; you can also paste bundle JSON to import."
+  },
+  "questionRequestCard": {
+    "title": "Agent question",
+    "submit": "Submit",
+    "decline": "Decline",
+    "answered": "Answered"
   }
 }

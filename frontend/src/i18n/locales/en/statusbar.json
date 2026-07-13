@@ -3,5 +3,20 @@
   "offline": "offline",
   "automationFailureTitle": "Automation run failed",
   "backgroundTasksTitle": "{{count}} background task(s) running",
-  "updateAvailableTitle": "An update is available"
+  "updateAvailableTitle": "An update is available",
+  "attentionInbox": {
+    "title": "Needs your attention",
+    "empty": "Nothing needs your attention right now",
+    "blockingCount": "{{count}} blocking an agent",
+    "kindPermission": "Awaiting permission",
+    "kindQuestion": "Awaiting your answer",
+    "kindFailed": "Turn failed",
+    "kindInterrupted": "Turn interrupted",
+    "kindInReview": "Awaiting review",
+    "unnamedSession": "Untitled session",
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago",
+    "daysAgo": "{{count}} d ago"
+  }
 }

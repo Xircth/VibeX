@@ -38,6 +38,7 @@ id_type!(AgentConnectionId);
 id_type!(AgentSessionId);
 id_type!(AgentPromptId);
 id_type!(AgentPermissionId);
+id_type!(AgentElicitationId);
 id_type!(AgentTerminalId);
 
 #[cfg(test)]

@@ -9,7 +9,12 @@
     "loginDetectedTitle": "Recent use detected",
     "loginDetectedDescription": "Found recent authentication credentials for this agent",
     "installationFoundTitle": "Previous use detected",
-    "installationFoundDescription": "Found agent configuration. You may need to log in to use it."
+    "installationFoundDescription": "Found agent configuration. You may need to log in to use it.",
+    "notFoundTitle": "Agent not detected",
+    "notFoundDescription": "No installation or login found for this agent. Quick fix runs the install actions automatically; logging in still happens in the agent CLI, and Settings → Agents has the full repair panel.",
+    "fixNow": "Quick fix",
+    "fixing": "Fixing…",
+    "fixFailed": "Fix failed: {{error}}"
   },
   "diffCard": {
     "loadingContent": "Loading file content…",

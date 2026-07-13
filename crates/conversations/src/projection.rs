@@ -2140,6 +2140,7 @@ mod tests {
                     question_id: "question-1".into(),
                     prompt: "Pick one".into(),
                     options: vec!["A".into(), "B".into()],
+                    schema: None,
                 },
             },
             None,
@@ -2670,6 +2671,7 @@ mod tests {
                     question_id: "q1".into(),
                     prompt: "Pick".into(),
                     options: vec!["A".into(), "B".into()],
+                    schema: None,
                 },
             },
             None,
@@ -2682,7 +2684,7 @@ mod tests {
             "host",
             ConversationEvent::QuestionResponded {
                 question_id: "q1".into(),
-                response: ConversationQuestionResponse { answer: "A".into() },
+                response: ConversationQuestionResponse { answer: "A".into(), content: None },
             },
             None,
         )

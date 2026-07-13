@@ -8,21 +8,18 @@ import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { APP_NAME } from '@/lib/branding';
 import { ProjectWindowStatusSummary } from '@/components/layout/ProjectWindowStatusSummary';
+import { AttentionInboxBadge } from '@/components/layout/AttentionInboxBadge';
 import { AutomationFailureBadge } from '@/components/layout/AutomationFailureBadge';
 import { BackgroundTaskCountBadge } from '@/components/layout/BackgroundTaskCountBadge';
 import { UpdateAvailableBadge } from '@/components/layout/UpdateAvailableBadge';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { AgentKind } from 'shared/types';
 
-const CORE_AGENTS = [
-  'claude_code',
-  'codex',
-  'opencode',
-] as const;
+const CORE_AGENTS = ['claude_code', 'codex', 'opencode'] as const;
 
 function AgentStatusLight({ agent }: { agent: AgentKind }) {
   const { t } = useTranslation('statusbar');
-  const availability = useAgentAvailability(agent);
+  const { availability } = useAgentAvailability(agent);
   const isOnline =
     availability?.status === 'login_detected' ||
     availability?.status === 'installation_found';
@@ -100,6 +97,7 @@ export function StatusBar() {
 
       <div className="flex items-center gap-2">
         <SessionContextRing />
+        <AttentionInboxBadge />
         <BackgroundTaskCountBadge />
         <UpdateAvailableBadge />
         <AutomationFailureBadge />

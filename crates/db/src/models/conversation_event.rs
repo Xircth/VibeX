@@ -91,6 +91,29 @@ impl ConversationEventRecord {
     /// Generic over the executor so the projection rebuild / snapshot refresh can read
     /// the tail inside the append transaction (seeing its own uncommitted writes),
     /// while the read path keeps passing a pool.
+    /// Latest event of one kind (e.g. `session_mode_updated`) — used to hydrate
+    /// agent-advertised session controls when a conversation is (re)opened.
+    pub async fn latest_of_kind<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        event_kind: &str,
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {EVENT_COLUMNS}
+               FROM conversation_events
+               WHERE conversation_id = ? AND event_kind = ?
+               ORDER BY sequence DESC
+               LIMIT 1"#
+        ))
+        .bind(conversation_id)
+        .bind(event_kind)
+        .fetch_optional(executor)
+        .await
+    }
+
     pub async fn events_since<'e, E>(
         executor: E,
         conversation_id: Uuid,

@@ -49,6 +49,16 @@ fn default_auto_install_local_dependencies() -> bool {
     true
 }
 
+/// How links clicked inside conversation content are opened.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+pub enum LinkOpenBehavior {
+    /// Open with the system default browser.
+    #[default]
+    ExternalBrowser,
+    /// Open inside the built-in Web Preview panel.
+    BuiltinPreview,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -108,6 +118,15 @@ pub struct Config {
     /// Automatically install or update local dependencies on startup.
     #[serde(default = "default_auto_install_local_dependencies")]
     pub auto_install_local_dependencies: bool,
+    /// Opt-in: surface locally captured crash reports on startup so the user
+    /// can review the full content and choose to file a GitHub issue.
+    /// Capture itself is always local-only; nothing is sent automatically.
+    #[serde(default)]
+    pub crash_reports_enabled: bool,
+    /// How links clicked in conversation content open: system browser or the
+    /// built-in Web Preview panel.
+    #[serde(default)]
+    pub link_open_behavior: LinkOpenBehavior,
 }
 
 impl Config {
@@ -145,6 +164,8 @@ impl Config {
             agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
             auto_install_local_dependencies: default_auto_install_local_dependencies(),
+            crash_reports_enabled: false,
+            link_open_behavior: LinkOpenBehavior::default(),
         }
     }
 
@@ -210,6 +231,8 @@ impl Default for Config {
             agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
             auto_install_local_dependencies: default_auto_install_local_dependencies(),
+            crash_reports_enabled: false,
+            link_open_behavior: LinkOpenBehavior::default(),
         }
     }
 }

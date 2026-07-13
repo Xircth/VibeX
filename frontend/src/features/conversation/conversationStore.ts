@@ -128,6 +128,20 @@ export function conversationStoreReducer(
             entry.optimisticTurns,
             action.detail.timeline
           ),
+          // Hydrate agent-advertised session controls from the persisted event
+          // log so a reopened conversation renders real ACP pickers immediately;
+          // live row-op batches keep them fresh afterwards.
+          sessionModes: action.detail.session_modes
+            ? {
+                current: action.detail.session_modes.current ?? null,
+                modes: action.detail.session_modes.modes,
+              }
+            : entry.sessionModes,
+          sessionConfigOptions:
+            action.detail.session_config_options &&
+            action.detail.session_config_options.length > 0
+              ? action.detail.session_config_options
+              : entry.sessionConfigOptions,
         };
       });
     case 'load_error':

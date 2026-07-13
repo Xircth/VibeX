@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -45,6 +45,7 @@ import { useEditorAvailability } from '@/hooks/useEditorAvailability';
 import { EditorAvailabilityIndicator } from '@/components/EditorAvailabilityIndicator';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndicator';
+import { applyAgentQuickFix } from '@/lib/agentQuickFix';
 import { APP_NAME } from '@/lib/branding';
 import { cn } from '@/lib/utils';
 
@@ -100,7 +101,24 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
   const [customCommand, setCustomCommand] = useState<string>('');
 
   const editorAvailability = useEditorAvailability(editorType);
-  const agentAvailability = useAgentAvailability(profile.executor);
+  const { availability: agentAvailability, recheck: recheckAgentAvailability } =
+    useAgentAvailability(profile.executor);
+  const [agentFixing, setAgentFixing] = useState(false);
+  const [agentFixError, setAgentFixError] = useState<string | null>(null);
+
+  const handleAgentQuickFix = useCallback(async () => {
+    if (!profile.executor) return;
+    setAgentFixing(true);
+    setAgentFixError(null);
+    try {
+      await applyAgentQuickFix(profile.executor);
+    } catch (error) {
+      setAgentFixError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAgentFixing(false);
+      recheckAgentAvailability();
+    }
+  }, [profile.executor, recheckAgentAvailability]);
 
   const isClaudeCode = profile.executor === 'claude_code';
   const isCodex = profile.executor === 'codex';
@@ -157,7 +175,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 }}
               >
                 <SelectTrigger id="profile">
-                  <SelectValue placeholder={t('onboarding.selectAgentPlaceholder')} />
+                  <SelectValue
+                    placeholder={t('onboarding.selectAgentPlaceholder')}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {profiles &&
@@ -170,7 +190,12 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                       ))}
                 </SelectContent>
               </Select>
-              <AgentAvailabilityIndicator availability={agentAvailability} />
+              <AgentAvailabilityIndicator
+                availability={agentAvailability}
+                onQuickFix={() => void handleAgentQuickFix()}
+                fixing={agentFixing}
+                fixError={agentFixError}
+              />
             </div>
 
             {/* Claude Code: show model choices from settings.json */}
@@ -336,7 +361,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 onValueChange={(value: EditorType) => setEditorType(value)}
               >
                 <SelectTrigger id="editor">
-                  <SelectValue placeholder={t('onboarding.selectEditorPlaceholder')} />
+                  <SelectValue
+                    placeholder={t('onboarding.selectEditorPlaceholder')}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.values(EditorType).map((type) => (

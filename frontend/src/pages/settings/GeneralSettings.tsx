@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Bell,
+  Bug,
   Check,
   Code2,
   Eye,
@@ -14,7 +15,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { EditorType, SoundFile, type Config } from 'shared/types';
+import {
+  EditorType,
+  SoundFile,
+  type Config,
+  type LinkOpenBehavior,
+} from 'shared/types';
 
 import { IdeIcon } from '@/components/ide/IdeIcon';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -376,7 +382,9 @@ export function GeneralSettings() {
                 }
               >
                 <SelectTrigger className="!w-64">
-                  <SelectValue placeholder={t('general.selectEditorPlaceholder')} />
+                  <SelectValue
+                    placeholder={t('general.selectEditorPlaceholder')}
+                  />
                 </SelectTrigger>
                 <SelectContent align="start" className="max-h-80">
                   {editorOptions.map((option) => {
@@ -484,7 +492,9 @@ export function GeneralSettings() {
                   disabled={promptEnhancementModels.length === 0}
                 >
                   <SelectTrigger className="!w-72">
-                    <SelectValue placeholder={t('general.selectModelPlaceholder')} />
+                    <SelectValue
+                      placeholder={t('general.selectModelPlaceholder')}
+                    />
                   </SelectTrigger>
                   <SelectContent align="start" className="max-h-72">
                     {promptEnhancementModels.map((model) => {
@@ -667,6 +677,34 @@ export function GeneralSettings() {
         </SettingsSection>
 
         <SettingsSection
+          icon={Bug}
+          title={t('general.crashReportsTitle')}
+          description={t('general.crashReportsDescription')}
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <Label
+                htmlFor="crash-reports-enabled"
+                className="cursor-pointer text-xs"
+              >
+                {t('general.crashReportsToggle')}
+              </Label>
+              <Switch
+                id="crash-reports-enabled"
+                className="settings-switch"
+                checked={draft.crash_reports_enabled}
+                onCheckedChange={(checked: boolean) =>
+                  updateDraft({ crash_reports_enabled: checked })
+                }
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('general.crashReportsPrivacy')}
+            </p>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
           icon={Eye}
           title={t('general.previewTitle')}
           description={t('general.previewDescription')}
@@ -711,6 +749,33 @@ export function GeneralSettings() {
                   updateDraft({ files_changed_default_collapsed: checked })
                 }
               />
+            </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.linkOpenBehavior')}</Label>
+                <p className="settings-row__description">
+                  {t('general.linkOpenBehaviorHint')}
+                </p>
+              </div>
+              <Select
+                value={draft.link_open_behavior ?? 'ExternalBrowser'}
+                onValueChange={(value: LinkOpenBehavior) =>
+                  updateDraft({ link_open_behavior: value })
+                }
+              >
+                <SelectTrigger className="!w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="ExternalBrowser">
+                    {t('general.linkOpenExternal')}
+                  </SelectItem>
+                  <SelectItem value="BuiltinPreview">
+                    {t('general.linkOpenBuiltin')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="settings-row">

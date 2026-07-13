@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use agents::{AgentPermissionResponse, AgentSessionConfigOverride, AgentKind};
+use agents::{AgentKind, AgentPermissionResponse, AgentSessionConfigOverride};
 use axum::{
     Json, Router,
     extract::{Path, Query, State as AxumState},
@@ -318,8 +318,14 @@ async fn emit_events_after(
     after_sequence: i64,
 ) {
     // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
-        .await;
+    crate::events::emit_conversation_row_ops_after(
+        app,
+        projectors,
+        pool,
+        conversation_id,
+        after_sequence,
+    )
+    .await;
     // IM channels still consume the raw event envelopes.
     if let Ok(page) =
         conversation_events_since_core(pool, conversation_id, after_sequence, 50).await

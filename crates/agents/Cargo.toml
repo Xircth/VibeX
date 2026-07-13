@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 api-types = { path = "../api-types" }
 async-trait = { workspace = true }
-agent-client-protocol = { version = "0.11.1", features = [
+agent-client-protocol = { version = "0.15.1", features = [
     "unstable",
     "unstable_session_fork",
 ] }
@@ -23,6 +23,7 @@ tracing = { workspace = true }
 ts-rs = { workspace = true }
 uuid = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
+which = "8.0.0"
 dirs = { workspace = true }
 jsonc-parser = { version = "0.29", features = ["cst", "serde"] }
 toml = "0.8"

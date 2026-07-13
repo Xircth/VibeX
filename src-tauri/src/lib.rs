@@ -4,14 +4,16 @@ pub mod bridge;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
+mod crash_reports;
 mod deeplink;
 mod delegation;
 mod error;
-mod logging;
-mod tray;
 mod events;
+mod logging;
+mod office_watch;
 mod preview_proxy;
 mod state;
+mod tray;
 mod workspace_paths;
 use state::AppState;
 
@@ -62,6 +64,8 @@ pub fn run() {
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
     let mut log_guard = Some(logging::init_logging());
+    // Persist panics as local crash reports (opt-in surfacing happens in the UI).
+    crash_reports::install_panic_hook();
     install_rustls_crypto_provider();
 
     tauri::Builder::default()
@@ -126,7 +130,12 @@ pub fn run() {
             {
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let pool = handle.state::<state::AppState>().deployment.db().pool.clone();
+                    let pool = handle
+                        .state::<state::AppState>()
+                        .deployment
+                        .db()
+                        .pool
+                        .clone();
                     if let Err(error) = commands::automation::recover_automation_runs(&pool).await {
                         tracing::warn!("automation run recovery failed: {error}");
                     }
@@ -136,6 +145,14 @@ pub fn run() {
 
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
                 tracing::error!("Failed to start preview proxy: {}", error);
+            }
+
+            // Office preview: reap crashed/orphaned `officecli watch` servers.
+            if let Some(idle_timeout) = office_watch::idle_timeout_from_env() {
+                tauri::async_runtime::spawn(office_watch::office_watch_idle_sweep_task(
+                    idle_timeout,
+                    std::time::Duration::from_secs(office_watch::SWEEP_INTERVAL_SECS),
+                ));
             }
 
             if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
@@ -302,6 +319,9 @@ pub fn run() {
             commands::conversations::conversation_events_since,
             commands::conversations::conversation_timeline_page,
             commands::conversations::conversation_respond_permission,
+            commands::conversations::conversation_respond_question,
+            commands::conversations::conversation_set_session_mode,
+            commands::conversations::conversation_set_session_config_option,
             commands::conversations::conversation_cancel_turn,
             commands::conversations::conversation_truncate_to_turn,
             commands::conversations::conversation_close,
@@ -514,6 +534,13 @@ pub fn run() {
             commands::agents::agent_config_write,
             commands::agents::agent_mcp_list,
             commands::agents::agent_mcp_write,
+            commands::agents::agent_plan_usage,
+            // Attention inbox
+            commands::attention::attention_inbox_list,
+            // Crash report commands
+            commands::crash_reports::crash_reports_list,
+            commands::crash_reports::crash_report_read,
+            commands::crash_reports::crash_report_delete,
             // Execution process commands
             commands::execution_processes::get_execution_process,
             commands::execution_processes::stop_execution_process,
@@ -534,6 +561,12 @@ pub fn run() {
             commands::file_tree::move_item,
             commands::file_tree::create_directory,
             commands::file_tree::search_workspace_text,
+            // Office preview (OfficeCLI) commands
+            commands::office_tools::officecli_detect,
+            commands::office_tools::officecli_install,
+            commands::office_tools::officecli_uninstall,
+            commands::office_tools::start_office_watch,
+            commands::office_tools::stop_office_watch,
             // Skills commands
             commands::skills::list_local_agent_skills,
             commands::agent_skills::list_agent_skills,
@@ -555,6 +588,10 @@ pub fn run() {
         .run(move |_app_handle, event| {
             // Flush the non-blocking log writer on exit before the process leaves.
             if let tauri::RunEvent::Exit = event {
+                let reaped = office_watch::stop_all_office_watches();
+                if reaped > 0 {
+                    tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
+                }
                 log_guard.take();
             }
         });

@@ -14,6 +14,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { AgentKind } from 'shared/types';
 import type {
+  AgentElicitationResponse,
   AgentPermissionResponse,
   MessageTurn,
   TaskWithAttemptStatus,
@@ -23,6 +24,7 @@ import type {
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
+import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { agentsApi } from '@/features/agents/api';
@@ -154,6 +156,8 @@ function ConversationSideRows({
   rows,
   onRespondPermission,
   respondingPermissionId,
+  onRespondQuestion,
+  respondingQuestionId,
   onOpenChild,
 }: {
   rows: TimelineRow[];
@@ -162,6 +166,11 @@ function ConversationSideRows({
     response: AgentPermissionResponse
   ) => void;
   respondingPermissionId: string | null;
+  onRespondQuestion: (
+    questionId: string,
+    response: AgentElicitationResponse
+  ) => void;
+  respondingQuestionId: string | null;
   onOpenChild?: (childConversationId: string) => void;
 }) {
   const visibleRows = rows.filter((entry) => entry.row.kind !== 'turn_error');
@@ -185,17 +194,13 @@ function ConversationSideRows({
         }
         if (row.kind === 'question_request') {
           return (
-            <div
+            <QuestionRequestCard
               key={`question-${row.request.question_id}-${index}`}
-              className="rounded-md border border-sky-300/50 bg-sky-50 px-3 py-2 text-xs text-sky-950 dark:border-sky-500/30 dark:bg-sky-950/25 dark:text-sky-100"
-            >
-              <div className="font-medium">{row.request.prompt}</div>
-              {row.request.options.length > 0 ? (
-                <div className="mt-1 truncate text-sky-800/80 dark:text-sky-100/75">
-                  {row.request.options.join(', ')}
-                </div>
-              ) : null}
-            </div>
+              request={row.request}
+              response={row.response ?? null}
+              onRespond={onRespondQuestion}
+              responding={respondingQuestionId === row.request.question_id}
+            />
           );
         }
         if (row.kind === 'feedback_request') {
@@ -333,6 +338,24 @@ const AgentTimelineConversation = forwardRef<
     },
     [conversationRespondPermission]
   );
+  // Stable reference for answering agent questions (ACP elicitations) inline.
+  const conversationRespondQuestion = conversation.respondQuestion;
+  const [respondingQuestionId, setRespondingQuestionId] = useState<
+    string | null
+  >(null);
+  const handleRespondQuestion = useCallback(
+    (questionId: string, response: AgentElicitationResponse) => {
+      setRespondingQuestionId(questionId);
+      void conversationRespondQuestion(questionId, response)
+        .catch((error: unknown) => toast.error(getErrorMessage(error)))
+        .finally(() =>
+          setRespondingQuestionId((current) =>
+            current === questionId ? null : current
+          )
+        );
+    },
+    [conversationRespondQuestion]
+  );
   // A delegated sub-agent runs in the parent's workspace (the spawner inherits
   // parent.workspace_id), so the child transcript lives at the same project +
   // workspace route — only the session id changes. Open it only when the route
@@ -375,6 +398,14 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setSessionModes?.(conversationSessionModes);
   }, [setSessionModes, conversationSessionModes]);
+
+  // Same bridge for the agent-advertised config options (model / permission
+  // mode / …) so the composer renders live ACP selectors, not static presets.
+  const setSessionConfigOptions = entries?.setSessionConfigOptions;
+  const conversationSessionConfigOptions = conversation.sessionConfigOptions;
+  useEffect(() => {
+    setSessionConfigOptions?.(conversationSessionConfigOptions);
+  }, [setSessionConfigOptions, conversationSessionConfigOptions]);
 
   const liveStats = useMemo<TurnStatsData>(
     () => ({
@@ -713,6 +744,8 @@ const AgentTimelineConversation = forwardRef<
               rows={sideRows}
               onRespondPermission={handleRespondPermission}
               respondingPermissionId={respondingPermissionId}
+              onRespondQuestion={handleRespondQuestion}
+              respondingQuestionId={respondingQuestionId}
               onOpenChild={handleOpenChild}
             />
             <div

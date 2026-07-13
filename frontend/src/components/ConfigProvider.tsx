@@ -6,10 +6,7 @@ import {
   useMemo,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  type Config,
-  type Environment,
-} from 'shared/types';
+import { type Config, type Environment } from 'shared/types';
 import type { ExecutorConfig } from 'shared/types';
 import {
   configApi,
@@ -72,8 +69,10 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     (userSystemInfo?.executors as Record<string, ExecutorConfig> | null) ||
     null;
   const capabilities =
-    (userSystemInfo?.capabilities as Record<string, AgentCapability[]> | null) ||
-    null;
+    (userSystemInfo?.capabilities as Record<
+      string,
+      AgentCapability[]
+    > | null) || null;
 
   const updateConfig = useCallback(
     (updates: Partial<Config>) => {
@@ -213,4 +212,9 @@ export function useUserSystem() {
     throw new Error('useUserSystem must be used within a UserSystemProvider');
   }
   return context;
+}
+
+/** Like useUserSystem, but returns null outside a UserSystemProvider. */
+export function useOptionalUserSystem() {
+  return useContext(UserSystemContext) ?? null;
 }

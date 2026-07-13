@@ -459,7 +459,10 @@ mod tests {
 
         // One turn per non-terminal status, plus a completed one that must be excluded.
         let mut in_flight_ids = Vec::new();
-        for (index, status) in ["pending", "queued", "running", "blocked"].iter().enumerate() {
+        for (index, status) in ["pending", "queued", "running", "blocked"]
+            .iter()
+            .enumerate()
+        {
             let id = Uuid::new_v4();
             ConversationTurnRecord::create_pending(
                 &pool,
@@ -475,9 +478,15 @@ mod tests {
             .expect("create turn");
             // 'pending' is the create default; advance the rest.
             match *status {
-                "queued" => ConversationTurnRecord::mark_queued(&pool, id).await.unwrap(),
-                "running" => ConversationTurnRecord::mark_running(&pool, id).await.unwrap(),
-                "blocked" => ConversationTurnRecord::mark_blocked(&pool, id).await.unwrap(),
+                "queued" => ConversationTurnRecord::mark_queued(&pool, id)
+                    .await
+                    .unwrap(),
+                "running" => ConversationTurnRecord::mark_running(&pool, id)
+                    .await
+                    .unwrap(),
+                "blocked" => ConversationTurnRecord::mark_blocked(&pool, id)
+                    .await
+                    .unwrap(),
                 _ => {}
             }
             let _ = index;
@@ -503,13 +512,21 @@ mod tests {
         let in_flight = ConversationTurnRecord::list_in_flight(&pool)
             .await
             .expect("list in flight");
-        assert_eq!(in_flight.len(), 4, "the four non-terminal turns, not the completed one");
+        assert_eq!(
+            in_flight.len(),
+            4,
+            "the four non-terminal turns, not the completed one"
+        );
         assert!(in_flight.iter().all(|turn| turn.id != completed_id));
 
         for turn in &in_flight {
-            ConversationTurnRecord::mark_interrupted(&pool, turn.id, Some(r#"{"message":"restart"}"#))
-                .await
-                .expect("mark interrupted");
+            ConversationTurnRecord::mark_interrupted(
+                &pool,
+                turn.id,
+                Some(r#"{"message":"restart"}"#),
+            )
+            .await
+            .expect("mark interrupted");
         }
 
         // All settled now → nothing left in flight, and each is 'interrupted'.

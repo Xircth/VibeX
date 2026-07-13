@@ -252,5 +252,15 @@
     "back": "上一步",
     "next": "下一步",
     "complete": "完成"
+  },
+  "crashReport": {
+    "title": "检测到上次运行的崩溃报告",
+    "description": "应用上次运行时发生了崩溃。以下是本机保存的完整报告内容——是否提交完全由你决定。",
+    "loading": "正在读取报告…",
+    "loadFailed": "读取报告失败：{{error}}",
+    "privacyNote": "报告仅保存在本机。点击“在 GitHub 提交”会复制完整报告到剪贴板，并在浏览器中打开预填好的 GitHub issue 页面（超长部分会截断，可从剪贴板粘贴补全）；不点击则不会有任何内容离开本机。",
+    "later": "稍后再说",
+    "discard": "删除报告",
+    "submitToGithub": "在 GitHub 提交"
   }
 }

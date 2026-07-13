@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, Minimize2, Power, X } from 'lucide-react';
@@ -27,6 +22,8 @@ import { ThemeMode } from 'shared/types';
 
 import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
 import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
+import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog';
+import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { configApi, type LocalToolStatus } from '@/lib/api';
@@ -106,7 +103,10 @@ function MainWindowCloseToastBridge() {
             <Power className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="main-window-close-title" className="text-base font-semibold">
+            <h2
+              id="main-window-close-title"
+              className="text-base font-semibold"
+            >
               {t('shell.closeBehaviorTitle')}
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -270,6 +270,7 @@ function MainAppContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
+  const crashPromptShownRef = useRef(false);
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -329,6 +330,35 @@ function MainAppContent() {
       cancelled = true;
     };
   }, [config, location.pathname, navigate, updateAndSaveConfig]);
+
+  // Opt-in crash reporting: once the startup prompt chain is idle, surface the
+  // newest locally captured crash report (full content, user decides whether to
+  // file it). Runs at most once per app session.
+  useEffect(() => {
+    if (!config?.crash_reports_enabled || crashPromptShownRef.current) return;
+    const startupPromptStep = getStartupPromptStep({
+      config,
+      pathname: location.pathname,
+    });
+    if (startupPromptStep !== 'none') return;
+    if (location.pathname.startsWith('/settings')) return;
+
+    crashPromptShownRef.current = true;
+    void (async () => {
+      try {
+        const info = await crashReportsApi.list();
+        const newest = info.reports[0];
+        if (!newest) return;
+        await CrashReportDialog.show({
+          reportId: newest.id,
+          repository: info.repository,
+        });
+        CrashReportDialog.hide();
+      } catch (error) {
+        console.error('Crash report check failed:', error);
+      }
+    })();
+  }, [config, location.pathname]);
 
   useEffect(() => {
     if (

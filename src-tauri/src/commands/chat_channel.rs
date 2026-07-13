@@ -24,8 +24,7 @@ use agents::{
     decide_remote_permission_response,
 };
 use chrono::Utc;
-use db::models::conversation_side_effects::ConversationPermissionRecord;
-use db::models::session::SessionStatus;
+use db::models::{conversation_side_effects::ConversationPermissionRecord, session::SessionStatus};
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
@@ -69,7 +68,13 @@ pub fn set_audit_pool(pool: SqlitePool) {
 }
 
 /// Best-effort audit record of an outbound delivery or inbound command.
-async fn audit(channel_id: &str, direction: &str, event: Option<&str>, status: &str, detail: Option<&str>) {
+async fn audit(
+    channel_id: &str,
+    direction: &str,
+    event: Option<&str>,
+    status: &str,
+    detail: Option<&str>,
+) {
     let Some(pool) = AUDIT_POOL.get() else {
         return;
     };
@@ -672,6 +677,7 @@ pub fn conversation_event_key(event: &ConversationEvent) -> Option<&'static str>
     match event {
         ConversationEvent::UserTurnStarted => Some("prompt_started"),
         ConversationEvent::PermissionRequested { .. } => Some("permission_requested"),
+        ConversationEvent::QuestionRequested { .. } => Some("question_requested"),
         ConversationEvent::TurnCompleted { .. } => Some("prompt_finished"),
         ConversationEvent::TurnFailed { .. } => Some("error"),
         ConversationEvent::AgentConnectionStatusChanged { .. } => Some("connection_status_changed"),
@@ -698,6 +704,11 @@ fn build_conversation_rich(
             )
             .with_title("🔐 权限请求")
             .with_field("权限", request.request.title.clone())
+        }
+        ConversationEvent::QuestionRequested { request } => {
+            RichMessage::info("智能体向你提问，请在桌面端选择答案。")
+                .with_title("❓ 智能体提问")
+                .with_field("问题", request.prompt.clone())
         }
         ConversationEvent::TurnCompleted { .. } => {
             RichMessage::info("智能体已完成本次任务。").with_title("✅ 任务完成")
@@ -1618,10 +1629,18 @@ async fn emit_conversation_events_after(
     after_sequence: i64,
 ) {
     // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(app, projectors, pool, conversation_id, after_sequence)
-        .await;
+    crate::events::emit_conversation_row_ops_after(
+        app,
+        projectors,
+        pool,
+        conversation_id,
+        after_sequence,
+    )
+    .await;
     // IM channels still consume the raw event envelopes.
-    if let Ok(page) = conversation_events_since_core(pool, conversation_id, after_sequence, 50).await {
+    if let Ok(page) =
+        conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
+    {
         for event in page.events {
             if let Err(error) = notify_conversation_event(&event).await {
                 tracing::warn!(
@@ -1935,8 +1954,9 @@ async fn resume_command(
 
 #[cfg(test)]
 mod inbound_authorization_tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     // Fail-closed: a channel with no destination identity and no explicit
     // allowlist authorizes nobody — an unconfigured channel is a closed door.
@@ -1971,7 +1991,12 @@ mod inbound_authorization_tests {
     #[test]
     fn explicit_authorized_sender_is_allowed_from_any_chat() {
         let config = json!({ "chat_id": "555", "authorized_senders": ["999"] });
-        assert!(is_sender_authorized("telegram", &config, "999", "unknown-chat"));
+        assert!(is_sender_authorized(
+            "telegram",
+            &config,
+            "999",
+            "unknown-chat"
+        ));
     }
 
     // QQ scopes on `target_id` (the bound group / number), not `chat_id`.

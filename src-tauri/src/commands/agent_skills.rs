@@ -4,7 +4,6 @@
 //! IPC calls and errors.
 
 use agents::skills::{self, AgentSkillScope};
-
 // Re-export the moved types so existing paths (`commands::agent_skills::*`)
 // keep resolving for any callers/tests.
 pub use agents::skills::{

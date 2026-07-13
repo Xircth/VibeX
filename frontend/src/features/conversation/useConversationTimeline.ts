@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import type {
+  AgentElicitationResponse,
   AgentPermissionResponse,
   AgentSessionConfigOption,
   ConversationRowOpBatch,
@@ -45,6 +46,10 @@ export type UseConversationTimelineResult = {
   respondPermission: (
     permissionId: string,
     response: AgentPermissionResponse
+  ) => Promise<void>;
+  respondQuestion: (
+    questionId: string,
+    response: AgentElicitationResponse
   ) => Promise<void>;
 };
 
@@ -227,6 +232,18 @@ export function useConversationTimeline(
     [conversationId]
   );
 
+  const respondQuestion = useCallback(
+    (questionId: string, response: AgentElicitationResponse) => {
+      if (!conversationId) return Promise.resolve();
+      return conversationApi.respondQuestion({
+        conversationId,
+        questionId,
+        response,
+      });
+    },
+    [conversationId]
+  );
+
   return useMemo(
     () => ({
       timeline: timelineTurnsForEntry(entry),
@@ -242,6 +259,7 @@ export function useConversationTimeline(
       resetAndReload,
       cancel,
       respondPermission,
+      respondQuestion,
     }),
     [
       entry,
@@ -251,6 +269,7 @@ export function useConversationTimeline(
       resetAndReload,
       cancel,
       respondPermission,
+      respondQuestion,
     ]
   );
 }

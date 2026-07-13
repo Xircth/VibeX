@@ -1,5 +1,6 @@
 import { tauriInvoke } from '@/lib/tauriApi';
 import type {
+  AgentElicitationResponse,
   AgentPermissionResponse,
   AgentSessionConfigOverride,
   AgentKind,
@@ -43,9 +44,26 @@ export type ConversationPermissionResponseRequest = {
   response: AgentPermissionResponse;
 };
 
+export type ConversationQuestionResponseRequest = {
+  conversationId: string;
+  questionId: string;
+  response: AgentElicitationResponse;
+};
+
 export type ConversationCancelTurnRequest = {
   conversationId: string;
   reason?: string | null;
+};
+
+export type ConversationSetSessionModeRequest = {
+  conversationId: string;
+  modeId: string;
+};
+
+export type ConversationSetSessionConfigOptionRequest = {
+  conversationId: string;
+  key: string;
+  value: string;
 };
 
 export type ConversationCloseRequest = {
@@ -124,8 +142,24 @@ export const conversationApi = {
   ): Promise<void> =>
     tauriInvoke('conversation_respond_permission', { request }),
 
+  respondQuestion: (
+    request: ConversationQuestionResponseRequest
+  ): Promise<void> =>
+    tauriInvoke('conversation_respond_question', { request }),
+
   cancel: (request: ConversationCancelTurnRequest): Promise<void> =>
     tauriInvoke('conversation_cancel_turn', { request }),
+
+  // Immediate ACP `session/set_mode`; fails while a turn is in flight or before
+  // the session exists — callers then keep the choice as a next-turn override.
+  setSessionMode: (request: ConversationSetSessionModeRequest): Promise<void> =>
+    tauriInvoke('conversation_set_session_mode', { request }),
+
+  // Immediate ACP `session/set_config_option` (model / permission mode / …).
+  setSessionConfigOption: (
+    request: ConversationSetSessionConfigOptionRequest
+  ): Promise<void> =>
+    tauriInvoke('conversation_set_session_config_option', { request }),
 
   // Reset-to-here: truncate the conversation to before the user turn at `ordinal`.
   truncateToTurn: (

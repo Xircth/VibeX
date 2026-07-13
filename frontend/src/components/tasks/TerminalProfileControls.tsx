@@ -59,6 +59,12 @@ interface TerminalProfileControlsProps {
   showLabel?: boolean;
   iconOnly?: boolean;
   dropdownSide?: 'top' | 'bottom';
+  /**
+   * When the live ACP session advertises its own config options (model /
+   * permission / …), the composer renders those instead — suppress the
+   * profile-derived equivalents here and keep only the variant selector.
+   */
+  suppressAcpManagedControls?: boolean;
 }
 
 const OPEN_CODE_DEFAULT_MODE = '__DEFAULT__';
@@ -266,6 +272,7 @@ export function TerminalProfileControls({
   showLabel = false,
   iconOnly = false,
   dropdownSide = 'bottom',
+  suppressAcpManagedControls = false,
 }: TerminalProfileControlsProps) {
   const executor = selectedProfile?.executor ?? null;
   const isClaude = isClaudeCodeExecutor(executor);
@@ -276,6 +283,14 @@ export function TerminalProfileControls({
   const contentClassName = className || 'flex flex-col gap-2 w-full';
 
   if (!profiles || !selectedProfile || !executor) {
+    return null;
+  }
+
+  // Live ACP config options fully replace the profile-derived pickers
+  // (including the variant preset — its model/permission bundles are covered by
+  // the agent's own selectors). With the executor locked there is nothing left
+  // to render at all.
+  if (suppressAcpManagedControls && lockExecutor) {
     return null;
   }
 
@@ -614,13 +629,15 @@ export function TerminalProfileControls({
         />
       ) : null}
 
-      {isClaude
-        ? renderClaudeControls()
-        : isCodex
-          ? renderCodexControls()
-          : isOpencode
-            ? renderOpenCodeControls()
-            : variantSelector}
+      {suppressAcpManagedControls
+        ? null
+        : isClaude
+          ? renderClaudeControls()
+          : isCodex
+            ? renderCodexControls()
+            : isOpencode
+              ? renderOpenCodeControls()
+              : variantSelector}
     </div>
   );
 }

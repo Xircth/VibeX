@@ -1,0 +1,369 @@
+/*
+ * Effort slider card, styled after Claude Code's effort range slider
+ * (claude-range-slider reference), scaled to composer-popover size and themed
+ * with the app's design tokens so it follows light/dark automatically.
+ *
+ * Exception: the track stays a dark recessed well in both themes — the WebGL
+ * flame composites with mix-blend-mode: screen and is only visible against a
+ * dark background. The blue glow matches the flame colors baked into the shaders.
+ */
+
+.vx-effort-clip {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.vx-effort-shadow {
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.16))
+    drop-shadow(0 3px 8px rgba(0, 0, 0, 0.08));
+  transition: filter 0.2s ease;
+}
+
+.vx-effort-card {
+  background: hsl(var(--popover));
+  color: hsl(var(--foreground));
+  width: 200px;
+  max-width: 100%;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 10px 12px 9px;
+  user-select: none;
+}
+
+.vx-effort-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.vx-effort-header-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  perspective: 180px;
+  perspective-origin: center 120%;
+}
+
+.vx-effort-label {
+  color: hsl(var(--foreground));
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.vx-effort-status {
+  display: inline-block;
+  color: hsl(var(--muted-foreground));
+  transition:
+    color 0.3s,
+    text-shadow 0.3s;
+  will-change: transform, opacity, filter;
+  vertical-align: middle;
+  transform-origin: center bottom;
+  transform: rotateX(0deg) translateY(0);
+}
+
+.vx-effort-status.vx-glowing {
+  color: #60a5fa;
+  text-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  font-weight: 600;
+}
+
+@keyframes vx-effort-flip-up {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) rotateX(-80deg);
+    filter: blur(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0deg);
+    filter: blur(0);
+  }
+}
+
+.vx-effort-status.vx-animate-up {
+  animation: vx-effort-flip-up 0.42s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+}
+
+.vx-effort-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s;
+  line-height: 1;
+  padding: 0;
+}
+
+.vx-effort-help:hover {
+  color: hsl(var(--foreground));
+}
+
+.vx-effort-help svg {
+  height: 13px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
+  shape-rendering: geometricPrecision;
+}
+
+.vx-effort-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 5px;
+  letter-spacing: 0.04em;
+}
+
+/* ── track (dark well in both themes; see file header) ── */
+.vx-effort-track {
+  position: relative;
+  height: 18px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #1a1a1e;
+  background: #0c0c0c;
+  isolation: isolate;
+}
+
+.vx-effort-track-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #111113, #0a0a0b);
+  z-index: 0;
+}
+
+/* Keep the canvas laid out (opacity, not display) so it always has a size. */
+.vx-effort-track canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  z-index: 2;
+  transition: opacity 0.3s;
+}
+
+.vx-effort-track.vx-active canvas {
+  opacity: 1;
+  z-index: 4;
+}
+
+/* ── drag effect: luminous fill trailing the thumb ── */
+.vx-effort-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.04),
+    rgba(59, 130, 246, 0.22) 55%,
+    rgba(96, 165, 250, 0.5)
+  );
+  box-shadow: inset 0 0 6px rgba(59, 130, 246, 0.25);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  overflow: hidden;
+}
+
+/* Shimmer sweeping through the fill while dragging. */
+.vx-effort-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(191, 219, 254, 0.35) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: vx-effort-shimmer 1.1s linear infinite;
+}
+
+@keyframes vx-effort-shimmer {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+.vx-effort-track.vx-dragging .vx-effort-fill {
+  opacity: 1;
+  transition: opacity 0.12s ease;
+}
+
+.vx-effort-dots {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.vx-effort-dot {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #494950;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.6s;
+}
+
+.vx-effort-track.vx-active .vx-effort-dot {
+  opacity: 0.25;
+}
+
+.vx-effort-track.vx-full .vx-effort-dot {
+  opacity: 0;
+}
+
+/* ── range input ───────────────────────────── */
+.vx-effort-track input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  z-index: 5;
+  outline: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vx-effort-track input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  border-radius: 6px;
+  background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
+  border: 0.5px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.18),
+    0 1.5px 4px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.12),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+  cursor: grab;
+  transition:
+    box-shadow 0.4s ease,
+    transform 0.15s ease;
+}
+
+.vx-effort-track input[type='range']::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 2px 5px rgba(0, 0, 0, 0.15),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.vx-effort-track input[type='range'].vx-glowing::-webkit-slider-thumb {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.18),
+    0 1.5px 4px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.12),
+    0 0 16px rgba(59, 130, 246, 0.5),
+    0 0 30px rgba(59, 130, 246, 0.25),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -0.5px 0 rgba(0, 0, 0, 0.06);
+}
+
+.vx-effort-track input[type='range'].vx-glowing::-webkit-slider-thumb:active {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 2px 5px rgba(0, 0, 0, 0.15),
+    0 0 18px rgba(59, 130, 246, 0.55),
+    0 0 32px rgba(59, 130, 246, 0.3),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.vx-effort-track input[type='range']::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 5px;
+  background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
+  border: 0.5px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.18),
+    0 1.5px 4px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.12);
+  cursor: grab;
+  transition: box-shadow 0.4s ease;
+}
+
+.vx-effort-track input[type='range']::-moz-range-thumb:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+
+.vx-effort-track input[type='range'].vx-glowing::-moz-range-thumb {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.18),
+    0 1.5px 4px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.12),
+    0 0 16px rgba(59, 130, 246, 0.5),
+    0 0 30px rgba(59, 130, 246, 0.25);
+}
+
+.vx-effort-track input[type='range'].vx-glowing::-moz-range-thumb:active {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 2px 5px rgba(0, 0, 0, 0.15),
+    0 0 18px rgba(59, 130, 246, 0.55),
+    0 0 32px rgba(59, 130, 246, 0.3);
+}
+
+.vx-effort-track input[type='range']::-moz-range-track {
+  background: transparent;
+  border: none;
+  height: 18px;
+}
+
+/* Thumb glow while dragging (independent of the top-level flame glow). */
+.vx-effort-track.vx-dragging input[type='range']::-webkit-slider-thumb {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 2px 5px rgba(0, 0, 0, 0.15),
+    0 0 12px rgba(59, 130, 246, 0.55),
+    0 0 24px rgba(59, 130, 246, 0.3),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.12s ease;
+}
+
+.vx-effort-track.vx-dragging input[type='range']::-moz-range-thumb {
+  box-shadow:
+    0 0.5px 1px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 2px 5px rgba(0, 0, 0, 0.15),
+    0 0 12px rgba(59, 130, 246, 0.55),
+    0 0 24px rgba(59, 130, 246, 0.3);
+  transition: box-shadow 0.12s ease;
+}

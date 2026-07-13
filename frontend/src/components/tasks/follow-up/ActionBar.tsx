@@ -1,5 +1,9 @@
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
-import type { ExecutorConfig, ExecutorProfileId } from 'shared/types';
+import type {
+  AgentSessionConfigOption,
+  ExecutorConfig,
+  ExecutorProfileId,
+} from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 import { hasFollowUpContent } from './sessionComposerSubmit';
 import { ActionBarImageButton } from './ActionBarImageButton';
@@ -7,6 +11,7 @@ import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
 import { SessionModeSelector } from './SessionModeSelector';
+import { SessionConfigOptionSelectors } from './SessionConfigOptionSelectors';
 
 interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
@@ -18,6 +23,11 @@ interface ActionBarProps {
   /** The user's pending mode selection for the next turn. */
   selectedMode?: string | null;
   onSelectMode?: (modeId: string) => void;
+  /** Agent-advertised ACP config options (model / permission / …). */
+  sessionConfigOptions?: AgentSessionConfigOption[];
+  /** Pending per-option config selections for the next turn (key → value). */
+  selectedConfigValues?: Record<string, string>;
+  onSelectConfigOption?: (key: string, value: string) => void;
   isAwaitingNewSessionConfirmation?: boolean;
   isEditable: boolean;
   isAttemptRunning: boolean;
@@ -55,6 +65,9 @@ export function ActionBar({
   sessionModes,
   selectedMode = null,
   onSelectMode,
+  sessionConfigOptions = [],
+  selectedConfigValues = {},
+  onSelectConfigOption,
   isAwaitingNewSessionConfirmation = false,
   isEditable,
   isAttemptRunning,
@@ -90,6 +103,23 @@ export function ActionBar({
     imageCount: attachmentCount,
   });
 
+  // Once the agent advertises live ACP config options, they are the source of
+  // truth for model / permission choices — suppress the overlapping static
+  // profile pickers so the composer never shows two competing selectors.
+  const hasAcpConfigOptions = sessionConfigOptions.some(
+    (option) => (option.choices?.length ?? 0) > 1
+  );
+  // Claude's adapter advertises the permission mode both as `modes` and as a
+  // `mode`-category config option; the dedicated mode picker wins.
+  const showModeSelector = Boolean(
+    sessionModes && onSelectMode && sessionModes.modes.length > 0
+  );
+  const dedupedConfigOptions = showModeSelector
+    ? sessionConfigOptions.filter(
+        (option) => (option.category ?? option.key) !== 'mode'
+      )
+    : sessionConfigOptions;
+
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
       {showProfileControls ? (
@@ -102,6 +132,7 @@ export function ActionBar({
           iconOnly={true}
           dropdownSide="top"
           className="flex flex-wrap items-center gap-1"
+          suppressAcpManagedControls={hasAcpConfigOptions}
         />
       ) : null}
 
@@ -111,6 +142,15 @@ export function ActionBar({
           current={sessionModes.current}
           selected={selectedMode}
           onSelect={onSelectMode}
+          disabled={!isEditable}
+        />
+      ) : null}
+
+      {onSelectConfigOption ? (
+        <SessionConfigOptionSelectors
+          options={dedupedConfigOptions}
+          pending={selectedConfigValues}
+          onSelect={onSelectConfigOption}
           disabled={!isEditable}
         />
       ) : null}

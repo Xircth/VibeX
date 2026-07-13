@@ -953,6 +953,58 @@
 
 /* ANSI color classes for fancy-ansi */
 @layer components {
+  /* Composer selector dropdowns (session mode / model / permission pickers):
+     a height-capped option list with an extra-thin scrollbar (half the global
+     .legacy-design 8px one). */
+  .composer-select-list {
+    max-height: 232px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+  }
+
+  .composer-select-list::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .composer-select-list::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
+
+  .composer-select-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  /* Flowing blue gradient for the selected option's name. Explicit blues are
+     a documented exception to the token-only rule: the selection accent is
+     specified as blue in both themes, independent of --primary. */
+  .composer-option-flow {
+    background-image: linear-gradient(
+      90deg,
+      hsl(217 91% 45%),
+      hsl(213 94% 68%),
+      hsl(211 96% 78%),
+      hsl(217 91% 45%)
+    );
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: composer-option-flow 2.6s linear infinite;
+  }
+
+  @keyframes composer-option-flow {
+    from {
+      background-position: 0% 50%;
+    }
+    to {
+      background-position: -250% 50%;
+    }
+  }
+
   .tahoe-glass {
     border: 1px solid var(--border-glass);
     background: var(--surface-glass);
@@ -1180,7 +1232,16 @@
 
   .workspace-welcome__eyebrow {
     margin: 0 0 8px;
-    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-family: var(
+      --font-mono,
+      'IBM Plex Mono',
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      monospace
+    );
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0;
@@ -1291,7 +1352,16 @@
     padding: 10px 12px;
     border-bottom: 1px solid var(--border-subtle);
     color: var(--welcome-subtle);
-    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-family: var(
+      --font-mono,
+      'IBM Plex Mono',
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      monospace
+    );
     font-size: 10px;
   }
 
@@ -1313,7 +1383,16 @@
 
   .workspace-welcome__line span {
     text-align: center;
-    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-family: var(
+      --font-mono,
+      'IBM Plex Mono',
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      monospace
+    );
     font-size: 12px;
     color: var(--welcome-subtle);
   }
@@ -1321,7 +1400,16 @@
   .workspace-welcome__line code {
     overflow: hidden;
     padding-right: 10px;
-    font-family: var(--font-mono, 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-family: var(
+      --font-mono,
+      'IBM Plex Mono',
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      monospace
+    );
     font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;

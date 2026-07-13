@@ -22,6 +22,7 @@ describe('SessionModeSelector', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // The trigger is icon-only; the active mode is carried by the tooltip/aria label.
   it('shows the current mode label when there is no pending selection', () => {
     render(
       <SessionModeSelector
@@ -31,7 +32,7 @@ describe('SessionModeSelector', () => {
         onSelect={vi.fn()}
       />
     );
-    expect(screen.getByTitle('会话模式')).toHaveTextContent('Plan');
+    expect(screen.getByTitle('会话模式: Plan')).toBeInTheDocument();
   });
 
   it('prefers the pending selection over the agent current mode', () => {
@@ -43,7 +44,7 @@ describe('SessionModeSelector', () => {
         onSelect={vi.fn()}
       />
     );
-    expect(screen.getByTitle('会话模式')).toHaveTextContent('Code');
+    expect(screen.getByTitle('会话模式: Code')).toBeInTheDocument();
   });
 
   it('reports the chosen mode id', async () => {
@@ -58,7 +59,7 @@ describe('SessionModeSelector', () => {
       />
     );
 
-    await user.click(screen.getByTitle('会话模式'));
+    await user.click(screen.getByTitle('会话模式: Plan'));
     await user.click(await screen.findByText('Code'));
 
     expect(onSelect).toHaveBeenCalledWith('code');

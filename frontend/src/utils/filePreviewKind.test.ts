@@ -5,6 +5,7 @@ import {
   isBinaryPreviewPath,
   isDocumentPreviewPath,
   isImagePreviewPath,
+  isOfficePreviewPath,
   isPdfPreviewPath,
 } from './filePreviewKind';
 
@@ -28,9 +29,16 @@ describe('filePreviewKind', () => {
   it('classifies pdf and word preview paths', () => {
     expect(isPdfPreviewPath('C:/repo/docs/spec.pdf')).toBe(true);
     expect(getFilePreviewKind('C:/repo/docs/spec.pdf')).toBe('pdf');
-    expect(isDocumentPreviewPath('C:/repo/docs/spec.docx')).toBe(true);
-    expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('document');
+    expect(isDocumentPreviewPath('C:/repo/docs/spec.doc')).toBe(true);
     expect(getFilePreviewKind('C:/repo/docs/spec.doc')).toBe('document');
+  });
+
+  it('classifies OpenXML office preview paths', () => {
+    expect(isOfficePreviewPath('C:/repo/docs/spec.docx')).toBe(true);
+    expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('office');
+    expect(getFilePreviewKind('C:/repo/docs/data.xlsx')).toBe('office');
+    expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('office');
+    expect(isOfficePreviewPath('C:/repo/docs/spec.doc')).toBe(false);
   });
 
   it('detects binary-content read errors', () => {

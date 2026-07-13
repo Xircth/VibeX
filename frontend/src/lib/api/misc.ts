@@ -216,6 +216,58 @@ export const fileTreeApi = {
   },
 };
 
+// Office preview (OfficeCLI) APIs
+
+export interface OfficecliInfo {
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  runtimeError: string | null;
+}
+
+/**
+ * Structured start result: expected failures (officecli missing, spawn
+ * trouble) come back as `errorCode`/`errorMessage` instead of a rejected
+ * promise, so callers can branch without string-matching error text.
+ */
+export interface OfficeWatchStartResult {
+  port: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface OfficecliInstallEvent {
+  task_id: string;
+  kind: 'started' | 'log' | 'completed' | 'failed';
+  payload: string;
+}
+
+export const OFFICECLI_INSTALL_EVENT = 'officecli-install';
+
+export const officeApi = {
+  detect: async (): Promise<OfficecliInfo> => {
+    return tauriInvoke<OfficecliInfo>('officecli_detect');
+  },
+
+  install: async (taskId: string): Promise<OfficecliInfo> => {
+    return tauriInvoke<OfficecliInfo>('officecli_install', { taskId });
+  },
+
+  uninstall: async (): Promise<OfficecliInfo> => {
+    return tauriInvoke<OfficecliInfo>('officecli_uninstall');
+  },
+
+  startWatch: async (filePath: string): Promise<OfficeWatchStartResult> => {
+    return tauriInvoke<OfficeWatchStartResult>('start_office_watch', {
+      filePath,
+    });
+  },
+
+  stopWatch: async (filePath: string): Promise<void> => {
+    return tauriInvoke<void>('stop_office_watch', { filePath });
+  },
+};
+
 export const desktopApi = {
   getPreviewProxyUrl: async (
     url: string,

@@ -9,11 +9,7 @@ import {
   FileX,
   Trash2,
 } from 'lucide-react';
-import {
-  DiffModeEnum,
-  DiffView,
-  parseInstance,
-} from '@git-diff-view/react';
+import { DiffModeEnum, DiffView, parseInstance } from '@git-diff-view/react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
@@ -290,7 +286,7 @@ function ProcessChangeFileRenderer({
       ? 'Image changes are not rendered inline. Open the preview panel to inspect this asset.'
       : previewKind === 'pdf'
         ? 'PDF changes are not rendered inline. Open the preview panel to inspect this asset.'
-        : previewKind === 'document'
+        : previewKind === 'document' || previewKind === 'office'
           ? 'Document changes are not rendered inline. Open the preview panel to inspect this asset.'
           : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
 

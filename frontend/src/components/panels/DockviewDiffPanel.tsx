@@ -156,12 +156,13 @@ function DockviewDiffPanel() {
               </p>
             </div>
           </div>
-        ) : effectivePreviewKind === 'document' ? (
+        ) : effectivePreviewKind === 'document' ||
+          effectivePreviewKind === 'office' ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
             <FileWarning className="h-10 w-10 opacity-50" />
             <div className="space-y-1">
               <p className="text-sm font-medium text-foreground">
-                Word document diff is not supported here
+                Office document diff is not supported here
               </p>
               <p className="text-xs">
                 Open this document in read-only preview mode instead.

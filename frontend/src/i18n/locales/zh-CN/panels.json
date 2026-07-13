@@ -60,6 +60,17 @@
   "dockPreviewPanel": {
     "contentOnlyNotice": "本预览仅针对内容，无法完全保留原格式"
   },
+  "officePreview": {
+    "title": "Office 预览",
+    "loading": "正在启动 Office 预览…",
+    "notInstalledTitle": "未安装 OfficeCLI",
+    "notInstalledHint": "实时预览 Word / Excel / PowerPoint 文件需要 OfficeCLI 工具，安装后即可获得完整保真的预览。",
+    "install": "安装 OfficeCLI",
+    "installing": "正在安装 OfficeCLI…",
+    "docxFallbackNotice": "当前展示内置的纯内容预览。安装 OfficeCLI 可获得完整保真的实时预览。",
+    "watchFailedTitle": "Office 预览启动失败",
+    "retry": "重试"
+  },
   "railToggle": {
     "hide": "隐藏项目栏",
     "show": "显示项目栏"

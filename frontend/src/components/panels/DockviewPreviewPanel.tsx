@@ -8,8 +8,6 @@ import {
   useState,
   type ComponentType,
 } from 'react';
-import DOMPurify from 'dompurify';
-import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
@@ -45,6 +43,8 @@ import {
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
+import { OfficePreview } from '@/components/previews/OfficePreview';
+import { ReadonlyDocumentPreview } from '@/components/previews/ReadonlyDocumentPreview';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/Markdown')
@@ -134,48 +134,6 @@ function ContentLoadingFallback({ label }: { label: string }) {
   return (
     <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
       {label}
-    </div>
-  );
-}
-
-function ReadonlyDocumentPreview({
-  content,
-  format,
-}: {
-  content: string;
-  format: 'text' | 'html';
-}) {
-  const { t } = useTranslation(['panels', 'common']);
-  const sanitizedHtml = useMemo(
-    () => (format === 'html' ? DOMPurify.sanitize(content) : ''),
-    [content, format]
-  );
-
-  return (
-    <div className="h-full overflow-auto bg-muted/10 px-4 py-5">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <div className="rounded-lg border border-border bg-background/90 px-4 py-2 text-xs text-muted-foreground shadow-sm">
-          {t('dockPreviewPanel.contentOnlyNotice')}
-        </div>
-        <div className="rounded-xl border border-border bg-background p-6 shadow-sm">
-          {content.trim().length > 0 ? (
-            format === 'html' ? (
-              <div
-                className="doc-preview-html text-foreground"
-                dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-              />
-            ) : (
-              <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-foreground">
-                {content}
-              </pre>
-            )
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This document does not contain previewable text content.
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -361,6 +319,24 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [filePath, mode]);
 
   if (!filePath) {
+    // Image-URL mode: conversation images (remote / proxied) that have no
+    // on-disk workspace path render straight from their URL.
+    if (params.imageUrl) {
+      return (
+        <div
+          className="flex h-full w-full items-center justify-center overflow-auto bg-muted/10 p-4"
+          data-panel="preview"
+        >
+          <ZoomableImagePreview
+            src={params.imageUrl}
+            alt={displayPath ?? 'Image'}
+            className="h-full w-full"
+            viewportClassName="border border-border bg-background shadow-sm"
+          />
+        </div>
+      );
+    }
+
     return (
       <div
         className="h-full w-full overflow-auto bg-background"
@@ -474,10 +450,11 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               title="PDF diff is not supported here"
               description="Open the PDF in read-only preview mode instead of the text diff panel."
             />
-          ) : effectivePreviewKind === 'document' ? (
+          ) : effectivePreviewKind === 'document' ||
+            effectivePreviewKind === 'office' ? (
             <PreviewPlaceholder
               icon={FileText}
-              title="Word document diff is not supported here"
+              title="Office document diff is not supported here"
               description="Open this document in read-only preview mode instead of the text diff panel."
             />
           ) : isDiffLoading ? (
@@ -568,6 +545,11 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               )}
             </div>
           )
+        ) : effectivePreviewKind === 'office' ? (
+          <OfficePreview
+            key={resolvedFilePath ?? filePath}
+            filePath={resolvedFilePath ?? filePath}
+          />
         ) : effectivePreviewKind === 'document' ? (
           isLoadingDocumentPreview ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">

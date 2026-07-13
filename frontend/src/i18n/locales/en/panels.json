@@ -60,6 +60,17 @@
   "dockPreviewPanel": {
     "contentOnlyNotice": "This preview covers content only and cannot fully preserve the original formatting"
   },
+  "officePreview": {
+    "title": "Office preview",
+    "loading": "Starting Office preview…",
+    "notInstalledTitle": "OfficeCLI is not installed",
+    "notInstalledHint": "Live preview of Word / Excel / PowerPoint files requires the OfficeCLI tool. Install it to enable full-fidelity preview.",
+    "install": "Install OfficeCLI",
+    "installing": "Installing OfficeCLI…",
+    "docxFallbackNotice": "Showing the built-in content-only preview. Install OfficeCLI for a full-fidelity live preview.",
+    "watchFailedTitle": "Office preview failed to start",
+    "retry": "Retry"
+  },
   "railToggle": {
     "hide": "Hide project rail",
     "show": "Show project rail"

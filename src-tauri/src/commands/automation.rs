@@ -47,6 +47,23 @@ fn next_run_after_now(cron: &str) -> Option<DateTime<Utc>> {
     None
 }
 
+/// Reject an unparseable cron on a cron-triggered automation. Without this a
+/// typo'd expression would save fine with `next_run_at = NULL` and simply
+/// never fire — a silent failure the user has no way to notice.
+fn validate_cron(trigger_kind: &str, cron: Option<&str>) -> Result<(), AppError> {
+    if trigger_kind != "cron" {
+        return Ok(());
+    }
+    let Some(cron) = cron.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err(AppError::BadRequest(
+            "cron-triggered automation requires a cron expression".to_string(),
+        ));
+    };
+    CronSchedule::parse(cron)
+        .map(|_| ())
+        .map_err(|error| AppError::BadRequest(error.to_string()))
+}
+
 /// Recompute `next_run_at` for a saved automation: the next cron tail when
 /// cron-triggered and enabled, else `None`.
 fn compute_next_run(input: &AutomationInput) -> Option<DateTime<Utc>> {
@@ -60,7 +77,9 @@ fn compute_next_run(input: &AutomationInput) -> Option<DateTime<Utc>> {
 // ── CRUD commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn automation_list(state: tauri::State<'_, AppState>) -> Result<Vec<Automation>, AppError> {
+pub async fn automation_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Automation>, AppError> {
     Automation::list(&state.deployment.db().pool)
         .await
         .map_err(AppError::from)
@@ -71,6 +90,7 @@ pub async fn automation_create(
     state: tauri::State<'_, AppState>,
     input: AutomationInput,
 ) -> Result<Automation, AppError> {
+    validate_cron(&input.trigger_kind, input.cron.as_deref())?;
     let next = compute_next_run(&input);
     Automation::create(&state.deployment.db().pool, Uuid::new_v4(), &input, next)
         .await
@@ -83,6 +103,7 @@ pub async fn automation_update(
     id: Uuid,
     input: AutomationInput,
 ) -> Result<Automation, AppError> {
+    validate_cron(&input.trigger_kind, input.cron.as_deref())?;
     let next = compute_next_run(&input);
     Automation::update(&state.deployment.db().pool, id, &input, next)
         .await
@@ -99,6 +120,11 @@ pub async fn automation_set_enabled(
     let Some(automation) = Automation::find_by_id(pool, id).await? else {
         return Err(AppError::NotFound(format!("automation {id} not found")));
     };
+    if enabled {
+        // Re-enabling a cron automation with an (older, pre-validation) broken
+        // expression must fail loudly, not arm a schedule that never fires.
+        validate_cron(&automation.trigger_kind, automation.cron.as_deref())?;
+    }
     let next = if enabled && automation.trigger_kind == "cron" {
         automation.cron.as_deref().and_then(next_run_after_now)
     } else {
@@ -110,7 +136,10 @@ pub async fn automation_set_enabled(
 }
 
 #[tauri::command]
-pub async fn automation_delete(state: tauri::State<'_, AppState>, id: Uuid) -> Result<(), AppError> {
+pub async fn automation_delete(
+    state: tauri::State<'_, AppState>,
+    id: Uuid,
+) -> Result<(), AppError> {
     Automation::delete(&state.deployment.db().pool, id)
         .await
         .map_err(AppError::from)
@@ -132,7 +161,9 @@ pub async fn automation_runs(
 }
 
 #[tauri::command]
-pub async fn automation_unseen_failures(state: tauri::State<'_, AppState>) -> Result<i64, AppError> {
+pub async fn automation_unseen_failures(
+    state: tauri::State<'_, AppState>,
+) -> Result<i64, AppError> {
     AutomationRun::unseen_failure_count(&state.deployment.db().pool)
         .await
         .map_err(AppError::from)
@@ -207,8 +238,9 @@ async fn launch(state: &AppState, automation: &Automation) -> Result<Uuid, AppEr
         .await?;
 
     let executor = automation.executor.clone().unwrap_or_default();
-    let agent_type = AgentKind::from_lenient(&executor)
-        .ok_or_else(|| AppError::BadRequest(format!("automation has no valid executor: {executor:?}")))?;
+    let agent_type = AgentKind::from_lenient(&executor).ok_or_else(|| {
+        AppError::BadRequest(format!("automation has no valid executor: {executor:?}"))
+    })?;
 
     let session = Session::create(
         pool,
@@ -300,6 +332,19 @@ mod tests {
             enabled: true,
         };
         assert!(compute_next_run(&input).is_some());
+    }
+
+    #[test]
+    fn invalid_cron_is_rejected_loudly() {
+        // Wrong field count, out-of-range value, and free text all fail.
+        assert!(validate_cron("cron", Some("0 3 * *")).is_err());
+        assert!(validate_cron("cron", Some("61 3 * * *")).is_err());
+        assert!(validate_cron("cron", Some("每天3点")).is_err());
+        assert!(validate_cron("cron", Some("")).is_err());
+        assert!(validate_cron("cron", None).is_err());
+        // Valid cron and manual triggers pass.
+        assert!(validate_cron("cron", Some("*/15 * * * *")).is_ok());
+        assert!(validate_cron("manual", None).is_ok());
     }
 
     #[test]

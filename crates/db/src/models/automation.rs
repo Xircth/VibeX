@@ -168,13 +168,15 @@ impl Automation {
         enabled: bool,
         next_run_at: Option<DateTime<Utc>>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE automations SET enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?")
-            .bind(enabled)
-            .bind(next_run_at)
-            .bind(Utc::now())
-            .bind(id)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "UPDATE automations SET enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(enabled)
+        .bind(next_run_at)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 
@@ -290,5 +292,195 @@ impl AutomationRun {
             .execute(pool)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use chrono::Duration;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
+
+    /// In-memory database with the real migrations applied on a single
+    /// connection. Foreign keys are irrelevant here (automations reference a
+    /// project id but the schema declares no FK on it).
+    async fn setup_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect memory db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    fn input(name: &str, trigger_kind: &str, cron: Option<&str>, enabled: bool) -> AutomationInput {
+        AutomationInput {
+            name: name.to_string(),
+            project_id: Uuid::new_v4(),
+            executor: Some("CLAUDE_CODE".to_string()),
+            prompt: "run tests".to_string(),
+            isolation: "in_place".to_string(),
+            trigger_kind: trigger_kind.to_string(),
+            cron: cron.map(ToOwned::to_owned),
+            enabled,
+        }
+    }
+
+    /// The due query's `next_run_at <= now` comparison happens on TEXT columns —
+    /// verify the stored encoding actually compares correctly and the
+    /// enabled/trigger filters hold.
+    #[tokio::test]
+    async fn due_returns_only_enabled_past_cron_automations() {
+        let pool = setup_pool().await;
+        let now = Utc::now();
+        let past = Some(now - Duration::minutes(5));
+        let future = Some(now + Duration::hours(1));
+
+        let due_one = Automation::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("due", "cron", Some("* * * * *"), true),
+            past,
+        )
+        .await
+        .expect("create due");
+        Automation::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("future", "cron", Some("0 3 * * *"), true),
+            future,
+        )
+        .await
+        .expect("create future");
+        Automation::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("disabled", "cron", Some("* * * * *"), false),
+            past,
+        )
+        .await
+        .expect("create disabled");
+        Automation::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("manual", "manual", None, true),
+            None,
+        )
+        .await
+        .expect("create manual");
+
+        let due = Automation::due(&pool, now).await.expect("due query");
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].id, due_one.id);
+
+        // Rolling the schedule forward removes it from the due set.
+        Automation::set_next_run(&pool, due_one.id, future)
+            .await
+            .expect("set next run");
+        assert!(Automation::due(&pool, now).await.expect("due").is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_lifecycle_failure_badge_and_orphan_recovery() {
+        let pool = setup_pool().await;
+        let automation = Automation::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("a", "manual", None, true),
+            None,
+        )
+        .await
+        .expect("create automation");
+
+        // running → completed: no failure badge.
+        let ok_run = AutomationRun::start(&pool, Uuid::new_v4(), automation.id, None)
+            .await
+            .expect("start run");
+        AutomationRun::finish(
+            &pool,
+            ok_run.id,
+            "completed",
+            Some(Uuid::new_v4()),
+            Some("ok"),
+            None,
+        )
+        .await
+        .expect("finish run");
+        assert_eq!(
+            AutomationRun::unseen_failure_count(&pool)
+                .await
+                .expect("count"),
+            0
+        );
+
+        // running → failed: one unseen failure until marked seen.
+        let failed_run = AutomationRun::start(&pool, Uuid::new_v4(), automation.id, None)
+            .await
+            .expect("start failed run");
+        AutomationRun::finish(&pool, failed_run.id, "failed", None, None, Some("boom"))
+            .await
+            .expect("finish failed");
+        assert_eq!(
+            AutomationRun::unseen_failure_count(&pool)
+                .await
+                .expect("count"),
+            1
+        );
+        AutomationRun::mark_all_seen(&pool)
+            .await
+            .expect("mark seen");
+        assert_eq!(
+            AutomationRun::unseen_failure_count(&pool)
+                .await
+                .expect("count"),
+            0
+        );
+
+        // An orphaned `running` run is driven to `interrupted` on recovery and
+        // counts as an unseen failure again.
+        let orphan = AutomationRun::start(&pool, Uuid::new_v4(), automation.id, None)
+            .await
+            .expect("start orphan");
+        let recovered = AutomationRun::interrupt_orphans(&pool)
+            .await
+            .expect("recover");
+        assert_eq!(recovered, 1);
+        let orphan = AutomationRun::find_by_id(&pool, orphan.id)
+            .await
+            .expect("find orphan")
+            .expect("orphan exists");
+        assert_eq!(orphan.status, "interrupted");
+        assert!(orphan.finished_at.is_some());
+        assert_eq!(
+            AutomationRun::unseen_failure_count(&pool)
+                .await
+                .expect("count"),
+            1
+        );
+
+        // Runs list is newest-first and capped by the limit.
+        let runs = AutomationRun::list_for_automation(&pool, automation.id, 2)
+            .await
+            .expect("list runs");
+        assert_eq!(runs.len(), 2);
+
+        // Deleting the automation removes its runs.
+        Automation::delete(&pool, automation.id)
+            .await
+            .expect("delete");
+        let runs = AutomationRun::list_for_automation(&pool, automation.id, 10)
+            .await
+            .expect("list after delete");
+        assert!(runs.is_empty());
     }
 }

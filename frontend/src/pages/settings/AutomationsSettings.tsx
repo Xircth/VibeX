@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Clock, Play, Plus, Trash2 } from 'lucide-react';
+import { Clock, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,11 +34,34 @@ function emptyInput(projectId: string): AutomationInput {
   };
 }
 
+function inputFromAutomation(automation: Automation): AutomationInput {
+  return {
+    name: automation.name,
+    project_id: automation.project_id,
+    executor: automation.executor,
+    prompt: automation.prompt,
+    isolation: automation.isolation,
+    trigger_kind: automation.trigger_kind,
+    cron: automation.cron,
+    enabled: automation.enabled,
+  };
+}
+
+function formatLocalTime(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
 export function AutomationsSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { projects } = useProjects();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [draft, setDraft] = useState<AutomationInput | null>(null);
+  /** Id of the automation being edited; null while creating a new one. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [runsByAutomation, setRunsByAutomation] = useState<
     Record<string, AutomationRun[]>
   >({});
@@ -58,7 +81,18 @@ export function AutomationsSettings() {
 
   const startNew = () => {
     const projectId = projects[0]?.id ?? '';
+    setEditingId(null);
     setDraft(emptyInput(projectId));
+  };
+
+  const startEdit = (automation: Automation) => {
+    setEditingId(automation.id);
+    setDraft(inputFromAutomation(automation));
+  };
+
+  const closeDraft = () => {
+    setDraft(null);
+    setEditingId(null);
   };
 
   const save = async () => {
@@ -77,9 +111,14 @@ export function AutomationsSettings() {
     }
     setBusy(true);
     try {
-      await automationApi.create(draft);
-      toast.success(t('automations.created'));
-      setDraft(null);
+      if (editingId) {
+        await automationApi.update(editingId, draft);
+        toast.success(t('automations.updated'));
+      } else {
+        await automationApi.create(draft);
+        toast.success(t('automations.created'));
+      }
+      closeDraft();
       await reload();
     } catch (error) {
       toast.error(t('automations.saveFailed', { error: String(error) }));
@@ -261,7 +300,7 @@ export function AutomationsSettings() {
                 {t('automations.isolationHint')}
               </p>
               <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>
+                <Button size="sm" variant="ghost" onClick={closeDraft}>
                   {t('common:cancel')}
                 </Button>
                 <Button size="sm" onClick={() => void save()} disabled={busy}>
@@ -290,10 +329,21 @@ export function AutomationsSettings() {
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {automation.trigger_kind === 'cron'
-                        ? t('automations.cronSummary', { cron: automation.cron })
+                        ? t('automations.cronSummary', {
+                            cron: automation.cron,
+                          })
                         : t('automations.triggerManual')}{' '}
                       ·{' '}
                       {automation.executor ?? t('automations.defaultExecutor')}
+                      {automation.enabled &&
+                      formatLocalTime(automation.next_run_at) ? (
+                        <>
+                          {' · '}
+                          {t('automations.nextRun', {
+                            time: formatLocalTime(automation.next_run_at),
+                          })}
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -321,6 +371,15 @@ export function AutomationsSettings() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="h-7 px-2"
+                      title={t('automations.edit')}
+                      onClick={() => startEdit(automation)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       className="h-7 px-2 text-destructive"
                       onClick={() => void remove(automation)}
                     >
@@ -336,7 +395,9 @@ export function AutomationsSettings() {
                         key={run.id}
                         className="flex items-center justify-between text-[11px] text-muted-foreground"
                       >
-                        <span>{run.started_at}</span>
+                        <span>
+                          {formatLocalTime(run.started_at) ?? run.started_at}
+                        </span>
                         <span
                           className={
                             run.status === 'failed' ||

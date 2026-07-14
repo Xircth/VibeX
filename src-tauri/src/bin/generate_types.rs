@@ -42,6 +42,8 @@ use db::models::{
     automation::{Automation, AutomationInput, AutomationRun},
     chat_channel_message_log::ChatChannelMessageLog,
     conversation::DbConversationSummary,
+    execution_process::ExecutionProcessRunReason,
+    plugin::{Plugin, PluginInput},
     scratch::DraftFollowUpData,
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskRelationships, TaskStatus, TaskWithAttemptStatus, UpdateTask},
@@ -60,6 +62,7 @@ use vibex::{
         attention::{AttentionInbox, AttentionItem, AttentionItemKind},
         conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
         crash_reports::{CrashReportMeta, CrashReportsInfo},
+        plugin::PluginActivation,
         sessions::{SessionContinuityMode, SessionSummary},
     },
     conversation_bundle::{ConversationExportResult, ConversationImportResult},
@@ -210,6 +213,9 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "ProviderTurnRequest",
             "AgentPromptQueue",
             "QueueTransition",
+            // Plugins: agent-driven console contract replaced the
+            // VibeX-spawned console process (PluginConsoleStart → PluginActivation).
+            "PluginConsoleStart",
             "UserSystemInfo",
         ])
     })
@@ -248,6 +254,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Automation>(&mut decls);
     insert_declaration::<AutomationInput>(&mut decls);
     insert_declaration::<AutomationRun>(&mut decls);
+    insert_declaration::<Plugin>(&mut decls);
+    insert_declaration::<PluginInput>(&mut decls);
+    insert_declaration::<PluginActivation>(&mut decls);
+    insert_declaration::<ExecutionProcessRunReason>(&mut decls);
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
     insert_declaration::<AgentAvailabilityInfo>(&mut decls);

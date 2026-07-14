@@ -1,6 +1,15 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Terminal, List, GitCompareArrows, StickyNote, Globe } from 'lucide-react';
+import {
+  Terminal,
+  List,
+  GitCompareArrows,
+  Loader2,
+  Puzzle,
+  StickyNote,
+  Globe,
+} from 'lucide-react';
+import type { Plugin } from 'shared/types';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -8,6 +17,11 @@ import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext
 import { ViewProcessesDialog } from '@/components/dialogs/tasks/ViewProcessesDialog';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useDevServer } from '@/hooks/useDevServer';
+import {
+  isPluginExpired,
+  usePluginLauncher,
+  usePlugins,
+} from '@/hooks/usePluginLauncher';
 import {
   Tooltip,
   TooltipContent,
@@ -27,6 +41,9 @@ function RightPanelSidebarContent({
   const { openNewTerminal, openDiffPreview, openNotes, openOrFocusPanel } =
     usePanelActionsContext();
   const { runningDevServers, devServerProcesses } = useDevServer(workspaceId);
+  const { data: plugins = [] } = usePlugins();
+  const { launch: launchPlugin, launchingPluginId } =
+    usePluginLauncher(workspaceId);
 
   const handleOpenPreview = useCallback(() => {
     openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
@@ -101,9 +118,55 @@ function RightPanelSidebarContent({
             <TooltipContent side="left">{networkTooltipLabel}</TooltipContent>
           </Tooltip>
         )}
+
+        {workspaceId &&
+          plugins.map((plugin) => {
+            const expired = isPluginExpired(plugin);
+            const launching = launchingPluginId === plugin.id;
+            return (
+              <Tooltip key={plugin.id}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => void launchPlugin(plugin)}
+                    disabled={expired || launching}
+                    className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {launching ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <PluginIcon plugin={plugin} />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {expired
+                    ? t('rightPanelSidebar.pluginExpired', {
+                        name: plugin.name,
+                      })
+                    : plugin.name}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
       </div>
     </TooltipProvider>
   );
+}
+
+function PluginIcon({ plugin }: { plugin: Plugin }) {
+  if (plugin.icon?.startsWith('data:')) {
+    return (
+      <img
+        src={plugin.icon}
+        alt={plugin.name}
+        className="h-3.5 w-3.5 rounded-[3px] object-cover"
+      />
+    );
+  }
+  if (plugin.icon?.trim()) {
+    return <span className="text-[11px] leading-none">{plugin.icon}</span>;
+  }
+  return <Puzzle className="h-3.5 w-3.5" />;
 }
 
 export function RightPanelSidebar() {

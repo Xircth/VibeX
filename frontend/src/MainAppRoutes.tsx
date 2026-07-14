@@ -19,6 +19,7 @@ import {
   LogsSettings,
   McpSettings,
   ModelProviderSettings,
+  PluginsSettings,
   SettingsLayout,
   ShortcutSettings,
   SkillsSettings,
@@ -96,6 +97,7 @@ export function MainAppRoutes() {
         <Route path="version-control" element={<VersionControlSettings />} />
         <Route path="chat-channels" element={<ChatChannelSettings />} />
         <Route path="automations" element={<AutomationsSettings />} />
+        <Route path="plugins" element={<PluginsSettings />} />
         <Route path="web-service" element={<WebServiceSettings />} />
         <Route path="logs" element={<LogsSettings />} />
         <Route path="system" element={<SystemSettings />} />

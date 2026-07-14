@@ -80,6 +80,7 @@ import { useSessionComposerDraftHydration } from './follow-up/useSessionComposer
 import { useSessionComposerHotkeys } from './follow-up/useSessionComposerHotkeys';
 import { useSessionComposerEditorChange } from './follow-up/useSessionComposerEditorChange';
 import { useSessionComposerPreviewElementInsertion } from './follow-up/useSessionComposerPreviewElementInsertion';
+import { useSessionComposerPluginHookInsertion } from './follow-up/useSessionComposerPluginHookInsertion';
 import { useSessionComposerSubmitActions } from './follow-up/useSessionComposerSubmitActions';
 import { useSessionComposerImageRemoval } from './follow-up/useSessionComposerImageRemoval';
 import { useSessionComposerFocus } from './follow-up/useSessionComposerFocus';
@@ -606,6 +607,13 @@ export function TaskFollowUpSection({
 
   useSessionComposerPreviewElementInsertion({
     enabled: isEditable,
+    getMessage: getPreviewInsertionMessage,
+    onChange: handleEditorChange,
+  });
+
+  useSessionComposerPluginHookInsertion({
+    workspaceId: workspaceIdValue,
+    isAttemptRunning,
     getMessage: getPreviewInsertionMessage,
     onChange: handleEditorChange,
   });

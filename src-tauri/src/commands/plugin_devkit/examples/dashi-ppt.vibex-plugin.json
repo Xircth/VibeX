@@ -1,0 +1,13 @@
+{
+  "$schema": "vibex-plugin/v1",
+  "name": "Dashi PPT",
+  "skill_name": "dashi-ppt",
+  "install_command": "npx dashi-ppt-skill@latest",
+  "console_command": "DASHI_PPT_PREVIEW_PORT={{port}} bash ~/.claude/skills/dashi-ppt/scripts/render_goal_deck.sh <goal.json> <输出目录>/index.html",
+  "console_url": "http://127.0.0.1:{{port}}/",
+  "hook_message": "你当前正在使用「{{skillName}}」skill 制作 PPT。请先阅读该 skill 的 SKILL.md 与使用规则，然后按其流程编写 goal.json 并渲染；渲染脚本会自动启动预览服务，启动时请设置环境变量 DASHI_PPT_PREVIEW_PORT={{port}}（参考命令：{{consoleCommand}}），控制台访问地址约定为 {{consoleUrl}}。若该地址上的服务未启动或不可访问，需要你自行查看渲染脚本输出或重新启动预览服务。用户会在控制台中直接微调页面（自动保存回 index.html），后续轮次请先重读该文件再继续修改。",
+  "author": "chuspeeism",
+  "icon": "📊",
+  "expires_at": null,
+  "notes": "AGPL-3.0（导出引擎有专有例外）。预览服务默认取 5200-5999 端口段，通过 DASHI_PPT_PREVIEW_PORT 固定端口。全程本地渲染，不上传内容。"
+}

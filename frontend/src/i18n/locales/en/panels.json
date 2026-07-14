@@ -165,7 +165,12 @@
   "rightPanelSidebar": {
     "devServerRunningTooltip": "Dev server running, click to open network preview",
     "devServerFailedTooltip": "Dev server failed to start, click to view preview and logs",
-    "openNetworkPreview": "Open network preview"
+    "openNetworkPreview": "Open network preview",
+    "pluginHookBlocked": "This plugin can't insert its hook right now — finish the current turn or clear the composer first",
+    "pluginStartFailed": "Failed to activate the plugin: {{error}}",
+    "pluginExpired": "{{name}} (expired)",
+    "pluginConsoleUrlUnknown": "(not specified — start the console and tell me its address)",
+    "pluginConsoleOpened": "\"{{name}}\" console is ready — opened in the Web Preview"
   },
   "projectActivity": {
     "statusSuccessUnread": "A recently finished session hasn't been viewed",

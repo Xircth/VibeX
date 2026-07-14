@@ -1160,6 +1160,42 @@ requested_schema: JsonValue, };
 
 export type AgentElicitationResponse = { "action": "accept", content: JsonValue, } | { "action": "decline" } | { "action": "cancel" };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";
-
 export type LinkOpenBehavior = "ExternalBrowser" | "BuiltinPreview";
+
+export type Plugin = { id: string, name: string, skill_name: string, console_command: string,
+/**
+ * Optional console URL template; supports the `{{port}}` placeholder.
+ */
+console_url: string | null,
+/**
+ * Hook template; supports `{{pluginName}}`/`{{skillName}}`/`{{consoleUrl}}`.
+ */
+hook_message: string, install_command: string, author: string | null,
+/**
+ * Emoji/short text, or a `data:` URL for an uploaded image.
+ */
+icon: string | null, expires_at: string | null, notes: string | null,
+/**
+ * `pending` | `installing` | `installed` | `failed`.
+ */
+install_status: string, install_error: string | null, created_at: string, updated_at: string, };
+
+export type PluginInput = { name: string, skill_name: string, console_command: string, console_url: string | null, hook_message: string, install_command: string, author: string | null, icon: string | null, expires_at: string | null, notes: string | null, };
+
+export type PluginActivation = {
+/**
+ * Console start command with `{{port}}` resolved — information for the
+ * agent (via the hook), never executed by VibeX.
+ */
+console_command: string,
+/**
+ * Console URL with `{{port}}` resolved; None when the plugin has no URL
+ * configured (the preview then cannot auto-open).
+ */
+console_url: string | null,
+/**
+ * The allocated port, when any template used `{{port}}`.
+ */
+port: number | null, };
+
+export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

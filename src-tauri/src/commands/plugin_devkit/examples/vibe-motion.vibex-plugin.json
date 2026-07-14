@@ -1,0 +1,13 @@
+{
+  "$schema": "vibex-plugin/v1",
+  "name": "VibeMotion",
+  "skill_name": "vibe-motion",
+  "install_command": "npx skills add vibe-motion/skills",
+  "console_command": "pnpm dev",
+  "console_url": "http://localhost:3000",
+  "hook_message": "你当前正在使用「{{skillName}}」系列动效 skill。请先阅读已安装的 vibe-motion skills 的说明，确认当前工作区是 create-vibe-motion 工程（否则先运行 npx create-vibe-motion@latest 初始化）。然后在工程根目录启动 Remotion Studio（参考命令：{{consoleCommand}}），控制台地址约定为 {{consoleUrl}}。若该地址上的服务未启动或不可访问，需要你自行查看 dev server 输出或重新启动。动画代码写入 motion/ 目录，用户会在 Studio 中拖时间轴预览并反馈。",
+  "author": "zjucat",
+  "icon": "🎬",
+  "expires_at": null,
+  "notes": "Remotion Studio 固定使用 3000 端口，故不使用 {{port}} 占位符。要求工作区本身是 create-vibe-motion 脚手架工程。"
+}

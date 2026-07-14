@@ -165,7 +165,12 @@
   "rightPanelSidebar": {
     "devServerRunningTooltip": "开发服务器运行中，点击打开网络预览",
     "devServerFailedTooltip": "开发服务器启动失败，点击查看预览与日志",
-    "openNetworkPreview": "打开网络预览"
+    "openNetworkPreview": "打开网络预览",
+    "pluginHookBlocked": "当前插件无法插入 Hook，请先完成本轮对话或清除输入框中的消息",
+    "pluginStartFailed": "插件激活失败：{{error}}",
+    "pluginExpired": "{{name}}(已过期)",
+    "pluginConsoleUrlUnknown": "（未指定，请你启动控制台后把访问地址告诉我）",
+    "pluginConsoleOpened": "「{{name}}」控制台已就绪，已在 Web 预览中打开"
   },
   "projectActivity": {
     "statusSuccessUnread": "有刚完成未查看的会话",

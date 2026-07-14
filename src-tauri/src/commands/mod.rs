@@ -19,6 +19,7 @@ pub mod local_usage;
 pub mod logs;
 pub mod model_provider;
 pub mod office_tools;
+pub mod plugin;
 pub mod project_rail_window;
 pub mod projects;
 pub mod repos;

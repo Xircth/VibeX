@@ -8,19 +8,19 @@
  * Tool Call Card
  * ========================================= */
 
+/* Tool calls are deliberately de-emphasized: no border, no own surface — they
+   sit flat on the message-stream background in muted body-size text, so the
+   assistant prose stays the visual focus. */
 .conv-tool-card {
-  border: 1px solid var(--conv-border-subtle) !important;
+  border: none !important;
   border-radius: 8px !important;
-  background: var(--conv-surface-control) !important;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
+  background: transparent !important;
+  transition: background 0.15s;
   font-size: 13px;
 }
 
 .conv-tool-card:hover {
-  border-color: var(--conv-border-strong) !important;
-  background: var(--conv-surface-control-hover) !important;
+  background: var(--conv-surface-control) !important;
 }
 
 /* Status is carried by the small status dot only — the card surface stays
@@ -28,28 +28,27 @@
 .conv-tool-card-success,
 .conv-tool-card-error,
 .conv-tool-card-pending {
-  border-color: var(--conv-border-subtle) !important;
-  background: var(--conv-surface-control) !important;
+  border: none !important;
+  background: transparent !important;
 }
 
 .conv-tool-card-success:hover,
 .conv-tool-card-error:hover,
 .conv-tool-card-pending:hover {
-  border-color: var(--conv-border-strong) !important;
-  background: var(--conv-surface-control-hover) !important;
+  background: var(--conv-surface-control) !important;
 }
 
-/* Tool card label */
+/* Tool card label — body-size muted gray, weakened next to assistant prose. */
 .conv-tool-label {
-  color: var(--conv-text-primary);
-  font-weight: 500;
+  color: var(--conv-text-secondary);
+  font-weight: 400;
   font-size: 13px;
 }
 
 /* Tool card detail text */
 .conv-tool-detail {
-  color: var(--conv-text-secondary);
-  font-size: 12px;
+  color: var(--conv-text-tertiary);
+  font-size: 13px;
 }
 
 /* Tool card icon color */
@@ -90,12 +89,11 @@
   }
 }
 
-/* Tool expanded details panel */
+/* Tool expanded details panel — flat like the collapsed card. */
 .conv-tool-details {
-  border: 1px solid var(--conv-border-subtle);
-  border-top: none;
+  border: none;
   border-radius: 0 0 8px 8px;
-  background: var(--conv-surface-card);
+  background: transparent;
   max-height: 400px;
   overflow-y: auto;
   font-size: 12px;
@@ -152,7 +150,13 @@
   border: 1px solid var(--conv-border-subtle);
   border-radius: 8px;
   padding: 8px 10px;
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', 'IBM Plex Mono', monospace);
+  font-family: var(
+    --font-mono,
+    'Cascadia Code',
+    'Fira Code',
+    'IBM Plex Mono',
+    monospace
+  );
   font-size: 11px;
   line-height: 1.5;
   overflow-x: auto;
@@ -166,7 +170,13 @@
   color: var(--conv-text-tertiary);
   background: var(--conv-surface-control);
   border-top: 1px dashed var(--conv-border-subtle);
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', 'IBM Plex Mono', monospace);
+  font-family: var(
+    --font-mono,
+    'Cascadia Code',
+    'Fira Code',
+    'IBM Plex Mono',
+    monospace
+  );
   font-size: 11px;
   line-height: 1.4;
 }
@@ -205,7 +215,13 @@
   background: var(--conv-surface-control);
   color: var(--conv-text-secondary);
   padding: 3px 9px;
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', 'IBM Plex Mono', monospace);
+  font-family: var(
+    --font-mono,
+    'Cascadia Code',
+    'Fira Code',
+    'IBM Plex Mono',
+    monospace
+  );
   font-size: 11px;
   line-height: 1.4;
 }
@@ -221,7 +237,13 @@
   background: var(--conv-surface-control);
   color: var(--conv-text-tertiary);
   padding: 8px 10px;
-  font-family: var(--font-mono, 'Cascadia Code', 'Fira Code', 'IBM Plex Mono', monospace);
+  font-family: var(
+    --font-mono,
+    'Cascadia Code',
+    'Fira Code',
+    'IBM Plex Mono',
+    monospace
+  );
   font-size: 11px;
 }
 

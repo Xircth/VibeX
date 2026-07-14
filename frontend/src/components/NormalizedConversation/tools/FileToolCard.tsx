@@ -129,16 +129,10 @@ export function FileToolCard({
       expandable
       onToggle={toggle}
     >
-      <div className="conv-tool-details-section-label">{t('fileTool.path')}</div>
+      <div className="conv-tool-details-section-label">
+        {t('fileTool.path')}
+      </div>
       <div className="conv-tool-details-content">{path}</div>
-      {toolEntry.tool_name ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('fileTool.tool')}
-          </div>
-          <div className="conv-tool-details-content">{toolEntry.tool_name}</div>
-        </>
-      ) : null}
     </ToolCardShell>
   );
 }

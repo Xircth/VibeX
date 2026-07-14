@@ -924,7 +924,13 @@ impl AgentConnectionRunner {
             },
         );
 
-        if let Some(response) = decide_auto_permission_response(self.auto_approve_mode, &request) {
+        let auto_approve_mode = effective_auto_approve_mode(
+            self.auto_approve_mode,
+            &self.session_controls,
+            session_id,
+        )
+        .await;
+        if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             self.emit(
                 Some(session_id),
                 None,
@@ -2301,7 +2307,13 @@ impl AcpClientBridge {
             },
         });
 
-        if let Some(response) = decide_auto_permission_response(self.auto_approve_mode, &request) {
+        let auto_approve_mode = effective_auto_approve_mode(
+            self.auto_approve_mode,
+            &self.session_controls,
+            session_id,
+        )
+        .await;
+        if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             let _ = self.event_tx.send(AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
                 session_id: Some(session_id),
@@ -2603,6 +2615,46 @@ struct ConfigOverrideSelection {
 fn non_empty_trimmed(value: &str) -> Option<&str> {
     let value = value.trim();
     (!value.is_empty()).then_some(value)
+}
+
+/// ACP session modes that promise automatic acceptance ("Auto" in the
+/// composer, Claude Code's `acceptEdits`/`bypassPermissions`, …). Agents may
+/// still forward `session/request_permission` for tools their own mode does
+/// not cover; VibeX honours the user's chosen mode by auto-approving those
+/// instead of interrupting with a permission card.
+fn is_auto_approve_session_mode(mode_id: &str) -> bool {
+    matches!(
+        normalize_config_token(mode_id).as_str(),
+        "auto" | "acceptedits" | "bypasspermissions" | "yolo"
+    )
+}
+
+/// Effective auto-approve mode for a permission decision: the connection-level
+/// setting, upgraded to `AllowAlways` while the session's current ACP mode is
+/// an auto-accepting one. Reading the live session controls (updated by
+/// `SetSessionMode` and agent-initiated mode changes) keeps this in sync with
+/// the composer selection without any connection-level state to refresh.
+async fn effective_auto_approve_mode(
+    configured: AgentAutoApproveMode,
+    session_controls: &RwLock<HashMap<AgentSessionId, SessionControlState>>,
+    session_id: AgentSessionId,
+) -> AgentAutoApproveMode {
+    if configured != AgentAutoApproveMode::Off {
+        return configured;
+    }
+
+    let session_is_auto = session_controls
+        .read()
+        .await
+        .get(&session_id)
+        .and_then(|controls| controls.modes.as_ref())
+        .is_some_and(|modes| is_auto_approve_session_mode(modes.current_mode_id.0.as_ref()));
+
+    if session_is_auto {
+        AgentAutoApproveMode::AllowAlways
+    } else {
+        AgentAutoApproveMode::Off
+    }
 }
 
 fn find_matching_mode_id<'a>(modes: &'a SessionModeState, requested_mode: &str) -> Option<&'a str> {
@@ -3176,6 +3228,51 @@ mod tests {
         assert_eq!(
             modes[0].description.as_deref(),
             Some("Confirm before editing")
+        );
+    }
+
+    #[test]
+    fn auto_approve_session_modes_are_detected() {
+        assert!(is_auto_approve_session_mode("auto"));
+        assert!(is_auto_approve_session_mode("acceptEdits"));
+        assert!(is_auto_approve_session_mode("accept_edits"));
+        assert!(is_auto_approve_session_mode("bypassPermissions"));
+        assert!(!is_auto_approve_session_mode("default"));
+        assert!(!is_auto_approve_session_mode("plan"));
+        assert!(!is_auto_approve_session_mode("ask"));
+    }
+
+    #[tokio::test]
+    async fn session_auto_mode_upgrades_permission_interception() {
+        let session_id = AgentSessionId::new();
+        let controls = RwLock::new(HashMap::from([(
+            session_id,
+            SessionControlState {
+                modes: Some(SessionModeState::new(
+                    "auto",
+                    vec![agent_client_protocol::schema::v1::SessionMode::new(
+                        "auto", "Auto",
+                    )],
+                )),
+                config_options: Vec::new(),
+            },
+        )]));
+
+        // Composer "Auto" alone must enable auto-approval.
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, session_id).await,
+            AgentAutoApproveMode::AllowAlways
+        );
+        // An explicit agent-level setting always wins over the session mode.
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Yolo, &controls, session_id).await,
+            AgentAutoApproveMode::Yolo
+        );
+        // Sessions without a tracked auto mode keep interception on.
+        assert_eq!(
+            effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, AgentSessionId::new())
+                .await,
+            AgentAutoApproveMode::Off
         );
     }
 

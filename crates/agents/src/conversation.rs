@@ -757,6 +757,10 @@ pub enum ConversationTimelineRow {
     },
     FileChangeSummary {
         summary: ConversationFileChangeSummary,
+        /// Turn that produced this diff summary (checkpoint diff), so the
+        /// timeline can anchor the card at the end of its own turn.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<Uuid>,
     },
     TurnError {
         error: ConversationErrorView,

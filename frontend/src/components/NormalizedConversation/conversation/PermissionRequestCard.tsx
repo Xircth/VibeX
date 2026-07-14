@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, ShieldQuestion, Terminal } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type {
   AgentPermissionOption,
   AgentPermissionResponse,
@@ -10,12 +10,15 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 /**
- * Inline, answerable permission request (VibeX style — anchored in the timeline,
- * not a blocking modal). Renders the *real* ACP tool-call detail behind the
- * request (file-edit before/after, command, file locations) so the user can
- * review exactly what the agent will do before allowing it, then answer with the
- * agent's own permission options. All data comes from the live/persisted
- * `permission_requested` event — nothing is synthesized.
+ * Inline, answerable permission request (VibeX style — docked at the bottom of
+ * the message stream, not a blocking modal). Renders the *real* ACP tool-call
+ * detail behind the request (file-edit before/after, command, file locations)
+ * so the user can review exactly what the agent will do before allowing it,
+ * then answer with the agent's own permission options. All data comes from the
+ * live/persisted `permission_requested` event — nothing is synthesized.
+ *
+ * Visual: no border and the same surface as the message stream; presence is
+ * carried by a 2px warning-tinted shadow ring.
  */
 export function PermissionRequestCard({
   request,
@@ -29,65 +32,61 @@ export function PermissionRequestCard({
   const { t } = useTranslation(['conversation', 'common']);
   const pending = request.status === 'pending';
   const options = request.options ?? [];
-  const detail = useMemo(() => parseToolDetail(request.details), [request.details]);
+  const detail = useMemo(
+    () => parseToolDetail(request.details),
+    [request.details]
+  );
 
   return (
-    <div className="conv-entry-item rounded-lg border border-amber-300/55 bg-amber-50/80 px-3 py-2.5 text-sm dark:border-amber-500/30 dark:bg-amber-950/25">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 rounded-md border border-amber-300/60 bg-amber-100/70 p-1 text-amber-700 dark:border-amber-500/30 dark:bg-amber-900/40 dark:text-amber-200">
-          <ShieldQuestion className="h-3.5 w-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-amber-900 dark:text-amber-100">
-              {request.title ?? t('permissionRequestCard.title')}
-            </span>
-            {detail.kind ? (
-              <span className="conv-count-badge shrink-0">{detail.kind}</span>
-            ) : null}
-          </div>
-
-          {detail.body ? (
-            <div className="mt-2">{detail.body}</div>
+    <div className="conv-entry-item rounded-lg bg-[var(--conv-surface-card)] px-3 py-2.5 text-sm shadow-[0_0_0_2px_hsl(var(--warning)/0.35)]">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-foreground">
+            {request.title ?? t('permissionRequestCard.title')}
+          </span>
+          {detail.kind ? (
+            <span className="conv-count-badge shrink-0">{detail.kind}</span>
           ) : null}
+        </div>
 
-          {pending ? (
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {options.map((option) => (
-                <Button
-                  key={option.id}
-                  type="button"
-                  size="sm"
-                  variant={optionVariant(option)}
-                  disabled={responding}
-                  onClick={() =>
-                    onRespond(request.permission_id, {
-                      kind: 'selected',
-                      option_id: option.id,
-                    })
-                  }
-                >
-                  {option.label}
-                </Button>
-              ))}
+        {detail.body ? <div className="mt-2">{detail.body}</div> : null}
+
+        {pending ? (
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {options.map((option) => (
               <Button
+                key={option.id}
                 type="button"
                 size="sm"
-                variant="ghost"
+                variant={optionVariant(option)}
                 disabled={responding}
                 onClick={() =>
-                  onRespond(request.permission_id, { kind: 'cancelled' })
+                  onRespond(request.permission_id, {
+                    kind: 'selected',
+                    option_id: option.id,
+                  })
                 }
               >
-                {t('common:cancel')}
+                {option.label}
               </Button>
-            </div>
-          ) : (
-            <div className="mt-2 text-xs text-amber-800/70 dark:text-amber-100/60">
-              {t('permissionRequestCard.responded')}
-            </div>
-          )}
-        </div>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={responding}
+              onClick={() =>
+                onRespond(request.permission_id, { kind: 'cancelled' })
+              }
+            >
+              {t('common:cancel')}
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-2 text-xs text-muted-foreground">
+            {t('permissionRequestCard.responded')}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -143,7 +142,7 @@ function parseToolDetail(details: unknown): ParsedDetail {
       blocks.push(
         <pre
           key={`text-${index}`}
-          className="overflow-x-auto whitespace-pre-wrap rounded-md border border-amber-300/40 bg-amber-100/40 px-2.5 py-1.5 font-mono text-xs text-amber-950 dark:border-amber-500/25 dark:bg-amber-900/25 dark:text-amber-100"
+          className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted/40 px-2.5 py-1.5 font-mono text-xs text-foreground"
         >
           {text}
         </pre>
@@ -156,12 +155,8 @@ function parseToolDetail(details: unknown): ParsedDetail {
     const command = extractCommand(fields?.rawInput);
     if (command) {
       blocks.push(
-        <div
-          key="command"
-          className="flex items-start gap-2 rounded-md border border-amber-300/40 bg-amber-100/40 px-2.5 py-1.5 dark:border-amber-500/25 dark:bg-amber-900/25"
-        >
-          <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
-          <code className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-amber-950 dark:text-amber-100">
+        <div key="command" className="rounded-md bg-muted/40 px-2.5 py-1.5">
+          <code className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-foreground">
             {command}
           </code>
         </div>
@@ -178,7 +173,7 @@ function parseToolDetail(details: unknown): ParsedDetail {
     blocks.push(
       <ul
         key="locations"
-        className="mt-1 space-y-0.5 text-xs text-amber-800/80 dark:text-amber-100/70"
+        className="mt-1 space-y-0.5 text-xs text-muted-foreground"
       >
         {paths.map((p) => (
           <li key={p} className="truncate font-mono">
@@ -189,12 +184,13 @@ function parseToolDetail(details: unknown): ParsedDetail {
     );
   }
 
-  // 4) Nothing structured recognized → show the real raw detail (collapsed).
-  if (blocks.length === 0) {
-    blocks.push(<RawDetail key="raw" details={details} />);
-  }
-
-  return { kind, body: <div className="space-y-1.5">{blocks}</div> };
+  // Raw JSON dumps are developer-facing noise — when nothing structured is
+  // recognized the title alone describes the request.
+  return {
+    kind,
+    body:
+      blocks.length > 0 ? <div className="space-y-1.5">{blocks}</div> : null,
+  };
 }
 
 function extractText(block: Record<string, unknown>): string | null {
@@ -228,7 +224,7 @@ function DiffPreview({
   const [open, setOpen] = useState(false);
   const isNew = !oldText;
   return (
-    <div className="rounded-md border border-amber-300/40 bg-amber-100/30 dark:border-amber-500/25 dark:bg-amber-900/20">
+    <div className="rounded-md bg-muted/30">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -236,12 +232,13 @@ function DiffPreview({
         aria-expanded={open}
       >
         <ChevronRight
-          className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-90')}
+          className={cn(
+            'h-3 w-3 shrink-0 transition-transform',
+            open && 'rotate-90'
+          )}
         />
-        <span className="truncate font-mono text-amber-900 dark:text-amber-100">
-          {path}
-        </span>
-        <span className="ml-auto shrink-0 text-amber-700/70 dark:text-amber-200/60">
+        <span className="truncate font-mono text-foreground">{path}</span>
+        <span className="ml-auto shrink-0 text-muted-foreground">
           {isNew
             ? t('permissionRequestCard.newFile')
             : t('permissionRequestCard.modified')}
@@ -295,38 +292,6 @@ function DiffPane({
       >
         {text}
       </pre>
-    </div>
-  );
-}
-
-function RawDetail({ details }: { details: unknown }) {
-  const { t } = useTranslation(['conversation', 'common']);
-  const [open, setOpen] = useState(false);
-  const json = useMemo(() => {
-    try {
-      return JSON.stringify(details, null, 2);
-    } catch {
-      return String(details);
-    }
-  }, [details]);
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-amber-800/80 dark:text-amber-100/70"
-        aria-expanded={open}
-      >
-        <ChevronRight
-          className={cn('h-3 w-3 transition-transform', open && 'rotate-90')}
-        />
-        {t('permissionRequestCard.viewDetails')}
-      </button>
-      {open ? (
-        <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-amber-300/40 bg-amber-100/40 px-2.5 py-1.5 font-mono text-[11px] text-amber-950 dark:border-amber-500/25 dark:bg-amber-900/25 dark:text-amber-100">
-          {json}
-        </pre>
-      ) : null}
     </div>
   );
 }

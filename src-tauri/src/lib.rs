@@ -12,6 +12,7 @@ mod events;
 mod logging;
 mod office_watch;
 mod preview_proxy;
+mod prompt_enhancement;
 mod state;
 mod tray;
 mod workspace_paths;

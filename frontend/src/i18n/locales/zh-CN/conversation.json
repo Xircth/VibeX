@@ -44,6 +44,14 @@
     "runSetup": "运行设置",
     "summaryAndActions": "摘要和操作"
   },
+  "turnFileChanges": {
+    "filesChanged": "{{count}} 个文件已更改",
+    "undo": "撤销",
+    "undoConfirmTitle": "撤销本轮的文件更改？",
+    "undoConfirmMessage": "工作区文件将恢复到本条消息之前记录的检查点，对话记录保持不变。",
+    "undoConfirm": "恢复文件",
+    "undoFailed": "本轮没有可用的检查点。"
+  },
   "turnErrorCard": {
     "reloadSession": "重新加载会话",
     "cancelledTitle": "已取消",

@@ -378,8 +378,7 @@ pub async fn enhance_prompt(
     state: tauri::State<'_, AppState>,
     payload: PromptEnhancementRequest,
 ) -> Result<PromptEnhancementResponse, AppError> {
-    let config = state.deployment.config().read().await.clone();
-    Ok(services::services::prompt_enhancement::enhance_prompt(&config, payload).await?)
+    crate::prompt_enhancement::enhance_prompt(&state, payload).await
 }
 
 #[tauri::command]

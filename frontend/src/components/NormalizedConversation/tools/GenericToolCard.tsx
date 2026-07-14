@@ -122,7 +122,9 @@ export function GenericToolCard({
         .join(': ')
     : isOther
       ? actionType.description
-      : summary.detail || toolEntry.tool_name || inlineText;
+      : // Raw tool identifiers are developer-facing noise — fall back to the
+        // inline text instead of exposing `tool_name`.
+        summary.detail || inlineText;
   const hasDetails =
     isTaskCreate ||
     isTodo ||

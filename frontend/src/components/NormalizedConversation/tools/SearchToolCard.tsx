@@ -128,14 +128,6 @@ export function SearchToolCard({
         {isWebFetch ? 'URL' : t('searchTool.query')}
       </div>
       <div className="conv-tool-details-content">{detail}</div>
-      {toolEntry.tool_name ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('searchTool.tool')}
-          </div>
-          <div className="conv-tool-details-content">{toolEntry.tool_name}</div>
-        </>
-      ) : null}
     </ToolCardShell>
   );
 }

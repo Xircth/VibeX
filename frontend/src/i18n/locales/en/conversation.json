@@ -44,6 +44,14 @@
     "runSetup": "Run setup",
     "summaryAndActions": "Summary and actions"
   },
+  "turnFileChanges": {
+    "filesChanged": "{{count}} files changed",
+    "undo": "Undo",
+    "undoConfirmTitle": "Undo this turn's file changes?",
+    "undoConfirmMessage": "Workspace files will be restored to the checkpoint recorded before this message. The conversation history is kept.",
+    "undoConfirm": "Restore files",
+    "undoFailed": "No checkpoint is available for this turn."
+  },
   "turnErrorCard": {
     "reloadSession": "Reload session",
     "cancelledTitle": "Cancelled",

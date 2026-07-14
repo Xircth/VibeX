@@ -1,17 +1,7 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
-};
+use std::{borrow::Cow, process::Stdio, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{
-    fs,
-    io::{AsyncBufReadExt, BufReader},
-};
-use uuid::Uuid;
 
 use crate::services::config::Config;
 
@@ -71,7 +61,7 @@ const DEFAULT_OPENCODE_MODELS: &[&str] = &[
     "opencode/trinity-large-preview-free",
     "opencode/nemotron-3-super-free",
 ];
-const PROMPT_ENHANCE_TIMEOUT_SECS: u64 = 45;
+pub const PROMPT_ENHANCE_TIMEOUT_SECS: u64 = 45;
 const PROMPT_ENHANCE_CONTEXT_CHAR_LIMIT: usize = 32_000;
 const DEFAULT_PROMPT_ENHANCE_INSTRUCTION: &str = r#"You are PromptEnhance (PE).
 
@@ -152,7 +142,7 @@ fn default_opencode_models_response() -> OpencodeModelsResponse {
     }
 }
 
-fn selected_prompt_enhancement_model(config: &Config) -> &str {
+pub fn selected_prompt_enhancement_model(config: &Config) -> &str {
     let trimmed = config.prompt_enhancement_model.trim();
     if trimmed.is_empty() {
         DEFAULT_PROMPT_ENHANCE_MODEL
@@ -228,7 +218,9 @@ fn trim_prompt_enhancement_context(
     selected
 }
 
-fn build_prompt_enhancement_payload(
+/// Build the full prompt text (instruction + JSON input) sent to the
+/// enhancement agent over ACP.
+pub fn build_prompt_enhancement_payload(
     config: &Config,
     payload: &PromptEnhancementRequest,
 ) -> Result<String, PromptEnhancementError> {
@@ -267,22 +259,26 @@ fn build_prompt_enhancement_payload(
         })
 }
 
-async fn write_prompt_enhancement_attachment(
-    current_dir: &Path,
+/// Validate that prompt enhancement can run for this request. The actual
+/// execution happens over the ACP runtime in the Tauri shell (which owns
+/// `AgentRuntime`); this service keeps the transport-agnostic pieces.
+pub fn validate_prompt_enhancement_request(
     config: &Config,
     payload: &PromptEnhancementRequest,
-) -> Result<PathBuf, PromptEnhancementError> {
-    let file_path = current_dir.join(format!(".vibex-pe-{}.json", Uuid::new_v4()));
-    let content = build_prompt_enhancement_payload(config, payload)?;
+) -> Result<(), PromptEnhancementError> {
+    if !config.prompt_enhancement_enabled {
+        return Err(PromptEnhancementError::BadRequest(
+            "Prompt enhancement is disabled in system settings".to_string(),
+        ));
+    }
 
-    fs::write(&file_path, content).await.map_err(|error| {
-        PromptEnhancementError::Internal(format!(
-            "Failed to write prompt enhancement attachment: {}",
-            error
-        ))
-    })?;
+    if payload.draft_prompt.trim().is_empty() {
+        return Err(PromptEnhancementError::BadRequest(
+            "Draft prompt cannot be empty".to_string(),
+        ));
+    }
 
-    Ok(file_path)
+    Ok(())
 }
 
 fn extract_enhanced_prompt_from_json_value(value: &Value) -> Option<String> {
@@ -311,7 +307,7 @@ fn extract_enhanced_prompt_from_json_value(value: &Value) -> Option<String> {
     }
 }
 
-fn extract_enhanced_prompt(raw: &str) -> Option<String> {
+pub fn extract_enhanced_prompt(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -373,189 +369,6 @@ fn extract_enhanced_prompt(raw: &str) -> Option<String> {
                 Some(trimmed.to_string())
             }
         })
-}
-
-async fn wait_for_enhanced_prompt(
-    mut child: tokio::process::Child,
-    timeout: Duration,
-) -> Result<String, PromptEnhancementError> {
-    let stdout = child.stdout.take().ok_or_else(|| {
-        PromptEnhancementError::Internal("OpenCode process missing stdout".to_string())
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        PromptEnhancementError::Internal("OpenCode process missing stderr".to_string())
-    })?;
-
-    let mut stdout_lines = BufReader::new(stdout).lines();
-    let mut stderr_lines = BufReader::new(stderr).lines();
-    let deadline = tokio::time::Instant::now() + timeout;
-    let mut stdout_buffer = String::new();
-    let mut stderr_buffer = String::new();
-    let mut stdout_done = false;
-    let mut stderr_done = false;
-
-    loop {
-        if let Some(prompt) = extract_enhanced_prompt(&stdout_buffer)
-            .or_else(|| extract_enhanced_prompt(&stderr_buffer))
-        {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            return Ok(prompt);
-        }
-
-        if stdout_done && stderr_done {
-            let status = child.wait().await.map_err(|error| {
-                PromptEnhancementError::Internal(format!("Failed waiting for OpenCode: {}", error))
-            })?;
-
-            let detail = if !stderr_buffer.trim().is_empty() {
-                stderr_buffer.trim().to_string()
-            } else {
-                stdout_buffer.trim().to_string()
-            };
-
-            let message = if status.success() {
-                if detail.is_empty() {
-                    "OpenCode response did not contain a valid EnhancedPrompt field".to_string()
-                } else {
-                    format!(
-                        "OpenCode response did not contain a valid EnhancedPrompt field. Raw output: {}",
-                        detail
-                    )
-                }
-            } else if detail.is_empty() {
-                format!("OpenCode prompt enhancement failed with status {}", status)
-            } else {
-                format!("OpenCode prompt enhancement failed: {}", detail)
-            };
-
-            return Err(PromptEnhancementError::Internal(message));
-        }
-
-        tokio::select! {
-            _ = tokio::time::sleep_until(deadline) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(PromptEnhancementError::Internal(format!(
-                    "OpenCode prompt enhancement timed out after {} seconds",
-                    PROMPT_ENHANCE_TIMEOUT_SECS
-                )));
-            }
-            line = stdout_lines.next_line(), if !stdout_done => {
-                match line {
-                    Ok(Some(line)) => {
-                        stdout_buffer.push_str(&line);
-                        stdout_buffer.push('\n');
-                    }
-                    Ok(None) => {
-                        stdout_done = true;
-                    }
-                    Err(error) => {
-                        let _ = child.kill().await;
-                        let _ = child.wait().await;
-                        return Err(PromptEnhancementError::Internal(format!(
-                            "Failed reading OpenCode stdout: {}",
-                            error
-                        )));
-                    }
-                }
-            }
-            line = stderr_lines.next_line(), if !stderr_done => {
-                match line {
-                    Ok(Some(line)) => {
-                        stderr_buffer.push_str(&line);
-                        stderr_buffer.push('\n');
-                    }
-                    Ok(None) => {
-                        stderr_done = true;
-                    }
-                    Err(error) => {
-                        let _ = child.kill().await;
-                        let _ = child.wait().await;
-                        return Err(PromptEnhancementError::Internal(format!(
-                            "Failed reading OpenCode stderr: {}",
-                            error
-                        )));
-                    }
-                }
-            }
-        }
-    }
-}
-
-pub async fn enhance_prompt(
-    config: &Config,
-    payload: PromptEnhancementRequest,
-) -> Result<PromptEnhancementResponse, PromptEnhancementError> {
-    if !config.prompt_enhancement_enabled {
-        return Err(PromptEnhancementError::BadRequest(
-            "Prompt enhancement is disabled in system settings".to_string(),
-        ));
-    }
-
-    if payload.draft_prompt.trim().is_empty() {
-        return Err(PromptEnhancementError::BadRequest(
-            "Draft prompt cannot be empty".to_string(),
-        ));
-    }
-
-    let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
-        .await
-        .map_err(|error| {
-            PromptEnhancementError::Internal(format!(
-                "Failed to resolve OpenCode executable: {}",
-                error
-            ))
-        })?
-        .map_err(|_| PromptEnhancementError::NotFound("OpenCode CLI not found".to_string()))?;
-
-    let model = selected_prompt_enhancement_model(config).to_string();
-    let current_dir = std::env::current_dir().map_err(|error| {
-        PromptEnhancementError::Internal(format!(
-            "Failed to resolve current working directory for prompt enhancement: {}",
-            error
-        ))
-    })?;
-    let attachment_path =
-        write_prompt_enhancement_attachment(&current_dir, config, &payload).await?;
-
-    let mut command = utils::process::new_hidden_tokio_command(
-        &executable,
-        [
-            "run",
-            "--format",
-            "json",
-            "--model",
-            model.as_str(),
-            "Read the attached file and return JSON only with top-level field EnhancedPrompt.",
-            "-f",
-            attachment_path.to_str().ok_or_else(|| {
-                PromptEnhancementError::Internal(
-                    "Prompt enhancement attachment path contains invalid Unicode".to_string(),
-                )
-            })?,
-        ],
-    );
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    command.current_dir(&current_dir);
-
-    let child = command.spawn().map_err(|error| {
-        PromptEnhancementError::Internal(format!("Failed to run OpenCode: {}", error))
-    })?;
-
-    let result =
-        wait_for_enhanced_prompt(child, Duration::from_secs(PROMPT_ENHANCE_TIMEOUT_SECS)).await;
-
-    let _ = fs::remove_file(&attachment_path).await;
-    let enhanced_prompt = result?;
-
-    Ok(PromptEnhancementResponse {
-        enhanced_prompt,
-        model,
-    })
 }
 
 pub async fn list_opencode_models() -> Result<OpencodeModelsResponse, PromptEnhancementError> {

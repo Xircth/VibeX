@@ -1009,7 +1009,12 @@ response?: ConversationQuestionResponse | null, } | { "kind": "feedback_request"
 /**
  * Folded from a later `FeedbackSubmitted` event. `None` while still pending.
  */
-response?: ConversationFeedbackResponse | null, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
+response?: ConversationFeedbackResponse | null, } | { "kind": "terminal_summary", terminal: ConversationTerminalView, } | { "kind": "delegation", delegation: ConversationDelegationView, } | { "kind": "file_change_summary", summary: ConversationFileChangeSummary,
+/**
+ * Turn that produced this diff summary (checkpoint diff), so the
+ * timeline can anchor the card at the end of its own turn.
+ */
+turn_id?: string | null, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
 
 export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
 
@@ -1160,6 +1165,6 @@ requested_schema: JsonValue, };
 
 export type AgentElicitationResponse = { "action": "accept", content: JsonValue, } | { "action": "decline" } | { "action": "cancel" };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";
-
 export type LinkOpenBehavior = "ExternalBrowser" | "BuiltinPreview";
+
+export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

@@ -980,7 +980,10 @@ impl ProjectionFold {
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 side_rows.push(side_row(
                     record.sequence,
-                    ConversationTimelineRow::FileChangeSummary { summary },
+                    ConversationTimelineRow::FileChangeSummary {
+                        summary,
+                        turn_id: record.turn_id,
+                    },
                 ));
             }
             ConversationEvent::TurnFailed { error } => {

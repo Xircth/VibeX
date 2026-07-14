@@ -23,6 +23,7 @@ import type {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
@@ -154,18 +155,11 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
 
 function ConversationSideRows({
   rows,
-  onRespondPermission,
-  respondingPermissionId,
   onRespondQuestion,
   respondingQuestionId,
   onOpenChild,
 }: {
   rows: TimelineRow[];
-  onRespondPermission: (
-    permissionId: string,
-    response: AgentPermissionResponse
-  ) => void;
-  respondingPermissionId: string | null;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
@@ -173,25 +167,21 @@ function ConversationSideRows({
   respondingQuestionId: string | null;
   onOpenChild?: (childConversationId: string) => void;
 }) {
-  const visibleRows = rows.filter((entry) => entry.row.kind !== 'turn_error');
+  // turn_error renders as the standalone TurnErrorCard; file_change_summary is
+  // anchored inline at the end of its own turn (TurnFileChangesCard); pending
+  // permission requests dock at the bottom of the stream instead.
+  const visibleRows = rows.filter(
+    (entry) =>
+      entry.row.kind !== 'turn_error' &&
+      entry.row.kind !== 'file_change_summary' &&
+      entry.row.kind !== 'permission_request'
+  );
   if (visibleRows.length === 0) return null;
 
   return (
     <div className="mb-3 space-y-2">
       {visibleRows.map((entry, index) => {
         const row = entry.row;
-        if (row.kind === 'permission_request') {
-          return (
-            <PermissionRequestCard
-              key={`permission-${row.request.permission_id}-${index}`}
-              request={row.request}
-              onRespond={onRespondPermission}
-              responding={
-                respondingPermissionId === row.request.permission_id
-              }
-            />
-          );
-        }
         if (row.kind === 'question_request') {
           return (
             <QuestionRequestCard
@@ -242,22 +232,6 @@ function ConversationSideRows({
             />
           );
         }
-        if (row.kind === 'file_change_summary') {
-          return (
-            <div
-              key={`files-${index}`}
-              className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-            >
-              <div className="font-medium text-foreground">
-                {row.summary.files.length} file change
-                {row.summary.files.length === 1 ? '' : 's'}
-              </div>
-              <div className="mt-1 truncate">
-                {row.summary.files.map((file) => file.path).join(', ')}
-              </div>
-            </div>
-          );
-        }
         if (row.kind === 'session_notice') {
           return (
             <div
@@ -293,7 +267,7 @@ const AgentTimelineConversation = forwardRef<
   VirtualizedListRef,
   AgentTimelineConversationProps
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
-  const { t } = useTranslation(['panels', 'common']);
+  const { t } = useTranslation(['panels', 'conversation', 'common']);
   const { config } = useUserSystem();
   const collapseProcess = config?.ai_message_default_collapsed ?? false;
   const prefersReducedMotion = useMediaQuery(
@@ -647,6 +621,82 @@ const AgentTimelineConversation = forwardRef<
     return map;
   }, [timeline]);
 
+  // Same ordinal keyed by turn id (message rows are `${turnId}:user`), for the
+  // per-turn files-changed Undo which rolls back to that turn's checkpoint.
+  const userOrdinalByTurnId = useMemo(() => {
+    const map = new Map<string, number>();
+    let ordinal = 0;
+    for (const row of timeline) {
+      if (row.turn.role === 'user') {
+        map.set(row.turn.id.replace(/:user$/, ''), ordinal);
+        ordinal += 1;
+      }
+    }
+    return map;
+  }, [timeline]);
+
+  // Latest checkpoint-diff summary per turn, rendered inline at the end of the
+  // turn that produced it (rows without a turn_id stay hidden rather than
+  // resurfacing as a detached header block).
+  const fileChangesByTurnId = useMemo(() => {
+    const map = new Map<
+      string,
+      Extract<TimelineRow['row'], { kind: 'file_change_summary' }>
+    >();
+    for (const entry of sideRows) {
+      if (entry.row.kind !== 'file_change_summary') continue;
+      if (!entry.row.turn_id) continue;
+      map.set(entry.row.turn_id, entry.row);
+    }
+    return map;
+  }, [sideRows]);
+
+  const isTurnInFlight = useMemo(
+    () =>
+      timeline.some(
+        (row) => row.phase === 'streaming' || row.phase === 'optimistic'
+      ),
+    [timeline]
+  );
+
+  // Unanswered permission requests dock at the bottom of the stream (above the
+  // composer) instead of scrolling away with the timeline; answered ones are
+  // already reflected by their tool calls, so they are not re-rendered.
+  const pendingPermissions = useMemo(
+    () =>
+      sideRows.flatMap((entry) =>
+        entry.row.kind === 'permission_request' &&
+        entry.row.request.status === 'pending'
+          ? [entry.row.request]
+          : []
+      ),
+    [sideRows]
+  );
+
+  const handleUndoTurnChanges = useCallback(
+    async (turnId: string) => {
+      const session = attempt.session;
+      const ordinal = userOrdinalByTurnId.get(turnId);
+      if (!session || ordinal === undefined) return;
+
+      const choice = await ConfirmDialog.show({
+        title: t('conversation:turnFileChanges.undoConfirmTitle'),
+        message: t('conversation:turnFileChanges.undoConfirmMessage'),
+        confirmText: t('conversation:turnFileChanges.undoConfirm'),
+        cancelText: t('common:cancel'),
+        variant: 'destructive',
+      });
+      if (choice !== 'confirmed') return;
+
+      try {
+        await agentsApi.resetToCheckpoint(session.id, ordinal, true, false);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    },
+    [attempt.session, t, userOrdinalByTurnId]
+  );
+
   const handleRetry = useCallback(
     async (turn: MessageTurn, ordinal: number) => {
       const session = attempt.session;
@@ -742,8 +792,6 @@ const AgentTimelineConversation = forwardRef<
             ) : null}
             <ConversationSideRows
               rows={sideRows}
-              onRespondPermission={handleRespondPermission}
-              respondingPermissionId={respondingPermissionId}
               onRespondQuestion={handleRespondQuestion}
               respondingQuestionId={respondingQuestionId}
               onOpenChild={handleOpenChild}
@@ -790,11 +838,46 @@ const AgentTimelineConversation = forwardRef<
                       }
                       collapseProcess={collapseProcess}
                     />
+                    {row.turn.role === 'assistant'
+                      ? (() => {
+                          const turnId = row.turn.id.replace(/:assistant$/, '');
+                          const fileChanges = fileChangesByTurnId.get(turnId);
+                          if (!fileChanges) return null;
+                          return (
+                            <TurnFileChangesCard
+                              summary={fileChanges.summary}
+                              expansionKey={`turn-files:${turnId}`}
+                              defaultExpanded={
+                                !(
+                                  config?.files_changed_default_collapsed ??
+                                  false
+                                )
+                              }
+                              onUndo={() => void handleUndoTurnChanges(turnId)}
+                              undoDisabled={isTurnInFlight}
+                            />
+                          );
+                        })()
+                      : null}
                     {renderTurnStats(row, virtualRow.index)}
                   </div>
                 );
               })}
             </div>
+            {pendingPermissions.length > 0 ? (
+              <div className="sticky bottom-0 z-10 space-y-2 pt-2">
+                {pendingPermissions.map((request) => (
+                  <PermissionRequestCard
+                    key={`permission-${request.permission_id}`}
+                    request={request}
+                    onRespond={handleRespondPermission}
+                    responding={
+                      respondingPermissionId === request.permission_id
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="conv-message-nav-anchor">
             <ConversationMessageNav

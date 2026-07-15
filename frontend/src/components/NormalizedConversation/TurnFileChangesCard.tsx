@@ -78,7 +78,7 @@ export function TurnFileChangesCard({
   };
 
   return (
-    <div className="my-2 overflow-hidden rounded-md border border-border bg-background">
+    <div className="mb-2 mt-1 overflow-hidden rounded-md border border-border bg-background">
       <div className="flex items-center gap-3 px-3 py-2 text-sm">
         <button
           type="button"

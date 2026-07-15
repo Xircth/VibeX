@@ -286,6 +286,7 @@ mod tests {
                     ContentBlock::ToolUse {
                         tool_use_id: None,
                         tool_name: "edit_file".into(),
+                        kind: None,
                         input_preview: Some("auth.ts".into()),
                         meta: None,
                     },

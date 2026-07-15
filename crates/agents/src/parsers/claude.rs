@@ -105,6 +105,7 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 return Some(ContentBlock::Plan { entries });
             }
             Some(ContentBlock::ToolUse {
+                kind: None,
                 tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
                 tool_name: name.to_string(),
                 // Full input JSON (not truncated) so the renderer can parse it

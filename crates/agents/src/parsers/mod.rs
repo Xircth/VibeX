@@ -276,6 +276,7 @@ mod tests {
                 vec![ContentBlock::ToolUse {
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
+                    kind: None,
                     input_preview: None,
                     meta: None,
                 }],
@@ -297,6 +298,7 @@ mod tests {
                 vec![ContentBlock::ToolUse {
                     tool_use_id: Some("t1".into()),
                     tool_name: "read".into(),
+                    kind: None,
                     input_preview: None,
                     meta: None,
                 }],

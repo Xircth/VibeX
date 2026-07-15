@@ -116,6 +116,9 @@ export function GenericToolCard({
     : isTodo
       ? t('genericTool.todo')
       : summary.label;
+  // The generic branch mirrors the tool name into `content`; repeating it next
+  // to the label ("Write Write") carries no information — show nothing instead.
+  const meaningfulInlineText = inlineText === label ? '' : inlineText;
   const detail = isTaskCreate
     ? [actionType.subagent_type, actionType.description]
         .filter(Boolean)
@@ -124,7 +127,7 @@ export function GenericToolCard({
       ? actionType.description
       : // Raw tool identifiers are developer-facing noise — fall back to the
         // inline text instead of exposing `tool_name`.
-        summary.detail || inlineText;
+        summary.detail || meaningfulInlineText;
   const hasDetails =
     isTaskCreate ||
     isTodo ||
@@ -132,7 +135,7 @@ export function GenericToolCard({
     (isGenericTool &&
       (Boolean(actionType.arguments) ||
         Boolean(actionType.result) ||
-        inlineText.length > 0));
+        meaningfulInlineText.length > 0));
   const icon = isTaskCreate ? (
     <Plus className="h-3 w-3" />
   ) : isTodo ? (
@@ -247,12 +250,16 @@ export function GenericToolCard({
               </div>
             </>
           ) : null}
-          {!actionType.arguments && !actionType.result && inlineText ? (
+          {!actionType.arguments &&
+          !actionType.result &&
+          meaningfulInlineText ? (
             <>
               <div className="conv-tool-details-section-label">
                 {t('genericTool.content')}
               </div>
-              <div className="conv-tool-details-content">{inlineText}</div>
+              <div className="conv-tool-details-content">
+                {meaningfulInlineText}
+              </div>
             </>
           ) : null}
         </>

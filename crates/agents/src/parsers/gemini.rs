@@ -170,6 +170,7 @@ fn assistant_blocks(message: &Value) -> Vec<ContentBlock> {
                 .map(|args| args.to_string())
                 .or_else(|| call.get("input").map(|input| input.to_string()));
             blocks.push(ContentBlock::ToolUse {
+                kind: None,
                 tool_use_id: id.clone(),
                 tool_name: name,
                 input_preview,

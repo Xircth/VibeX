@@ -711,6 +711,14 @@ async fn latest_binding_id(
     .await
 }
 
+/// Best-effort revival of a serialized JSON payload: the ACP bridge stringifies
+/// rawInput/rawOutput, and downstream consumers need the structured value back.
+/// Non-JSON text is preserved as a plain JSON string.
+fn parse_json_payload(payload: &str) -> serde_json::Value {
+    serde_json::from_str(payload)
+        .unwrap_or_else(|_| serde_json::Value::String(payload.to_string()))
+}
+
 fn map_agent_event_to_conversation_event(
     envelope: &AgentEventEnvelope,
     turn_id: Option<Uuid>,
@@ -755,10 +763,13 @@ fn map_agent_event_to_conversation_event(
                 title: Some(tool_call.title.clone()),
                 kind: tool_call.kind.clone(),
                 status: Some("running".to_string()),
+                // `input_preview` is the agent's rawInput serialized to a JSON
+                // string — parse it back so the projection/frontend see the real
+                // fields (command/file_path/…), not a `{preview}` wrapper.
                 raw_input: tool_call
                     .input_preview
                     .as_ref()
-                    .map(|preview| serde_json::json!({ "preview": preview })),
+                    .map(|preview| parse_json_payload(preview)),
                 raw_output: None,
                 raw_output_append: None,
                 content: None,
@@ -774,7 +785,10 @@ fn map_agent_event_to_conversation_event(
                 kind: None,
                 status: update.status.clone(),
                 raw_input: None,
-                raw_output: None,
+                raw_output: update
+                    .content
+                    .as_ref()
+                    .map(|content| parse_json_payload(content)),
                 raw_output_append: update.content.clone(),
                 content: update
                     .content

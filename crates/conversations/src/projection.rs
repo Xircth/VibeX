@@ -776,22 +776,88 @@ impl ProjectionFold {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    turn.assistant.blocks.push(ContentBlock::ToolUse {
-                        tool_use_id: Some(tool_call.tool_call_id.clone()),
-                        tool_name: tool_call
-                            .title
-                            .or(tool_call.kind)
-                            .unwrap_or(tool_call.tool_call_id),
-                        input_preview: tool_call.raw_input.map(|value| value.to_string()),
-                        meta: tool_call.metadata,
+                    let call_id = tool_call.tool_call_id.clone();
+
+                    // Upsert semantics: a tool_call_update must fold into the
+                    // existing card, not spawn a second titleless block.
+                    let existing_use = turn.assistant.blocks.iter_mut().find_map(|block| {
+                        match block {
+                            ContentBlock::ToolUse {
+                                tool_use_id: Some(id),
+                                tool_name,
+                                kind,
+                                input_preview,
+                                ..
+                            } if *id == call_id => Some((tool_name, kind, input_preview)),
+                            _ => None,
+                        }
                     });
-                    if let Some(output) = tool_call.raw_output {
-                        turn.assistant.blocks.push(ContentBlock::ToolResult {
-                            tool_use_id: None,
-                            output_preview: Some(output.to_string()),
-                            is_error: matches!(tool_call.status.as_deref(), Some("failed")),
-                            agent_stats: None,
-                        });
+                    match existing_use {
+                        Some((tool_name, kind, input_preview)) => {
+                            if let Some(title) = tool_call.title {
+                                *tool_name = title;
+                            }
+                            if tool_call.kind.is_some() {
+                                *kind = tool_call.kind;
+                            }
+                            if let Some(raw) = tool_call.raw_input {
+                                *input_preview = Some(raw.to_string());
+                            }
+                        }
+                        None => {
+                            turn.assistant.blocks.push(ContentBlock::ToolUse {
+                                tool_use_id: Some(call_id.clone()),
+                                tool_name: tool_call
+                                    .title
+                                    .clone()
+                                    .or(tool_call.kind.clone())
+                                    .unwrap_or_else(|| call_id.clone()),
+                                kind: tool_call.kind.clone(),
+                                input_preview: tool_call
+                                    .raw_input
+                                    .as_ref()
+                                    .map(|value| value.to_string()),
+                                meta: tool_call.metadata.clone(),
+                            });
+                        }
+                    }
+
+                    // Attach/refresh the paired result so the card's status dot
+                    // settles: on output, or on a terminal status without one.
+                    let is_error = matches!(tool_call.status.as_deref(), Some("failed"));
+                    let terminal =
+                        matches!(tool_call.status.as_deref(), Some("completed") | Some("failed"));
+                    let output_preview = tool_call.raw_output.map(|output| match output {
+                        serde_json::Value::String(text) => text,
+                        other => other.to_string(),
+                    });
+                    if output_preview.is_some() || terminal {
+                        let existing_result =
+                            turn.assistant.blocks.iter_mut().find_map(|block| match block {
+                                ContentBlock::ToolResult {
+                                    tool_use_id: Some(id),
+                                    output_preview,
+                                    is_error,
+                                    ..
+                                } if *id == call_id => Some((output_preview, is_error)),
+                                _ => None,
+                            });
+                        match existing_result {
+                            Some((existing_output, existing_error)) => {
+                                if output_preview.is_some() {
+                                    *existing_output = output_preview;
+                                }
+                                *existing_error = is_error;
+                            }
+                            None => {
+                                turn.assistant.blocks.push(ContentBlock::ToolResult {
+                                    tool_use_id: Some(call_id),
+                                    output_preview,
+                                    is_error,
+                                    agent_stats: None,
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -1969,6 +2035,119 @@ mod tests {
         assert_eq!(tools[0].status, "completed");
         assert!(tools[0].raw_input_json.is_some());
         assert!(tools[0].raw_output_json.is_some());
+    }
+
+    #[tokio::test]
+    async fn timeline_folds_tool_call_updates_into_one_block() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "tool-1".into(),
+                    title: Some("Run tests".into()),
+                    kind: Some("execute".into()),
+                    status: Some("running".into()),
+                    raw_input: Some(serde_json::json!({"command": "cargo test"})),
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        // A status/output update must fold into the existing card, not spawn a
+        // second titleless block; the output attaches as an id-paired result.
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "tool-1".into(),
+                    title: None,
+                    kind: None,
+                    status: Some("completed".into()),
+                    raw_input: None,
+                    raw_output: Some(serde_json::Value::String("all green".into())),
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let blocks: Vec<_> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(&turn.blocks)
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+
+        let tool_uses: Vec<_> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::ToolUse {
+                    tool_use_id,
+                    tool_name,
+                    kind,
+                    input_preview,
+                    ..
+                } => Some((tool_use_id, tool_name, kind, input_preview)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_uses.len(), 1, "update must not spawn a second block");
+        let (tool_use_id, tool_name, kind, input_preview) = &tool_uses[0];
+        assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        assert_eq!(tool_name.as_str(), "Run tests");
+        assert_eq!(kind.as_deref(), Some("execute"));
+        assert!(
+            input_preview.as_deref().unwrap_or("").contains("cargo test"),
+            "real input fields must survive"
+        );
+
+        let results: Vec<_> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output_preview,
+                    is_error,
+                    ..
+                } => Some((tool_use_id, output_preview, is_error)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(results.len(), 1);
+        let (result_id, output_preview, is_error) = &results[0];
+        assert_eq!(result_id.as_deref(), Some("tool-1"));
+        assert_eq!(output_preview.as_deref(), Some("all green"));
+        assert!(!**is_error);
     }
 
     #[tokio::test]

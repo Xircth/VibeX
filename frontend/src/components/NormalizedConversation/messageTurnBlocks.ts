@@ -49,7 +49,11 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
   for (const block of blocks) {
     switch (block.type) {
       case 'text':
-        items.push({ kind: 'markdown', text: block.text });
+        // Whitespace-only blocks (e.g. a trailing "\n\n" from the stream)
+        // would render as an empty, selectable element that pads the turn.
+        if (block.text.trim().length > 0) {
+          items.push({ kind: 'markdown', text: block.text });
+        }
         break;
       case 'thinking':
         items.push({ kind: 'thinking', text: block.text });

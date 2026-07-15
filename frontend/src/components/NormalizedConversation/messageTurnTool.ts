@@ -28,10 +28,50 @@ const OPAQUE_TOOL_ID =
 function parseInput(use: ToolUseBlock): unknown {
   if (!use.input_preview) return null;
   try {
-    return JSON.parse(use.input_preview);
+    const parsed: unknown = JSON.parse(use.input_preview);
+    // Events persisted before the bridge fix wrapped the real (already
+    // JSON-serialized) input as `{ preview: "..." }` — unwrap so historical
+    // conversations keep rendering their true arguments.
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed).length === 1 &&
+      typeof (parsed as Record<string, unknown>).preview === 'string'
+    ) {
+      const inner = (parsed as Record<string, string>).preview;
+      try {
+        return JSON.parse(inner);
+      } catch {
+        return inner;
+      }
+    }
+    return parsed;
   } catch {
     return use.input_preview;
   }
+}
+
+/**
+ * Tool outputs arrive as the agent's rawOutput serialized to JSON — surface the
+ * human-readable text (stdout/stderr/output) instead of an escaped JSON blob.
+ */
+function extractOutputText(preview: string | null): string | null {
+  if (!preview) return preview;
+  try {
+    const parsed: unknown = JSON.parse(preview);
+    if (typeof parsed === 'string') return parsed;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const parts = ['stdout', 'stderr', 'output', 'text', 'content']
+        .map((key) => (typeof record[key] === 'string' ? record[key] : ''))
+        .filter((part): part is string => part.length > 0);
+      if (parts.length > 0) return parts.join('\n');
+    }
+  } catch {
+    // Not JSON — already plain text.
+  }
+  return preview;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -325,6 +365,7 @@ function commandResult(
 
 function toolActionType(
   toolName: string,
+  kind: string | null,
   parsed: unknown,
   output: string | null,
   status: 'created' | 'success' | 'failed',
@@ -335,7 +376,8 @@ function toolActionType(
   if (
     typeof parsed === 'string' &&
     parsed.trim().length > 0 &&
-    !parsed.includes(PATCH_SENTINEL)
+    !parsed.includes(PATCH_SENTINEL) &&
+    (kind == null || kind === 'execute' || kind === 'other')
   ) {
     return { ...commandResult(status, output), command: parsed.trim() };
   }
@@ -355,8 +397,11 @@ function toolActionType(
   const query = firstString(obj, 'pattern', 'query', 'q', 'glob', 'regex');
   const url = firstString(obj, 'url', 'uri', 'href');
 
-  // Command — by name, by a `command` field, or by a command-shaped tool title.
+  // Command — by ACP kind first (agents' titles are free-form prose, so the
+  // declared kind is the reliable signal), then by name, by a `command` field,
+  // or by a command-shaped tool title.
   if (
+    kind === 'execute' ||
     SHELL_NAMES.has(name) ||
     (command && !READ_NAMES.has(name) && !SEARCH_NAMES.has(name)) ||
     (!command && looksLikeShellCommand(toolName))
@@ -367,18 +412,19 @@ function toolActionType(
     };
   }
 
-  // Search — by name, or a bare pattern with no file path.
-  if (SEARCH_NAMES.has(name) || (query && !path)) {
+  // Search — by kind, by name, or a bare pattern with no file path.
+  if (kind === 'search' || SEARCH_NAMES.has(name) || (query && !path)) {
     return { action: 'search', query: query ?? '' };
   }
 
-  // Web fetch — by name, or a url with no command.
-  if (WEB_NAMES.has(name) || (url && !command)) {
+  // Web fetch — by kind, by name, or a url with no command.
+  if (kind === 'fetch' || WEB_NAMES.has(name) || (url && !command)) {
     return { action: 'web_fetch', url: url ?? '' };
   }
 
   // File edit / apply_patch — render an inline diff card (early style).
   if (
+    kind === 'edit' ||
     EDIT_NAMES.has(name) ||
     looksLikeEdit(obj) ||
     patchPayload(parsed, rawInput)
@@ -388,8 +434,12 @@ function toolActionType(
       return { action: 'file_edit', path: edit.path, changes: edit.changes };
   }
 
-  // Plain file read — by name, or a lone path with no edit payload.
-  if ((READ_NAMES.has(name) || path) && !looksLikeEdit(obj) && path) {
+  // Plain file read — by kind, by name, or a lone path with no edit payload.
+  if (
+    (kind === 'read' || READ_NAMES.has(name) || path) &&
+    !looksLikeEdit(obj) &&
+    path
+  ) {
     return { action: 'file_read', path };
   }
 
@@ -422,7 +472,7 @@ export function toolBlockToNormalizedEntry(
   result: ToolResultBlock | null,
   timestamp: string | null
 ): NormalizedEntry {
-  const output = result?.output_preview ?? null;
+  const output = extractOutputText(result?.output_preview ?? null);
   const statusKind: 'created' | 'success' | 'failed' = result
     ? result.is_error
       ? 'failed'
@@ -438,6 +488,7 @@ export function toolBlockToNormalizedEntry(
   const parsed = parseInput(use);
   const actionType = toolActionType(
     use.tool_name,
+    use.kind ?? null,
     parsed,
     output,
     statusKind,

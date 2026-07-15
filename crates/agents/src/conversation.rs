@@ -124,6 +124,11 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
         tool_name: String,
+        /// ACP tool-call kind (`execute`/`read`/`edit`/`search`/`fetch`/…),
+        /// preserved so the frontend can route to the right card even when the
+        /// agent's title is free-form prose.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         input_preview: Option<String>,
         /// Free-form metadata (e.g. delegation binding).

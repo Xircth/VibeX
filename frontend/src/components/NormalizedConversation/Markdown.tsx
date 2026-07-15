@@ -431,8 +431,60 @@ const REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['remarkPlugins']> = [
   remarkGfm,
   remarkMath,
 ];
+
+/** Containers whose direct text children are pure formatting whitespace. */
+const BLOCK_CONTAINER_TAGS = new Set([
+  'ul',
+  'ol',
+  'table',
+  'thead',
+  'tbody',
+  'tr',
+  'blockquote',
+]);
+
+type HastNode = {
+  type: string;
+  value?: string;
+  tagName?: string;
+  children?: HastNode[];
+};
+
+/**
+ * Drop the newline text nodes hast keeps between block-level siblings (root
+ * level, list/table internals). They render as zero-height whitespace, but the
+ * caret can still land on them — a double-click in the blank area after a turn
+ * selects one and paints a phantom empty line.
+ */
+function rehypeStripInterBlockWhitespace() {
+  const strip = (node: HastNode, isContainer: boolean) => {
+    if (!node.children) return;
+    if (isContainer) {
+      node.children = node.children.filter(
+        (child) =>
+          !(
+            child.type === 'text' &&
+            typeof child.value === 'string' &&
+            child.value.includes('\n') &&
+            child.value.trim().length === 0
+          )
+      );
+    }
+    for (const child of node.children) {
+      strip(
+        child,
+        child.type === 'element' &&
+          BLOCK_CONTAINER_TAGS.has(child.tagName ?? '')
+      );
+    }
+  };
+
+  return (tree: HastNode) => strip(tree, true);
+}
+
 const REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
   [rehypeKatex, { throwOnError: false, strict: false }],
+  rehypeStripInterBlockWhitespace,
 ];
 
 type MarkdownComponentContext = {

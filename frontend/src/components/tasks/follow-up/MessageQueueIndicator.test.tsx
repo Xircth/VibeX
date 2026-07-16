@@ -7,6 +7,7 @@ const queuedMessage: QueuedMessage = {
   session_id: 'session-1',
   created_at: '2026-05-25T00:00:00.000Z',
   updated_at: '2026-05-25T00:00:00.000Z',
+  executorProfileId: { executor: 'codex', variant: null },
   data: {
     message: 'Run the next fix',
     images: ['.vibe-images/queued.png'],
@@ -52,4 +53,3 @@ describe('MessageQueueIndicator', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
-

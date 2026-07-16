@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 api-types = { path = "../api-types" }
 async-trait = { workspace = true }
-agent-client-protocol = { version = "0.15.1", features = [
+agent-client-protocol = { version = "1.2.0", features = [
     "unstable",
     "unstable_session_fork",
 ] }

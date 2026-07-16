@@ -5,6 +5,7 @@ use std::{
     env::{join_paths, split_paths},
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use crate::tokio::block_on;
@@ -61,7 +62,12 @@ pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
         return Some(found);
     }
 
-    if refresh_path().await
+    // A desktop process is commonly launched with a smaller PATH than an
+    // interactive shell. Refresh it once for the whole process, rather than
+    // paying for several login-shell subprocesses for every missing command
+    // during startup inventory (one per Agent/runtime used to make a clean
+    // install noticeably slow).
+    if refresh_process_path().await
         && let Some(found) = which(executable).await
     {
         return Some(found);
@@ -110,12 +116,31 @@ async fn refresh_path() -> bool {
     true
 }
 
+/// Serialize and de-duplicate the implicit PATH refresh that follows a failed
+/// executable lookup. `resolve_executable_path` may be called concurrently by
+/// startup/preflight inventory, so a plain boolean would still let multiple
+/// login shells run at once. Explicit post-install refreshes use the force
+/// variant below and are intentionally not suppressed.
+static IMPLICIT_PATH_REFRESH: OnceLock<tokio::sync::OnceCell<bool>> = OnceLock::new();
+
+async fn refresh_path_once() -> bool {
+    let cell = IMPLICIT_PATH_REFRESH.get_or_init(tokio::sync::OnceCell::const_new);
+    *cell.get_or_init(|| async { refresh_path().await }).await
+}
+
 /// Refresh the current process PATH from the user's shell or system environment.
 ///
 /// Desktop apps can be launched with a stale or reduced PATH. Calling this
 /// before spawning agent processes lets child commands inherit the same tools
 /// a user expects in their normal terminal.
 pub async fn refresh_process_path() -> bool {
+    refresh_path_once().await
+}
+
+/// Re-read PATH after VibeX itself has installed or updated a tool. Unlike
+/// normal resolution this must not be cached: npm/fnm/nvm layouts can expose a
+/// new global-bin directory only after the install finishes.
+pub async fn refresh_process_path_after_install() -> bool {
     refresh_path().await
 }
 

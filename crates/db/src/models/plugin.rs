@@ -30,6 +30,11 @@ pub struct Plugin {
     /// `pending` | `installing` | `installed` | `failed`.
     pub install_status: String,
     pub install_error: Option<String>,
+    /// Only enabled plugins show up in the workspace sidebar. Built-in
+    /// presets start disabled; enabling one counts as configuring it.
+    pub enabled: bool,
+    /// Seeded by VibeX itself; cannot be deleted, only disabled.
+    pub builtin: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -57,7 +62,7 @@ impl Plugin {
 
 const PLUGIN_COLS: &str = "id, name, skill_name, console_command, console_url, hook_message, \
     install_command, author, icon, expires_at, notes, install_status, install_error, \
-    created_at, updated_at";
+    enabled, builtin, created_at, updated_at";
 
 impl Plugin {
     pub async fn create(
@@ -70,8 +75,8 @@ impl Plugin {
             "INSERT INTO plugins \
              (id, name, skill_name, console_command, console_url, hook_message, \
               install_command, author, icon, expires_at, notes, install_status, \
-              created_at, updated_at) \
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)",
+              enabled, builtin, created_at, updated_at) \
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',1,0,?,?)",
         )
         .bind(id)
         .bind(&input.name)
@@ -135,6 +140,53 @@ impl Plugin {
         Self::find_by_id(pool, id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)
+    }
+
+    /// Seed a built-in preset: inserted disabled exactly once; an existing
+    /// row (possibly edited by the user) is left untouched.
+    pub async fn insert_builtin_if_missing(
+        pool: &SqlitePool,
+        id: Uuid,
+        input: &PluginInput,
+    ) -> Result<bool, sqlx::Error> {
+        let now = Utc::now();
+        let result = sqlx::query(
+            "INSERT OR IGNORE INTO plugins \
+             (id, name, skill_name, console_command, console_url, hook_message, \
+              install_command, author, icon, expires_at, notes, install_status, \
+              enabled, builtin, created_at, updated_at) \
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',0,1,?,?)",
+        )
+        .bind(id)
+        .bind(&input.name)
+        .bind(&input.skill_name)
+        .bind(&input.console_command)
+        .bind(&input.console_url)
+        .bind(&input.hook_message)
+        .bind(&input.install_command)
+        .bind(&input.author)
+        .bind(&input.icon)
+        .bind(input.expires_at)
+        .bind(&input.notes)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn set_enabled(
+        pool: &SqlitePool,
+        id: Uuid,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE plugins SET enabled = ?, updated_at = ? WHERE id = ?")
+            .bind(enabled)
+            .bind(Utc::now())
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn set_install_status(
@@ -213,6 +265,9 @@ mod tests {
             .expect("create");
         assert_eq!(plugin.install_status, "pending");
         assert!(!plugin.is_expired(Utc::now()));
+        // User-created plugins are enabled, non-builtin.
+        assert!(plugin.enabled);
+        assert!(!plugin.builtin);
 
         // Timestamps round-trip through TEXT storage and expiry comparison works.
         let expired_input = input("Expired", Some(Utc::now() - Duration::days(1)));
@@ -251,5 +306,37 @@ mod tests {
                 .expect("find after delete")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn builtin_seed_is_disabled_once_and_toggleable() {
+        let pool = setup_pool().await;
+        let id = Uuid::new_v4();
+
+        assert!(
+            Plugin::insert_builtin_if_missing(&pool, id, &input("Builtin", None))
+                .await
+                .expect("seed")
+        );
+        let seeded = Plugin::find_by_id(&pool, id)
+            .await
+            .expect("find")
+            .expect("exists");
+        assert!(seeded.builtin);
+        assert!(!seeded.enabled);
+
+        // Re-seeding never clobbers the row (e.g. after the user edited it).
+        Plugin::set_enabled(&pool, id, true).await.expect("enable");
+        assert!(
+            !Plugin::insert_builtin_if_missing(&pool, id, &input("Builtin v2", None))
+                .await
+                .expect("re-seed")
+        );
+        let kept = Plugin::find_by_id(&pool, id)
+            .await
+            .expect("find")
+            .expect("exists");
+        assert_eq!(kept.name, "Builtin");
+        assert!(kept.enabled);
     }
 }

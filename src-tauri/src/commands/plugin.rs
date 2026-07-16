@@ -90,9 +90,73 @@ pub async fn plugin_update(
 
 #[tauri::command]
 pub async fn plugin_delete(state: tauri::State<'_, AppState>, id: Uuid) -> Result<(), AppError> {
-    Plugin::delete(&state.deployment.db().pool, id)
-        .await
-        .map_err(AppError::from)
+    let pool = &state.deployment.db().pool;
+    let Some(plugin) = Plugin::find_by_id(pool, id).await? else {
+        return Ok(());
+    };
+    if plugin.builtin {
+        return Err(AppError::BadRequest(
+            "builtin plugins cannot be deleted; disable them instead".to_string(),
+        ));
+    }
+    Plugin::delete(pool, id).await.map_err(AppError::from)
+}
+
+/// Enable/disable a plugin. Only enabled plugins appear in the workspace
+/// sidebar; enabling a built-in preset counts as configuring it (the
+/// frontend follows up with the skill install).
+#[tauri::command]
+pub async fn plugin_set_enabled(
+    state: tauri::State<'_, AppState>,
+    id: Uuid,
+    enabled: bool,
+) -> Result<Plugin, AppError> {
+    let pool = &state.deployment.db().pool;
+    if Plugin::find_by_id(pool, id).await?.is_none() {
+        return Err(AppError::NotFound(format!("plugin {id} not found")));
+    }
+    Plugin::set_enabled(pool, id, enabled).await?;
+    Plugin::find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| AppError::Internal("plugin vanished during toggle".to_string()))
+}
+
+// ── Built-in presets ───────────────────────────────────────────────────────
+
+const BUILTIN_AUTHOR: &str = "VibeX 内置";
+
+/// Built-in presets reuse the dev-kit example manifests as their single
+/// source of truth; fixed ids keep the seeding idempotent across launches.
+const BUILTIN_PLUGINS: &[(&str, &str)] = &[
+    (
+        "3f8e2b10-7c44-4c5e-9a11-d2af01000001",
+        include_str!("plugin_devkit/examples/dashi-ppt.vibex-plugin.json"),
+    ),
+    (
+        "3f8e2b10-7c44-4c5e-9a11-d2af01000002",
+        include_str!("plugin_devkit/examples/vibe-motion.vibex-plugin.json"),
+    ),
+    (
+        "3f8e2b10-7c44-4c5e-9a11-d2af01000003",
+        include_str!("plugin_devkit/examples/understand-anything.vibex-plugin.json"),
+    ),
+];
+
+/// Seed the built-in plugin presets (disabled) on startup. Existing rows —
+/// including user-edited ones — are never overwritten.
+pub async fn ensure_builtin_plugins(pool: &sqlx::SqlitePool) -> Result<(), AppError> {
+    for (id, manifest) in BUILTIN_PLUGINS {
+        let mut input: PluginInput = serde_json::from_str(manifest).map_err(|error| {
+            AppError::Internal(format!("builtin plugin manifest invalid: {error}"))
+        })?;
+        input.author = Some(BUILTIN_AUTHOR.to_string());
+        let id = Uuid::parse_str(id)
+            .map_err(|error| AppError::Internal(format!("builtin plugin id invalid: {error}")))?;
+        if Plugin::insert_builtin_if_missing(pool, id, &input).await? {
+            tracing::info!("seeded builtin plugin {}", input.name);
+        }
+    }
+    Ok(())
 }
 
 // ── Development kit ────────────────────────────────────────────────────────
@@ -304,24 +368,19 @@ pub async fn plugin_probe_console(url: String) -> Result<bool, AppError> {
     let parsed = url::Url::parse(&url)
         .map_err(|error| AppError::BadRequest(format!("invalid console url: {error}")))?;
     let Some(host) = parsed.host_str() else {
-        return Err(AppError::BadRequest(
-            "console url has no host".to_string(),
-        ));
+        return Err(AppError::BadRequest("console url has no host".to_string()));
     };
     let Some(port) = parsed.port_or_known_default() else {
-        return Err(AppError::BadRequest(
-            "console url has no port".to_string(),
-        ));
+        return Err(AppError::BadRequest("console url has no port".to_string()));
     };
 
     let connect = tokio::net::TcpStream::connect((host.to_string(), port));
-    Ok(tokio::time::timeout(
-        std::time::Duration::from_millis(PROBE_TIMEOUT_MS),
-        connect,
+    Ok(
+        tokio::time::timeout(std::time::Duration::from_millis(PROBE_TIMEOUT_MS), connect)
+            .await
+            .map(|result| result.is_ok())
+            .unwrap_or(false),
     )
-    .await
-    .map(|result| result.is_ok())
-    .unwrap_or(false))
 }
 
 #[cfg(test)]
@@ -376,8 +435,7 @@ mod tests {
         assert_eq!(resolved_url, None);
 
         // Hook-only {{port}} usage still forces an allocation.
-        let (_, _, port) =
-            resolve_console_templates("pnpm dev", None, true).expect("resolve");
+        let (_, _, port) = resolve_console_templates("pnpm dev", None, true).expect("resolve");
         assert!(port.is_some());
     }
 
@@ -406,6 +464,36 @@ mod tests {
         assert!(plugin_probe_console("not a url".to_string()).await.is_err());
     }
 
+    /// Seeding must produce exactly the three disabled builtin presets with
+    /// the VibeX author label, and stay idempotent across launches.
+    #[tokio::test]
+    async fn builtin_seeding_is_idempotent_and_labelled() {
+        use std::str::FromStr;
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("options")
+            .foreign_keys(false);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("migrations");
+
+        ensure_builtin_plugins(&pool).await.expect("seed");
+        ensure_builtin_plugins(&pool).await.expect("re-seed");
+
+        let plugins = Plugin::list(&pool).await.expect("list");
+        assert_eq!(plugins.len(), BUILTIN_PLUGINS.len());
+        for plugin in &plugins {
+            assert!(plugin.builtin);
+            assert!(!plugin.enabled, "{} must start disabled", plugin.name);
+            assert_eq!(plugin.author.as_deref(), Some(BUILTIN_AUTHOR));
+        }
+    }
+
     /// The bundled example manifests must always deserialize into the real
     /// `PluginInput` shape and pass the same validation the settings form
     /// enforces — otherwise the dev kit teaches a stale schema.
@@ -428,8 +516,7 @@ mod tests {
         std::fs::create_dir_all(&target).expect("create target");
         let kit_root = write_dev_kit(&target).expect("write kit");
         for (relative_path, content) in DEV_KIT_FILES {
-            let written =
-                std::fs::read_to_string(kit_root.join(relative_path)).expect("read back");
+            let written = std::fs::read_to_string(kit_root.join(relative_path)).expect("read back");
             assert_eq!(&written, content, "{relative_path} content mismatch");
         }
         // A missing target directory is a hard error, not a silent mkdir.

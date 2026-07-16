@@ -12,7 +12,9 @@
 use chrono::Utc;
 use serde_json::Value;
 
-use super::{ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns};
+use super::{
+    ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns,
+};
 use crate::conversation::{ContentBlock, ConversationDetail, TurnRole};
 
 const TOOL_INPUT_LIMIT: usize = 2000;
@@ -318,11 +320,18 @@ mod tests {
         }
 
         assert_eq!(detail.turns[1].role, TurnRole::Assistant);
-        assert!(matches!(detail.turns[1].blocks[1], ContentBlock::ToolUse { .. }));
+        assert!(matches!(
+            detail.turns[1].blocks[1],
+            ContentBlock::ToolUse { .. }
+        ));
 
         assert_eq!(detail.turns[2].role, TurnRole::System);
         match &detail.turns[2].blocks[0] {
-            ContentBlock::ToolResult { output_preview, is_error, .. } => {
+            ContentBlock::ToolResult {
+                output_preview,
+                is_error,
+                ..
+            } => {
                 assert!(output_preview.as_ref().unwrap().contains("fn main()"));
                 assert!(!is_error);
             }

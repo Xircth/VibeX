@@ -12,7 +12,9 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::{ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns};
+use super::{
+    ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns,
+};
 use crate::conversation::{ContentBlock, ConversationDetail, TurnRole, TurnUsage};
 
 const TOOL_INPUT_LIMIT: usize = 50000;
@@ -33,7 +35,12 @@ impl ConversationParser for OpenClawParser {
             if value.get("type").and_then(Value::as_str) != Some("message") {
                 continue;
             }
-            if value.get("id").and_then(Value::as_str).unwrap_or("").is_empty() {
+            if value
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .is_empty()
+            {
                 continue;
             }
             if let Some(record) = record_from_message(&value) {
@@ -268,8 +275,14 @@ mod tests {
             other => panic!("expected stripped assistant text, got {other:?}"),
         }
         assert!(matches!(assistant.blocks[2], ContentBlock::ToolUse { .. }));
-        assert!(matches!(assistant.blocks[3], ContentBlock::ToolResult { .. }));
+        assert!(matches!(
+            assistant.blocks[3],
+            ContentBlock::ToolResult { .. }
+        ));
         assert_eq!(assistant.model.as_deref(), Some("claude-opus-4"));
-        assert_eq!(assistant.usage.as_ref().unwrap().cache_read_input_tokens, 3584);
+        assert_eq!(
+            assistant.usage.as_ref().unwrap().cache_read_input_tokens,
+            3584
+        );
     }
 }

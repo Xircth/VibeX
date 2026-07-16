@@ -12,6 +12,10 @@ export const pluginApi = {
 
   remove: (id: string): Promise<void> => tauriInvoke('plugin_delete', { id }),
 
+  /** Only enabled plugins appear in the workspace sidebar. */
+  setEnabled: (id: string, enabled: boolean): Promise<Plugin> =>
+    tauriInvoke('plugin_set_enabled', { id, enabled }),
+
   /** Checks node/npx and runs the skill install command globally; the outcome
    *  lands on the returned plugin's `install_status` / `install_error`. */
   installSkill: (id: string): Promise<Plugin> =>

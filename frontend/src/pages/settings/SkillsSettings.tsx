@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AGENT_OPTIONS } from '@/constants/agents';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
@@ -60,15 +61,6 @@ type Selection =
   | { kind: 'market'; id: string }
   | null;
 
-const AGENT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'claude_code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex CLI' },
-  { value: 'gemini', label: 'Gemini CLI' },
-  { value: 'openclaw', label: 'OpenClaw' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'hermes', label: 'Hermes Agent' },
-];
 
 const AGENT_LABELS: Record<string, string> = Object.fromEntries(
   AGENT_OPTIONS.map((item) => [item.value, item.label])

@@ -2,23 +2,12 @@ import { Bot } from 'lucide-react';
 import { ThemeMode } from 'shared/types';
 import type { AgentKind } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
+import { AGENT_DISPLAY_NAMES } from '@/constants/agents';
 import { cn } from '@/lib/utils';
 
 type AgentIconProps = {
   agent: AgentKind | null | undefined;
   className?: string;
-};
-
-/** Display name for every agent. Exhaustive over `AgentKind`. */
-const AGENT_NAMES: Record<AgentKind, string> = {
-  ['claude_code']: 'Claude Code',
-  ['codex']: 'Codex',
-  ['opencode']: 'OpenCode',
-  ['gemini']: 'Gemini',
-  ['openclaw']: 'OpenClaw',
-  ['cline']: 'Cline',
-  ['hermes']: 'Hermes',
-  ['qa_mock']: 'QA Mock',
 };
 
 /**
@@ -45,7 +34,7 @@ export function getAgentName(
   agent: AgentKind | null | undefined
 ): string {
   if (!agent) return 'Agent';
-  return AGENT_NAMES[agent] ?? agent;
+  return AGENT_DISPLAY_NAMES[agent] ?? agent;
 }
 
 export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {

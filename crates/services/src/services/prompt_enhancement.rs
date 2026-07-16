@@ -1,4 +1,4 @@
-use std::{borrow::Cow, process::Stdio, time::Duration};
+use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -17,50 +17,6 @@ pub enum PromptEnhancementError {
     Internal(String),
 }
 
-const DEFAULT_PROMPT_ENHANCE_MODEL: &str = "opencode/minimax-m2.5-free";
-const DEFAULT_OPENCODE_MODELS: &[&str] = &[
-    "opencode/claude-opus-4-7",
-    "opencode/claude-opus-4-6",
-    "opencode/claude-opus-4-5",
-    "opencode/claude-opus-4-1",
-    "opencode/claude-sonnet-4-6",
-    "opencode/claude-sonnet-4-5",
-    "opencode/claude-sonnet-4",
-    "opencode/claude-haiku-4-5",
-    "opencode/gemini-3.1-pro",
-    "opencode/gemini-3-flash",
-    "opencode/gpt-5.5",
-    "opencode/gpt-5.5-pro",
-    "opencode/gpt-5.4",
-    "opencode/gpt-5.4-pro",
-    "opencode/gpt-5.4-mini",
-    "opencode/gpt-5.4-nano",
-    "opencode/gpt-5.3-codex-spark",
-    "opencode/gpt-5.3-codex",
-    "opencode/gpt-5.2",
-    "opencode/gpt-5.2-codex",
-    "opencode/gpt-5.1",
-    "opencode/gpt-5.1-codex-max",
-    "opencode/gpt-5.1-codex",
-    "opencode/gpt-5.1-codex-mini",
-    "opencode/gpt-5",
-    "opencode/gpt-5-codex",
-    "opencode/gpt-5-nano",
-    "opencode/glm-5.1",
-    "opencode/glm-5",
-    "opencode/minimax-m2.7",
-    "opencode/minimax-m2.5",
-    "opencode/kimi-k2.6",
-    "opencode/kimi-k2.5",
-    "opencode/qwen3.6-plus",
-    "opencode/qwen3.5-plus",
-    "opencode/big-pickle",
-    "opencode/minimax-m2.5-free",
-    "opencode/hy3-preview-free",
-    "opencode/ling-2.6-flash-free",
-    "opencode/trinity-large-preview-free",
-    "opencode/nemotron-3-super-free",
-];
 pub const PROMPT_ENHANCE_TIMEOUT_SECS: u64 = 45;
 const PROMPT_ENHANCE_CONTEXT_CHAR_LIMIT: usize = 32_000;
 const DEFAULT_PROMPT_ENHANCE_INSTRUCTION: &str = r#"You are PromptEnhance (PE).
@@ -107,47 +63,18 @@ pub struct PromptEnhancementResponse {
     pub model: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpencodeModelsResponse {
-    pub models: Vec<String>,
-}
-
 fn build_prompt_enhancement_instruction() -> &'static str {
     DEFAULT_PROMPT_ENHANCE_INSTRUCTION
 }
 
-fn parse_opencode_models(stdout: &str) -> Vec<String> {
-    let mut models = Vec::new();
-
-    for token in stdout
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '/' | '-' | '_' | '.')))
-        .map(str::trim)
-        .filter(|token| token.starts_with("opencode/"))
-    {
-        if !models.iter().any(|existing| existing == token) {
-            models.push(token.to_string());
-        }
-    }
-
-    models
-}
-
-fn default_opencode_models_response() -> OpencodeModelsResponse {
-    OpencodeModelsResponse {
-        models: DEFAULT_OPENCODE_MODELS
-            .iter()
-            .map(|model| (*model).to_string())
-            .collect(),
-    }
-}
-
-pub fn selected_prompt_enhancement_model(config: &Config) -> &str {
+/// The selected model is intentionally optional. Model availability belongs to
+/// OpenCode's verified capability catalog, not to a static application default.
+pub fn selected_prompt_enhancement_model(config: &Config) -> Option<&str> {
     let trimmed = config.prompt_enhancement_model.trim();
     if trimmed.is_empty() {
-        DEFAULT_PROMPT_ENHANCE_MODEL
+        None
     } else {
-        trimmed
+        Some(trimmed)
     }
 }
 
@@ -371,50 +298,6 @@ pub fn extract_enhanced_prompt(raw: &str) -> Option<String> {
         })
 }
 
-pub async fn list_opencode_models() -> Result<OpencodeModelsResponse, PromptEnhancementError> {
-    let executable = tokio::task::spawn_blocking(|| which::which("opencode"))
-        .await
-        .map_err(|error| {
-            PromptEnhancementError::Internal(format!(
-                "Failed to resolve OpenCode executable: {}",
-                error
-            ))
-        })?
-        .ok();
-
-    let Some(executable) = executable else {
-        return Ok(default_opencode_models_response());
-    };
-
-    let mut command = utils::process::new_hidden_tokio_command(&executable, ["models", "opencode"]);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        command.current_dir(current_dir);
-    }
-
-    let output = match tokio::time::timeout(Duration::from_secs(30), command.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(_)) | Err(_) => return Ok(default_opencode_models_response()),
-    };
-
-    if !output.status.success() {
-        return Ok(default_opencode_models_response());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let models = parse_opencode_models(&stdout);
-
-    if models.is_empty() {
-        return Ok(default_opencode_models_response());
-    }
-
-    Ok(OpencodeModelsResponse { models })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -471,23 +354,5 @@ mod tests {
 
         assert_eq!(trimmed.len(), 1);
         assert_eq!(trimmed[0].role, "assistant");
-    }
-
-    #[test]
-    fn parses_opencode_models_from_stdout_lines() {
-        let raw = concat!(
-            "opencode/minimax-m2.5-free\n",
-            "* opencode/mimo-v2-pro-free - free tier\n",
-            "- opencode/gpt-5.5 (recommended)\n"
-        );
-        let models = super::parse_opencode_models(raw);
-        assert_eq!(
-            models,
-            vec![
-                "opencode/minimax-m2.5-free".to_string(),
-                "opencode/mimo-v2-pro-free".to_string(),
-                "opencode/gpt-5.5".to_string()
-            ]
-        );
     }
 }

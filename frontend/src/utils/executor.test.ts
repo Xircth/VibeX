@@ -183,15 +183,10 @@ describe('executor utilities', () => {
     });
   });
 
-  it('keeps OpenCode model choices available before SDK metadata loads', () => {
+  it('does not invent OpenCode model choices before the capability catalog loads', () => {
     const options = getOpenCodeModelOptions(profiles);
 
-    expect(options.some((option) => option.value === null)).toBe(false);
-    expect(options.some((option) => option.label === 'Default')).toBe(false);
-    expect(
-      options.some((option) => option.value === 'opencode/gemini-3-flash')
-    ).toBe(true);
-    expect(options.length).toBeGreaterThan(1);
+    expect(options).toEqual([]);
   });
 
   it('maps OpenCode mode and permission back to real variants', () => {

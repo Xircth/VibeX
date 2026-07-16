@@ -9,9 +9,10 @@ use agents::{
     AgentInstallStatus, AgentMcpConfig, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId,
     AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
     AgentPermissionResponse, AgentPlan, AgentPlanUsage, AgentPreflight, AgentPreflightIssue,
-    AgentPreflightSeverity, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
-    AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
+    AgentPreflightSeverity, AgentPreparedSessionSnapshot, AgentPromptFinished, AgentPromptId,
+    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice,
+    AgentSessionConfigDependency, AgentSessionConfigOption, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
     AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest,
     AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
     AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
@@ -36,7 +37,10 @@ use agents::{
         SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
-use api_types::AgentKind;
+use api_types::{
+    AgentKind, AgentRuntimeComponentInfo, AgentSettingInfo, LocalAgentRuntimeInfo,
+    ReorderAgentsRequest, UpdateAgentPreferences,
+};
 use conversations::ConversationSearchHit;
 use db::models::{
     automation::{Automation, AutomationInput, AutomationRun},
@@ -235,6 +239,13 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     // Single agent-identity enum (ADR-0002). Replaces the former AgentKind +
     // AgentKind TS declarations (tombstoned in `removed_declarations`).
     insert_declaration::<AgentKind>(&mut decls);
+    // Agent settings DTOs share the typed AgentKind identity so registry↔setting
+    // joins cannot diverge on spelling (issue #1).
+    insert_declaration::<AgentRuntimeComponentInfo>(&mut decls);
+    insert_declaration::<LocalAgentRuntimeInfo>(&mut decls);
+    insert_declaration::<AgentSettingInfo>(&mut decls);
+    insert_declaration::<UpdateAgentPreferences>(&mut decls);
+    insert_declaration::<ReorderAgentsRequest>(&mut decls);
     insert_declaration::<SlashCommandKind>(&mut decls);
     insert_declaration::<SlashCommandDescription>(&mut decls);
     insert_declaration::<TaskStatus>(&mut decls);
@@ -305,8 +316,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentUsage>(&mut decls);
     insert_declaration::<AgentSessionMode>(&mut decls);
     insert_declaration::<AgentSessionConfigChoice>(&mut decls);
+    insert_declaration::<AgentPreparedSessionSnapshot>(&mut decls);
+    insert_declaration::<AgentSessionConfigDependency>(&mut decls);
     insert_declaration::<AgentSessionConfigOption>(&mut decls);
     insert_declaration::<AgentSessionConfigOverride>(&mut decls);
+    insert_declaration::<AgentSessionControlsSnapshot>(&mut decls);
     insert_declaration::<AgentAvailableCommand>(&mut decls);
     insert_declaration::<AgentPromptFinished>(&mut decls);
     insert_declaration::<AgentErrorEvent>(&mut decls);

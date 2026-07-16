@@ -39,5 +39,110 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
 - **Session fork（会话分叉）** — 从**当前状态**分出一个新 Conversation：新会话是原会话完整历史的独立副本（非破坏性，原会话不受影响），此后独立演化。当 agent 广告了 ACP `session/fork` 且有活会话时，agent 侧上下文也随之分叉（继续对话保有分叉前上下文）；否则新会话为无上下文副本，下次发送冷启动。从当前分叉（非历史某点），以保持可见历史与 agent 上下文一致。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005（2026-07-06 更新）。
 
-## Reference Docs
-1. **ACP Docs**:https://agentclientprotocol.com/protocol/v1/overview
+## ACP 官方参考文档
+
+来源：ACP 官方文档索引（[llms.txt](https://agentclientprotocol.com/llms.txt)）。最后核对：2026-07-16。
+
+### 稳定协议（v1，VibeX 实现优先参考）
+
+- [协议概览](https://agentclientprotocol.com/protocol/v1/overview) — JSON-RPC 通信模型、基础生命周期与约定。
+- [初始化](https://agentclientprotocol.com/protocol/v1/initialization) — `initialize`、版本与能力协商。
+- [认证](https://agentclientprotocol.com/protocol/v1/authentication) — `authenticate` 与 `logout`。
+- [会话建立](https://agentclientprotocol.com/protocol/v1/session-setup) — `session/new`、`session/load`。
+- [会话列表](https://agentclientprotocol.com/protocol/v1/session-list) — `session/list`。
+- [删除会话](https://agentclientprotocol.com/protocol/v1/session-delete) — `session/delete`。
+- [提示回合](https://agentclientprotocol.com/protocol/v1/prompt-turn) — `session/prompt`、更新与结束原因。
+- [内容](https://agentclientprotocol.com/protocol/v1/content) — 消息与内容块。
+- [工具调用](https://agentclientprotocol.com/protocol/v1/tool-calls) — 工具调用、更新与权限请求。
+- [文件系统](https://agentclientprotocol.com/protocol/v1/file-system) — 客户端文件读取与写入能力。
+- [取消](https://agentclientprotocol.com/protocol/v1/cancellation) — `session/cancel`。
+- [终端](https://agentclientprotocol.com/protocol/v1/terminals) — 终端创建、输出、等待、终止与释放。
+- [Agent 计划](https://agentclientprotocol.com/protocol/v1/agent-plan) — 计划展示与更新。
+- [会话模式](https://agentclientprotocol.com/protocol/v1/session-modes) — `session/set_mode` 与模式更新。
+- [会话配置选项](https://agentclientprotocol.com/protocol/v1/session-config-options) — 模型、推理等级等动态选择器。
+- [斜杠命令](https://agentclientprotocol.com/protocol/v1/slash-commands) — 命令发现与更新。
+- [扩展性](https://agentclientprotocol.com/protocol/v1/extensibility) — `_meta`、自定义能力与 `_` 前缀方法。
+- [传输](https://agentclientprotocol.com/protocol/v1/transports) — 传输机制。
+- [Schema](https://agentclientprotocol.com/protocol/v1/schema) — 完整协议类型与 JSON Schema 定义。
+- [OpenAPI Schema（JSON）](https://agentclientprotocol.com/api-reference/openapi.json) — 可用于代码生成或机器校验。
+
+### 入门、生态与实现库
+
+- [介绍](https://agentclientprotocol.com/get-started/introduction)
+- [架构](https://agentclientprotocol.com/get-started/architecture)
+- [Agents](https://agentclientprotocol.com/get-started/agents)
+- [Clients](https://agentclientprotocol.com/get-started/clients)
+- [ACP Registry](https://agentclientprotocol.com/get-started/registry)
+- [Kotlin 库](https://agentclientprotocol.com/libraries/kotlin)
+- [Java 库](https://agentclientprotocol.com/libraries/java)
+- [Python 库](https://agentclientprotocol.com/libraries/python)
+- [Rust 库](https://agentclientprotocol.com/libraries/rust)
+- [TypeScript 库](https://agentclientprotocol.com/libraries/typescript)
+- [社区维护的库](https://agentclientprotocol.com/libraries/community)
+- [官方 GitHub 仓库](https://github.com/agentclientprotocol/agent-client-protocol)
+
+### RFD 与 v2 演进（设计新能力前参考）
+
+- [RFD 流程](https://agentclientprotocol.com/rfds/about)
+- [ACP Agent Registry](https://agentclientprotocol.com/rfds/acp-agent-registry)
+- [额外工作区根目录](https://agentclientprotocol.com/rfds/additional-directories)
+- [认证方法](https://agentclientprotocol.com/rfds/auth-methods)
+- [布尔配置选项](https://agentclientprotocol.com/rfds/boolean-config-option)
+- [可配置 LLM Provider](https://agentclientprotocol.com/rfds/custom-llm-endpoint)
+- [Diff 中表示已删除文件](https://agentclientprotocol.com/rfds/diff-delete)
+- [Elicitation：结构化用户输入](https://agentclientprotocol.com/rfds/elicitation)
+- [回合结束 Token 用量](https://agentclientprotocol.com/rfds/end-turn-token-usage)
+- [引入 RFD 流程](https://agentclientprotocol.com/rfds/introduce-rfd-process)
+- [Logout 方法](https://agentclientprotocol.com/rfds/logout-method)
+- [MCP-over-ACP](https://agentclientprotocol.com/rfds/mcp-over-acp)
+- [消息 ID](https://agentclientprotocol.com/rfds/message-id)
+- [Meta 字段传播约定](https://agentclientprotocol.com/rfds/meta-propagation)
+- [模型配置选项类别](https://agentclientprotocol.com/rfds/model-config-category)
+- [下一编辑建议](https://agentclientprotocol.com/rfds/next-edit-suggestions)
+- [计划操作支持](https://agentclientprotocol.com/rfds/plan-operations)
+- [通过 ACP Proxy 扩展 Agent](https://agentclientprotocol.com/rfds/proxy-chains)
+- [请求取消机制](https://agentclientprotocol.com/rfds/request-cancellation)
+- [基于 SACP 的 Rust SDK](https://agentclientprotocol.com/rfds/rust-sdk-v1)
+- [关闭活跃会话](https://agentclientprotocol.com/rfds/session-close)
+- [会话配置选项](https://agentclientprotocol.com/rfds/session-config-options)
+- [删除会话](https://agentclientprotocol.com/rfds/session-delete)
+- [会话分叉](https://agentclientprotocol.com/rfds/session-fork)
+- [会话信息更新](https://agentclientprotocol.com/rfds/session-info-update)
+- [会话列表](https://agentclientprotocol.com/rfds/session-list)
+- [恢复既有会话](https://agentclientprotocol.com/rfds/session-resume)
+- [会话上下文大小与成本](https://agentclientprotocol.com/rfds/session-usage)
+- [Streamable HTTP 与 WebSocket 传输](https://agentclientprotocol.com/rfds/streamable-http-websocket-transport)
+- [RFD 更新生命周期](https://agentclientprotocol.com/rfds/updates)
+- [v2 提案概览](https://agentclientprotocol.com/rfds/v2/overview)
+- [v2 必需会话方法](https://agentclientprotocol.com/rfds/v2/required-session-methods)
+- [v2 Prompt 生命周期](https://agentclientprotocol.com/rfds/v2/prompt)
+- [v2 权限请求](https://agentclientprotocol.com/rfds/v2/permission-requests)
+- [v2 消息更新与分块](https://agentclientprotocol.com/rfds/v2/message-updates)
+- [v2 工具调用更新](https://agentclientprotocol.com/rfds/v2/tool-call-updates)
+- [v2 计划变体](https://agentclientprotocol.com/rfds/v2/plan-variants)
+- [v2 Diff 文件状态](https://agentclientprotocol.com/rfds/v2/diff-file-states)
+- [v2 枚举变体扩展](https://agentclientprotocol.com/rfds/v2/enum-variant-extension)
+- [v2 客户端文件系统与终端能力](https://agentclientprotocol.com/rfds/v2/client-filesystem-terminal-capabilities)
+- [v2 会话恢复回放](https://agentclientprotocol.com/rfds/v2/session-resume-replay)
+- [v2 终端输出](https://agentclientprotocol.com/rfds/v2/terminal-output)
+
+### 项目、治理与更新
+
+- [公告与更新](https://agentclientprotocol.com/updates)
+- [ACP Registry 稳定化公告](https://agentclientprotocol.com/announcements/acp-agent-registry-stabilized)
+- [实现信息公告](https://agentclientprotocol.com/announcements/implementation-information)
+- [Logout 方法稳定化公告](https://agentclientprotocol.com/announcements/logout-method-stabilized)
+- [Lead Maintainer 公告](https://agentclientprotocol.com/announcements/sergey-ignatov-lead-maintainer)
+- [Session Close 稳定化公告](https://agentclientprotocol.com/announcements/session-close-stabilized)
+- [Session Config Options 稳定化公告](https://agentclientprotocol.com/announcements/session-config-options-stabilized)
+- [Session Info Update 稳定化公告](https://agentclientprotocol.com/announcements/session-info-update-stabilized)
+- [Session List 稳定化公告](https://agentclientprotocol.com/announcements/session-list-stabilized)
+- [Session Resume 稳定化公告](https://agentclientprotocol.com/announcements/session-resume-stabilized)
+- [Transports Working Group 公告](https://agentclientprotocol.com/announcements/transports-working-group)
+- [贡献指南](https://agentclientprotocol.com/community/contributing)
+- [治理](https://agentclientprotocol.com/community/governance)
+- [工作组与兴趣组](https://agentclientprotocol.com/community/working-interest-groups)
+- [贡献者沟通方式](https://agentclientprotocol.com/community/communication)
+- [行为准则](https://agentclientprotocol.com/community/code-of-conduct)
+- [出版物、演讲与视频](https://agentclientprotocol.com/publications)
+- [品牌资源](https://agentclientprotocol.com/brand)

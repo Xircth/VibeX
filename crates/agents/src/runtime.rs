@@ -1,4 +1,4 @@
-﻿use std::{
+use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
@@ -13,11 +13,11 @@ use uuid::Uuid;
 use crate::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentConnectionManagerEvent, AgentContentBlock, AgentElicitationId, AgentElicitationResponse,
-    AgentError, AgentEvent, AgentEventEnvelope,
-    AgentPermissionId, AgentPermissionRequest, AgentPermissionResponse, AgentPromptId,
+    AgentError, AgentEvent, AgentEventEnvelope, AgentKind, AgentPermissionId,
+    AgentPermissionRequest, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
     AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult,
-    AgentSessionConfigOverride, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus,
-    AgentKind, QueueTransition, registry_entry,
+    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
+    AgentSessionStatus, QueueTransition, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -115,6 +115,7 @@ struct RuntimeConnection {
 struct RuntimeSession {
     snapshot: AgentSessionSnapshot,
     queue: AgentPromptQueue,
+    prepared: bool,
 }
 
 #[derive(Debug, Default)]
@@ -486,6 +487,7 @@ impl AgentRuntime {
             RuntimeSession {
                 snapshot: snapshot.clone(),
                 queue: AgentPromptQueue::default(),
+                prepared: false,
             },
         );
         self.emit_locked(
@@ -598,6 +600,112 @@ impl AgentRuntime {
             .await
     }
 
+    /// Establish the concrete ACP session now and retain it for the future
+    /// conversation whose UUID equals `input.session_id`.
+    pub async fn prepare_session(
+        &self,
+        input: EnsureAgentSessionInput,
+    ) -> AgentResult<AgentPreparedSessionSnapshot> {
+        let already_registered = self
+            .state
+            .read()
+            .await
+            .sessions
+            .contains_key(&input.session_id);
+        let session = self.ensure_session(input).await?;
+        if !already_registered
+            && let Some(stored) = self.state.write().await.sessions.get_mut(&session.id)
+        {
+            // Mark ownership before the ACP request so a failed/aborted
+            // preparation can still be cleaned up as a draft session.
+            stored.prepared = true;
+        }
+        let prepared = self
+            .connection_manager
+            .prepare_session(session.connection_id, session.id)
+            .await;
+        let (acp_session_id, controls) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if !already_registered {
+                    let _ = self.discard_prepared_session(session.id).await;
+                }
+                return Err(error);
+            }
+        };
+
+        let mut state = self.state.write().await;
+        let stored = state
+            .sessions
+            .get_mut(&session.id)
+            .ok_or_else(|| AgentError::SessionNotFound(session.id.to_string()))?;
+        stored.snapshot.acp_session_id = acp_session_id;
+        stored.snapshot.updated_at = Utc::now();
+        Ok(AgentPreparedSessionSnapshot {
+            session: stored.snapshot.clone(),
+            controls,
+        })
+    }
+
+    /// Mark a prepared session as owned by a persisted conversation. Cleanup
+    /// requests from the creation form become no-ops after this point.
+    pub async fn commit_prepared_session(&self, session_id: AgentSessionId) {
+        if let Some(session) = self.state.write().await.sessions.get_mut(&session_id) {
+            session.prepared = false;
+        }
+    }
+
+    /// Verify that a caller is about to persist the exact draft Session it
+    /// prepared. This prevents a stale or forged UUID from attaching controls
+    /// created for a different Workspace or Agent.
+    pub async fn validate_prepared_session(
+        &self,
+        session_id: AgentSessionId,
+        workspace_id: Uuid,
+        agent_type: AgentKind,
+    ) -> AgentResult<AgentSessionSnapshot> {
+        let state = self.state.read().await;
+        let session = state
+            .sessions
+            .get(&session_id)
+            .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))?;
+        if !session.prepared {
+            return Err(AgentError::Runtime(format!(
+                "session {session_id} is not an uncommitted prepared session"
+            )));
+        }
+        let connection = state
+            .connections
+            .get(&session.snapshot.connection_id)
+            .ok_or_else(|| {
+                AgentError::ConnectionNotFound(session.snapshot.connection_id.to_string())
+            })?;
+        if connection.snapshot.workspace_id != workspace_id
+            || connection.snapshot.agent_type != agent_type
+        {
+            return Err(AgentError::Runtime(format!(
+                "prepared session {session_id} does not match the selected Workspace and Agent"
+            )));
+        }
+        Ok(session.snapshot.clone())
+    }
+
+    pub async fn discard_prepared_session(&self, session_id: AgentSessionId) -> AgentResult<()> {
+        let mut state = self.state.write().await;
+        let Some(session) = state.sessions.get(&session_id) else {
+            return Ok(());
+        };
+        if !session.prepared {
+            return Ok(());
+        }
+        let connection_id = session.snapshot.connection_id;
+        self.connection_manager
+            .discard_session(connection_id, session_id)
+            .await?;
+        state.sessions.remove(&session_id);
+        Ok(())
+    }
+
     pub async fn resume_session(
         &self,
         input: ResumeAgentSessionInput,
@@ -660,7 +768,7 @@ impl AgentRuntime {
         &self,
         session_id: AgentSessionId,
         mode_id: impl Into<String>,
-    ) -> AgentResult<()> {
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let connection_id = {
             let state = self.state.read().await;
             state
@@ -683,8 +791,8 @@ impl AgentRuntime {
         &self,
         session_id: AgentSessionId,
         key: impl Into<String>,
-        value: impl Into<String>,
-    ) -> AgentResult<()> {
+        value: serde_json::Value,
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let connection_id = {
             let state = self.state.read().await;
             state
@@ -913,7 +1021,10 @@ impl AgentRuntime {
             .await
     }
 
-    pub async fn respond_elicitation(&self, input: RespondAgentElicitationInput) -> AgentResult<()> {
+    pub async fn respond_elicitation(
+        &self,
+        input: RespondAgentElicitationInput,
+    ) -> AgentResult<()> {
         self.connection_manager
             .respond_elicitation(input.connection_id, input.elicitation_id, input.response)
             .await
@@ -1837,6 +1948,65 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(prompt.status, AgentPromptStatus::Running));
+    }
+
+    #[tokio::test]
+    async fn prepared_session_is_reused_on_commit_and_discarded_before_commit() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = PathBuf::from("C:/prepared-work");
+
+        let prepare = |session_id| EnsureAgentSessionInput {
+            agent_type: AgentKind::Codex,
+            workspace_id,
+            working_dir: working_dir.clone(),
+            session_id,
+            acp_session_id: format!("pending-{session_id}"),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env: HashMap::new(),
+        };
+
+        let discarded_id = AgentSessionId::new();
+        let discarded = runtime
+            .prepare_session(prepare(discarded_id))
+            .await
+            .unwrap();
+        assert!(discarded.session.acp_session_id.starts_with("prepared-"));
+        runtime
+            .discard_prepared_session(discarded_id)
+            .await
+            .unwrap();
+        assert!(
+            runtime
+                .snapshot()
+                .await
+                .sessions
+                .iter()
+                .all(|session| session.id != discarded_id)
+        );
+
+        let committed_id = AgentSessionId::new();
+        let committed = runtime
+            .prepare_session(prepare(committed_id))
+            .await
+            .unwrap();
+        runtime
+            .validate_prepared_session(committed_id, workspace_id, AgentKind::Codex)
+            .await
+            .unwrap();
+        runtime.commit_prepared_session(committed_id).await;
+        runtime
+            .discard_prepared_session(committed_id)
+            .await
+            .unwrap();
+        let stored = runtime
+            .snapshot()
+            .await
+            .sessions
+            .into_iter()
+            .find(|session| session.id == committed_id)
+            .expect("committed prepared session must survive form cleanup");
+        assert_eq!(stored.acp_session_id, committed.session.acp_session_id);
     }
 
     #[tokio::test]

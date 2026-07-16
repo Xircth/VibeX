@@ -24,6 +24,7 @@ export type QueuedMessage = {
   sequence?: number;
   created_at?: string;
   updated_at?: string;
+  executorProfileId: ExecutorProfileId;
   data: {
     message: string;
     images: string[];

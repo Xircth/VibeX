@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -32,6 +32,7 @@ import {
 import { getFirstAvailableProfile } from '@/utils/executor';
 import {
   SessionCreationForm,
+  type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import {
@@ -82,6 +83,7 @@ function CreateSessionOverlay({
   createError,
   onSubmitCreate,
   onClose,
+  onSessionControlsPresetChange,
 }: {
   createMode: SessionCreationMode;
   setCreateMode: (value: SessionCreationMode) => void;
@@ -101,6 +103,9 @@ function CreateSessionOverlay({
   createError: unknown;
   onSubmitCreate: () => void;
   onClose: () => void;
+  onSessionControlsPresetChange?: (
+    preset: SessionControlsPreset | null
+  ) => void;
 }) {
   const { t } = useTranslation(['panels', 'common']);
   return (
@@ -133,6 +138,7 @@ function CreateSessionOverlay({
           repoBranchConfigs={repoBranchConfigs}
           onRepoBranchChange={setRepoBranch}
           isLoadingBranches={isLoadingRepoBranches}
+          onSessionControlsPresetChange={onSessionControlsPresetChange}
           canSubmit={canCreateSession}
           isSubmitting={isCreatePending}
           errorMessage={
@@ -382,6 +388,10 @@ export function RightPanelContent() {
         repoBranchConfigs.length > 0 &&
         repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch));
 
+  // Latest ACP control preset picked in the create form; consumed when the
+  // created session's draft is written (ref: no re-render needed on pick).
+  const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
+
   const createSessionMutation = useMutation({
     mutationFn: async () => {
       if (!effectiveProjectId) {
@@ -394,6 +404,10 @@ export function RightPanelContent() {
           : { workspaceId: null, branch: null };
 
       return sessionsApi.createProject({
+        session_id:
+          createMode === 'existing_workspace'
+            ? sessionControlsPresetRef.current?.preparedSessionId
+            : undefined,
         project_id: effectiveProjectId,
         workspace_id: workspaceSelection.workspaceId,
         branch: workspaceSelection.branch,
@@ -415,6 +429,7 @@ export function RightPanelContent() {
                 images: [],
                 executor_config: selectedExecutorProfile,
                 queued: false,
+                config_overrides: {},
               },
             },
           });
@@ -478,6 +493,13 @@ export function RightPanelContent() {
     handleCreateOverlayOpenChange(true);
   }, [handleCreateOverlayOpenChange]);
 
+  const handleSessionControlsPresetChange = useCallback(
+    (preset: SessionControlsPreset | null) => {
+      sessionControlsPresetRef.current = preset;
+    },
+    []
+  );
+
   const overlayProps = {
     createMode,
     setCreateMode,
@@ -497,6 +519,7 @@ export function RightPanelContent() {
     createError: createSessionMutation.error,
     onSubmitCreate: () => createSessionMutation.mutate(undefined),
     onClose: () => handleCreateOverlayOpenChange(false),
+    onSessionControlsPresetChange: handleSessionControlsPresetChange,
   };
 
   return (

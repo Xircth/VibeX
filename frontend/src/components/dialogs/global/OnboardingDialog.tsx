@@ -16,29 +16,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { AgentKind, EditorType } from 'shared/types';
 import type { EditorConfig, ExecutorProfileId } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';
-import { useClaudeSettings } from '@/hooks/useClaudeSettings';
 
 import { toPrettyCase } from '@/utils/string';
-import {
-  getClaudeVariantFromSelection,
-  getCodexModelOptions,
-  getCodexVariantConfig,
-  getCodexVariantFromSelection,
-  getVariantOptions,
-} from '@/utils/executor';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { defineModal, type NoProps } from '@/lib/modals';
 import { useEditorAvailability } from '@/hooks/useEditorAvailability';
@@ -48,20 +34,12 @@ import { AgentAvailabilityIndicator } from '@/components/AgentAvailabilityIndica
 import { applyAgentQuickFix } from '@/lib/agentQuickFix';
 import { APP_NAME } from '@/lib/branding';
 import { cn } from '@/lib/utils';
+import { getOnboardingDefaultProfile } from './onboardingProfile';
 
 export type OnboardingResult = {
   profile: ExecutorProfileId;
   editor: EditorConfig;
 };
-
-/** Model choices mapped to ~/.claude/settings.json env keys */
-const CLAUDE_MODEL_CHOICES = [
-  { key: 'sonnet', label: 'Sonnet', envKey: 'ANTHROPIC_DEFAULT_SONNET_MODEL' },
-  { key: 'opus', label: 'Opus', envKey: 'ANTHROPIC_DEFAULT_OPUS_MODEL' },
-  { key: 'haiku', label: 'Haiku', envKey: 'ANTHROPIC_DEFAULT_HAIKU_MODEL' },
-] as const;
-
-type ClaudeModelKey = (typeof CLAUDE_MODEL_CHOICES)[number]['key'];
 
 function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
@@ -85,18 +63,12 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
   const { t } = useTranslation(['dialogs', 'common']);
   const modal = useModal();
   const { profiles, config } = useUserSystem();
-  const { settings: claudeSettings } = useClaudeSettings();
-  const claudeEnv = claudeSettings?.env ?? {};
 
   const [step, setStep] = useState<1 | 2>(1);
 
-  const [profile, setProfile] = useState<ExecutorProfileId>(
-    config?.executor_profile || {
-      executor: 'claude_code',
-      variant: null,
-    }
+  const [profile, setProfile] = useState<ExecutorProfileId>(() =>
+    getOnboardingDefaultProfile(config?.executor_profile)
   );
-  const [claudeModel, setClaudeModel] = useState<ClaudeModelKey>('sonnet');
   const [editorType, setEditorType] = useState<EditorType>(EditorType.VS_CODE);
   const [customCommand, setCustomCommand] = useState<string>('');
 
@@ -120,16 +92,12 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
     }
   }, [profile.executor, recheckAgentAvailability]);
 
-  const isClaudeCode = profile.executor === 'claude_code';
-  const isCodex = profile.executor === 'codex';
-  const codexModelOptions = isCodex ? getCodexModelOptions(profiles) : [];
-  const codexVariantConfig = isCodex
-    ? getCodexVariantConfig(profiles, profile.variant ?? null)
-    : null;
-
   const handleComplete = () => {
     modal.resolve({
-      profile,
+      // Do not carry legacy model/permission/reasoning selections through
+      // onboarding. The session creation form is the sole ACP selector and
+      // reads those choices from the persisted capability catalog.
+      profile: getOnboardingDefaultProfile(profile),
       editor: {
         editor_type: editorType,
         custom_command:
@@ -170,8 +138,12 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
               <Select
                 value={profile.executor}
                 onValueChange={(v) => {
-                  setProfile({ executor: v as AgentKind, variant: null });
-                  setClaudeModel('sonnet');
+                  setProfile(
+                    getOnboardingDefaultProfile({
+                      executor: v as AgentKind,
+                      variant: null,
+                    })
+                  );
                 }}
               >
                 <SelectTrigger id="profile">
@@ -197,155 +169,9 @@ const OnboardingDialogImpl = NiceModal.create<NoProps>(() => {
                 fixError={agentFixError}
               />
             </div>
-
-            {/* Claude Code: show model choices from settings.json */}
-            {isClaudeCode && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">
-                  {t('onboarding.modelConfig')}
-                </Label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {CLAUDE_MODEL_CHOICES.map((model) => {
-                    const modelId = claudeEnv[model.envKey];
-                    const isSelected = claudeModel === model.key;
-                    return (
-                      <button
-                        key={model.key}
-                        onClick={() => {
-                          setClaudeModel(model.key);
-                          setProfile({
-                            ...profile,
-                            variant: getClaudeVariantFromSelection(
-                              profiles,
-                              'auto',
-                              model.key
-                            ),
-                          });
-                        }}
-                        className={cn(
-                          'flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors',
-                          isSelected
-                            ? 'border-foreground/40 bg-muted'
-                            : 'border-border hover:bg-muted/50'
-                        )}
-                      >
-                        <span className="text-sm font-medium">
-                          {model.label}
-                        </span>
-                        {modelId && (
-                          <span className="text-[10px] text-muted-foreground truncate w-full">
-                            {modelId}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t('onboarding.readFromSettings')}
-                </p>
-              </div>
-            )}
-
-            {!isClaudeCode && isCodex && codexModelOptions.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">
-                  {t('onboarding.model')}
-                </Label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full px-3 flex items-center justify-between"
-                    >
-                      <span className="text-sm truncate">
-                        {codexModelOptions.find(
-                          (option) => option.value === codexVariantConfig?.model
-                        )?.label ??
-                          codexModelOptions[0]?.label ??
-                          'GPT-5.3 Codex'}
-                      </span>
-                      <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                    {codexModelOptions.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value ?? 'DEFAULT'}
-                        onClick={() =>
-                          setProfile({
-                            ...profile,
-                            variant: getCodexVariantFromSelection(
-                              profiles,
-                              option.value,
-                              codexVariantConfig?.permissionMode ?? 'auto'
-                            ),
-                          })
-                        }
-                        className={
-                          codexVariantConfig?.model === option.value
-                            ? 'bg-muted'
-                            : ''
-                        }
-                      >
-                        {option.label}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
-
-            {/* Non-Claude agents: show profile variants */}
-            {!isClaudeCode &&
-              !isCodex &&
-              (() => {
-                const variantOptions = getVariantOptions(
-                  profile.executor,
-                  profiles
-                );
-                if (variantOptions.length === 0) return null;
-                const selectedVariant = profile.variant ?? 'DEFAULT';
-
-                return (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">
-                      {t('onboarding.variant')}
-                    </Label>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="w-full px-3 flex items-center justify-between"
-                        >
-                          <span className="text-sm truncate">
-                            {selectedVariant}
-                          </span>
-                          <ChevronDown className="h-3.5 w-3.5 ml-1 shrink-0" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                        {variantOptions.map((variant) => (
-                          <DropdownMenuItem
-                            key={variant}
-                            onClick={() =>
-                              setProfile({
-                                ...profile,
-                                variant: variant === 'DEFAULT' ? null : variant,
-                              })
-                            }
-                            className={
-                              selectedVariant === variant ? 'bg-muted' : ''
-                            }
-                          >
-                            {variant}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                );
-              })()}
+            <p className="text-xs text-muted-foreground">
+              {t('onboarding.sessionConfigHint')}
+            </p>
           </div>
         )}
 

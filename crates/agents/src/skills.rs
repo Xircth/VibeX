@@ -65,14 +65,12 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
         | AgentKind::Openclaw
         | AgentKind::Cline
         | AgentKind::Hermes
-        | AgentKind::QaMock => {
-            AgentSkillsSurface {
-                agent_type,
-                strategy: AgentSkillsStrategy::AgentCommand,
-                global_supported: true,
-                project_supported: false,
-            }
-        }
+        | AgentKind::QaMock => AgentSkillsSurface {
+            agent_type,
+            strategy: AgentSkillsStrategy::AgentCommand,
+            global_supported: true,
+            project_supported: false,
+        },
     }
 }
 
@@ -86,20 +84,6 @@ const ALL_AGENTS: [AgentKind; 7] = [
     AgentKind::Cline,
     AgentKind::Hermes,
 ];
-
-/// Snake_case identifier for an agent (matches the frontend `AgentKind`).
-fn agent_key(agent: AgentKind) -> &'static str {
-    match agent {
-        AgentKind::ClaudeCode => "claude_code",
-        AgentKind::Codex => "codex",
-        AgentKind::Opencode => "open_code",
-        AgentKind::Gemini => "gemini",
-        AgentKind::Openclaw => "open_claw",
-        AgentKind::Cline => "cline",
-        AgentKind::Hermes => "hermes",
-        AgentKind::QaMock => "qa_mock",
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -270,7 +254,9 @@ fn validate_skill_id(raw: &str) -> Result<String, SkillError> {
         return Err(SkillError::Validation("技能名不能以点开头".to_string()));
     }
     if id.contains('/') || id.contains('\\') {
-        return Err(SkillError::Validation("技能名不能包含路径分隔符".to_string()));
+        return Err(SkillError::Validation(
+            "技能名不能包含路径分隔符".to_string(),
+        ));
     }
     if !id
         .chars()
@@ -467,9 +453,8 @@ pub async fn read_agent_skill(
         .filter(|dir| dir.scope == scope)
     {
         if let Some(entry) = resolve_skill_entry(&dir, &id, allow_md) {
-            let content_path = skill_content_path(&entry).ok_or_else(|| {
-                SkillError::Other(format!("Skill content file missing for {id}"))
-            })?;
+            let content_path = skill_content_path(&entry)
+                .ok_or_else(|| SkillError::Other(format!("Skill content file missing for {id}")))?;
             let content = fs::read_to_string(&content_path)
                 .await
                 .map_err(|e| SkillError::Other(format!("Failed to read skill {id}: {e}")))?;
@@ -560,7 +545,9 @@ pub async fn delete_agent_skill(
     {
         if let Some(entry) = resolve_skill_entry(&dir, &id, allow_md) {
             if dir.read_only {
-                return Err(SkillError::Validation("系统技能为只读，无法删除".to_string()));
+                return Err(SkillError::Validation(
+                    "系统技能为只读，无法删除".to_string(),
+                ));
             }
             remove_skill_entry(&entry)
                 .map_err(|e| SkillError::Other(format!("Failed to delete skill {id}: {e}")))?;
@@ -707,7 +694,7 @@ async fn scan_all_skills() -> Vec<LocalSkill> {
         {
             for item in list_skills_in_dir(&dir, allow_md).await {
                 let entry = map.entry(item.id.clone()).or_default();
-                entry.apps.insert(agent_key(agent));
+                entry.apps.insert(agent.as_str());
                 if entry.description.is_none() {
                     entry.description = item.description.clone();
                 }
@@ -844,7 +831,7 @@ fn apply_hosting(
             continue;
         };
         let dest = dir.join(skill_id);
-        if global || agents.contains(agent_key(agent)) {
+        if global || agents.contains(agent.as_str()) {
             place_skill(&agent_src, &dest, agent_link)?;
         } else {
             remove_if_exists(&dest)?;
@@ -861,7 +848,7 @@ fn parse_agent_keys(keys: &[String]) -> Result<BTreeSet<String>, SkillError> {
     for key in keys {
         let agent = AgentKind::from_lenient(key)
             .ok_or_else(|| SkillError::Validation(format!("Unknown agent type: {key}")))?;
-        set.insert(agent_key(agent).to_string());
+        set.insert(agent.as_str().to_string());
     }
     Ok(set)
 }
@@ -1028,7 +1015,9 @@ async fn fetch_popular_skills(limit: usize) -> Result<Vec<SkillMarketItem>, Skil
     Ok(parse_popular_skills(&html, limit))
 }
 
-pub async fn search_skill_market(query: Option<String>) -> Result<Vec<SkillMarketItem>, SkillError> {
+pub async fn search_skill_market(
+    query: Option<String>,
+) -> Result<Vec<SkillMarketItem>, SkillError> {
     let q = query.unwrap_or_default();
     // skills.sh search requires at least 2 characters; with a shorter/empty
     // query we surface the 50 most-installed skills (scraped from the homepage

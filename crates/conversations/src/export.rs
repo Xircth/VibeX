@@ -213,7 +213,11 @@ fn render_turn_html(out: &mut String, turn: &MessageTurn) {
                     let cls = if *is_error { " class=\"err\"" } else { "" };
                     out.push_str(&format!(
                         "<details{cls}><summary>{}</summary><pre>{}</pre></details>",
-                        if *is_error { "❌ 结果" } else { "↳ 结果" },
+                        if *is_error {
+                            "❌ 结果"
+                        } else {
+                            "↳ 结果"
+                        },
                         html_escape(&redact_secrets(preview))
                     ));
                 }
@@ -244,9 +248,10 @@ fn render_turn_html(out: &mut String, turn: &MessageTurn) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use agents::conversation::ConversationTimelineRow;
     use chrono::TimeZone;
+
+    use super::*;
 
     fn turn_row(role: TurnRole, blocks: Vec<ContentBlock>) -> TimelineRow {
         TimelineRow {

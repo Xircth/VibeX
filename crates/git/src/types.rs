@@ -308,7 +308,8 @@ mod stash_parse_tests {
 
     #[test]
     fn parses_indices_and_messages() {
-        let raw = "stash@{0}\u{1f}WIP on main: 1a2b3c fix bug\nstash@{1}\u{1f}On feature/x: my note";
+        let raw =
+            "stash@{0}\u{1f}WIP on main: 1a2b3c fix bug\nstash@{1}\u{1f}On feature/x: my note";
         let entries = parse_stash_list(raw);
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].index, 0);

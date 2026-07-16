@@ -17,15 +17,22 @@ import {
   ComposerOptionName,
 } from './ComposerSelect';
 
-const DEFAULT_MODE_ID = 'default';
 /**
- * Claude Code's bypass mode is never surfaced: VibeX's own approvals system
- * (and the Auto classifier mode) covers ACP permission prompts, so nothing in
- * the integration needs bypass. Were an ACP flow to ever require it, it would
- * be enabled programmatically, not through this picker.
+ * Preserve every mode exactly as the active ACP Session advertises it. Shared
+ * by the composer's icon picker and the create form's labeled field.
  */
-const BYPASS_MODE_ID = 'bypassPermissions';
-const HIDDEN_MODE_IDS = new Set([DEFAULT_MODE_ID, BYPASS_MODE_ID]);
+export function presentableSessionModes(
+  modes: AgentSessionMode[]
+): AgentSessionMode[] {
+  return modes;
+}
+
+export function presentedActiveModeId(
+  _modes: AgentSessionMode[],
+  activeId: string | null
+): string | null {
+  return activeId;
+}
 
 /**
  * Composer mode picker, driven entirely by the modes the agent actually
@@ -52,17 +59,8 @@ export function SessionModeSelector({
 
   if (modes.length === 0) return null;
 
-  // The agent's "Default" alias mode is never shown (product rule: the word
-  // "Default" does not appear in the composer pickers), and neither is the
-  // bypass mode (see HIDDEN_MODE_IDS). While the agent sits on its default,
-  // the first visible mode is presented as the effective one.
-  const visibleModes = modes.filter((mode) => !HIDDEN_MODE_IDS.has(mode.id));
-  const presentableModes = visibleModes.length > 0 ? visibleModes : modes;
-  const activeId = selected ?? current;
-  const presentedActiveId =
-    activeId === DEFAULT_MODE_ID && visibleModes.length > 0
-      ? (visibleModes.find((mode) => mode.id === 'auto') ?? visibleModes[0]).id
-      : activeId;
+  const presentableModes = presentableSessionModes(modes);
+  const presentedActiveId = presentedActiveModeId(modes, selected ?? current);
   const activeMode =
     presentableModes.find((mode) => mode.id === presentedActiveId) ?? null;
   const triggerTitle = `${t('sessionModeSelector.title')}: ${

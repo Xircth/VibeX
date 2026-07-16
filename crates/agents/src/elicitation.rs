@@ -55,7 +55,9 @@ impl AgentElicitationResponse {
                         serde_json::Value::Array(items) => items
                             .iter()
                             .map(|item| {
-                                item.as_str().map(str::to_string).unwrap_or_else(|| item.to_string())
+                                item.as_str()
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| item.to_string())
                             })
                             .collect::<Vec<_>>()
                             .join(", "),

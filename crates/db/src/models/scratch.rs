@@ -28,6 +28,16 @@ pub struct DraftFollowUpData {
     pub executor_config: ExecutorConfig,
     #[serde(default)]
     pub queued: bool,
+    /// ACP session-mode pick made before the session existed (create form
+    /// preset); the composer seeds its pending selection from this and applies
+    /// it as the first turn's modeOverride.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mode_override: Option<String>,
+    /// Pre-session ACP config-option picks (option key → choice value), same
+    /// contract as `mode_override`.
+    #[serde(default)]
+    pub config_overrides: std::collections::BTreeMap<String, String>,
 }
 
 /// Data for preview settings scratch (URL override and screen size)

@@ -1,9 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
-import { type Dispatch, type ReactNode, type SetStateAction, useState } from 'react';
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useState,
+} from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionComposerImage } from './SessionComposerInput';
-import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
+import {
+  getQueueStatusQueryKey,
+  type QueueStatus,
+} from './sessionComposerQueue';
 import { useSessionComposerImageUpload } from './useSessionComposerImageUpload';
 
 const { uploadForAttemptMock } = vi.hoisted(() => ({
@@ -25,6 +33,7 @@ function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
       session_id: 'session-1',
       created_at: '2026-05-25T00:00:00.000Z',
       updated_at: '2026-05-25T00:00:00.000Z',
+      executorProfileId: { executor: 'codex', variant: null },
       data: {
         message: 'queued draft',
         images: ['.vibe-images/queued.png', '.vibe-images/shared.png'],
@@ -62,8 +71,9 @@ function renderImageUploadHook({
         draftMessage: 'local draft',
         executorProfile: profile,
         saveToScratch,
-        setAttachedImages:
-          setAttachedImages as Dispatch<SetStateAction<SessionComposerImage[]>>,
+        setAttachedImages: setAttachedImages as Dispatch<
+          SetStateAction<SessionComposerImage[]>
+        >,
       });
 
       return { attachedImages, handleAttachImages };
@@ -89,7 +99,10 @@ describe('useSessionComposerImageUpload', () => {
 
   it('suppresses uploads without a workspace id', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     const { result } = renderImageUploadHook({
       queryClient,
@@ -105,9 +118,15 @@ describe('useSessionComposerImageUpload', () => {
 
   it('keeps queued composer state separate from new image uploads', async () => {
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
-    queryClient.setQueryData(getQueueStatusQueryKey('session-1'), queuedStatus());
+    queryClient.setQueryData(
+      getQueueStatusQueryKey('session-1'),
+      queuedStatus()
+    );
     uploadForAttemptMock.mockResolvedValue({
       id: 'upload',
       original_name: 'shared.png',
@@ -126,10 +145,7 @@ describe('useSessionComposerImageUpload', () => {
       path: '.vibe-images/current.png',
       previewUrl: 'blob:current-preview',
     };
-    const {
-      result,
-      saveToScratch,
-    } = renderImageUploadHook({
+    const { result, saveToScratch } = renderImageUploadHook({
       queryClient,
       initialImages: [replacedPreview, current],
     });

@@ -209,7 +209,7 @@
   "plugins": {
     "pageTitle": "Plugins",
     "pageDescription": "Integrate \"skill + web console\" plugins (e.g. dashi-ppt, vibe-motion): once configured, a shortcut button in the workspace right sidebar inserts a hook into the session composer; the agent starts the plugin's web console and VibeX opens it in the Web Preview once reachable.",
-    "sectionDescription": "Saving a plugin checks node/npx and installs its skill globally; an install failure never blocks saving.",
+    "sectionDescription": "Built-in plugins start disabled; enabling one counts as configuring it (node/npx are checked and the skill installs globally; a failure never blocks enabling). Only enabled plugins appear in the workspace sidebar.",
     "newPlugin": "New plugin",
     "name": "Plugin name",
     "namePlaceholder": "e.g. Dashi PPT",
@@ -257,7 +257,10 @@
     "manifestImportFailed": "Failed to import manifest: {{error}}",
     "downloadDevKit": "Download dev kit",
     "devKitDownloaded": "Development kit written to {{path}}",
-    "devKitDownloadFailed": "Failed to download the dev kit: {{error}}"
+    "devKitDownloadFailed": "Failed to download the dev kit: {{error}}",
+    "builtinBadge": "VibeX built-in",
+    "enableTooltip": "Enabled plugins appear in the workspace sidebar (first enable installs the skill)",
+    "toggleFailed": "Failed to toggle the plugin: {{error}}"
   },
   "webService": {
     "title": "Web Service",
@@ -389,6 +392,7 @@
     "applied": "Applied \"{{name}}\"",
     "writtenTo": "Written to {{path}}",
     "applyFailed": "Failed to apply provider",
+    "catalogRefreshFailed": "Provider was applied, but OpenCode's model catalog could not be refreshed yet.",
     "deleteConfirm": "Delete {{name}}?",
     "providerDeleted": "Provider deleted",
     "deleteFailed": "Failed to delete provider",
@@ -774,6 +778,7 @@
     "enablePromptEnhancementHint": "Show the prompt enhancement entry in the session input box to help rewrite the current input.",
     "opencodeModel": "OpenCode model",
     "selectModelPlaceholder": "Select a model",
+    "currentModelUnavailable": "Saved model {{model}} is not available from this verified OpenCode catalog. Its value is preserved, but it cannot be selected.",
     "refreshModels": "Refresh model list",
     "useCustomPrompt": "Use a custom enhancement prompt",
     "customPromptPlaceholder": "Enter the prompt enhancement system prompt",
@@ -833,7 +838,13 @@
     "checkNow": "Check now",
     "selectAgentPrompt": "Select an agent to view its settings.",
     "runtimeStatus": "Runtime status",
-    "versionLabel": "Version {{version}}"
+    "versionLabel": "Version {{version}}",
+    "runtimeCli": "Local CLI",
+    "runtimeAcp": "ACP adapter",
+    "runtimeSupported": "Verified",
+    "runtimeUnsupported": "Version incompatible",
+    "runtimeNotFound": "Not found",
+    "minimumVersionLabel": "Minimum supported {{version}}"
   },
   "system": {
     "maintenanceCheckFailed": "Local environment check failed",

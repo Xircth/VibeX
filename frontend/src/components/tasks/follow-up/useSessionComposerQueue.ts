@@ -64,7 +64,7 @@ export function useSessionComposerQueue({
     void refreshQueueStatus();
   }, [refreshQueueStatus, sessionId]);
 
-  const queueMutation = useMutation({
+  const startQueuedTurnMutation = useMutation({
     mutationFn: ({
       sessionId,
       message,
@@ -83,22 +83,79 @@ export function useSessionComposerQueue({
         images,
         executorProfileId,
       }),
-    onSuccess: (turn, variables) => {
-      const now = new Date().toISOString();
+    onSuccess: (_turn, variables) => {
+      queryClient.setQueryData(
+        getQueueStatusQueryKey(variables.sessionId),
+        EMPTY_QUEUE_STATUS
+      );
+    },
+  });
+
+  // A conversation has one active turn. Persist the follow-up locally while it
+  // runs, then use the normal start-turn path only after it settles.
+  const dispatchedQueueKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const queuedMessage = getQueueSnapshot(queueStatus).queuedMessage;
+    const queueKey = queuedMessage?.created_at ?? null;
+    if (
+      isAttemptRunning ||
+      !workspaceId ||
+      !sessionId ||
+      !queuedMessage ||
+      !queueKey ||
+      dispatchedQueueKeyRef.current === queueKey
+    ) {
+      return;
+    }
+
+    dispatchedQueueKeyRef.current = queueKey;
+    void startQueuedTurnMutation.mutateAsync({
+      sessionId,
+      message: queuedMessage.data.message,
+      images: queuedMessage.data.images,
+      executorProfileId: queuedMessage.executorProfileId,
+    });
+  }, [
+    isAttemptRunning,
+    queueStatus,
+    sessionId,
+    startQueuedTurnMutation,
+    workspaceId,
+  ]);
+
+  const queueMutation = useMutation({
+    mutationFn: async ({
+      sessionId,
+      message,
+      images,
+      executorProfileId,
+    }: {
+      sessionId: string;
+      message: string;
+      images: string[];
+      executorProfileId: ExecutorProfileId;
+    }) => ({
+      sessionId,
+      message,
+      images,
+      executorProfileId,
+      createdAt: new Date().toISOString(),
+    }),
+    onSuccess: (message) => {
       const status: QueueStatus = {
         status: 'queued',
         message: {
-          id: turn.turnId,
-          session_id: variables.sessionId,
-          created_at: now,
-          updated_at: now,
+          session_id: message.sessionId,
+          created_at: message.createdAt,
+          updated_at: message.createdAt,
+          executorProfileId: message.executorProfileId,
           data: {
-            message: variables.message,
-            images: variables.images,
+            message: message.message,
+            images: message.images,
           },
         },
       };
-      queryClient.setQueryData(getQueueStatusQueryKey(variables.sessionId), status);
+      queryClient.setQueryData(getQueueStatusQueryKey(message.sessionId), status);
     },
   });
 
@@ -147,7 +204,10 @@ export function useSessionComposerQueue({
     cancelMutation,
     queueMessage,
     cancelQueue,
-    isQueueLoading: queueMutation.isPending || cancelMutation.isPending,
+    isQueueLoading:
+      queueMutation.isPending ||
+      startQueuedTurnMutation.isPending ||
+      cancelMutation.isPending,
     isQueued,
     queueIndicatorState: getQueueIndicatorState(queueStatus, isAttemptRunning),
   };

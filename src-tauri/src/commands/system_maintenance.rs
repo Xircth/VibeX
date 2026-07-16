@@ -1,8 +1,12 @@
 use std::{ffi::OsString, path::PathBuf, time::Duration};
 
+use agents::{
+    AgentDistribution, AgentKind, local_agent_runtime_spec, local_detection::npm_package_name,
+    registry_entry,
+};
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
+use crate::{error::AppError, state::AppState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemMaintenanceStatus {
@@ -56,100 +60,193 @@ pub struct InstallSystemDependenciesResult {
     pub status: SystemMaintenanceStatus,
 }
 
-#[derive(Debug, Clone, Copy)]
+/// A maintenance-facing projection of the agent registry.  It deliberately
+/// contains no package/executable/version literals: those are owned by the
+/// `agents` registry so installing, probing, and launching agree on what a
+/// local runtime means.
+#[derive(Debug, Clone)]
 struct ToolSpec {
-    id: &'static str,
-    label: &'static str,
+    agent_type: AgentKind,
+    id: String,
+    label: String,
     kind: &'static str,
-    group_id: &'static str,
+    group_id: String,
     user_visible: bool,
-    executable: &'static str,
-    npm_package: &'static str,
+    executable: String,
+    /// Unversioned npm name used for status/latest-version lookups.
+    npm_package: String,
+    /// Exact npm argument used for installation. Both CLI runtimes and ACP
+    /// adapters install their publisher's latest release; the registry version
+    /// is enforced separately as a minimum supported version.
+    install_package: String,
     version_args: &'static [&'static str],
-    use_package_metadata_version: bool,
-    minimum_supported_version: Option<&'static str>,
+    minimum_supported_version: Option<String>,
 }
 
-const TOOL_SPECS: &[ToolSpec] = &[
-    ToolSpec {
-        id: "claude_cli",
-        label: "Claude Code CLI",
-        kind: "cli",
-        group_id: "claude",
+/// Which part(s) of an Agent launch pair an npm maintenance request changed.
+/// `cli_acp` is intentionally represented as a CLI update only: the same
+/// executable is ownership-checked once and then fully verified (including
+/// its ACP subcommand) after installation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChangedAgentPackages {
+    agent_type: AgentKind,
+    cli_changed: bool,
+    separate_acp_changed: bool,
+}
+
+fn changed_agent_packages(
+    specs: &[ToolSpec],
+    package_set: &std::collections::BTreeSet<String>,
+) -> Vec<ChangedAgentPackages> {
+    let mut changed: Vec<ChangedAgentPackages> = Vec::new();
+    for spec in specs
+        .iter()
+        .filter(|spec| package_set.contains(&spec.install_package))
+    {
+        let Some(runtime) = local_agent_runtime_spec(spec.agent_type) else {
+            continue;
+        };
+        let index = match changed
+            .iter()
+            .position(|entry| entry.agent_type == spec.agent_type)
+        {
+            Some(index) => index,
+            None => {
+                changed.push(ChangedAgentPackages {
+                    agent_type: spec.agent_type,
+                    cli_changed: false,
+                    separate_acp_changed: false,
+                });
+                changed.len() - 1
+            }
+        };
+        let entry = &mut changed[index];
+        match spec.kind {
+            "cli" | "cli_acp" => entry.cli_changed = true,
+            "acp" if runtime.acp_program != runtime.cli_program => {
+                entry.separate_acp_changed = true
+            }
+            _ => {}
+        }
+    }
+    changed
+}
+
+async fn require_npm_ownership_for_changed_agents(
+    changed: &[ChangedAgentPackages],
+) -> Result<(), AppError> {
+    for changed_agent in changed {
+        if changed_agent.cli_changed {
+            crate::commands::agent_settings::require_active_cli_to_be_npm_managed(
+                changed_agent.agent_type,
+            )
+            .await?;
+        }
+        if changed_agent.separate_acp_changed {
+            crate::commands::agent_settings::require_active_acp_to_be_npm_managed(
+                changed_agent.agent_type,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Background dependency updates currently expose the three agents that have
+/// shipped a user-facing update flow. Other registry agents are handled by the
+/// Agent settings preflight/bootstrap instead of causing unsolicited install
+/// prompts at application startup.
+const BACKGROUND_MANAGED_AGENTS: &[AgentKind] =
+    &[AgentKind::ClaudeCode, AgentKind::Codex, AgentKind::Opencode];
+
+const VERSION_ARGS: &[&str] = &["--version"];
+
+fn tool_specs() -> Vec<ToolSpec> {
+    BACKGROUND_MANAGED_AGENTS
+        .iter()
+        .copied()
+        .flat_map(tool_specs_for_agent)
+        .collect()
+}
+
+fn tool_specs_for_agent(agent_type: AgentKind) -> Vec<ToolSpec> {
+    let Some(runtime) = local_agent_runtime_spec(agent_type) else {
+        return Vec::new();
+    };
+    let Some(cli_package) = runtime.npm_package else {
+        return Vec::new();
+    };
+
+    let entry = registry_entry(agent_type);
+    let display_name = entry.name.strip_suffix(" CLI").unwrap_or(&entry.name);
+    // Registry ids intentionally use the ACP-facing name for Codex/Claude;
+    // stripping that suffix preserves the existing stable maintenance ids.
+    let group_id = entry
+        .registry_id
+        .strip_suffix("-acp")
+        .unwrap_or(&entry.registry_id)
+        .to_string();
+    let shared_cli_and_acp = runtime.acp_program == runtime.cli_program;
+
+    let cli = ToolSpec {
+        agent_type,
+        id: format!(
+            "{group_id}_{}",
+            if shared_cli_and_acp { "cli_acp" } else { "cli" }
+        ),
+        label: format!("{display_name} CLI"),
+        kind: if shared_cli_and_acp { "cli_acp" } else { "cli" },
+        group_id: group_id.clone(),
         user_visible: true,
-        executable: bin_name("claude"),
-        npm_package: "@anthropic-ai/claude-code",
-        version_args: &["--version"],
-        use_package_metadata_version: false,
-        minimum_supported_version: Some("2.1.143"),
-    },
-    ToolSpec {
-        id: "claude_acp",
-        label: "Claude Code ACP",
-        kind: "acp",
-        group_id: "claude",
-        user_visible: false,
-        executable: bin_name("claude-agent-acp"),
-        npm_package: "@agentclientprotocol/claude-agent-acp",
-        version_args: &["--version"],
-        use_package_metadata_version: true,
-        minimum_supported_version: None,
-    },
-    ToolSpec {
-        id: "codex_cli",
-        label: "Codex CLI",
-        kind: "cli",
-        group_id: "codex",
-        user_visible: true,
-        executable: bin_name("codex"),
-        npm_package: "@openai/codex",
-        version_args: &["--version"],
-        use_package_metadata_version: false,
-        minimum_supported_version: Some("0.130.0"),
-    },
-    ToolSpec {
-        id: "codex_acp",
-        label: "Codex ACP",
-        kind: "acp",
-        group_id: "codex",
-        user_visible: false,
-        executable: bin_name("codex-acp"),
-        npm_package: "@agentclientprotocol/codex-acp",
-        version_args: &["--version"],
-        use_package_metadata_version: true,
-        minimum_supported_version: None,
-    },
-    ToolSpec {
-        id: "opencode_cli_acp",
-        label: "OpenCode CLI",
-        kind: "cli_acp",
-        group_id: "opencode",
-        user_visible: true,
-        executable: bin_name("opencode"),
-        npm_package: "opencode-ai",
-        version_args: &["--version"],
-        use_package_metadata_version: false,
-        minimum_supported_version: Some("1.15.4"),
-    },
-];
+        executable: bin_name(runtime.cli_program),
+        npm_package: cli_package.to_string(),
+        install_package: format!("{cli_package}@latest"),
+        version_args: VERSION_ARGS,
+        minimum_supported_version: runtime.cli_minimum_supported_version.map(str::to_string),
+    };
+
+    if shared_cli_and_acp {
+        return vec![cli];
+    }
+
+    let AgentDistribution::Npx {
+        package, version, ..
+    } = &entry.distribution
+    else {
+        // The current maintenance UI can only install npm packages. If a
+        // future adapter has a different installer, its normal preflight still
+        // remains available; do not invent a second installer here.
+        return vec![cli];
+    };
+
+    vec![
+        cli,
+        ToolSpec {
+            agent_type,
+            id: format!("{group_id}_acp"),
+            label: format!("{display_name} ACP"),
+            kind: "acp",
+            group_id,
+            user_visible: false,
+            executable: bin_name(runtime.acp_program),
+            npm_package: npm_package_name(package),
+            install_package: format!("{}@latest", npm_package_name(package)),
+            version_args: VERSION_ARGS,
+            minimum_supported_version: Some(version.clone()),
+        },
+    ]
+}
 
 const DEFAULT_UPDATE_REPOSITORY: &str = "vibex/vibex";
 
-const fn bin_name(base: &'static str) -> &'static str {
+fn bin_name(base: &str) -> String {
     #[cfg(windows)]
     {
-        match base.as_bytes() {
-            b"claude" => "claude.cmd",
-            b"claude-agent-acp" => "claude-agent-acp.cmd",
-            b"codex" => "codex.cmd",
-            b"codex-acp" => "codex-acp.cmd",
-            b"opencode" => "opencode.cmd",
-            _ => base,
-        }
+        format!("{base}.cmd")
     }
     #[cfg(not(windows))]
     {
-        base
+        base.to_string()
     }
 }
 
@@ -169,6 +266,7 @@ pub async fn check_app_release() -> Result<AppReleaseStatus, AppError> {
 
 #[tauri::command]
 pub async fn install_system_dependencies(
+    state: tauri::State<'_, AppState>,
     force_update: Option<bool>,
     tool_ids: Option<Vec<String>>,
 ) -> Result<InstallSystemDependenciesResult, AppError> {
@@ -190,11 +288,50 @@ pub async fn install_system_dependencies(
         });
     }
 
-    run_npm_install(&packages).await?;
     let package_set = packages
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
+    let specs = tool_specs();
+    let changed = changed_agent_packages(&specs, &package_set);
+
+    // Agent Settings and startup bootstrap use the same global npm prefix.
+    // Serialize maintenance updates with those writes so an ACP adapter and
+    // its delegated CLI cannot observe partially-updated global shims.
+    let npm_mutation = crate::commands::agent_settings::lock_global_npm_mutations().await;
+    // Updating npm cannot update an active Homebrew/standalone executable.
+    // Fail before mutating the global prefix instead of reporting a package
+    // install that leaves VibeX launching the old runtime from PATH.
+    require_npm_ownership_for_changed_agents(&changed).await?;
+    let install_result = run_npm_install(&packages).await;
+    drop(npm_mutation);
+    install_result?;
+    let pool = state.deployment.db().pool.clone();
+    for changed_agent in &changed {
+        let verification = crate::commands::agent_settings::local_agent_runtime_changed(
+            &pool,
+            changed_agent.agent_type,
+        )
+        .await;
+        if changed_agent.cli_changed {
+            crate::commands::agent_settings::require_active_cli_to_be_npm_managed(
+                changed_agent.agent_type,
+            )
+            .await?;
+        }
+        if changed_agent.separate_acp_changed {
+            crate::commands::agent_settings::require_active_acp_to_be_npm_managed(
+                changed_agent.agent_type,
+            )
+            .await?;
+        }
+        crate::commands::agent_settings::require_verified_local_agent_runtime(
+            changed_agent.agent_type,
+            &verification,
+        )?;
+    }
+    // No post-install capability probe: the next Prepared Session asks the
+    // updated local ACP/runtime pair for its own authoritative controls.
     let status = system_maintenance_status().await?;
     Ok(InstallSystemDependenciesResult {
         installed_or_updated: packages,
@@ -204,9 +341,9 @@ pub async fn install_system_dependencies(
             .filter(|tool| {
                 tool.installed
                     && !tool.update_available
-                    && !TOOL_SPECS
-                        .iter()
-                        .any(|spec| spec.id == tool.id && package_set.contains(spec.npm_package))
+                    && !specs.iter().any(|spec| {
+                        spec.id == tool.id && package_set.contains(&spec.install_package)
+                    })
             })
             .map(|tool| tool.id.clone())
             .collect(),
@@ -220,12 +357,13 @@ fn selected_tool_groups(tool_ids: Option<&[String]>) -> Option<std::collections:
         return None;
     }
 
+    let specs = tool_specs();
     let groups = tool_ids
         .iter()
         .filter_map(|tool_id| {
-            TOOL_SPECS
+            specs
                 .iter()
-                .find(|spec| spec.id == tool_id || spec.group_id == tool_id)
+                .find(|spec| spec.id == *tool_id || spec.group_id == *tool_id)
                 .map(|spec| spec.group_id.to_string())
         })
         .collect::<std::collections::BTreeSet<_>>();
@@ -238,6 +376,11 @@ fn installable_packages_for_status(
     requested_groups: Option<&std::collections::BTreeSet<String>>,
     force_update: bool,
 ) -> Vec<String> {
+    let specs_by_id = tool_specs()
+        .into_iter()
+        .map(|spec| (spec.id.clone(), spec))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
     status
         .tools
         .iter()
@@ -248,7 +391,11 @@ fn installable_packages_for_status(
                     || tool.update_available
                     || (force_update && tool.latest_version.is_some()))
         })
-        .map(|tool| tool.npm_package.clone())
+        .filter_map(|tool| {
+            specs_by_id
+                .get(&tool.id)
+                .map(|spec| spec.install_package.clone())
+        })
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()
@@ -257,9 +404,10 @@ fn installable_packages_for_status(
 async fn system_maintenance_status() -> Result<SystemMaintenanceStatus, AppError> {
     let app = check_latest_release().await;
     let npm = runtime_status(npm_program()).await;
-    let mut tools = Vec::with_capacity(TOOL_SPECS.len());
-    for spec in TOOL_SPECS {
-        tools.push(check_tool_status(*spec).await);
+    let specs = tool_specs();
+    let mut tools = Vec::with_capacity(specs.len());
+    for spec in &specs {
+        tools.push(check_tool_status(spec).await);
     }
 
     Ok(SystemMaintenanceStatus { app, npm, tools })
@@ -282,33 +430,140 @@ async fn runtime_status(name: &str) -> RuntimeStatus {
     }
 }
 
-async fn check_tool_status(spec: ToolSpec) -> LocalToolStatus {
-    let executable_path = if spec.executable.is_empty() {
-        None
-    } else {
-        resolve_program(spec.executable).await.ok()
+fn unverified_component_error(
+    label: &str,
+    path: Option<&PathBuf>,
+    version: Option<&str>,
+    minimum: Option<&str>,
+    probe_error: Option<&str>,
+) -> String {
+    let mut message = match (path, version, minimum) {
+        (None, _, _) => format!("{label} was not found on PATH"),
+        (Some(path), Some(version), Some(minimum)) if version_is_newer(minimum, version) => {
+            format!(
+                "{label} at {} is {version}; minimum supported version is {minimum}",
+                path.display()
+            )
+        }
+        (Some(path), Some(version), _) => {
+            format!("{label} at {} reported version {version}", path.display())
+        }
+        (Some(path), None, _) => format!("{label} at {} did not return a version", path.display()),
     };
-    let latest_version = npm_package_latest_version(spec.npm_package)
+    if let Some(probe_error) = probe_error.filter(|error| !error.trim().is_empty()) {
+        message.push_str(&format!(": {probe_error}"));
+    }
+    message
+}
+
+async fn check_managed_local_tool_status(spec: &ToolSpec) -> LocalToolStatus {
+    let verification =
+        crate::commands::agent_settings::verify_local_agent_runtime(spec.agent_type).await;
+    let (executable_path, installed_version, installed, supported, error) = match spec.kind {
+        "cli" => (
+            verification.cli.executable.clone(),
+            verification.cli.version.clone(),
+            verification.cli.executable.is_some(),
+            verification.cli.is_supported(),
+            (!verification.cli.is_supported()).then(|| {
+                unverified_component_error(
+                    &format!("{} CLI", spec.label),
+                    verification.cli.executable.as_ref(),
+                    verification.cli.version.as_deref(),
+                    verification.cli.minimum_supported_version.as_deref(),
+                    verification.cli.probe_error.as_deref(),
+                )
+            }),
+        ),
+        "acp" => (
+            verification.acp.executable.clone(),
+            verification.acp.version.clone(),
+            verification.acp.executable.is_some(),
+            verification.acp.is_supported(),
+            (!verification.acp.is_supported()).then(|| {
+                unverified_component_error(
+                    &format!("{} adapter", spec.label),
+                    verification.acp.executable.as_ref(),
+                    verification.acp.version.as_deref(),
+                    verification.acp.minimum_supported_version.as_deref(),
+                    verification.acp.probe_error.as_deref(),
+                )
+            }),
+        ),
+        "cli_acp" => {
+            let pair_error = crate::commands::agent_settings::require_verified_local_agent_runtime(
+                spec.agent_type,
+                &verification,
+            )
+            .err()
+            .map(|error| error.to_string());
+            (
+                verification.cli.executable.clone(),
+                verification.cli.version.clone(),
+                verification.cli.executable.is_some() && verification.acp.executable.is_some(),
+                verification.is_supported(),
+                pair_error,
+            )
+        }
+        _ => unreachable!("maintenance tool specs have a known kind"),
+    };
+    let latest_version = npm_package_latest_version(&spec.npm_package)
         .await
         .ok()
         .flatten();
-    let installed_version = if spec.executable.is_empty() && spec.use_package_metadata_version {
-        global_npm_package_version(spec.npm_package)
-            .await
-            .ok()
-            .flatten()
+    let update_available = match (&installed_version, &latest_version) {
+        (Some(current), Some(latest)) => version_is_newer(latest, current),
+        _ => false,
+    };
+
+    LocalToolStatus {
+        id: spec.id.clone(),
+        label: spec.label.clone(),
+        kind: spec.kind.to_string(),
+        group_id: spec.group_id.clone(),
+        user_visible: spec.user_visible,
+        executable: spec.executable.clone(),
+        npm_package: spec.npm_package.clone(),
+        installed,
+        executable_path: executable_path.map(|path| path.display().to_string()),
+        installed_version,
+        latest_version,
+        minimum_supported_version: spec.minimum_supported_version.clone(),
+        supported,
+        update_available,
+        error,
+    }
+}
+
+async fn check_tool_status(spec: &ToolSpec) -> LocalToolStatus {
+    if local_agent_runtime_spec(spec.agent_type).is_some() {
+        return check_managed_local_tool_status(spec).await;
+    }
+    let executable_path = if spec.executable.is_empty() {
+        None
     } else {
-        match executable_path.as_ref() {
-            Some(path) => detect_tool_version(spec, path).await.ok().flatten(),
-            None => None,
-        }
+        resolve_program(&spec.executable).await.ok()
+    };
+    let latest_version = npm_package_latest_version(&spec.npm_package)
+        .await
+        .ok()
+        .flatten();
+    let (installed_version, version_error) = match executable_path.as_ref() {
+        Some(path) => match detect_tool_version(spec, path).await {
+            Ok(version) => (version, None),
+            Err(error) => (None, Some(error.to_string())),
+        },
+        None => (None, None),
     };
 
     let update_available = match (&installed_version, &latest_version) {
         (Some(current), Some(latest)) => version_is_newer(latest, current),
         _ => false,
     };
-    let supported = match (&installed_version, spec.minimum_supported_version) {
+    let supported = match (
+        &installed_version,
+        spec.minimum_supported_version.as_deref(),
+    ) {
         (Some(current), Some(minimum)) => !version_is_newer(minimum, current),
         (None, Some(_)) => false,
         _ => executable_path.is_some() || spec.executable.is_empty() && installed_version.is_some(),
@@ -321,35 +576,30 @@ async fn check_tool_status(spec: ToolSpec) -> LocalToolStatus {
     };
 
     LocalToolStatus {
-        id: spec.id.to_string(),
-        label: spec.label.to_string(),
+        id: spec.id.clone(),
+        label: spec.label.clone(),
         kind: spec.kind.to_string(),
-        group_id: spec.group_id.to_string(),
+        group_id: spec.group_id.clone(),
         user_visible: spec.user_visible,
-        executable: spec.executable.to_string(),
-        npm_package: spec.npm_package.to_string(),
+        executable: spec.executable.clone(),
+        npm_package: spec.npm_package.clone(),
         installed,
         executable_path: executable_path.map(|path| path.display().to_string()),
         installed_version,
         latest_version,
-        minimum_supported_version: spec.minimum_supported_version.map(str::to_string),
+        minimum_supported_version: spec.minimum_supported_version.clone(),
         supported,
         update_available,
-        error: None,
+        error: version_error,
     }
 }
 
 async fn detect_tool_version(
-    spec: ToolSpec,
+    spec: &ToolSpec,
     executable: &PathBuf,
 ) -> Result<Option<String>, AppError> {
-    if spec.use_package_metadata_version
-        && let Some(version) = global_npm_package_version(spec.npm_package).await?
-    {
-        return Ok(Some(version));
-    }
-
     let mut command = utils::process::new_hidden_tokio_command(executable, spec.version_args);
+    command.kill_on_drop(true);
     let output = tokio::time::timeout(Duration::from_secs(10), command.output())
         .await
         .map_err(|_| AppError::Internal(format!("Timed out running {}", spec.executable)))?
@@ -367,33 +617,40 @@ async fn detect_tool_version(
         }
     }
 
-    global_npm_package_version(spec.npm_package).await
+    Err(AppError::Internal(format!(
+        "{} at {} did not return a version",
+        spec.label,
+        executable.display()
+    )))
 }
 
 async fn resolve_program(program: &str) -> Result<PathBuf, AppError> {
-    let program = program.to_string();
-    tokio::task::spawn_blocking({
-        let program = program.clone();
-        move || which::which(program)
-    })
-    .await
-    .map_err(|error| AppError::Internal(format!("Failed to resolve {program}: {error}")))?
-    .map_err(|error| AppError::Internal(format!("{program} not found in PATH: {error}")))
+    utils::shell::resolve_executable_path(program)
+        .await
+        .ok_or_else(|| AppError::Internal(format!("{program} not found in PATH")))
 }
 
 async fn run_npm_install(packages: &[String]) -> Result<(), AppError> {
     let npm = resolve_program(npm_program()).await?;
     let mut args = vec!["install".to_string(), "-g".to_string()];
-    args.extend(packages.iter().map(|package| format!("{package}@latest")));
+    // `ToolSpec::install_package` already encodes its update policy. Both
+    // CLIs and ACP adapters use `@latest`; their respective registry
+    // versions are compatibility floors, checked after installation.
+    args.extend(packages.iter().cloned());
 
     let mut command = utils::process::new_hidden_tokio_command(&npm, &args);
-    let output = command.output().await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to run npm install for local tools: {error}"
-        ))
-    })?;
+    command.kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(120), command.output())
+        .await
+        .map_err(|_| AppError::Internal("Timed out installing local tools".to_string()))?
+        .map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to run npm install for local tools: {error}"
+            ))
+        })?;
 
     if output.status.success() {
+        let _ = utils::shell::refresh_process_path_after_install().await;
         Ok(())
     } else {
         Err(AppError::Internal(
@@ -427,37 +684,6 @@ async fn npm_package_latest_version(package_name: &str) -> Result<Option<String>
 
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok((!version.is_empty()).then_some(version))
-}
-
-async fn global_npm_package_version(package_name: &str) -> Result<Option<String>, AppError> {
-    let npm = resolve_program(npm_program()).await?;
-    let mut command = utils::process::new_hidden_tokio_command(&npm, ["root", "-g"]);
-    let output = command.output().await.map_err(|error| {
-        AppError::Internal(format!("Failed to locate npm global root: {error}"))
-    })?;
-    if !output.status.success() {
-        return Ok(None);
-    }
-
-    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if root.is_empty() {
-        return Ok(None);
-    }
-
-    let package_json = package_name
-        .split('/')
-        .fold(PathBuf::from(root), |path, segment| path.join(segment))
-        .join("package.json");
-    let content = match tokio::fs::read_to_string(package_json).await {
-        Ok(content) => content,
-        Err(_) => return Ok(None),
-    };
-    let value: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|error| AppError::Internal(format!("Invalid npm package metadata: {error}")))?;
-    Ok(value
-        .get("version")
-        .and_then(|value| value.as_str())
-        .map(|value| value.to_string()))
 }
 
 async fn check_latest_release() -> AppReleaseStatus {
@@ -675,6 +901,77 @@ mod tests {
                 .into_iter()
                 .collect::<Vec<_>>(),
             vec!["codex".to_string()]
+        );
+    }
+
+    #[test]
+    fn maintenance_specs_are_derived_from_the_runtime_and_adapter_registry() {
+        let specs = tool_specs();
+        let codex_runtime = local_agent_runtime_spec(AgentKind::Codex).unwrap();
+        let codex_cli = specs
+            .iter()
+            .find(|spec| spec.id == "codex_cli")
+            .expect("Codex CLI maintenance spec");
+        assert_eq!(codex_cli.executable, bin_name(codex_runtime.cli_program));
+        assert_eq!(codex_cli.npm_package, codex_runtime.npm_package.unwrap());
+        assert_eq!(
+            codex_cli.minimum_supported_version.as_deref(),
+            codex_runtime.cli_minimum_supported_version
+        );
+        assert_eq!(
+            codex_cli.install_package,
+            format!("{}@latest", codex_runtime.npm_package.unwrap())
+        );
+
+        let codex_entry = registry_entry(AgentKind::Codex);
+        let AgentDistribution::Npx {
+            package, version, ..
+        } = &codex_entry.distribution
+        else {
+            panic!("Codex ACP must be npm-distributed")
+        };
+        let codex_acp = specs
+            .iter()
+            .find(|spec| spec.id == "codex_acp")
+            .expect("Codex ACP maintenance spec");
+        assert_eq!(codex_acp.executable, bin_name(codex_runtime.acp_program));
+        assert_eq!(codex_acp.npm_package, npm_package_name(package));
+        assert_eq!(
+            codex_acp.install_package,
+            format!("{}@latest", npm_package_name(package))
+        );
+        assert_eq!(
+            codex_acp.minimum_supported_version.as_deref(),
+            Some(version.as_str())
+        );
+
+        let opencode = specs
+            .iter()
+            .filter(|spec| spec.group_id == "opencode")
+            .collect::<Vec<_>>();
+        assert_eq!(opencode.len(), 1, "OpenCode's CLI is its ACP server");
+        assert_eq!(opencode[0].kind, "cli_acp");
+    }
+
+    #[test]
+    fn maintenance_tracks_embedded_acp_as_part_of_the_cli_runtime_pair() {
+        let specs = tool_specs();
+        let opencode = specs
+            .iter()
+            .find(|spec| spec.id == "opencode_cli_acp")
+            .expect("OpenCode combined CLI/ACP maintenance spec");
+        let packages = [opencode.install_package.clone()]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            changed_agent_packages(&specs, &packages),
+            vec![ChangedAgentPackages {
+                agent_type: AgentKind::Opencode,
+                cli_changed: true,
+                separate_acp_changed: false,
+            }],
+            "post-install verification must check both `opencode --version` and `opencode acp --version` through the shared runtime pair"
         );
     }
 

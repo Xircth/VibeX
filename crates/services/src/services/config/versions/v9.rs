@@ -26,7 +26,7 @@ fn default_prompt_enhancement_enabled() -> bool {
 }
 
 fn default_prompt_enhancement_model() -> String {
-    "opencode/minimax-m2.5-free".to_string()
+    String::new()
 }
 
 fn default_prompt_enhancement_prompt() -> Option<String> {

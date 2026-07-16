@@ -1,7 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ScratchType, type ExecutorProfileId, type Session } from 'shared/types';
+import {
+  ScratchType,
+  type ExecutorProfileId,
+  type Session,
+} from 'shared/types';
 import { scratchApi, sessionsApi } from '@/lib/api';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
+import type { SessionControlsPreset } from '@/components/sessions/SessionCreationForm';
 import {
   getCreateProjectSessionRequest,
   type KanbanSessionCreationMode,
@@ -12,6 +17,8 @@ export interface CreateKanbanSessionMutationInput {
   sessionName: string;
   executorProfile: ExecutorProfileId | null;
   mode: KanbanSessionCreationMode;
+  /** ACP control picks made in the create form, applied on the first turn. */
+  sessionControls?: SessionControlsPreset | null;
 }
 
 export interface RenameKanbanSessionMutationInput {
@@ -53,9 +60,10 @@ export function useKanbanSessionMutations({
       sessionName,
       executorProfile,
       mode,
+      sessionControls,
     }: CreateKanbanSessionMutationInput): Promise<Session> => {
-      const session = await sessionsApi.createProject(
-        getCreateProjectSessionRequest({
+      const session = await sessionsApi.createProject({
+        ...getCreateProjectSessionRequest({
           projectId,
           workspaceValue,
           sessionName,
@@ -64,8 +72,12 @@ export function useKanbanSessionMutations({
           workspaceBranchOptions,
           repoInputs:
             mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
-        })
-      );
+        }),
+        session_id:
+          mode === 'existing_workspace'
+            ? sessionControls?.preparedSessionId
+            : undefined,
+      });
 
       if (executorProfile?.executor) {
         await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
@@ -76,6 +88,7 @@ export function useKanbanSessionMutations({
               images: [],
               executor_config: executorProfile,
               queued: false,
+              config_overrides: {},
             },
           },
         });

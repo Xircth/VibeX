@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -92,6 +94,29 @@ pub struct AgentSessionMode {
     pub description: Option<String>,
 }
 
+/// The controls advertised by one concrete ACP session.
+///
+/// This is deliberately session-scoped: models, modes and dependent options
+/// may vary with the runtime, account and working directory.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSessionControlsSnapshot {
+    pub modes: Vec<AgentSessionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_mode: Option<String>,
+    pub config_options: Vec<AgentSessionConfigOption>,
+}
+
+/// A real ACP session created ahead of conversation persistence so creation
+/// surfaces can render and mutate the exact controls that the final
+/// conversation will use.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentPreparedSessionSnapshot {
+    pub session: AgentSessionSnapshot,
+    pub controls: AgentSessionControlsSnapshot,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentSessionConfigChoice {
@@ -99,6 +124,17 @@ pub struct AgentSessionConfigChoice {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// A select option whose available choices depend on another option's value.
+/// Most ACP agents advertise the fully-resolved choices in a live session;
+/// this lets a cached pre-session catalog faithfully represent the same
+/// relationship without inventing a second, agent-specific UI schema.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSessionConfigDependency {
+    pub parent_key: String,
+    pub choices_by_parent_value: BTreeMap<String, Vec<AgentSessionConfigChoice>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -117,6 +153,10 @@ pub struct AgentSessionConfigOption {
     pub value: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<AgentSessionConfigChoice>,
+    /// Optional pre-session dependency information. It is omitted for normal
+    /// live ACP options, whose `choices` are already current.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependency: Option<AgentSessionConfigDependency>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -360,6 +400,7 @@ mod tests {
                         label: "GPT-5.4".to_string(),
                         description: None,
                     }],
+                    dependency: None,
                 }],
             },
             AgentEvent::ConfigChanged {

@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 use crate::{
-    AgentError, AgentResult, AgentKind, claude_config_path, codex_config_path, opencode_config_path,
+    AgentError, AgentKind, AgentResult, claude_config_path, codex_config_path, opencode_config_path,
 };
 
 static DEFAULT_MCP_JSON: &str = include_str!("../default_mcp.json");

@@ -3,6 +3,7 @@ import type {
   EditorType,
   CheckEditorAvailabilityResponse,
   AgentKind,
+  AgentSettingInfo,
   McpServerQuery,
   UpdateMcpServersBody,
   SoundFile,
@@ -12,6 +13,7 @@ import type {
   ChatChannelMessageLog,
 } from 'shared/types';
 
+import type { SelectableAgentKind } from '@/constants/agents';
 import { tauriInvoke } from './base';
 
 export interface PromptEnhancementContextMessage {
@@ -76,6 +78,15 @@ export interface LocalToolStatus {
   error: string | null;
 }
 
+export interface AgentInstallationBootstrap {
+  usableAgents: AgentKind[];
+  installedAcpAgents: AgentKind[];
+  failedAcpAgents: AgentKind[];
+  incompatibleAcpAgents: AgentKind[];
+  incompatibleRuntimeAgents: AgentKind[];
+  missingRuntimeAgents: AgentKind[];
+}
+
 export interface SystemMaintenanceStatus {
   app: AppReleaseStatus;
   npm: RuntimeStatus;
@@ -88,7 +99,10 @@ export interface InstallSystemDependenciesResult {
   status: SystemMaintenanceStatus;
 }
 
-export type AgentCapability = 'RESET_TO_HERE' | 'SETUP_HELPER' | 'CONTEXT_USAGE';
+export type AgentCapability =
+  | 'RESET_TO_HERE'
+  | 'SETUP_HELPER'
+  | 'CONTEXT_USAGE';
 
 export const AgentCapability = {
   RESET_TO_HERE: 'RESET_TO_HERE',
@@ -366,9 +380,7 @@ export const webServiceApi = {
   getConfig: async (): Promise<WebServiceConfig> => {
     return tauriInvoke<WebServiceConfig>('get_web_service_config');
   },
-  updateConfig: async (
-    config: WebServiceConfig
-  ): Promise<WebServiceConfig> => {
+  updateConfig: async (config: WebServiceConfig): Promise<WebServiceConfig> => {
     return tauriInvoke<WebServiceConfig>('update_web_service_config', {
       config,
     });
@@ -586,10 +598,7 @@ export const chatChannelApi = {
   delete: async (channelId: string): Promise<void> => {
     return tauriInvoke<void>('delete_chat_channel', { channelId });
   },
-  saveToken: async (
-    channelId: string,
-    token: string
-  ): Promise<ChatChannel> => {
+  saveToken: async (channelId: string, token: string): Promise<ChatChannel> => {
     return tauriInvoke<ChatChannel>('save_chat_channel_token', {
       channelId,
       token,
@@ -609,9 +618,7 @@ export const chatChannelApi = {
   getEventFilter: async (): Promise<ChatEventFilter> => {
     return tauriInvoke<ChatEventFilter>('get_chat_event_filter');
   },
-  setEventFilter: async (
-    filter: ChatEventFilter
-  ): Promise<ChatEventFilter> => {
+  setEventFilter: async (filter: ChatEventFilter): Promise<ChatEventFilter> => {
     return tauriInvoke<ChatEventFilter>('set_chat_event_filter', { filter });
   },
   getCommandPrefix: async (): Promise<ChatCommandPrefix> => {
@@ -666,15 +673,9 @@ export const mcpServersApi = {
 };
 
 // MCP marketplace (Smithery) + global hosting + per-agent sync.
-// `McpAppType` mirrors the ACP `AgentType` snake_case identifiers.
-export type McpAppType =
-  | 'claude_code'
-  | 'codex'
-  | 'gemini'
-  | 'openclaw'
-  | 'opencode'
-  | 'cline'
-  | 'hermes';
+// One agent identity for MCP surfaces: the shared selectable-agent union
+// (canonical AgentKind keys), not a per-file copy.
+export type McpAppType = SelectableAgentKind;
 
 export interface LocalMcpServer {
   id: string;
@@ -826,17 +827,11 @@ export const profilesApi = {
   },
 };
 
-// Agent Settings APIs
-export interface AgentSettingInfo {
-  id: number;
-  agent_type: string;
-  enabled: boolean;
-  sort_order: number;
-  installed_version: string | null;
-  env_json: string | null;
-  config_json: string | null;
-  auto_approve_mode: 'off' | 'allow_always' | 'yolo';
-}
+// Agent Settings APIs — DTO types are generated from Rust (shared/types.ts) so
+// the typed AgentKind identity is shared by both sides of the IPC boundary.
+export type { AgentSettingInfo };
+
+export type AgentAutoApproveMode = 'off' | 'allow_always' | 'yolo';
 
 export interface PreflightCheck {
   check_id: string;
@@ -856,7 +851,7 @@ export interface PreflightResult {
 }
 
 export interface RunAgentFixRequest {
-  agentType: string;
+  agentType: AgentKind;
   action: string;
 }
 
@@ -876,11 +871,11 @@ export const agentSettingsApi = {
     return tauriInvoke<AgentSettingInfo[]>('list_agents');
   },
   updatePreferences: async (params: {
-    agentType: string;
+    agentType: AgentKind;
     enabled?: boolean;
     envJson?: string | null;
     configJson?: string | null;
-    autoApproveMode?: AgentSettingInfo['auto_approve_mode'];
+    autoApproveMode?: AgentAutoApproveMode;
   }): Promise<AgentSettingInfo> => {
     return tauriInvoke<AgentSettingInfo>('update_agent_preferences', {
       payload: {
@@ -892,13 +887,18 @@ export const agentSettingsApi = {
       },
     });
   },
-  reorder: async (agentTypes: string[]): Promise<AgentSettingInfo[]> => {
+  reorder: async (agentTypes: AgentKind[]): Promise<AgentSettingInfo[]> => {
     return tauriInvoke<AgentSettingInfo[]>('reorder_agents', {
       payload: { order: agentTypes },
     });
   },
-  preflight: async (agentType: string): Promise<PreflightResult> => {
+  preflight: async (agentType: AgentKind): Promise<PreflightResult> => {
     return tauriInvoke<PreflightResult>('agent_preflight', { agentType });
+  },
+  bootstrapInstallation: async (): Promise<AgentInstallationBootstrap> => {
+    return tauriInvoke<AgentInstallationBootstrap>(
+      'agent_bootstrap_installation'
+    );
   },
   runFix: async (payload: RunAgentFixRequest): Promise<void> => {
     return tauriInvoke<void>('run_agent_fix', {
@@ -906,7 +906,7 @@ export const agentSettingsApi = {
       action: payload.action,
     });
   },
-  detectVersion: async (agentType: string): Promise<string | null> => {
+  detectVersion: async (agentType: AgentKind): Promise<string | null> => {
     return tauriInvoke<string | null>('detect_agent_local_version', {
       agentType,
     });

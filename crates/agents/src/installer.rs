@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{AgentDistribution, AgentRegistryEntry, AgentKind};
+use crate::{AgentDistribution, AgentKind, AgentRegistryEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]

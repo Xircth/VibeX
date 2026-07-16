@@ -10,6 +10,7 @@ const draftData: DraftFollowUpData = {
   images: ['.vibe-images/one.png', '.vibe-images/two.png'],
   executor_config: { executor: 'codex' as const },
   queued: false,
+  config_overrides: {},
 };
 
 function renderDraftHydrationHook(

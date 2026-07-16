@@ -254,6 +254,19 @@
     --status-paused-foreground: var(--warning-foreground);
     /* Kanban 会话监控区 Slot 2（紫）专用色；Slot 1/3/4 复用 primary/success/warning。 */
     --session-slot-purple: 265 60% 60%;
+    /* Usage 统计卡片彩色毛玻璃底色（低饱和粉/蓝/绿/红）。 */
+    --usage-pink: hsl(345 45% 94% / 0.72);
+    --usage-pink-border: hsl(345 40% 60% / 0.26);
+    --usage-pink-fg: hsl(345 45% 52%);
+    --usage-blue: hsl(215 50% 93% / 0.72);
+    --usage-blue-border: hsl(215 45% 56% / 0.26);
+    --usage-blue-fg: hsl(215 55% 48%);
+    --usage-green: hsl(150 38% 92% / 0.72);
+    --usage-green-border: hsl(150 32% 44% / 0.26);
+    --usage-green-fg: hsl(150 45% 36%);
+    --usage-red: hsl(8 48% 93% / 0.72);
+    --usage-red-border: hsl(8 42% 56% / 0.26);
+    --usage-red-fg: hsl(8 55% 50%);
     /* Windows chrome exception: native close-button red for frameless windows. */
     --windows-close-hover: hsl(4 88% 48%);
     --windows-close-active: hsl(4 82% 42%);
@@ -301,6 +314,18 @@
     --shadow-glass:
       0 18px 42px hsl(220 48% 2% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.08);
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
+    --usage-pink: hsl(340 26% 24% / 0.6);
+    --usage-pink-border: hsl(340 34% 66% / 0.22);
+    --usage-pink-fg: hsl(342 55% 76%);
+    --usage-blue: hsl(215 32% 25% / 0.6);
+    --usage-blue-border: hsl(215 40% 64% / 0.22);
+    --usage-blue-fg: hsl(213 60% 74%);
+    --usage-green: hsl(150 24% 22% / 0.6);
+    --usage-green-border: hsl(150 30% 58% / 0.22);
+    --usage-green-fg: hsl(150 42% 66%);
+    --usage-red: hsl(6 28% 25% / 0.6);
+    --usage-red-border: hsl(6 36% 64% / 0.22);
+    --usage-red-fg: hsl(6 62% 74%);
   }
 }
 
@@ -1710,6 +1735,34 @@
     border-radius: 8px;
     background: var(--surface-content);
     box-shadow: none;
+  }
+
+  .kanban-usage-card--pink,
+  .kanban-usage-card--blue,
+  .kanban-usage-card--green,
+  .kanban-usage-card--red {
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  }
+
+  .kanban-usage-card--pink {
+    background: var(--usage-pink);
+    border-color: var(--usage-pink-border);
+  }
+
+  .kanban-usage-card--blue {
+    background: var(--usage-blue);
+    border-color: var(--usage-blue-border);
+  }
+
+  .kanban-usage-card--green {
+    background: var(--usage-green);
+    border-color: var(--usage-green-border);
+  }
+
+  .kanban-usage-card--red {
+    background: var(--usage-red);
+    border-color: var(--usage-red-border);
   }
 
   .kanban-usage-tab {

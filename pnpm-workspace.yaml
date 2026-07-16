@@ -1,5 +1,6 @@
 packages:
   - frontend
+  - launch-site
 
 onlyBuiltDependencies:
   - core-js

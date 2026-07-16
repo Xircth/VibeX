@@ -41,7 +41,10 @@ import {
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 import { getFirstAvailableProfile } from '@/utils/executor';
-import { type SessionCreationMode } from '@/components/sessions/SessionCreationForm';
+import {
+  type SessionControlsPreset,
+  type SessionCreationMode,
+} from '@/components/sessions/SessionCreationForm';
 import { SessionHubMonitor } from './session-hub/SessionHubMonitor';
 import { SessionHubSidebar } from './session-hub/SessionHubSidebar';
 import { useKanbanSessionMutations } from './session-hub/useKanbanSessionMutations';
@@ -228,6 +231,8 @@ export function KanbanSessionHub({
   const createWorkspaceValueRef = useRef(createWorkspaceValue);
   const createSessionNameRef = useRef(createSessionName);
   const selectedExecutorProfileRef = useRef(selectedExecutorProfile);
+  // Latest ACP control preset picked in the create form (see SessionControlsPreset).
+  const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [workspaceFilterIds, setWorkspaceFilterIds] = useState<string[]>([]);
@@ -992,8 +997,12 @@ export function KanbanSessionHub({
           sessionName: createSessionNameRef.current,
           executorProfile: selectedExecutorProfileRef.current,
           mode: createMode,
+          sessionControls: sessionControlsPresetRef.current,
         })
       }
+      onSessionControlsPresetChange={(preset) => {
+        sessionControlsPresetRef.current = preset;
+      }}
       onCreateModeChange={setCreateMode}
       onCreateWorkspaceValueChange={updateCreateWorkspaceValue}
       onCreateSessionNameChange={updateCreateSessionName}

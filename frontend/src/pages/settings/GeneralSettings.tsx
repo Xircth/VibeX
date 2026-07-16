@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { agentsApi } from '@/features/agents/api';
 import { configApi } from '@/lib/api';
 import {
   getDefaultTerminalShell,
@@ -73,50 +74,6 @@ Rules:
 
 Output shape:
 {"EnhancedPrompt":"..."}`;
-
-const FALLBACK_OPENCODE_MODELS = [
-  'opencode/claude-opus-4-7',
-  'opencode/claude-opus-4-6',
-  'opencode/claude-opus-4-5',
-  'opencode/claude-opus-4-1',
-  'opencode/claude-sonnet-4-6',
-  'opencode/claude-sonnet-4-5',
-  'opencode/claude-sonnet-4',
-  'opencode/claude-haiku-4-5',
-  'opencode/gemini-3.1-pro',
-  'opencode/gemini-3-flash',
-  'opencode/gpt-5.5',
-  'opencode/gpt-5.5-pro',
-  'opencode/gpt-5.4',
-  'opencode/gpt-5.4-pro',
-  'opencode/gpt-5.4-mini',
-  'opencode/gpt-5.4-nano',
-  'opencode/gpt-5.3-codex-spark',
-  'opencode/gpt-5.3-codex',
-  'opencode/gpt-5.2',
-  'opencode/gpt-5.2-codex',
-  'opencode/gpt-5.1',
-  'opencode/gpt-5.1-codex-max',
-  'opencode/gpt-5.1-codex',
-  'opencode/gpt-5.1-codex-mini',
-  'opencode/gpt-5',
-  'opencode/gpt-5-codex',
-  'opencode/gpt-5-nano',
-  'opencode/glm-5.1',
-  'opencode/glm-5',
-  'opencode/minimax-m2.7',
-  'opencode/minimax-m2.5',
-  'opencode/kimi-k2.6',
-  'opencode/kimi-k2.5',
-  'opencode/qwen3.6-plus',
-  'opencode/qwen3.5-plus',
-  'opencode/big-pickle',
-  'opencode/minimax-m2.5-free',
-  'opencode/hy3-preview-free',
-  'opencode/ling-2.6-flash-free',
-  'opencode/trinity-large-preview-free',
-  'opencode/nemotron-3-super-free',
-] as const;
 
 function isFreeOpenCodeModel(model: string): boolean {
   return model.toLowerCase().includes('-free');
@@ -220,11 +177,64 @@ export function GeneralSettings() {
     });
   }, []);
 
-  const refreshOpencodeModels = useCallback(async () => {
-    setOpencodeModelsLoading(true);
+  const readPersistedOpencodeModels = useCallback(async () => {
     try {
       const result = await configApi.listOpencodeModels();
       setOpencodeModels(result.models);
+      return result.models;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // A normal settings visit only reads the same fingerprint-matching catalog
+  // that session creation uses. It never starts an OpenCode process. If
+  // startup warmup is still completing, retry the local catalog read for a
+  // short, bounded window rather than polling forever on an absent runtime.
+  useEffect(() => {
+    let disposed = false;
+    let retryTimer: number | null = null;
+    let retryAttempts = 0;
+    const maxStartupCatalogRetries = 10;
+
+    const loadCatalog = async () => {
+      const models = await readPersistedOpencodeModels();
+      if (
+        !disposed &&
+        models?.length === 0 &&
+        retryAttempts < maxStartupCatalogRetries
+      ) {
+        retryAttempts += 1;
+        retryTimer = window.setTimeout(() => {
+          void loadCatalog();
+        }, 1000);
+      }
+    };
+
+    void loadCatalog();
+    return () => {
+      disposed = true;
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+    };
+  }, [readPersistedOpencodeModels]);
+
+  const refreshOpencodeModels = useCallback(async () => {
+    setOpencodeModelsLoading(true);
+    try {
+      // This is the only user-initiated path allowed to refresh discovery. The
+      // backend uses the verified absolute local Runtime/ACP pair, then the UI
+      // reads the persisted catalog below; it never launches bare `opencode`.
+      const refreshed = await agentsApi.refreshCapabilityCatalog('opencode');
+      if (!refreshed) {
+        toast.error(t('general.modelsRefreshFailed'));
+        return;
+      }
+
+      const models = await readPersistedOpencodeModels();
+      if (!models?.length) {
+        toast.error(t('general.modelsRefreshFailed'));
+        return;
+      }
       toast.success(t('general.modelsRefreshed'));
     } catch (error) {
       toast.error(
@@ -235,20 +245,15 @@ export function GeneralSettings() {
     } finally {
       setOpencodeModelsLoading(false);
     }
-  }, [t]);
+  }, [readPersistedOpencodeModels, t]);
 
   const promptEnhancementModels = useMemo(() => {
-    const models = [...opencodeModels, ...FALLBACK_OPENCODE_MODELS];
-    const current = draft?.prompt_enhancement_model?.trim();
     const uniqueModels: string[] = [];
 
-    for (const model of models) {
+    for (const model of opencodeModels) {
       if (model && !uniqueModels.includes(model)) {
         uniqueModels.push(model);
       }
-    }
-    if (current && !uniqueModels.includes(current)) {
-      uniqueModels.push(current);
     }
 
     return uniqueModels.sort((a, b) => {
@@ -259,7 +264,12 @@ export function GeneralSettings() {
       }
       return a.localeCompare(b);
     });
-  }, [draft?.prompt_enhancement_model, opencodeModels]);
+  }, [opencodeModels]);
+  const currentPromptEnhancementModel =
+    draft?.prompt_enhancement_model?.trim() ?? '';
+  const currentPromptEnhancementModelAvailable =
+    currentPromptEnhancementModel.length > 0 &&
+    promptEnhancementModels.includes(currentPromptEnhancementModel);
 
   const playSound = async (soundFile: SoundFile) => {
     try {
@@ -479,66 +489,83 @@ export function GeneralSettings() {
               </p>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                {t('general.opencodeModel')}
-              </Label>
-              <div className="flex items-center justify-end gap-2">
-                <Select
-                  value={draft.prompt_enhancement_model}
-                  onValueChange={(value: string) =>
-                    updateDraft({ prompt_enhancement_model: value })
-                  }
-                  disabled={promptEnhancementModels.length === 0}
-                >
-                  <SelectTrigger className="!w-72">
-                    <SelectValue
-                      placeholder={t('general.selectModelPlaceholder')}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-4">
+                <Label className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {t('general.opencodeModel')}
+                </Label>
+                <div className="flex items-center justify-end gap-2">
+                  <Select
+                    value={
+                      currentPromptEnhancementModelAvailable
+                        ? currentPromptEnhancementModel
+                        : undefined
+                    }
+                    onValueChange={(value: string) =>
+                      updateDraft({ prompt_enhancement_model: value })
+                    }
+                    disabled={promptEnhancementModels.length === 0}
+                  >
+                    <SelectTrigger
+                      className="!w-72"
+                      aria-label={t('general.opencodeModel')}
+                    >
+                      <SelectValue
+                        placeholder={t('general.selectModelPlaceholder')}
+                      />
+                    </SelectTrigger>
+                    <SelectContent align="start" className="max-h-72">
+                      {promptEnhancementModels.map((model) => {
+                        const isFree = isFreeOpenCodeModel(model);
+                        return (
+                          <SelectItem
+                            key={model}
+                            value={model}
+                            textValue={model}
+                            className={
+                              isFree
+                                ? 'settings-status-free font-medium focus:text-[hsl(var(--success))]'
+                                : undefined
+                            }
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate">{model}</span>
+                              {isFree ? (
+                                <span className="settings-status-free-badge shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none">
+                                  FREE
+                                </span>
+                              ) : null}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => void refreshOpencodeModels()}
+                    disabled={opencodeModelsLoading}
+                    title={t('general.refreshModels')}
+                    aria-label={t('general.refreshModels')}
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${
+                        opencodeModelsLoading ? 'animate-spin' : ''
+                      }`}
                     />
-                  </SelectTrigger>
-                  <SelectContent align="start" className="max-h-72">
-                    {promptEnhancementModels.map((model) => {
-                      const isFree = isFreeOpenCodeModel(model);
-                      return (
-                        <SelectItem
-                          key={model}
-                          value={model}
-                          textValue={model}
-                          className={
-                            isFree
-                              ? 'settings-status-free font-medium focus:text-[hsl(var(--success))]'
-                              : undefined
-                          }
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate">{model}</span>
-                            {isFree ? (
-                              <span className="settings-status-free-badge shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none">
-                                FREE
-                              </span>
-                            ) : null}
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => void refreshOpencodeModels()}
-                  disabled={opencodeModelsLoading}
-                  title={t('general.refreshModels')}
-                  aria-label={t('general.refreshModels')}
-                >
-                  <RefreshCw
-                    className={`h-3.5 w-3.5 ${
-                      opencodeModelsLoading ? 'animate-spin' : ''
-                    }`}
-                  />
-                </Button>
+                  </Button>
+                </div>
               </div>
+              {currentPromptEnhancementModel &&
+              !currentPromptEnhancementModelAvailable ? (
+                <p className="text-right text-[11px] text-muted-foreground">
+                  {t('general.currentModelUnavailable', {
+                    model: currentPromptEnhancementModel,
+                  })}
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-2">

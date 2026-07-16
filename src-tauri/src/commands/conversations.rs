@@ -162,7 +162,7 @@ pub struct ConversationSetSessionModeRequest {
 pub struct ConversationSetSessionConfigOptionRequest {
     pub conversation_id: String,
     pub key: String,
-    pub value: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]

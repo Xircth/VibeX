@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { type ReactNode, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { getQueueStatusQueryKey, type QueueStatus } from './sessionComposerQueue';
+import {
+  getQueueStatusQueryKey,
+  type QueueStatus,
+} from './sessionComposerQueue';
 import { useSessionComposerEditorChange } from './useSessionComposerEditorChange';
 
 function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
@@ -12,6 +15,7 @@ function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
       session_id: 'session-1',
       created_at: '2026-05-25T00:00:00.000Z',
       updated_at: '2026-05-25T00:00:00.000Z',
+      executorProfileId: { executor: 'codex', variant: null },
       data: {
         message: 'queued draft',
         images: [],
@@ -31,7 +35,10 @@ function wrapperFor(queryClient: QueryClient) {
 describe('useSessionComposerEditorChange', () => {
   it('keeps queued drafts intact while updating local state and clearing errors', () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(getQueueStatusQueryKey('session-1'), queuedStatus());
+    queryClient.setQueryData(
+      getQueueStatusQueryKey('session-1'),
+      queuedStatus()
+    );
     const setFollowUpError = vi.fn();
     const setFollowUpMessage = vi.fn();
     const { result } = renderHook(
@@ -103,16 +110,14 @@ describe('useSessionComposerEditorChange', () => {
         setFollowUpMessage: (message: string) => void;
       }) => {
         const [localMessage, setLocalMessage] = useState('initial');
-        const {
-          applyDraftMessage,
-          handleEditorChange,
-        } = useSessionComposerEditorChange({
-          sessionId: 'session-1',
-          followUpError: null,
-          setFollowUpError: vi.fn(),
-          setLocalMessage,
-          setFollowUpMessage,
-        });
+        const { applyDraftMessage, handleEditorChange } =
+          useSessionComposerEditorChange({
+            sessionId: 'session-1',
+            followUpError: null,
+            setFollowUpError: vi.fn(),
+            setLocalMessage,
+            setFollowUpMessage,
+          });
 
         return { applyDraftMessage, handleEditorChange, localMessage };
       },

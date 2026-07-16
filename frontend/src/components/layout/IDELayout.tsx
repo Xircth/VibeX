@@ -41,6 +41,10 @@ import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
 } from '@/utils/dockviewHelpers';
+import {
+  applyWorkspaceZoneConstraints,
+  MIN_LEFT_PANEL_WIDTH,
+} from '@/utils/dockviewWorkspaceConstraints';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   arrangementsEqual,
@@ -75,12 +79,11 @@ import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
 
 const LAYOUT = {
   // Default zone widths are fractions of the full grid width: A (dock) 20%,
-  // C (session) 30%. Defaults only — the user can drag either column to any
-  // width and that choice persists; nothing snaps it back.
+  // C (session) 30%. Users can resize either column above its usable minimum;
+  // that choice persists and nothing snaps it back to the defaults.
   LEFT_PANEL_DEFAULT_RATIO: 0.2,
   SESSION_PANEL_DEFAULT_RATIO: 0.3,
-  LEFT_PANEL_MIN_WIDTH: 200,
-  LAYOUT_RESTORE_DELAY_MS: 100,
+  LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
   // Frame budget for the width-stability wait in applyDefaultSizes. Window
   // restore can animate for a few hundred ms; waiting costs nothing while the
   // width is still changing.
@@ -232,6 +235,7 @@ function normalizeGroupIds(api: DockviewApi) {
 
   syncDockviewGroupRegistry(api);
   applyLeftGroupHeaderHiding(api);
+  applyWorkspaceZoneConstraints(api);
 }
 
 function buildDefaultLayout(api: DockviewApi) {
@@ -247,6 +251,7 @@ function buildDefaultLayout(api: DockviewApi) {
     referencePanel: welcomePanel,
     direction: 'left',
     hideHeader: true,
+    constraints: { minimumWidth: LAYOUT.LEFT_PANEL_MIN_WIDTH },
     initialWidth: defaultDockWidth(api.width),
   });
 
@@ -265,6 +270,7 @@ function buildDefaultLayout(api: DockviewApi) {
     referencePanel: welcomePanel,
     direction: 'right',
     hideHeader: true,
+    constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
     initialWidth: defaultSessionWidth(api.width),
   });
 
@@ -413,7 +419,6 @@ export function IDELayout({
     null
   );
   const isResettingRef = useRef(false);
-  const isClampingRef = useRef(false);
   const prevSerializedLayoutRef = useRef(serializedLayout);
   const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
   const lastSelfHealAtRef = useRef(0);
@@ -499,33 +504,6 @@ export function IDELayout({
     },
     []
   );
-
-  const clampPanelWidths = useCallback((api: DockviewApi) => {
-    if (isClampingRef.current) return;
-
-    isClampingRef.current = true;
-    try {
-      if (api.width <= 0) return;
-
-      const leftGroup = getLeftGroup(api);
-      if (!leftGroup?.api.isVisible) return;
-
-      // No width policing beyond this: the user owns both column widths.
-      // Only a dock crushed to an unusable sliver (a proportional squeeze
-      // from an oversized sibling column) is restored to its minimum.
-      if (
-        leftGroup.api.width > 0 &&
-        leftGroup.api.width < LAYOUT.LEFT_PANEL_MIN_WIDTH &&
-        api.width > LAYOUT.LEFT_PANEL_MIN_WIDTH * 3
-      ) {
-        leftGroup.api.setSize({ width: LAYOUT.LEFT_PANEL_MIN_WIDTH });
-      }
-    } catch {
-      // Ignore clamp failures during intermediate layout changes.
-    } finally {
-      isClampingRef.current = false;
-    }
-  }, []);
 
   const buildArrangeOptions = useCallback((): ArrangeLayoutOptions => {
     const layoutState = useLayoutStore.getState();
@@ -681,6 +659,7 @@ export function IDELayout({
           referencePanel,
           direction: 'left',
           hideHeader: true,
+          constraints: { minimumWidth: LAYOUT.LEFT_PANEL_MIN_WIDTH },
           initialWidth: defaultDockWidth(api.width),
         });
       }
@@ -773,6 +752,7 @@ export function IDELayout({
         referencePanel,
         direction: 'right',
         hideHeader: true,
+        constraints: { minimumWidth: MIN_RIGHT_PANEL_WIDTH },
         initialWidth: defaultSessionWidth(api.width),
       });
     }
@@ -978,7 +958,6 @@ export function IDELayout({
           if (isResettingRef.current) return;
 
           normalizeGroupIds(api);
-          clampPanelWidths(api);
 
           // Self-heal: if some code path re-created a zone group in the
           // wrong column, snap the grid back to the configured arrangement.
@@ -1049,7 +1028,6 @@ export function IDELayout({
       applyArrangement,
       applyDefaultSizes,
       buildArrangeOptions,
-      clampPanelWidths,
       ensureSessionPanel,
       rebuildDefaultLayout,
       registerDndGuard,

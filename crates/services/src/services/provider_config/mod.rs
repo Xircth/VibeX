@@ -37,11 +37,19 @@ const SUPPORTED_AGENTS: &[&str] = &[
     "claude_code",
     "codex",
     "gemini",
-    "open_code",
+    "opencode",
     "open_claw",
     "hermes",
     "cline",
 ];
+
+/// Historical versions used `open_code` in the provider store, while every
+/// public Agent API (and OpenCode itself) uses `opencode`.  Keep accepting the
+/// old spelling at the boundary, but never let it escape into newly-written
+/// state.  This gives the provider store one canonical key without stranding
+/// existing user configuration.
+const LEGACY_OPENCODE_AGENT_KEY: &str = "open_code";
+const OPENCODE_AGENT_KEY: &str = "opencode";
 
 /// `cline` keeps its provider config inside the VS Code extension's global
 /// state, not a switchable file, so file-based apply is unavailable for it.
@@ -289,9 +297,13 @@ async fn load_store() -> Result<ProviderStore, ProviderConfigError> {
         .map_err(|e| ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display())))?;
 
     if value.get("agents").is_some() {
-        return serde_json::from_value(value).map_err(|e| {
+        let mut store: ProviderStore = serde_json::from_value(value).map_err(|e| {
             ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display()))
-        });
+        })?;
+        if canonicalize_store_agent_keys(&mut store) {
+            save_store(&store).await?;
+        }
+        return Ok(store);
     }
 
     // Legacy v1 -> v2 migration.
@@ -311,14 +323,10 @@ fn migrate_legacy(
     let mut secrets = ProviderSecrets::default();
 
     for lp in &legacy.providers {
-        let agents: Vec<String> = lp
-            .agent_types
-            .iter()
-            .filter(|agent| SUPPORTED_AGENTS.contains(&agent.as_str()))
-            .cloned()
-            .collect();
-
-        for agent in agents {
+        for legacy_agent in &lp.agent_types {
+            let Some(agent) = canonical_agent_key(legacy_agent) else {
+                continue;
+            };
             let new_id = Uuid::new_v4().to_string();
             let created_at = if lp.created_at.is_empty() {
                 Utc::now().to_rfc3339()
@@ -331,7 +339,7 @@ fn migrate_legacy(
                 lp.updated_at.clone()
             };
 
-            let entry = store.agents.entry(agent.clone()).or_default();
+            let entry = store.agents.entry(agent.to_string()).or_default();
             entry.providers.push(ProviderRecord {
                 id: new_id.clone(),
                 name: lp.name.clone(),
@@ -344,7 +352,7 @@ fn migrate_legacy(
                 created_at,
                 updated_at,
             });
-            if legacy.active_by_agent.get(&agent) == Some(&lp.id) {
+            if legacy.active_by_agent.get(legacy_agent) == Some(&lp.id) {
                 entry.current = Some(new_id.clone());
             }
             if let Some(key) = legacy_secrets.api_keys.get(&lp.id) {
@@ -362,13 +370,52 @@ fn migrate_legacy(
 
 fn normalize_agent(agent: &str) -> Result<String, ProviderConfigError> {
     let agent = agent.trim();
-    if SUPPORTED_AGENTS.contains(&agent) {
-        Ok(agent.to_string())
+    canonical_agent_key(agent)
+        .map(ToString::to_string)
+        .ok_or_else(|| ProviderConfigError::BadRequest(format!("未知 Agent：{agent}")))
+}
+
+fn canonical_agent_key(agent: &str) -> Option<&'static str> {
+    let agent = agent.trim();
+    if agent == LEGACY_OPENCODE_AGENT_KEY {
+        Some(OPENCODE_AGENT_KEY)
     } else {
-        Err(ProviderConfigError::BadRequest(format!(
-            "未知 Agent：{agent}"
-        )))
+        SUPPORTED_AGENTS
+            .iter()
+            .copied()
+            .find(|candidate| *candidate == agent)
     }
+}
+
+/// Move the legacy OpenCode bucket into the canonical bucket. If a user has
+/// data under both keys (for example after using an intermediate build), keep
+/// canonical records first, preserve any legacy records with distinct IDs, and
+/// retain the canonical current selection unless it is absent.
+fn canonicalize_store_agent_keys(store: &mut ProviderStore) -> bool {
+    let Some(mut legacy) = store.agents.remove(LEGACY_OPENCODE_AGENT_KEY) else {
+        return false;
+    };
+
+    match store.agents.get_mut(OPENCODE_AGENT_KEY) {
+        Some(canonical) => {
+            for record in legacy.providers.drain(..) {
+                if canonical
+                    .providers
+                    .iter()
+                    .all(|existing| existing.id != record.id)
+                {
+                    canonical.providers.push(record);
+                }
+            }
+            if canonical.current.is_none() {
+                canonical.current = legacy.current;
+            }
+        }
+        None => {
+            store.agents.insert(OPENCODE_AGENT_KEY.to_string(), legacy);
+        }
+    }
+    true
 }
 
 fn opt_trim(value: &Option<String>) -> Option<String> {
@@ -525,7 +572,7 @@ fn display_config_path(agent: &str) -> Option<String> {
         "claude_code" => home_dir().join(".claude").join("settings.json"),
         "codex" => codex_home_dir().join("config.toml"),
         "gemini" => home_dir().join(".gemini").join("settings.json"),
-        "open_code" => home_dir()
+        OPENCODE_AGENT_KEY => home_dir()
             .join(".config")
             .join("opencode")
             .join("opencode.json"),
@@ -773,7 +820,7 @@ fn render_provider_config(
         "claude_code" => render_claude(record, api_key),
         "codex" => render_codex(record, api_key),
         "gemini" => render_gemini(record, api_key),
-        "open_code" => render_opencode(record, api_key),
+        OPENCODE_AGENT_KEY => render_opencode(record, api_key),
         "open_claw" => render_openclaw(record, api_key),
         "hermes" => render_hermes(record, api_key),
         "cline" => Err(ProviderConfigError::BadRequest(
@@ -1410,7 +1457,7 @@ pub async fn fetch_agent_provider_models(
 }
 
 #[cfg(test)]
-mod codex_provider_tests {
+mod provider_config_tests {
     use super::*;
 
     fn record() -> ProviderRecord {
@@ -1498,5 +1545,49 @@ mod codex_provider_tests {
         let mut auth = serde_json::json!({});
         apply_codex_api_key_to_auth(&mut auth, Some("sk-new"));
         assert_eq!(auth["OPENAI_API_KEY"].as_str(), Some("sk-new"));
+    }
+
+    #[test]
+    fn normalizes_canonical_and_legacy_opencode_keys() {
+        assert_eq!(normalize_agent("opencode").unwrap(), OPENCODE_AGENT_KEY);
+        assert_eq!(normalize_agent("open_code").unwrap(), OPENCODE_AGENT_KEY);
+        assert!(normalize_agent("OpenCode").is_err());
+    }
+
+    #[test]
+    fn migrates_legacy_opencode_store_bucket_without_losing_records() {
+        let mut store = ProviderStore::default();
+        let mut canonical_record = record();
+        canonical_record.id = "canonical".to_string();
+        let mut legacy_record = record();
+        legacy_record.id = "legacy".to_string();
+
+        store.agents.insert(
+            OPENCODE_AGENT_KEY.to_string(),
+            AgentProviders {
+                providers: vec![canonical_record],
+                current: None,
+            },
+        );
+        store.agents.insert(
+            LEGACY_OPENCODE_AGENT_KEY.to_string(),
+            AgentProviders {
+                providers: vec![legacy_record],
+                current: Some("legacy".to_string()),
+            },
+        );
+
+        assert!(canonicalize_store_agent_keys(&mut store));
+        assert!(!store.agents.contains_key(LEGACY_OPENCODE_AGENT_KEY));
+
+        let opencode = store.agents.get(OPENCODE_AGENT_KEY).unwrap();
+        assert_eq!(opencode.providers.len(), 2);
+        assert_eq!(opencode.current.as_deref(), Some("legacy"));
+    }
+
+    #[test]
+    fn canonical_opencode_key_resolves_the_real_opencode_config_path() {
+        let path = display_config_path(OPENCODE_AGENT_KEY).unwrap();
+        assert!(Path::new(&path).ends_with(Path::new("opencode").join("opencode.json")));
     }
 }

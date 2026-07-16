@@ -113,7 +113,9 @@
     "openReleasePage": "Open release page",
     "updatingDependencies": "Updating local Agent dependencies...",
     "dependenciesUpdated": "Local Agent dependencies updated.",
-    "dependenciesUpdateFailed": "Failed to update local Agent dependencies."
+    "dependenciesUpdateFailed": "Failed to update local Agent dependencies.",
+    "agentRuntimeSetupRequired": "{{agents}} has a missing or incompatible local Agent Runtime or ACP. Open Agent Settings to check, install, or update it.",
+    "openAgentSettings": "Open Agent Settings"
   },
   "welcomePage": {
     "processing": "Processing...",

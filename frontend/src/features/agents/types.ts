@@ -224,12 +224,23 @@ export type AgentSessionConfigChoice = {
   description?: string | null;
 };
 
+/**
+ * Catalog-only dependency metadata for controls such as OpenCode's
+ * model-specific work intensity choices.
+ */
+export type AgentSessionConfigDependency = {
+  parent_key: string;
+  choices_by_parent_value: Record<string, AgentSessionConfigChoice[]>;
+};
+
 export type AgentSessionConfigOption = {
   key: string;
   label: string;
   description?: string | null;
+  category?: string | null;
   value?: unknown;
   choices: AgentSessionConfigChoice[];
+  dependency?: AgentSessionConfigDependency | null;
 };
 
 export type AgentAvailableCommand = {

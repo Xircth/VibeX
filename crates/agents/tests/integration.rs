@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use agents::{
-    AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentPromptId,
-    AgentPromptStatus, AgentRuntime, AgentSessionId, AgentKind, CancelAgentPromptInput,
+    AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentKind,
+    AgentPromptId, AgentPromptStatus, AgentRuntime, AgentSessionId, CancelAgentPromptInput,
     ConnectAgentInput, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink,
     SendAgentPromptInput, all_agent_types, registry_entry,
 };

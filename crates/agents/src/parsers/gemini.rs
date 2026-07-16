@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 
-use super::{ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns};
+use super::{
+    ConversationParser, ParseContext, ParseError, ParsedRecord, build_detail, group_into_turns,
+};
 use crate::conversation::{ContentBlock, ConversationDetail, TurnRole, TurnUsage};
 
 const PREVIEW_LIMIT: usize = 16384;
@@ -232,10 +234,7 @@ fn tool_is_error(call: &Value) -> bool {
     }
     if let Some(results) = call.get("result").and_then(Value::as_array) {
         for result in results {
-            if result
-                .pointer("/functionResponse/response/error")
-                .is_some()
-            {
+            if result.pointer("/functionResponse/response/error").is_some() {
                 return true;
             }
         }
@@ -262,10 +261,7 @@ fn extract_message_text(message: &Value) -> String {
             _ => String::new(),
         }
     };
-    let mut text = message
-        .get("content")
-        .map(from_value)
-        .unwrap_or_default();
+    let mut text = message.get("content").map(from_value).unwrap_or_default();
     if text.trim().is_empty() {
         text = message.get("message").map(from_value).unwrap_or_default();
     }
@@ -331,10 +327,16 @@ mod tests {
             &assistant.blocks[1],
             ContentBlock::ToolUse { tool_name, .. } if tool_name == "ReadFolder"
         ));
-        assert!(matches!(assistant.blocks[2], ContentBlock::ToolResult { .. }));
+        assert!(matches!(
+            assistant.blocks[2],
+            ContentBlock::ToolResult { .. }
+        ));
         assert!(matches!(assistant.blocks[3], ContentBlock::Text { .. }));
         assert_eq!(assistant.model.as_deref(), Some("gemini-2.5-pro"));
-        assert_eq!(assistant.usage.as_ref().unwrap().cache_read_input_tokens, 32);
+        assert_eq!(
+            assistant.usage.as_ref().unwrap().cache_read_input_tokens,
+            32
+        );
     }
 
     // The .jsonl variant with a header (no `type`), a $set line, and streaming

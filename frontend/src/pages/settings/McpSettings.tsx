@@ -47,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AGENT_OPTIONS } from '@/constants/agents';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import type { AgentType } from '@/features/agents/types';
 import type { JsonValue } from 'shared/types';
@@ -71,15 +72,8 @@ type Selection =
   | { kind: 'draft' }
   | null;
 
-const APP_OPTIONS: { value: McpAppType; label: string }[] = [
-  { value: 'claude_code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex CLI' },
-  { value: 'gemini', label: 'Gemini CLI' },
-  { value: 'openclaw', label: 'OpenClaw' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'hermes', label: 'Hermes Agent' },
-];
+// Shared selectable-agent options (single source: constants/agents).
+const APP_OPTIONS: ReadonlyArray<{ value: McpAppType; label: string }> = AGENT_OPTIONS;
 
 type AppsDraft = Record<McpAppType, boolean>;
 

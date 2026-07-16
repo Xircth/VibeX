@@ -2,6 +2,7 @@ import { useState, type ComponentProps } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionHubSidebar } from './SessionHubSidebar';
 
 vi.mock('@dnd-kit/core', () => ({
@@ -37,6 +38,10 @@ vi.mock('@dnd-kit/utilities', () => ({
 
 vi.mock('@/components/tasks/TerminalProfileControls', () => ({
   TerminalProfileControls: () => <div data-testid="profile-controls" />,
+}));
+
+vi.mock('@/features/agents/api', () => ({
+  agentsApi: { lastSessionControls: vi.fn().mockResolvedValue(null) },
 }));
 
 vi.mock('@/components/ui/scroll-area', () => ({
@@ -88,10 +93,14 @@ function Harness({
   onRestoreArchivedSession?: SidebarProps['onRestoreArchivedSession'];
 }) {
   const [isCreatePopoverOpen, setIsCreatePopoverOpen] = useState(false);
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  );
 
   return (
-    <SessionHubSidebar
-      width={320}
+    <QueryClientProvider client={queryClient}>
+      <SessionHubSidebar
+        width={320}
       isLoading={false}
       sessions={[]}
       archivedSessions={archivedSessions}
@@ -189,6 +198,7 @@ function Harness({
       onRestoreArchivedSession={onRestoreArchivedSession}
       onExpandedChange={vi.fn()}
     />
+    </QueryClientProvider>
   );
 }
 

@@ -60,6 +60,7 @@ db = { path = "../crates/db" }
 conversations = { path = "../crates/conversations" }
 services = { path = "../crates/services" }
 executors = { path = "../crates/executors" }
+strum = { workspace = true }
 git = { path = "../crates/git" }
 git2 = { workspace = true }
 local-deployment = { path = "../crates/local-deployment" }

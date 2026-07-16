@@ -235,7 +235,10 @@ mod tests {
             option("allow-always", AgentPermissionOptionKind::AllowAlways),
         ]);
         assert_eq!(
-            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
+            decide_remote_permission_response(
+                RemotePermissionIntent::ApproveOnce,
+                &request.options
+            ),
             Some(AgentPermissionResponse::Selected {
                 option_id: "allow-once".to_string()
             })
@@ -249,7 +252,10 @@ mod tests {
             option("allow-always", AgentPermissionOptionKind::AllowAlways),
         ]);
         assert_eq!(
-            decide_remote_permission_response(RemotePermissionIntent::ApproveAlways, &request.options),
+            decide_remote_permission_response(
+                RemotePermissionIntent::ApproveAlways,
+                &request.options
+            ),
             Some(AgentPermissionResponse::Selected {
                 option_id: "allow-always".to_string()
             })
@@ -258,10 +264,15 @@ mod tests {
 
     #[test]
     fn remote_approve_once_falls_back_to_any_allow() {
-        let request =
-            request_with_options(vec![option("only-always", AgentPermissionOptionKind::AllowAlways)]);
+        let request = request_with_options(vec![option(
+            "only-always",
+            AgentPermissionOptionKind::AllowAlways,
+        )]);
         assert_eq!(
-            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
+            decide_remote_permission_response(
+                RemotePermissionIntent::ApproveOnce,
+                &request.options
+            ),
             Some(AgentPermissionResponse::Selected {
                 option_id: "only-always".to_string()
             })
@@ -299,10 +310,15 @@ mod tests {
     // return None so the caller reports it rather than silently rejecting.
     #[test]
     fn remote_approve_without_allow_option_is_unactionable() {
-        let request =
-            request_with_options(vec![option("reject", AgentPermissionOptionKind::RejectOnce)]);
+        let request = request_with_options(vec![option(
+            "reject",
+            AgentPermissionOptionKind::RejectOnce,
+        )]);
         assert_eq!(
-            decide_remote_permission_response(RemotePermissionIntent::ApproveOnce, &request.options),
+            decide_remote_permission_response(
+                RemotePermissionIntent::ApproveOnce,
+                &request.options
+            ),
             None
         );
     }

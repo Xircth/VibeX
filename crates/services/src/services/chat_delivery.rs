@@ -593,7 +593,13 @@ pub fn im_env_path() -> Option<PathBuf> {
 fn token_key(channel_id: &str) -> String {
     let sanitized: String = channel_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("CHAT_CHANNEL_TOKEN_{sanitized}")
 }

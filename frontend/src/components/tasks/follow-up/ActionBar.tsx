@@ -103,12 +103,6 @@ export function ActionBar({
     imageCount: attachmentCount,
   });
 
-  // Once the agent advertises live ACP config options, they are the source of
-  // truth for model / permission choices — suppress the overlapping static
-  // profile pickers so the composer never shows two competing selectors.
-  const hasAcpConfigOptions = sessionConfigOptions.some(
-    (option) => (option.choices?.length ?? 0) > 1
-  );
   // Claude's adapter advertises the permission mode both as `modes` and as a
   // `mode`-category config option; the dedicated mode picker wins.
   const showModeSelector = Boolean(
@@ -132,7 +126,10 @@ export function ActionBar({
           iconOnly={true}
           dropdownSide="top"
           className="flex flex-wrap items-center gap-1"
-          suppressAcpManagedControls={hasAcpConfigOptions}
+          // Capability choices come exclusively from the live ACP session or
+          // persisted catalog. Static executor profiles remain defaults, not a
+          // competing model/permission/Fast selector source.
+          suppressAcpManagedControls={true}
         />
       ) : null}
 

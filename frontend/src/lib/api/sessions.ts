@@ -50,6 +50,7 @@ export const sessionsApi = {
   },
 
   createProject: async (data: {
+    session_id?: string | null;
     project_id: string;
     workspace_id?: string | null;
     branch?: string | null;
@@ -61,6 +62,7 @@ export const sessionsApi = {
   }): Promise<Session> => {
     return tauriInvoke<Session>('create_project_session', {
       payload: {
+        session_id: data.session_id ?? null,
         project_id: data.project_id,
         workspace_id: data.workspace_id ?? null,
         branch: data.branch ?? null,

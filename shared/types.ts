@@ -48,7 +48,18 @@ export type CreateTask = { project_id: string, title: string, description: strin
 
 export type UpdateTask = { title: string | null, description: string | null, status: TaskStatus | null, parent_workspace_id: string | null, image_ids: Array<string> | null, };
 
-export type DraftFollowUpData = { message: string, images: Array<string>, executor_config: ExecutorProfileId, queued: boolean, };
+export type DraftFollowUpData = { message: string, images: Array<string>, executor_config: ExecutorProfileId, queued: boolean,
+/**
+ * ACP session-mode pick made before the session existed (create form
+ * preset); the composer seeds its pending selection from this and applies
+ * it as the first turn's modeOverride.
+ */
+mode_override?: string,
+/**
+ * Pre-session ACP config-option picks (option key → choice value), same
+ * contract as `mode_override`.
+ */
+config_overrides: { [key in string]?: string }, };
 
 export type DraftWorkspaceData = { message: string, project_id: string | null, repos: Array<DraftWorkspaceRepo>, selected_profile: ExecutorProfileId | null, linked_issue: DraftWorkspaceLinkedIssue | null, };
 
@@ -838,7 +849,12 @@ export type AgentSessionConfigOption = { key: string, label: string, description
  * used by the UI to group selectors and dedupe the `mode` option against the
  * dedicated session-mode picker.
  */
-category?: string | null, value?: JsonValue | null, choices?: Array<AgentSessionConfigChoice>, };
+category?: string | null, value?: JsonValue | null, choices?: Array<AgentSessionConfigChoice>,
+/**
+ * Optional pre-session dependency information. It is omitted for normal
+ * live ACP options, whose `choices` are already current.
+ */
+dependency?: AgentSessionConfigDependency | null, };
 
 export type AgentSessionMode = { id: string, label: string, description?: string | null, };
 
@@ -1189,7 +1205,16 @@ icon: string | null, expires_at: string | null, notes: string | null,
 /**
  * `pending` | `installing` | `installed` | `failed`.
  */
-install_status: string, install_error: string | null, created_at: string, updated_at: string, };
+install_status: string, install_error: string | null,
+/**
+ * Only enabled plugins show up in the workspace sidebar. Built-in
+ * presets start disabled; enabling one counts as configuring it.
+ */
+enabled: boolean,
+/**
+ * Seeded by VibeX itself; cannot be deleted, only disabled.
+ */
+builtin: boolean, created_at: string, updated_at: string, };
 
 export type PluginInput = { name: string, skill_name: string, console_command: string, console_url: string | null, hook_message: string, install_command: string, author: string | null, icon: string | null, expires_at: string | null, notes: string | null, };
 
@@ -1208,5 +1233,46 @@ console_url: string | null,
  * The allocated port, when any template used `{{port}}`.
  */
 port: number | null, };
+
+export type AgentSettingInfo = { id: bigint,
+/**
+ * Typed identity (canonical key on the wire) so registry↔setting joins
+ * can never diverge on spelling again.
+ */
+agent_type: AgentKind, enabled: boolean, sort_order: number, installed_version: string | null, env_json: string | null, config_json: string | null, auto_approve_mode: string,
+/**
+ * Verified local presence (login/config marker, PATH binary, or global
+ * npm package). Never inferred from the distribution kind.
+ */
+installed: boolean,
+/**
+ * The distribution's runtime prerequisites (node/uv) are satisfied on
+ * this machine, so an install action can succeed.
+ */
+runtime_ok: boolean,
+/**
+ * Actual local CLI/ACP paths and versions when this Agent has a managed
+ * local runtime contract. Kept optional for non-local runtimes and
+ * backwards-compatible desktop/frontend upgrades.
+ */
+local_runtime?: LocalAgentRuntimeInfo, };
+
+export type ReorderAgentsRequest = {
+/**
+ * Agent identities in the desired order
+ */
+order: Array<AgentKind>, };
+
+export type UpdateAgentPreferences = { agent_type: AgentKind, enabled?: boolean, env_json?: string, config_json?: string, auto_approve_mode?: string, };
+
+export type AgentSessionControlsSnapshot = { modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, };
+
+export type AgentSessionConfigDependency = { parent_key: string, choices_by_parent_value: { [key in string]?: Array<AgentSessionConfigChoice> }, };
+
+export type AgentRuntimeComponentInfo = { path: string | null, version: string | null, minimum_supported_version: string | null, supported: boolean, };
+
+export type LocalAgentRuntimeInfo = { cli: AgentRuntimeComponentInfo, acp: AgentRuntimeComponentInfo, };
+
+export type AgentPreparedSessionSnapshot = { session: AgentSessionSnapshot, controls: AgentSessionControlsSnapshot, };
 
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";

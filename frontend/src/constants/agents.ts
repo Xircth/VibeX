@@ -5,9 +5,8 @@ import type { AgentKind } from 'shared/types';
  * Single source of truth — `getAgentName` (AgentIcon) and every selector read
  * from here so a name like "OpenCode" never drifts between surfaces.
  *
- * NOTE: having a name here does NOT mean the agent is runnable. What a user can
- * actually select is gated by `getSupportedAgents`, which reads the backend's
- * real executor profiles. Names beyond the runnable set are forward-compat only.
+ * NOTE: having a name here does NOT mean the agent is runnable — availability
+ * is the backend's verdict (`useSelectableAgents` / `list_agents.installed`).
  */
 export const AGENT_DISPLAY_NAMES: Record<AgentKind, string> = {
   ['claude_code']: 'Claude Code',
@@ -19,6 +18,32 @@ export const AGENT_DISPLAY_NAMES: Record<AgentKind, string> = {
   ['hermes']: 'Hermes',
   ['qa_mock']: 'QA Mock',
 };
+
+/**
+ * Agents offered in product UI, in registry order (excludes the test-only
+ * qa_mock). Settings pages and pickers derive their option lists from this
+ * instead of keeping per-page copies.
+ */
+export const SELECTABLE_AGENTS = [
+  'claude_code',
+  'codex',
+  'opencode',
+  'gemini',
+  'openclaw',
+  'cline',
+  'hermes',
+] as const satisfies readonly AgentKind[];
+
+export type SelectableAgentKind = (typeof SELECTABLE_AGENTS)[number];
+
+/** Shared `{value, label}` options for agent dropdowns/toggles. */
+export const AGENT_OPTIONS: ReadonlyArray<{
+  value: SelectableAgentKind;
+  label: string;
+}> = SELECTABLE_AGENTS.map((value) => ({
+  value,
+  label: AGENT_DISPLAY_NAMES[value],
+}));
 
 /** Alias kept for call sites that type an agent value. */
 export type SupportedAgent = AgentKind;
@@ -35,19 +60,4 @@ export function isKnownAgent(agent: string): agent is AgentKind {
 /** Friendly display name for an agent, falling back to the raw id. */
 export function getAgentDisplayName(agent: string): string {
   return AGENT_DISPLAY_NAMES[agent as AgentKind] ?? agent;
-}
-
-/**
- * The agents a user can actually select, derived from the backend's executor
- * profiles (`UserSystemInfo.executors`). This is the single source of truth for
- * "what can run" — the frontend never hardcodes the list, so when the backend
- * gains an executor it appears here automatically with no UI change.
- */
-export function getSupportedAgents(
-  profiles: Record<string, unknown> | null | undefined
-): AgentKind[] {
-  if (!profiles) return [];
-  return (Object.keys(profiles).filter(isKnownAgent) as AgentKind[]).sort(
-    (a, b) => a.localeCompare(b)
-  );
 }

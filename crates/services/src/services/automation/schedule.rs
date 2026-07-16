@@ -98,7 +98,10 @@ impl CronSchedule {
 fn parse_dow(field: &str) -> Result<Vec<u32>, CronParseError> {
     // Normalize 7 → 0 (both mean Sunday) before/after range parsing.
     let values = parse_field(field, 0, 7)?;
-    let mut normalized: Vec<u32> = values.into_iter().map(|v| if v == 7 { 0 } else { v }).collect();
+    let mut normalized: Vec<u32> = values
+        .into_iter()
+        .map(|v| if v == 7 { 0 } else { v })
+        .collect();
     normalized.sort_unstable();
     normalized.dedup();
     Ok(normalized)
@@ -155,8 +158,9 @@ fn parse_field(field: &str, min: u32, max: u32) -> Result<Vec<u32>, CronParseErr
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::NaiveDate;
+
+    use super::*;
 
     fn dt(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(y, m, d)

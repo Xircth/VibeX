@@ -60,6 +60,7 @@ import type { KanbanProjectSessionRecord } from '@/hooks/useKanbanProjectSession
 import { cn } from '@/lib/utils';
 import {
   SessionCreationForm,
+  type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
@@ -123,6 +124,9 @@ interface SessionHubSidebarProps {
   onArchiveViewChange: (value: boolean) => void;
   onCreatePopoverOpenChange: (open: boolean) => void;
   onCreateSession: () => void;
+  onSessionControlsPresetChange?: (
+    preset: SessionControlsPreset | null
+  ) => void;
   onCreateModeChange: (value: SessionCreationMode) => void;
   onCreateWorkspaceValueChange: (value: string) => void;
   onCreateSessionNameChange: (value: string) => void;
@@ -501,6 +505,7 @@ export function SessionHubSidebar({
   onArchiveViewChange,
   onCreatePopoverOpenChange,
   onCreateSession,
+  onSessionControlsPresetChange,
   onCreateModeChange,
   onCreateWorkspaceValueChange,
   onCreateSessionNameChange,
@@ -666,6 +671,9 @@ export function SessionHubSidebar({
                     repoBranchConfigs={repoBranchConfigs}
                     onRepoBranchChange={onRepoBranchChange}
                     isLoadingBranches={isLoadingRepoBranches}
+                    onSessionControlsPresetChange={
+                      onSessionControlsPresetChange
+                    }
                     canSubmit={canCreateSession}
                     isSubmitting={isCreatePending}
                     errorMessage={

@@ -25,6 +25,7 @@ function queuedStatus(message = 'queued text'): Extract<
       session_id: 'session-1',
       created_at: '2026-05-25T00:00:00.000Z',
       updated_at: '2026-05-25T00:00:00.000Z',
+      executorProfileId: profile,
       data: {
         message,
         images: ['vibe://queued'],
@@ -53,7 +54,7 @@ describe('useSessionComposerQueue', () => {
     });
   });
 
-  it('sends queued prompts through the ACP runtime and writes local queue state', async () => {
+  it('stores queued prompts locally while the current turn is running', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -89,21 +90,15 @@ describe('useSessionComposerQueue', () => {
       ]);
     });
 
-    expect(sendAgentRuntimeTurnMock).toHaveBeenCalledWith({
-      workspaceId: 'workspace-1',
-      sessionId: 'session-1',
-      text: 'next message',
-      images: ['vibe://next-image'],
-      executorProfileId: profile,
-    });
+    expect(sendAgentRuntimeTurnMock).not.toHaveBeenCalled();
     expect(queryClient.getQueryData(getQueueStatusQueryKey('session-1'))).toMatchObject(
       {
         status: 'queued',
         message: {
-          id: 'turn-1',
           session_id: 'session-1',
           created_at: expect.any(String),
           updated_at: expect.any(String),
+          executorProfileId: profile,
           data: {
             message: 'next message',
             images: ['vibe://next-image'],
@@ -118,6 +113,41 @@ describe('useSessionComposerQueue', () => {
 
     expect(queryClient.getQueryData(getQueueStatusQueryKey('session-1'))).toEqual(
       { status: 'empty' }
+    );
+  });
+
+  it('starts a queued prompt after the active turn finishes', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(getQueueStatusQueryKey('session-1'), queuedStatus());
+
+    const { rerender } = renderHook(
+      ({ isAttemptRunning }: { isAttemptRunning: boolean }) =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning,
+          processCount: isAttemptRunning ? 1 : 0,
+        }),
+      { initialProps: { isAttemptRunning: true }, wrapper: wrapperFor(queryClient) }
+    );
+
+    rerender({ isAttemptRunning: false });
+
+    await waitFor(() =>
+      expect(sendAgentRuntimeTurnMock).toHaveBeenCalledWith({
+        workspaceId: 'workspace-1',
+        sessionId: 'session-1',
+        text: 'queued text',
+        images: ['vibe://queued'],
+        executorProfileId: profile,
+      })
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryData(getQueueStatusQueryKey('session-1'))).toEqual(
+        { status: 'empty' }
+      )
     );
   });
 

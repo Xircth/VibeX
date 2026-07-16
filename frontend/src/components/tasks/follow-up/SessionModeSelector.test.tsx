@@ -64,4 +64,24 @@ describe('SessionModeSelector', () => {
 
     expect(onSelect).toHaveBeenCalledWith('code');
   });
+
+  it('keeps every Agent-advertised mode selectable', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <SessionModeSelector
+        modes={[
+          { id: 'default', label: 'Default' },
+          { id: 'bypassPermissions', label: 'Bypass permissions' },
+        ]}
+        current="default"
+        selected={null}
+        onSelect={onSelect}
+      />
+    );
+
+    await user.click(screen.getByTitle('会话模式: Default'));
+    await user.click(await screen.findByText('Bypass permissions'));
+    expect(onSelect).toHaveBeenCalledWith('bypassPermissions');
+  });
 });

@@ -493,9 +493,9 @@ export function KanbanUsageDashboard() {
             <div className="space-y-5">
               <div className="flex gap-4">
                 <div className="grid flex-1 grid-cols-2 gap-4">
-                  <div className="kanban-usage-card p-4">
+                  <div className="kanban-usage-card kanban-usage-card--pink p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-primary" />
+                      <CreditCard className="h-5 w-5 text-[color:var(--usage-pink-fg)]" />
                       <span className="text-sm text-muted-foreground">
                         {t('usageDashboard.totalCost')}
                       </span>
@@ -508,9 +508,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="kanban-usage-card p-4">
+                  <div className="kanban-usage-card kanban-usage-card--blue p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <MessageSquare className="h-5 w-5 text-[hsl(var(--success))]" />
+                      <MessageSquare className="h-5 w-5 text-[color:var(--usage-blue-fg)]" />
                       <span className="text-sm text-muted-foreground">
                         {t('usageDashboard.totalSessions')}
                       </span>
@@ -525,9 +525,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="kanban-usage-card p-4">
+                  <div className="kanban-usage-card kanban-usage-card--green p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <Hash className="h-5 w-5 text-[hsl(var(--status-running))]" />
+                      <Hash className="h-5 w-5 text-[color:var(--usage-green-fg)]" />
                       <span className="text-sm text-muted-foreground">
                         {t('usageDashboard.totalTokens')}
                       </span>
@@ -540,9 +540,9 @@ export function KanbanUsageDashboard() {
                     </div>
                   </div>
 
-                  <div className="kanban-usage-card p-4">
+                  <div className="kanban-usage-card kanban-usage-card--red p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-[hsl(var(--warning))]" />
+                      <TrendingUp className="h-5 w-5 text-[color:var(--usage-red-fg)]" />
                       <span className="text-sm text-muted-foreground">
                         {t('usageDashboard.avgPerSession')}
                       </span>
@@ -607,15 +607,20 @@ export function KanbanUsageDashboard() {
                               x2="0"
                               y2="1"
                             >
+                              {/* var() 在 SVG presentation attribute 中无效，必须走 style */}
                               <stop
                                 offset="0%"
-                                stopColor="hsl(var(--primary))"
-                                stopOpacity="0.2"
+                                style={{
+                                  stopColor: 'hsl(var(--primary))',
+                                  stopOpacity: 0.2,
+                                }}
                               />
                               <stop
                                 offset="100%"
-                                stopColor="hsl(var(--primary))"
-                                stopOpacity="0.02"
+                                style={{
+                                  stopColor: 'hsl(var(--primary))',
+                                  stopOpacity: 0.02,
+                                }}
                               />
                             </linearGradient>
                           </defs>
@@ -630,7 +635,7 @@ export function KanbanUsageDashboard() {
                             <path
                               d={chartPath}
                               fill="none"
-                              stroke="hsl(var(--primary))"
+                              style={{ stroke: 'hsl(var(--primary))' }}
                               strokeWidth="1.5"
                               strokeLinecap="round"
                               strokeLinejoin="round"
@@ -639,10 +644,10 @@ export function KanbanUsageDashboard() {
                           ) : null}
 
                           {filteredDailyUsage.map((day, index) => {
-                            const x =
-                              (index /
-                                Math.max(1, filteredDailyUsage.length - 1)) *
-                              100;
+                            const singlePoint = filteredDailyUsage.length < 2;
+                            const x = singlePoint
+                              ? 50
+                              : (index / (filteredDailyUsage.length - 1)) * 100;
                             const y =
                               100 -
                               (maxDailyCost > 0
@@ -655,8 +660,12 @@ export function KanbanUsageDashboard() {
                                 cx={x}
                                 cy={y}
                                 r="2"
-                                fill="hsl(var(--primary))"
-                                className="cursor-pointer opacity-0 transition-opacity hover:opacity-100"
+                                style={{ fill: 'hsl(var(--primary))' }}
+                                className={
+                                  singlePoint
+                                    ? 'cursor-pointer'
+                                    : 'cursor-pointer opacity-0 transition-opacity hover:opacity-100'
+                                }
                                 onMouseEnter={(event) => {
                                   const rect =
                                     event.currentTarget.getBoundingClientRect();
@@ -684,7 +693,13 @@ export function KanbanUsageDashboard() {
                       </div>
                     </div>
 
-                    <div className="ml-12 mt-1 flex justify-between">
+                    <div
+                      className={
+                        filteredDailyUsage.length < 2
+                          ? 'ml-12 mt-1 flex justify-center'
+                          : 'ml-12 mt-1 flex justify-between'
+                      }
+                    >
                       <span className="text-[9px] text-muted-foreground">
                         {formatShortDate(filteredDailyUsage[0].date)}
                       </span>
@@ -697,11 +712,14 @@ export function KanbanUsageDashboard() {
                           )}
                         </span>
                       ) : null}
-                      <span className="text-[9px] text-muted-foreground">
-                        {formatShortDate(
-                          filteredDailyUsage[filteredDailyUsage.length - 1].date
-                        )}
-                      </span>
+                      {filteredDailyUsage.length > 1 ? (
+                        <span className="text-[9px] text-muted-foreground">
+                          {formatShortDate(
+                            filteredDailyUsage[filteredDailyUsage.length - 1]
+                              .date
+                          )}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

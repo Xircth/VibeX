@@ -3,13 +3,9 @@ use std::collections::BTreeMap;
 use agents::conversation::{
     ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationErrorView,
     ConversationEvent, ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn, PlanEntry,
-    SessionLoadFailureReason, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
+    PlanEntry, SessionLoadFailureReason, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
 };
-use serde::{Deserialize, Serialize};
-use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
-use uuid::Uuid;
-
 use db::models::{
     conversation_event::{
         AppendConversationEvent, ConversationEventRecord, find_conversation_event_by_idempotency,
@@ -23,6 +19,9 @@ use db::models::{
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
 };
+use serde::{Deserialize, Serialize};
+use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
+use uuid::Uuid;
 
 // v2: timeline rows carry `row_id` + `revision` (incremental row-op protocol,
 // 消灭双投影); the snapshot's `side_rows` shape changed, so v1 snapshots are
@@ -586,9 +585,13 @@ impl IncrementalRowProjector {
         if fold.last_sequence > up_to_sequence {
             fold = ProjectionFold::default();
         }
-        let tail =
-            ConversationEventRecord::events_since(pool, conversation_id, fold.last_sequence, i64::MAX)
-                .await?;
+        let tail = ConversationEventRecord::events_since(
+            pool,
+            conversation_id,
+            fold.last_sequence,
+            i64::MAX,
+        )
+        .await?;
         for record in &tail {
             if record.sequence <= up_to_sequence {
                 fold.apply(record)?;
@@ -660,7 +663,10 @@ impl ProjectionFold {
     /// Fold one event into the projection **and** return the incremental row ops it
     /// produced (the single-projection realtime protocol, 消灭双投影). Callers that only
     /// want the folded state (`project`, `project_records`) discard the ops.
-    fn apply(&mut self, record: &ConversationEventRecord) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
+    fn apply(
+        &mut self,
+        record: &ConversationEventRecord,
+    ) -> Result<Vec<ConversationRowOp>, sqlx::Error> {
         self.last_sequence = self.last_sequence.max(record.sequence);
         let event = match conversation_event_from_record(record) {
             ParsedEvent::Known(event) => event,
@@ -703,7 +709,9 @@ impl ProjectionFold {
             ensure_turn(&mut self.turns, &mut self.turn_order, turn_id, record);
             let turn = self.turns.get_mut(&turn_id).expect("turn exists");
             match stream {
-                TimelineTextStream::Text => append_text_block(&mut turn.assistant.blocks, text.clone()),
+                TimelineTextStream::Text => {
+                    append_text_block(&mut turn.assistant.blocks, text.clone())
+                }
                 TimelineTextStream::Reasoning => {
                     append_thinking_block(&mut turn.assistant.blocks, text.clone())
                 }
@@ -780,18 +788,20 @@ impl ProjectionFold {
 
                     // Upsert semantics: a tool_call_update must fold into the
                     // existing card, not spawn a second titleless block.
-                    let existing_use = turn.assistant.blocks.iter_mut().find_map(|block| {
-                        match block {
-                            ContentBlock::ToolUse {
-                                tool_use_id: Some(id),
-                                tool_name,
-                                kind,
-                                input_preview,
-                                ..
-                            } if *id == call_id => Some((tool_name, kind, input_preview)),
-                            _ => None,
-                        }
-                    });
+                    let existing_use =
+                        turn.assistant
+                            .blocks
+                            .iter_mut()
+                            .find_map(|block| match block {
+                                ContentBlock::ToolUse {
+                                    tool_use_id: Some(id),
+                                    tool_name,
+                                    kind,
+                                    input_preview,
+                                    ..
+                                } if *id == call_id => Some((tool_name, kind, input_preview)),
+                                _ => None,
+                            });
                     match existing_use {
                         Some((tool_name, kind, input_preview)) => {
                             if let Some(title) = tool_call.title {
@@ -825,23 +835,28 @@ impl ProjectionFold {
                     // Attach/refresh the paired result so the card's status dot
                     // settles: on output, or on a terminal status without one.
                     let is_error = matches!(tool_call.status.as_deref(), Some("failed"));
-                    let terminal =
-                        matches!(tool_call.status.as_deref(), Some("completed") | Some("failed"));
+                    let terminal = matches!(
+                        tool_call.status.as_deref(),
+                        Some("completed") | Some("failed")
+                    );
                     let output_preview = tool_call.raw_output.map(|output| match output {
                         serde_json::Value::String(text) => text,
                         other => other.to_string(),
                     });
                     if output_preview.is_some() || terminal {
                         let existing_result =
-                            turn.assistant.blocks.iter_mut().find_map(|block| match block {
-                                ContentBlock::ToolResult {
-                                    tool_use_id: Some(id),
-                                    output_preview,
-                                    is_error,
-                                    ..
-                                } if *id == call_id => Some((output_preview, is_error)),
-                                _ => None,
-                            });
+                            turn.assistant
+                                .blocks
+                                .iter_mut()
+                                .find_map(|block| match block {
+                                    ContentBlock::ToolResult {
+                                        tool_use_id: Some(id),
+                                        output_preview,
+                                        is_error,
+                                        ..
+                                    } if *id == call_id => Some((output_preview, is_error)),
+                                    _ => None,
+                                });
                         match existing_result {
                             Some((existing_output, existing_error)) => {
                                 if output_preview.is_some() {
@@ -1359,8 +1374,8 @@ fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEve
     match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
         Ok(event) => ParsedEvent::Known(event),
         Err(_) => {
-            let raw =
-                serde_json::from_str::<serde_json::Value>(&record.normalized_json).unwrap_or_default();
+            let raw = serde_json::from_str::<serde_json::Value>(&record.normalized_json)
+                .unwrap_or_default();
             let kind = raw
                 .get("kind")
                 .and_then(serde_json::Value::as_str)
@@ -1388,8 +1403,8 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId, AgentKind,
+        AgentKind, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
+        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
             ConversationDelegation, ConversationDelegationResult, ConversationError,
             ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
@@ -1399,13 +1414,13 @@ mod tests {
             ConversationUsage,
         },
     };
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-
-    use super::*;
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     };
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    use super::*;
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -1640,9 +1655,7 @@ mod tests {
             .await
             .expect("timeline");
         let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, phase }
-                if turn.role == TurnRole::User =>
-            {
+            ConversationTimelineRow::MessageTurn { turn, phase } if turn.role == TurnRole::User => {
                 Some(phase.clone())
             }
             _ => None,
@@ -1734,9 +1747,11 @@ mod tests {
         match &assistant.row {
             ConversationTimelineRow::MessageTurn { turn, phase } => {
                 assert_eq!(phase, "settled");
-                assert!(turn.blocks.iter().any(
-                    |block| matches!(block, ContentBlock::Text { text } if text == "hel")
-                ));
+                assert!(
+                    turn.blocks
+                        .iter()
+                        .any(|block| matches!(block, ContentBlock::Text { text } if text == "hel"))
+                );
             }
             other => panic!("expected MessageTurn, got {other:?}"),
         }
@@ -1793,7 +1808,8 @@ mod tests {
             "only rows changed after the cursor are returned"
         );
         assert!(
-            rows.iter().any(|row| row.row_id == format!("{turn_id}:assistant")),
+            rows.iter()
+                .any(|row| row.row_id == format!("{turn_id}:assistant")),
             "the assistant row (bumped by turn completion) is included"
         );
     }
@@ -1866,7 +1882,7 @@ mod tests {
             (
                 "no-assistant-output-error",
                 include_str!(
-                "../../db/fixtures/conversation-projection/no-assistant-output-error.json"
+                    "../../db/fixtures/conversation-projection/no-assistant-output-error.json"
                 ),
             ),
             (
@@ -2127,7 +2143,10 @@ mod tests {
         assert_eq!(tool_name.as_str(), "Run tests");
         assert_eq!(kind.as_deref(), Some("execute"));
         assert!(
-            input_preview.as_deref().unwrap_or("").contains("cargo test"),
+            input_preview
+                .as_deref()
+                .unwrap_or("")
+                .contains("cargo test"),
             "real input fields must survive"
         );
 
@@ -2866,7 +2885,10 @@ mod tests {
             "host",
             ConversationEvent::QuestionResponded {
                 question_id: "q1".into(),
-                response: ConversationQuestionResponse { answer: "A".into(), content: None },
+                response: ConversationQuestionResponse {
+                    answer: "A".into(),
+                    content: None,
+                },
             },
             None,
         )

@@ -33,9 +33,17 @@ pub use services::services::mcp::{
     McpMarketplaceItem, McpMarketplaceProvider, McpMarketplaceServerDetail,
 };
 pub use services::services::prompt_enhancement::{
-    OpencodeModelsResponse, PromptEnhancementContextMessage, PromptEnhancementRequest,
-    PromptEnhancementResponse,
+    PromptEnhancementContextMessage, PromptEnhancementRequest, PromptEnhancementResponse,
 };
+
+/// Models available to the prompt-enhancement settings. The list is read from
+/// the fingerprint-matching, persisted OpenCode capability catalog rather than
+/// asking a second runtime or maintaining a static fallback.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpencodeModelsResponse {
+    pub models: Vec<String>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Environment {
@@ -385,8 +393,12 @@ pub async fn enhance_prompt(
 pub async fn list_opencode_models(
     state: tauri::State<'_, AppState>,
 ) -> Result<OpencodeModelsResponse, AppError> {
-    let _ = state;
-    Ok(services::services::prompt_enhancement::list_opencode_models().await?)
+    Ok(OpencodeModelsResponse {
+        models: crate::commands::agents::opencode_capability_catalog_models(
+            &state.deployment.db().pool,
+        )
+        .await?,
+    })
 }
 
 #[tauri::command]

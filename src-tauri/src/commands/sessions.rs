@@ -86,6 +86,10 @@ pub struct ProjectSessionRepoInput {
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct CreateProjectSessionPayload {
+    /// UUID reserved by a Prepared ACP Session. When present, the persisted
+    /// conversation adopts that same identity so no second ACP session is
+    /// created on the first turn.
+    pub session_id: Option<Uuid>,
     pub project_id: Uuid,
     pub workspace_id: Option<Uuid>,
     pub branch: Option<String>,
@@ -621,7 +625,12 @@ pub async fn create_project_session(
             )));
         }
         let repos = ProjectRepo::find_repos_for_project(pool, payload.project_id).await?;
-        if workspace_container_overlaps_repo(&workspace, &repos) {
+        // A Prepared ACP Session owns the exact Workspace it was opened for.
+        // Do not silently canonicalize it to a different Workspace after the
+        // user has selected controls on that live Session.
+        if payload.session_id.is_some() {
+            workspace
+        } else if workspace_container_overlaps_repo(&workspace, &repos) {
             ensure_project_root_workspace(
                 state.inner(),
                 payload.project_id,
@@ -649,7 +658,26 @@ pub async fn create_project_session(
         .ensure_container_exists(&workspace)
         .await?;
 
-    let session = Session::create(
+    let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
+    let prepared_identity = if payload.session_id.is_some() {
+        let agent_type = payload
+            .executor
+            .as_deref()
+            .and_then(agents::AgentKind::from_lenient)
+            .ok_or_else(|| {
+                AppError::BadRequest(
+                    "A prepared session requires a canonical Agent executor".to_string(),
+                )
+            })?;
+        let prepared = state
+            .agent_runtime
+            .validate_prepared_session(agents::AgentSessionId(session_id), workspace.id, agent_type)
+            .await?;
+        Some((agent_type, prepared))
+    } else {
+        None
+    };
+    let mut session = Session::create(
         pool,
         &CreateSession {
             executor: payload.executor,
@@ -658,10 +686,27 @@ pub async fn create_project_session(
             initial_prompt: payload.initial_prompt,
             status: Some(SessionStatus::Todo),
         },
-        Uuid::new_v4(),
+        session_id,
         workspace.id,
     )
     .await?;
+
+    if let Some((agent_type, prepared)) = prepared_identity {
+        Session::update_agent_metadata(
+            pool,
+            session.id,
+            Some(&prepared.acp_session_id),
+            Some(agent_type.as_str()),
+        )
+        .await?;
+        session.external_session_id = Some(prepared.acp_session_id);
+        session.agent_type = Some(agent_type.as_str().to_string());
+    }
+
+    state
+        .agent_runtime
+        .commit_prepared_session(agents::AgentSessionId(session_id))
+        .await;
 
     Ok(session)
 }

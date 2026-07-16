@@ -209,7 +209,7 @@
   "plugins": {
     "pageTitle": "插件",
     "pageDescription": "接入「Skill + Web 控制台」型插件（如 dashi-ppt、vibe-motion）：配置后在工作区右侧边栏出现快捷按钮，点击即向会话输入框插入 Hook，由 Agent 启动插件的 Web 控制台，VibeX 检测到控制台可达后自动在 Web 预览中打开。",
-    "sectionDescription": "保存插件时会自动检查 node/npx 并全局安装其 skill；安装失败不影响保存。",
+    "sectionDescription": "内置插件默认关闭，启用即视为配置（自动检查 node/npx 并全局安装 skill，失败不影响启用）。仅启用中的插件显示在工作区右侧边栏。",
     "newPlugin": "新建插件",
     "name": "插件名称",
     "namePlaceholder": "如：Dashi PPT",
@@ -257,7 +257,10 @@
     "manifestImportFailed": "manifest 导入失败：{{error}}",
     "downloadDevKit": "下载开发套件",
     "devKitDownloaded": "开发套件已写入 {{path}}",
-    "devKitDownloadFailed": "开发套件下载失败：{{error}}"
+    "devKitDownloadFailed": "开发套件下载失败：{{error}}",
+    "builtinBadge": "VibeX 内置",
+    "enableTooltip": "启用后插件出现在工作区右侧边栏（首次启用会自动安装 skill）",
+    "toggleFailed": "切换插件启用状态失败：{{error}}"
   },
   "webService": {
     "title": "Web 服务",
@@ -389,6 +392,7 @@
     "applied": "已应用「{{name}}」",
     "writtenTo": "已写入 {{path}}",
     "applyFailed": "应用供应商失败",
+    "catalogRefreshFailed": "供应商已应用，但暂时无法刷新 OpenCode 模型目录。",
     "deleteConfirm": "删除 {{name}}？",
     "providerDeleted": "供应商已删除",
     "deleteFailed": "供应商删除失败",
@@ -774,6 +778,7 @@
     "enablePromptEnhancementHint": "在会话输入框中显示提示词优化入口，帮助改写当前输入。",
     "opencodeModel": "OpenCode 模型",
     "selectModelPlaceholder": "选择模型",
+    "currentModelUnavailable": "已保存的模型 {{model}} 不在当前已验证的 OpenCode 配置中；其值会被保留，但不能再次选择。",
     "refreshModels": "刷新模型列表",
     "useCustomPrompt": "使用自定义优化提示词",
     "customPromptPlaceholder": "输入提示词优化系统提示词",
@@ -833,7 +838,13 @@
     "checkNow": "立即检查",
     "selectAgentPrompt": "请选择一个 Agent 查看设置。",
     "runtimeStatus": "运行状态",
-    "versionLabel": "版本 {{version}}"
+    "versionLabel": "版本 {{version}}",
+    "runtimeCli": "本地 CLI",
+    "runtimeAcp": "ACP 适配器",
+    "runtimeSupported": "已验证",
+    "runtimeUnsupported": "版本不兼容",
+    "runtimeNotFound": "未检测到",
+    "minimumVersionLabel": "最低支持 {{version}}"
   },
   "system": {
     "maintenanceCheckFailed": "本地环境检查失败",

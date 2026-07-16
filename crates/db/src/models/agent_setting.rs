@@ -1,15 +1,19 @@
+use api_types::AgentKind;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use thiserror::Error;
 
-const DEFAULT_AGENT_SETTINGS: [(&str, i32); 7] = [
-    ("claude_code", 0),
-    ("codex", 1),
-    ("open_code", 2),
-    ("gemini", 3),
-    ("open_claw", 4),
-    ("cline", 5),
-    ("hermes", 6),
+/// Default per-agent settings rows. Keyed by [`AgentKind`] (not raw strings) so a
+/// non-canonical seed key cannot compile: the registry IPC serializes canonical
+/// keys and settings rows are joined against them by string equality.
+pub const DEFAULT_AGENT_SETTINGS: [(AgentKind, i32); 7] = [
+    (AgentKind::ClaudeCode, 0),
+    (AgentKind::Codex, 1),
+    (AgentKind::Opencode, 2),
+    (AgentKind::Gemini, 3),
+    (AgentKind::Openclaw, 4),
+    (AgentKind::Cline, 5),
+    (AgentKind::Hermes, 6),
 ];
 
 #[derive(Debug, Error)]
@@ -30,8 +34,30 @@ pub struct AgentSetting {
     pub env_json: Option<String>,
     pub config_json: Option<String>,
     pub auto_approve_mode: String,
+    /// The last complete, successfully verified local CLI + ACP pair. These
+    /// values are internal catalog-validation state, not user preferences.
+    pub runtime_cli_path: Option<String>,
+    pub runtime_cli_version: Option<String>,
+    pub runtime_cli_revision: Option<String>,
+    pub runtime_acp_path: Option<String>,
+    pub runtime_acp_version: Option<String>,
+    pub runtime_acp_revision: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Persisted identity of the exact local runtime pair that passed a version
+/// verification. The revision strings are opaque to the database; the desktop
+/// process compares them with a current, filesystem-only revision before it
+/// reuses a capability catalog after restart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistedAgentRuntimeIdentity {
+    pub cli_path: String,
+    pub cli_version: String,
+    pub cli_revision: String,
+    pub acp_path: String,
+    pub acp_version: String,
+    pub acp_revision: String,
 }
 
 impl AgentSetting {
@@ -41,7 +67,7 @@ impl AgentSetting {
                 r#"INSERT OR IGNORE INTO agent_setting (agent_type, sort_order)
                    VALUES ($1, $2)"#,
             )
-            .bind(agent_type)
+            .bind(agent_type.as_str())
             .bind(sort_order)
             .execute(pool)
             .await?;
@@ -55,7 +81,10 @@ impl AgentSetting {
         Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
-                      env_json, config_json, auto_approve_mode, created_at, updated_at
+                      env_json, config_json, auto_approve_mode,
+                      runtime_cli_path, runtime_cli_version, runtime_cli_revision,
+                      runtime_acp_path, runtime_acp_version, runtime_acp_revision,
+                      created_at, updated_at
                FROM agent_setting
                ORDER BY sort_order ASC"#,
         )
@@ -71,7 +100,10 @@ impl AgentSetting {
         Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
-                      env_json, config_json, auto_approve_mode, created_at, updated_at
+                      env_json, config_json, auto_approve_mode,
+                      runtime_cli_path, runtime_cli_version, runtime_cli_revision,
+                      runtime_acp_path, runtime_acp_version, runtime_acp_revision,
+                      created_at, updated_at
                FROM agent_setting
                WHERE agent_type = $1"#,
         )
@@ -107,7 +139,10 @@ impl AgentSetting {
                    updated_at = datetime('now')
                WHERE agent_type = $5
                RETURNING id, agent_type, enabled, sort_order, installed_version,
-                         env_json, config_json, auto_approve_mode, created_at, updated_at"#,
+                         env_json, config_json, auto_approve_mode,
+                         runtime_cli_path, runtime_cli_version, runtime_cli_revision,
+                         runtime_acp_path, runtime_acp_version, runtime_acp_revision,
+                         created_at, updated_at"#,
         )
         .bind(new_enabled)
         .bind(new_env_json)
@@ -161,11 +196,63 @@ impl AgentSetting {
         .await?;
         Ok(())
     }
+
+    /// Persist (or clear) the locally verified runtime pair. A partial identity
+    /// is intentionally never written: readers treat it as unsafe and will
+    /// wait for the startup/preflight verification instead of accepting an old
+    /// capability catalog.
+    pub async fn update_runtime_identity(
+        pool: &SqlitePool,
+        agent_type: &str,
+        identity: Option<&PersistedAgentRuntimeIdentity>,
+    ) -> Result<(), sqlx::Error> {
+        Self::ensure_defaults(pool).await?;
+        sqlx::query(
+            r#"UPDATE agent_setting
+               SET runtime_cli_path = $1,
+                   runtime_cli_version = $2,
+                   runtime_cli_revision = $3,
+                   runtime_acp_path = $4,
+                   runtime_acp_version = $5,
+                   runtime_acp_revision = $6,
+                   updated_at = datetime('now')
+               WHERE agent_type = $7"#,
+        )
+        .bind(identity.map(|identity| identity.cli_path.as_str()))
+        .bind(identity.map(|identity| identity.cli_version.as_str()))
+        .bind(identity.map(|identity| identity.cli_revision.as_str()))
+        .bind(identity.map(|identity| identity.acp_path.as_str()))
+        .bind(identity.map(|identity| identity.acp_version.as_str()))
+        .bind(identity.map(|identity| identity.acp_revision.as_str()))
+        .bind(agent_type)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Returns a complete persisted identity only. Callers that need to
+    /// distinguish no prior identity from a malformed/partial row can inspect
+    /// the six public runtime fields directly.
+    pub fn persisted_runtime_identity(&self) -> Option<PersistedAgentRuntimeIdentity> {
+        Some(PersistedAgentRuntimeIdentity {
+            cli_path: self.runtime_cli_path.clone()?,
+            cli_version: self.runtime_cli_version.clone()?,
+            cli_revision: self.runtime_cli_revision.clone()?,
+            acp_path: self.runtime_acp_path.clone()?,
+            acp_version: self.runtime_acp_version.clone()?,
+            acp_revision: self.runtime_acp_revision.clone()?,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use sqlx::SqlitePool;
+    use std::str::FromStr;
+
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
 
     use super::AgentSetting;
 
@@ -182,6 +269,12 @@ mod tests {
                 config_json TEXT,
                 auto_approve_mode TEXT NOT NULL DEFAULT 'off'
                     CHECK (auto_approve_mode IN ('off', 'allow_always', 'yolo')),
+                runtime_cli_path TEXT,
+                runtime_cli_version TEXT,
+                runtime_cli_revision TEXT,
+                runtime_acp_path TEXT,
+                runtime_acp_version TEXT,
+                runtime_acp_revision TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"#,
@@ -189,6 +282,22 @@ mod tests {
         .execute(&pool)
         .await
         .expect("create table");
+        pool
+    }
+
+    async fn migrated_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect memory db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
         pool
     }
 
@@ -208,14 +317,35 @@ mod tests {
             vec![
                 "claude_code",
                 "codex",
-                "open_code",
+                "opencode",
                 "gemini",
-                "open_claw",
+                "openclaw",
                 "cline",
                 "hermes"
             ]
         );
         assert_eq!(sort_orders, vec![0, 1, 2, 3, 4, 5, 6]);
+    }
+
+    #[tokio::test]
+    async fn seeded_rows_join_agent_kind_canonical_keys() {
+        // The registry IPC serializes `AgentKind` canonical keys; settings rows are
+        // joined against them by string equality in the frontend. Every seeded key
+        // must therefore BE a canonical key — a lenient-parse round-trip is not
+        // enough (`open_code` parses fine but never joins).
+        let pool = setup_pool().await;
+
+        let rows = AgentSetting::list_all(&pool).await.expect("list rows");
+        for row in rows {
+            let kind = api_types::AgentKind::from_lenient(&row.agent_type)
+                .unwrap_or_else(|| panic!("seed key {:?} must parse", row.agent_type));
+            assert_eq!(
+                kind.as_str(),
+                row.agent_type,
+                "seed key {:?} must be the canonical AgentKind key so registry↔setting joins hold",
+                row.agent_type
+            );
+        }
     }
 
     #[tokio::test]
@@ -234,7 +364,7 @@ mod tests {
     async fn find_by_type_backfills_new_acp_agent_rows() {
         let pool = setup_pool().await;
 
-        for agent_type in ["gemini", "open_claw", "cline", "hermes"] {
+        for agent_type in ["gemini", "openclaw", "cline", "hermes"] {
             let row = AgentSetting::find_by_type(&pool, agent_type)
                 .await
                 .expect("lookup")
@@ -281,9 +411,9 @@ mod tests {
             &[
                 "hermes".to_string(),
                 "cline".to_string(),
-                "open_claw".to_string(),
+                "openclaw".to_string(),
                 "gemini".to_string(),
-                "open_code".to_string(),
+                "opencode".to_string(),
                 "codex".to_string(),
                 "claude_code".to_string(),
             ],
@@ -302,12 +432,73 @@ mod tests {
             vec![
                 "hermes",
                 "cline",
-                "open_claw",
+                "openclaw",
                 "gemini",
-                "open_code",
+                "opencode",
                 "codex",
                 "claude_code"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn persists_only_a_complete_runtime_identity() {
+        let pool = setup_pool().await;
+        let identity = super::PersistedAgentRuntimeIdentity {
+            cli_path: "/usr/local/bin/codex".to_string(),
+            cli_version: "0.130.0".to_string(),
+            cli_revision: "cli-revision".to_string(),
+            acp_path: "/usr/local/bin/codex-acp".to_string(),
+            acp_version: "1.1.2".to_string(),
+            acp_revision: "acp-revision".to_string(),
+        };
+
+        AgentSetting::update_runtime_identity(&pool, "codex", Some(&identity))
+            .await
+            .expect("persist runtime identity");
+        let stored = AgentSetting::find_by_type(&pool, "codex")
+            .await
+            .expect("lookup")
+            .expect("codex row");
+        assert_eq!(stored.persisted_runtime_identity(), Some(identity.clone()));
+
+        AgentSetting::update_runtime_identity(&pool, "codex", None)
+            .await
+            .expect("clear runtime identity");
+        let cleared = AgentSetting::find_by_type(&pool, "codex")
+            .await
+            .expect("lookup")
+            .expect("codex row");
+        assert_eq!(cleared.persisted_runtime_identity(), None);
+        assert!(cleared.runtime_cli_path.is_none());
+        assert!(cleared.runtime_acp_revision.is_none());
+    }
+
+    #[tokio::test]
+    async fn real_migrations_add_runtime_identity_columns() {
+        let pool = migrated_pool().await;
+
+        let codex = AgentSetting::find_by_type(&pool, "codex")
+            .await
+            .expect("lookup")
+            .expect("seeded codex row");
+        assert_eq!(codex.persisted_runtime_identity(), None);
+
+        let identity = super::PersistedAgentRuntimeIdentity {
+            cli_path: "/usr/local/bin/codex".to_string(),
+            cli_version: "0.130.0".to_string(),
+            cli_revision: "cli-revision".to_string(),
+            acp_path: "/usr/local/bin/codex-acp".to_string(),
+            acp_version: "1.1.2".to_string(),
+            acp_revision: "acp-revision".to_string(),
+        };
+        AgentSetting::update_runtime_identity(&pool, "codex", Some(&identity))
+            .await
+            .expect("write migrated runtime identity");
+        let stored = AgentSetting::find_by_type(&pool, "codex")
+            .await
+            .expect("lookup")
+            .expect("seeded codex row");
+        assert_eq!(stored.persisted_runtime_identity(), Some(identity));
     }
 }

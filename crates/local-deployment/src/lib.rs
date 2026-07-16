@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentAvailabilityInfo, agent_availability, AgentKind};
+use agents::{AgentAvailabilityInfo, AgentKind, agent_availability};
 use async_trait::async_trait;
 use db::DBService;
 use deployment::{Deployment, DeploymentError};

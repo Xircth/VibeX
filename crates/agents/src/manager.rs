@@ -11,24 +11,27 @@ use std::{
 use agent_client_protocol as acp;
 use agent_client_protocol::{
     Agent, ConnectionTo,
-    schema::ProtocolVersion,
-    schema::v1::{
-        AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
-        CancelNotification, ClientCapabilities, ClientResponse, ContentBlock,
-        CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
-        ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
-        ElicitationContentValue, ElicitationFormCapabilities, ElicitationMode, ElicitationScope,
-        ForkSessionRequest, ImageContent, Implementation,
-        InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
-        NewSessionRequest,
-        PermissionOptionKind, PromptRequest, ReleaseTerminalResponse,
-        RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-        SelectedPermissionOutcome, SessionConfigKind,
-        SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
-        SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeId,
-        SessionModeState, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-        SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
-        WaitForTerminalExitResponse,
+    schema::{
+        ProtocolVersion,
+        v1::{
+            AgentNotification, AgentRequest, AvailableCommand as AcpAvailableCommand,
+            BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
+            ClientResponse, ClientSessionCapabilities, CloseSessionRequest, ContentBlock,
+            CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
+            ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
+            ElicitationContentValue, ElicitationFormCapabilities, ElicitationMode,
+            ElicitationScope, ForkSessionRequest, ImageContent, Implementation, InitializeRequest,
+            KillTerminalRequest, KillTerminalResponse, LoadSessionRequest, NewSessionRequest,
+            PermissionOptionKind, PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
+            RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+            SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
+            SessionConfigOptionCategory, SessionConfigOptionValue,
+            SessionConfigOptionsCapabilities, SessionConfigSelectOption,
+            SessionConfigSelectOptions, SessionId, SessionModeId, SessionModeState,
+            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+            SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
+            WaitForTerminalExitResponse,
+        },
     },
 };
 use chrono::Utc;
@@ -46,18 +49,18 @@ use tokio_util::{
 use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
 
 use crate::{
-    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock,
-    AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse, AgentError,
-    AgentErrorEvent, AgentEvent, AgentPermissionId, AgentPermissionOption,
+    ACP_EXECUTABLE_OVERRIDE_ENV, AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId,
+    AgentContentBlock, AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse,
+    AgentError, AgentErrorEvent, AgentEvent, AgentKind, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
-    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionId, AgentSessionMode,
-    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
-    AgentToolCallUpdate, AgentKind, AgentUsage, CommandBuildInput,
+    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
+    AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest, AgentTerminalEnvVar,
+    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage, CommandBuildInput,
     conversation::SessionLoadFailureReason,
     current_platform, decide_auto_permission_response,
     delegation_inject::DelegationInjector,
-    registry_entry,
+    local_acp_command_parts, local_runtime_launch_acp_executable, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -206,6 +209,17 @@ pub struct AgentConnectionLaunch {
 
 #[derive(Debug)]
 pub enum AgentConnectionCommand {
+    /// Create (or reuse) the concrete ACP session and return its authoritative
+    /// controls. This is used by conversation-creation surfaces; it is not a
+    /// throwaway capability probe.
+    PrepareSession {
+        session_id: AgentSessionId,
+        result_tx: oneshot::Sender<AgentResult<(String, AgentSessionControlsSnapshot)>>,
+    },
+    DiscardSession {
+        session_id: AgentSessionId,
+        result_tx: oneshot::Sender<AgentResult<()>>,
+    },
     ResumeSession {
         session_id: AgentSessionId,
         external_session_id: String,
@@ -243,15 +257,15 @@ pub enum AgentConnectionCommand {
     SetSessionMode {
         session_id: AgentSessionId,
         mode_id: String,
-        result_tx: oneshot::Sender<AgentResult<()>>,
+        result_tx: oneshot::Sender<AgentResult<AgentSessionControlsSnapshot>>,
     },
     /// Change one agent-advertised config option immediately
     /// (`session/set_config_option`, e.g. model / permission mode).
     SetSessionConfigOption {
         session_id: AgentSessionId,
         key: String,
-        value: String,
-        result_tx: oneshot::Sender<AgentResult<()>>,
+        value: serde_json::Value,
+        result_tx: oneshot::Sender<AgentResult<AgentSessionControlsSnapshot>>,
     },
     Disconnect,
 }
@@ -464,6 +478,48 @@ impl AgentConnectionManager {
         })?
     }
 
+    pub async fn prepare_session(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+    ) -> AgentResult<(String, AgentSessionControlsSnapshot)> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::PrepareSession {
+                session_id,
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime(
+                "agent connection closed before ACP session preparation completed".into(),
+            )
+        })?
+    }
+
+    pub async fn discard_session(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+    ) -> AgentResult<()> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::DiscardSession {
+                session_id,
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime(
+                "agent connection closed before prepared session cleanup completed".into(),
+            )
+        })?
+    }
+
     /// Fork the live ACP session, returning the new (forked) external session id.
     /// Errors if the agent did not advertise `session/fork` support at handshake.
     pub async fn fork_session(
@@ -493,7 +549,7 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
         mode_id: impl Into<String>,
-    ) -> AgentResult<()> {
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
@@ -505,7 +561,9 @@ impl AgentConnectionManager {
         )
         .await?;
         result_rx.await.map_err(|_| {
-            AgentError::Runtime("agent connection closed before session mode change completed".into())
+            AgentError::Runtime(
+                "agent connection closed before session mode change completed".into(),
+            )
         })?
     }
 
@@ -517,15 +575,15 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
         key: impl Into<String>,
-        value: impl Into<String>,
-    ) -> AgentResult<()> {
+        value: serde_json::Value,
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
             AgentConnectionCommand::SetSessionConfigOption {
                 session_id,
                 key: key.into(),
-                value: value.into(),
+                value,
                 result_tx,
             },
         )
@@ -708,6 +766,32 @@ impl AgentConnectionRunner {
     async fn run_in_memory(self, mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>) {
         while let Some(command) = cmd_rx.recv().await {
             match command {
+                AgentConnectionCommand::PrepareSession {
+                    session_id,
+                    result_tx,
+                } => {
+                    let acp_session_id = format!("prepared-{}", session_id.0);
+                    self.session_map
+                        .write()
+                        .await
+                        .insert(session_id, acp_session_id.clone());
+                    let _ = result_tx.send(Ok((
+                        acp_session_id,
+                        AgentSessionControlsSnapshot {
+                            modes: Vec::new(),
+                            current_mode: None,
+                            config_options: Vec::new(),
+                        },
+                    )));
+                }
+                AgentConnectionCommand::DiscardSession {
+                    session_id,
+                    result_tx,
+                } => {
+                    self.session_map.write().await.remove(&session_id);
+                    self.session_controls.write().await.remove(&session_id);
+                    let _ = result_tx.send(Ok(()));
+                }
                 AgentConnectionCommand::ResumeSession {
                     external_session_id,
                     result_tx,
@@ -787,7 +871,7 @@ impl AgentConnectionRunner {
                     // No ACP server behind the in-memory driver — acknowledge and
                     // emit the change so mode-switch flows are exercisable in tests.
                     self.emit(Some(session_id), None, AgentEvent::ModeChanged { mode_id });
-                    let _ = result_tx.send(Ok(()));
+                    let _ = result_tx.send(Ok(self.session_controls_snapshot(session_id).await));
                 }
                 AgentConnectionCommand::SetSessionConfigOption {
                     session_id,
@@ -803,7 +887,7 @@ impl AgentConnectionRunner {
                             value: serde_json::json!(value),
                         },
                     );
-                    let _ = result_tx.send(Ok(()));
+                    let _ = result_tx.send(Ok(self.session_controls_snapshot(session_id).await));
                 }
                 AgentConnectionCommand::Disconnect => break,
             }
@@ -888,6 +972,7 @@ impl AgentConnectionRunner {
                         label: "Fixture Model".to_string(),
                         description: None,
                     }],
+                    dependency: None,
                 }],
             },
         );
@@ -924,12 +1009,9 @@ impl AgentConnectionRunner {
             },
         );
 
-        let auto_approve_mode = effective_auto_approve_mode(
-            self.auto_approve_mode,
-            &self.session_controls,
-            session_id,
-        )
-        .await;
+        let auto_approve_mode =
+            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
+                .await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             self.emit(
                 Some(session_id),
@@ -996,16 +1078,25 @@ impl AgentConnectionRunner {
         mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
         ready_tx: Arc<Mutex<Option<oneshot::Sender<AgentResult<()>>>>>,
     ) -> AgentResult<()> {
+        // This guard deliberately lives at the final spawn boundary, not only
+        // in VibeX's Tauri command layer. A future caller that constructs an
+        // AgentRuntime directly must fail closed rather than let a Codex or
+        // Claude ACP adapter select its bundled CLI dependency.
+        let verified_acp_program =
+            local_runtime_launch_acp_executable(self.snapshot.agent_type, &self.snapshot.env)?;
         let _ = refresh_process_path().await;
         let entry = registry_entry(self.snapshot.agent_type);
-        let command_parts = entry.distribution.command_parts(&CommandBuildInput {
-            platform: current_platform(),
-            binary_dir: None,
-            prefer_system_uvx_command: false,
-        })?;
+        let command_parts = local_acp_command_parts(self.snapshot.agent_type).unwrap_or(
+            entry.distribution.command_parts(&CommandBuildInput {
+                platform: current_platform(),
+                binary_dir: None,
+                prefer_system_uvx_command: false,
+            })?,
+        );
 
-        let mut command =
-            new_hidden_tokio_command(PathBuf::from(&command_parts.program), &command_parts.args);
+        let acp_program =
+            verified_acp_program.unwrap_or_else(|| PathBuf::from(command_parts.program));
+        let mut command = new_hidden_tokio_command(acp_program, &command_parts.args);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -1014,7 +1105,9 @@ impl AgentConnectionRunner {
             .current_dir(&self.snapshot.working_dir);
 
         for (key, value) in merged_agent_env(&self.snapshot.env) {
-            command.env(key, value);
+            if key != ACP_EXECUTABLE_OVERRIDE_ENV {
+                command.env(key, value);
+            }
         }
         // The child inherits the full parent env. A blank `OPENAI_API_KEY=""`
         // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched VibeX
@@ -1148,13 +1241,21 @@ impl AgentConnectionRunner {
                     .send_request(
                         InitializeRequest::new(ProtocolVersion::LATEST)
                             .client_capabilities(
-                                ClientCapabilities::new().terminal(true).elicitation(
-                                    // Form mode only: it covers AskUserQuestion and MCP
-                                    // form elicitations. URL mode needs a browser hand-off
-                                    // flow the app doesn't have yet.
-                                    ElicitationCapabilities::new()
-                                        .form(ElicitationFormCapabilities::new()),
-                                ),
+                                ClientCapabilities::new()
+                                    .terminal(true)
+                                    .session(
+                                        ClientSessionCapabilities::new().config_options(
+                                            SessionConfigOptionsCapabilities::new()
+                                                .boolean(BooleanConfigOptionCapabilities::new()),
+                                        ),
+                                    )
+                                    .elicitation(
+                                        // Form mode only: it covers AskUserQuestion and MCP
+                                        // form elicitations. URL mode needs a browser hand-off
+                                        // flow the app doesn't have yet.
+                                        ElicitationCapabilities::new()
+                                            .form(ElicitationFormCapabilities::new()),
+                                    ),
                             )
                             .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
                     )
@@ -1168,6 +1269,11 @@ impl AgentConnectionRunner {
                         }
                     };
                 let supports_load_session = initialize_response.agent_capabilities.load_session;
+                let supports_close_session = initialize_response
+                    .agent_capabilities
+                    .session_capabilities
+                    .close
+                    .is_some();
                 let supports_fork = initialize_response
                     .agent_capabilities
                     .session_capabilities
@@ -1182,6 +1288,62 @@ impl AgentConnectionRunner {
 
                 while let Some(command) = cmd_rx.recv().await {
                     match command {
+                        AgentConnectionCommand::PrepareSession {
+                            session_id,
+                            result_tx,
+                        } => {
+                            let result = match runner
+                                .ensure_acp_session(&conn, &working_dir, session_id)
+                                .await
+                            {
+                                Ok(acp_session_id) => {
+                                    let controls =
+                                        runner.session_controls_snapshot(session_id).await;
+                                    // `PrepareSession` is also called when the prepared
+                                    // session is adopted by the conversation service. Re-emit
+                                    // the authoritative state here so those events enter the
+                                    // now-persisted conversation stream instead of existing
+                                    // only during the create-dialog preview.
+                                    runner.emit_controls_snapshot(session_id, &controls);
+                                    Ok((acp_session_id, controls))
+                                }
+                                Err(error) => Err(AgentError::Runtime(format!(
+                                    "ACP session preparation failed: {error}"
+                                ))),
+                            };
+                            let _ = result_tx.send(result);
+                        }
+                        AgentConnectionCommand::DiscardSession {
+                            session_id,
+                            result_tx,
+                        } => {
+                            let acp_session_id =
+                                runner.session_map.read().await.get(&session_id).cloned();
+                            let result = if supports_close_session {
+                                if let Some(acp_session_id) = acp_session_id.as_ref() {
+                                    conn.send_request(CloseSessionRequest::new(SessionId::new(
+                                        acp_session_id.clone(),
+                                    )))
+                                    .block_task()
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|error| {
+                                        AgentError::Runtime(format!(
+                                            "session/close failed: {error}"
+                                        ))
+                                    })
+                                } else {
+                                    Ok(())
+                                }
+                            } else {
+                                Ok(())
+                            };
+                            if result.is_ok() {
+                                runner.session_map.write().await.remove(&session_id);
+                                runner.session_controls.write().await.remove(&session_id);
+                            }
+                            let _ = result_tx.send(result);
+                        }
                         AgentConnectionCommand::ResumeSession {
                             session_id,
                             external_session_id,
@@ -1237,7 +1399,9 @@ impl AgentConnectionRunner {
                                     .fork_acp_session(&conn, &working_dir, session_id)
                                     .await
                                     .map_err(|error| {
-                                        AgentError::Runtime(format!("ACP session fork failed: {error}"))
+                                        AgentError::Runtime(format!(
+                                            "ACP session fork failed: {error}"
+                                        ))
                                     })
                             } else {
                                 Err(AgentError::Runtime(
@@ -1380,7 +1544,9 @@ impl AgentConnectionRunner {
         working_dir: &Path,
         session_id: AgentSessionId,
     ) -> Result<String, acp::Error> {
-        let acp_session_id = self.ensure_acp_session(conn, working_dir, session_id).await?;
+        let acp_session_id = self
+            .ensure_acp_session(conn, working_dir, session_id)
+            .await?;
         let response = conn
             .send_request(ForkSessionRequest::new(
                 SessionId::new(acp_session_id),
@@ -1436,10 +1602,17 @@ impl AgentConnectionRunner {
         modes: Option<SessionModeState>,
         config_options: Option<Vec<AcpSessionConfigOption>>,
     ) {
+        let uses_config_options = config_options
+            .as_ref()
+            .is_some_and(|options| !options.is_empty());
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
-            if let Some(modes) = modes.clone() {
+            if uses_config_options {
+                // ACP requires clients supporting configOptions to use them
+                // exclusively when the agent also sends legacy modes.
+                entry.modes = None;
+            } else if let Some(modes) = modes.clone() {
                 entry.modes = Some(modes);
             }
             if let Some(options) = config_options.clone() {
@@ -1447,7 +1620,16 @@ impl AgentConnectionRunner {
             }
         }
 
-        if let Some(modes) = modes {
+        if uses_config_options {
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::SessionModes {
+                    modes: Vec::new(),
+                    current: None,
+                },
+            );
+        } else if let Some(modes) = modes {
             let (modes, current) = agent_session_modes_from_acp(modes);
             self.emit(
                 Some(session_id),
@@ -1465,6 +1647,52 @@ impl AgentConnectionRunner {
                 },
             );
         }
+    }
+
+    async fn session_controls_snapshot(
+        &self,
+        session_id: AgentSessionId,
+    ) -> AgentSessionControlsSnapshot {
+        let controls = self.session_controls.read().await;
+        let Some(controls) = controls.get(&session_id) else {
+            return AgentSessionControlsSnapshot {
+                modes: Vec::new(),
+                current_mode: None,
+                config_options: Vec::new(),
+            };
+        };
+        let (modes, current_mode) = controls
+            .modes
+            .clone()
+            .map(agent_session_modes_from_acp)
+            .unwrap_or_default();
+        AgentSessionControlsSnapshot {
+            modes,
+            current_mode,
+            config_options: agent_session_config_options_from_acp(controls.config_options.clone()),
+        }
+    }
+
+    fn emit_controls_snapshot(
+        &self,
+        session_id: AgentSessionId,
+        controls: &AgentSessionControlsSnapshot,
+    ) {
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionModes {
+                modes: controls.modes.clone(),
+                current: controls.current_mode.clone(),
+            },
+        );
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionConfigOptions {
+                options: controls.config_options.clone(),
+            },
+        );
     }
 
     fn emit_session_load_failed(
@@ -1492,7 +1720,14 @@ impl AgentConnectionRunner {
                 .await?;
         }
 
-        for override_item in config_overrides {
+        // OpenCode rebuilds its config options when its model changes. An
+        // effort submitted first is therefore evaluated against the old/default
+        // model and can be rejected or applied to the wrong variant. Keep the
+        // normal caller ordering for every other agent, but make this
+        // dependency explicit for OpenCode's first-turn preset.
+        for override_item in
+            ordered_session_config_overrides(self.snapshot.agent_type, config_overrides)
+        {
             let Some(key) = non_empty_trimmed(&override_item.key) else {
                 continue;
             };
@@ -1540,7 +1775,11 @@ impl AgentConnectionRunner {
         .await?;
         let snapshot = {
             let mut controls = self.session_controls.write().await;
-            let stored = controls.entry(session_id).or_default().modes.get_or_insert(modes);
+            let stored = controls
+                .entry(session_id)
+                .or_default()
+                .modes
+                .get_or_insert(modes);
             stored.current_mode_id = SessionModeId::new(mode_id.clone());
             stored.clone()
         };
@@ -1563,6 +1802,24 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         key: &str,
         value: &str,
+    ) -> Result<(), acp::Error> {
+        self.apply_config_value(
+            conn,
+            acp_session_id,
+            session_id,
+            key,
+            &serde_json::Value::String(value.to_string()),
+        )
+        .await
+    }
+
+    async fn apply_config_value(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        key: &str,
+        value: &serde_json::Value,
     ) -> Result<(), acp::Error> {
         let config_options = self
             .session_controls
@@ -1592,17 +1849,17 @@ impl AgentConnectionRunner {
             .send_request(SetSessionConfigOptionRequest::new(
                 SessionId::new(acp_session_id.to_string()),
                 selection.config_id.clone(),
-                selection.value_id.as_str(),
+                selection.wire_value.clone(),
             ))
             .block_task()
             .await?;
         let mapped_options = agent_session_config_options_from_acp(response.config_options.clone());
-        self.session_controls
-            .write()
-            .await
-            .entry(session_id)
-            .or_default()
-            .config_options = response.config_options;
+        {
+            let mut controls = self.session_controls.write().await;
+            let stored = controls.entry(session_id).or_default();
+            stored.modes = None;
+            stored.config_options = response.config_options;
+        }
         self.emit(
             Some(session_id),
             None,
@@ -1615,7 +1872,7 @@ impl AgentConnectionRunner {
             None,
             AgentEvent::ConfigChanged {
                 key: selection.config_id,
-                value: serde_json::json!(selection.value_id),
+                value: selection.event_value,
             },
         );
         Ok(())
@@ -1628,7 +1885,7 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         session_id: AgentSessionId,
         mode_id: &str,
-    ) -> AgentResult<()> {
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let acp_session_id = self.session_map.read().await.get(&session_id).cloned();
         let Some(acp_session_id) = acp_session_id else {
             return Err(AgentError::Runtime(
@@ -1637,7 +1894,8 @@ impl AgentConnectionRunner {
         };
         self.apply_mode_override(conn, &acp_session_id, session_id, mode_id)
             .await
-            .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))
+            .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))?;
+        Ok(self.session_controls_snapshot(session_id).await)
     }
 
     /// Resolve the live ACP session and apply a config-option change right now
@@ -1647,19 +1905,20 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         session_id: AgentSessionId,
         key: &str,
-        value: &str,
-    ) -> AgentResult<()> {
+        value: &serde_json::Value,
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
         let acp_session_id = self.session_map.read().await.get(&session_id).cloned();
         let Some(acp_session_id) = acp_session_id else {
             return Err(AgentError::Runtime(
                 "no live ACP session yet; the setting will apply when the next turn starts".into(),
             ));
         };
-        self.apply_config_override(conn, &acp_session_id, session_id, key, value)
+        self.apply_config_value(conn, &acp_session_id, session_id, key, value)
             .await
             .map_err(|error| {
                 AgentError::Runtime(format!("session/set_config_option failed: {error}"))
-            })
+            })?;
+        Ok(self.session_controls_snapshot(session_id).await)
     }
 
     fn emit_override_diagnostic(
@@ -1969,7 +2228,11 @@ impl AgentConnectionRunner {
         elicitation_id: &str,
         response: AgentElicitationResponse,
     ) {
-        let pending = self.pending_elicitations.lock().await.remove(elicitation_id);
+        let pending = self
+            .pending_elicitations
+            .lock()
+            .await
+            .remove(elicitation_id);
         if let Some(pending) = pending {
             let _ = pending.tx.send(response.clone());
             self.emit(
@@ -2307,12 +2570,9 @@ impl AcpClientBridge {
             },
         });
 
-        let auto_approve_mode = effective_auto_approve_mode(
-            self.auto_approve_mode,
-            &self.session_controls,
-            session_id,
-        )
-        .await;
+        let auto_approve_mode =
+            effective_auto_approve_mode(self.auto_approve_mode, &self.session_controls, session_id)
+                .await;
         if let Some(response) = decide_auto_permission_response(auto_approve_mode, &request) {
             let _ = self.event_tx.send(AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
@@ -2503,12 +2763,10 @@ impl AcpClientBridge {
                 // Mirror the pushed options into the stored controls so later
                 // `session/set_config_option` matching never works off stale data.
                 if let Some(session_id) = session_id {
-                    self.session_controls
-                        .write()
-                        .await
-                        .entry(session_id)
-                        .or_default()
-                        .config_options = update.config_options.clone();
+                    let mut controls = self.session_controls.write().await;
+                    let stored = controls.entry(session_id).or_default();
+                    stored.modes = None;
+                    stored.config_options = update.config_options.clone();
                 }
                 Some(AgentEvent::SessionConfigOptions {
                     options: agent_session_config_options_from_acp(update.config_options),
@@ -2608,13 +2866,33 @@ fn parse_terminal_id(id: &TerminalId) -> Result<uuid::Uuid, acp::Error> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConfigOverrideSelection {
     config_id: String,
-    value_id: String,
+    wire_value: SessionConfigOptionValue,
+    event_value: serde_json::Value,
     already_selected: bool,
 }
 
 fn non_empty_trimmed(value: &str) -> Option<&str> {
     let value = value.trim();
     (!value.is_empty()).then_some(value)
+}
+
+/// Apply dependency-bearing OpenCode options in the order its ACP service
+/// expects. `sort_by_key` is stable, so selections unrelated to this
+/// dependency retain their caller-provided order.
+fn ordered_session_config_overrides(
+    agent_type: AgentKind,
+    mut overrides: Vec<AgentSessionConfigOverride>,
+) -> Vec<AgentSessionConfigOverride> {
+    if agent_type == AgentKind::Opencode {
+        overrides.sort_by_key(|override_item| {
+            match override_item.key.trim().to_ascii_lowercase().as_str() {
+                "model" => 0,
+                "effort" => 1,
+                _ => 2,
+            }
+        });
+    }
+    overrides
 }
 
 /// ACP session modes that promise automatic acceptance ("Auto" in the
@@ -2676,21 +2954,38 @@ fn find_matching_mode_id<'a>(modes: &'a SessionModeState, requested_mode: &str) 
 fn find_config_override_selection(
     options: &[AcpSessionConfigOption],
     key: &str,
-    value: &str,
+    value: &serde_json::Value,
 ) -> Option<ConfigOverrideSelection> {
     for option in options {
         if !config_option_matches(option, key) {
             continue;
         }
-        let SessionConfigKind::Select(select) = &option.kind else {
-            continue;
-        };
-        if let Some(choice) = find_select_choice(select, key, value) {
-            return Some(ConfigOverrideSelection {
-                config_id: option.id.0.to_string(),
-                value_id: choice.value.0.to_string(),
-                already_selected: select.current_value == choice.value,
-            });
+        match &option.kind {
+            SessionConfigKind::Select(select) => {
+                let requested = value.as_str()?;
+                if let Some(choice) = find_select_choice(select, key, requested) {
+                    let value_id = choice.value.0.to_string();
+                    return Some(ConfigOverrideSelection {
+                        config_id: option.id.0.to_string(),
+                        wire_value: SessionConfigOptionValue::value_id(value_id.clone()),
+                        event_value: serde_json::Value::String(value_id),
+                        already_selected: select.current_value == choice.value,
+                    });
+                }
+            }
+            SessionConfigKind::Boolean(boolean) => {
+                let requested = value
+                    .as_bool()
+                    .or_else(|| value.as_str().and_then(|value| value.parse::<bool>().ok()))?;
+                return Some(ConfigOverrideSelection {
+                    config_id: option.id.0.to_string(),
+                    wire_value: SessionConfigOptionValue::boolean(requested),
+                    event_value: serde_json::Value::Bool(requested),
+                    already_selected: boolean.current_value == requested,
+                });
+            }
+            #[allow(unreachable_patterns)]
+            _ => continue,
         }
     }
     None
@@ -2902,7 +3197,7 @@ fn merge_agent_env(
     env
 }
 
-fn agent_session_modes_from_acp(
+pub(crate) fn agent_session_modes_from_acp(
     state: SessionModeState,
 ) -> (Vec<AgentSessionMode>, Option<String>) {
     let current = Some(state.current_mode_id.0.to_string());
@@ -2918,7 +3213,7 @@ fn agent_session_modes_from_acp(
     (modes, current)
 }
 
-fn agent_session_config_options_from_acp(
+pub(crate) fn agent_session_config_options_from_acp(
     options: Vec<AcpSessionConfigOption>,
 ) -> Vec<AgentSessionConfigOption> {
     options
@@ -2937,6 +3232,21 @@ fn agent_session_config_option_from_acp(
             )),
             agent_session_config_choices_from_acp(select.options),
         ),
+        SessionConfigKind::Boolean(boolean) => (
+            Some(serde_json::Value::Bool(boolean.current_value)),
+            vec![
+                AgentSessionConfigChoice {
+                    value: serde_json::Value::Bool(false),
+                    label: "Off".to_string(),
+                    description: None,
+                },
+                AgentSessionConfigChoice {
+                    value: serde_json::Value::Bool(true),
+                    label: "On".to_string(),
+                    description: None,
+                },
+            ],
+        ),
         #[allow(unreachable_patterns)]
         _ => (None, Vec::new()),
     };
@@ -2953,6 +3263,7 @@ fn agent_session_config_option_from_acp(
         }),
         value,
         choices,
+        dependency: None,
     }
 }
 
@@ -3048,6 +3359,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn opencode_applies_model_before_model_dependent_effort() {
+        let overrides = vec![
+            AgentSessionConfigOverride {
+                key: "effort".to_string(),
+                value: "high".to_string(),
+            },
+            AgentSessionConfigOverride {
+                key: "permission".to_string(),
+                value: "ask".to_string(),
+            },
+            AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "opencode/example".to_string(),
+            },
+        ];
+
+        let ordered = ordered_session_config_overrides(AgentKind::Opencode, overrides);
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|override_item| override_item.key.as_str())
+                .collect::<Vec<_>>(),
+            ["model", "effort", "permission"]
+        );
+    }
+
+    #[test]
+    fn other_agents_keep_their_config_override_order() {
+        let overrides = vec![
+            AgentSessionConfigOverride {
+                key: "effort".to_string(),
+                value: "high".to_string(),
+            },
+            AgentSessionConfigOverride {
+                key: "model".to_string(),
+                value: "example".to_string(),
+            },
+        ];
+
+        let ordered = ordered_session_config_overrides(AgentKind::Codex, overrides);
+        assert_eq!(
+            ordered
+                .iter()
+                .map(|override_item| override_item.key.as_str())
+                .collect::<Vec<_>>(),
+            ["effort", "model"]
+        );
+    }
+
+    #[test]
     fn dedup_stream_text_drops_trailing_full_snapshot() {
         let mut state = StreamDedupState::default();
         // Streaming deltas are emitted verbatim.
@@ -3092,6 +3453,36 @@ mod tests {
         // Genuine repetition within a streaming run (each delta != full run so
         // far) is preserved — only an exact full-run snapshot is dropped.
         assert!(dedup_stream_text(&mut state, StreamKind::Message, " think"));
+    }
+
+    #[tokio::test]
+    async fn live_manager_refuses_local_agents_without_runtime_overrides() {
+        // The error must arrive before any real executable is looked up or
+        // spawned. This regression test protects the final live-session
+        // boundary against a future caller bypassing the Tauri launch helper.
+        for agent_type in [AgentKind::Codex, AgentKind::ClaudeCode, AgentKind::Opencode] {
+            let (event_tx, _event_rx) = mpsc::unbounded_channel();
+            let manager = AgentConnectionManager::new_with_driver(event_tx, true);
+            let (_snapshot, ready_rx) = manager
+                .register_connection(AgentConnectionLaunch {
+                    connection_id: AgentConnectionId::new(),
+                    agent_type,
+                    workspace_id: uuid::Uuid::new_v4(),
+                    working_dir: std::env::temp_dir(),
+                    auto_approve_mode: AgentAutoApproveMode::Off,
+                    env: HashMap::new(),
+                })
+                .await;
+            let result = tokio::time::timeout(Duration::from_secs(1), ready_rx)
+                .await
+                .expect("runtime guard should fail before a process can start")
+                .expect("driver should report its startup error");
+            let error = result.expect_err("local runtime override must be required");
+            assert!(
+                error.to_string().contains(ACP_EXECUTABLE_OVERRIDE_ENV),
+                "{agent_type:?} unexpectedly accepted a bare ACP command: {error}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -3270,8 +3661,12 @@ mod tests {
         );
         // Sessions without a tracked auto mode keep interception on.
         assert_eq!(
-            effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, AgentSessionId::new())
-                .await,
+            effective_auto_approve_mode(
+                AgentAutoApproveMode::Off,
+                &controls,
+                AgentSessionId::new()
+            )
+            .await,
             AgentAutoApproveMode::Off
         );
     }
@@ -3284,8 +3679,10 @@ mod tests {
                 "Model",
                 "gpt-5",
                 vec![
-                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new("gpt-5", "GPT-5")
-                        .description(Some("Balanced".to_string())),
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "gpt-5", "GPT-5",
+                    )
+                    .description(Some("Balanced".to_string())),
                     agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
                         "gpt-5-codex",
                         "GPT-5 Codex",
@@ -3350,11 +3747,15 @@ mod tests {
             .category(Some(SessionConfigOptionCategory::Model)),
         ];
 
-        let selection = find_config_override_selection(&options, "model", "sonnet")
-            .expect("sonnet should match ACP model choices");
+        let selection =
+            find_config_override_selection(&options, "model", &serde_json::json!("sonnet"))
+                .expect("sonnet should match ACP model choices");
 
         assert_eq!(selection.config_id, "preferred-model");
-        assert_eq!(selection.value_id, "claude-sonnet-4-5");
+        assert_eq!(
+            selection.event_value,
+            serde_json::json!("claude-sonnet-4-5")
+        );
         assert!(!selection.already_selected);
     }
 
@@ -3373,12 +3774,35 @@ mod tests {
             ],
         )];
 
-        let selection = find_config_override_selection(&options, "permission_mode", "auto")
-            .expect("auto should match permission choices");
+        let selection =
+            find_config_override_selection(&options, "permission_mode", &serde_json::json!("auto"))
+                .expect("auto should match permission choices");
 
         assert_eq!(selection.config_id, "permission-mode");
-        assert_eq!(selection.value_id, "auto");
+        assert_eq!(selection.event_value, serde_json::json!("auto"));
         assert!(!selection.already_selected);
+    }
+
+    #[test]
+    fn maps_and_matches_boolean_session_config_options() {
+        let option = AcpSessionConfigOption::boolean("fast", "Fast mode", false);
+        let mapped = agent_session_config_options_from_acp(vec![option.clone()]);
+
+        assert_eq!(mapped[0].value, Some(serde_json::json!(false)));
+        assert_eq!(
+            mapped[0]
+                .choices
+                .iter()
+                .map(|choice| choice.value.clone())
+                .collect::<Vec<_>>(),
+            vec![serde_json::json!(false), serde_json::json!(true)]
+        );
+
+        let selection = find_config_override_selection(&[option], "fast", &serde_json::json!(true))
+            .expect("boolean config should accept a JSON boolean");
+        assert_eq!(selection.event_value, serde_json::json!(true));
+        assert!(!selection.already_selected);
+        assert_eq!(selection.wire_value.as_bool(), Some(true));
     }
 
     #[test]

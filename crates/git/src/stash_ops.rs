@@ -36,7 +36,11 @@ impl GitService {
     }
 
     /// Return the patch for the stash at `index`.
-    pub fn stash_show(&self, worktree_path: &Path, index: usize) -> Result<String, GitServiceError> {
+    pub fn stash_show(
+        &self,
+        worktree_path: &Path,
+        index: usize,
+    ) -> Result<String, GitServiceError> {
         Ok(GitCli::new().stash_show(worktree_path, index)?)
     }
 }

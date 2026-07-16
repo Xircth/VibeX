@@ -1,3 +1,4 @@
+pub mod agent_capability_catalog;
 pub mod agent_setting;
 pub mod attention;
 pub mod automation;

@@ -32,6 +32,9 @@
     "sessionNameLabel": "会话名称（可选）",
     "sessionNamePlaceholder": "不填则使用首条消息自动命名",
     "codingAgent": "编程代理",
+    "controlsLoading": "正在读取已加载的会话配置…",
+    "controlsUnavailable": "该代理尚未发布可用的会话配置。请检查其安装和登录状态。",
+    "controlsAfterFirstSession": "模型、权限等选项将在该代理首次会话后由其自身提供，可在输入框中选择。",
     "creating": "创建中..."
   },
   "sessionHub": {

@@ -43,6 +43,14 @@ pub struct AppendConversationEvent<'a> {
     pub idempotency_key: Option<&'a str>,
 }
 
+/// Join row for [`ConversationEventRecord::recent_of_kind_with_executor`].
+#[derive(FromRow)]
+struct EventWithExecutorRow {
+    session_executor: String,
+    #[sqlx(flatten)]
+    event: ConversationEventRecord,
+}
+
 const EVENT_COLUMNS: &str = r#"id,
     conversation_id,
     turn_id,
@@ -112,6 +120,51 @@ impl ConversationEventRecord {
         .bind(event_kind)
         .fetch_optional(executor)
         .await
+    }
+
+    /// Recent events of one kind across ALL conversations, newest first, each
+    /// paired with its session's raw executor key (historical spellings
+    /// included — callers match agents leniently via `AgentKind::from_lenient`).
+    /// Used to recover an agent's last-advertised session controls before a new
+    /// session exists.
+    pub async fn recent_of_kind_with_executor<'e, E>(
+        executor: E,
+        event_kind: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, Self)>, sqlx::Error>
+    where
+        E: Executor<'e, Database = Sqlite>,
+    {
+        let rows = sqlx::query_as::<_, EventWithExecutorRow>(
+            r#"SELECT s.executor AS session_executor,
+                      e.id,
+                      e.conversation_id,
+                      e.turn_id,
+                      e.binding_id,
+                      e.connection_id,
+                      e.prompt_id,
+                      e.sequence,
+                      e.source,
+                      e.event_kind,
+                      e.event_version,
+                      e.normalized_json,
+                      e.raw_json,
+                      e.idempotency_key,
+                      e.created_at
+               FROM conversation_events e
+               JOIN sessions s ON s.id = e.conversation_id
+               WHERE e.event_kind = ?
+               ORDER BY e.created_at DESC, e.sequence DESC
+               LIMIT ?"#,
+        )
+        .bind(event_kind)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.session_executor, row.event))
+            .collect())
     }
 
     pub async fn events_since<'e, E>(
@@ -398,6 +451,97 @@ mod tests {
             .expect("events since");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn recent_of_kind_with_executor_covers_historical_spellings_newest_first() {
+        // Recovering an agent's last-advertised session controls must see
+        // conversations stored under ANY historical executor spelling
+        // (`CLAUDE_CODE`, `claude_code`, …) and yield the newest event first.
+        let pool = setup_pool().await;
+
+        let append_mode_event = |executor: &'static str, payload: &'static str| {
+            let pool = pool.clone();
+            async move {
+                let conversation_id = Uuid::new_v4();
+                ConversationRecord::create(
+                    &pool,
+                    conversation_id,
+                    CreateConversationRecord {
+                        workspace_id: Uuid::new_v4(),
+                        task_id: None,
+                        title: None,
+                        initial_prompt: None,
+                        status: None,
+                        executor: Some(executor),
+                    },
+                )
+                .await
+                .expect("create conversation");
+                ConversationEventRecord::append(
+                    &pool,
+                    AppendConversationEvent {
+                        id: Uuid::new_v4(),
+                        conversation_id,
+                        turn_id: None,
+                        binding_id: None,
+                        connection_id: None,
+                        prompt_id: None,
+                        source: "acp",
+                        event_kind: "session_mode_updated",
+                        normalized_json: payload,
+                        raw_json: None,
+                        idempotency_key: None,
+                    },
+                )
+                .await
+                .expect("append event");
+            }
+        };
+
+        append_mode_event(
+            "CLAUDE_CODE",
+            r#"{"kind":"session_mode_updated","modes":[{"id":"old"}]}"#,
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        append_mode_event(
+            "claude_code",
+            r#"{"kind":"session_mode_updated","modes":[{"id":"new"}]}"#,
+        )
+        .await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        append_mode_event(
+            "codex",
+            r#"{"kind":"session_mode_updated","modes":[{"id":"codex"}]}"#,
+        )
+        .await;
+
+        let rows = ConversationEventRecord::recent_of_kind_with_executor(
+            &pool,
+            "session_mode_updated",
+            50,
+        )
+        .await
+        .expect("query recent events");
+        assert_eq!(rows.len(), 3);
+
+        let claude: Vec<_> = rows
+            .iter()
+            .filter(|(executor, _)| {
+                api_types::AgentKind::from_lenient(executor)
+                    == Some(api_types::AgentKind::ClaudeCode)
+            })
+            .collect();
+        assert_eq!(claude.len(), 2, "both historical spellings must match");
+        assert!(
+            claude[0].1.normalized_json.contains("\"new\""),
+            "newest claude event must come first"
+        );
+        assert!(
+            rows.iter().any(|(executor, _)| executor == "codex"),
+            "other agents' events remain available for their own lookups"
+        );
     }
 
     #[tokio::test]

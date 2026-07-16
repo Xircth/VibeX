@@ -28,6 +28,7 @@ function draftScratch(): Scratch {
         images: ['.vibe-images/stored.png'],
         executor_config: profile,
         queued: false,
+        config_overrides: {},
       },
     },
     created_at: now,
@@ -143,6 +144,7 @@ describe('useSessionComposerDraftScratch', () => {
           images: ['.vibe-images/new.png'],
           executor_config: profile,
           queued: false,
+          config_overrides: {},
         },
       },
     });
@@ -176,6 +178,7 @@ describe('useSessionComposerDraftScratch', () => {
           images: ['.vibe-images/current.png'],
           executor_config: planProfile,
           queued: false,
+          config_overrides: {},
         },
       },
     });

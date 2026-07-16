@@ -10,7 +10,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { ExecutorProfileId, AgentKind } from 'shared/types';
-import { isKnownAgent } from '@/constants/agents';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { settingsWindowApi } from '@/lib/api';
@@ -37,24 +36,18 @@ export function AgentSelector({
   const { t } = useTranslation(['tasks', 'common']);
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
-    // agent -> installed. Disabled agents are dropped so they never appear.
+    // The backend's local-runtime gate is authoritative. Do not temporarily
+    // promote profile-configured agents to "installed" while its query is in
+    // flight: that used to let a user select a runtime that cannot create an
+    // ACP session.
     const installedByAgent = new Map<AgentKind, boolean>();
     for (const item of selectable) {
       if (item.enabled) installedByAgent.set(item.agent, item.installed);
     }
-    // Agents with a local executor profile are configured here and treated as
-    // installed, so the existing three never regress while the registry loads.
-    if (profiles) {
-      for (const key of Object.keys(profiles)) {
-        if (isKnownAgent(key)) {
-          installedByAgent.set(key as AgentKind, true);
-        }
-      }
-    }
     return Array.from(installedByAgent.entries())
       .map(([agent, installed]) => ({ agent, installed }))
       .sort((a, b) => a.agent.localeCompare(b.agent));
-  }, [profiles, selectable]);
+  }, [selectable]);
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel = selectedAgent
     ? getAgentName(selectedAgent)

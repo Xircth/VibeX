@@ -414,7 +414,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 23,
+      version: 24,
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const legacySnapshot = buildProjectLayoutState({
@@ -451,6 +451,13 @@ export const useLayoutStore = create<LayoutState>()(
             // would keep their bad widths forever. One-time grid reset;
             // visibility flags and the active tab are kept.
             if (version < 23) {
+              accumulator[projectKey].serializedLayout = null;
+            }
+            // v24: Dockview now owns A/C zone minimum-width constraints.
+            // Discard snapshots saved before those constraints existed: they
+            // can restore an inflated dock and crushed session column for one
+            // visible frame before any runtime correction can run.
+            if (version < 24) {
               accumulator[projectKey].serializedLayout = null;
             }
             return accumulator;

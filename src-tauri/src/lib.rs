@@ -91,6 +91,20 @@ pub fn run() {
 
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
+            // Inventory and automatic ACP bridge installation run after the
+            // window is interactive. Session controls are never probed or
+            // catalogued globally: a concrete Prepared Session owns them.
+            let agent_startup_pool = state.deployment.db().pool.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) =
+                    commands::agent_settings::agent_bootstrap_installation_for_startup(
+                        &agent_startup_pool,
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, "startup agent runtime reconciliation failed");
+                }
+            });
             // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
             // process lifecycle before the UI connects. Best-effort — a failure here
             // must not block app launch; the worst case is a stale in-flight turn.
@@ -142,6 +156,23 @@ pub fn run() {
                     }
                 });
                 commands::automation::start_automation_scheduler(app.handle().clone());
+            }
+
+            // Plugins: seed the built-in presets (disabled until the user
+            // enables them in Settings → Plugins). Best-effort.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pool = handle
+                        .state::<state::AppState>()
+                        .deployment
+                        .db()
+                        .pool
+                        .clone();
+                    if let Err(error) = commands::plugin::ensure_builtin_plugins(&pool).await {
+                        tracing::warn!("builtin plugin seeding failed: {error}");
+                    }
+                });
             }
 
             if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
@@ -345,6 +376,7 @@ pub fn run() {
             commands::plugin::plugin_create,
             commands::plugin::plugin_update,
             commands::plugin::plugin_delete,
+            commands::plugin::plugin_set_enabled,
             commands::plugin::plugin_install_skill,
             commands::plugin::plugin_activate,
             commands::plugin::plugin_probe_console,
@@ -451,6 +483,7 @@ pub fn run() {
             commands::agent_settings::update_agent_preferences,
             commands::agent_settings::reorder_agents,
             commands::agent_settings::agent_preflight,
+            commands::agent_settings::agent_bootstrap_installation,
             commands::agent_settings::detect_agent_local_version,
             commands::agent_settings::run_agent_fix,
             commands::agent_settings::open_agent_login_terminal,
@@ -519,6 +552,8 @@ pub fn run() {
             commands::approvals::respond_to_approval,
             // ACP-native agent platform commands
             commands::agents::agent_registry_list,
+            commands::agents::agent_capability_catalog,
+            commands::agents::agent_refresh_capability_catalog,
             commands::agents::agent_config_surfaces,
             commands::agents::agent_mcp_surfaces,
             commands::agents::agent_skills_surfaces,
@@ -529,6 +564,10 @@ pub fn run() {
             commands::agents::agent_list_session_commands,
             commands::agents::agent_set_auto_approve,
             commands::agents::agent_connect,
+            commands::agents::agent_prepare_session,
+            commands::agents::agent_set_prepared_session_mode,
+            commands::agents::agent_set_prepared_session_config,
+            commands::agents::agent_discard_prepared_session,
             commands::agents::agent_new_session,
             commands::agents::agent_resume_session,
             commands::agents::agent_send_prompt,

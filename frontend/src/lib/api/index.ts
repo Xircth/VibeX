@@ -49,6 +49,7 @@ export {
 export type {
   ClaudeSettings,
   AgentSettingInfo,
+  AgentInstallationBootstrap,
   PreflightCheck,
   PreflightFix,
   PreflightResult,

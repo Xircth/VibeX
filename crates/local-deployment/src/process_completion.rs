@@ -92,9 +92,7 @@ pub(crate) fn should_mark_task_in_review_after_stop(
     !matches!(run_reason, ExecutionProcessRunReason::DevServer)
 }
 
-pub(crate) fn should_create_executor_approval_bridge(
-    base_executor: Option<AgentKind>,
-) -> bool {
+pub(crate) fn should_create_executor_approval_bridge(base_executor: Option<AgentKind>) -> bool {
     matches!(
         base_executor,
         Some(AgentKind::Codex | AgentKind::ClaudeCode | AgentKind::Opencode)

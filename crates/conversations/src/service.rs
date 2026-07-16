@@ -2,11 +2,10 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentElicitationId,
-    AgentElicitationResponse, AgentKind, AgentPermissionId,
-    AgentPermissionResponse, AgentPromptId, AgentPromptSnapshot, AgentRuntime,
-    AgentSessionConfigOverride, AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput,
-    RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
-    SendAgentPromptInput,
+    AgentElicitationResponse, AgentKind, AgentPermissionId, AgentPermissionResponse, AgentPromptId,
+    AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride, AgentSessionId,
+    CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentElicitationInput,
+    RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
@@ -23,7 +22,7 @@ use db::models::{
     conversation_side_effects::ConversationPermissionRecord,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     repo::Repo,
-    session::SessionStatus,
+    session::{Session, SessionStatus},
     session_checkpoint::SessionCheckpoint,
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
@@ -458,7 +457,7 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
         key: String,
-        value: String,
+        value: serde_json::Value,
     ) -> Result<(), ConversationServiceError> {
         self.ctx
             .agent_runtime
@@ -727,9 +726,14 @@ impl ConversationSessionService {
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
                 .await?;
-        let acp_session_id = latest_binding
-            .as_ref()
-            .and_then(|binding| binding.acp_session_id.clone())
+        let persisted_session = Session::find_by_id(pool, input.conversation_id).await?;
+        let known_acp_session_id = known_acp_session_id(
+            latest_binding.as_ref(),
+            persisted_session.as_ref(),
+            input.agent_type,
+        );
+        let acp_session_id = known_acp_session_id
+            .clone()
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
 
         // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
@@ -743,9 +747,7 @@ impl ConversationSessionService {
             .runtime_connection_and_turn(input.conversation_id)
             .await
             .is_some();
-        let resume_external_session_id = latest_binding
-            .as_ref()
-            .and_then(|binding| binding.acp_session_id.clone())
+        let resume_external_session_id = known_acp_session_id
             .filter(|id| !id.starts_with("vibex-new-session-"))
             .filter(|_| !has_live_connection);
 
@@ -802,7 +804,7 @@ impl ConversationSessionService {
         } else {
             self.ctx
                 .agent_runtime
-                .ensure_session(EnsureAgentSessionInput {
+                .prepare_session(EnsureAgentSessionInput {
                     agent_type: input.agent_type,
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
@@ -812,6 +814,7 @@ impl ConversationSessionService {
                     env: launch_settings.env.clone(),
                 })
                 .await?
+                .session
         };
 
         ConversationAgentBindingRecord::bind_acp_session(
@@ -842,9 +845,14 @@ impl ConversationSessionService {
             .await
         {
             Ok(ordinal) => {
-                if let Err(error) =
-                    record_conversation_checkpoint(pool, input.conversation_id, turn_id, ordinal)
-                        .await
+                if let Err(error) = record_conversation_checkpoint(
+                    self.ctx.deployment.as_ref(),
+                    pool,
+                    input.conversation_id,
+                    turn_id,
+                    ordinal,
+                )
+                .await
                 {
                     tracing::warn!(%error, "failed to record conversation checkpoint mapping");
                 }
@@ -1077,10 +1085,15 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
                 continue;
             }
         };
+        let before_files = checkpoint_before_files(
+            checkpoint.before_snapshot_json.as_deref(),
+            repo.id.to_string().as_str(),
+        );
         files.extend(
             diffs
                 .into_iter()
-                .filter_map(diff_to_conversation_file_change),
+                .filter_map(diff_to_conversation_file_change)
+                .filter(|file| !before_files.contains(file)),
         );
     }
 
@@ -1154,20 +1167,70 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
 }
 
 async fn record_conversation_checkpoint(
+    deployment: &dyn Deployment,
     pool: &SqlitePool,
     conversation_id: Uuid,
     turn_id: Uuid,
     ordinal: i64,
 ) -> Result<(), ConversationServiceError> {
     let checkpoints = SessionCheckpoint::find_by_ordinal(pool, conversation_id, ordinal).await?;
+    let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::NotFound(format!("Conversation {conversation_id} not found"))
+        })?;
+    let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::NotFound(format!(
+                "Workspace {} not found",
+                conversation.workspace_id
+            ))
+        })?;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+    let container_ref = deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
     let before_snapshot_json = serde_json::json!({
         "ordinal": ordinal,
         "repos": checkpoints
             .iter()
-            .map(|checkpoint| serde_json::json!({
-                "repoId": checkpoint.repo_id,
-                "beforeHeadCommit": checkpoint.before_head_commit,
-            }))
+            .map(|checkpoint| {
+                let files = repos
+                    .iter()
+                    .find(|repo| repo.id == checkpoint.repo_id)
+                    .and_then(|repo| {
+                        let repo_path = workspace
+                            .repo_path(repo)
+                            .unwrap_or_else(|| PathBuf::from(&container_ref));
+                        let oid = git2::Oid::from_str(&checkpoint.before_head_commit).ok()?;
+                        let base_commit = Commit::new(oid);
+                        deployment
+                            .container()
+                            .git()
+                            .get_diffs(
+                                DiffTarget::Worktree {
+                                    worktree_path: &repo_path,
+                                    base_commit: &base_commit,
+                                },
+                                None,
+                            )
+                            .ok()
+                            .map(|diffs| {
+                                diffs
+                                    .into_iter()
+                                    .filter_map(diff_to_conversation_file_change)
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                    .unwrap_or_default();
+                serde_json::json!({
+                    "repoId": checkpoint.repo_id,
+                    "beforeHeadCommit": checkpoint.before_head_commit,
+                    "files": files,
+                })
+            })
             .collect::<Vec<_>>(),
     })
     .to_string();
@@ -1188,6 +1251,26 @@ async fn record_conversation_checkpoint(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+fn checkpoint_before_files(
+    before_snapshot_json: Option<&str>,
+    repo_id: &str,
+) -> Vec<ConversationFileChange> {
+    let Some(snapshot) =
+        before_snapshot_json.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+    else {
+        return Vec::new();
+    };
+    snapshot["repos"]
+        .as_array()
+        .and_then(|repos| {
+            repos
+                .iter()
+                .find(|repo| repo["repoId"].as_str() == Some(repo_id))
+        })
+        .and_then(|repo| serde_json::from_value(repo["files"].clone()).ok())
+        .unwrap_or_default()
 }
 
 fn diff_to_conversation_file_change(diff: utils::diff::Diff) -> Option<ConversationFileChange> {
@@ -1301,6 +1384,14 @@ fn merge_user_prompt_overrides(
     }
 }
 
+/// Local ACP runtimes expose their actual session controls through the verified
+/// capability catalog. Executor profiles may still identify a user's historical
+/// preference, but must never synthesize model/permission/reasoning/Fast values
+/// for a new ACP session: doing so would reintroduce a stale second truth source.
+fn profile_session_controls_are_catalog_managed(agent_type: AgentKind) -> bool {
+    agents::local_agent_runtime_spec(agent_type).is_some()
+}
+
 fn agent_prompt_overrides_from_profile(
     agent_type: AgentKind,
     profile: Option<&ExecutorProfileId>,
@@ -1315,6 +1406,10 @@ fn agent_prompt_overrides_from_profile(
             profile_executor = %profile.executor,
             "Ignoring executor profile overrides for mismatched ACP agent"
         );
+        return AgentPromptOverrides::default();
+    }
+
+    if profile_session_controls_are_catalog_managed(agent_type) {
         return AgentPromptOverrides::default();
     }
 
@@ -1467,6 +1562,27 @@ fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
     Uuid::parse_str(value).ok().map(AgentConnectionId)
 }
 
+fn known_acp_session_id(
+    latest_binding: Option<&ConversationAgentBindingRecord>,
+    persisted_session: Option<&Session>,
+    agent_type: AgentKind,
+) -> Option<String> {
+    latest_binding
+        .filter(|binding| AgentKind::from_lenient(&binding.agent_type) == Some(agent_type))
+        .and_then(|binding| binding.acp_session_id.clone())
+        .or_else(|| {
+            persisted_session
+                .filter(|session| {
+                    session
+                        .agent_type
+                        .as_deref()
+                        .and_then(AgentKind::from_lenient)
+                        == Some(agent_type)
+                })
+                .and_then(|session| session.external_session_id.clone())
+        })
+}
+
 fn parse_agent_prompt_id(value: &str) -> Option<AgentPromptId> {
     Uuid::parse_str(value).ok().map(AgentPromptId)
 }
@@ -1475,12 +1591,16 @@ fn parse_agent_prompt_id(value: &str) -> Option<AgentPromptId> {
 mod tests {
     use std::str::FromStr;
 
-    use agents::{AgentContentBlock, AgentSessionConfigOverride};
+    use agents::{
+        AgentContentBlock, AgentKind, AgentSessionConfigOverride,
+        conversation::ConversationFileChange,
+    };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
-        session::SessionStatus,
+        session::{Session, SessionStatus},
     };
+    use executors::profile::ExecutorProfileId;
     use sqlx::{
         SqlitePool,
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -1489,9 +1609,11 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        AgentPromptOverrides, ConversationServiceError, checkpoint_file_change_summary,
-        conversation_input_blocks, default_capabilities, diff_to_conversation_file_change,
-        ensure_conversation_has_no_in_flight_turn, merge_user_prompt_overrides,
+        AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
+        checkpoint_before_files, checkpoint_file_change_summary, conversation_input_blocks,
+        default_capabilities, diff_to_conversation_file_change,
+        ensure_conversation_has_no_in_flight_turn, known_acp_session_id,
+        merge_user_prompt_overrides,
     };
 
     async fn migrated_pool() -> SqlitePool {
@@ -1551,6 +1673,46 @@ mod tests {
             .await
             .expect("find conversation")
             .expect("conversation exists")
+    }
+
+    #[tokio::test]
+    async fn prepared_external_session_id_survives_until_first_turn() {
+        let pool = migrated_pool().await;
+        let conversation = ConversationRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: Some("Prepared"),
+                initial_prompt: None,
+                status: Some(SessionStatus::Todo),
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .unwrap();
+        Session::update_agent_metadata(
+            &pool,
+            conversation.id,
+            Some("external-prepared-1"),
+            Some("codex"),
+        )
+        .await
+        .unwrap();
+        let persisted = Session::find_by_id(&pool, conversation.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            known_acp_session_id(None, Some(&persisted), AgentKind::Codex).as_deref(),
+            Some("external-prepared-1")
+        );
+        assert_eq!(
+            known_acp_session_id(None, Some(&persisted), AgentKind::ClaudeCode),
+            None
+        );
     }
 
     #[test]
@@ -1619,6 +1781,122 @@ mod tests {
     }
 
     #[test]
+    fn local_acp_runtime_profiles_do_not_inject_session_controls() {
+        for agent_type in [
+            AgentKind::Codex,
+            AgentKind::ClaudeCode,
+            AgentKind::Opencode,
+            AgentKind::Gemini,
+            AgentKind::Openclaw,
+            AgentKind::Cline,
+            AgentKind::Hermes,
+        ] {
+            let profile = ExecutorProfileId {
+                executor: agent_type,
+                variant: Some("PLAN".to_string()),
+                model: Some("stale-profile-model".to_string()),
+                fast_mode: Some(true),
+                reasoning_effort: Some("high".to_string()),
+            };
+
+            let overrides = agent_prompt_overrides_from_profile(agent_type, Some(&profile));
+
+            assert_eq!(
+                overrides.mode_override, None,
+                "{agent_type} profile must not write an unverified mode"
+            );
+            assert!(
+                overrides.config_overrides.is_empty(),
+                "{agent_type} profile must not write unverified session controls"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_managed_agent_explicit_session_controls_survive_profile_suppression() {
+        let profile = ExecutorProfileId {
+            executor: AgentKind::Codex,
+            variant: Some("GPT_5_5".to_string()),
+            model: Some("stale-profile-model".to_string()),
+            fast_mode: Some(true),
+            reasoning_effort: Some("high".to_string()),
+        };
+        let mut overrides = agent_prompt_overrides_from_profile(AgentKind::Codex, Some(&profile));
+
+        // These are the controls the user picked from the verified persisted catalog
+        // (or the live ACP selector) when creating the first session.
+        merge_user_prompt_overrides(
+            &mut overrides,
+            Some("plan".to_string()),
+            vec![
+                AgentSessionConfigOverride {
+                    key: "model".to_string(),
+                    value: "gpt-5.6-sol".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "reasoning_effort".to_string(),
+                    value: "xhigh".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "fast_mode".to_string(),
+                    value: "true".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(overrides.mode_override.as_deref(), Some("plan"));
+        assert_eq!(
+            overrides.config_overrides,
+            vec![
+                AgentSessionConfigOverride {
+                    key: "model".to_string(),
+                    value: "gpt-5.6-sol".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "reasoning_effort".to_string(),
+                    value: "xhigh".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "fast_mode".to_string(),
+                    value: "true".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn non_catalog_managed_profiles_keep_legacy_explicit_overrides() {
+        let profile = ExecutorProfileId {
+            executor: AgentKind::QaMock,
+            variant: None,
+            model: Some("qa-model".to_string()),
+            fast_mode: Some(true),
+            reasoning_effort: Some("high".to_string()),
+        };
+
+        let overrides = agent_prompt_overrides_from_profile(AgentKind::QaMock, Some(&profile));
+
+        assert_eq!(overrides.mode_override, None);
+        assert_eq!(
+            overrides.config_overrides,
+            vec![
+                AgentSessionConfigOverride {
+                    key: "model".to_string(),
+                    value: "qa-model".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "reasoning_effort".to_string(),
+                    value: "high".to_string(),
+                },
+                AgentSessionConfigOverride {
+                    key: "fast_mode".to_string(),
+                    value: "true".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn conversation_capabilities_default_snapshot_matches_binding_assumptions() {
         let capabilities = default_capabilities();
 
@@ -1652,6 +1930,27 @@ mod tests {
             checkpoint_file_change_summary(&[change]),
             "1 file(s) changed: 0 added, 0 modified, 0 deleted, 1 renamed"
         );
+    }
+
+    #[test]
+    fn checkpoint_file_summary_excludes_preexisting_worktree_changes() {
+        let existing = ConversationFileChange {
+            path: "src/existing.rs".to_string(),
+            change_kind: "modified".to_string(),
+            additions: Some(2),
+            deletions: Some(1),
+            old_path: None,
+        };
+        let snapshot = serde_json::json!({
+            "repos": [{ "repoId": "repo-1", "files": [existing.clone()] }]
+        })
+        .to_string();
+
+        let before = checkpoint_before_files(Some(&snapshot), "repo-1");
+        let current = vec![existing];
+
+        assert!(current.iter().all(|file| before.contains(file)));
+        assert!(!current.into_iter().any(|file| !before.contains(&file)));
     }
 
     #[tokio::test]

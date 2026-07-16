@@ -34,6 +34,7 @@ describe('session composer draft helpers', () => {
       images: ['vibe://image-1'],
       executor_config: { executor: 'codex' as const },
       queued: false,
+      config_overrides: {},
     };
 
     expect(
@@ -165,6 +166,7 @@ describe('session composer draft helpers', () => {
           images: ['vibe://image-1'],
           executor_config: profile,
           queued: false,
+          config_overrides: {},
         },
       },
     });
@@ -374,6 +376,7 @@ describe('session composer draft helpers', () => {
       images: ['vibe://image-1', 'vibe://image-2'],
       executor_config: { executor: 'codex' as const },
       queued: false,
+      config_overrides: {},
     };
 
     expect(
@@ -388,6 +391,8 @@ describe('session composer draft helpers', () => {
       shouldHydrate: false,
       message: '',
       imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
     });
 
     expect(
@@ -402,6 +407,8 @@ describe('session composer draft helpers', () => {
       shouldHydrate: true,
       message: 'continue from scratch',
       imagePaths: ['vibe://image-1', 'vibe://image-2'],
+      modeOverride: null,
+      configOverrides: {},
     });
 
     expect(
@@ -416,6 +423,8 @@ describe('session composer draft helpers', () => {
       shouldHydrate: false,
       message: '',
       imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
     });
 
     expect(
@@ -430,6 +439,36 @@ describe('session composer draft helpers', () => {
       shouldHydrate: true,
       message: '',
       imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
+    });
+  });
+
+  it('carries create-form session-control presets out of the draft', () => {
+    // Issue #2 regression: the create form's ACP mode/config picks ride the
+    // draft into the composer's pending state and go out as the first turn's
+    // overrides.
+    const draft: DraftFollowUpData = {
+      message: '',
+      images: [],
+      executor_config: { executor: 'claude_code' as const },
+      queued: false,
+      mode_override: 'plan',
+      config_overrides: { model: 'opus', permission: 'ask' },
+    };
+
+    const decision = getDraftScratchHydrationDecision({
+      isScratchLoading: false,
+      hydratedScratchId: undefined,
+      scratchId: 'session-3',
+      scratchData: draft,
+    });
+
+    expect(decision.shouldHydrate).toBe(true);
+    expect(decision.modeOverride).toBe('plan');
+    expect(decision.configOverrides).toEqual({
+      model: 'opus',
+      permission: 'ask',
     });
   });
 

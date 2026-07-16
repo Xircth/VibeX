@@ -18,10 +18,6 @@ import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useActiveExecutorProfile } from '@/contexts/ActiveExecutorProfileContext';
 import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { conversationApi } from '@/features/conversation/conversationApi';
-import {
-  readCachedSessionControls,
-  writeCachedSessionControls,
-} from '@/features/conversation/sessionControlsCache';
 import { useGitStatus } from '@/hooks/git';
 
 import type { Session } from 'shared/types';
@@ -36,6 +32,11 @@ import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import {
+  areConfigValuesEqual,
+  sanitizeDependentConfigValues,
+  selectConfigOptionValue,
+} from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
@@ -305,12 +306,27 @@ export function TaskFollowUpSection({
     saveToScratch,
   });
 
+  // Pending, agent-advertised mode selection applied to the next turn. Reset
+  // when switching sessions so a picked mode never leaks across conversations.
+  // Declared before draft hydration so a create-form preset can seed them.
+  const [selectedMode, setSelectedMode] = useState<string | null>(null);
+  // Pending ACP config-option selections (model / permission / …), key → value.
+  const [selectedConfigValues, setSelectedConfigValues] = useState<
+    Record<string, string>
+  >({});
+  useEffect(() => {
+    setSelectedMode(null);
+    setSelectedConfigValues({});
+  }, [sessionId]);
+
   const { handleAfterSendCleanup } = useSessionComposerDraftHydration({
     scratchId: scratchIdValue,
     isScratchLoading,
     scratchData,
     setLocalMessage,
     setAttachedImages,
+    setSelectedMode,
+    setSelectedConfigValues,
     cancelDebouncedSave,
     deleteScratch,
   });
@@ -344,51 +360,21 @@ export function TaskFollowUpSection({
   );
 
   const { entries, sessionModes, sessionConfigOptions } = useEntries();
-  const composerExecutor = effectiveExecutorProfile?.executor ?? null;
-  // Cache the live advertisement per agent type, and fall back to the cached
-  // one when no session exists yet (new conversation / create-session composer)
-  // so the pickers show the agent's real options instead of static presets.
+  // Live ACP session state is the sole source for composer controls. A global
+  // agent catalog cannot account for workspace/provider/account differences.
+  const displaySessionModes = sessionModes;
+  const displaySessionConfigOptions = sessionConfigOptions;
+  // A live `config_option_update` can replace an effort's choice set after a
+  // model change. Keep pending next-turn values aligned with that update.
   useEffect(() => {
-    if (
-      composerExecutor &&
-      (sessionModes.modes.length > 0 || sessionConfigOptions.length > 0)
-    ) {
-      writeCachedSessionControls(composerExecutor, {
-        modes: sessionModes.modes,
-        configOptions: sessionConfigOptions,
-      });
-    }
-  }, [composerExecutor, sessionModes, sessionConfigOptions]);
-  const cachedControls = useMemo(
-    () =>
-      sessionModes.modes.length === 0 && sessionConfigOptions.length === 0
-        ? readCachedSessionControls(composerExecutor)
-        : null,
-    [composerExecutor, sessionModes, sessionConfigOptions]
-  );
-  const displaySessionModes = useMemo(
-    () =>
-      sessionModes.modes.length > 0
-        ? sessionModes
-        : { current: null, modes: cachedControls?.modes ?? [] },
-    [sessionModes, cachedControls]
-  );
-  const displaySessionConfigOptions =
-    sessionConfigOptions.length > 0
-      ? sessionConfigOptions
-      : (cachedControls?.configOptions ?? sessionConfigOptions);
-  // Pending, agent-advertised mode selection applied to the next turn. Reset
-  // when switching sessions so a picked mode never leaks across conversations.
-  const [selectedMode, setSelectedMode] = useState<string | null>(null);
-  // Pending ACP config-option selections (model / permission / …), key → value.
-  const [selectedConfigValues, setSelectedConfigValues] = useState<
-    Record<string, string>
-  >({});
-  useEffect(() => {
-    setSelectedMode(null);
-    setSelectedConfigValues({});
-  }, [sessionId]);
-
+    setSelectedConfigValues((previous) => {
+      const next = sanitizeDependentConfigValues(
+        displaySessionConfigOptions,
+        previous
+      );
+      return areConfigValuesEqual(previous, next) ? previous : next;
+    });
+  }, [displaySessionConfigOptions]);
   // Selecting a mode applies immediately via ACP `session/set_mode` when the
   // session is idle; while a turn is streaming (or before the session exists)
   // the backend rejects and the choice stays pending as a next-turn override.
@@ -410,7 +396,25 @@ export function TaskFollowUpSection({
   // (`session/set_config_option`): applied now when idle, next turn otherwise.
   const handleSelectConfigOption = useCallback(
     (key: string, value: string) => {
-      setSelectedConfigValues((prev) => ({ ...prev, [key]: value }));
+      // Resolve from the same snapshot rendered in the selector. In
+      // particular, reject effort until a model is actually known and clear a
+      // stale effort when switching models.
+      const nextValues = selectConfigOptionValue(
+        displaySessionConfigOptions,
+        selectedConfigValues,
+        key,
+        value
+      );
+      const accepted = nextValues[key] === value;
+      setSelectedConfigValues((previous) =>
+        selectConfigOptionValue(
+          displaySessionConfigOptions,
+          previous,
+          key,
+          value
+        )
+      );
+      if (!accepted) return;
       if (!sessionId) return;
       void conversationApi
         .setSessionConfigOption({ conversationId: sessionId, key, value })
@@ -426,16 +430,21 @@ export function TaskFollowUpSection({
           // Keep the pending selection; it is sent as a configOverride next turn.
         });
     },
-    [sessionId]
+    [displaySessionConfigOptions, selectedConfigValues, sessionId]
   );
 
   const pendingConfigOverrides = useMemo(
     () =>
-      Object.entries(selectedConfigValues).map(([key, value]) => ({
+      Object.entries(
+        sanitizeDependentConfigValues(
+          displaySessionConfigOptions,
+          selectedConfigValues
+        )
+      ).map(([key, value]) => ({
         key,
         value,
       })),
-    [selectedConfigValues]
+    [displaySessionConfigOptions, selectedConfigValues]
   );
 
   // Once a turn is sent the pending mode/config overrides were applied by the

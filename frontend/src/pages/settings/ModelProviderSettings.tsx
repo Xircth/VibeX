@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Check,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
+import { AGENT_OPTIONS } from '@/constants/agents';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +40,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import type { AgentType } from '@/features/agents/types';
+import { agentsApi } from '@/features/agents/api';
 import {
   modelProviderApi,
   type AgentProvider,
@@ -47,16 +50,6 @@ import {
 } from '@/lib/api';
 
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
-
-const AGENT_OPTIONS: { value: AgentType; label: string }[] = [
-  { value: 'claude_code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'openclaw', label: 'OpenClaw' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'hermes', label: 'Hermes' },
-];
 
 function defaultAuthType(agent: AgentType): string {
   return agent === 'claude_code' ? 'anthropic' : 'openai_compatible';
@@ -89,7 +82,10 @@ function emptyDraft(agent: AgentType): ProviderDraft {
   };
 }
 
-function draftFromProvider(provider: AgentProvider, agent: AgentType): ProviderDraft {
+function draftFromProvider(
+  provider: AgentProvider,
+  agent: AgentType
+): ProviderDraft {
   return {
     name: provider.name,
     api_url: provider.api_url,
@@ -106,6 +102,7 @@ function errorMessage(error: unknown): string {
 
 export function ModelProviderSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const queryClient = useQueryClient();
   const AUTH_OPTIONS = useMemo(
     () => [
       {
@@ -141,20 +138,23 @@ export function ModelProviderSettings() {
 
   const isCodex = selectedAgent === 'codex';
 
-  const load = useCallback(async (agent: AgentType) => {
-    setLoading(true);
-    try {
-      const result = await modelProviderApi.list(agent);
-      setView(result);
-    } catch (error) {
-      toast.error(t('modelProviders.loadFailed'), {
-        description: errorMessage(error),
-      });
-      setView(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const load = useCallback(
+    async (agent: AgentType) => {
+      setLoading(true);
+      try {
+        const result = await modelProviderApi.list(agent);
+        setView(result);
+      } catch (error) {
+        toast.error(t('modelProviders.loadFailed'), {
+          description: errorMessage(error),
+        });
+        setView(null);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     void load(selectedAgent);
@@ -269,6 +269,24 @@ export function ModelProviderSettings() {
     try {
       const result = await modelProviderApi.apply(selectedAgent, provider.id);
       setView(result);
+      // OpenCode discovers provider-backed models from its local config. Keep
+      // the persisted pre-session catalog in sync before the user creates the
+      // next conversation; failures do not undo a config file that was already
+      // safely applied and backed up by the backend.
+      if (selectedAgent === 'opencode') {
+        const refreshed = await agentsApi
+          .refreshCapabilityCatalog('opencode')
+          .catch(() => false);
+        // An already-open create form may hold a fresh React Query result
+        // from before the provider file was written. Make it re-read the
+        // newly persisted local catalog; this is still a SQLite-only query.
+        void queryClient.invalidateQueries({
+          queryKey: ['agent-capability-catalog', 'opencode'],
+        });
+        if (!refreshed) {
+          toast.warning(t('modelProviders.catalogRefreshFailed'));
+        }
+      }
       toast.success(t('modelProviders.applied', { name: provider.name }), {
         description: result.config_path
           ? t('modelProviders.writtenTo', { path: result.config_path })
@@ -519,7 +537,11 @@ export function ModelProviderSettings() {
         </SettingsSection>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} className="max-w-2xl">
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        className="max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>
             {editingProvider

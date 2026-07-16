@@ -198,7 +198,11 @@ mod tests {
                 expected,
                 "deserialize({raw:?})"
             );
-            assert_eq!(raw.parse::<AgentKind>().unwrap(), expected, "FromStr({raw:?})");
+            assert_eq!(
+                raw.parse::<AgentKind>().unwrap(),
+                expected,
+                "FromStr({raw:?})"
+            );
         }
     }
 

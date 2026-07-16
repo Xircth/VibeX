@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { AgentKind } from 'shared/types';
 import {
   CheckCircle2,
   Eye,
@@ -273,7 +274,7 @@ export function AgentConfigManager({
   setting,
   onSaved,
 }: {
-  agentType: string;
+  agentType: AgentKind;
   setting: AgentSettingInfo | null;
   onSaved: () => void;
 }) {

@@ -128,6 +128,9 @@ export function buildDraftFollowUpScratchUpdate(
 ): UpdateScratch | null {
   if (!executorProfileId?.executor) return null;
 
+  // Composer autosave rebuilds the draft without create-form session-control
+  // presets: by the time the user can type, hydration has already moved those
+  // presets into the composer's pending state (the source applied on send).
   return {
     payload: {
       type: 'DRAFT_FOLLOW_UP',
@@ -136,6 +139,7 @@ export function buildDraftFollowUpScratchUpdate(
         images,
         executor_config: executorProfileId,
         queued: false,
+        config_overrides: {},
       },
     },
   };
@@ -266,6 +270,8 @@ export function getDraftScratchHydrationDecision({
   shouldHydrate: boolean;
   message: string;
   imagePaths: string[];
+  modeOverride: string | null;
+  configOverrides: Record<string, string>;
 } {
   if (isScratchLoading || hydratedScratchId === scratchId) {
     return {
@@ -273,6 +279,8 @@ export function getDraftScratchHydrationDecision({
       shouldHydrate: false,
       message: '',
       imagePaths: [],
+      modeOverride: null,
+      configOverrides: {},
     };
   }
 
@@ -281,7 +289,22 @@ export function getDraftScratchHydrationDecision({
     shouldHydrate: true,
     message: scratchData?.message ?? '',
     imagePaths: [...(scratchData?.images ?? [])],
+    // Create-form session-control presets ride the draft into the composer's
+    // pending state and go out as the first turn's overrides.
+    modeOverride: scratchData?.mode_override ?? null,
+    configOverrides: compactConfigOverrides(scratchData?.config_overrides),
   };
+}
+
+/** ts-rs exports the BTreeMap as a partial record; drop undefined slots. */
+function compactConfigOverrides(
+  raw: DraftFollowUpData['config_overrides'] | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
 }
 
 export function getScratchExecutorProfileApplication({

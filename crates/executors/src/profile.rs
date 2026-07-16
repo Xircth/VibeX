@@ -577,7 +577,10 @@ mod tests {
         for (raw, expected) in [
             (r#"{"executor":"CLAUDE_CODE"}"#, AgentKind::ClaudeCode),
             (r#"{"executor":"OPENCODE"}"#, AgentKind::Opencode),
-            (r#"{"executor":"OPENCLAW","variant":"DEFAULT"}"#, AgentKind::Openclaw),
+            (
+                r#"{"executor":"OPENCLAW","variant":"DEFAULT"}"#,
+                AgentKind::Openclaw,
+            ),
         ] {
             let profile: ExecutorProfileId =
                 serde_json::from_str(raw).expect("legacy SCREAMING executor should deserialize");

@@ -1,5 +1,9 @@
 import { tauriInvoke } from '@/lib/tauriApi';
-import type { PlanUsageResult } from 'shared/types';
+import type {
+  AgentPreparedSessionSnapshot,
+  AgentSessionControlsSnapshot,
+  PlanUsageResult,
+} from 'shared/types';
 import type {
   AgentAvailableCommand,
   AgentConfigSurface,
@@ -27,6 +31,12 @@ export type AgentConnectRequest = {
 export type AgentNewSessionRequest = {
   connectionId: string;
   acpSessionId?: string | null;
+};
+
+export type AgentPrepareSessionRequest = {
+  agentType: AgentType;
+  workspaceId: string;
+  sessionId: string;
 };
 
 export type AgentSendPromptRequest = {
@@ -97,6 +107,15 @@ export const agentsApi = {
   listRegistry: (): Promise<AgentRegistryEntry[]> =>
     tauriInvoke('agent_registry_list'),
 
+  /** Matching persisted capability catalog; this is a side-effect-free read. */
+  capabilityCatalog: (
+    agentType: AgentType
+  ): Promise<AgentSessionControlsSnapshot | null> =>
+    tauriInvoke('agent_capability_catalog', { agentType }),
+
+  refreshCapabilityCatalog: (agentType: AgentType): Promise<boolean> =>
+    tauriInvoke('agent_refresh_capability_catalog', { agentType }),
+
   listConfigSurfaces: (): Promise<AgentConfigSurface[]> =>
     tauriInvoke('agent_config_surfaces'),
 
@@ -130,6 +149,33 @@ export const agentsApi = {
 
   connect: (request: AgentConnectRequest): Promise<AgentConnectionSnapshot> =>
     tauriInvoke('agent_connect', { request }),
+
+  prepareSession: (
+    request: AgentPrepareSessionRequest
+  ): Promise<AgentPreparedSessionSnapshot> =>
+    tauriInvoke('agent_prepare_session', { request }),
+
+  setPreparedSessionMode: (
+    sessionId: string,
+    modeId: string
+  ): Promise<AgentSessionControlsSnapshot> =>
+    tauriInvoke('agent_set_prepared_session_mode', {
+      request: { sessionId, modeId },
+    }),
+
+  setPreparedSessionConfig: (
+    sessionId: string,
+    key: string,
+    value: unknown
+  ): Promise<AgentSessionControlsSnapshot> =>
+    tauriInvoke('agent_set_prepared_session_config', {
+      request: { sessionId, key, value },
+    }),
+
+  discardPreparedSession: (sessionId: string): Promise<void> =>
+    tauriInvoke('agent_discard_prepared_session', {
+      request: { sessionId },
+    }),
 
   newSession: (
     request: AgentNewSessionRequest

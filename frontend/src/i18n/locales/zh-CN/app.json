@@ -113,7 +113,9 @@
     "openReleasePage": "打开发布页",
     "updatingDependencies": "正在更新本地 Agent 依赖...",
     "dependenciesUpdated": "本地 Agent 依赖已更新。",
-    "dependenciesUpdateFailed": "本地 Agent 依赖更新失败。"
+    "dependenciesUpdateFailed": "本地 Agent 依赖更新失败。",
+    "agentRuntimeSetupRequired": "{{agents}} 的本机 Agent Runtime 或 ACP 缺失或不兼容。请在 Agent 设置中预检查并安装或更新。",
+    "openAgentSettings": "前往 Agent 设置"
   },
   "welcomePage": {
     "processing": "处理中...",

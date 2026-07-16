@@ -715,8 +715,7 @@ async fn latest_binding_id(
 /// rawInput/rawOutput, and downstream consumers need the structured value back.
 /// Non-JSON text is preserved as a plain JSON string.
 fn parse_json_payload(payload: &str) -> serde_json::Value {
-    serde_json::from_str(payload)
-        .unwrap_or_else(|_| serde_json::Value::String(payload.to_string()))
+    serde_json::from_str(payload).unwrap_or_else(|_| serde_json::Value::String(payload.to_string()))
 }
 
 fn map_agent_event_to_conversation_event(

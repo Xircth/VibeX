@@ -9,8 +9,13 @@ export type SelectableAgent = {
   agent: AgentKind;
   /** The user has not disabled this agent in settings. */
   enabled: boolean;
-  /** A local binary/runtime was detected for this agent. */
+  /**
+   * Backend-verified local presence (login/config marker, PATH binary, or
+   * global npm package). Never inferred from the distribution kind.
+   */
   installed: boolean;
+  /** Runtime prerequisites (node/uv) are satisfied, so installing can work. */
+  runtimeOk: boolean;
 };
 
 /**
@@ -34,7 +39,7 @@ export function useSelectableAgents(): SelectableAgent[] {
     staleTime: 60 * 1000,
   });
 
-  return useMemo(() => {
+  const selectableAgents = useMemo(() => {
     if (!registry) return [];
     const settingByType = new Map(
       (settings ?? []).map((setting) => [setting.agent_type, setting])
@@ -49,11 +54,15 @@ export function useSelectableAgents(): SelectableAgent[] {
       result.push({
         agent,
         enabled: setting?.enabled ?? true,
-        installed:
-          entry.distribution.kind === 'npx' ||
-          (setting ? setting.installed_version != null : false),
+        installed: setting?.installed ?? false,
+        runtimeOk: setting?.runtime_ok ?? false,
       });
     }
     return result;
   }, [registry, settings]);
+
+  // Catalog warming is deliberately owned by the application-startup and
+  // explicit runtime/config lifecycle paths. Starting it here would make
+  // opening an Agent selector silently spawn ACP on demand again.
+  return selectableAgents;
 }

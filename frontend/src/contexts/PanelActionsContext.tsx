@@ -40,6 +40,7 @@ import {
 } from '@/utils/dockviewGroupPolicy';
 import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
+import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -827,6 +828,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           referencePanel,
           direction: 'left',
           hideHeader: true,
+          constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
           initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
         });
 
@@ -904,6 +906,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
           referencePanel,
           direction: 'left',
           hideHeader: true,
+          constraints: { minimumWidth: MIN_LEFT_PANEL_WIDTH },
           initialWidth: savedLeftWidth > 0 ? savedLeftWidth : 200,
         });
 

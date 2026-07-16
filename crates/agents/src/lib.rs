@@ -16,6 +16,7 @@ pub mod history;
 pub mod host;
 pub mod ids;
 pub mod installer;
+pub mod local_detection;
 pub mod manager;
 pub mod mcp;
 pub mod mcp_file;
@@ -24,6 +25,7 @@ pub mod parsers;
 pub mod permissions;
 pub mod plan_usage;
 pub mod preflight;
+pub mod probe;
 pub mod registry;
 pub mod runtime;
 pub mod session;
@@ -56,8 +58,9 @@ pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use error::{AgentError, AgentResult};
 pub use events::{
     AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
-    AgentPlan, AgentPromptFinished, AgentSessionConfigChoice, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot,
+    AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished, AgentSessionConfigChoice,
+    AgentSessionConfigDependency, AgentSessionConfigOption, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot,
     AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
@@ -101,7 +104,11 @@ pub use preflight::{
     AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,
     AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
 };
-pub use registry::{AgentRegistryEntry, AgentKind, all_agent_types, registry_entry};
+pub use registry::{
+    ACP_EXECUTABLE_OVERRIDE_ENV, AgentKind, AgentRegistryEntry, LocalAgentRuntimeSpec,
+    all_agent_types, local_acp_command_parts, local_agent_runtime_spec,
+    local_runtime_launch_acp_executable, minimum_supported_acp_version, registry_entry,
+};
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,

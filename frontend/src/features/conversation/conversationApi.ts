@@ -63,7 +63,7 @@ export type ConversationSetSessionModeRequest = {
 export type ConversationSetSessionConfigOptionRequest = {
   conversationId: string;
   key: string;
-  value: string;
+  value: unknown;
 };
 
 export type ConversationCloseRequest = {

@@ -25,35 +25,6 @@ export const COMPOSER_SELECT_ITEM_CLASS =
   'flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--surface-control-hover)]';
 
 /**
- * An agent-advertised "Default" alias choice (e.g. Claude Code's model
- * `default` / effort `default`). The composer never displays the word
- * "Default": the alias is either renamed to the concrete thing it resolves to
- * (see `modelNameFromDescription`) or hidden while the concrete choice is
- * presented as active.
- */
-export function isDefaultChoiceLike(
-  value: string,
-  label?: string | null
-): boolean {
-  return value === 'default' || /^default\b/i.test(label ?? '');
-}
-
-/**
- * Extract the full model name that Claude Code's adapter puts at the head of a
- * model choice's description — "Fable 5 · Most capable …" → "Fable 5",
- * "Opus 4.8 with 1M context · …" → "Opus 4.8". Returns null when the
- * description doesn't lead with a versioned model name.
- */
-export function modelNameFromDescription(
-  description?: string | null
-): string | null {
-  const match = /^([A-Z][A-Za-z]*(?:\s[A-Za-z]+)*\s\d+(?:\.\d+)?)/.exec(
-    description ?? ''
-  );
-  return match ? match[1] : null;
-}
-
-/**
  * Radix focuses a menu item when the pointer moves over it; with a partially
  * visible item at the edge of the scrollable list that focus nudges the list
  * (auto-scroll on plain mouse movement). preventDefault() makes Radix's

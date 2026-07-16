@@ -15,6 +15,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 import { desktopApi } from '@/lib/api';
@@ -117,9 +118,7 @@ export function PluginsSettings() {
 
   const startNew = () => {
     setEditingId(null);
-    setDraft(
-      emptyInput(t('plugins.defaultHookMessage', literalPlaceholders))
-    );
+    setDraft(emptyInput(t('plugins.defaultHookMessage', literalPlaceholders)));
   };
 
   const startEdit = (plugin: Plugin) => {
@@ -225,6 +224,20 @@ export function PluginsSettings() {
     reader.readAsDataURL(file);
   };
 
+  /** Enabling counts as configuring: the plugin appears in the workspace
+   *  sidebar and, if its skill isn't installed yet, the install runs now. */
+  const toggleEnabled = async (plugin: Plugin, enabled: boolean) => {
+    try {
+      const updated = await pluginApi.setEnabled(plugin.id, enabled);
+      await reload();
+      if (enabled && updated.install_status !== 'installed') {
+        void installSkill(updated);
+      }
+    } catch (error) {
+      toast.error(t('plugins.toggleFailed', { error: String(error) }));
+    }
+  };
+
   const downloadDevKit = async () => {
     try {
       const dir = await open({ directory: true, multiple: false });
@@ -302,7 +315,11 @@ export function PluginsSettings() {
             <FileUp className="mr-1 h-4 w-4" />
             {t('plugins.importManifest')}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void downloadDevKit()}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void downloadDevKit()}
+          >
             <PackageOpen className="mr-1 h-4 w-4" />
             {t('plugins.downloadDevKit')}
           </Button>
@@ -465,7 +482,9 @@ export function PluginsSettings() {
                   type="datetime-local"
                   value={toDatetimeLocal(draft.expires_at)}
                   onChange={(e) =>
-                    patchDraft({ expires_at: fromDatetimeLocal(e.target.value) })
+                    patchDraft({
+                      expires_at: fromDatetimeLocal(e.target.value),
+                    })
                   }
                 />
               </div>
@@ -527,6 +546,11 @@ export function PluginsSettings() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">
                         {plugin.name}
+                        {plugin.builtin ? (
+                          <span className="ml-1.5 rounded-[4px] border border-border px-1 py-px text-[10px] font-normal text-muted-foreground">
+                            {t('plugins.builtinBadge')}
+                          </span>
+                        ) : null}
                         {isExpired(plugin) ? (
                           <span className="ml-1.5 text-[11px] font-normal text-destructive">
                             {t('plugins.expired')}
@@ -559,6 +583,13 @@ export function PluginsSettings() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    <Switch
+                      checked={plugin.enabled}
+                      title={t('plugins.enableTooltip')}
+                      onCheckedChange={(enabled) =>
+                        void toggleEnabled(plugin, enabled)
+                      }
+                    />
                     <Button
                       size="sm"
                       variant="ghost"
@@ -581,14 +612,16 @@ export function PluginsSettings() {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 px-2 text-destructive"
-                      onClick={() => void remove(plugin)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {!plugin.builtin && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-destructive"
+                        onClick={() => void remove(plugin)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {plugin.install_status === 'failed' && plugin.install_error ? (

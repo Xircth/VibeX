@@ -17,6 +17,8 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { AgentKind } from 'shared/types';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { AgentConfigManager } from './AgentConfigManager';
 import { SettingsSection } from './SettingsSection';
@@ -61,6 +63,18 @@ type RuntimeSummary = {
   version: string | null;
 };
 
+type LocalRuntimeComponent = {
+  path: string | null;
+  version: string | null;
+  minimum_supported_version: string | null;
+  supported: boolean;
+};
+
+type LocalAgentRuntime = {
+  cli: LocalRuntimeComponent;
+  acp: LocalRuntimeComponent;
+};
+
 function getLoadErrorMessage(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
@@ -76,6 +90,23 @@ function draftFromSetting(setting: AgentSettingInfo | null): AgentDraft {
   };
 }
 
+/**
+ * `local_runtime` was added after agent settings had already been persisted
+ * and shipped. Treat it as optional so an older backend can still render this
+ * page normally while a current backend supplies direct CLI/ACP facts.
+ */
+function localRuntimeFor(
+  setting: AgentSettingInfo | null | undefined
+): LocalAgentRuntime | null {
+  const runtime = (
+    setting as
+      | (AgentSettingInfo & { local_runtime?: LocalAgentRuntime })
+      | null
+      | undefined
+  )?.local_runtime;
+  return runtime?.cli && runtime.acp ? runtime : null;
+}
+
 function checkById(
   result: PreflightResult | null,
   checkId: string
@@ -86,17 +117,21 @@ function checkById(
 function extractVersion(message: string): string | null {
   const trimmed = message.trim();
   if (!trimmed) return null;
-  const sourceIndex = trimmed.indexOf(' - Source: ');
-  return sourceIndex > 0 ? trimmed.slice(0, sourceIndex) : trimmed;
+  const runtimeDetailIndex = trimmed.indexOf(' - ');
+  return runtimeDetailIndex > 0
+    ? trimmed.slice(0, runtimeDetailIndex)
+    : trimmed;
 }
 
 function runtimeSummary(
   result: PreflightResult | null,
-  installedVersion: string | null | undefined
+  installedVersion: string | null | undefined,
+  localRuntime: LocalAgentRuntime | null
 ): RuntimeSummary {
   const runtimeCheck = checkById(result, 'runtime_launcher');
   const versionCheck = checkById(result, 'adapter_version');
   const version =
+    localRuntime?.acp.version ??
     installedVersion ??
     (versionCheck?.status === 'pass'
       ? extractVersion(versionCheck.message)
@@ -107,7 +142,13 @@ function runtimeSummary(
   // version, and message consistent with one another.
   let status: RuntimeStatus;
   if (!result) {
-    status = 'idle';
+    status = !localRuntime
+      ? 'idle'
+      : !localRuntime.cli.path || !localRuntime.acp.path
+        ? 'failed'
+        : localRuntime.cli.supported && localRuntime.acp.supported
+          ? 'ready'
+          : 'warning';
   } else if (runtimeCheck?.status === 'fail') {
     status = 'failed';
   } else if (version === null) {
@@ -127,13 +168,47 @@ function runtimeStatusClass(status: RuntimeStatus): string {
 }
 
 function fixLabelKey(fix: PreflightFix): string | null {
-  if (fix.action === 'install_npm' || fix.action === 'manual_install')
+  if (
+    fix.action === 'install_cli' ||
+    fix.action === 'install_npm' ||
+    fix.action === 'manual_install'
+  )
     return 'agents.fixInstall';
-  if (fix.action === 'upgrade_npm') return 'agents.fixUpdate';
+  if (fix.action === 'upgrade_npm' || fix.action === 'upgrade_cli')
+    return 'agents.fixUpdate';
   if (fix.action === 'uninstall_npm') return 'agents.fixUninstall';
   if (fix.action === 'install_uv') return 'agents.fixInstallUv';
   if (fix.action.startsWith('open_url:')) return 'agents.fixDownload';
   return null;
+}
+
+/**
+ * A local CLI must exist before its ACP adapter can be useful. Keep the
+ * ordering explicit rather than relying on the server's checklist order,
+ * which also lets future adapters add checks without changing this contract.
+ */
+function orderAutoFixActions(actions: string[]): string[] {
+  const prerequisiteActions = actions.filter(
+    (action) => action === 'install_uv' || action.startsWith('open_url:')
+  );
+  // A package-manager prerequisite needs a user-visible installer first. Do
+  // not immediately run npm/CLI install actions against the still-broken
+  // environment after opening that prerequisite page.
+  if (prerequisiteActions.length > 0) return prerequisiteActions;
+
+  const priority = (action: string): number => {
+    if (action === 'install_cli' || action === 'upgrade_cli') return 0;
+    if (action === 'install_npm' || action === 'upgrade_npm') return 1;
+    return 2;
+  };
+
+  return actions
+    .map((action, index) => ({ action, index }))
+    .sort((left, right) => {
+      const priorityDifference = priority(left.action) - priority(right.action);
+      return priorityDifference || left.index - right.index;
+    })
+    .map(({ action }) => action);
 }
 
 /** Open an external URL via the OS, falling back to a new browser tab. */
@@ -148,11 +223,12 @@ async function openExternalUrl(url: string): Promise<void> {
 
 export function AgentSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const queryClient = useQueryClient();
   const [state, setState] = useState<AgentSettingsState>({
     registry: [],
     settings: [],
   });
-  const [selectedAgentType, setSelectedAgentType] = useState<string | null>(
+  const [selectedAgentType, setSelectedAgentType] = useState<AgentKind | null>(
     null
   );
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({});
@@ -241,9 +317,11 @@ export function AgentSettings() {
   const selectedPreflight = selectedAgentType
     ? (preflightByAgent[selectedAgentType] ?? null)
     : null;
+  const selectedLocalRuntime = localRuntimeFor(selectedRow?.setting);
   const selectedRuntime = runtimeSummary(
     selectedPreflight,
-    selectedRow?.setting?.installed_version
+    selectedRow?.setting?.installed_version,
+    selectedLocalRuntime
   );
 
   // Lightweight settings refresh (no full-screen spinner) after a config save.
@@ -302,7 +380,7 @@ export function AgentSettings() {
   );
 
   const updateDetectedVersion = useCallback(
-    (agentType: string, version: string | null) => {
+    (agentType: AgentKind, version: string | null) => {
       setState((current) => ({
         ...current,
         settings: current.settings.map((setting) =>
@@ -316,7 +394,7 @@ export function AgentSettings() {
   );
 
   const runPreflight = useCallback(
-    async (agentType: string) => {
+    async (agentType: AgentKind) => {
       const actionKey = `preflight:${agentType}`;
       setBusyAction(actionKey);
       setSaveError(null);
@@ -340,13 +418,26 @@ export function AgentSettings() {
   );
 
   const runFix = useCallback(
-    async (agentType: string, action: string) => {
+    async (agentType: AgentKind, action: string): Promise<boolean> => {
       const actionKey = `fix:${agentType}:${action}`;
       setBusyAction(actionKey);
       setSaveError(null);
+      let applied = false;
 
       try {
         await agentSettingsApi.runFix({ agentType, action });
+        applied = true;
+        // `useSelectableAgents` keeps this list for a short time. Mark it
+        // stale immediately after the runtime/ACP mutation so active pickers
+        // refetch now and unopened pickers refetch when they mount. Capability
+        // discovery can launch ACP and must never hold this availability update
+        // hostage.
+        void queryClient
+          .invalidateQueries({
+            queryKey: ['agent-settings'],
+            refetchType: 'active',
+          })
+          .catch(() => undefined);
         const [version, preflight] = await Promise.all([
           agentSettingsApi.detectVersion(agentType),
           agentSettingsApi.preflight(agentType),
@@ -361,44 +452,61 @@ export function AgentSettings() {
       } finally {
         setBusyAction(null);
       }
+
+      return applied;
     },
-    [updateDetectedVersion, t]
+    [queryClient, updateDetectedVersion, t]
   );
 
   // Apply a single preflight fix. npm actions run on the backend; download /
   // uv-install actions open the relevant page (VibeX does not auto-download
   // binaries), so the button is always actionable.
   const handleFix = useCallback(
-    async (agentType: string, action: string) => {
+    async (agentType: AgentKind, action: string): Promise<boolean> => {
       if (action.startsWith('open_url:')) {
         await openExternalUrl(action.slice('open_url:'.length));
-        return;
+        return true;
       }
       if (action === 'install_uv') {
         await openExternalUrl(
           'https://docs.astral.sh/uv/getting-started/installation/'
         );
-        return;
+        return true;
       }
-      await runFix(agentType, action);
+      return runFix(agentType, action);
     },
     [runFix]
   );
 
   // Run every distinct fix surfaced by the latest preflight in sequence.
   const autoFix = useCallback(
-    async (agentType: string) => {
+    async (agentType: AgentKind) => {
       const checks = preflightByAgent[agentType]?.checks ?? [];
       const actions = Array.from(
-        new Set(checks.flatMap((check) => check.fixes.map((fix) => fix.action)))
+        new Set(
+          checks
+            .filter((check) => check.status !== 'pass')
+            .flatMap((check) => check.fixes.map((fix) => fix.action))
+        )
       );
-      if (actions.length === 0) return;
+      const orderedActions = orderAutoFixActions(actions);
+      if (orderedActions.length === 0) return;
 
       setAutoFixing(true);
       setSaveError(null);
       try {
-        for (const action of actions) {
-          await handleFix(agentType, action);
+        let localRuntimeChanged = false;
+        for (const action of orderedActions) {
+          // Installing/upgrading a local CLI automatically installs its
+          // missing dedicated ACP bridge on the backend. Do not immediately
+          // run the stale preflight's redundant install_npm action afterward.
+          if (localRuntimeChanged && action === 'install_npm') continue;
+
+          const applied = await handleFix(agentType, action);
+          if (!applied) break;
+          if (action === 'install_cli' || action === 'upgrade_cli') {
+            localRuntimeChanged = true;
+          }
         }
       } catch (error) {
         setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
@@ -647,7 +755,10 @@ export function AgentSettings() {
               </div>
             }
           >
-            <RuntimeCard summary={selectedRuntime} />
+            <RuntimeCard
+              summary={selectedRuntime}
+              localRuntime={selectedLocalRuntime}
+            />
             {selectedPreflight ? (
               <PreflightChecklist
                 checks={selectedPreflight.checks}
@@ -674,7 +785,13 @@ export function AgentSettings() {
   );
 }
 
-function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
+function RuntimeCard({
+  summary,
+  localRuntime,
+}: {
+  summary: RuntimeSummary;
+  localRuntime: LocalAgentRuntime | null;
+}) {
   const { t } = useTranslation(['settings', 'common']);
   const isFailed = summary.status === 'failed';
   const StatusIcon = isFailed ? XCircle : CheckCircle2;
@@ -698,7 +815,7 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
           : t('agents.runtimeEntryAvailable');
 
   return (
-    <div className="settings-inline-group flex flex-wrap items-center justify-between gap-3 p-3">
+    <div className="settings-inline-group space-y-3 p-3">
       <div className="flex min-w-0 items-center gap-3">
         <div
           className={cn(
@@ -744,6 +861,72 @@ function RuntimeCard({ summary }: { summary: RuntimeSummary }) {
           <p className="mt-1 text-xs text-muted-foreground">{runtimeMessage}</p>
         </div>
       </div>
+      {localRuntime ? (
+        <div className="grid gap-2 border-t pt-3 sm:grid-cols-2">
+          <LocalRuntimeDetail
+            label={t('agents.runtimeCli')}
+            runtime={localRuntime.cli}
+            testId="runtime-detail-cli"
+          />
+          <LocalRuntimeDetail
+            label={t('agents.runtimeAcp')}
+            runtime={localRuntime.acp}
+            testId="runtime-detail-acp"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LocalRuntimeDetail({
+  label,
+  runtime,
+  testId,
+}: {
+  label: string;
+  runtime: LocalRuntimeComponent;
+  testId: string;
+}) {
+  const { t } = useTranslation(['settings', 'common']);
+  const statusClass = runtime.supported
+    ? 'text-success'
+    : runtime.path
+      ? 'text-warning'
+      : 'text-destructive';
+  const statusLabel = runtime.supported
+    ? t('agents.runtimeSupported')
+    : runtime.path
+      ? t('agents.runtimeUnsupported')
+      : t('agents.runtimeNotFound');
+
+  return (
+    <div
+      className="min-w-0 rounded-md bg-muted/40 px-2.5 py-2"
+      data-testid={testId}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-foreground">{label}</span>
+        <span className={cn('text-[10px] font-medium', statusClass)}>
+          {statusLabel}
+        </span>
+      </div>
+      <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+        {runtime.path ?? t('agents.runtimeNotFound')}
+      </p>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        {t('agents.versionLabel', {
+          version: runtime.version ?? t('agents.versionUnknown'),
+        })}
+        {!runtime.supported && runtime.minimum_supported_version ? (
+          <span>
+            {' · '}
+            {t('agents.minimumVersionLabel', {
+              version: runtime.minimum_supported_version,
+            })}
+          </span>
+        ) : null}
+      </p>
     </div>
   );
 }
@@ -756,10 +939,10 @@ function PreflightChecklist({
   onFix,
 }: {
   checks: PreflightCheck[];
-  agentType: string;
+  agentType: AgentKind;
   busyAction: string | null;
   disabled: boolean;
-  onFix: (agentType: string, action: string) => void;
+  onFix: (agentType: AgentKind, action: string) => void;
 }) {
   const { t } = useTranslation(['settings', 'common']);
   if (checks.length === 0) {

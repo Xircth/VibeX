@@ -120,34 +120,36 @@ function RightPanelSidebarContent({
         )}
 
         {workspaceId &&
-          plugins.map((plugin) => {
-            const expired = isPluginExpired(plugin);
-            const launching = launchingPluginId === plugin.id;
-            return (
-              <Tooltip key={plugin.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => void launchPlugin(plugin)}
-                    disabled={expired || launching}
-                    className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {launching ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <PluginIcon plugin={plugin} />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {expired
-                    ? t('rightPanelSidebar.pluginExpired', {
-                        name: plugin.name,
-                      })
-                    : plugin.name}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
+          plugins
+            .filter((plugin) => plugin.enabled)
+            .map((plugin) => {
+              const expired = isPluginExpired(plugin);
+              const launching = launchingPluginId === plugin.id;
+              return (
+                <Tooltip key={plugin.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => void launchPlugin(plugin)}
+                      disabled={expired || launching}
+                      className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {launching ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PluginIcon plugin={plugin} />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {expired
+                      ? t('rightPanelSidebar.pluginExpired', {
+                          name: plugin.name,
+                        })
+                      : plugin.name}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
       </div>
     </TooltipProvider>
   );

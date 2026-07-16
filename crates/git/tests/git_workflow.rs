@@ -584,14 +584,20 @@ fn stash_push_list_pop_roundtrip() {
     let list = s.stash_list(&repo_path).unwrap();
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].index, 0);
-    assert_eq!(fs::read_to_string(repo_path.join("a.txt")).unwrap(), "one\n");
+    assert_eq!(
+        fs::read_to_string(repo_path.join("a.txt")).unwrap(),
+        "one\n"
+    );
 
     // show returns a non-empty patch.
     assert!(s.stash_show(&repo_path, 0).unwrap().contains("a.txt"));
 
     // Pop restores the change and empties the stack.
     s.stash_pop(&repo_path, 0).unwrap();
-    assert_eq!(fs::read_to_string(repo_path.join("a.txt")).unwrap(), "two\n");
+    assert_eq!(
+        fs::read_to_string(repo_path.join("a.txt")).unwrap(),
+        "two\n"
+    );
     assert!(s.stash_list(&repo_path).unwrap().is_empty());
 
     // With a clean tree, stash_push reports nothing to stash.

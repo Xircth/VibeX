@@ -5,7 +5,7 @@
 //! executor style). The transport-agnostic pieces (payload building, response
 //! extraction, config selection) stay in `services::services::prompt_enhancement`.
 
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use agents::{
     AgentContentBlock, AgentKind, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
@@ -36,8 +36,23 @@ pub async fn enhance_prompt(
     validate_prompt_enhancement_request(&config, &payload)?;
 
     let prompt_text = build_prompt_enhancement_payload(&config, &payload)?;
-    let model = selected_prompt_enhancement_model(&config).to_string();
+    let catalog_models =
+        crate::commands::agents::opencode_capability_catalog_models(&state.deployment.db().pool)
+            .await?;
+    let model = validated_prompt_enhancement_model(
+        selected_prompt_enhancement_model(&config),
+        &catalog_models,
+    )?;
     let runtime = &state.agent_runtime;
+    // Prompt enhancement is deliberately non-interactive, but it must still
+    // use the same verified local OpenCode Runtime/ACP path as every other
+    // session. Otherwise this hidden session could fall back to a bundled or
+    // different PATH runtime.
+    let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
+        &state.deployment.db().pool,
+        AgentKind::Opencode,
+    )
+    .await?;
 
     // Subscribe before dispatching so no chunk can slip past the receiver.
     let events = runtime.subscribe_events();
@@ -50,7 +65,7 @@ pub async fn enhance_prompt(
             session_id: AgentSessionId::new(),
             acp_session_id: String::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
-            env: HashMap::new(),
+            env: launch.env,
         })
         .await
         .map_err(|error| AppError::Internal(format!("Failed to run OpenCode: {error}")))?;
@@ -67,6 +82,33 @@ pub async fn enhance_prompt(
     })
 }
 
+/// Prompt enhancement cannot invent a default model: that would bypass the
+/// runtime/config fingerprint used by normal sessions. A saved selection is
+/// valid only when it appears in the current verified OpenCode catalog.
+fn validated_prompt_enhancement_model(
+    configured_model: Option<&str>,
+    catalog_models: &[String],
+) -> Result<String, AppError> {
+    let Some(model) = configured_model else {
+        return Err(AppError::BadRequest(
+            "Choose an OpenCode model in Settings → General before using prompt enhancement."
+                .to_string(),
+        ));
+    };
+    if catalog_models.is_empty() {
+        return Err(AppError::BadRequest(
+            "OpenCode's verified model catalog is not available yet. Open Settings → General, wait for it to load, then choose a model."
+                .to_string(),
+        ));
+    }
+    if !catalog_models.iter().any(|available| available == model) {
+        return Err(AppError::BadRequest(format!(
+            "The saved OpenCode model `{model}` is not available from the current verified catalog. Choose a model in Settings → General."
+        )));
+    }
+    Ok(model.to_string())
+}
+
 async fn run_enhancement_turn(
     runtime: &AgentRuntime,
     events: broadcast::Receiver<AgentEventEnvelope>,
@@ -80,8 +122,9 @@ async fn run_enhancement_turn(
             session_id: session.id,
             blocks: vec![AgentContentBlock::Text { text: prompt_text }],
             mode_override: None,
-            // Best-effort model selection: unknown keys/values only emit an
-            // override diagnostic and the agent keeps its default model.
+            // This value was checked against the same matching catalog the
+            // settings and session selectors use. ACP remains the final
+            // authority if the runtime changes after this local read.
             config_overrides: vec![AgentSessionConfigOverride {
                 key: "model".to_string(),
                 value: model.to_string(),
@@ -164,5 +207,41 @@ async fn collect_enhanced_prompt(
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompt_enhancement_requires_a_catalog_backed_model() {
+        assert!(matches!(
+            validated_prompt_enhancement_model(None, &["openai/gpt-5.6-sol".to_string()]),
+            Err(AppError::BadRequest(message)) if message.contains("Settings → General")
+        ));
+        assert!(matches!(
+            validated_prompt_enhancement_model(Some("openai/gpt-5.6-sol"), &[]),
+            Err(AppError::BadRequest(message)) if message.contains("catalog is not available")
+        ));
+        assert!(matches!(
+            validated_prompt_enhancement_model(
+                Some("opencode/minimax-m2.5-free"),
+                &["openai/gpt-5.6-sol".to_string()],
+            ),
+            Err(AppError::BadRequest(message)) if message.contains("not available")
+        ));
+    }
+
+    #[test]
+    fn prompt_enhancement_uses_the_exact_catalog_choice() {
+        assert_eq!(
+            validated_prompt_enhancement_model(
+                Some("openai/gpt-5.6-sol"),
+                &["openai/gpt-5.6-sol".to_string()],
+            )
+            .unwrap(),
+            "openai/gpt-5.6-sol"
+        );
     }
 }

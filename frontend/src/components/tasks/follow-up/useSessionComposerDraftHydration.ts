@@ -20,6 +20,8 @@ export function useSessionComposerDraftHydration({
   scratchData,
   setLocalMessage,
   setAttachedImages,
+  setSelectedMode,
+  setSelectedConfigValues,
   cancelDebouncedSave,
   deleteScratch,
 }: {
@@ -30,6 +32,10 @@ export function useSessionComposerDraftHydration({
   setAttachedImages: Dispatch<
     SetStateAction<SessionComposerImageAttachment[]>
   >;
+  /** Pending ACP session-mode state, seeded from a create-form preset. */
+  setSelectedMode?: Dispatch<SetStateAction<string | null>>;
+  /** Pending ACP config-option state, seeded from a create-form preset. */
+  setSelectedConfigValues?: Dispatch<SetStateAction<Record<string, string>>>;
   cancelDebouncedSave: () => void;
   deleteScratch: () => Promise<void>;
 }) {
@@ -50,12 +56,20 @@ export function useSessionComposerDraftHydration({
       prev.forEach(revokeComposerImagePreviewUrl);
       return hydration.imagePaths.map(imageAttachmentFromPath);
     });
+    if (hydration.modeOverride !== null) {
+      setSelectedMode?.(hydration.modeOverride);
+    }
+    if (Object.keys(hydration.configOverrides).length > 0) {
+      setSelectedConfigValues?.(hydration.configOverrides);
+    }
   }, [
     isScratchLoading,
     scratchData,
     scratchId,
     setAttachedImages,
     setLocalMessage,
+    setSelectedMode,
+    setSelectedConfigValues,
   ]);
 
   const handleAfterSendCleanup = useCallback(async () => {

@@ -32,6 +32,9 @@
     "sessionNameLabel": "Session name (optional)",
     "sessionNamePlaceholder": "Auto-named from the first message if left blank",
     "codingAgent": "Coding agent",
+    "controlsLoading": "Reading the preloaded session options…",
+    "controlsUnavailable": "This agent has not published usable session options. Check its installation and sign-in status.",
+    "controlsAfterFirstSession": "Model and permission options are provided by the agent itself after its first session, in the message composer.",
     "creating": "Creating..."
   },
   "sessionHub": {

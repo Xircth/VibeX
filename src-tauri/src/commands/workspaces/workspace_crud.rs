@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use agents::{
-    AgentAutoApproveMode, AgentContentBlock, AgentSessionId, EnsureAgentSessionInput,
-    SendAgentPromptInput,
-};
+use agents::{AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput};
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     repo::{Repo, RepoError},
@@ -165,17 +162,21 @@ pub async fn create_workspace(
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
+        let agent_type = agent_type_from_executor(payload.executor_profile_id.executor)?;
+        let launch =
+            crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_type)
+                .await?;
         let agent_session_id = AgentSessionId(session.id);
         let agent_session = state
             .agent_runtime
             .ensure_session(EnsureAgentSessionInput {
-                agent_type: agent_type_from_executor(payload.executor_profile_id.executor)?,
+                agent_type,
                 workspace_id: workspace.id,
                 working_dir: PathBuf::from(working_dir),
                 session_id: agent_session_id,
                 acp_session_id: session.id.to_string(),
-                auto_approve_mode: AgentAutoApproveMode::Off,
-                env: std::collections::HashMap::new(),
+                auto_approve_mode: launch.auto_approve_mode,
+                env: launch.env,
             })
             .await?;
 

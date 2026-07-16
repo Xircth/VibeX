@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AGENT_OPTIONS } from '@/constants/agents';
 import {
   ChevronDown,
   Loader2,
@@ -43,15 +44,6 @@ interface InstructionDraft {
   agentTypes: string[];
 }
 
-const AGENT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'claude_code', label: 'Claude Code' },
-  { value: 'codex', label: 'Codex CLI' },
-  { value: 'gemini', label: 'Gemini CLI' },
-  { value: 'openclaw', label: 'OpenClaw' },
-  { value: 'opencode', label: 'OpenCode' },
-  { value: 'cline', label: 'Cline' },
-  { value: 'hermes', label: 'Hermes Agent' },
-];
 
 const ALL_AGENT_TYPES = AGENT_OPTIONS.map((agent) => agent.value);
 

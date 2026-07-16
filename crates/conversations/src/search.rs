@@ -224,11 +224,15 @@ mod tests {
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
-    use db::models::conversation::{ConversationRecord, CreateConversationRecord};
-    use sqlx::SqlitePool;
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use std::str::FromStr;
+
+    use db::models::conversation::{ConversationRecord, CreateConversationRecord};
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
+
+    use super::*;
 
     async fn pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -273,10 +277,14 @@ mod integration_tests {
         let conv = seed(&pool, ws, Some("登录修复")).await;
         let mut conn = pool.acquire().await.unwrap();
 
-        reindex_conversation(&mut conn, conv, "修复登录页面的空指针 bug").await.unwrap();
+        reindex_conversation(&mut conn, conv, "修复登录页面的空指针 bug")
+            .await
+            .unwrap();
 
         // Substring CJK match (trigram, >= 3 chars).
-        let hits = search_conversations(&mut conn, "修复登录", None, 10).await.unwrap();
+        let hits = search_conversations(&mut conn, "修复登录", None, 10)
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].conversation_id, conv);
         assert_eq!(hits[0].title.as_deref(), Some("登录修复"));
@@ -312,10 +320,16 @@ mod integration_tests {
         let conv = seed(&pool, Uuid::new_v4(), None).await;
         let mut conn = pool.acquire().await.unwrap();
 
-        reindex_conversation(&mut conn, conv, "hello world").await.unwrap();
+        reindex_conversation(&mut conn, conv, "hello world")
+            .await
+            .unwrap();
         // Re-index the same conversation with new text — no duplicate rows.
-        reindex_conversation(&mut conn, conv, "hello brave world").await.unwrap();
-        let hits = search_conversations(&mut conn, "hello", None, 10).await.unwrap();
+        reindex_conversation(&mut conn, conv, "hello brave world")
+            .await
+            .unwrap();
+        let hits = search_conversations(&mut conn, "hello", None, 10)
+            .await
+            .unwrap();
         assert_eq!(hits.len(), 1);
 
         delete_from_index(&mut conn, conv).await.unwrap();

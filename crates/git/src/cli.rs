@@ -823,28 +823,34 @@ impl GitCli {
 
     /// List the stash stack as raw `stash@{N}<0x1f>subject` lines.
     pub fn stash_list_raw(&self, worktree_path: &Path) -> Result<String, GitCliError> {
-        self.git(
-            worktree_path,
-            ["stash", "list", "--format=%gd%x1f%gs"],
-        )
+        self.git(worktree_path, ["stash", "list", "--format=%gd%x1f%gs"])
     }
 
     /// Apply a stash (keeps it in the stack).
     pub fn stash_apply(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
-        self.git(worktree_path, ["stash", "apply", &format!("stash@{{{index}}}")])
-            .map(|_| ())
+        self.git(
+            worktree_path,
+            ["stash", "apply", &format!("stash@{{{index}}}")],
+        )
+        .map(|_| ())
     }
 
     /// Apply a stash and drop it from the stack.
     pub fn stash_pop(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
-        self.git(worktree_path, ["stash", "pop", &format!("stash@{{{index}}}")])
-            .map(|_| ())
+        self.git(
+            worktree_path,
+            ["stash", "pop", &format!("stash@{{{index}}}")],
+        )
+        .map(|_| ())
     }
 
     /// Discard a stash without applying it.
     pub fn stash_drop(&self, worktree_path: &Path, index: usize) -> Result<(), GitCliError> {
-        self.git(worktree_path, ["stash", "drop", &format!("stash@{{{index}}}")])
-            .map(|_| ())
+        self.git(
+            worktree_path,
+            ["stash", "drop", &format!("stash@{{{index}}}")],
+        )
+        .map(|_| ())
     }
 
     /// Return the patch for a stash entry (`git stash show -p`).

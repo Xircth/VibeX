@@ -19,7 +19,10 @@ async fn run_case(delay_before_typing_ms: u64) -> String {
     // mirroring the frontend's microtask-coalesced writes.
     service.write(session_id, b"c").await.expect("write c");
     tokio::time::sleep(Duration::from_millis(30)).await;
-    service.write(session_id, b"d ..\r").await.expect("write rest");
+    service
+        .write(session_id, b"d ..\r")
+        .await
+        .expect("write rest");
 
     // Collect output for a while.
     let mut collected: Vec<u8> = Vec::new();

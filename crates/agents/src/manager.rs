@@ -223,7 +223,7 @@ pub enum AgentConnectionCommand {
     ResumeSession {
         session_id: AgentSessionId,
         external_session_id: String,
-        result_tx: oneshot::Sender<AgentResult<String>>,
+        result_tx: oneshot::Sender<AgentResult<(String, AgentSessionControlsSnapshot)>>,
     },
     /// Fork the live ACP session (P1-4): the agent branches its context into a
     /// new server-side session; the returned id is the new (forked) session.
@@ -462,7 +462,7 @@ impl AgentConnectionManager {
         connection_id: AgentConnectionId,
         session_id: AgentSessionId,
         external_session_id: impl Into<String>,
-    ) -> AgentResult<String> {
+    ) -> AgentResult<(String, AgentSessionControlsSnapshot)> {
         let (result_tx, result_rx) = oneshot::channel();
         self.send_command(
             connection_id,
@@ -619,6 +619,20 @@ impl AgentConnectionManager {
 
     pub async fn has_connection(&self, connection_id: AgentConnectionId) -> bool {
         self.connections.lock().await.contains_key(&connection_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn replace_command_sender(
+        &self,
+        connection_id: AgentConnectionId,
+        cmd_tx: mpsc::Sender<AgentConnectionCommand>,
+    ) {
+        self.connections
+            .lock()
+            .await
+            .get_mut(&connection_id)
+            .expect("test connection must be registered")
+            .cmd_tx = cmd_tx;
     }
 
     async fn send_command(
@@ -793,11 +807,12 @@ impl AgentConnectionRunner {
                     let _ = result_tx.send(Ok(()));
                 }
                 AgentConnectionCommand::ResumeSession {
+                    session_id,
                     external_session_id,
                     result_tx,
-                    ..
                 } => {
-                    let _ = result_tx.send(Ok(external_session_id));
+                    let controls = self.session_controls_snapshot(session_id).await;
+                    let _ = result_tx.send(Ok((external_session_id, controls)));
                 }
                 AgentConnectionCommand::ForkSession {
                     session_id,
@@ -1363,6 +1378,13 @@ impl AgentConnectionRunner {
                                         "ACP session resume failed: {error}"
                                     ))
                                 });
+                            let result = match result {
+                                Ok(acp_session_id) => Ok((
+                                    acp_session_id,
+                                    runner.session_controls_snapshot(session_id).await,
+                                )),
+                                Err(error) => Err(error),
+                            };
                             let _ = result_tx.send(result);
                         }
                         AgentConnectionCommand::Prompt {
@@ -2895,44 +2917,16 @@ fn ordered_session_config_overrides(
     overrides
 }
 
-/// ACP session modes that promise automatic acceptance ("Auto" in the
-/// composer, Claude Code's `acceptEdits`/`bypassPermissions`, …). Agents may
-/// still forward `session/request_permission` for tools their own mode does
-/// not cover; VibeX honours the user's chosen mode by auto-approving those
-/// instead of interrupting with a permission card.
-fn is_auto_approve_session_mode(mode_id: &str) -> bool {
-    matches!(
-        normalize_config_token(mode_id).as_str(),
-        "auto" | "acceptedits" | "bypasspermissions" | "yolo"
-    )
-}
-
-/// Effective auto-approve mode for a permission decision: the connection-level
-/// setting, upgraded to `AllowAlways` while the session's current ACP mode is
-/// an auto-accepting one. Reading the live session controls (updated by
-/// `SetSessionMode` and agent-initiated mode changes) keeps this in sync with
-/// the composer selection without any connection-level state to refresh.
+/// Effective auto-approve mode for a permission decision. ACP session modes
+/// are Agent-owned semantics: for example Claude Code's `auto` asks its model
+/// classifier to decide. They must never silently upgrade VibeX's independent
+/// auto-approval policy.
 async fn effective_auto_approve_mode(
     configured: AgentAutoApproveMode,
-    session_controls: &RwLock<HashMap<AgentSessionId, SessionControlState>>,
-    session_id: AgentSessionId,
+    _session_controls: &RwLock<HashMap<AgentSessionId, SessionControlState>>,
+    _session_id: AgentSessionId,
 ) -> AgentAutoApproveMode {
-    if configured != AgentAutoApproveMode::Off {
-        return configured;
-    }
-
-    let session_is_auto = session_controls
-        .read()
-        .await
-        .get(&session_id)
-        .and_then(|controls| controls.modes.as_ref())
-        .is_some_and(|modes| is_auto_approve_session_mode(modes.current_mode_id.0.as_ref()));
-
-    if session_is_auto {
-        AgentAutoApproveMode::AllowAlways
-    } else {
-        AgentAutoApproveMode::Off
-    }
+    configured
 }
 
 fn find_matching_mode_id<'a>(modes: &'a SessionModeState, requested_mode: &str) -> Option<&'a str> {
@@ -3035,20 +3029,48 @@ fn find_select_choice<'a>(
     value: &str,
 ) -> Option<&'a SessionConfigSelectOption> {
     let aliases = config_value_aliases(key, value);
-    match &select.options {
-        SessionConfigSelectOptions::Ungrouped(options) => options
-            .iter()
-            .find(|option| select_choice_matches(option, &aliases)),
+    let options = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options.iter().collect::<Vec<_>>(),
         SessionConfigSelectOptions::Grouped(groups) => groups
             .iter()
             .flat_map(|group| group.options.iter())
-            .find(|option| select_choice_matches(option, &aliases)),
+            .collect::<Vec<_>>(),
         #[allow(unreachable_patterns)]
-        _ => None,
-    }
+        _ => return None,
+    };
+
+    // Resolve exact IDs/names across the complete choice set before applying
+    // compatibility aliases. Otherwise an earlier short value such as
+    // `agent` steals the exact Codex value `agent-full-access` by substring.
+    options
+        .iter()
+        .copied()
+        .find(|option| select_choice_matches_exact(option, &aliases))
+        .or_else(|| {
+            options
+                .into_iter()
+                .find(|option| select_choice_matches(option, &aliases))
+        })
+}
+
+fn select_choice_matches_exact(option: &SessionConfigSelectOption, aliases: &[String]) -> bool {
+    select_choice_values(option)
+        .iter()
+        .any(|value| aliases.iter().any(|alias| value == alias))
 }
 
 fn select_choice_matches(option: &SessionConfigSelectOption, aliases: &[String]) -> bool {
+    select_choice_values(option).iter().any(|value| {
+        aliases.iter().any(|alias| {
+            let meaningful_alias = alias.len() > 3;
+            let meaningful_value = value.len() > 3;
+            (meaningful_alias && value.contains(alias))
+                || (meaningful_value && alias.contains(value))
+        })
+    })
+}
+
+fn select_choice_values(option: &SessionConfigSelectOption) -> Vec<String> {
     let mut values = vec![
         normalize_config_token(option.value.0.as_ref()),
         normalize_config_token(&option.name),
@@ -3056,18 +3078,7 @@ fn select_choice_matches(option: &SessionConfigSelectOption, aliases: &[String])
     if let Some(description) = &option.description {
         values.push(normalize_config_token(description));
     }
-
-    values.iter().any(|value| {
-        aliases.iter().any(|alias| {
-            if value == alias {
-                return true;
-            }
-            let meaningful_alias = alias.len() > 3;
-            let meaningful_value = value.len() > 3;
-            (meaningful_alias && value.contains(alias))
-                || (meaningful_value && alias.contains(value))
-        })
-    })
+    values
 }
 
 fn config_value_aliases(key: &str, value: &str) -> Vec<String> {
@@ -3591,12 +3602,20 @@ mod tests {
             })
             .await;
 
-        let acp_session_id = manager
+        let (acp_session_id, controls) = manager
             .resume_session(connection_id, session_id, "external-session")
             .await
             .unwrap();
 
         assert_eq!(acp_session_id, "external-session");
+        assert_eq!(
+            controls,
+            AgentSessionControlsSnapshot {
+                modes: Vec::new(),
+                current_mode: None,
+                config_options: Vec::new(),
+            }
+        );
     }
 
     #[test]
@@ -3622,19 +3641,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn auto_approve_session_modes_are_detected() {
-        assert!(is_auto_approve_session_mode("auto"));
-        assert!(is_auto_approve_session_mode("acceptEdits"));
-        assert!(is_auto_approve_session_mode("accept_edits"));
-        assert!(is_auto_approve_session_mode("bypassPermissions"));
-        assert!(!is_auto_approve_session_mode("default"));
-        assert!(!is_auto_approve_session_mode("plan"));
-        assert!(!is_auto_approve_session_mode("ask"));
-    }
-
     #[tokio::test]
-    async fn session_auto_mode_upgrades_permission_interception() {
+    async fn session_auto_mode_does_not_upgrade_permission_interception() {
         let session_id = AgentSessionId::new();
         let controls = RwLock::new(HashMap::from([(
             session_id,
@@ -3649,10 +3657,11 @@ mod tests {
             },
         )]));
 
-        // Composer "Auto" alone must enable auto-approval.
+        // Claude Code's Auto mode delegates each request to its own model
+        // classifier. It must not become VibeX's blanket auto-approval mode.
         assert_eq!(
             effective_auto_approve_mode(AgentAutoApproveMode::Off, &controls, session_id).await,
-            AgentAutoApproveMode::AllowAlways
+            AgentAutoApproveMode::Off
         );
         // An explicit agent-level setting always wins over the session mode.
         assert_eq!(
@@ -3780,6 +3789,44 @@ mod tests {
 
         assert_eq!(selection.config_id, "permission-mode");
         assert_eq!(selection.event_value, serde_json::json!("auto"));
+        assert!(!selection.already_selected);
+    }
+
+    #[test]
+    fn exact_codex_full_access_mode_wins_over_agent_prefix() {
+        let options = vec![
+            AcpSessionConfigOption::select(
+                "mode",
+                "Mode",
+                "agent",
+                vec![
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "read-only",
+                        "Read-only",
+                    ),
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "agent", "Agent",
+                    ),
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "agent-full-access",
+                        "Agent (full access)",
+                    ),
+                ],
+            )
+            .category(Some(SessionConfigOptionCategory::Mode)),
+        ];
+
+        let selection = find_config_override_selection(
+            &options,
+            "mode",
+            &serde_json::json!("agent-full-access"),
+        )
+        .expect("Codex full access should match an advertised choice");
+
+        assert_eq!(
+            selection.event_value,
+            serde_json::json!("agent-full-access")
+        );
         assert!(!selection.already_selected);
     }
 

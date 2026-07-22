@@ -15,7 +15,10 @@ pub struct PlatformBinary {
 #[ts(export)]
 pub enum AgentDistribution {
     Npx {
-        version: String,
+        // Oldest package version verified as compatible with VibeX. The user's
+        // installed version may be newer and is never pinned here.
+        minimum_supported_version: String,
+        // Unversioned npm package name. Installers choose the release channel.
         package: String,
         cmd: String,
         args: Vec<String>,
@@ -166,8 +169,8 @@ mod tests {
     #[test]
     fn npx_distribution_builds_package_command() {
         let dist = AgentDistribution::Npx {
-            version: "1.0.0".to_string(),
-            package: "pkg@1.0.0".to_string(),
+            minimum_supported_version: "1.0.0".to_string(),
+            package: "pkg".to_string(),
             cmd: "agent".to_string(),
             args: vec!["--acp".to_string()],
             node_required: Some("20.0.0".to_string()),
@@ -175,7 +178,7 @@ mod tests {
 
         let parts = dist.command_parts(&input()).unwrap();
         assert_eq!(parts.program, "npx");
-        assert_eq!(parts.args, ["-y", "pkg@1.0.0", "agent", "--acp"]);
+        assert_eq!(parts.args, ["-y", "pkg", "agent", "--acp"]);
     }
 
     #[test]

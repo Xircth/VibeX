@@ -1,45 +1,35 @@
 # Domain Docs
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How engineering skills consume this repository's domain documentation.
 
-This repo is **multi-context**: `frontend/` and each Rust crate under `crates/*` are distinct contexts with their own domain language (e.g. the ACP agent runtime, the event-sourced conversation core, worktree/workspace management).
+This repository uses a **single-context** layout. The root `CONTEXT.md` defines
+the system-wide language for the frontend, Tauri shell, and Rust workspace;
+root `docs/adr/` records architectural decisions.
 
-## Before exploring, read these
+## Before exploring
 
-- **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic. (This file is created lazily; if it's absent, fall back to the root `CONTEXT.md`.)
-- **`CONTEXT.md`** at the repo root — the system-wide glossary and starting point.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in. For a context-scoped decision, also check that context's own `docs/adr/` (e.g. `crates/<crate>/docs/adr/` or `frontend/docs/adr/`) if it exists.
+- Read root **`CONTEXT.md`** first.
+- Read every ADR in **`docs/adr/`** that touches the area being changed.
+- Use the terminology defined in `CONTEXT.md` for issue titles, plans,
+  hypotheses, tests, and implementation notes.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+If a required concept is absent, do not casually invent a synonym: identify the
+gap and use `/domain-modeling` when the project needs to establish the term.
 
 ## File structure
 
-Multi-context layout for this repo (`CONTEXT-MAP.md` at the root is the entry point once it exists):
-
 ```
 /
-├── CONTEXT.md                          ← system-wide glossary + starting point
-├── CONTEXT-MAP.md                      ← (lazy) points at each context's CONTEXT.md
-├── docs/adr/                           ← system-wide decisions
-├── frontend/
-│   └── (optional) CONTEXT.md, docs/adr/
-└── crates/
-    ├── agents/
-    │   └── (optional) CONTEXT.md, docs/adr/
-    └── conversations/
-        └── (optional) CONTEXT.md, docs/adr/
+├── CONTEXT.md                          ← system-wide glossary + agent rules
+└── docs/adr/                           ← system-wide decisions
 ```
 
-Today the repo has a single root `CONTEXT.md` and root `docs/adr/`; per-context `CONTEXT.md` files and `CONTEXT-MAP.md` are added lazily by `/domain-modeling` as contexts accrue their own vocabulary.
+Do not create `CONTEXT-MAP.md` or per-module contexts unless the user explicitly
+chooses to move to a multi-context layout.
 
-## Use the glossary's vocabulary
+## ADR conflicts
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in the relevant `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
-
-If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
-
-## Flag ADR conflicts
-
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
+When a proposal contradicts an ADR, surface the conflict rather than silently
+overriding it:
 
 > _Contradicts ADR-0002 (single agent-identity enum) — but worth reopening because…_

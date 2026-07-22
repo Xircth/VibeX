@@ -76,8 +76,8 @@ struct ToolSpec {
     /// Unversioned npm name used for status/latest-version lookups.
     npm_package: String,
     /// Exact npm argument used for installation. Both CLI runtimes and ACP
-    /// adapters install their publisher's latest release; the registry version
-    /// is enforced separately as a minimum supported version.
+    /// adapters install their publisher's latest release; the registry's
+    /// compatibility floor is enforced separately.
     install_package: String,
     version_args: &'static [&'static str],
     minimum_supported_version: Option<String>,
@@ -210,7 +210,9 @@ fn tool_specs_for_agent(agent_type: AgentKind) -> Vec<ToolSpec> {
     }
 
     let AgentDistribution::Npx {
-        package, version, ..
+        package,
+        minimum_supported_version,
+        ..
     } = &entry.distribution
     else {
         // The current maintenance UI can only install npm packages. If a
@@ -232,7 +234,7 @@ fn tool_specs_for_agent(agent_type: AgentKind) -> Vec<ToolSpec> {
             npm_package: npm_package_name(package),
             install_package: format!("{}@latest", npm_package_name(package)),
             version_args: VERSION_ARGS,
-            minimum_supported_version: Some(version.clone()),
+            minimum_supported_version: Some(minimum_supported_version.clone()),
         },
     ]
 }
@@ -925,7 +927,9 @@ mod tests {
 
         let codex_entry = registry_entry(AgentKind::Codex);
         let AgentDistribution::Npx {
-            package, version, ..
+            package,
+            minimum_supported_version,
+            ..
         } = &codex_entry.distribution
         else {
             panic!("Codex ACP must be npm-distributed")
@@ -942,7 +946,7 @@ mod tests {
         );
         assert_eq!(
             codex_acp.minimum_supported_version.as_deref(),
-            Some(version.as_str())
+            Some(minimum_supported_version.as_str())
         );
 
         let opencode = specs

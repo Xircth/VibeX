@@ -5,13 +5,14 @@
 
 use agents::{
     AgentElicitationResponse, AgentKind, AgentPermissionResponse, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
+    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
+    ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
-        ConversationEventEnvelope, ConversationEventsPage, ConversationInputBlock,
-        ConversationRowPage, ConversationSessionModes, ConversationTimeline,
-        ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch, MessageTurn,
-        SessionStats, TurnUsage,
+        ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
+        ConversationInputBlock, ConversationRowPage, ConversationSessionModes,
+        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
+        ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
 };
 use conversations::{
@@ -191,6 +192,13 @@ pub struct ConversationTruncateToTurnRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConversationCheckpointPreviewRequest {
+    pub conversation_id: String,
+    pub ordinal: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationExportRequest {
     pub conversation_id: String,
     #[serde(default)]
@@ -287,6 +295,19 @@ pub async fn conversation_detail(
     let id = Uuid::parse_str(&session_id)
         .map_err(|error| AppError::BadRequest(format!("invalid session id: {error}")))?;
     conversation_detail_core(&state.deployment.db().pool, id).await
+}
+
+#[tauri::command]
+pub async fn conversation_ensure_session_controls(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<AgentSessionControlsSnapshot, AppError> {
+    let id = Uuid::parse_str(&conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .ensure_session_controls(id)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -611,6 +632,23 @@ pub async fn conversation_truncate_to_turn(
         .truncate_to_turn(conversation_id, request.ordinal)
         .await
         .map_err(Into::into)
+}
+
+/// Read-only preview of the files a checkpoint restore would currently change.
+#[tauri::command]
+pub async fn conversation_checkpoint_file_changes_preview(
+    state: tauri::State<'_, AppState>,
+    request: ConversationCheckpointPreviewRequest,
+) -> Result<ConversationFileChangeSummary, AppError> {
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    conversations::preview_checkpoint_file_changes(
+        state.deployment.as_ref(),
+        conversation_id,
+        request.ordinal,
+    )
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]

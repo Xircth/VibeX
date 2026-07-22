@@ -735,7 +735,7 @@ export type AgentConnectionStatus = "disconnected" | "connecting" | "ready" | "f
 
 export type AgentContentBlock = { "kind": "text", text: string, } | { "kind": "image", data: string, mime_type: string, uri: string | null, } | { "kind": "resource", uri: string, title: string | null, };
 
-export type AgentDistribution = { "kind": "npx", version: string, package: string, cmd: string, args: Array<string>, node_required?: string | null, } | { "kind": "binary", version: string, cmd: string, args: Array<string>, platforms: Array<PlatformBinary>, } | { "kind": "uvx", version: string, package: string, cmd: string, args: Array<string>, uv_required?: string | null, python_required?: string | null, system_command?: SystemCommand | null, } | { "kind": "system", cmd: string, args: Array<string>, };
+export type AgentDistribution = { "kind": "npx", minimum_supported_version: string, package: string, cmd: string, args: Array<string>, node_required?: string | null, } | { "kind": "binary", version: string, cmd: string, args: Array<string>, platforms: Array<PlatformBinary>, } | { "kind": "uvx", version: string, package: string, cmd: string, args: Array<string>, uv_required?: string | null, python_required?: string | null, system_command?: SystemCommand | null, } | { "kind": "system", cmd: string, args: Array<string>, };
 
 export type AgentErrorEvent = { message: string,
 /**

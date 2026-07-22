@@ -153,7 +153,7 @@ pub fn render_html(title: &str, rows: &[TimelineRow]) -> String {
     format!(
         "<!doctype html>\n<html lang=\"zh\"><head><meta charset=\"utf-8\">\
 <title>{title}</title><style>\
-body{{font:14px/1.6 -apple-system,system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#1c1c1e}}\
+body{{font:14px/1.6 'Noto Sans SC Variable','Source Han Sans SC','Source Han Sans CN','Noto Sans CJK SC','Noto Sans SC','思源黑体',sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#1c1c1e}}\
 .turn{{border-bottom:1px solid #e5e5ea;padding:1rem 0}}\
 .role{{font-weight:600;margin-bottom:.25rem}}\
 .ts{{color:#8e8e93;font-size:12px}}\

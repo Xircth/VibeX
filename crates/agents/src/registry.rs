@@ -179,13 +179,17 @@ pub fn local_acp_command_parts(agent_type: AgentKind) -> Option<CommandParts> {
 /// The oldest ACP bridge build verified against this agent integration.
 ///
 /// This is intentionally derived from the registry distribution rather than
-/// duplicated in local-runtime launch code: an adapter's registry version is
-/// the compatibility floor, while installation may safely request `@latest`.
+/// duplicated in local-runtime launch code: the registry keeps an explicit
+/// compatibility floor, while installation may safely request `@latest`.
 pub fn minimum_supported_acp_version(agent_type: AgentKind) -> Option<String> {
     match registry_entry(agent_type).distribution {
-        AgentDistribution::Npx { version, .. }
-        | AgentDistribution::Binary { version, .. }
-        | AgentDistribution::Uvx { version, .. } => Some(version),
+        AgentDistribution::Npx {
+            minimum_supported_version,
+            ..
+        } => Some(minimum_supported_version),
+        AgentDistribution::Binary { version, .. } | AgentDistribution::Uvx { version, .. } => {
+            Some(version)
+        }
         AgentDistribution::System { .. } => None,
     }
 }
@@ -234,8 +238,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "Claude Code",
             "ACP wrapper for Anthropic's Claude",
             AgentDistribution::Npx {
-                version: "0.59.0".to_string(),
-                package: "@agentclientprotocol/claude-agent-acp@0.59.0".to_string(),
+                minimum_supported_version: "0.59.0".to_string(),
+                package: "@agentclientprotocol/claude-agent-acp".to_string(),
                 cmd: "claude-agent-acp".to_string(),
                 args: vec![],
                 node_required: None,
@@ -245,8 +249,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "Codex CLI",
             "ACP adapter for OpenAI's coding assistant",
             AgentDistribution::Npx {
-                version: "1.1.4".to_string(),
-                package: "@agentclientprotocol/codex-acp@1.1.4".to_string(),
+                minimum_supported_version: "1.1.4".to_string(),
+                package: "@agentclientprotocol/codex-acp".to_string(),
                 cmd: "codex-acp".to_string(),
                 args: vec![],
                 node_required: None,
@@ -260,8 +264,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
                 // controls VibeX consumes. Keep this as the tested
                 // compatibility floor (not an installer pin): installs still
                 // request `@latest` through the Settings flow.
-                version: "1.18.2".to_string(),
-                package: "opencode-ai@1.18.2".to_string(),
+                minimum_supported_version: "1.18.2".to_string(),
+                package: "opencode-ai".to_string(),
                 cmd: "opencode".to_string(),
                 args: vec!["acp".to_string()],
                 node_required: None,
@@ -271,8 +275,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "Gemini CLI",
             "Google's official CLI for Gemini",
             AgentDistribution::Npx {
-                version: "0.45.2".to_string(),
-                package: "@google/gemini-cli@0.45.2".to_string(),
+                minimum_supported_version: "0.45.2".to_string(),
+                package: "@google/gemini-cli".to_string(),
                 cmd: "gemini".to_string(),
                 args: vec!["--acp".to_string(), "--skip-trust".to_string()],
                 node_required: Some("20.0.0".to_string()),
@@ -282,8 +286,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "OpenClaw",
             "OpenClaw personal AI assistant",
             AgentDistribution::Npx {
-                version: "2026.6.1".to_string(),
-                package: "openclaw@2026.6.1".to_string(),
+                minimum_supported_version: "2026.6.1".to_string(),
+                package: "openclaw".to_string(),
                 cmd: "openclaw".to_string(),
                 args: vec!["acp".to_string()],
                 node_required: Some("22.19.0".to_string()),
@@ -293,8 +297,8 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "Cline",
             "Autonomous coding agent CLI",
             AgentDistribution::Npx {
-                version: "3.0.9".to_string(),
-                package: "cline@3.0.9".to_string(),
+                minimum_supported_version: "3.0.9".to_string(),
+                package: "cline".to_string(),
                 cmd: "cline".to_string(),
                 args: vec!["--acp".to_string()],
                 node_required: None,
@@ -323,7 +327,7 @@ pub fn registry_entry(agent_type: AgentKind) -> AgentRegistryEntry {
             "QA Mock",
             "In-process mock agent for tests",
             AgentDistribution::Npx {
-                version: "0.0.0".to_string(),
+                minimum_supported_version: "0.0.0".to_string(),
                 package: "qa-mock".to_string(),
                 cmd: "qa-mock".to_string(),
                 args: vec![],
@@ -488,16 +492,14 @@ mod tests {
     }
 
     #[test]
-    fn versioned_npm_registry_specs_match_their_compatibility_floor() {
+    fn npm_registry_packages_are_unversioned_names() {
         for agent_type in all_agent_types() {
             let entry = registry_entry(agent_type);
-            if let AgentDistribution::Npx {
-                version, package, ..
-            } = entry.distribution
-            {
-                assert!(
-                    package.ends_with(&format!("@{version}")),
-                    "{agent_type} package {package} must carry the same version as its registry floor {version}"
+            if let AgentDistribution::Npx { package, .. } = entry.distribution {
+                assert_eq!(
+                    crate::local_detection::npm_package_name(&package),
+                    package,
+                    "{agent_type} package must not pin the user's npm version"
                 );
             }
         }
@@ -519,27 +521,28 @@ mod tests {
     }
 
     #[test]
-    fn registry_pins_codeg_style_versions() {
+    fn registry_keeps_package_names_separate_from_compatibility_floors() {
         let gemini = registry_entry(AgentKind::Gemini);
         assert!(matches!(
             gemini.distribution,
-            AgentDistribution::Npx { ref version, ref package, .. }
-                if version == "0.45.2" && package == "@google/gemini-cli@0.45.2"
+            AgentDistribution::Npx { ref minimum_supported_version, ref package, .. }
+                if minimum_supported_version == "0.45.2" && package == "@google/gemini-cli"
         ));
 
         let codex = registry_entry(AgentKind::Codex);
         assert!(matches!(
             codex.distribution,
-            AgentDistribution::Npx { ref version, ref package, .. }
-                if version == "1.1.4" && package == "@agentclientprotocol/codex-acp@1.1.4"
+            AgentDistribution::Npx { ref minimum_supported_version, ref package, .. }
+                if minimum_supported_version == "1.1.4"
+                    && package == "@agentclientprotocol/codex-acp"
         ));
 
         let opencode = registry_entry(AgentKind::Opencode);
         assert!(matches!(
             opencode.distribution,
-            AgentDistribution::Npx { ref version, ref package, ref args, .. }
-                if version == "1.18.2"
-                    && package == "opencode-ai@1.18.2"
+            AgentDistribution::Npx { ref minimum_supported_version, ref package, ref args, .. }
+                if minimum_supported_version == "1.18.2"
+                    && package == "opencode-ai"
                     && args.as_slice() == ["acp"]
         ));
     }

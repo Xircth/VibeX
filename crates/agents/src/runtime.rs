@@ -115,7 +115,15 @@ struct RuntimeConnection {
 struct RuntimeSession {
     snapshot: AgentSessionSnapshot,
     queue: AgentPromptQueue,
-    prepared: bool,
+    ownership: RuntimeSessionOwnership,
+    controls: AgentSessionControlsSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeSessionOwnership {
+    Owned,
+    Prepared,
+    Claimed,
 }
 
 #[derive(Debug, Default)]
@@ -487,7 +495,12 @@ impl AgentRuntime {
             RuntimeSession {
                 snapshot: snapshot.clone(),
                 queue: AgentPromptQueue::default(),
-                prepared: false,
+                ownership: RuntimeSessionOwnership::Owned,
+                controls: AgentSessionControlsSnapshot {
+                    modes: Vec::new(),
+                    current_mode: None,
+                    config_options: Vec::new(),
+                },
             },
         );
         self.emit_locked(
@@ -612,18 +625,33 @@ impl AgentRuntime {
             .await
             .sessions
             .contains_key(&input.session_id);
-        let session = self.ensure_session(input).await?;
+        let session = self.ensure_session(input.clone()).await?;
         if !already_registered
             && let Some(stored) = self.state.write().await.sessions.get_mut(&session.id)
         {
             // Mark ownership before the ACP request so a failed/aborted
             // preparation can still be cleaned up as a draft session.
-            stored.prepared = true;
+            stored.ownership = RuntimeSessionOwnership::Prepared;
         }
-        let prepared = self
+        let mut prepared = self
             .connection_manager
             .prepare_session(session.connection_id, session.id)
             .await;
+        if prepared
+            .as_ref()
+            .is_err_and(is_connection_loss_during_session_preparation)
+        {
+            let first_error = prepared
+                .as_ref()
+                .expect_err("connection-loss predicate only matches errors");
+            self.retire_failed_connection(session.connection_id, first_error)
+                .await;
+            let rebound = self.ensure_session(input).await?;
+            prepared = self
+                .connection_manager
+                .prepare_session(rebound.connection_id, rebound.id)
+                .await;
+        }
         let (acp_session_id, controls) = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -641,35 +669,89 @@ impl AgentRuntime {
             .ok_or_else(|| AgentError::SessionNotFound(session.id.to_string()))?;
         stored.snapshot.acp_session_id = acp_session_id;
         stored.snapshot.updated_at = Utc::now();
+        stored.controls = controls.clone();
         Ok(AgentPreparedSessionSnapshot {
             session: stored.snapshot.clone(),
             controls,
         })
     }
 
-    /// Mark a prepared session as owned by a persisted conversation. Cleanup
-    /// requests from the creation form become no-ops after this point.
-    pub async fn commit_prepared_session(&self, session_id: AgentSessionId) {
-        if let Some(session) = self.state.write().await.sessions.get_mut(&session_id) {
-            session.prepared = false;
-        }
+    async fn retire_failed_connection(&self, connection_id: AgentConnectionId, error: &AgentError) {
+        // `disconnect` removes the manager entry before sending the command, so
+        // this also evicts a stale sender whose receiver has already vanished.
+        let _ = self.connection_manager.disconnect(connection_id).await;
+
+        let mut state = self.state.write().await;
+        let Some(connection) = state.connections.get_mut(&connection_id) else {
+            return;
+        };
+        connection.snapshot.status = AgentConnectionStatus::Failed;
+        connection.snapshot.status_message = Some(error.to_string());
+        connection.snapshot.updated_at = Utc::now();
+        let snapshot = connection.snapshot.clone();
+        self.emit_locked(
+            &mut state,
+            snapshot.workspace_id,
+            snapshot.id,
+            None,
+            AgentEvent::ConnectionStatusChanged { snapshot },
+        );
     }
 
-    /// Verify that a caller is about to persist the exact draft Session it
-    /// prepared. This prevents a stale or forged UUID from attaching controls
-    /// created for a different Workspace or Agent.
-    pub async fn validate_prepared_session(
+    /// Mark a prepared session as owned by a persisted conversation. Cleanup
+    /// requests from the creation form become no-ops after this point. The ACP
+    /// controls were first emitted before the Conversation row existed, so
+    /// publish the retained snapshot again now that it can be projected.
+    pub async fn commit_prepared_session(&self, session_id: AgentSessionId) {
+        let mut state = self.state.write().await;
+        let Some((connection_id, controls)) = state.sessions.get_mut(&session_id).map(|session| {
+            session.ownership = RuntimeSessionOwnership::Owned;
+            (session.snapshot.connection_id, session.controls.clone())
+        }) else {
+            return;
+        };
+        Self::emit_with_parts_locked(
+            &mut state,
+            self.event_sink.as_ref(),
+            &self.event_tx,
+            connection_id,
+            Some(session_id),
+            AgentEvent::SessionModes {
+                modes: controls.modes,
+                current: controls.current_mode,
+            },
+        );
+        Self::emit_with_parts_locked(
+            &mut state,
+            self.event_sink.as_ref(),
+            &self.event_tx,
+            connection_id,
+            Some(session_id),
+            AgentEvent::SessionConfigOptions {
+                options: controls.config_options,
+            },
+        );
+    }
+
+    /// Atomically reserve the exact draft Session a caller is about to persist.
+    /// Form cleanup becomes a no-op after this boundary, including while the
+    /// database work is awaiting. Reclaiming is idempotent so a failed database
+    /// write can be retried with the same prepared Session.
+    pub async fn claim_prepared_session(
         &self,
         session_id: AgentSessionId,
         workspace_id: Uuid,
         agent_type: AgentKind,
     ) -> AgentResult<AgentSessionSnapshot> {
-        let state = self.state.read().await;
+        let mut state = self.state.write().await;
         let session = state
             .sessions
             .get(&session_id)
             .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))?;
-        if !session.prepared {
+        if !matches!(
+            session.ownership,
+            RuntimeSessionOwnership::Prepared | RuntimeSessionOwnership::Claimed
+        ) {
             return Err(AgentError::Runtime(format!(
                 "session {session_id} is not an uncommitted prepared session"
             )));
@@ -687,7 +769,13 @@ impl AgentRuntime {
                 "prepared session {session_id} does not match the selected Workspace and Agent"
             )));
         }
-        Ok(session.snapshot.clone())
+        let snapshot = session.snapshot.clone();
+        state
+            .sessions
+            .get_mut(&session_id)
+            .expect("prepared session was validated while holding the runtime lock")
+            .ownership = RuntimeSessionOwnership::Claimed;
+        Ok(snapshot)
     }
 
     pub async fn discard_prepared_session(&self, session_id: AgentSessionId) -> AgentResult<()> {
@@ -695,7 +783,7 @@ impl AgentRuntime {
         let Some(session) = state.sessions.get(&session_id) else {
             return Ok(());
         };
-        if !session.prepared {
+        if session.ownership != RuntimeSessionOwnership::Prepared {
             return Ok(());
         }
         let connection_id = session.snapshot.connection_id;
@@ -721,7 +809,7 @@ impl AgentRuntime {
                 env: input.env,
             })
             .await?;
-        let acp_session_id = self
+        let (acp_session_id, controls) = self
             .connection_manager
             .resume_session(
                 session.connection_id,
@@ -737,7 +825,24 @@ impl AgentRuntime {
         session_state.snapshot.acp_session_id = acp_session_id;
         session_state.snapshot.status = AgentSessionStatus::Ready;
         session_state.snapshot.updated_at = Utc::now();
+        session_state.controls = controls;
         Ok(session_state.snapshot.clone())
+    }
+
+    /// Return the controls retained for a live session. Resume/prepare paths
+    /// populate this snapshot from the concrete ACP session, allowing a caller
+    /// to hydrate UI state without sending a prompt.
+    pub async fn session_controls_snapshot(
+        &self,
+        session_id: AgentSessionId,
+    ) -> AgentResult<AgentSessionControlsSnapshot> {
+        self.state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|session| session.controls.clone())
+            .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))
     }
 
     /// Fork the live ACP session behind `session_id` (P1-4). Returns the new
@@ -779,9 +884,14 @@ impl AgentRuntime {
         let Some(connection_id) = connection_id else {
             return Err(AgentError::SessionNotFound(session_id.to_string()));
         };
-        self.connection_manager
+        let controls = self
+            .connection_manager
             .set_session_mode(connection_id, session_id, mode_id)
-            .await
+            .await?;
+        if let Some(session) = self.state.write().await.sessions.get_mut(&session_id) {
+            session.controls = controls.clone();
+        }
+        Ok(controls)
     }
 
     /// Immediately change one agent-advertised session config option
@@ -803,9 +913,14 @@ impl AgentRuntime {
         let Some(connection_id) = connection_id else {
             return Err(AgentError::SessionNotFound(session_id.to_string()));
         };
-        self.connection_manager
+        let controls = self
+            .connection_manager
             .set_session_config_option(connection_id, session_id, key, value)
-            .await
+            .await?;
+        if let Some(session) = self.state.write().await.sessions.get_mut(&session_id) {
+            session.controls = controls.clone();
+        }
+        Ok(controls)
     }
 
     pub async fn send_prompt(
@@ -1298,13 +1413,26 @@ fn preview_text_from_blocks(blocks: &[AgentContentBlock]) -> String {
     preview_text(text)
 }
 
+fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
+    match error {
+        AgentError::ConnectionNotFound(_) => true,
+        AgentError::Runtime(message) => matches!(
+            message.as_str(),
+            "agent connection closed before ACP session preparation completed"
+                | "agent connection command channel closed"
+        ),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{sync::Mutex, time::Duration};
 
     use super::*;
     use crate::{
-        AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind, AgentPromptFinished,
+        AgentConnectionCommand, AgentErrorEvent, AgentPermissionOption, AgentPermissionOptionKind,
+        AgentPromptFinished,
     };
 
     struct RecordingSink {
@@ -1991,7 +2119,11 @@ mod tests {
             .await
             .unwrap();
         runtime
-            .validate_prepared_session(committed_id, workspace_id, AgentKind::Codex)
+            .claim_prepared_session(committed_id, workspace_id, AgentKind::Codex)
+            .await
+            .unwrap();
+        runtime
+            .discard_prepared_session(committed_id)
             .await
             .unwrap();
         runtime.commit_prepared_session(committed_id).await;
@@ -2007,6 +2139,160 @@ mod tests {
             .find(|session| session.id == committed_id)
             .expect("committed prepared session must survive form cleanup");
         assert_eq!(stored.acp_session_id, committed.session.acp_session_id);
+
+        // Reclaiming is idempotent so a failed database write can retry.
+        let raced_id = AgentSessionId::new();
+        runtime.prepare_session(prepare(raced_id)).await.unwrap();
+        runtime
+            .claim_prepared_session(raced_id, workspace_id, AgentKind::Codex)
+            .await
+            .unwrap();
+        runtime
+            .claim_prepared_session(raced_id, workspace_id, AgentKind::Codex)
+            .await
+            .unwrap();
+        runtime.discard_prepared_session(raced_id).await.unwrap();
+        assert!(
+            runtime
+                .snapshot()
+                .await
+                .sessions
+                .iter()
+                .any(|session| session.id == raced_id),
+            "a validated prepared session must survive concurrent form cleanup"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_session_reconnects_when_connection_closes_before_reply() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+        let input = EnsureAgentSessionInput {
+            agent_type: AgentKind::Codex,
+            workspace_id,
+            working_dir: PathBuf::from("C:/prepared-reconnect"),
+            session_id,
+            acp_session_id: format!("pending-{session_id}"),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env: HashMap::new(),
+        };
+        let initial = runtime.ensure_session(input.clone()).await.unwrap();
+        let failed_connection_id = initial.connection_id;
+        runtime.state.write().await.sessions.remove(&session_id);
+
+        // Model an ACP process that accepts PrepareSession and then exits while
+        // session/new is in flight. The command send succeeds, but its reply
+        // channel closes exactly like the production failure reported by the UI.
+        let (closing_tx, mut closing_rx) = mpsc::channel(1);
+        runtime
+            .connection_manager
+            .replace_command_sender(failed_connection_id, closing_tx)
+            .await;
+        tokio::spawn(async move {
+            if let Some(AgentConnectionCommand::PrepareSession { result_tx, .. }) =
+                closing_rx.recv().await
+            {
+                drop(result_tx);
+            }
+        });
+
+        let recovered = runtime
+            .prepare_session(input)
+            .await
+            .expect("preparation should retry on a fresh ACP connection");
+
+        assert_ne!(recovered.session.connection_id, failed_connection_id);
+        assert!(recovered.session.acp_session_id.starts_with("prepared-"));
+        assert_eq!(runtime.connection_manager.list_connections().await.len(), 1);
+        assert_eq!(
+            runtime
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .expect("recovered draft session")
+                .ownership,
+            RuntimeSessionOwnership::Prepared
+        );
+    }
+
+    #[tokio::test]
+    async fn committing_prepared_session_republishes_controls_for_the_conversation() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+        runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_type: AgentKind::Codex,
+                workspace_id,
+                working_dir: PathBuf::from("C:/prepared-controls"),
+                session_id,
+                acp_session_id: format!("pending-{session_id}"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        let expected_options = vec![crate::AgentSessionConfigOption {
+            key: "mode".to_string(),
+            label: "Mode".to_string(),
+            description: Some("Approval and sandboxing preset".to_string()),
+            category: Some("mode".to_string()),
+            value: Some(serde_json::json!("agent-full-access")),
+            choices: vec![
+                crate::AgentSessionConfigChoice {
+                    value: serde_json::json!("agent"),
+                    label: "Agent".to_string(),
+                    description: None,
+                },
+                crate::AgentSessionConfigChoice {
+                    value: serde_json::json!("agent-full-access"),
+                    label: "Agent (full access)".to_string(),
+                    description: None,
+                },
+            ],
+            dependency: None,
+        }];
+        runtime
+            .state
+            .write()
+            .await
+            .sessions
+            .get_mut(&session_id)
+            .expect("prepared session")
+            .controls
+            .config_options = expected_options.clone();
+        runtime
+            .claim_prepared_session(session_id, workspace_id, AgentKind::Codex)
+            .await
+            .unwrap();
+
+        // Conversation persistence happens between claim and commit. Only
+        // events emitted after this subscription can be projected into the
+        // newly-created conversation.
+        let mut events = runtime.subscribe_events();
+        runtime.commit_prepared_session(session_id).await;
+
+        let modes = tokio::time::timeout(Duration::from_millis(100), events.recv())
+            .await
+            .expect("commit must republish controls after conversation persistence")
+            .expect("runtime event channel must stay open");
+        assert_eq!(modes.session_id, Some(session_id));
+        assert!(matches!(modes.event, AgentEvent::SessionModes { .. }));
+
+        let options = tokio::time::timeout(Duration::from_millis(100), events.recv())
+            .await
+            .expect("commit must republish config options")
+            .expect("runtime event channel must stay open");
+        assert_eq!(options.session_id, Some(session_id));
+        assert_eq!(
+            options.event,
+            AgentEvent::SessionConfigOptions {
+                options: expected_options
+            }
+        );
     }
 
     #[tokio::test]
@@ -2076,6 +2362,17 @@ mod tests {
         assert_eq!(resumed.id, session_id);
         assert_eq!(resumed.acp_session_id, "codex-session-123");
         assert_eq!(resumed.status, AgentSessionStatus::Ready);
+        assert_eq!(
+            runtime
+                .session_controls_snapshot(session_id)
+                .await
+                .expect("resumed session retains its controls"),
+            AgentSessionControlsSnapshot {
+                modes: Vec::new(),
+                current_mode: None,
+                config_options: Vec::new(),
+            }
+        );
     }
 
     #[tokio::test]

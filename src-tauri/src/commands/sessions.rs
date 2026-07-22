@@ -671,7 +671,7 @@ pub async fn create_project_session(
             })?;
         let prepared = state
             .agent_runtime
-            .validate_prepared_session(agents::AgentSessionId(session_id), workspace.id, agent_type)
+            .claim_prepared_session(agents::AgentSessionId(session_id), workspace.id, agent_type)
             .await?;
         Some((agent_type, prepared))
     } else {

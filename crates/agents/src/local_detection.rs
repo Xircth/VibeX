@@ -149,8 +149,8 @@ mod tests {
 
     fn npx(node_required: Option<&str>) -> AgentDistribution {
         AgentDistribution::Npx {
-            version: "1.0.0".to_string(),
-            package: "pkg@1.0.0".to_string(),
+            minimum_supported_version: "1.0.0".to_string(),
+            package: "pkg".to_string(),
             cmd: "pkg".to_string(),
             args: vec![],
             node_required: node_required.map(str::to_string),

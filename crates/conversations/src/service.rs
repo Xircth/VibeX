@@ -1,10 +1,14 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentElicitationId,
     AgentElicitationResponse, AgentKind, AgentPermissionId, AgentPermissionResponse, AgentPromptId,
-    AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride, AgentSessionId,
-    CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentElicitationInput,
+    AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
+    AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentElicitationInput,
     RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
@@ -464,6 +468,142 @@ impl ConversationSessionService {
             .set_session_config_option(AgentSessionId(conversation_id), key, value)
             .await?;
         Ok(())
+    }
+
+    /// Ensure an existing conversation has a concrete ACP session and return
+    /// its authoritative controls without sending a prompt. This repairs older
+    /// conversations whose initial session-control events were emitted before
+    /// the durable Conversation row existed.
+    pub async fn ensure_session_controls(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let turn_lock = {
+            let mut locks = self.ctx.turn_locks.lock().await;
+            Arc::clone(
+                locks
+                    .entry(conversation_id)
+                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+            )
+        };
+        let _turn_guard = turn_lock.lock().await;
+        let runtime_session_id = AgentSessionId(conversation_id);
+
+        if let Ok(controls) = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(runtime_session_id)
+            .await
+        {
+            self.ctx
+                .agent_runtime
+                .commit_prepared_session(runtime_session_id)
+                .await;
+            return Ok(controls);
+        }
+
+        let pool = &self.ctx.deployment.db().pool;
+        let persisted_session = Session::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Conversation session {conversation_id} was not found"
+                ))
+            })?;
+        let agent_type = persisted_session
+            .agent_type
+            .as_deref()
+            .or(persisted_session.executor.as_deref())
+            .and_then(AgentKind::from_lenient)
+            .ok_or_else(|| {
+                ConversationServiceError::BadRequest(format!(
+                    "Conversation {conversation_id} has no supported coding agent"
+                ))
+            })?;
+        let workspace = Workspace::find_by_id(pool, persisted_session.workspace_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Workspace {} for conversation {conversation_id} was not found",
+                    persisted_session.workspace_id
+                ))
+            })?;
+        let container_ref = self
+            .ctx
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let working_dir = self
+            .ctx
+            .host
+            .resolve_working_dir(&workspace, &container_ref, &repos)
+            .unwrap_or_else(|| container_ref.clone());
+        let launch_settings = self.ctx.host.launch_settings(pool, agent_type).await?;
+        let latest_binding =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
+        let external_session_id = known_acp_session_id(
+            latest_binding.as_ref(),
+            Some(&persisted_session),
+            agent_type,
+        )
+        .filter(|id| !id.starts_with("vibex-new-session-"));
+
+        let runtime_snapshot = if let Some(external_session_id) = external_session_id {
+            self.ctx
+                .agent_runtime
+                .resume_session(ResumeAgentSessionInput {
+                    agent_type,
+                    workspace_id: workspace.id,
+                    working_dir: PathBuf::from(&working_dir),
+                    session_id: runtime_session_id,
+                    external_session_id,
+                    auto_approve_mode: launch_settings.auto_approve_mode,
+                    env: launch_settings.env.clone(),
+                })
+                .await?
+        } else {
+            let prepared = self
+                .ctx
+                .agent_runtime
+                .prepare_session(EnsureAgentSessionInput {
+                    agent_type,
+                    workspace_id: workspace.id,
+                    working_dir: PathBuf::from(&working_dir),
+                    session_id: runtime_session_id,
+                    acp_session_id: format!("vibex-new-session-{conversation_id}"),
+                    auto_approve_mode: launch_settings.auto_approve_mode,
+                    env: launch_settings.env,
+                })
+                .await?;
+            Session::update_agent_metadata(
+                pool,
+                conversation_id,
+                Some(&prepared.session.acp_session_id),
+                Some(agent_type.as_str()),
+            )
+            .await?;
+            prepared.session
+        };
+
+        let controls = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(runtime_session_id)
+            .await?;
+        self.ctx
+            .agent_runtime
+            .commit_prepared_session(runtime_session_id)
+            .await;
+        self.update_runtime_state(conversation_id, |state| {
+            state.conversation_id = Some(conversation_id);
+            state.acp_session_id = Some(runtime_snapshot.acp_session_id.clone());
+            state.connection_id = Some(runtime_snapshot.connection_id.to_string());
+            state.connection_status = Some("ready".to_string());
+        })
+        .await;
+        Ok(controls)
     }
 
     pub async fn cancel_turn(
@@ -1001,30 +1141,22 @@ struct ConversationCheckpointRow {
     before_snapshot_json: Option<String>,
 }
 
-pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
+struct CollectedCheckpointFileChanges {
+    files: Vec<ConversationFileChange>,
+    after_repos: Vec<serde_json::Value>,
+}
+
+async fn collect_checkpoint_file_changes<D: Deployment + ?Sized>(
     deployment: &D,
     conversation_id: Uuid,
-    turn_id: Uuid,
-) -> Result<Option<ConversationEventEnvelope>, ConversationServiceError> {
+    checkpoint: &ConversationCheckpointRow,
+) -> Result<CollectedCheckpointFileChanges, ConversationServiceError> {
     let pool = &deployment.db().pool;
-    let Some(checkpoint) = sqlx::query_as::<_, ConversationCheckpointRow>(
-        r#"SELECT id, ordinal, before_snapshot_json
-           FROM conversation_checkpoints
-           WHERE conversation_id = ? AND turn_id = ? AND finalized_at IS NULL
-           ORDER BY created_at DESC
-           LIMIT 1"#,
-    )
-    .bind(conversation_id)
-    .bind(turn_id)
-    .fetch_optional(pool)
-    .await?
-    else {
-        return Ok(None);
-    };
-
-    let Some(conversation) = ConversationRecord::find_by_id(pool, conversation_id).await? else {
-        return Ok(None);
-    };
+    let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::NotFound(format!("Conversation {conversation_id} not found"))
+        })?;
     let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
         .await?
         .ok_or_else(|| {
@@ -1085,17 +1217,90 @@ pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
                 continue;
             }
         };
-        let before_files = checkpoint_before_files(
-            checkpoint.before_snapshot_json.as_deref(),
-            repo.id.to_string().as_str(),
-        );
-        files.extend(
-            diffs
-                .into_iter()
-                .filter_map(diff_to_conversation_file_change)
-                .filter(|file| !before_files.contains(file)),
-        );
+        let repo_id = repo.id.to_string();
+        if let Some(before_diffs) =
+            checkpoint_before_diffs(checkpoint.before_snapshot_json.as_deref(), &repo_id)
+        {
+            files.extend(checkpoint_turn_file_changes(&before_diffs, &diffs));
+        } else {
+            let before_files =
+                checkpoint_before_files(checkpoint.before_snapshot_json.as_deref(), &repo_id);
+            let before_paths = before_files
+                .iter()
+                .flat_map(|file| std::iter::once(&file.path).chain(file.old_path.as_ref()))
+                .collect::<std::collections::HashSet<_>>();
+            files.extend(
+                diffs
+                    .into_iter()
+                    .filter_map(diff_to_conversation_file_change)
+                    .filter(|file| !before_paths.contains(&file.path)),
+            );
+        }
     }
+
+    Ok(CollectedCheckpointFileChanges { files, after_repos })
+}
+
+/// Compute the files that a reset to the checkpoint before `ordinal` would
+/// currently change. This is read-only and uses the same checkpoint snapshot
+/// comparison as the persisted per-turn file summary.
+pub async fn preview_checkpoint_file_changes<D: Deployment + ?Sized>(
+    deployment: &D,
+    conversation_id: Uuid,
+    ordinal: i64,
+) -> Result<ConversationFileChangeSummary, ConversationServiceError> {
+    let checkpoint = sqlx::query_as::<_, ConversationCheckpointRow>(
+        r#"SELECT id, ordinal, before_snapshot_json
+           FROM conversation_checkpoints
+           WHERE conversation_id = ? AND ordinal = ?
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(conversation_id)
+    .bind(ordinal)
+    .fetch_optional(&deployment.db().pool)
+    .await?
+    .ok_or_else(|| {
+        ConversationServiceError::NotFound(format!(
+            "No checkpoint at ordinal {ordinal} for conversation {conversation_id}"
+        ))
+    })?;
+
+    let collected =
+        collect_checkpoint_file_changes(deployment, conversation_id, &checkpoint).await?;
+    let summary = checkpoint_file_change_summary(&collected.files);
+    Ok(ConversationFileChangeSummary {
+        source: "checkpoint_preview".to_string(),
+        files: collected.files,
+        summary: Some(summary),
+    })
+}
+
+pub async fn finalize_checkpoint_file_changes<D: Deployment + ?Sized>(
+    deployment: &D,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+) -> Result<Option<ConversationEventEnvelope>, ConversationServiceError> {
+    let pool = &deployment.db().pool;
+    let Some(checkpoint) = sqlx::query_as::<_, ConversationCheckpointRow>(
+        r#"SELECT id, ordinal, before_snapshot_json
+           FROM conversation_checkpoints
+           WHERE conversation_id = ? AND turn_id = ? AND finalized_at IS NULL
+           ORDER BY created_at DESC
+           LIMIT 1"#,
+    )
+    .bind(conversation_id)
+    .bind(turn_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+
+    let collected =
+        collect_checkpoint_file_changes(deployment, conversation_id, &checkpoint).await?;
+    let files = collected.files;
+    let after_repos = collected.after_repos;
 
     let after_snapshot_json = serde_json::json!({
         "ordinal": checkpoint.ordinal,
@@ -1217,12 +1422,6 @@ async fn record_conversation_checkpoint(
                                 None,
                             )
                             .ok()
-                            .map(|diffs| {
-                                diffs
-                                    .into_iter()
-                                    .filter_map(diff_to_conversation_file_change)
-                                    .collect::<Vec<_>>()
-                            })
                     })
                     .unwrap_or_default();
                 serde_json::json!({
@@ -1271,6 +1470,138 @@ fn checkpoint_before_files(
         })
         .and_then(|repo| serde_json::from_value(repo["files"].clone()).ok())
         .unwrap_or_default()
+}
+
+/// Reads the v2 checkpoint payload. Unlike the legacy file summary, a full diff
+/// snapshot preserves the worktree contents at the beginning of a turn, which
+/// lets us compare the two endpoints instead of comparing both to the branch
+/// head.
+fn checkpoint_before_diffs(
+    before_snapshot_json: Option<&str>,
+    repo_id: &str,
+) -> Option<Vec<utils::diff::Diff>> {
+    let snapshot: serde_json::Value =
+        before_snapshot_json.and_then(|json| serde_json::from_str(json).ok())?;
+    let repo = snapshot["repos"]
+        .as_array()?
+        .iter()
+        .find(|repo| repo["repoId"].as_str() == Some(repo_id))?;
+    serde_json::from_value(repo["files"].clone()).ok()
+}
+
+fn checkpoint_turn_file_changes(
+    before_diffs: &[utils::diff::Diff],
+    after_diffs: &[utils::diff::Diff],
+) -> Vec<ConversationFileChange> {
+    let before_by_path = checkpoint_diffs_by_path(before_diffs);
+    let after_by_path = checkpoint_diffs_by_path(after_diffs);
+    let renamed_from_after = after_diffs
+        .iter()
+        .filter_map(|diff| {
+            diff.old_path
+                .as_ref()
+                .filter(|old_path| diff.new_path.as_ref() != Some(*old_path))
+                .cloned()
+        })
+        .collect::<BTreeSet<_>>();
+    let paths = before_by_path
+        .keys()
+        .filter(|path| !renamed_from_after.contains(*path))
+        .chain(after_by_path.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let after = after_by_path.get(&path).copied();
+            let before = before_by_path.get(&path).copied().or_else(|| {
+                after.and_then(|diff| {
+                    diff.old_path
+                        .as_ref()
+                        .and_then(|old_path| before_by_path.get(old_path).copied())
+                })
+            });
+            checkpoint_turn_file_change(&path, before, after)
+        })
+        .collect()
+}
+
+fn checkpoint_diffs_by_path(diffs: &[utils::diff::Diff]) -> HashMap<String, &utils::diff::Diff> {
+    diffs
+        .iter()
+        .filter_map(|diff| {
+            let path = git::GitService::diff_path(diff);
+            (!path.trim().is_empty()).then_some((path, diff))
+        })
+        .collect()
+}
+
+fn checkpoint_turn_file_change(
+    path: &str,
+    before: Option<&utils::diff::Diff>,
+    after: Option<&utils::diff::Diff>,
+) -> Option<ConversationFileChange> {
+    let before_exists = before
+        .map(|diff| diff.new_path.is_some())
+        .unwrap_or_else(|| after.is_some_and(|diff| diff.old_path.is_some()));
+    let after_exists = after
+        .map(|diff| diff.new_path.is_some())
+        .unwrap_or_else(|| before.is_some_and(|diff| diff.old_path.is_some()));
+    let before_content = before
+        .and_then(|diff| diff.new_content.as_deref())
+        .or_else(|| after.and_then(|diff| diff.old_content.as_deref()));
+    let after_content = after
+        .and_then(|diff| diff.new_content.as_deref())
+        .or_else(|| before.and_then(|diff| diff.old_content.as_deref()));
+
+    let (change_kind, additions, deletions) = match (before_exists, after_exists) {
+        (false, false) => return None,
+        (false, true) => (
+            "added",
+            after_content.map(|content| content.lines().count() as i64),
+            Some(0),
+        ),
+        (true, false) => (
+            "deleted",
+            Some(0),
+            before_content.map(|content| content.lines().count() as i64),
+        ),
+        (true, true) => match (before_content, after_content) {
+            (Some(before_content), Some(after_content)) if before_content == after_content => {
+                return None;
+            }
+            (Some(before_content), Some(after_content)) => {
+                let (additions, deletions) =
+                    utils::diff::compute_line_change_counts(before_content, after_content);
+                let change_kind = after
+                    .map(|diff| diff_change_kind(&diff.change))
+                    .unwrap_or("modified");
+                (change_kind, Some(additions as i64), Some(deletions as i64))
+            }
+            // For binary or very large files, inline contents are deliberately
+            // absent. We can still report endpoint changes that are unambiguous,
+            // but never re-list an unchanged pre-existing opaque diff.
+            _ if before.is_none() || after.is_none() => (
+                after
+                    .map(|diff| diff_change_kind(&diff.change))
+                    .unwrap_or("modified"),
+                None,
+                None,
+            ),
+            _ => return None,
+        },
+    };
+
+    Some(ConversationFileChange {
+        path: path.to_string(),
+        change_kind: change_kind.to_string(),
+        additions,
+        deletions,
+        old_path: after
+            .and_then(|diff| diff.old_path.clone())
+            .filter(|old_path| old_path != path),
+    })
 }
 
 fn diff_to_conversation_file_change(diff: utils::diff::Diff) -> Option<ConversationFileChange> {
@@ -1610,8 +1941,8 @@ mod tests {
 
     use super::{
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
-        checkpoint_before_files, checkpoint_file_change_summary, conversation_input_blocks,
-        default_capabilities, diff_to_conversation_file_change,
+        checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
+        conversation_input_blocks, default_capabilities, diff_to_conversation_file_change,
         ensure_conversation_has_no_in_flight_turn, known_acp_session_id,
         merge_user_prompt_overrides,
     };
@@ -1951,6 +2282,52 @@ mod tests {
 
         assert!(current.iter().all(|file| before.contains(file)));
         assert!(!current.into_iter().any(|file| !before.contains(&file)));
+    }
+
+    fn modified_diff(path: &str, old_content: &str, new_content: &str) -> Diff {
+        Diff {
+            change: DiffChangeKind::Modified,
+            old_path: Some(path.to_string()),
+            new_path: Some(path.to_string()),
+            old_content: Some(old_content.to_string()),
+            new_content: Some(new_content.to_string()),
+            content_omitted: false,
+            additions: None,
+            deletions: None,
+            repo_id: None,
+        }
+    }
+
+    #[test]
+    fn checkpoint_file_summary_only_reports_changes_made_after_turn_start() {
+        let before = vec![
+            modified_diff("src/already-dirty.ts", "base\n", "base\nlocal\n"),
+            modified_diff("src/untouched.ts", "old\n", "old\nlocal\n"),
+        ];
+        let after = vec![
+            modified_diff("src/already-dirty.ts", "base\n", "base\nlocal\nagent\n"),
+            modified_diff("src/untouched.ts", "old\n", "old\nlocal\n"),
+            modified_diff("src/new-change.ts", "before\n", "after\n"),
+        ];
+
+        let files = checkpoint_turn_file_changes(&before, &after);
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].path, "src/already-dirty.ts");
+        assert_eq!(files[0].change_kind, "modified");
+        assert_eq!(files[0].additions, Some(1));
+        assert_eq!(files[0].deletions, Some(0));
+        assert_eq!(files[1].path, "src/new-change.ts");
+        assert_eq!(files[1].additions, Some(1));
+        assert_eq!(files[1].deletions, Some(1));
+    }
+
+    #[test]
+    fn checkpoint_file_summary_omits_a_preexisting_change_when_unchanged() {
+        let before = vec![modified_diff("src/dirty.ts", "base\n", "base\nlocal\n")];
+        let after = before.clone();
+
+        assert!(checkpoint_turn_file_changes(&before, &after).is_empty());
     }
 
     #[tokio::test]

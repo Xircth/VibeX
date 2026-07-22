@@ -675,10 +675,11 @@ async fn active_turn_id(
     pool: &SqlitePool,
     conversation_id: Uuid,
 ) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar("SELECT active_turn_id FROM sessions WHERE id = ?")
+    sqlx::query_scalar::<_, Option<Uuid>>("SELECT active_turn_id FROM sessions WHERE id = ?")
         .bind(conversation_id)
         .fetch_optional(pool)
         .await
+        .map(Option::flatten)
 }
 
 async fn active_turn_id_cached(
@@ -1140,7 +1141,28 @@ mod tests {
         conversation::ConversationEvent,
     };
     use chrono::Utc;
+    use sqlx::SqlitePool;
     use uuid::Uuid;
+
+    #[tokio::test]
+    async fn idle_conversation_has_no_active_turn_without_uuid_decode_error() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE sessions (id BLOB PRIMARY KEY, active_turn_id BLOB NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let conversation_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id, active_turn_id) VALUES (?, NULL)")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            super::active_turn_id(&pool, conversation_id).await.unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn high_frequency_streaming_events_are_not_emitted_to_agent_channel() {

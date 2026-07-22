@@ -35,10 +35,18 @@ use crate::{error::AppError, state::AppState};
 impl From<agents::AgentError> for AppError {
     fn from(error: agents::AgentError) -> Self {
         match error {
-            agents::AgentError::ConnectionNotFound(message)
-            | agents::AgentError::SessionNotFound(message)
-            | agents::AgentError::PromptNotFound(message)
-            | agents::AgentError::UnsupportedAgent(message) => AppError::NotFound(message),
+            agents::AgentError::ConnectionNotFound(message) => AppError::NotFound(format!(
+                "Agent Runtime connection `{message}` was not found"
+            )),
+            agents::AgentError::SessionNotFound(message) => {
+                AppError::NotFound(format!("Agent Runtime session `{message}` was not found"))
+            }
+            agents::AgentError::PromptNotFound(message) => {
+                AppError::NotFound(format!("Agent Runtime prompt `{message}` was not found"))
+            }
+            agents::AgentError::UnsupportedAgent(message) => AppError::NotFound(format!(
+                "Agent `{message}` is not registered in the local Runtime"
+            )),
             agents::AgentError::UnsupportedPlatform { agent, platform } => AppError::BadRequest(
                 format!("Agent `{agent}` is unsupported on platform `{platform}`"),
             ),

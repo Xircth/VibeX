@@ -853,6 +853,76 @@ async fn install_acp_adapter_while_npm_locked(agent_type: AgentKind) -> Result<(
         AppError::Internal(format!("No ACP install action available for {agent_type}"))
     })?;
     let executable = resolve_program_on_path(&program).await?;
+
+    // npm can be interrupted after moving the old shim aside but before
+    // linking the new one. In that state the compatible package is already
+    // fully available under the global root, and another `install @latest`
+    // needlessly depends on the registry (and can time out again). Let npm
+    // rebuild its platform-specific shim from the local manifest first.
+    let entry = registry_entry(agent_type);
+    let package = npm_package_for_entry(&entry).map(|value| npm_package_name(&value));
+    let runtime = local_agent_runtime_spec(agent_type);
+    let minimum_version = minimum_supported_acp_version(agent_type);
+    let npm_root = npm_global_root_path().await.ok();
+    let can_rebuild = match (
+        package.as_deref(),
+        runtime,
+        minimum_version.as_deref(),
+        npm_root.as_deref(),
+    ) {
+        (Some(package), Some(runtime), Some(minimum_version), Some(npm_root)) => {
+            installed_npm_package_can_rebuild_program(
+                npm_root,
+                package,
+                runtime.acp_program,
+                minimum_version,
+            )
+        }
+        _ => false,
+    };
+
+    if can_rebuild {
+        let package = package.expect("rebuild eligibility requires an npm package");
+        let mut rebuild = utils::process::new_hidden_tokio_command(
+            &executable,
+            ["rebuild", "-g", package.as_str()],
+        );
+        rebuild.kill_on_drop(true);
+        match timeout(Duration::from_secs(30), rebuild.output()).await {
+            Ok(Ok(output)) if output.status.success() => {
+                let _ = utils::shell::refresh_process_path_after_install().await;
+                invalidate_local_acp_verification(agent_type);
+                if verify_local_acp_runtime(agent_type).await.is_supported() {
+                    return Ok(());
+                }
+                tracing::warn!(
+                    %agent_type,
+                    "npm rebuilt the installed ACP package but its active shim is still unavailable"
+                );
+            }
+            Ok(Ok(output)) => {
+                tracing::warn!(
+                    %agent_type,
+                    detail = ?utils::process::command_output_detail(&output),
+                    "npm could not rebuild the installed ACP package; falling back to install"
+                );
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    %agent_type,
+                    %error,
+                    "failed to run npm rebuild for the installed ACP package; falling back to install"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    %agent_type,
+                    "npm rebuild timed out for the installed ACP package; falling back to install"
+                );
+            }
+        }
+    }
+
     let mut command = utils::process::new_hidden_tokio_command(&executable, &args);
     command.kill_on_drop(true);
     let output = timeout(Duration::from_secs(120), command.output())
@@ -1227,6 +1297,63 @@ fn package_declares_program(package_dir: &Path, program: &str) -> bool {
             .is_some_and(|name| name.rsplit('/').next().is_some_and(|name| name == program)),
         _ => false,
     }
+}
+
+/// Whether npm can reconstruct a missing global launcher without downloading
+/// anything. The package must already meet VibeX's compatibility floor and
+/// declare a real, in-package entrypoint for the expected program.
+fn installed_npm_package_can_rebuild_program(
+    npm_root: &Path,
+    package: &str,
+    program: &str,
+    minimum_version: &str,
+) -> bool {
+    let package_dir = npm_global_package_dir(&npm_root.display().to_string(), package);
+    let Ok(content) = std::fs::read_to_string(package_dir.join("package.json")) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return false;
+    };
+    let Some(version) = manifest.get("version").and_then(serde_json::Value::as_str) else {
+        return false;
+    };
+    if !version_at_least(version, minimum_version) {
+        return false;
+    }
+
+    let target = match manifest.get("bin") {
+        Some(serde_json::Value::Object(binaries)) => {
+            binaries.get(program).and_then(serde_json::Value::as_str)
+        }
+        Some(serde_json::Value::String(target))
+            if manifest
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| name.rsplit('/').next() == Some(program)) =>
+        {
+            Some(target.as_str())
+        }
+        _ => None,
+    };
+    let Some(target) = target else {
+        return false;
+    };
+    let target = Path::new(target);
+    if target.is_absolute()
+        || target.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return false;
+    }
+
+    package_dir.join(target).is_file()
 }
 
 /// Whether the executable currently selected by PATH is the global npm shim
@@ -1854,6 +1981,188 @@ fn cli_update_command_for_agent(agent_type: &str) -> Option<(String, Vec<String>
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliInstallStep {
+    args: Vec<String>,
+    mutates_active_prefix: bool,
+    timeout: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliInstallPlan {
+    program: String,
+    staged_executable: PathBuf,
+    steps: Vec<CliInstallStep>,
+}
+
+/// Build a two-phase npm update. npm's normal global reify retires the active
+/// package before it downloads large optional platform binaries. Staging into
+/// an isolated prefix first keeps the active CLI intact on slow or failed
+/// downloads and warms npm's content-addressed cache for the final commit.
+fn cli_install_plan_for_agent(
+    agent_type: &str,
+    version: &str,
+    staging_prefix: &Path,
+) -> Option<CliInstallPlan> {
+    let agent_kind = parse_agent_type_key(agent_type).ok()?;
+    let spec = cli_spec_for_agent(agent_kind)?;
+    let (program, _) = cli_update_command_for_agent(agent_type)?;
+    let package = format!("{}@{version}", spec.npm_package);
+    let staging_prefix_string = staging_prefix.display().to_string();
+
+    #[cfg(windows)]
+    let staged_executable = staging_prefix.join(format!("{}.cmd", spec.command));
+    #[cfg(not(windows))]
+    let staged_executable = staging_prefix.join("bin").join(spec.command);
+
+    Some(CliInstallPlan {
+        program,
+        staged_executable,
+        steps: vec![
+            CliInstallStep {
+                args: vec![
+                    "install".to_string(),
+                    "-g".to_string(),
+                    package.clone(),
+                    "--prefix".to_string(),
+                    staging_prefix_string,
+                    "--no-audit".to_string(),
+                    "--no-fund".to_string(),
+                ],
+                mutates_active_prefix: false,
+                // Codex platform packages are currently around 120 MB. This
+                // phase is safe to abort because it cannot retire the active
+                // global package or launcher.
+                timeout: Some(Duration::from_secs(30 * 60)),
+            },
+            CliInstallStep {
+                args: vec![
+                    "install".to_string(),
+                    "-g".to_string(),
+                    package,
+                    "--prefer-offline".to_string(),
+                    "--no-audit".to_string(),
+                    "--no-fund".to_string(),
+                ],
+                mutates_active_prefix: true,
+                // Never kill npm during its active-prefix reify. The staged
+                // step has already populated the cache, so this should be a
+                // local, bounded operation; npm still reports its own errors.
+                timeout: None,
+            },
+        ],
+    })
+}
+
+struct CliInstallStagingPrefix(PathBuf);
+
+impl CliInstallStagingPrefix {
+    fn create(agent_type: AgentKind) -> Result<Self, AppError> {
+        let path = std::env::temp_dir().join(format!(
+            "vibex-cli-install-{}-{}",
+            agent_type.as_str(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&path).map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to create CLI install staging directory: {error}"
+            ))
+        })?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for CliInstallStagingPrefix {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+async fn run_cli_install_step(
+    executable: &Path,
+    step: &CliInstallStep,
+) -> Result<std::process::Output, AppError> {
+    let mut command = utils::process::new_hidden_tokio_command(executable, &step.args);
+    command.kill_on_drop(true);
+    match step.timeout {
+        Some(limit) => timeout(limit, command.output())
+            .await
+            .map_err(|_| {
+                AppError::Internal(
+                    "CLI download timed out before the active installation was changed. Check the network connection and retry."
+                        .to_string(),
+                )
+            })?
+            .map_err(|error| AppError::Internal(format!("Failed to stage CLI update: {error}"))),
+        None => command
+            .output()
+            .await
+            .map_err(|error| AppError::Internal(format!("Failed to install CLI: {error}"))),
+    }
+}
+
+async fn verify_staged_cli(executable: &Path) -> Result<(), AppError> {
+    let mut command = utils::process::new_hidden_tokio_command(executable, ["--version"]);
+    command.kill_on_drop(true);
+    let output = timeout(Duration::from_secs(15), command.output())
+        .await
+        .map_err(|_| AppError::Internal("Staged CLI version check timed out".to_string()))?
+        .map_err(|error| {
+            AppError::Internal(format!("Failed to run staged CLI version check: {error}"))
+        })?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(AppError::Internal(
+        utils::process::command_output_detail(&output)
+            .map(|detail| format!("Staged CLI is not usable: {detail}"))
+            .unwrap_or_else(|| "Staged CLI is not usable".to_string()),
+    ))
+}
+
+async fn install_or_update_cli_while_npm_locked(agent_type: AgentKind) -> Result<(), AppError> {
+    let spec = cli_spec_for_agent(agent_type).ok_or_else(|| {
+        AppError::Internal(format!("No CLI install action available for {agent_type}"))
+    })?;
+    let version = latest_npm_package_version(spec.npm_package)
+        .await?
+        .ok_or_else(|| {
+            AppError::Internal(format!(
+                "npm returned no latest version for {}",
+                spec.npm_package
+            ))
+        })?;
+    let staging = CliInstallStagingPrefix::create(agent_type)?;
+    let plan =
+        cli_install_plan_for_agent(agent_type.as_str(), &version, &staging.0).ok_or_else(|| {
+            AppError::Internal(format!("No CLI install plan available for {agent_type}"))
+        })?;
+    let npm = resolve_program_on_path(&plan.program).await?;
+
+    for step in &plan.steps {
+        let output = run_cli_install_step(&npm, step).await?;
+        if !output.status.success() {
+            let phase = if step.mutates_active_prefix {
+                "install"
+            } else {
+                "download"
+            };
+            return Err(AppError::Internal(
+                utils::process::command_output_detail(&output)
+                    .map(|detail| format!("CLI {phase} failed for {agent_type}: {detail}"))
+                    .unwrap_or_else(|| format!("CLI {phase} failed for {agent_type}")),
+            ));
+        }
+        if !step.mutates_active_prefix {
+            verify_staged_cli(&plan.staged_executable).await?;
+        }
+    }
+
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    Ok(())
+}
+
 fn auth_probe(agent_type: AgentKind) -> (bool, Option<String>) {
     let auth_path = match agent_type {
         AgentKind::ClaudeCode => claude_config_path(),
@@ -2192,35 +2501,7 @@ pub async fn run_agent_fix(
             // executable that wins PATH resolution over npm's global shim.
             require_active_acp_to_be_npm_managed(agent_kind).await?;
             let _npm_mutation = lock_global_npm_mutations().await;
-            let (program, args) = install_command_for_agent(&agent_type).ok_or_else(|| {
-                AppError::Internal(format!("No install action available for {}", agent_type))
-            })?;
-
-            let executable = resolve_program_on_path(&program).await?;
-            let mut command = utils::process::new_hidden_tokio_command(&executable, &args);
-            command.kill_on_drop(true);
-            let output = timeout(Duration::from_secs(120), command.output())
-                .await
-                .map_err(|_| {
-                    AppError::Internal(format!("Install command timed out for {}", agent_type))
-                })?
-                .map_err(|e| {
-                    AppError::Internal(format!(
-                        "Failed to run install command for {}: {}",
-                        agent_type, e
-                    ))
-                })?;
-
-            if !output.status.success() {
-                return Err(AppError::Internal(
-                    utils::process::command_output_detail(&output)
-                        .map(|detail| {
-                            format!("Install command failed for {}: {}", agent_type, detail)
-                        })
-                        .unwrap_or_else(|| format!("Install command failed for {}", agent_type)),
-                ));
-            }
-            let _ = utils::shell::refresh_process_path_after_install().await;
+            install_acp_adapter_while_npm_locked(agent_kind).await?;
         }
         "install_cli" | "upgrade_cli" => {
             // A package-manager update must target the executable VibeX will
@@ -2228,26 +2509,7 @@ pub async fn run_agent_fix(
             // successful npm command would be a misleading no-op.
             require_active_cli_to_be_npm_managed(agent_kind).await?;
             let _npm_mutation = lock_global_npm_mutations().await;
-            let (program, args) = cli_update_command_for_agent(&agent_type).ok_or_else(|| {
-                AppError::Internal(format!("No CLI install action available for {agent_type}"))
-            })?;
-            let executable = resolve_program_on_path(&program).await?;
-            let mut command = utils::process::new_hidden_tokio_command(&executable, &args);
-            command.kill_on_drop(true);
-            let output = timeout(Duration::from_secs(120), command.output())
-                .await
-                .map_err(|_| AppError::Internal(format!("CLI install timed out for {agent_type}")))?
-                .map_err(|error| {
-                    AppError::Internal(format!("Failed to install CLI for {agent_type}: {error}"))
-                })?;
-            if !output.status.success() {
-                return Err(AppError::Internal(
-                    utils::process::command_output_detail(&output)
-                        .map(|detail| format!("CLI install failed for {agent_type}: {detail}"))
-                        .unwrap_or_else(|| format!("CLI install failed for {agent_type}")),
-                ));
-            }
-            let _ = utils::shell::refresh_process_path_after_install().await;
+            install_or_update_cli_while_npm_locked(agent_kind).await?;
         }
         "uninstall_npm" => {
             let _npm_mutation = lock_global_npm_mutations().await;
@@ -2639,22 +2901,22 @@ mod tests {
     }
 
     #[test]
-    fn maps_registry_npx_agents_to_npm_package_specs() {
+    fn registry_npx_packages_are_unversioned_user_managed_names() {
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::ClaudeCode)).as_deref(),
-            Some("@agentclientprotocol/claude-agent-acp@0.44.0")
+            Some("@agentclientprotocol/claude-agent-acp")
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Gemini)).as_deref(),
-            Some("@google/gemini-cli@0.45.2")
+            Some("@google/gemini-cli")
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Codex)).as_deref(),
-            Some("@agentclientprotocol/codex-acp@1.1.2")
+            Some("@agentclientprotocol/codex-acp")
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Opencode)).as_deref(),
-            Some("opencode-ai@1.17.4")
+            Some("opencode-ai")
         );
         assert_eq!(
             npm_package_name("@google/gemini-cli@0.45.2"),
@@ -2681,6 +2943,40 @@ mod tests {
     }
 
     #[test]
+    fn cli_update_stages_the_large_download_before_mutating_the_active_prefix() {
+        let staging_prefix = Path::new("/tmp/vibex-codex-stage");
+        let plan = cli_install_plan_for_agent("codex", "0.144.5", staging_prefix)
+            .expect("Codex should have an npm install plan");
+
+        assert_eq!(plan.steps.len(), 2);
+        assert!(!plan.steps[0].mutates_active_prefix);
+        assert_eq!(
+            plan.steps[0].args,
+            vec![
+                "install",
+                "-g",
+                "@openai/codex@0.144.5",
+                "--prefix",
+                "/tmp/vibex-codex-stage",
+                "--no-audit",
+                "--no-fund",
+            ]
+        );
+        assert!(plan.steps[1].mutates_active_prefix);
+        assert_eq!(
+            plan.steps[1].args,
+            vec![
+                "install",
+                "-g",
+                "@openai/codex@0.144.5",
+                "--prefer-offline",
+                "--no-audit",
+                "--no-fund",
+            ]
+        );
+    }
+
+    #[test]
     fn acp_adapter_install_targets_the_latest_adapter_release() {
         assert_eq!(
             install_command_for_agent("codex"),
@@ -2693,6 +2989,54 @@ mod tests {
                 ],
             ))
         );
+    }
+
+    #[test]
+    fn compatible_installed_acp_package_can_repair_its_missing_shim_offline() {
+        let prefix = std::env::temp_dir().join(format!(
+            "vibex-acp-shim-repair-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let npm_root = prefix.join("lib").join("node_modules");
+        let package_dir = npm_root.join("@agentclientprotocol").join("codex-acp");
+        let entrypoint = package_dir.join("dist").join("index.js");
+        std::fs::create_dir_all(entrypoint.parent().expect("entrypoint parent"))
+            .expect("create package fixture");
+        std::fs::write(&entrypoint, "#!/usr/bin/env node\n").expect("write ACP entrypoint");
+        std::fs::write(
+            package_dir.join("package.json"),
+            r#"{
+              "name":"@agentclientprotocol/codex-acp",
+              "version":"1.1.4",
+              "bin":{"codex-acp":"dist/index.js"}
+            }"#,
+        )
+        .expect("write package manifest");
+
+        assert!(installed_npm_package_can_rebuild_program(
+            &npm_root,
+            "@agentclientprotocol/codex-acp",
+            "codex-acp",
+            "1.1.4"
+        ));
+
+        std::fs::write(
+            package_dir.join("package.json"),
+            r#"{
+              "name":"@agentclientprotocol/codex-acp",
+              "version":"1.1.3",
+              "bin":{"codex-acp":"dist/index.js"}
+            }"#,
+        )
+        .expect("write outdated package manifest");
+        assert!(!installed_npm_package_can_rebuild_program(
+            &npm_root,
+            "@agentclientprotocol/codex-acp",
+            "codex-acp",
+            "1.1.4"
+        ));
+
+        let _ = std::fs::remove_dir_all(prefix);
     }
 
     #[test]
@@ -2813,7 +3157,7 @@ mod tests {
             version_args_for_entry(&codex),
             vec![
                 "-y".to_string(),
-                "@agentclientprotocol/codex-acp@1.1.2".to_string(),
+                "@agentclientprotocol/codex-acp".to_string(),
                 "codex-acp".to_string(),
                 "--version".to_string()
             ]
@@ -2824,7 +3168,7 @@ mod tests {
             version_args_for_entry(&gemini),
             vec![
                 "-y".to_string(),
-                "@google/gemini-cli@0.45.2".to_string(),
+                "@google/gemini-cli".to_string(),
                 "gemini".to_string(),
                 "--version".to_string()
             ]

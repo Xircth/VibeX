@@ -2,6 +2,55 @@
 
 Glossary of domain terms. Keep entries implementation-free; link decisions to ADRs in `docs/adr/`.
 
+## Agent Skill 使用规则
+
+### 总则
+
+1. 开始分析、设计、实现、测试或发布前，Agent 必须将任务与下列场景匹配；直接命中时，**先完整阅读对应 `SKILL.md`，再执行任务**。
+2. 专用 Skill 优先，且只选择覆盖任务所需的最小集合；跨层改动应组合使用。例如新增 Tauri command 的前端入口，必须同时覆盖 IPC、前后端集成与测试。
+3. 动手前先读本文件与相关 ADR。用户可见界面还必须读 `DESIGN.md`、`frontend/CLAUDE.md`，并执行相应设计 Skill。
+4. 已安装不等于强制使用：只有任务直接匹配时触发。无法读取 Skill 时说明原因，并采用最接近的安全替代方案。
+
+### 设计与前端
+
+- **新建或重设计 UI、视觉层级和交互**：[`frontend-design`](/Users/sean/.agents/skills/frontend-design/SKILL.md) 与 [`impeccable`](/Users/sean/Documents/Projetcs/VibeX/.agents/skills/impeccable/SKILL.md)。
+- **macOS/Tahoe 原生体验、平台交互或窗口外观**：[`apple-design`](/Users/sean/.agents/skills/apple-design/SKILL.md)、[`macos-app-design`](/Users/sean/.agents/skills/macos-app-design/SKILL.md)。
+- **探索多个 UI 方向**：[`design-an-interface`](/Users/sean/.agents/skills/design-an-interface/SKILL.md)。**审查可用性、可访问性与 Web 规范**：[`web-design-guidelines`](/Users/sean/.agents/skills/web-design-guidelines/SKILL.md)。
+- **浏览器自动化和前端 E2E 验证**：[`webapp-testing`](/Users/sean/.agents/skills/webapp-testing/SKILL.md)、[`agent-browser`](/Users/sean/.agents/skills/agent-browser/SKILL.md)、[`e2e-testing-patterns`](/Users/sean/.agents/skills/e2e-testing-patterns/SKILL.md)。
+
+### Tauri、Rust 与桌面能力
+
+- **任意 Tauri v2 能力或架构变更**：[`tauri-v2`](/Users/sean/.agents/skills/tauri-v2/SKILL.md)、[`understanding-tauri-architecture`](/Users/sean/.agents/skills/understanding-tauri-architecture/SKILL.md)。
+- **Rust command 与前端 `invoke`**：[`calling-rust-from-tauri-frontend`](/Users/sean/.agents/skills/calling-rust-from-tauri-frontend/SKILL.md)、[`calling-frontend-from-tauri-rust`](/Users/sean/.agents/skills/calling-frontend-from-tauri-rust/SKILL.md)、[`integrating-tauri-js-frontends`](/Users/sean/.agents/skills/integrating-tauri-js-frontends/SKILL.md)、[`integrating-tauri-rust-frontends`](/Users/sean/.agents/skills/integrating-tauri-rust-frontends/SKILL.md)。**事件**：[`listening-to-tauri-events`](/Users/sean/.agents/skills/listening-to-tauri-events/SKILL.md)。
+- **IPC、进程模型、生命周期、runtime authority 或安全**：[`understanding-tauri-ipc`](/Users/sean/.agents/skills/understanding-tauri-ipc/SKILL.md)、[`understanding-tauri-process-model`](/Users/sean/.agents/skills/understanding-tauri-process-model/SKILL.md)、[`understanding-tauri-lifecycle-security`](/Users/sean/.agents/skills/understanding-tauri-lifecycle-security/SKILL.md)、[`understanding-tauri-runtime-authority`](/Users/sean/.agents/skills/understanding-tauri-runtime-authority/SKILL.md)、[`understanding-tauri-ecosystem-security`](/Users/sean/.agents/skills/understanding-tauri-ecosystem-security/SKILL.md)。
+- **Capabilities、permissions、scopes、CSP、HTTP headers**：[`configuring-tauri-capabilities`](/Users/sean/.agents/skills/configuring-tauri-capabilities/SKILL.md)、[`configuring-tauri-permissions`](/Users/sean/.agents/skills/configuring-tauri-permissions/SKILL.md)、[`configuring-tauri-scopes`](/Users/sean/.agents/skills/configuring-tauri-scopes/SKILL.md)、[`configuring-tauri-csp`](/Users/sean/.agents/skills/configuring-tauri-csp/SKILL.md)、[`configuring-tauri-http-headers`](/Users/sean/.agents/skills/configuring-tauri-http-headers/SKILL.md)。
+- **窗口、托盘、启动屏、资源、插件、sidecar**：[`customizing-tauri-windows`](/Users/sean/.agents/skills/customizing-tauri-windows/SKILL.md)、[`adding-tauri-system-tray`](/Users/sean/.agents/skills/adding-tauri-system-tray/SKILL.md)、[`adding-tauri-splashscreen`](/Users/sean/.agents/skills/adding-tauri-splashscreen/SKILL.md)、[`managing-tauri-app-resources`](/Users/sean/.agents/skills/managing-tauri-app-resources/SKILL.md)、[`developing-tauri-plugins`](/Users/sean/.agents/skills/developing-tauri-plugins/SKILL.md)、[`managing-tauri-plugin-permissions`](/Users/sean/.agents/skills/managing-tauri-plugin-permissions/SKILL.md)、[`embedding-tauri-sidecars`](/Users/sean/.agents/skills/embedding-tauri-sidecars/SKILL.md)、[`running-nodejs-sidecar-in-tauri`](/Users/sean/.agents/skills/running-nodejs-sidecar-in-tauri/SKILL.md)。
+- **配置、初始化、迁移、调试和依赖更新**：[`configuring-tauri-apps`](/Users/sean/.agents/skills/configuring-tauri-apps/SKILL.md)、[`setting-up-tauri-projects`](/Users/sean/.agents/skills/setting-up-tauri-projects/SKILL.md)、[`migrating-tauri-apps`](/Users/sean/.agents/skills/migrating-tauri-apps/SKILL.md)、[`debugging-tauri-apps`](/Users/sean/.agents/skills/debugging-tauri-apps/SKILL.md)、[`updating-tauri-dependencies`](/Users/sean/.agents/skills/updating-tauri-dependencies/SKILL.md)。
+- **平台打包、签名、CI 或体积优化**：[`distributing-tauri-for-macos`](/Users/sean/.agents/skills/distributing-tauri-for-macos/SKILL.md)、[`distributing-tauri-for-windows`](/Users/sean/.agents/skills/distributing-tauri-for-windows/SKILL.md)、[`packaging-tauri-for-linux`](/Users/sean/.agents/skills/packaging-tauri-for-linux/SKILL.md)、[`distributing-tauri-for-ios`](/Users/sean/.agents/skills/distributing-tauri-for-ios/SKILL.md)、[`distributing-tauri-for-android`](/Users/sean/.agents/skills/distributing-tauri-for-android/SKILL.md)、[`signing-tauri-apps`](/Users/sean/.agents/skills/signing-tauri-apps/SKILL.md)、[`building-tauri-with-github-actions`](/Users/sean/.agents/skills/building-tauri-with-github-actions/SKILL.md)、[`using-crabnebula-cloud-with-tauri`](/Users/sean/.agents/skills/using-crabnebula-cloud-with-tauri/SKILL.md)、[`optimizing-tauri-binary-size`](/Users/sean/.agents/skills/optimizing-tauri-binary-size/SKILL.md)。
+
+### 测试、诊断与质量
+
+1. 新增行为或修复回归：先用 [`tdd`](/Users/sean/.agents/skills/tdd/SKILL.md) 编写失败测试，再实现最小改动。
+2. Tauri API、IPC、窗口、事件或桌面流程：使用 [`testing-tauri-apps`](/Users/sean/.agents/skills/testing-tauri-apps/SKILL.md)；前端单测优先 mock IPC，E2E 按目标平台可行性选择。
+3. Rust 单测与集成测试：[`rust-testing`](/Users/sean/.agents/skills/rust-testing/SKILL.md)。复杂缺陷与性能问题：[`diagnosing-bugs`](/Users/sean/.agents/skills/diagnosing-bugs/SKILL.md)。交付前审查：[`code-review`](/Users/sean/.agents/skills/code-review/SKILL.md)。
+4. 类型断言迁移：[`migrate-to-shoehorn`](/Users/sean/.agents/skills/migrate-to-shoehorn/SKILL.md)。提交前 hooks：[`setup-pre-commit`](/Users/sean/.agents/skills/setup-pre-commit/SKILL.md)。Git 安全防护：[`git-guardrails-claude-code`](/Users/sean/.agents/skills/git-guardrails-claude-code/SKILL.md)。
+
+### 规格、实现与架构
+
+- **需求澄清、PRD 与规格驱动**：[`grill-me`](/Users/sean/.agents/skills/grill-me/SKILL.md)、[`grilling`](/Users/sean/.agents/skills/grilling/SKILL.md)、[`loop-me`](/Users/sean/.agents/skills/loop-me/SKILL.md)、[`to-prd`](/Users/sean/.agents/skills/to-prd/SKILL.md)、[`spec-driven-development`](/Users/sean/.agents/skills/spec-driven-development/SKILL.md)、[`spec-driven-workflow`](/Users/sean/.agents/skills/spec-driven-workflow/SKILL.md)。
+- **按已确认 PRD 实现、拆 issue、QA、分诊与路径探索**：[`implement`](/Users/sean/.agents/skills/implement/SKILL.md)、[`to-issues`](/Users/sean/.agents/skills/to-issues/SKILL.md)、[`qa`](/Users/sean/.agents/skills/qa/SKILL.md)、[`triage`](/Users/sean/.agents/skills/triage/SKILL.md)、[`wayfinder`](/Users/sean/.agents/skills/wayfinder/SKILL.md)。
+- **领域术语、架构审查与重构计划**：[`domain-modeling`](/Users/sean/.agents/skills/domain-modeling/SKILL.md)、[`ubiquitous-language`](/Users/sean/.agents/skills/ubiquitous-language/SKILL.md)、[`codebase-design`](/Users/sean/.agents/skills/codebase-design/SKILL.md)、[`improve-codebase-architecture`](/Users/sean/.agents/skills/improve-codebase-architecture/SKILL.md)、[`request-refactor-plan`](/Users/sean/.agents/skills/request-refactor-plan/SKILL.md)。
+- **原型、worktree、合并冲突、交接和工程技能初始化**：[`prototype`](/Users/sean/.agents/skills/prototype/SKILL.md)、[`using-git-worktrees`](/Users/sean/.agents/skills/using-git-worktrees/SKILL.md)、[`resolving-merge-conflicts`](/Users/sean/.agents/skills/resolving-merge-conflicts/SKILL.md)、[`handoff`](/Users/sean/.agents/skills/handoff/SKILL.md)、[`setup-matt-pocock-skills`](/Users/sean/.agents/skills/setup-matt-pocock-skills/SKILL.md)。
+
+### 其他本机 Skill
+
+以下 Skill 也可用，但仅在用户任务明确匹配时触发：
+
+- **Skill 发现、创建、教学**：[`find-skills`](/Users/sean/.agents/skills/find-skills/SKILL.md)、[`ask-matt`](/Users/sean/.agents/skills/ask-matt/SKILL.md)、[`skill-creator`](/Users/sean/.agents/skills/skill-creator/SKILL.md)、[`writing-great-skills`](/Users/sean/.agents/skills/writing-great-skills/SKILL.md)、[`teach`](/Users/sean/.agents/skills/teach/SKILL.md)、[`scaffold-exercises`](/Users/sean/.agents/skills/scaffold-exercises/SKILL.md)。
+- **写作、知识库、Apple 文档与交互脚本**：[`edit-article`](/Users/sean/.agents/skills/edit-article/SKILL.md)、[`writing-beats`](/Users/sean/.agents/skills/writing-beats/SKILL.md)、[`writing-fragments`](/Users/sean/.agents/skills/writing-fragments/SKILL.md)、[`writing-shape`](/Users/sean/.agents/skills/writing-shape/SKILL.md)、[`obsidian-vault`](/Users/sean/.agents/skills/obsidian-vault/SKILL.md)、[`sosumi`](/Users/sean/.agents/skills/sosumi/SKILL.md)、[`wizard`](/Users/sean/.agents/skills/wizard/SKILL.md)。
+- **项目能力总览**：用户要求理解本项目的能力、结构或状态时，使用 [`understand-dashboard`](/Users/sean/Documents/Projetcs/VibeX/.agents/skills/understand-dashboard/SKILL.md)。
+- **Lark/飞书资源**：认证与通用能力使用 [`lark-shared`](/Users/sean/.agents/skills/lark-shared/SKILL.md)；当用户明确请求操作审批、应用、考勤、Base、日历、通讯录、文档、云盘、事件、IM、邮件、Markdown、妙记、会议纪要、OKR、OpenAPI、表格、幻灯片、任务、视频会议、白板、知识库或报告时，使用对应同名的 [`lark-*`](/Users/sean/.agents/skills) Skill。
+
 ## Conversation domain
 
 - **Conversation（会话）** — 用户与一个 agent 之间的持久对话。其完整历史由事件日志权威记录，与任何 agent 进程的存活无关。

@@ -98,3 +98,17 @@ Conversations are event-sourced. [conversation_service.rs](src-tauri/src/convers
 ## Frontend design system
 
 `DESIGN.md` is the **single source of truth** for frontend visual design (macOS Tahoe target, Liquid-Glass-chrome / opaque-content two-layer model, tokenized colors, accessibility fallbacks). `frontend/CLAUDE.md` covers the concrete CSS architecture: all routes are wrapped in `LegacyDesignScope` (historical name, treat as the active design scope), tokens live in `src/styles/legacy/index.css`, Tailwind config is `tailwind.legacy.config.js`. Use design tokens / shell classes (`--surface-*`, `--text-*`, `.settings-surface`) rather than hard-coded colors or new local palettes.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local Markdown files under `.scratch/`; external pull requests are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The local tracker uses the default five state strings: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single context: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.

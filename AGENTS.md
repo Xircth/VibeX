@@ -1,5 +1,19 @@
 # Repository Guidelines
 
+## Required Context Bootstrap
+
+Before planning, searching, editing files, or running commands:
+
+1. Read root `CONTEXT.md` in full.
+2. Read every ADR in `docs/adr/` relevant to the task.
+3. Match the task against the Agent Skill rules in `CONTEXT.md`.
+4. Fully read each directly applicable `SKILL.md` before taking task actions.
+
+Use the smallest set of Skills that fully covers the task. For cross-layer work,
+combine the applicable Skills (for example, Tauri IPC + frontend integration +
+testing). If a required Skill cannot be read, state why and use the closest safe
+alternative.
+
 ## Project Structure & Module Organization
 
 VibeX is a local-first Tauri desktop app. `frontend/src/` holds the React + TypeScript UI, with folders such as `components/`, `features/`, `hooks/`, `lib/`, `styles/`, and `utils/`. `src-tauri/` contains the Tauri shell and IPC command wiring. Reusable Rust logic lives in workspace crates under `crates/` (`agents`, `db`, `executors`, `git`, `services`, etc.). Generated TypeScript types are in `shared/types.ts`. Assets live in `assets/`, `frontend/public/`, and `src-tauri/icons/`. Docs and specs belong in `docs/`.

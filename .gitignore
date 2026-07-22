@@ -17,6 +17,7 @@ yarn-error.log*
 /build
 bindings/
 frontend/dist
+launch-site/dist
 npx-cli/dist
 npx-cli/vibex-*
 vibex-*.tgz
@@ -64,6 +65,7 @@ coverage/
 .storybook-out
 .parcel-cache
 .cache
+.scratch/
 
 # ===== Tauri =====
 src-tauri/gen/

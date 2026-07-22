@@ -21,6 +21,12 @@ impl BrowserTabId {
     }
 }
 
+impl From<&str> for BrowserTabId {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 impl fmt::Display for BrowserTabId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
@@ -67,10 +73,17 @@ pub struct BrowserTab {
     pub surface: BrowserSurface,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BrowserIntent {
     Navigate { url: String },
+    Back,
+    Forward,
+    Reload,
+    Stop,
+    SetSurface { surface: BrowserSurface },
+    Focus,
+    OpenDevTools,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,6 +98,31 @@ pub enum BrowserEngineCommand {
         tab_id: BrowserTabId,
         url: String,
     },
+    Back {
+        tab_id: BrowserTabId,
+    },
+    Forward {
+        tab_id: BrowserTabId,
+    },
+    Reload {
+        tab_id: BrowserTabId,
+    },
+    Stop {
+        tab_id: BrowserTabId,
+    },
+    SetSurface {
+        tab_id: BrowserTabId,
+        surface: BrowserSurface,
+    },
+    Close {
+        tab_id: BrowserTabId,
+    },
+    Focus {
+        tab_id: BrowserTabId,
+    },
+    OpenDevTools {
+        tab_id: BrowserTabId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,13 +135,30 @@ pub enum BrowserEngineEvent {
         can_go_back: bool,
         can_go_forward: bool,
     },
+    Failed {
+        tab_id: BrowserTabId,
+        code: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BrowserEvent {
-    TabCreated { tab: BrowserTab },
-    TabUpdated { tab: BrowserTab },
+    TabCreated {
+        tab: BrowserTab,
+    },
+    TabUpdated {
+        tab: BrowserTab,
+    },
+    TabClosed {
+        tab_id: BrowserTabId,
+    },
+    TabFailed {
+        tab: BrowserTab,
+        code: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -187,6 +242,45 @@ impl BrowserRuntime {
                     url,
                 })
             }
+            BrowserIntent::Back => self.engine.dispatch(BrowserEngineCommand::Back {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::Forward => self.engine.dispatch(BrowserEngineCommand::Forward {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::Reload => self.engine.dispatch(BrowserEngineCommand::Reload {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::Stop => self.engine.dispatch(BrowserEngineCommand::Stop {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::SetSurface { surface } => {
+                self.engine.dispatch(BrowserEngineCommand::SetSurface {
+                    tab_id: tab_id.clone(),
+                    surface: surface.clone(),
+                })?;
+                let tab = {
+                    let mut tabs = self
+                        .tabs
+                        .lock()
+                        .map_err(|_| BrowserError::StateUnavailable)?;
+                    let tab = tabs
+                        .get_mut(tab_id)
+                        .ok_or_else(|| BrowserError::TabNotFound(tab_id.clone()))?;
+                    tab.surface = surface;
+                    tab.clone()
+                };
+                let _ = self.events.send(BrowserEvent::TabUpdated { tab });
+                Ok(())
+            }
+            BrowserIntent::Focus => self.engine.dispatch(BrowserEngineCommand::Focus {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::OpenDevTools => {
+                self.engine.dispatch(BrowserEngineCommand::OpenDevTools {
+                    tab_id: tab_id.clone(),
+                })
+            }
         }
     }
 
@@ -218,6 +312,53 @@ impl BrowserRuntime {
                 let _ = self.events.send(BrowserEvent::TabUpdated { tab });
                 Ok(())
             }
+            BrowserEngineEvent::Failed {
+                tab_id,
+                code,
+                message,
+            } => {
+                let tab = {
+                    let mut tabs = self
+                        .tabs
+                        .lock()
+                        .map_err(|_| BrowserError::StateUnavailable)?;
+                    let tab = tabs
+                        .get_mut(&tab_id)
+                        .ok_or_else(|| BrowserError::TabNotFound(tab_id.clone()))?;
+                    tab.loading = false;
+                    tab.clone()
+                };
+                let _ = self
+                    .events
+                    .send(BrowserEvent::TabFailed { tab, code, message });
+                Ok(())
+            }
         }
+    }
+
+    pub fn tab(&self, tab_id: &BrowserTabId) -> Result<Option<BrowserTab>, BrowserError> {
+        Ok(self
+            .tabs
+            .lock()
+            .map_err(|_| BrowserError::StateUnavailable)?
+            .get(tab_id)
+            .cloned())
+    }
+
+    pub fn close_tab(&self, tab_id: &BrowserTabId) -> Result<(), BrowserError> {
+        if self.tab(tab_id)?.is_none() {
+            return Err(BrowserError::TabNotFound(tab_id.clone()));
+        }
+        self.engine.dispatch(BrowserEngineCommand::Close {
+            tab_id: tab_id.clone(),
+        })?;
+        self.tabs
+            .lock()
+            .map_err(|_| BrowserError::StateUnavailable)?
+            .remove(tab_id);
+        let _ = self.events.send(BrowserEvent::TabClosed {
+            tab_id: tab_id.clone(),
+        });
+        Ok(())
     }
 }

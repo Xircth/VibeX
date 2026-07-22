@@ -5,6 +5,7 @@ pub mod approvals;
 pub mod attention;
 pub mod automation;
 pub mod backup;
+pub mod browser;
 pub mod chat_channel;
 pub mod config;
 pub mod conversations;

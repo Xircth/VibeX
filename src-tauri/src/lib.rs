@@ -1,3 +1,10 @@
+use std::{cell::RefCell, path::PathBuf, sync::Arc, time::Duration};
+
+use browser_cef::{
+    CefBootstrap, CefRuntimeConfig, CefSession, NativeBrowserParent, PumpScheduler,
+    command_channel_with_waker,
+};
+use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
 pub mod bridge;
@@ -20,6 +27,138 @@ use state::AppState;
 
 const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
 const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
+const BROWSER_EVENT: &str = "browser://event";
+const CEF_COMMAND_CAPACITY: usize = 512;
+
+thread_local! {
+    static CEF_SESSION: RefCell<Option<CefSession>> = const { RefCell::new(None) };
+}
+
+fn pump_cef_session() {
+    CEF_SESSION.with(|session| {
+        if let Ok(mut session) = session.try_borrow_mut()
+            && let Some(session) = session.as_mut()
+        {
+            session.pump();
+        }
+    });
+}
+
+fn shutdown_cef_session() {
+    CEF_SESSION.with(|session| {
+        if let Some(session) = session.borrow_mut().take() {
+            session.shutdown();
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+    let raw = window.ns_view().map_err(|error| error.to_string())? as usize;
+    // SAFETY: Tauri owns this NSView for the lifetime of the main window and
+    // setup runs on the UI thread before CEF creates any child view.
+    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+    let raw = window.hwnd().map_err(|error| error.to_string())?.0 as usize;
+    // SAFETY: Tauri owns this HWND for the lifetime of the main window.
+    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserParent, String> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let raw = match window
+        .window_handle()
+        .map_err(|error| error.to_string())?
+        .as_raw()
+    {
+        RawWindowHandle::Xlib(handle) => handle.window as usize,
+        RawWindowHandle::Xcb(handle) => usize::from(handle.window.get()),
+        _ => return Err("CEF child windows require an X11/XWayland parent".to_string()),
+    };
+    // SAFETY: Tauri owns this X11 window for the lifetime of the main window.
+    unsafe { NativeBrowserParent::from_raw(raw) }.map_err(|error| error.to_string())
+}
+
+fn cef_subprocess_path() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe().ok()?;
+        let directory = executable.parent()?;
+        let bundled =
+            directory.join("../Frameworks/VibeX Helper.app/Contents/MacOS/vibex_cef_helper");
+        if bundled.is_file() {
+            return Some(bundled);
+        }
+        let development_helper = directory.join("vibex_cef_helper");
+        if development_helper.is_file() {
+            return Some(development_helper);
+        }
+        Some(executable)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+fn setup_browser_runtime(
+    app: &mut tauri::App,
+    bootstrap: CefBootstrap,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let main_window = app
+        .get_webview_window("main")
+        .ok_or("main window is unavailable for CEF")?;
+    let parent = native_browser_parent(&main_window)?;
+    let app_data_dir = app.path().app_data_dir()?;
+    let app_handle = app.handle().clone();
+    let scheduler: PumpScheduler = Arc::new(move |delay_ms| {
+        let app_handle = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            if delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
+            }
+            let _ = app_handle.run_on_main_thread(pump_cef_session);
+        });
+    });
+    let wake_scheduler = scheduler.clone();
+    let (engine, commands) =
+        command_channel_with_waker(CEF_COMMAND_CAPACITY, Arc::new(move || wake_scheduler(0)));
+    let runtime = Arc::new(BrowserRuntime::new(engine));
+    let session = bootstrap.initialize(
+        CefRuntimeConfig::new(app_data_dir),
+        scheduler,
+        cef_subprocess_path().as_deref(),
+        commands,
+        runtime.clone(),
+        parent,
+    )?;
+
+    let mut browser_events = runtime.subscribe();
+    let browser_event_app = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match browser_events.recv().await {
+                Ok(event) => {
+                    let _ = browser_event_app.emit(BROWSER_EVENT, event);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(skipped, "browser event consumer lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    app.manage(commands::browser::BrowserCommandState { runtime });
+    CEF_SESSION.with(|stored| {
+        *stored.borrow_mut() = Some(session);
+    });
+    Ok(())
+}
 
 fn install_rustls_crypto_provider() {
     // The workspace uses reqwest's no-provider rustls mode, so the application
@@ -60,7 +199,7 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run() {
+pub fn run(cef_bootstrap: CefBootstrap) {
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
@@ -82,7 +221,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(|app| {
+        .setup(move |app| {
+            setup_browser_runtime(app, cef_bootstrap)?;
             // Apply the saved system-proxy setting to process env FIRST, before any
             // reqwest client is built or any ACP agent is spawned — otherwise the
             // proxy never reaches them (agents inherit it via merged_agent_env) and
@@ -250,6 +390,10 @@ pub fn run() {
             health_check,
             get_preview_proxy_url,
             exit_app,
+            commands::browser::browser_create_tab,
+            commands::browser::browser_apply_intent,
+            commands::browser::browser_close_tab,
+            commands::browser::browser_get_tab,
             commands::projects::get_projects,
             commands::projects::get_project,
             commands::projects::create_project,
@@ -634,8 +778,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
+            pump_cef_session();
             // Flush the non-blocking log writer on exit before the process leaves.
             if let tauri::RunEvent::Exit = event {
+                shutdown_cef_session();
                 let reaped = office_watch::stop_all_office_watches();
                 if reaped > 0 {
                     tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");

@@ -13,7 +13,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { exportConversation } from '@/lib/exportConversation';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import type { ExecutorProfileId } from 'shared/types';
@@ -65,7 +65,8 @@ export function SessionHubListItem({
 }: SessionHubListItemProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const isKanbanBoardMode = displayMode === 'kanban-board';
-  const showRenameControls = !isDeleteMode && !isKanbanBoardMode;
+  const showRenameControls =
+    !isDeleteMode && !isKanbanBoardMode && Boolean(onRenameSession);
   const branchHoverText = session.workspaceName || session.branch;
   const previewText = (session.firstPrompt ?? session.taskTitle ?? '')
     .replace(/\s+/g, ' ')
@@ -260,7 +261,9 @@ export function SessionHubListItem({
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
+                  <TooltipContent>
+                    {t('hubListItem.deleteSession')}
+                  </TooltipContent>
                 </Tooltip>
               ) : null}
 

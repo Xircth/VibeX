@@ -13,7 +13,7 @@ import {
   Type,
   Volume2,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 import {
   EditorType,

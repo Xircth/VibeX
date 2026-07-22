@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { tagsApi } from '@/lib/api';
 import { TagEditDialog } from '@/components/dialogs/tasks/TagEditDialog';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';

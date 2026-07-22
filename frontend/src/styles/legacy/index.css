@@ -400,173 +400,6 @@
     box-shadow: none !important;
   }
 
-  :where(.legacy-design) [data-sonner-toaster].vu-sonner-toaster {
-    --normal-bg: transparent !important;
-    --normal-border: transparent !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
-    --width: 356px !important;
-    width: min(356px, calc(100vw - 28px)) !important;
-    min-width: min(356px, calc(100vw - 28px)) !important;
-    min-height: 74px !important;
-    padding: 14px 42px 14px 16px !important;
-    gap: 12px !important;
-    overflow: hidden !important;
-    border: 1px solid oklch(1 0 0 / 0.52) !important;
-    border-radius: 18px !important;
-    background: linear-gradient(
-      135deg,
-      oklch(1 0 0 / 0.76),
-      oklch(0.96 0.006 250 / 0.62)
-    ) !important;
-    color: oklch(0.18 0.012 255) !important;
-    box-shadow:
-      0 18px 55px oklch(0.2 0.02 255 / 0.18),
-      0 3px 14px oklch(0.2 0.02 255 / 0.1),
-      inset 0 1px 0 oklch(1 0 0 / 0.66) !important;
-    backdrop-filter: blur(24px) saturate(1.55) !important;
-    -webkit-backdrop-filter: blur(24px) saturate(1.55) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg, oklch(1 0 0 / 0.36), oklch(1 0 0 / 0));
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
-    margin-top: 2px !important;
-    color: var(--text-muted) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-content] {
-    min-width: 0 !important;
-    gap: 2px !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-title] {
-    letter-spacing: 0 !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-sonner-toast
-    [data-description] {
-    opacity: 0.78 !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-button] {
-    box-shadow: none !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-local-dependency-toast-shell {
-    --width: auto !important;
-    width: auto !important;
-    min-width: 0 !important;
-    padding: 0 !important;
-    gap: 0 !important;
-    overflow: visible !important;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-local-dependency-toast-shell::before {
-    content: none !important;
-    display: none !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-sonner-toast
-    [data-close-button] {
-    left: auto !important;
-    right: 10px !important;
-    top: 10px !important;
-    transform: none !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-success {
-    border-color: hsl(var(--success) / 0.46) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-info,
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-loading {
-    border-color: hsl(var(--primary) / 0.44) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-warning {
-    border-color: hsl(var(--warning) / 0.5) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast-error {
-    border-color: hsl(var(--destructive) / 0.5) !important;
-  }
-
-  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
-    border-color: oklch(1 0 0 / 0.13) !important;
-    background: linear-gradient(
-      135deg,
-      oklch(0.25 0.018 255 / 0.82),
-      oklch(0.18 0.012 255 / 0.68)
-    ) !important;
-    color: oklch(0.96 0.006 250) !important;
-    box-shadow:
-      0 18px 55px oklch(0 0 0 / 0.36),
-      0 3px 14px oklch(0 0 0 / 0.24),
-      inset 0 1px 0 oklch(1 0 0 / 0.1) !important;
-  }
-
-  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast::before {
-    background: linear-gradient(180deg, oklch(1 0 0 / 0.08), oklch(1 0 0 / 0));
-  }
-
-  .dark :where(.legacy-design) [data-sonner-toast].vu-sonner-toast [data-icon] {
-    color: var(--text-muted) !important;
-  }
-
-  :where(.legacy-design) [data-sonner-toast].vu-project-delete-toast {
-    --width: 224px !important;
-    width: 224px !important;
-    min-width: 224px !important;
-    max-width: 224px !important;
-    min-height: 56px !important;
-    padding: 12px 34px 12px 12px !important;
-    gap: 8px !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-project-delete-toast
-    [data-content] {
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
-    max-width: 100% !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-project-delete-toast
-    [data-title],
-  :where(.legacy-design)
-    [data-sonner-toast].vu-project-delete-toast
-    [data-description] {
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  :where(.legacy-design)
-    [data-sonner-toast].vu-project-delete-toast
-    [data-close-button] {
-    left: auto !important;
-    right: 7px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-  }
-
   .legacy-design .logo {
     @apply fill-foreground;
   }
@@ -1030,6 +863,41 @@
     }
   }
 
+  /* Fast mode is carried by the model label instead of a trailing icon, so
+     the compact session summary never grows when the mode changes. The
+     blue-violet spectrum is a deliberate live-state exception to the normal
+     single-accent rule. */
+  .composer-fast-model-flow {
+    background-image: linear-gradient(
+      90deg,
+      hsl(213 94% 58%),
+      hsl(252 91% 68%),
+      hsl(280 82% 66%),
+      hsl(213 94% 58%)
+    );
+    background-size: 240% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: composer-fast-model-flow 2.4s linear infinite;
+  }
+
+  @keyframes composer-fast-model-flow {
+    from {
+      background-position: 0% 50%;
+    }
+    to {
+      background-position: -240% 50%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .composer-fast-model-flow {
+      animation: none;
+      background-position: 50% 50%;
+    }
+  }
+
   .tahoe-glass {
     border: 1px solid var(--border-glass);
     background: var(--surface-glass);
@@ -1486,79 +1354,378 @@
     }
   }
 
-  .project-rail-shell {
-    border: 1px solid var(--border-glass);
-    background: var(--surface-glass);
-    box-shadow: var(--shadow-glass);
-    backdrop-filter: blur(18px) saturate(1.2);
-    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  .project-rail-inline-stage {
+    --project-rail-glass: hsl(210 28% 98% / 0.3);
+    --project-rail-glass-edge: hsl(0 0% 100% / 0.74);
+    --project-rail-glass-shadow: hsl(220 24% 14% / 0.2);
+    --project-rail-control: hsl(0 0% 100% / 0.94);
+    --project-rail-control-hover: #ffffff;
+    --project-rail-control-border: hsl(218 18% 82% / 0.9);
+    --project-rail-control-shadow: hsl(220 20% 18% / 0.14);
+    --project-rail-ink: #1d2433;
+    --project-rail-muted: #6d7480;
+    --project-rail-divider: hsl(218 17% 76% / 0.72);
+    --project-rail-accent: #0a84ff;
   }
 
-  .project-rail-scroll {
+  .dark .project-rail-inline-stage {
+    --project-rail-glass: hsl(225 9% 14% / 0.52);
+    --project-rail-glass-edge: hsl(0 0% 100% / 0.2);
+    --project-rail-glass-shadow: hsl(0 0% 0% / 0.42);
+    --project-rail-control: hsl(225 8% 19% / 0.96);
+    --project-rail-control-hover: #35373e;
+    --project-rail-control-border: hsl(225 7% 32% / 0.9);
+    --project-rail-control-shadow: hsl(0 0% 0% / 0.34);
+    --project-rail-ink: #f5f7fa;
+    --project-rail-muted: #aeb3bd;
+    --project-rail-divider: hsl(225 7% 42% / 0.72);
+    --project-rail-accent: #409cff;
+  }
+
+  .project-rail-inline-host {
+    position: fixed;
+    z-index: 40;
+    top: 50%;
+    left: 12px;
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  .project-rail-inline-stage {
+    position: relative;
+    width: 54px;
+    max-height: calc(100vh - 32px);
+    min-height: 0;
+    color: var(--project-rail-ink);
+    pointer-events: auto;
+  }
+
+  .project-rail-liquid-glass {
+    isolation: isolate;
+    background: transparent !important;
+  }
+
+  .project-rail-liquid-glass .glass {
+    display: block !important;
+    box-sizing: border-box;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 1px solid var(--project-rail-glass-edge);
+    background: var(--project-rail-glass);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.48),
+      0 12px 30px var(--project-rail-glass-shadow) !important;
+  }
+
+  .project-rail-liquid-glass .glass > div:last-child {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .project-rail-shell {
+    --project-rail-project-size: 44px;
+    --project-rail-action-size: 42px;
+    --project-rail-control-radius: 14px;
+    --project-rail-action-radius: 13px;
+    --project-rail-project-gap: 8px;
+    --project-rail-action-gap: 8px;
+    --project-rail-monogram-size: 14px;
+    --project-rail-action-icon-size: 18px;
+    --project-rail-status-size: 11px;
+    --project-rail-status-border: 2px;
+    --project-rail-status-offset: -2px;
+    --project-rail-spinner-size: 7px;
+    --project-rail-delete-size: 18px;
+    --project-rail-delete-icon-size: 10px;
+    --project-rail-delete-offset: -3px;
+    --project-rail-empty-height: 96px;
+    --project-rail-empty-font-size: 10px;
+    --project-rail-divider-width: 36px;
+    --project-rail-divider-margin: 8px auto 10px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    color: var(--project-rail-ink);
+    font-family: var(--font-ui);
+    font-optical-sizing: auto;
+  }
+
+  .project-rail-shell--inline {
+    --project-rail-project-size: 31px;
+    --project-rail-action-size: 30px;
+    --project-rail-control-radius: 10px;
+    --project-rail-action-radius: 9px;
+    --project-rail-project-gap: 6px;
+    --project-rail-action-gap: 6px;
+    --project-rail-monogram-size: 10px;
+    --project-rail-action-icon-size: 13px;
+    --project-rail-status-size: 8px;
+    --project-rail-status-border: 1.5px;
+    --project-rail-status-offset: -1px;
+    --project-rail-spinner-size: 5px;
+    --project-rail-delete-size: 13px;
+    --project-rail-delete-icon-size: 7px;
+    --project-rail-delete-offset: -2px;
+    --project-rail-empty-height: 67px;
+    --project-rail-empty-font-size: 8px;
+    --project-rail-divider-width: 25px;
+    --project-rail-divider-margin: 6px auto 7px;
+    width: 100%;
+    height: 100%;
+    padding: 7px 6px 6px;
+    border: 0;
+    border-radius: 20px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .project-rail-projects {
+    display: flex;
+    width: 100%;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--project-rail-project-gap);
+    padding: 2px 0 5px;
+    overflow-x: hidden;
+    overflow-y: auto;
     scrollbar-width: none;
-    -ms-overflow-style: none;
     cursor: grab;
   }
 
-  .project-rail-scroll::-webkit-scrollbar {
+  .project-rail-projects::-webkit-scrollbar {
     display: none;
   }
 
-  .project-rail-scroll.is-dragging {
+  .project-rail-projects.is-dragging {
     cursor: grabbing;
     user-select: none;
   }
 
+  .project-rail-project-slot {
+    position: relative;
+    width: var(--project-rail-project-size);
+    height: var(--project-rail-project-size);
+    flex: 0 0 var(--project-rail-project-size);
+  }
+
+  .project-rail-project-button,
   .project-rail-action-button {
-    border: 1px solid var(--border-subtle);
-    background: var(--surface-control);
-    box-shadow: none;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    padding: 0;
+    color: var(--project-rail-ink);
+    border: 0;
+    outline: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
     transition:
-      background 150ms ease,
-      border-color 160ms ease;
+      transform 140ms ease-out,
+      filter 140ms ease-out;
   }
 
+  .project-rail-project-button {
+    width: var(--project-rail-project-size);
+    height: var(--project-rail-project-size);
+    border-radius: var(--project-rail-control-radius);
+    background: transparent;
+  }
+
+  .project-rail-project-badge,
+  .project-rail-action-button {
+    box-sizing: border-box;
+    border: 1px solid var(--project-rail-control-border);
+    background: var(--project-rail-control);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.78),
+      0 3px 10px var(--project-rail-control-shadow);
+  }
+
+  .project-rail-project-badge {
+    position: relative;
+    display: grid;
+    width: var(--project-rail-project-size);
+    height: var(--project-rail-project-size);
+    place-items: center;
+    overflow: hidden;
+    border-radius: var(--project-rail-control-radius);
+    transition:
+      background 140ms ease-out,
+      border-color 140ms ease-out,
+      box-shadow 140ms ease-out;
+  }
+
+  .project-rail-project-badge__shine {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(145deg, hsl(0 0% 100% / 0.74), transparent 44%);
+    pointer-events: none;
+  }
+
+  .dark .project-rail-project-badge__shine {
+    opacity: 0.16;
+  }
+
+  .project-rail-project-badge__monogram {
+    position: relative;
+    max-width: calc(var(--project-rail-project-size) - 8px);
+    overflow: hidden;
+    color: var(--project-rail-ink);
+    font-size: var(--project-rail-monogram-size);
+    font-weight: 720;
+    line-height: 1;
+    letter-spacing: -0.035em;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .project-rail-project-button:hover,
   .project-rail-action-button:hover {
-    border-color: hsl(var(--primary) / 0.45);
-    background: var(--surface-control-hover);
+    transform: translateY(-1px);
   }
 
-  .project-rail-item-button {
-    color: var(--text-strong);
-    border-color: var(--border-subtle);
-    background: var(--surface-card);
+  .project-rail-project-button:hover .project-rail-project-badge,
+  .project-rail-action-button:hover {
+    background: var(--project-rail-control-hover);
   }
 
-  .project-rail-item-button:hover {
-    border-color: hsl(var(--primary) / 0.38);
-    background: var(--surface-control-hover);
+  .project-rail-project-button:active,
+  .project-rail-action-button:active {
+    transform: scale(0.96);
+    transition-duration: 80ms;
   }
 
-  .project-rail-item-button.is-active {
-    color: hsl(var(--primary-foreground));
-    border-color: hsl(var(--primary) / 0.6);
-    background: hsl(var(--primary));
-    box-shadow: 0 8px 20px hsl(var(--primary) / 0.24);
+  .project-rail-project-button:focus-visible .project-rail-project-badge,
+  .project-rail-action-button:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--project-rail-accent),
+      0 4px 12px var(--project-rail-control-shadow);
   }
 
-  .project-rail-status-dot {
-    border: 1px solid var(--surface-glass-solid);
+  .project-rail-project-badge--active {
+    border-color: color-mix(
+      in srgb,
+      var(--project-rail-accent) 62%,
+      var(--project-rail-control-border)
+    );
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--project-rail-accent) 36%, transparent),
+      0 4px 12px var(--project-rail-control-shadow);
+  }
+
+  .project-rail-status-dot,
+  .project-rail-status-dot-shell {
+    position: absolute;
+    right: var(--project-rail-status-offset);
+    bottom: var(--project-rail-status-offset);
+    box-sizing: border-box;
+    width: var(--project-rail-status-size);
+    height: var(--project-rail-status-size);
+    border: var(--project-rail-status-border) solid var(--project-rail-control);
+    border-radius: 999px;
   }
 
   .project-rail-status-dot-shell {
-    border: 1px solid var(--surface-glass-solid);
-    background: var(--surface-glass-solid);
+    display: grid;
+    place-items: center;
+    background: var(--project-rail-control);
+  }
+
+  .project-rail-status-spinner {
+    width: var(--project-rail-spinner-size);
+    height: var(--project-rail-spinner-size);
+    border: 1.5px solid var(--project-rail-accent);
+    border-top-color: transparent;
+    border-radius: 999px;
+    animation: spin 0.8s linear infinite;
   }
 
   .project-rail-delete-button {
-    border: 1px solid var(--border-content);
-    background: var(--surface-content);
-    color: var(--text-muted);
+    position: absolute;
+    top: var(--project-rail-delete-offset);
+    right: var(--project-rail-delete-offset);
+    display: grid;
+    width: var(--project-rail-delete-size);
+    height: var(--project-rail-delete-size);
+    place-items: center;
+    padding: 0;
+    color: var(--project-rail-muted);
+    border: 1px solid var(--project-rail-control-border);
+    border-radius: 999px;
+    background: var(--project-rail-control);
+    box-shadow: 0 2px 7px var(--project-rail-control-shadow);
+    opacity: 0;
+    cursor: pointer;
+    transition:
+      color 120ms ease-out,
+      opacity 120ms ease-out,
+      transform 120ms ease-out;
+  }
+
+  .project-rail-delete-button svg {
+    width: var(--project-rail-delete-icon-size);
+    height: var(--project-rail-delete-icon-size);
+  }
+
+  .project-rail-project-slot:hover .project-rail-delete-button,
+  .project-rail-project-slot:focus-within .project-rail-delete-button {
+    opacity: 1;
   }
 
   .project-rail-delete-button:hover {
     color: hsl(var(--destructive));
-    background: var(--surface-control-hover);
+    transform: scale(1.06);
+  }
+
+  .project-rail-empty-state {
+    display: grid;
+    min-height: var(--project-rail-empty-height);
+    place-items: center;
+    padding: 8px 2px;
+    color: var(--project-rail-muted);
+    font-size: var(--project-rail-empty-font-size);
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .project-rail-divider {
+    width: var(--project-rail-divider-width);
+    height: 1px;
+    margin: var(--project-rail-divider-margin);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--project-rail-divider) 20%,
+      var(--project-rail-divider) 80%,
+      transparent
+    );
+  }
+
+  .project-rail-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--project-rail-action-gap);
+  }
+
+  .project-rail-action-button {
+    width: var(--project-rail-action-size);
+    height: var(--project-rail-action-size);
+    flex: 0 0 var(--project-rail-action-size);
+    border-radius: var(--project-rail-action-radius);
+  }
+
+  .project-rail-action-button svg {
+    width: var(--project-rail-action-icon-size);
+    height: var(--project-rail-action-icon-size);
+    stroke-width: 2;
   }
 
   .workspace-command-row {
@@ -1957,6 +2124,93 @@
       inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 
+  .conversation-status-dock {
+    container-type: inline-size;
+  }
+
+  .composer-status-surface {
+    border: 1px solid var(--border-strong);
+    background: var(--surface-card-strong);
+    color: var(--text-primary);
+    box-shadow:
+      0 2px 4px hsl(220 36% 8% / 0.05),
+      0 6px 12px hsl(220 36% 8% / 0.07);
+  }
+
+  .composer-status-row + .composer-status-row {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .composer-status-row[data-tone='error'] {
+    background: color-mix(
+      in srgb,
+      var(--surface-card-strong) 95%,
+      hsl(var(--destructive))
+    );
+  }
+
+  .composer-status-row[data-tone='warning'] {
+    background: color-mix(
+      in srgb,
+      var(--surface-card-strong) 96%,
+      hsl(var(--warning))
+    );
+  }
+
+  .composer-status-row[data-tone='error'] .composer-status-icon {
+    color: hsl(var(--destructive));
+  }
+
+  .composer-status-row[data-tone='warning'] .composer-status-icon {
+    color: hsl(var(--warning));
+  }
+
+  .composer-status-row[data-tone='info'] .composer-status-icon {
+    color: hsl(var(--info));
+  }
+
+  .composer-status-icon > svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .composer-status-action {
+    display: inline-flex;
+    min-height: 32px;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--surface-control);
+    padding: 0 10px;
+    color: var(--text-strong);
+    font-weight: 500;
+    transition:
+      border-color 160ms ease-out,
+      background-color 160ms ease-out;
+  }
+
+  .composer-status-action:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .composer-status-action:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.45);
+    outline-offset: 2px;
+  }
+
+  @container (max-width: 480px) {
+    .composer-status-row {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .composer-status-action-slot {
+      grid-column: 2;
+      justify-self: start;
+    }
+  }
+
   .composer-topbar {
     color: var(--text-muted);
   }
@@ -2151,10 +2405,15 @@
   }
 
   :where(.legacy-design) .project-rail-action-button:hover,
-  :where(.legacy-design) .project-rail-item-button:hover,
+  :where(.legacy-design) .project-rail-project-button:hover,
   :where(.legacy-design) .session-hub-card,
   :where(.legacy-design) .session-hub-card:hover {
     transform: none !important;
+  }
+
+  :where(.legacy-design) .project-rail-liquid-glass {
+    transform: translate(-50%, -50%) !important;
+    transition: none !important;
   }
 }
 
@@ -2175,6 +2434,12 @@
     --border-subtle: hsl(0 0% 100% / 0.28);
     --border-strong: hsl(0 0% 100% / 0.44);
   }
+
+  .project-rail-inline-stage {
+    --project-rail-glass: hsl(210 20% 98% / 0.9);
+    --project-rail-glass-edge: hsl(220 18% 28% / 0.7);
+    --project-rail-control-border: hsl(220 18% 28% / 0.82);
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -2185,14 +2450,22 @@
     --surface-sidebar: var(--surface-glass-solid);
   }
 
+  .project-rail-inline-stage {
+    --project-rail-glass: #f2f4f7;
+  }
+
+  .dark .project-rail-inline-stage {
+    --project-rail-glass: #202126;
+  }
+
   :where(.legacy-design) .tahoe-glass,
   :where(.legacy-design) .tahoe-popover,
   :where(.legacy-design) .workspace-topbar,
   :where(.legacy-design) .settings-titlebar,
   :where(.legacy-design) .settings-sidebar,
-  :where(.legacy-design) .project-rail-shell,
+  :where(.legacy-design) .project-rail-liquid-glass .glass__warp,
   :where(.legacy-design) .dialog-backdrop,
-  :where(.legacy-design) [data-sonner-toast].vu-sonner-toast {
+  :where(.legacy-design) .vu-toast-surface {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -2206,25 +2479,49 @@
   --surface-sidebar: var(--surface-glass-solid);
 }
 
+:where(.legacy-design.reduced-transparency) .project-rail-inline-stage,
+:where(.app.reduced-transparency .legacy-design) .project-rail-inline-stage {
+  --project-rail-glass: #f2f4f7;
+}
+
+.dark :where(.legacy-design.reduced-transparency) .project-rail-inline-stage,
+.dark
+  :where(.app.reduced-transparency .legacy-design)
+  .project-rail-inline-stage {
+  --project-rail-glass: #202126;
+}
+
 :where(.legacy-design.reduced-transparency) .tahoe-glass,
 :where(.legacy-design.reduced-transparency) .tahoe-popover,
 :where(.legacy-design.reduced-transparency) .workspace-topbar,
 :where(.legacy-design.reduced-transparency) .settings-titlebar,
 :where(.legacy-design.reduced-transparency) .settings-sidebar,
-:where(.legacy-design.reduced-transparency) .project-rail-shell,
+:where(.legacy-design.reduced-transparency)
+  .project-rail-liquid-glass
+  .glass__warp,
 :where(.legacy-design.reduced-transparency) .dialog-backdrop,
-:where(.legacy-design.reduced-transparency) [data-sonner-toast].vu-sonner-toast,
+:where(.legacy-design.reduced-transparency) .vu-toast-surface,
 :where(.app.reduced-transparency .legacy-design) .tahoe-glass,
 :where(.app.reduced-transparency .legacy-design) .tahoe-popover,
 :where(.app.reduced-transparency .legacy-design) .workspace-topbar,
 :where(.app.reduced-transparency .legacy-design) .settings-titlebar,
 :where(.app.reduced-transparency .legacy-design) .settings-sidebar,
-:where(.app.reduced-transparency .legacy-design) .project-rail-shell,
-:where(.app.reduced-transparency .legacy-design) .dialog-backdrop,
 :where(.app.reduced-transparency .legacy-design)
-  [data-sonner-toast].vu-sonner-toast {
+  .project-rail-liquid-glass
+  .glass__warp,
+:where(.app.reduced-transparency .legacy-design) .dialog-backdrop,
+:where(.app.reduced-transparency .legacy-design) .vu-toast-surface {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+}
+
+:where(.legacy-design.reduced-transparency)
+  .project-rail-liquid-glass
+  .glass__warp,
+:where(.app.reduced-transparency .legacy-design)
+  .project-rail-liquid-glass
+  .glass__warp {
+  filter: none !important;
 }
 
 @supports not (

@@ -31,7 +31,7 @@ export type AgentPromptStatus =
 export type AgentDistribution =
   | {
       kind: 'npx';
-      version: string;
+      minimum_supported_version: string;
       package: string;
       cmd: string;
       args: string[];

@@ -16,7 +16,7 @@ import {
   Search,
 } from 'lucide-react';
 import type { GitLogEntry } from 'shared/types';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { attemptsApi, repoApi } from '@/lib/api';
 import { GitContextMenu, type ContextMenuAction } from './GitContextMenu';
 import { useCommitDiffStore } from '@/stores/useCommitDiffStore';

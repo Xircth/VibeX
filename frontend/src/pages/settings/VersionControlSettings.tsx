@@ -19,7 +19,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import {
   DEFAULT_COMMIT_REMINDER_PROMPT,
   DEFAULT_PR_DESCRIPTION_PROMPT,

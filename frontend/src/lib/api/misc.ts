@@ -281,33 +281,6 @@ export const desktopApi = {
   revealInFileManager: async (path: string): Promise<void> => {
     return tauriInvoke<void>('reveal_in_file_manager', { path });
   },
-  setProjectRailWindowVisible: async (
-    visible: boolean,
-    itemCount?: number
-  ): Promise<void> => {
-    return tauriInvoke<void>('set_project_rail_window_visible', {
-      visible,
-      itemCount: itemCount ?? null,
-    });
-  },
-  syncProjectRailWindowBounds: async (itemCount?: number): Promise<void> => {
-    return tauriInvoke<void>('sync_project_rail_window_bounds', {
-      itemCount: itemCount ?? null,
-    });
-  },
-  activateProjectRailTarget: async (payload: {
-    projectId: string;
-    route: string;
-  }): Promise<void> => {
-    return tauriInvoke<void>('activate_project_rail_target', { payload });
-  },
-  requestProjectRailProjectDialog: async (payload: {
-    mode: 'create' | 'open';
-  }): Promise<void> => {
-    return tauriInvoke<void>('request_project_rail_project_dialog', {
-      payload,
-    });
-  },
   isMainWindowFocused: async (): Promise<boolean> => {
     return tauriInvoke<boolean>('is_main_window_focused');
   },

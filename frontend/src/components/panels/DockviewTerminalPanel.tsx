@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { useParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { useTauriTerminal } from '@/hooks/useTauriTerminal';
 import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { detectDevserverUrl } from '@/hooks/useDevserverUrl';

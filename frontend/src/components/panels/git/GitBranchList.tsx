@@ -15,7 +15,7 @@ import {
   GitMerge,
 } from 'lucide-react';
 import type { GitBranch } from 'shared/types';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 
 interface GitBranchListProps {

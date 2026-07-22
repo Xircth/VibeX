@@ -12,7 +12,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 import { type Config } from 'shared/types';
 import { useUserSystem } from '@/components/ConfigProvider';

@@ -34,6 +34,8 @@
     "codingAgent": "Coding agent",
     "controlsLoading": "Reading the preloaded session options…",
     "controlsUnavailable": "This agent has not published usable session options. Check its installation and sign-in status.",
+    "controlsPrepareFailed": "Failed to prepare the {{agent}} ACP session (VibeX Runtime session ID: {{sessionId}}): {{error}}",
+    "controlsUpdateFailed": "Failed to update option “{{option}}” for the {{agent}} ACP session (VibeX Runtime session ID: {{sessionId}}): {{error}}",
     "controlsAfterFirstSession": "Model and permission options are provided by the agent itself after its first session, in the message composer.",
     "creating": "Creating..."
   },
@@ -184,10 +186,16 @@
   },
   "sessionModeSelector": {
     "title": "Session Mode",
-    "fallbackLabel": "Mode"
+    "fallbackLabel": "Mode",
+    "allowDangerousOperations": "Allow dangerous operations"
   },
   "sessionConfigSelector": {
     "fallbackLabel": "Option"
+  },
+  "sessionSettings": {
+    "title": "This session",
+    "on": "On",
+    "off": "Off"
   },
   "readyContent": {
     "back": "Back",

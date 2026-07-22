@@ -837,7 +837,7 @@
     "autoFix": "Auto-fix",
     "checkNow": "Check now",
     "selectAgentPrompt": "Select an agent to view its settings.",
-    "runtimeStatus": "Runtime status",
+    "runtimeStatus": "Runtime entry",
     "versionLabel": "Version {{version}}",
     "runtimeCli": "Local CLI",
     "runtimeAcp": "ACP adapter",

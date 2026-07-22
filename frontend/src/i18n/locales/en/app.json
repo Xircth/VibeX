@@ -16,6 +16,16 @@
     "fixing": "Fixing…",
     "fixFailed": "Fix failed: {{error}}"
   },
+  "toast": {
+    "successTitle": "Done",
+    "infoTitle": "Information",
+    "warningTitle": "Attention needed",
+    "errorTitle": "Action failed",
+    "loadingTitle": "Working",
+    "showDetails": "Show details",
+    "region": "Notifications",
+    "close": "Close notification"
+  },
   "diffCard": {
     "loadingContent": "Loading file content…",
     "contentLoadFailed": "Failed to load content",

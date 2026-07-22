@@ -48,6 +48,9 @@ importers:
       '@ebay/nice-modal-react':
         specifier: ^1.2.13
         version: 1.2.13(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@fontsource-variable/noto-sans-sc':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@git-diff-view/file':
         specifier: ^0.0.30
         version: 0.0.30
@@ -195,6 +198,9 @@ importers:
       lexical:
         specifier: ^0.36.2
         version: 0.36.2
+      liquid-glass-react:
+        specifier: 1.1.1
+        version: 1.1.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       lucide-react:
         specifier: ^0.539.0
         version: 0.539.0(react@18.3.1)
@@ -252,9 +258,6 @@ importers:
       shiki:
         specifier: ^3.21.0
         version: 3.21.0
-      sonner:
-        specifier: ^2.0.7
-        version: 2.0.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
         specifier: ^2.2.0
         version: 2.6.0
@@ -936,6 +939,9 @@ packages:
 
   '@floating-ui/utils@0.2.10':
     resolution: {integrity: sha512-aGTxbpbg8/b5JfU1HXSrbH3wXZuLPJcNEcZQFMxLs3oSzgtVu6nFPkbbGGUvBcUjKV2YyB9Wxxabo+HEH9tcRQ==}
+
+  '@fontsource-variable/noto-sans-sc@5.3.0':
+    resolution: {integrity: sha512-lNar1dF7Ik/lHNPo/7JWG0TolXY29LtsqYgMvEysooZ5bsO9uH4shJmRrwyJ3PjyTPljhpMJEK0jDuLSU4vJ1w==}
 
   '@git-diff-view/core@0.0.30':
     resolution: {integrity: sha512-CyYi/y1q543aYeWQO9c+1awfRh47dPF7n4SNQQVl5I6U2NH4Ctg8eON6e2bIEd4dom/awZ1Hb8kTvaesBpfxJA==}
@@ -3539,6 +3545,12 @@ packages:
   lines-and-columns@1.2.4:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
 
+  liquid-glass-react@1.1.1:
+    resolution: {integrity: sha512-pKzaktaMAEztd93wpWcz2Z5Z9qdLJUNJdMX+n00Ca4XsnrLTQ5xJzm/+GQXZUeuFXe/PQ8ziVMZO6531PyaFJw==}
+    peerDependencies:
+      react: '>=19'
+      react-dom: '>=19'
+
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
     engines: {node: '>=10'}
@@ -4253,12 +4265,6 @@ packages:
   slash@3.0.0:
     resolution: {integrity: sha512-g9Q1haeby36OSStwb4ntCGGGaKsaVSjQ68fBxoQcutl5fS1vuY18H3wSt3jFyFtrkx+Kz0V1G85A4MyAdDMi2Q==}
     engines: {node: '>=8'}
-
-  sonner@2.0.7:
-    resolution: {integrity: sha512-W6ZN4p58k8aDKA4XPcx2hpIQXBRAgyiWVkYhT7CvK6D3iAu7xjvVyhQHg2/iaKJZ1XVJ4r7XuwGL+WGEK37i9w==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
-      react-dom: ^18.0.0 || ^19.0.0 || ^19.0.0-rc
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -5256,6 +5262,8 @@ snapshots:
       tabbable: 6.3.0
 
   '@floating-ui/utils@0.2.10': {}
+
+  '@fontsource-variable/noto-sans-sc@5.3.0': {}
 
   '@git-diff-view/core@0.0.30':
     dependencies:
@@ -8093,6 +8101,11 @@ snapshots:
 
   lines-and-columns@1.2.4: {}
 
+  liquid-glass-react@1.1.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   locate-path@6.0.0:
     dependencies:
       p-locate: 5.0.0
@@ -9063,11 +9076,6 @@ snapshots:
   signal-exit@4.1.0: {}
 
   slash@3.0.0: {}
-
-  sonner@2.0.7(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
 
   source-map-js@1.2.1: {}
 

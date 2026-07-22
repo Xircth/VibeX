@@ -125,18 +125,8 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        // Source Han Sans (思源黑体) drives both CN and EN; IBM Plex Sans is the
-        // fallback when the family is not installed on the host.
-        sans: [
-          '"Source Han Sans SC"',
-          '"Source Han Sans CN"',
-          '"Noto Sans CJK SC"',
-          '"Noto Sans SC"',
-          '"思源黑体"',
-          '"IBM Plex Sans"',
-          '"Noto Emoji"',
-          'sans-serif',
-        ],
+        // All product UI resolves through the bundled Source Han Sans token.
+        sans: ['var(--font-ui)', 'sans-serif'],
         // Route every `font-mono` utility through the --font-mono token so the
         // AppearanceSettings font picker (P3-2) governs all of them at once.
         mono: ['var(--font-mono)', '"Noto Emoji"', 'monospace'],

@@ -448,3 +448,17 @@
 .conv-entry-item {
   /* intentionally left without content-visibility */
 }
+.resend-checkpoint-surface {
+  width: 100%;
+  padding: 18px;
+  color: hsl(var(--popover-foreground));
+}
+
+.resend-checkpoint-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  background: hsl(var(--background) / 0.56);
+  padding: 10px 10px 10px 12px;
+}

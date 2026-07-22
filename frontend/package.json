@@ -24,6 +24,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
     "@ebay/nice-modal-react": "^1.2.13",
+    "@fontsource-variable/noto-sans-sc": "^5.3.0",
     "@git-diff-view/file": "^0.0.30",
     "@git-diff-view/react": "^0.0.30",
     "@lexical/code": "^0.36.2",
@@ -73,6 +74,7 @@
     "i18next": "^26.3.4",
     "katex": "^0.17.0",
     "lexical": "^0.36.2",
+    "liquid-glass-react": "1.1.1",
     "lucide-react": "^0.539.0",
     "marked": "^16.4.2",
     "mermaid": "^11.15.0",
@@ -92,7 +94,6 @@
     "remark-math": "^6.0.0",
     "rfc6902": "^5.1.2",
     "shiki": "^3.21.0",
-    "sonner": "^2.0.7",
     "tailwind-merge": "^2.2.0",
     "zustand": "^4.5.4"
   },

@@ -1,0 +1,399 @@
+.vu-toast-viewport {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 100000;
+  display: flex;
+  width: min(424px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: none;
+  scrollbar-width: thin;
+  font-family: var(--font-ui);
+}
+
+.vu-toast-host {
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  pointer-events: auto;
+  animation: vu-toast-enter 180ms ease-out both;
+}
+
+.vu-toast-surface {
+  width: 100%;
+  overflow: hidden;
+  color: var(--text-primary, hsl(213 10% 30%));
+  background: var(--surface-popover, hsl(0 0% 100% / 0.82));
+  border: 1px solid var(--border-glass, hsl(0 0% 100% / 0.62));
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.38);
+  backdrop-filter: blur(24px) saturate(1.55);
+  -webkit-backdrop-filter: blur(24px) saturate(1.55);
+}
+
+.vu-toast-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+}
+
+.vu-toast-icon-tile {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-muted, hsl(213 8% 45%));
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+}
+
+.vu-toast-status-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.vu-toast-surface[data-kind='success'] .vu-toast-icon-tile {
+  color: hsl(var(--success, 78 100% 35%));
+}
+
+.vu-toast-surface[data-kind='info'] .vu-toast-icon-tile,
+.vu-toast-surface[data-kind='loading'] .vu-toast-icon-tile {
+  color: hsl(var(--primary, 215 50% 55%));
+}
+
+.vu-toast-surface[data-kind='warning'] .vu-toast-icon-tile {
+  color: hsl(var(--warning, 38 92% 50%));
+}
+
+.vu-toast-surface[data-kind='error'] .vu-toast-icon-tile {
+  color: hsl(var(--destructive, 0 96% 53%));
+}
+
+.vu-toast-status-icon-loading {
+  animation: vu-toast-spin 900ms linear infinite;
+}
+
+.vu-toast-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.vu-toast-title {
+  color: var(--text-strong, hsl(222 30% 16%));
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.vu-toast-summary {
+  margin-top: 4px;
+  color: var(--text-muted, hsl(213 8% 45%));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.vu-toast-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  color: var(--text-muted, hsl(213 8% 45%));
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.vu-toast-close:hover {
+  color: var(--text-strong, hsl(222 30% 16%));
+  background: var(--surface-control-hover, hsl(220 20% 20% / 0.1));
+}
+
+.vu-toast-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.vu-toast-details-section,
+.vu-toast-actions {
+  margin: 0 14px 14px 50px;
+}
+
+.vu-toast-details-section {
+  margin-top: -2px;
+}
+
+.vu-toast-disclosure {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  color: var(--text-primary, hsl(213 10% 30%));
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.vu-toast-disclosure svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 160ms ease;
+}
+
+.vu-toast-disclosure svg.is-expanded {
+  transform: rotate(180deg);
+}
+
+.vu-toast-details {
+  max-height: min(42dvh, 360px);
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-radius: 10px;
+  scrollbar-width: thin;
+}
+
+.vu-toast-detail-row {
+  padding: 9px 10px;
+}
+
+.vu-toast-detail-row + .vu-toast-detail-row {
+  border-top: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+}
+
+.vu-toast-detail-title {
+  color: var(--text-strong, hsl(222 30% 16%));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.vu-toast-detail-copy {
+  margin-top: 2px;
+  color: var(--text-muted, hsl(213 8% 45%));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.vu-toast-detail-copy-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.vu-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vu-toast-action {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.vu-toast-action-secondary {
+  color: var(--text-primary, hsl(213 10% 30%));
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border-color: var(--border-subtle, hsl(220 16% 28% / 0.09));
+}
+
+.vu-toast-action-primary {
+  color: hsl(var(--primary-foreground, 0 0% 100%));
+  background: hsl(var(--primary, 215 50% 55%));
+}
+
+.vu-desktop-toast-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.vu-desktop-toast-copy .vu-toast-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.vu-desktop-toast-reply {
+  margin: -2px 14px 14px 50px;
+  padding: 10px;
+  background: var(--surface-control, hsl(220 20% 20% / 0.06));
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-radius: 10px;
+}
+
+.vu-desktop-toast-input {
+  min-width: 0;
+  height: 32px;
+  flex: 1;
+  padding: 0 10px;
+  color: var(--text-strong, hsl(222 30% 16%));
+  background: var(--surface-content, hsl(0 0% 100% / 0.96));
+  border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
+  border-radius: 8px;
+  outline: none;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.vu-desktop-toast-input:focus {
+  border-color: hsl(var(--primary, 215 50% 55%) / 0.5);
+}
+
+.vu-desktop-toast-input:disabled {
+  opacity: 0.6;
+}
+
+.vu-desktop-toast-send {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: hsl(var(--primary-foreground, 0 0% 100%));
+  background: hsl(var(--primary, 215 50% 55%));
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.vu-desktop-toast-send:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.vu-desktop-toast-send svg,
+.vu-desktop-toast-sent svg,
+.vu-desktop-toast-reply-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.vu-desktop-toast-hint,
+.vu-desktop-toast-sent {
+  margin-top: 6px;
+  color: var(--text-muted, hsl(213 8% 45%));
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.vu-desktop-toast-error {
+  color: hsl(var(--destructive, 0 96% 53%));
+}
+
+.vu-desktop-toast-sent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+  color: hsl(var(--success, 78 100% 35%));
+  font-weight: 500;
+}
+
+.vu-desktop-toast-reply-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vu-toast-close:focus-visible,
+.vu-toast-disclosure:focus-visible,
+.vu-toast-action:focus-visible,
+.vu-desktop-toast-copy:focus-visible,
+.vu-desktop-toast-input:focus-visible,
+.vu-desktop-toast-send:focus-visible {
+  outline: 2px solid hsl(var(--primary, 215 50% 55%) / 0.48);
+  outline-offset: 2px;
+}
+
+@keyframes vu-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes vu-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 520px) {
+  .vu-toast-viewport {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vu-toast-host,
+  .vu-toast-disclosure svg,
+  .vu-toast-status-icon-loading {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .vu-toast-surface {
+    background: var(--surface-glass-solid, hsl(220 24% 96%));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

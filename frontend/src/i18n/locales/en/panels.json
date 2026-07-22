@@ -144,6 +144,11 @@
     "showEditorAndTerminal": "Show editor and terminal areas",
     "openInNewEditorGroup": "Open in new editor group"
   },
+  "workspaceSessionList": {
+    "title": "Sessions",
+    "loading": "Loading sessions…",
+    "empty": "No sessions yet"
+  },
   "worktreeSelector": {
     "currentProjectBranch": "Current project directory branch",
     "nonWorktreeCheckout": "Not a Worktree; will checkout first when selected",
@@ -218,16 +223,22 @@
     "gitManager": "Git Manager",
     "welcome": "Welcome",
     "notes": "Notes",
-    "search": "Search"
+    "search": "Search",
+    "sessionList": "Sessions"
   },
   "ideIcon": {
     "fileManager": "File Manager"
   },
   "timeline": {
     "resendMessageTitle": "Resend this message",
-    "resendMessageBody": "This will clear everything after this message and resend it in its original position.\n\nAlso roll back workspace files to before this message was sent?\n\nRestore & resend = roll back files first, then send\nResend only = send without changing files",
+    "resendMessageBody": "",
     "restoreAndResend": "Restore & resend",
-    "resendOnly": "Resend only"
+    "restoreAndResendDescription": "Roll back files first, then send",
+    "resendOnly": "Resend only",
+    "resendOnlyDescription": "Send without rolling back files",
+    "rollbackFiles": "{{count}} files will be rolled back",
+    "rollbackFilesUnavailable": "Unable to read rollback files",
+    "noRollbackFiles": "No files need to be rolled back"
   },
   "desktopToast": {
     "resolveAgentTypeFailed": "Unable to determine the agent type for this session",
@@ -237,6 +248,8 @@
     "replyInputAriaLabel": "Reply to this session",
     "sendReplyAriaLabel": "Send reply",
     "clickCardHint": "Click the card above to return to this session",
+    "quickReply": "Quick reply",
+    "openConversation": "Open conversation",
     "closeAriaLabel": "Close notification"
   },
   "fileTreeMenu": {

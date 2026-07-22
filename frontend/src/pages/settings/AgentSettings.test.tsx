@@ -69,7 +69,7 @@ function mockRegistry() {
       description: 'Gemini ACP',
       distribution: {
         kind: 'npx',
-        version: '1.0.0',
+        minimum_supported_version: '1.0.0',
         package: '@google/gemini-cli',
         cmd: 'gemini' as const,
         args: [],
@@ -138,7 +138,7 @@ function mockRegistry() {
       user_visible_summary: 'Install Gemini',
       distribution: {
         kind: 'npx',
-        version: '1.0.0',
+        minimum_supported_version: '1.0.0',
         package: '@google/gemini-cli',
         cmd: 'gemini' as const,
         args: [],
@@ -230,6 +230,9 @@ describe('AgentSettings', () => {
 
     expect(screen.getByTestId('agent-registry-row-gemini')).toBeInTheDocument();
     expect(screen.getAllByText(/版本 0\.9\.0/).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('runtime-detail-entry')).toHaveTextContent(
+      '运行入口'
+    );
     expect(screen.getByTestId('runtime-detail-cli')).toHaveTextContent(
       '/usr/local/bin/codex'
     );
@@ -239,6 +242,15 @@ describe('AgentSettings', () => {
     expect(screen.getByTestId('runtime-detail-acp')).toHaveTextContent(
       '/usr/local/bin/codex-acp'
     );
+    for (const testId of [
+      'runtime-detail-entry',
+      'runtime-detail-cli',
+      'runtime-detail-acp',
+    ]) {
+      const runtimeCard = screen.getByTestId(testId);
+      expect(runtimeCard).toHaveClass('rounded-lg');
+      expect(runtimeCard).not.toHaveClass('border-t');
+    }
     expect(await screen.findByDisplayValue('gpt-5')).toBeInTheDocument();
     expect(agentSettingsApiMock.list).toHaveBeenCalledTimes(1);
   });
@@ -385,6 +397,72 @@ describe('AgentSettings', () => {
       expect(agentsApiMock.refreshCapabilityCatalog).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: '立即检查' })).toBeEnabled();
     });
+  });
+
+  it('shows the Codex ACP installation error returned by Tauri', async () => {
+    const user = userEvent.setup();
+    mockRegistry();
+    agentSettingsApiMock.preflight.mockResolvedValue({
+      checks: [
+        {
+          check_id: 'runtime_launcher',
+          label: 'ACP adapter',
+          status: 'fail',
+          message: '`codex-acp` was not found in PATH.',
+          fixes: [{ action: 'install_npm', label: 'Install ACP adapter' }],
+        },
+      ],
+    });
+    agentSettingsApiMock.runFix.mockRejectedValue(
+      'Internal error: Install command failed for codex: npm permission denied'
+    );
+
+    renderAgentSettings();
+
+    await screen.findByTestId('agent-registry-row-codex');
+    await user.click(screen.getByRole('button', { name: '立即检查' }));
+    await user.click(await screen.findByRole('button', { name: '安装' }));
+
+    expect(
+      await screen.findByText(
+        'Internal error: Install command failed for codex: npm permission denied'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText('无法加载 Agent 设置。')).not.toBeInTheDocument();
+  });
+
+  it('does not report a completed ACP install as failed when refresh fails', async () => {
+    const user = userEvent.setup();
+    mockRegistry();
+    agentSettingsApiMock.preflight
+      .mockResolvedValueOnce({
+        checks: [
+          {
+            check_id: 'runtime_launcher',
+            label: 'ACP adapter',
+            status: 'fail',
+            message: '`codex-acp` was not found in PATH.',
+            fixes: [{ action: 'install_npm', label: 'Install ACP adapter' }],
+          },
+        ],
+      })
+      .mockRejectedValueOnce('transient post-install preflight failure');
+    agentSettingsApiMock.runFix.mockResolvedValue(undefined);
+
+    renderAgentSettings();
+
+    await screen.findByTestId('agent-registry-row-codex');
+    await user.click(screen.getByRole('button', { name: '立即检查' }));
+    await user.click(await screen.findByRole('button', { name: '安装' }));
+
+    await waitFor(() => {
+      expect(agentSettingsApiMock.runFix).toHaveBeenCalledWith({
+        agentType: 'codex',
+        action: 'install_npm',
+      });
+      expect(screen.getByRole('button', { name: '立即检查' })).toBeEnabled();
+    });
+    expect(screen.queryByText('无法加载 Agent 设置。')).not.toBeInTheDocument();
   });
 
   it('auto-fix lets a CLI install perform its matching ACP repair', async () => {

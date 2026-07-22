@@ -144,6 +144,11 @@
     "showEditorAndTerminal": "显示编辑区和终端区",
     "openInNewEditorGroup": "在新的编辑区打开"
   },
+  "workspaceSessionList": {
+    "title": "会话列表",
+    "loading": "正在加载会话…",
+    "empty": "暂无会话"
+  },
   "worktreeSelector": {
     "currentProjectBranch": "当前项目目录分支",
     "nonWorktreeCheckout": "非 Worktree，选择后将先 checkout",
@@ -218,16 +223,22 @@
     "gitManager": "Git 管理器",
     "welcome": "欢迎",
     "notes": "笔记",
-    "search": "搜索"
+    "search": "搜索",
+    "sessionList": "会话列表"
   },
   "ideIcon": {
     "fileManager": "文件资源管理器"
   },
   "timeline": {
     "resendMessageTitle": "重发这条消息",
-    "resendMessageBody": "将把这条消息之后的所有内容清除并在原位重新发送。\n\n是否同时把工作区文件回滚到这条消息发送前?\n\n恢复并重发 = 先回滚文件再发送\n仅重发 = 不改动文件直接发送",
+    "resendMessageBody": "",
     "restoreAndResend": "恢复并重发",
-    "resendOnly": "仅重发"
+    "restoreAndResendDescription": "先回滚文件再发送",
+    "resendOnly": "仅重发",
+    "resendOnlyDescription": "不回滚文件直接发送",
+    "rollbackFiles": "将回滚 {{count}} 个文件",
+    "rollbackFilesUnavailable": "暂时无法读取将回滚的文件",
+    "noRollbackFiles": "没有文件需要回滚"
   },
   "desktopToast": {
     "resolveAgentTypeFailed": "无法确定该会话的智能体类型",
@@ -237,6 +248,8 @@
     "replyInputAriaLabel": "回复该会话",
     "sendReplyAriaLabel": "发送回复",
     "clickCardHint": "点击上方卡片回到该会话",
+    "quickReply": "快捷回复",
+    "openConversation": "打开会话",
     "closeAriaLabel": "关闭通知"
   },
   "fileTreeMenu": {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 import { Clock, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 

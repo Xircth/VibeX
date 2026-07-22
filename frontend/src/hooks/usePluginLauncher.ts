@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import type { Plugin, PluginActivation } from 'shared/types';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { pluginApi } from '@/lib/api/plugins';

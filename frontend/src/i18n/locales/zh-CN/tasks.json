@@ -34,6 +34,8 @@
     "codingAgent": "编程代理",
     "controlsLoading": "正在读取已加载的会话配置…",
     "controlsUnavailable": "该代理尚未发布可用的会话配置。请检查其安装和登录状态。",
+    "controlsPrepareFailed": "无法预创建 {{agent}} ACP 会话（VibeX Runtime 会话 ID：{{sessionId}}）：{{error}}",
+    "controlsUpdateFailed": "无法更新 {{agent}} ACP 会话的“{{option}}”选项（VibeX Runtime 会话 ID：{{sessionId}}）：{{error}}",
     "controlsAfterFirstSession": "模型、权限等选项将在该代理首次会话后由其自身提供，可在输入框中选择。",
     "creating": "创建中..."
   },
@@ -184,10 +186,16 @@
   },
   "sessionModeSelector": {
     "title": "会话模式",
-    "fallbackLabel": "模式"
+    "fallbackLabel": "模式",
+    "allowDangerousOperations": "允许危险操作"
   },
   "sessionConfigSelector": {
     "fallbackLabel": "选项"
+  },
+  "sessionSettings": {
+    "title": "本次会话",
+    "on": "开启",
+    "off": "关闭"
   },
   "readyContent": {
     "back": "后退",

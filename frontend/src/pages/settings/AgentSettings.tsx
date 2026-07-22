@@ -7,15 +7,18 @@ import {
 } from 'react';
 import {
   AlertCircle,
+  Cable,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Terminal,
   Wand2,
   Wrench,
   XCircle,
+  type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AgentKind } from 'shared/types';
@@ -77,6 +80,24 @@ type LocalAgentRuntime = {
 
 function getLoadErrorMessage(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  // Tauri command errors are serialized strings (AppError implements
+  // Serialize as a string), not JavaScript Error instances. Preserve the
+  // backend diagnostic instead of replacing it with the unrelated generic
+  // "load settings" fallback.
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
     return error.message;
   }
 
@@ -422,40 +443,42 @@ export function AgentSettings() {
       const actionKey = `fix:${agentType}:${action}`;
       setBusyAction(actionKey);
       setSaveError(null);
-      let applied = false;
 
       try {
         await agentSettingsApi.runFix({ agentType, action });
-        applied = true;
-        // `useSelectableAgents` keeps this list for a short time. Mark it
-        // stale immediately after the runtime/ACP mutation so active pickers
-        // refetch now and unopened pickers refetch when they mount. Capability
-        // discovery can launch ACP and must never hold this availability update
-        // hostage.
-        void queryClient
-          .invalidateQueries({
-            queryKey: ['agent-settings'],
-            refetchType: 'active',
-          })
-          .catch(() => undefined);
-        const [version, preflight] = await Promise.all([
-          agentSettingsApi.detectVersion(agentType),
-          agentSettingsApi.preflight(agentType),
-        ]);
-        updateDetectedVersion(agentType, version);
-        setPreflightByAgent((current) => ({
-          ...current,
-          [agentType]: preflight,
-        }));
       } catch (error) {
         setSaveError(getLoadErrorMessage(error) ?? t('agents.loadFailed'));
-      } finally {
         setBusyAction(null);
+        return false;
       }
 
-      return applied;
+      // The mutation command performs its own final CLI + ACP verification.
+      // From this point the fix succeeded; UI refreshes are best-effort and
+      // must never relabel that successful operation as an install failure.
+      void queryClient
+        .invalidateQueries({
+          queryKey: ['agent-settings'],
+          refetchType: 'active',
+        })
+        .catch(() => undefined);
+      void refreshSettings();
+
+      const [versionResult, preflightResult] = await Promise.allSettled([
+        agentSettingsApi.detectVersion(agentType),
+        agentSettingsApi.preflight(agentType),
+      ]);
+      if (versionResult.status === 'fulfilled') {
+        updateDetectedVersion(agentType, versionResult.value);
+      }
+      setPreflightByAgent((current) => ({
+        ...current,
+        [agentType]:
+          preflightResult.status === 'fulfilled' ? preflightResult.value : null,
+      }));
+      setBusyAction(null);
+      return true;
     },
-    [queryClient, updateDetectedVersion, t]
+    [queryClient, refreshSettings, updateDetectedVersion, t]
   );
 
   // Apply a single preflight fix. npm actions run on the backend; download /
@@ -793,8 +816,14 @@ function RuntimeCard({
   localRuntime: LocalAgentRuntime | null;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const isFailed = summary.status === 'failed';
-  const StatusIcon = isFailed ? XCircle : CheckCircle2;
+  const StatusIcon =
+    summary.status === 'failed'
+      ? XCircle
+      : summary.status === 'warning'
+        ? AlertCircle
+        : summary.status === 'ready'
+          ? CheckCircle2
+          : ShieldCheck;
 
   const statusLabel =
     summary.status === 'ready'
@@ -815,85 +844,122 @@ function RuntimeCard({
           : t('agents.runtimeEntryAvailable');
 
   return (
-    <div className="settings-inline-group space-y-3 p-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <div
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-md',
-            summary.status === 'ready' && 'settings-status-swatch-success',
-            summary.status === 'warning' && 'settings-status-swatch-warning',
-            summary.status === 'failed' && 'settings-status-swatch-danger',
-            summary.status === 'idle' && 'settings-status-swatch-neutral'
-          )}
-        >
-          {summary.status === 'idle' ? (
-            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <StatusIcon
-              className={cn(
-                'h-4 w-4',
-                summary.status === 'ready' && 'text-success',
-                summary.status === 'warning' && 'text-warning',
-                summary.status === 'failed' && 'text-destructive'
-              )}
-            />
-          )}
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-foreground">
-              {t('agents.runtimeStatus')}
-            </span>
-            <span
-              className={cn(
-                'px-1.5 py-0.5 text-[10px] font-medium',
-                runtimeStatusClass(summary.status)
-              )}
-            >
-              {statusLabel}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {t('agents.versionLabel', {
-                version: summary.version ?? t('agents.versionUnknown'),
-              })}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{runtimeMessage}</p>
-        </div>
-      </div>
+    <div
+      className={cn(
+        'grid gap-2.5',
+        localRuntime ? 'lg:grid-cols-3' : 'grid-cols-1'
+      )}
+    >
+      <RuntimeComponentCard
+        label={t('agents.runtimeStatus')}
+        status={summary.status}
+        statusLabel={statusLabel}
+        icon={StatusIcon}
+        testId="runtime-detail-entry"
+      >
+        <p className="text-xs text-muted-foreground">
+          {t('agents.versionLabel', {
+            version: summary.version ?? t('agents.versionUnknown'),
+          })}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{runtimeMessage}</p>
+      </RuntimeComponentCard>
       {localRuntime ? (
-        <div className="grid gap-2 border-t pt-3 sm:grid-cols-2">
+        <>
           <LocalRuntimeDetail
             label={t('agents.runtimeCli')}
             runtime={localRuntime.cli}
+            icon={Terminal}
             testId="runtime-detail-cli"
           />
           <LocalRuntimeDetail
             label={t('agents.runtimeAcp')}
             runtime={localRuntime.acp}
+            icon={Cable}
             testId="runtime-detail-acp"
           />
-        </div>
+        </>
       ) : null}
     </div>
+  );
+}
+
+function RuntimeComponentCard({
+  label,
+  status,
+  statusLabel,
+  icon: Icon,
+  testId,
+  children,
+}: {
+  label: string;
+  status: RuntimeStatus;
+  statusLabel: string;
+  icon: LucideIcon;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <article
+      className="min-w-0 rounded-lg bg-muted/40 p-3.5"
+      data-testid={testId}
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+              status === 'ready' && 'settings-status-swatch-success',
+              status === 'warning' && 'settings-status-swatch-warning',
+              status === 'failed' && 'settings-status-swatch-danger',
+              status === 'idle' && 'settings-status-swatch-neutral'
+            )}
+          >
+            <Icon
+              className={cn(
+                'h-4 w-4',
+                status === 'ready' && 'text-success',
+                status === 'warning' && 'text-warning',
+                status === 'failed' && 'text-destructive',
+                status === 'idle' && 'text-muted-foreground'
+              )}
+            />
+          </div>
+          <h3 className="truncate text-xs font-medium text-foreground">
+            {label}
+          </h3>
+        </div>
+        <span
+          className={cn(
+            'shrink-0 px-1.5 py-0.5 text-[10px] font-medium',
+            runtimeStatusClass(status)
+          )}
+        >
+          {statusLabel}
+        </span>
+      </div>
+      {children}
+    </article>
   );
 }
 
 function LocalRuntimeDetail({
   label,
   runtime,
+  icon,
   testId,
 }: {
   label: string;
   runtime: LocalRuntimeComponent;
+  icon: LucideIcon;
   testId: string;
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const statusClass = runtime.supported
-    ? 'text-success'
+  const status: RuntimeStatus = runtime.supported
+    ? 'ready'
     : runtime.path
-      ? 'text-warning'
-      : 'text-destructive';
+      ? 'warning'
+      : 'failed';
   const statusLabel = runtime.supported
     ? t('agents.runtimeSupported')
     : runtime.path
@@ -901,17 +967,14 @@ function LocalRuntimeDetail({
       : t('agents.runtimeNotFound');
 
   return (
-    <div
-      className="min-w-0 rounded-md bg-muted/40 px-2.5 py-2"
-      data-testid={testId}
+    <RuntimeComponentCard
+      label={label}
+      status={status}
+      statusLabel={statusLabel}
+      icon={icon}
+      testId={testId}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-foreground">{label}</span>
-        <span className={cn('text-[10px] font-medium', statusClass)}>
-          {statusLabel}
-        </span>
-      </div>
-      <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
+      <p className="break-all font-mono text-[11px] text-muted-foreground">
         {runtime.path ?? t('agents.runtimeNotFound')}
       </p>
       <p className="mt-1 text-[11px] text-muted-foreground">
@@ -927,7 +990,7 @@ function LocalRuntimeDetail({
           </span>
         ) : null}
       </p>
-    </div>
+    </RuntimeComponentCard>
   );
 }
 

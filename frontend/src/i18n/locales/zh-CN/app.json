@@ -16,6 +16,16 @@
     "fixing": "正在修复…",
     "fixFailed": "修复失败：{{error}}"
   },
+  "toast": {
+    "successTitle": "操作已完成",
+    "infoTitle": "提示",
+    "warningTitle": "需要注意",
+    "errorTitle": "操作失败",
+    "loadingTitle": "正在处理",
+    "showDetails": "查看详细信息",
+    "region": "通知",
+    "close": "关闭通知"
+  },
   "diffCard": {
     "loadingContent": "加载文件内容中…",
     "contentLoadFailed": "内容加载失败",
@@ -285,7 +295,7 @@
     "fileRead": "查看文件",
     "search": "搜索",
     "webFetch": "网页抓取",
-    "terminal": "终端",
+    "terminal": "Terminal",
     "generatingAgent": "正在生成智能体",
     "tool": "工具",
     "subagent": "子代理",

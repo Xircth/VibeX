@@ -25,8 +25,8 @@ function registryEntry(agentType: string, kind: 'npx' | 'uvx') {
       kind === 'npx'
         ? {
             kind: 'npx',
-            version: '1.0.0',
-            package: `${agentType}@1.0.0`,
+            minimum_supported_version: '1.0.0',
+            package: agentType,
             cmd: agentType,
             args: [],
           }

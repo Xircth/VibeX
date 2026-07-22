@@ -88,6 +88,101 @@
   background: var(--conv-user-action-button-hover-bg);
 }
 
+.conv-user-turn-editing {
+  width: 100%;
+}
+
+.conv-user-edit-panel {
+  width: min(760px, 88%);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1.5px solid hsl(var(--primary) / 0.92);
+  border-radius: 12px 12px 4px 12px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  box-shadow:
+    0 8px 24px hsl(var(--foreground) / 0.08),
+    inset 0 1px 0 hsl(var(--primary-foreground) / 0.16);
+}
+
+.conv-user-edit-panel textarea {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  max-height: 42vh;
+  resize: none;
+  overflow-y: auto;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  padding: 13px 15px 4px;
+  font: inherit;
+  line-height: 1.55;
+  outline: none;
+}
+
+.conv-user-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 5px 8px 8px;
+}
+
+.conv-user-edit-actions button {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  padding: 0 10px;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    background-color 150ms ease-out,
+    color 150ms ease-out,
+    transform 100ms ease-out;
+}
+
+.conv-user-edit-actions button:hover:not(:disabled) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent) / 0.72);
+}
+
+.conv-user-edit-actions button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.conv-user-edit-actions button.is-primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 1px 2px hsl(var(--primary) / 0.24);
+}
+
+.conv-user-edit-actions button.is-primary:hover:not(:disabled) {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary) / 0.9);
+}
+
+.conv-user-edit-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.conv-user-edit-actions button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conv-user-edit-actions button {
+    transition: none;
+  }
+}
+
 .conv-user-bubble {
   background:
     linear-gradient(180deg, hsl(var(--primary-foreground) / 0.12), transparent),
@@ -197,7 +292,13 @@
   border: none !important;
   padding: 0 !important;
   color: var(--conv-user-text) !important;
-  font-family: var(--font-mono, 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace);
+  font-family: var(
+    --font-mono,
+    'IBM Plex Mono',
+    'Cascadia Code',
+    'Fira Code',
+    monospace
+  );
   font-size: 12px;
   line-height: 1.5;
 }

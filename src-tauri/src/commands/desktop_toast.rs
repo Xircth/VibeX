@@ -4,7 +4,7 @@ use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, window::Color};
 const DESKTOP_TOAST_WINDOW_LABEL: &str = "desktop-toast";
 const DESKTOP_TOAST_EVENT: &str = "desktop-toast";
 const DESKTOP_TOAST_ACTIVATED_EVENT: &str = "desktop-toast-activated";
-const DESKTOP_TOAST_WIDTH: i32 = 420;
+const DESKTOP_TOAST_WIDTH: i32 = 456;
 const DESKTOP_TOAST_HEIGHT: i32 = 520;
 const DESKTOP_TOAST_MARGIN: i32 = 16;
 

@@ -837,7 +837,7 @@
     "autoFix": "自动补全",
     "checkNow": "立即检查",
     "selectAgentPrompt": "请选择一个 Agent 查看设置。",
-    "runtimeStatus": "运行状态",
+    "runtimeStatus": "运行入口",
     "versionLabel": "版本 {{version}}",
     "runtimeCli": "本地 CLI",
     "runtimeAcp": "ACP 适配器",

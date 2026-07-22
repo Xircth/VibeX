@@ -22,17 +22,34 @@ const MINIMUM_COMMAND_CAPACITY: usize = 1;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CefRuntimeConfig {
     root_cache_path: PathBuf,
+    runtime_resources_path: Option<PathBuf>,
 }
 
 impl CefRuntimeConfig {
     pub fn new(app_data_dir: PathBuf) -> Self {
         Self {
             root_cache_path: app_data_dir.join("chromium"),
+            runtime_resources_path: None,
         }
+    }
+
+    pub fn with_runtime_resources(mut self, path: PathBuf) -> Self {
+        self.runtime_resources_path = Some(path);
+        self
     }
 
     pub fn root_cache_path(&self) -> &Path {
         &self.root_cache_path
+    }
+
+    pub fn runtime_resources_path(&self) -> Option<&Path> {
+        self.runtime_resources_path.as_deref()
+    }
+
+    pub fn runtime_locales_path(&self) -> Option<PathBuf> {
+        self.runtime_resources_path
+            .as_ref()
+            .map(|path| path.join("locales"))
     }
 
     pub fn profile_cache_path(&self, profile: &BrowserProfile) -> Option<PathBuf> {

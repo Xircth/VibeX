@@ -46,6 +46,8 @@ pub enum CefHostError {
     TabUnavailable(BrowserTabId),
     #[error("failed to update native Chromium surface: {0}")]
     NativeSurface(String),
+    #[error("CEF rejected DevTools Protocol message: {0}")]
+    DevTools(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +142,15 @@ impl CefBootstrap {
             browser_subprocess_path: browser_subprocess_path
                 .map(path_to_cef_string)
                 .unwrap_or_default(),
+            resources_dir_path: config
+                .runtime_resources_path()
+                .map(path_to_cef_string)
+                .unwrap_or_default(),
+            locales_dir_path: config
+                .runtime_locales_path()
+                .as_deref()
+                .map(path_to_cef_string)
+                .unwrap_or_default(),
             log_file: path_to_cef_string(&config.root_cache_path().join("chromium.log")),
             ..Default::default()
         };
@@ -171,6 +182,7 @@ impl CefBootstrap {
 #[derive(Default)]
 struct BrowserRegistry {
     browsers: HashMap<BrowserTabId, Browser>,
+    devtools: HashMap<BrowserTabId, Registration>,
     surfaces: HashMap<BrowserTabId, BrowserSurface>,
     pending: HashMap<BrowserTabId, Vec<BrowserEngineCommand>>,
 }
@@ -338,7 +350,8 @@ fn command_tab_id(command: &BrowserEngineCommand) -> &BrowserTabId {
         | BrowserEngineCommand::SetSurface { tab_id, .. }
         | BrowserEngineCommand::Close { tab_id }
         | BrowserEngineCommand::Focus { tab_id }
-        | BrowserEngineCommand::OpenDevTools { tab_id } => tab_id,
+        | BrowserEngineCommand::OpenDevTools { tab_id }
+        | BrowserEngineCommand::ExecuteDevTools { tab_id, .. } => tab_id,
     }
 }
 
@@ -378,9 +391,75 @@ fn execute_browser_command(
                 .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
                 .show_dev_tools(None, None, Some(&BrowserSettings::default()), None);
         }
+        BrowserEngineCommand::ExecuteDevTools {
+            request_id,
+            method,
+            params,
+            ..
+        } => {
+            let payload = serde_json::to_vec(&serde_json::json!({
+                "id": request_id,
+                "method": method,
+                "params": params,
+            }))
+            .map_err(|error| CefHostError::DevTools(error.to_string()))?;
+            let accepted = browser
+                .host()
+                .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
+                .send_dev_tools_message(Some(&payload));
+            if accepted != 1 {
+                return Err(CefHostError::DevTools(method.clone()));
+            }
+        }
         BrowserEngineCommand::Create { .. } => {}
     }
     Ok(())
+}
+
+cef::wrap_dev_tools_message_observer! {
+    struct VibeXDevToolsObserver {
+        tab_id: BrowserTabId,
+        runtime: Arc<BrowserRuntime>,
+    }
+
+    impl DevToolsMessageObserver {
+        fn on_dev_tools_method_result(
+            &self,
+            _browser: Option<&mut Browser>,
+            message_id: i32,
+            success: i32,
+            result: Option<&[u8]>,
+        ) {
+            let result = result
+                .and_then(|bytes| serde_json::from_slice(bytes).ok())
+                .unwrap_or(serde_json::Value::Null);
+            let _ = self.runtime.apply_engine_event(BrowserEngineEvent::DevToolsResult {
+                tab_id: self.tab_id.clone(),
+                request_id: message_id.max(0) as u32,
+                success: success != 0,
+                result,
+            });
+        }
+
+        fn on_dev_tools_event(
+            &self,
+            _browser: Option<&mut Browser>,
+            method: Option<&CefString>,
+            params: Option<&[u8]>,
+        ) {
+            let Some(method) = method.map(CefString::to_string) else {
+                return;
+            };
+            let params = params
+                .and_then(|bytes| serde_json::from_slice(bytes).ok())
+                .unwrap_or(serde_json::Value::Null);
+            let _ = self.runtime.apply_engine_event(BrowserEngineEvent::DevToolsEvent {
+                tab_id: self.tab_id.clone(),
+                method,
+                params,
+            });
+        }
+    }
 }
 
 cef::wrap_client! {
@@ -395,9 +474,14 @@ cef::wrap_client! {
             Some(VibeXDisplayHandler::new(self.tab_id.clone(), self.runtime.clone()))
         }
 
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(VibeXDownloadHandler::new())
+        }
+
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(VibeXLifeSpanHandler::new(
                 self.tab_id.clone(),
+                self.runtime.clone(),
                 self.registry.clone(),
             ))
         }
@@ -405,23 +489,126 @@ cef::wrap_client! {
         fn load_handler(&self) -> Option<LoadHandler> {
             Some(VibeXLoadHandler::new(self.tab_id.clone(), self.runtime.clone()))
         }
+
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(VibeXPermissionHandler::new())
+        }
+    }
+}
+
+cef::wrap_download_handler! {
+    struct VibeXDownloadHandler;
+
+    impl DownloadHandler {
+        fn can_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _url: Option<&CefString>,
+            _request_method: Option<&CefString>,
+        ) -> i32 {
+            1
+        }
+
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _download_item: Option<&mut DownloadItem>,
+            _suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> i32 {
+            if let Some(callback) = callback {
+                callback.cont(None, 1);
+                1
+            } else {
+                0
+            }
+        }
+    }
+}
+
+cef::wrap_permission_handler! {
+    struct VibeXPermissionHandler;
+
+    impl PermissionHandler {
+        fn on_request_media_access_permission(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut MediaAccessCallback>,
+        ) -> i32 {
+            if let Some(callback) = callback {
+                callback.cont(0);
+            }
+            1
+        }
+
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            _prompt_id: u64,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> i32 {
+            if let Some(callback) = callback {
+                callback.cont(PermissionRequestResult::DENY);
+            }
+            1
+        }
     }
 }
 
 cef::wrap_life_span_handler! {
     struct VibeXLifeSpanHandler {
         tab_id: BrowserTabId,
+        runtime: Arc<BrowserRuntime>,
         registry: Rc<RefCell<BrowserRegistry>>,
     }
 
     impl LifeSpanHandler {
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            _popup_id: i32,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: i32,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut i32>,
+        ) -> i32 {
+            if let (Some(frame), Some(target_url)) =
+                (browser.and_then(|browser| browser.main_frame()), target_url)
+            {
+                frame.load_url(Some(target_url));
+            }
+            1
+        }
+
         fn on_after_created(&self, browser: Option<&mut Browser>) {
             let Some(browser) = browser.cloned() else {
                 return;
             };
+            let registration = browser.host().and_then(|host| {
+                let mut observer = VibeXDevToolsObserver::new(
+                    self.tab_id.clone(),
+                    self.runtime.clone(),
+                );
+                host.add_dev_tools_message_observer(Some(&mut observer))
+            });
             let (surface, pending) = {
                 let mut registry = self.registry.borrow_mut();
                 registry.browsers.insert(self.tab_id.clone(), browser.clone());
+                if let Some(registration) = registration {
+                    registry.devtools.insert(self.tab_id.clone(), registration);
+                }
                 (
                     registry.surfaces.get(&self.tab_id).cloned(),
                     registry.pending.remove(&self.tab_id).unwrap_or_default(),
@@ -438,6 +625,7 @@ cef::wrap_life_span_handler! {
         fn on_before_close(&self, _browser: Option<&mut Browser>) {
             let mut registry = self.registry.borrow_mut();
             registry.browsers.remove(&self.tab_id);
+            registry.devtools.remove(&self.tab_id);
             registry.surfaces.remove(&self.tab_id);
             registry.pending.remove(&self.tab_id);
         }
@@ -571,12 +759,16 @@ impl CefLibrary {
             parent
                 .join("../../../Chromium Embedded Framework.framework/Chromium Embedded Framework")
         });
+        let nested_framework_helper = current_executable
+            .parent()
+            .map(|parent| parent.join("../../../../Chromium Embedded Framework"));
         let development = cef::sys::get_cef_dir().map(|root| {
             root.join("Chromium Embedded Framework.framework/Chromium Embedded Framework")
         });
         let framework = bundled
             .into_iter()
             .chain(bundled_helper)
+            .chain(nested_framework_helper)
             .chain(development)
             .find(|candidate| candidate.is_file())
             .ok_or(CefHostError::FrameworkNotFound)?;

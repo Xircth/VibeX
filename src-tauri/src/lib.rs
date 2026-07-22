@@ -18,7 +18,6 @@ mod error;
 mod events;
 mod logging;
 mod office_watch;
-mod preview_proxy;
 mod prompt_enhancement;
 mod state;
 mod tray;
@@ -89,8 +88,7 @@ fn cef_subprocess_path() -> Option<PathBuf> {
     {
         let executable = std::env::current_exe().ok()?;
         let directory = executable.parent()?;
-        let bundled =
-            directory.join("../Frameworks/VibeX Helper.app/Contents/MacOS/vibex_cef_helper");
+        let bundled = directory.join("../Frameworks/vibex Helper.app/Contents/MacOS/vibex Helper");
         if bundled.is_file() {
             return Some(bundled);
         }
@@ -115,6 +113,21 @@ fn setup_browser_runtime(
         .ok_or("main window is unavailable for CEF")?;
     let parent = native_browser_parent(&main_window)?;
     let app_data_dir = app.path().app_data_dir()?;
+    let resource_dir = app.path().resource_dir()?;
+    let nested_resources = resource_dir.join("cef");
+    let runtime_resources = if nested_resources.join("icudtl.dat").is_file() {
+        Some(nested_resources)
+    } else if resource_dir.join("icudtl.dat").is_file() {
+        Some(resource_dir)
+    } else {
+        None
+    };
+    let runtime_config = match runtime_resources {
+        Some(runtime_resources) => {
+            CefRuntimeConfig::new(app_data_dir).with_runtime_resources(runtime_resources)
+        }
+        None => CefRuntimeConfig::new(app_data_dir),
+    };
     let app_handle = app.handle().clone();
     let scheduler: PumpScheduler = Arc::new(move |delay_ms| {
         let app_handle = app_handle.clone();
@@ -130,7 +143,7 @@ fn setup_browser_runtime(
         command_channel_with_waker(CEF_COMMAND_CAPACITY, Arc::new(move || wake_scheduler(0)));
     let runtime = Arc::new(BrowserRuntime::new(engine));
     let session = bootstrap.initialize(
-        CefRuntimeConfig::new(app_data_dir),
+        runtime_config,
         scheduler,
         cef_subprocess_path().as_deref(),
         commands,
@@ -178,19 +191,6 @@ pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String
 #[tauri::command]
 async fn health_check() -> Result<String, String> {
     Ok("ok".to_string())
-}
-
-#[tauri::command]
-async fn get_preview_proxy_url(
-    url: String,
-    bridge_token: Option<String>,
-) -> Result<String, String> {
-    preview_proxy::get_proxy_url(&url, bridge_token.as_deref()).ok_or_else(|| {
-        format!(
-            "Preview proxy is unavailable or unsupported for url: {}",
-            url
-        )
-    })
 }
 
 #[tauri::command]
@@ -315,10 +315,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
                 });
             }
 
-            if let Err(error) = tauri::async_runtime::block_on(preview_proxy::ensure_started()) {
-                tracing::error!("Failed to start preview proxy: {}", error);
-            }
-
             // Office preview: reap crashed/orphaned `officecli watch` servers.
             if let Some(idle_timeout) = office_watch::idle_timeout_from_env() {
                 tauri::async_runtime::spawn(office_watch::office_watch_idle_sweep_task(
@@ -388,7 +384,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
         })
         .invoke_handler(tauri::generate_handler![
             health_check,
-            get_preview_proxy_url,
             exit_app,
             commands::browser::browser_create_tab,
             commands::browser::browser_apply_intent,
@@ -436,7 +431,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::workspaces::change_workspace_target_branch,
             commands::workspaces::rename_workspace_branch,
             commands::workspaces::start_workspace_dev_server,
-            commands::workspaces::install_web_companion,
             commands::workspaces::gh_cli_setup,
             commands::workspaces::run_setup_script,
             commands::workspaces::run_cleanup_script,

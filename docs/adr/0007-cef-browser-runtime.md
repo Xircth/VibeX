@@ -89,4 +89,3 @@ zoom、find、open-devtools、inspect-element。事件流是 tab 状态的唯一
 4. 旧 `preview_proxy`、iframe bridge、页面注入 bundle 与 companion 安装路径在
    CEF 路径达到验收标准后直接删除。
 5. CEF 初始化、进程退出或资源缺失必须是可诊断错误，不能静默切换旧实现。
-

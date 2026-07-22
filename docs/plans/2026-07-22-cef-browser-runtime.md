@@ -147,3 +147,27 @@ Chromium Browser Runtime，并彻底替换 iframe + preview proxy 的 Web Previe
 - **安全升级：** 固定 CEF 版本，建立月度升级和紧急 Chromium CVE 更新流程。
 - **许可：** bundle 包含 CEF/Chromium third-party notices，发布检查验证其存在。
 
+## 2026-07-22 实施快照
+
+本 worktree 已完成可运行的纵向切片，且页面引擎只有 CEF 一条路径：
+
+- Browser Runtime、Tauri command/event adapter、CEF external message pump、原生 child
+  view、Global/Workspace/Ephemeral request context 已接通。
+- React browser chrome 已接管 Web Preview，支持地址导航、前进、后退、刷新、停止、
+  焦点、原生 DevTools、Dockview 可见性与逐帧合并的 surface 布局同步。
+- 已建立有界 CDP transport，并用 `DOM`/`Overlay` domain 实现不注入页面脚本的元素
+  选择；旧 iframe、HTTP proxy、注入 bundle 与 companion 安装链路已删除。
+- macOS CEF framework、resources 和五个 helper app 已纳入 Tauri bundle 与递归签名；
+  打包 smoke test 已验证主应用启动及签名后的 GPU subprocess 启动。Linux/Windows
+  staging、resource overlay 与 Linux rpath 已实现，但仍须在对应 CI runner 上做实机
+  bundle 验证。
+
+以下属于发布门禁，而不是旧实现 fallback：
+
+- popup 目前在受控 tab 内导航；多 tab UI 与 popup disposition 策略尚未交付。
+- 下载使用 Chromium 原生 Save As；下载事件列表和 VibeX 路径选择 UI 尚未交付。
+- 权限请求默认拒绝；VibeX 权限决策 UI 尚未交付。
+- 原生 DevTools 与通用 CDP 已可用，专用 console/network、device emulation 与
+  find-in-page UI 尚未交付。
+- Windows、Linux bundle smoke、HMR/Cookie/login 的三平台端到端矩阵仍是正式发布的
+  必须条件。

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use browser_cef::CefRuntimeConfig;
 use browser_runtime::BrowserProfile;
@@ -24,4 +24,19 @@ fn profile_paths_are_isolated_and_never_embed_workspace_path_syntax() {
         ))
     );
     assert_eq!(config.profile_cache_path(&BrowserProfile::Ephemeral), None);
+}
+
+#[test]
+fn packaged_runtime_resources_are_explicit_and_keep_locales_together() {
+    let config = CefRuntimeConfig::new(PathBuf::from("/app-data"))
+        .with_runtime_resources(PathBuf::from("/bundle/cef"));
+
+    assert_eq!(
+        config.runtime_resources_path(),
+        Some(Path::new("/bundle/cef"))
+    );
+    assert_eq!(
+        config.runtime_locales_path(),
+        Some(PathBuf::from("/bundle/cef/locales"))
+    );
 }

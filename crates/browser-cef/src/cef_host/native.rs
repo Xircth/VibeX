@@ -27,6 +27,30 @@ fn scaled_u32(value: u32, scale: f64) -> i32 {
         .clamp(0.0, f64::from(i32::MAX)) as i32
 }
 
+#[cfg(target_os = "macos")]
+fn macos_origin_y(css_y: f64, height: f64, parent_height: f64, is_flipped: bool) -> f64 {
+    if is_flipped {
+        css_y
+    } else {
+        parent_height - css_y - height
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use super::macos_origin_y;
+
+    #[test]
+    fn preserves_css_y_for_flipped_parent_views() {
+        assert_eq!(macos_origin_y(120.0, 300.0, 900.0, true), 120.0);
+    }
+
+    #[test]
+    fn converts_css_y_for_bottom_left_parent_views() {
+        assert_eq!(macos_origin_y(120.0, 300.0, 900.0, false), 480.0);
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn parent_handle(raw: usize) -> cef::sys::cef_window_handle_t {
     raw as *mut std::ffi::c_void
@@ -53,9 +77,25 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
         return Err("browser native view is missing".to_string());
     }
     let view = unsafe { &*handle.cast::<AnyObject>() };
+    let superview: *mut AnyObject = unsafe { msg_send![view, superview] };
+    if superview.is_null() {
+        return Err("browser native parent view is missing".to_string());
+    }
+    let superview = unsafe { &*superview };
+    let parent_is_flipped: Bool = unsafe { msg_send![superview, isFlipped] };
+    let parent_bounds: NSRect = unsafe { msg_send![superview, bounds] };
+    let height = f64::from(surface.height);
     let frame = NSRect::new(
-        NSPoint::new(f64::from(surface.x), f64::from(surface.y)),
-        NSSize::new(f64::from(surface.width), f64::from(surface.height)),
+        NSPoint::new(
+            f64::from(surface.x),
+            macos_origin_y(
+                f64::from(surface.y),
+                height,
+                parent_bounds.size.height,
+                parent_is_flipped.as_bool(),
+            ),
+        ),
+        NSSize::new(f64::from(surface.width), height),
     );
     unsafe {
         let _: () = msg_send![view, setFrame: frame];

@@ -9,10 +9,12 @@ cef-host = ["dep:cef"]
 
 [dependencies]
 browser-runtime = { path = "../browser-runtime" }
-cef = { workspace = true, optional = true }
+cef = { workspace = true, optional = true, features = ["build-util"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+semver = "1"
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = [
     "NSApplication",

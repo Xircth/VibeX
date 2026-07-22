@@ -12,17 +12,6 @@ function readFrontendFile(relativePath) {
   return fs.readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 }
 
-test('dev preview no-server state removes AI-hosted startup entry and points users to the built-in tag', () => {
-  const source = readFrontendFile(
-    'src/components/tasks/TaskDetails/preview/NoServerContent.tsx'
-  );
-
-  assert.doesNotMatch(source, /AI 托管启动/);
-  assert.doesNotMatch(source, /useAiHostedDevServerStart/);
-  assert.match(source, /#启动项目开发服务器/);
-  assert.match(source, /settingsWindowApi\.open/);
-});
-
 test('tag search injects a built-in dev-server startup tag into # suggestions', () => {
   const source = readFrontendFile('src/lib/searchTagsAndFiles.ts');
 

@@ -7,6 +7,7 @@
     "beforeDevCommand": "pnpm --filter ./frontend dev --host 127.0.0.1 --strictPort",
     "devUrl": "http://127.0.0.1:3000",
     "beforeBuildCommand": "pnpm --filter ./frontend build",
+    "beforeBundleCommand": "node scripts/stage-cef-runtime.js",
     "frontendDist": "../frontend/dist"
   },
   "app": {

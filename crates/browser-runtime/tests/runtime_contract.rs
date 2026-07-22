@@ -4,6 +4,7 @@ use browser_runtime::{
     BrowserEngine, BrowserEngineCommand, BrowserEngineEvent, BrowserEvent, BrowserIntent,
     BrowserProfile, BrowserRuntime, BrowserSurface, CreateBrowserTab,
 };
+use serde_json::json;
 
 #[derive(Clone, Default)]
 struct RecordingEngine {
@@ -220,6 +221,83 @@ fn focus_and_devtools_intents_target_the_native_browser() {
             },
             BrowserEngineCommand::OpenDevTools { tab_id: tab.id },
         ]
+    );
+}
+
+#[test]
+fn devtools_protocol_requests_and_events_cross_the_runtime_boundary() {
+    let engine = RecordingEngine::default();
+    let runtime = BrowserRuntime::new(engine.clone());
+    let mut events = runtime.subscribe();
+    let tab = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Ephemeral,
+            surface: BrowserSurface {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                scale_factor: 1.0,
+                visible: true,
+            },
+        })
+        .expect("tab should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply(
+            &tab.id,
+            BrowserIntent::ExecuteDevTools {
+                request_id: 42,
+                method: "Runtime.evaluate".to_string(),
+                params: json!({ "expression": "document.title" }),
+            },
+        )
+        .expect("CDP request should be accepted");
+
+    assert_eq!(
+        engine.commands().last(),
+        Some(&BrowserEngineCommand::ExecuteDevTools {
+            tab_id: tab.id.clone(),
+            request_id: 42,
+            method: "Runtime.evaluate".to_string(),
+            params: json!({ "expression": "document.title" }),
+        })
+    );
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::DevToolsEvent {
+            tab_id: tab.id.clone(),
+            method: "Runtime.consoleAPICalled".to_string(),
+            params: json!({ "type": "log" }),
+        })
+        .expect("CDP event should be published");
+    runtime
+        .apply_engine_event(BrowserEngineEvent::DevToolsResult {
+            tab_id: tab.id.clone(),
+            request_id: 42,
+            success: true,
+            result: json!({ "result": { "type": "string", "value": "Example" } }),
+        })
+        .expect("CDP result should be published");
+
+    assert_eq!(
+        events.try_recv().expect("CDP event"),
+        BrowserEvent::DevToolsEvent {
+            tab_id: tab.id.clone(),
+            method: "Runtime.consoleAPICalled".to_string(),
+            params: json!({ "type": "log" }),
+        }
+    );
+    assert_eq!(
+        events.try_recv().expect("CDP result"),
+        BrowserEvent::DevToolsResult {
+            tab_id: tab.id,
+            request_id: 42,
+            success: true,
+            result: json!({ "result": { "type": "string", "value": "Example" } }),
+        }
     );
 }
 

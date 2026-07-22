@@ -3,9 +3,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use cef::application_mac::CefAppProtocol;
 use objc2::{
-    ProtocolType, ffi, msg_send,
+    ffi, msg_send,
     runtime::{AnyObject, Bool, Imp, Sel},
     sel,
 };
@@ -58,14 +57,11 @@ fn install() -> Result<(), String> {
             return Err("failed to resolve NSApplication sendEvent methods".to_string());
         }
         ffi::method_exchangeImplementations(original, replacement);
-
-        let protocol = <dyn CefAppProtocol>::protocol()
-            .ok_or_else(|| "CEF application protocol is unavailable".to_string())?;
-        if !ffi::class_addProtocol(class_ptr, protocol).as_bool()
-            && !ffi::class_conformsToProtocol(class, protocol).as_bool()
-        {
-            return Err("failed to attach CefAppProtocol to the Tauri application".to_string());
-        }
+        // cef-rs exposes CefAppProtocol as an extern protocol for subclasses,
+        // but the dynamically loaded CEF framework does not register protocol
+        // metadata. CEF calls these selectors on NSApp, so installing the
+        // required selectors is the compatible integration point for Tauri's
+        // already-created NSApplication class.
     }
     Ok(())
 }

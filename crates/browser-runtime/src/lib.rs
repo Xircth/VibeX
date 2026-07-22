@@ -76,14 +76,23 @@ pub struct BrowserTab {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BrowserIntent {
-    Navigate { url: String },
+    Navigate {
+        url: String,
+    },
     Back,
     Forward,
     Reload,
     Stop,
-    SetSurface { surface: BrowserSurface },
+    SetSurface {
+        surface: BrowserSurface,
+    },
     Focus,
     OpenDevTools,
+    ExecuteDevTools {
+        request_id: u32,
+        method: String,
+        params: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +132,12 @@ pub enum BrowserEngineCommand {
     OpenDevTools {
         tab_id: BrowserTabId,
     },
+    ExecuteDevTools {
+        tab_id: BrowserTabId,
+        request_id: u32,
+        method: String,
+        params: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +154,17 @@ pub enum BrowserEngineEvent {
         tab_id: BrowserTabId,
         code: String,
         message: String,
+    },
+    DevToolsResult {
+        tab_id: BrowserTabId,
+        request_id: u32,
+        success: bool,
+        result: serde_json::Value,
+    },
+    DevToolsEvent {
+        tab_id: BrowserTabId,
+        method: String,
+        params: serde_json::Value,
     },
 }
 
@@ -158,6 +184,17 @@ pub enum BrowserEvent {
         tab: BrowserTab,
         code: String,
         message: String,
+    },
+    DevToolsResult {
+        tab_id: BrowserTabId,
+        request_id: u32,
+        success: bool,
+        result: serde_json::Value,
+    },
+    DevToolsEvent {
+        tab_id: BrowserTabId,
+        method: String,
+        params: serde_json::Value,
     },
 }
 
@@ -281,6 +318,16 @@ impl BrowserRuntime {
                     tab_id: tab_id.clone(),
                 })
             }
+            BrowserIntent::ExecuteDevTools {
+                request_id,
+                method,
+                params,
+            } => self.engine.dispatch(BrowserEngineCommand::ExecuteDevTools {
+                tab_id: tab_id.clone(),
+                request_id,
+                method,
+                params,
+            }),
         }
     }
 
@@ -331,6 +378,38 @@ impl BrowserRuntime {
                 let _ = self
                     .events
                     .send(BrowserEvent::TabFailed { tab, code, message });
+                Ok(())
+            }
+            BrowserEngineEvent::DevToolsResult {
+                tab_id,
+                request_id,
+                success,
+                result,
+            } => {
+                if self.tab(&tab_id)?.is_none() {
+                    return Err(BrowserError::TabNotFound(tab_id));
+                }
+                let _ = self.events.send(BrowserEvent::DevToolsResult {
+                    tab_id,
+                    request_id,
+                    success,
+                    result,
+                });
+                Ok(())
+            }
+            BrowserEngineEvent::DevToolsEvent {
+                tab_id,
+                method,
+                params,
+            } => {
+                if self.tab(&tab_id)?.is_none() {
+                    return Err(BrowserError::TabNotFound(tab_id));
+                }
+                let _ = self.events.send(BrowserEvent::DevToolsEvent {
+                    tab_id,
+                    method,
+                    params,
+                });
                 Ok(())
             }
         }

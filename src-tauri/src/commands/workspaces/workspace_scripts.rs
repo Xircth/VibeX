@@ -1,20 +1,15 @@
-use std::path::PathBuf;
-
 use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessRunReason, ExecutionProcessStatus},
-    repo::{Repo, RepoError},
     session::{CreateSession, Session, SessionStatus},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
 use executors::actions::{ExecutorAction, script::ScriptContext};
 use services::services::container_actions;
-use utils::shell::resolve_executable_path;
 use uuid::Uuid;
 
 use super::{
     GhCliSetupError, GhCliSetupResult, OpenEditorResponse, RunScriptError, RunScriptResult,
-    detect_package_manager,
 };
 use crate::{
     error::AppError,
@@ -139,82 +134,6 @@ pub async fn start_workspace_dev_server(
     }
 
     Ok(execution_processes)
-}
-
-#[tauri::command]
-pub async fn install_web_companion(
-    state: tauri::State<'_, AppState>,
-    workspace_id: Uuid,
-    repo_id: Uuid,
-) -> Result<(), AppError> {
-    let pool = &state.deployment.db().pool;
-
-    let workspace = Workspace::find_by_id(pool, workspace_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
-
-    let workspace_repo = WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, repo_id)
-        .await?
-        .ok_or(RepoError::NotFound)?;
-
-    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
-        .await?
-        .ok_or(RepoError::NotFound)?;
-
-    let container_ref = workspace
-        .container_ref
-        .clone()
-        .ok_or_else(|| AppError::BadRequest("Workspace has no workspace directory".to_string()))?;
-
-    let repo_root = workspace
-        .repo_path(&repo)
-        .unwrap_or_else(|| PathBuf::from(container_ref));
-    if !repo_root.exists() {
-        return Err(AppError::BadRequest(format!(
-            "Repo directory does not exist: {}",
-            repo_root.display()
-        )));
-    }
-
-    let package_json_path = repo_root.join("package.json");
-    if !package_json_path.exists() {
-        return Err(AppError::BadRequest(format!(
-            "package.json not found in repo root: {}",
-            repo_root.display()
-        )));
-    }
-
-    if let Ok(package_json) = std::fs::read_to_string(&package_json_path)
-        && package_json.contains("vibex-web-companion")
-    {
-        return Ok(());
-    }
-
-    let (package_manager, args) = detect_package_manager(&repo_root);
-    let executable = resolve_executable_path(package_manager)
-        .await
-        .ok_or_else(|| {
-            AppError::BadRequest(format!("{} is not available on PATH", package_manager))
-        })?;
-
-    let mut install_cmd = utils::process::new_hidden_tokio_command(&executable, &args);
-    install_cmd.current_dir(&repo_root);
-    let output = install_cmd
-        .output()
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to run install command: {}", e)))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let message = utils::process::command_output_detail(&output)
-        .unwrap_or_else(|| format!("{} exited with status {}", package_manager, output.status));
-
-    Err(AppError::Internal(format!(
-        "Failed to install vibex-web-companion: {}",
-        message
-    )))
 }
 
 #[tauri::command]

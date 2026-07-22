@@ -82,29 +82,6 @@ test('tab context menu uses the current Chinese label and keeps the panel split 
   assert.match(panelActions, /referencePanel:\s*panel,/);
 });
 
-test('dev preview resolves workspace outside route params', () => {
-  const previewPanel = readFrontendFile(
-    'src/components/panels/PreviewPanel.tsx'
-  );
-  const dockviewDevPreviewPanel = readFrontendFile(
-    'src/components/panels/DockviewDevPreviewPanel.tsx'
-  );
-
-  assert.match(previewPanel, /useOptionalKanbanSessionContext/);
-  assert.match(previewPanel, /useWorktree/);
-  assert.match(previewPanel, /panelWorkspaceId \?\?/);
-  assert.match(previewPanel, /routeWorkspaceId \?\?/);
-  assert.match(previewPanel, /visibleRightSession\?\.workspaceId \?\?/);
-  assert.match(previewPanel, /activeWorktreeId \?\?/);
-  assert.doesNotMatch(previewPanel, /const attemptId = workspaceId;/);
-
-  assert.match(dockviewDevPreviewPanel, /visibleRightSession\?\.workspaceId/);
-  assert.match(
-    dockviewDevPreviewPanel,
-    /<PreviewPanel workspaceId=\{workspaceId\} \/>/
-  );
-});
-
 test('windows hidden cli helper wraps batch-based agent commands', () => {
   const processUtils = readRepoFile('crates/utils/src/process.rs');
   const agentsTerminal = readRepoFile('crates/agents/src/terminal.rs');
@@ -113,7 +90,9 @@ test('windows hidden cli helper wraps batch-based agent commands', () => {
     'src-tauri/src/commands/agent_settings.rs'
   );
   const workspaces = readWorkspaceCommandSource();
-  const filesystemCommands = readRepoFile('src-tauri/src/commands/filesystem.rs');
+  const filesystemCommands = readRepoFile(
+    'src-tauri/src/commands/filesystem.rs'
+  );
   const fileTreePanel = readFrontendFile(
     'src/components/file-tree/FileTreePanel.tsx'
   );

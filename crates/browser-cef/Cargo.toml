@@ -1,0 +1,37 @@
+[package]
+name = "browser-cef"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+cef-host = ["dep:cef"]
+
+[dependencies]
+browser-runtime = { path = "../browser-runtime" }
+cef = { workspace = true, optional = true, features = ["build-util"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+semver = "1"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "NSApplication",
+    "NSEvent",
+    "NSResponder",
+    "NSView",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "NSGeometry",
+    "NSThread",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2"

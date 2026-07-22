@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use db::models::{
     execution_process::ExecutionProcess,
     merge::{Merge, MergeStatus},
@@ -11,22 +9,6 @@ use git::ConflictOp;
 use serde::{Deserialize, Serialize};
 use services::services::git_host::ProviderKind;
 use uuid::Uuid;
-
-pub(crate) fn detect_package_manager(repo_root: &Path) -> (&'static str, Vec<&'static str>) {
-    if repo_root.join("pnpm-lock.yaml").exists() {
-        return ("pnpm", vec!["add", "vibex-web-companion"]);
-    }
-
-    if repo_root.join("yarn.lock").exists() {
-        return ("yarn", vec!["add", "vibex-web-companion"]);
-    }
-
-    if repo_root.join("bun.lockb").exists() || repo_root.join("bun.lock").exists() {
-        return ("bun", vec!["add", "vibex-web-companion"]);
-    }
-
-    ("npm", vec!["i", "vibex-web-companion"])
-}
 
 // --- Local request/response types ---
 

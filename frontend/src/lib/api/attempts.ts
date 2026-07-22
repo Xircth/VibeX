@@ -269,16 +269,6 @@ export const attemptsApi = {
     });
   },
 
-  installWebCompanion: async (
-    attemptId: string,
-    repoId: string
-  ): Promise<void> => {
-    return tauriInvoke<void>('install_web_companion', {
-      workspaceId: attemptId,
-      repoId,
-    });
-  },
-
   setupGhCli: async (attemptId: string): Promise<ExecutionProcess> => {
     return tauriInvoke<ExecutionProcess>('gh_cli_setup', {
       workspaceId: attemptId,

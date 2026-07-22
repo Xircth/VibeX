@@ -47,29 +47,6 @@ test('left sidebar width remains user-resizable instead of being forced back to 
   assert.doesNotMatch(source, /Math\.min\(leftWidth,\s*300\)/);
 });
 
-test('preview toolbar exposes element selection and the docked inspector instead of native DevTools', () => {
-  const source = readFile(
-    'src/components/tasks/TaskDetails/preview/ReadyContent.tsx'
-  );
-
-  assert.match(source, /onToggleSelectMode\??/);
-  assert.match(source, /onToggleInspector\??/);
-  assert.match(source, /Crosshair/);
-  assert.match(source, /Bug/);
-  assert.match(source, /isInspectorOpen \? inspectorPane : null/);
-  assert.doesNotMatch(source, /toggle_main_window_devtools|DevTools/);
-});
-
-test('companion prompt can be dismissed and install reports success or failure', () => {
-  const source = readFile('src/components/panels/PreviewPanel.tsx');
-
-  assert.match(source, /isCompanionHelpDismissed/);
-  assert.match(source, /setIsCompanionHelpDismissed\(true\)/);
-  assert.match(source, /companionInstallFeedback/);
-  assert.match(source, /onSuccess:/);
-  assert.match(source, /onError:/);
-});
-
 test('right sidebar network button removes the old dev-server config dialog and uses status coloring', () => {
   const source = readFile('src/components/layout/RightPanelSidebar.tsx');
 

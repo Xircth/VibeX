@@ -9,24 +9,6 @@ export function getShowcases(): { taskPanel: ShowcaseConfig } {
       id: 'task-panel-onboarding',
       stages: [
         {
-          title: i18n.t('app:showcases.taskPanel.companion.title'),
-          description: i18n.t('app:showcases.taskPanel.companion.description'),
-          media: {
-            type: 'video',
-            src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-companion-demo-3.mp4',
-          },
-        },
-        {
-          title: i18n.t('app:showcases.taskPanel.installCompanion.title'),
-          description: i18n.t(
-            'app:showcases.taskPanel.installCompanion.description'
-          ),
-          media: {
-            type: 'video',
-            src: 'https://vkcdn.britannio.dev/showcase/flat-task-panel/vk-onb-install-companion-3.mp4',
-          },
-        },
-        {
           title: i18n.t('app:showcases.taskPanel.codeReview.title'),
           description: i18n.t('app:showcases.taskPanel.codeReview.description'),
           media: {

@@ -3,6 +3,8 @@ resolver = "3"
 members = [
     "crates/api-types",
     "crates/agents",
+    "crates/browser-cef",
+    "crates/browser-runtime",
     "crates/delegation-proto",
     "crates/delegation",
     "crates/vibex-mcp",
@@ -37,6 +39,7 @@ serde_with = "3"
 async-trait = "0.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+cef = { version = "=150.2.1", default-features = false }
 futures = "0.3"
 dirs = "5"
 command-group = { version = "5.0", features = ["with-tokio"] }

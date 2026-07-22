@@ -12,7 +12,7 @@ cc = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools", "image-png", "tray-icon", "unstable"] }
+tauri = { version = "2", features = ["devtools", "image-png", "tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
@@ -50,12 +50,15 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 aes-gcm = { version = "0.10", features = ["stream"] }
 argon2 = "0.5"
 rand = "0.8"
+raw-window-handle = "0.6"
 # Deep links (P2-5). single-instance MUST be registered before deep-link.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 url = "2"
 
 # Reuse existing workspace crates
+browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
+browser-runtime = { path = "../crates/browser-runtime" }
 db = { path = "../crates/db" }
 conversations = { path = "../crates/conversations" }
 services = { path = "../crates/services" }

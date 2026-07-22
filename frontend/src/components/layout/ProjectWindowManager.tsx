@@ -17,16 +17,12 @@ import {
 } from '@/lib/api';
 import { showDesktopToast } from '@/lib/desktopToast';
 import { paths } from '@/lib/paths';
-import { tauriEmit, tauriListen } from '@/lib/tauriApi';
+import { tauriListen } from '@/lib/tauriApi';
 import { desktopApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
-import {
-  useWindowProjectsStore,
-  type ProjectWindowTrackingState,
-} from '@/stores/useWindowProjectsStore';
+import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
-import { ProjectFormDialog } from '@/components/dialogs/projects/ProjectFormDialog';
 
 function getSessionStatusLabel(
   session: KanbanProjectSessionRecord,
@@ -55,19 +51,6 @@ type ProjectSessionTarget = {
   workspaceId: string;
   sessionId: string;
 };
-
-type ProjectRailNavigationTarget = {
-  projectId: string;
-  route: string;
-};
-
-type ProjectRailProjectDialogRequest = {
-  mode: 'create' | 'open';
-};
-
-const PROJECT_WINDOW_TRACKING_EVENT = 'project-window-tracking-state';
-const PROJECT_WINDOW_TRACKING_REQUEST_EVENT =
-  'project-window-tracking-request';
 
 function buildTrackedProjectIds(
   currentProjectId: string | undefined,
@@ -221,19 +204,25 @@ function ProjectActivityTracker({
     };
   }, [openProjectSession, projectId]);
 
-  const resolveSummaryDisplayName = useCallback((summary: SessionSummary) => {
-    const manualName = summary.name?.trim();
-    if (manualName) {
-      return manualName;
-    }
+  const resolveSummaryDisplayName = useCallback(
+    (summary: SessionSummary) => {
+      const manualName = summary.name?.trim();
+      if (manualName) {
+        return manualName;
+      }
 
-    const firstPrompt = summary.first_prompt?.replace(/\s+/g, ' ').trim() ?? '';
-    if (firstPrompt.length > 0) {
-      return Array.from(firstPrompt).slice(0, 6).join('');
-    }
+      const firstPrompt =
+        summary.first_prompt?.replace(/\s+/g, ' ').trim() ?? '';
+      if (firstPrompt.length > 0) {
+        return Array.from(firstPrompt).slice(0, 6).join('');
+      }
 
-    return summary.display_name?.trim() || t('windowManager.sessionFallbackName');
-  }, [t]);
+      return (
+        summary.display_name?.trim() || t('windowManager.sessionFallbackName')
+      );
+    },
+    [t]
+  );
 
   const isMainWindowCurrentlyFocused = useCallback(async () => {
     try {
@@ -392,7 +381,6 @@ function ProjectActivityTracker({
 
 export function ProjectWindowManager() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { projectId } = useProject();
   const {
     projects,
@@ -408,24 +396,10 @@ export function ProjectWindowManager() {
   const openProjectIds = useWindowProjectsStore(
     (state) => state.openProjectIds
   );
-  const lastRouteByProject = useWindowProjectsStore(
-    (state) => state.lastRouteByProject
-  );
-  const projectSnapshots = useWindowProjectsStore(
-    (state) => state.projectSnapshots
-  );
-  const projectAlerts = useWindowProjectsStore((state) => state.projectAlerts);
   const railVisible = useWindowProjectsStore((state) => state.railVisible);
-  const setRailVisible = useWindowProjectsStore(
-    (state) => state.setRailVisible
-  );
   const pruneProjectState = useWindowProjectsStore(
     (state) => state.pruneProjectState
   );
-  const replaceProjectTrackingState = useWindowProjectsStore(
-    (state) => state.replaceProjectTrackingState
-  );
-  const isProjectRailWindow = location.pathname === '/project-rail';
   const isSettingsWindowRoute = location.pathname.startsWith('/settings');
   const shouldManageProjectWindows = !isSettingsWindowRoute;
 
@@ -462,42 +436,20 @@ export function ProjectWindowManager() {
     shouldManageProjectWindows,
   ]);
 
-  useEffect(() => {
-    if (!shouldManageProjectWindows || isProjectRailWindow) {
-      return;
-    }
-
-    void desktopApi
-      .setProjectRailWindowVisible(railVisible, projects.length)
-      .catch((error) => {
-        console.error('Failed to sync project rail window visibility:', error);
-      });
-  }, [
-    isProjectRailWindow,
-    projects.length,
-    railVisible,
-    shouldManageProjectWindows,
-  ]);
-
   const trackedProjectIds = useMemo(() => {
-    if (!shouldManageProjectWindows || isProjectRailWindow) {
+    if (!shouldManageProjectWindows) {
       return [];
     }
 
-    return buildTrackedProjectIds(projectId, openProjectIds, projectsById, false);
-  }, [
-    isProjectRailWindow,
-    openProjectIds,
-    projectId,
-    projectsById,
-    shouldManageProjectWindows,
-  ]);
+    return buildTrackedProjectIds(
+      projectId,
+      openProjectIds,
+      projectsById,
+      false
+    );
+  }, [openProjectIds, projectId, projectsById, shouldManageProjectWindows]);
 
   const effectiveTrackedProjectIds = useMemo(() => {
-    if (isProjectRailWindow) {
-      return [];
-    }
-
     if (!shouldManageProjectWindows) {
       return trackedProjectIds;
     }
@@ -506,7 +458,6 @@ export function ProjectWindowManager() {
       ? buildTrackedProjectIds(projectId, openProjectIds, projectsById, true)
       : trackedProjectIds;
   }, [
-    isProjectRailWindow,
     openProjectIds,
     projectId,
     projectsById,
@@ -515,120 +466,6 @@ export function ProjectWindowManager() {
     trackedProjectIds,
   ]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    tauriListen<boolean>('project-rail-visibility', (visible) => {
-      setRailVisible(visible);
-    }).then((dispose) => {
-      unlisten = dispose;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [setRailVisible]);
-
-  useEffect(() => {
-    if (!shouldManageProjectWindows) {
-      return;
-    }
-
-    if (isProjectRailWindow) {
-      let unlisten: (() => void) | undefined;
-
-      tauriListen<ProjectWindowTrackingState>(
-        PROJECT_WINDOW_TRACKING_EVENT,
-        (payload) => {
-          replaceProjectTrackingState(payload);
-        }
-      ).then((dispose) => {
-        unlisten = dispose;
-        void tauriEmit(PROJECT_WINDOW_TRACKING_REQUEST_EVENT).catch((error) => {
-          console.error(
-            'Failed to request project tracking state from main window:',
-            error
-          );
-        });
-      });
-
-      return () => {
-        unlisten?.();
-      };
-    }
-
-    void tauriEmit(PROJECT_WINDOW_TRACKING_EVENT, {
-      openProjectIds,
-      lastRouteByProject,
-      projectSnapshots,
-      projectAlerts,
-    } satisfies ProjectWindowTrackingState).catch((error) => {
-      console.error('Failed to sync project tracking state to project rail:', error);
-    });
-  }, [
-    isProjectRailWindow,
-    lastRouteByProject,
-    openProjectIds,
-    projectAlerts,
-    projectSnapshots,
-    railVisible,
-    replaceProjectTrackingState,
-    shouldManageProjectWindows,
-  ]);
-
-  useEffect(() => {
-    if (!shouldManageProjectWindows || isProjectRailWindow) {
-      return;
-    }
-
-    let unlisten: (() => void) | undefined;
-
-    tauriListen(PROJECT_WINDOW_TRACKING_REQUEST_EVENT, () => {
-      void tauriEmit(PROJECT_WINDOW_TRACKING_EVENT, {
-        openProjectIds,
-        lastRouteByProject,
-        projectSnapshots,
-        projectAlerts,
-      } satisfies ProjectWindowTrackingState).catch((error) => {
-        console.error(
-          'Failed to answer project tracking state request:',
-          error
-        );
-      });
-    }).then((dispose) => {
-      unlisten = dispose;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [
-    isProjectRailWindow,
-    lastRouteByProject,
-    openProjectIds,
-    projectAlerts,
-    projectSnapshots,
-    shouldManageProjectWindows,
-  ]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    tauriListen<ProjectRailNavigationTarget>(
-      'project-rail-activated',
-      (payload) => {
-        ensureProjectOpen(payload.projectId);
-        navigate(payload.route);
-      }
-    ).then((dispose) => {
-      unlisten = dispose;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [ensureProjectOpen, navigate]);
-
   return (
     <>
       {effectiveTrackedProjectIds.map((trackedProjectId) => (
@@ -636,43 +473,8 @@ export function ProjectWindowManager() {
           key={trackedProjectId}
           projectId={trackedProjectId}
           isActive={trackedProjectId === projectId}
-          enableNotifications={!isProjectRailWindow}
         />
       ))}
     </>
   );
-}
-
-export function ProjectRailProjectDialogBridge() {
-  const navigate = useNavigate();
-  const ensureProjectOpen = useWindowProjectsStore(
-    (state) => state.ensureProjectOpen
-  );
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-
-    tauriListen<ProjectRailProjectDialogRequest>(
-      'project-rail-project-dialog-requested',
-      async (payload) => {
-        const result = await ProjectFormDialog.show({
-          autoOpenFolderPicker: payload.mode === 'open',
-        });
-        if (result?.status !== 'saved' || !result.project) {
-          return;
-        }
-
-        ensureProjectOpen(result.project.id);
-        navigate(paths.projectSessions(result.project.id));
-      }
-    ).then((dispose) => {
-      unlisten = dispose;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [ensureProjectOpen, navigate]);
-
-  return null;
 }

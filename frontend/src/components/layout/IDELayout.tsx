@@ -17,7 +17,13 @@ import {
   type DockviewReadyEvent,
 } from 'dockview-react';
 import type { DockviewWillShowOverlayLocationEvent } from 'dockview-core';
-import { Code2, FolderOpen, GitBranch, Search } from 'lucide-react';
+import {
+  Code2,
+  FolderOpen,
+  GitBranch,
+  MessagesSquare,
+  Search,
+} from 'lucide-react';
 import {
   WorkspaceDockviewTab,
   panelComponents,
@@ -76,18 +82,23 @@ import {
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
+import {
+  shouldDeferDefaultSizing,
+  shouldRepairStartupDockWidth,
+} from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
-  // Default zone widths are fractions of the full grid width: A (dock) 20%,
+  // Default zone widths are fractions of the full grid width: A (dock) 10%,
   // C (session) 30%. Users can resize either column above its usable minimum;
   // that choice persists and nothing snaps it back to the defaults.
-  LEFT_PANEL_DEFAULT_RATIO: 0.2,
+  LEFT_PANEL_DEFAULT_RATIO: 0.1,
   SESSION_PANEL_DEFAULT_RATIO: 0.3,
   LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
   // Frame budget for the width-stability wait in applyDefaultSizes. Window
   // restore can animate for a few hundred ms; waiting costs nothing while the
   // width is still changing.
   DEFAULT_SIZE_RETRIES: 30,
+  WORKSPACE_DOCK_REPAIR_WINDOW_MS: 2000,
   LAYOUT_CHANGE_DEBOUNCE_MS: 500,
   IDLE_PERSIST_TIMEOUT_MS: 1000,
 } as const;
@@ -422,6 +433,8 @@ export function IDELayout({
   const prevSerializedLayoutRef = useRef(serializedLayout);
   const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
   const lastSelfHealAtRef = useRef(0);
+  const repairedWorkspaceDockKeyRef = useRef<string | null>(null);
+  const workspaceDockRepairCleanupRef = useRef<(() => void) | null>(null);
   const [tabContextMenu, setTabContextMenu] =
     useState<TabContextMenuState | null>(null);
   // Detached element hosting the session (C zone) content; the workspace
@@ -438,6 +451,7 @@ export function IDELayout({
     toggleFileTree,
     toggleGitPanel,
     toggleSearchPanel,
+    toggleSessionList,
     isPanelOpen,
     openPanelInNewEditorGroup,
     canOpenPanelInNewEditorGroup,
@@ -453,17 +467,14 @@ export function IDELayout({
     (
       api: DockviewApi,
       retries: number = LAYOUT.DEFAULT_SIZE_RETRIES,
-      onDone?: () => void,
-      lastWidth: number = -1
+      onDone?: () => void
     ) => {
-      // Wait until the container width is stable across two consecutive
-      // frames, not merely > 0: at startup the window is still animating to
-      // its restored size, and pixel sizes applied against a transient small
-      // width get proportionally rescaled by dockview afterwards (an inflated
-      // dock and a crushed session column), then persisted.
-      if ((api.width <= 0 || api.width !== lastWidth) && retries > 0) {
+      // Spend the full startup frame budget. Native restoration can pause at
+      // the launch size for several identical frames before resizing, so two
+      // equal samples are not a reliable settled-width signal.
+      if (shouldDeferDefaultSizing(retries)) {
         requestAnimationFrame(() =>
-          applyDefaultSizes(api, retries - 1, onDone, api.width)
+          applyDefaultSizes(api, retries - 1, onDone)
         );
         return;
       }
@@ -503,6 +514,56 @@ export function IDELayout({
       onDone?.();
     },
     []
+  );
+
+  const repairStartupDockWidth = useCallback((api: DockviewApi): boolean => {
+    try {
+      const dockSlot = slotOfZone(getLayoutArrangement(), 'dock');
+      if (dockSlot === 'center' || dockSlot === 'bottom') return true;
+
+      const leftGroup = getLeftGroup(api);
+      if (!leftGroup?.api.isVisible || api.width <= 0) return false;
+
+      if (shouldRepairStartupDockWidth(leftGroup.api.width, api.width)) {
+        leftGroup.api.setSize({ width: defaultDockWidth(api.width) });
+      }
+      return true;
+    } catch {
+      // Ignore transient dimensions while dockview is restoring its grid.
+      return false;
+    }
+  }, []);
+
+  const startInitialWorkspaceDockRepair = useCallback(
+    (api: DockviewApi) => {
+      const workspaceKey = effectiveWorkspaceId ?? '__workspace__';
+      if (repairedWorkspaceDockKeyRef.current === workspaceKey) return;
+
+      workspaceDockRepairCleanupRef.current?.();
+      repairedWorkspaceDockKeyRef.current = workspaceKey;
+
+      let disposed = false;
+      const repair = () => {
+        if (!disposed) repairStartupDockWidth(api);
+      };
+      const disposable = api.onDidLayoutChange(repair);
+      const frame = requestAnimationFrame(repair);
+      const timer = window.setTimeout(() => {
+        disposed = true;
+        disposable.dispose();
+        workspaceDockRepairCleanupRef.current = null;
+      }, LAYOUT.WORKSPACE_DOCK_REPAIR_WINDOW_MS);
+
+      workspaceDockRepairCleanupRef.current = () => {
+        if (disposed) return;
+        disposed = true;
+        cancelAnimationFrame(frame);
+        clearTimeout(timer);
+        disposable.dispose();
+        workspaceDockRepairCleanupRef.current = null;
+      };
+    },
+    [effectiveWorkspaceId, repairStartupDockWidth]
   );
 
   const buildArrangeOptions = useCallback((): ArrangeLayoutOptions => {
@@ -677,6 +738,7 @@ export function IDELayout({
       }
 
       leftGroup.api.setVisible(true);
+      startInitialWorkspaceDockRepair(api);
 
       let bottomGroup = getBottomGroup(api);
       const hadBottomGroup = !!bottomGroup;
@@ -736,7 +798,7 @@ export function IDELayout({
       }
       normalizeGroupIds(api);
     },
-    [effectiveActiveTab, effectiveWorkspaceId]
+    [effectiveActiveTab, effectiveWorkspaceId, startInitialWorkspaceDockRepair]
   );
 
   const ensureSessionPanel = useCallback((api: DockviewApi) => {
@@ -1012,6 +1074,7 @@ export function IDELayout({
       });
 
       return () => {
+        workspaceDockRepairCleanupRef.current?.();
         dndGuardDisposable.dispose();
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();
@@ -1238,7 +1301,7 @@ export function IDELayout({
   useWorkspaceShortcuts();
 
   return (
-    <div className="workspace-shell flex h-full w-full flex-col">
+    <div className="workspace-shell relative flex h-full w-full flex-col">
       <SearchPalette />
       {toolbarContent && (
         <div className="workspace-divider-bottom z-10 shrink-0">
@@ -1275,6 +1338,15 @@ export function IDELayout({
               title="Search (Ctrl+Shift+F)"
             >
               <Search className="h-[18px] w-[18px]" />
+            </button>
+            <button
+              onClick={toggleSessionList}
+              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+                isPanelOpen(PANEL_IDS.SESSION_LIST) ? 'is-active' : ''
+              }`}
+              title={t('panelRegistry.sessionList')}
+            >
+              <MessagesSquare className="h-[18px] w-[18px]" />
             </button>
             <button
               onClick={toggleEditorArea}

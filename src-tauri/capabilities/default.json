@@ -25,6 +25,12 @@
     "core:window:allow-close",
     "core:window:allow-hide",
     "core:window:allow-is-maximized",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-webview-hide",
+    "core:webview:allow-webview-show"
   ]
 }

@@ -15,10 +15,9 @@ import { projectsApi, settingsWindowApi } from '@/lib/api';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
-  PROJECT_DELETE_TOAST_OPTIONS,
 } from '@/lib/projectDeleteUi';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 
 function WelcomeSection({
   title,
@@ -161,13 +160,13 @@ export function WelcomePage() {
     try {
       const project = await projectsApi.create({
         name,
-        repositories: [
-          { display_name: name, git_repo_path: result.repo.path },
-        ],
+        repositories: [{ display_name: name, git_repo_path: result.repo.path }],
       });
       navigate(`/local-projects/${project.id}/sessions`);
     } catch (error) {
-      toast.error(t('welcomePage.createProjectFailed', { error: String(error) }));
+      toast.error(
+        t('welcomePage.createProjectFailed', { error: String(error) })
+      );
     }
   };
 
@@ -234,12 +233,11 @@ export function WelcomePage() {
     try {
       await projectsApi.delete(targetProject.id);
       toast.success(
-        t('welcomePage.projectDeleted', { name: targetProject.name }),
-        PROJECT_DELETE_TOAST_OPTIONS
+        t('welcomePage.projectDeleted', { name: targetProject.name })
       );
     } catch (error) {
       console.error('Failed to delete recent project:', error);
-      toast.error(t('welcomePage.deleteProjectFailed'), PROJECT_DELETE_TOAST_OPTIONS);
+      toast.error(t('welcomePage.deleteProjectFailed'));
     } finally {
       setIsDeletingProject(false);
     }

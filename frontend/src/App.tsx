@@ -2,19 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ChevronDown, Minimize2, Power, X } from 'lucide-react';
+import { Minimize2, Power, X } from 'lucide-react';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 
 import { UserSystemProvider, useUserSystem } from '@/components/ConfigProvider';
 import { ThemeProvider, useTheme } from '@/components/ThemeProvider';
 import { SearchProvider } from '@/contexts/SearchContext';
-import { Toaster } from '@/components/ui/sonner';
-import { toast } from 'sonner';
+import { Toaster, toast } from '@/components/ui/toast';
 import { ProjectWindowManager } from '@/components/layout/ProjectWindowManager';
 import { TrayBadgeSync } from '@/components/layout/TrayBadgeSync';
 import { DesktopToastWindow } from '@/components/desktop-toast/DesktopToastWindow';
-import { ProjectRail } from '@/components/layout/ProjectRail';
 
 import { HotkeysProvider } from 'react-hotkeys-hook';
 
@@ -165,110 +163,6 @@ function ThemedToaster() {
   const { resolvedTheme } = useTheme();
 
   return <Toaster theme={resolvedTheme} />;
-}
-
-function LocalDependencyUpdateToast({
-  toastId,
-  tools,
-  onUpdate,
-}: {
-  toastId: string | number;
-  tools: LocalToolStatus[];
-  onUpdate: () => void;
-}) {
-  const { t } = useTranslation(['app', 'common']);
-  const [expanded, setExpanded] = useState(false);
-  const title =
-    tools.length > 1
-      ? t('shell.dependencyUpdateTitleMany', { count: tools.length })
-      : t('shell.dependencyUpdateTitleOne');
-
-  return (
-    <div
-      className="flex w-[min(520px,calc(100vw-32px))] cursor-pointer gap-3 rounded-xl border border-border bg-background p-4 text-foreground shadow-xl"
-      role="button"
-      tabIndex={0}
-      onClick={() => setExpanded((value) => !value)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          setExpanded((value) => !value);
-        }
-      }}
-    >
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-300">
-        <AlertTriangle className="h-4 w-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold leading-5">{title}</div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              {t('shell.dependencyUpdatePrompt')}
-            </div>
-          </div>
-          <ChevronDown
-            className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
-              expanded ? 'rotate-180' : ''
-            }`}
-          />
-        </div>
-
-        {expanded ? (
-          <div className="mt-3 max-h-[min(60vh,320px)] space-y-2 overflow-y-auto border-t border-border/70 pt-3 pr-1">
-            {tools.map((tool) => (
-              <div
-                key={tool.id}
-                className="rounded-lg bg-muted/55 px-3 py-2 text-xs leading-5"
-              >
-                <div className="font-medium text-foreground">{tool.label}</div>
-                <div className="text-muted-foreground">
-                  {t('shell.dependencyCurrentVersion', {
-                    version:
-                      tool.installed_version ??
-                      t('shell.dependencyNotInstalled'),
-                  })}
-                  {tool.minimum_supported_version
-                    ? t('shell.dependencyMinimumSupported', {
-                        version: tool.minimum_supported_version,
-                      })
-                    : ''}
-                  {tool.latest_version
-                    ? t('shell.dependencyLatestVersion', {
-                        version: tool.latest_version,
-                      })
-                    : ''}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            className="h-8 rounded-full bg-muted px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
-            onClick={(event) => {
-              event.stopPropagation();
-              toast.dismiss(toastId);
-            }}
-          >
-            {t('shell.dependencyLater')}
-          </button>
-          <button
-            type="button"
-            className="h-8 rounded-full bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90"
-            onClick={(event) => {
-              event.stopPropagation();
-              onUpdate();
-            }}
-          >
-            {t('shell.dependencyUpdate')}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function MainAppContent() {
@@ -509,26 +403,46 @@ function MainAppContent() {
             }
           };
 
-          toast.custom(
-            (toastId) => (
-              <LocalDependencyUpdateToast
-                toastId={toastId}
-                tools={toolsNeedingDecision}
-                onUpdate={() => {
-                  toast.dismiss(toastId);
-                  void installLocalDependencyGroups(toolsNeedingDecision);
-                }}
-              />
-            ),
-            {
-              duration: 15000,
-              unstyled: true,
-              closeButton: false,
-              classNames: {
-                toast: 'vu-local-dependency-toast-shell',
+          const dependencyTitle =
+            toolsNeedingDecision.length > 1
+              ? t('shell.dependencyUpdateTitleMany', {
+                  count: toolsNeedingDecision.length,
+                })
+              : t('shell.dependencyUpdateTitleOne');
+          toast.warning(dependencyTitle, {
+            description: t('shell.dependencyUpdatePrompt'),
+            duration: 15_000,
+            details: toolsNeedingDecision.map((tool) => ({
+              title: tool.label,
+              mono: true,
+              description: `${t('shell.dependencyCurrentVersion', {
+                version:
+                  tool.installed_version ?? t('shell.dependencyNotInstalled'),
+              })}${
+                tool.minimum_supported_version
+                  ? t('shell.dependencyMinimumSupported', {
+                      version: tool.minimum_supported_version,
+                    })
+                  : ''
+              }${
+                tool.latest_version
+                  ? t('shell.dependencyLatestVersion', {
+                      version: tool.latest_version,
+                    })
+                  : ''
+              }`,
+            })),
+            cancel: {
+              label: t('shell.dependencyLater'),
+              onClick: () => undefined,
+            },
+            action: {
+              label: t('shell.dependencyUpdate'),
+              onClick: () => {
+                void installLocalDependencyGroups(toolsNeedingDecision);
               },
-            }
-          );
+            },
+          });
         }
       } catch (error) {
         if (!cancelled) {
@@ -570,31 +484,12 @@ function DesktopToastAppContent() {
   );
 }
 
-function ProjectRailAppContent() {
-  const { config } = useUserSystem();
-
-  return (
-    <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
-      <SearchProvider>
-        <ProjectWindowManager />
-        <LegacyDesignScope className="h-screen !min-h-0 overflow-hidden !bg-transparent">
-          <ProjectRail standalone />
-        </LegacyDesignScope>
-      </SearchProvider>
-    </ThemeProvider>
-  );
-}
-
 function AppContent() {
   const location = useLocation();
   const routeMode = getAppRouteMode(location.pathname);
 
   if (routeMode === 'desktop-toast') {
     return <DesktopToastAppContent />;
-  }
-
-  if (routeMode === 'project-rail') {
-    return <ProjectRailAppContent />;
   }
 
   return <MainAppContent />;

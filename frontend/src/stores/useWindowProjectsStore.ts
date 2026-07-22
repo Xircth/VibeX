@@ -43,13 +43,6 @@ export interface ProjectActivityAlert {
   description: string;
 }
 
-export interface ProjectWindowTrackingState {
-  openProjectIds: string[];
-  lastRouteByProject: Record<string, string>;
-  projectSnapshots: Record<string, ProjectActivitySnapshot>;
-  projectAlerts: Record<string, ProjectActivityAlert | undefined>;
-}
-
 interface ProjectFocusRequest {
   workspaceId: string;
   sessionId: string;
@@ -75,9 +68,6 @@ interface WindowProjectsState {
   markProjectAlertRead: (projectId: string) => void;
   pruneProjectState: (validProjectIds: string[]) => void;
   resetProjectWindowState: () => void;
-  replaceProjectTrackingState: (
-    trackingState: ProjectWindowTrackingState
-  ) => void;
   requestProjectFocus: (
     projectId: string,
     focusRequest: ProjectFocusRequest
@@ -333,36 +323,6 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
           projectAlerts: {},
           focusRequests: {},
         }),
-      replaceProjectTrackingState: (trackingState) =>
-        set((state) => {
-          const normalizedLastRouteByProject = Object.fromEntries(
-            Object.entries(trackingState.lastRouteByProject).map(
-              ([projectId, route]) => [
-                projectId,
-                normalizeProjectRoute(route),
-              ]
-            )
-          );
-
-          if (
-            arraysEqual(state.openProjectIds, trackingState.openProjectIds) &&
-            JSON.stringify(state.lastRouteByProject) ===
-              JSON.stringify(normalizedLastRouteByProject) &&
-            JSON.stringify(state.projectSnapshots) ===
-              JSON.stringify(trackingState.projectSnapshots) &&
-            JSON.stringify(state.projectAlerts) ===
-              JSON.stringify(trackingState.projectAlerts)
-          ) {
-            return state;
-          }
-
-          return {
-            openProjectIds: trackingState.openProjectIds,
-            lastRouteByProject: normalizedLastRouteByProject,
-            projectSnapshots: trackingState.projectSnapshots,
-            projectAlerts: trackingState.projectAlerts,
-          };
-        }),
       requestProjectFocus: (projectId, focusRequest) =>
         set((state) => ({
           focusRequests: {
@@ -393,10 +353,9 @@ export const useWindowProjectsStore = create<WindowProjectsState>()(
       migrate: (persistedState: unknown) => {
         const state = (persistedState ?? {}) as PersistedWindowProjectsState;
         const normalizedLastRouteByProject = Object.fromEntries(
-          Object.entries(state.lastRouteByProject ?? {}).map(([projectId, route]) => [
-            projectId,
-            normalizeProjectRoute(route),
-          ])
+          Object.entries(state.lastRouteByProject ?? {}).map(
+            ([projectId, route]) => [projectId, normalizeProjectRoute(route)]
+          )
         );
 
         return {

@@ -7,12 +7,9 @@ describe('getAppRouteMode', () => {
     expect(getAppRouteMode('/desktop-toast')).toBe('desktop-toast');
   });
 
-  it('selects the project rail shell for the exact project rail route', () => {
-    expect(getAppRouteMode('/project-rail')).toBe('project-rail');
-  });
-
   it('keeps prefixed but non-exact routes in the main app shell', () => {
     expect(getAppRouteMode('/desktop-toast/settings')).toBe('main');
+    expect(getAppRouteMode('/project-rail')).toBe('main');
     expect(getAppRouteMode('/project-rail/local-projects')).toBe('main');
   });
 

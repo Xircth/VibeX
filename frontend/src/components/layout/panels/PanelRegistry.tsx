@@ -45,6 +45,9 @@ const LazyNotesPanel = React.lazy(
 const LazySearchPanel = React.lazy(
   () => import('@/components/panels/DockviewSearchPanel')
 );
+const LazyWorkspaceSessionListPanel = React.lazy(
+  () => import('@/components/workspace-session-list/WorkspaceSessionListPanel')
+);
 
 /**
  * Fallback component shown while panels are loading.
@@ -78,6 +81,7 @@ const PANEL_COMPONENT_MAP: Record<
   [PANEL_IDS.LOGS]: LazyLogsPanel,
   [PANEL_IDS.NOTES]: LazyNotesPanel,
   [PANEL_IDS.SEARCH]: LazySearchPanel,
+  [PANEL_IDS.SESSION_LIST]: LazyWorkspaceSessionListPanel,
 };
 
 /**
@@ -247,6 +251,11 @@ export function usePanelMeta(): PanelMeta[] {
     {
       id: PANEL_IDS.SEARCH,
       title: t('panelRegistry.search'),
+      defaultPosition: 'left',
+    },
+    {
+      id: PANEL_IDS.SESSION_LIST,
+      title: t('panelRegistry.sessionList'),
       defaultPosition: 'left',
     },
   ];

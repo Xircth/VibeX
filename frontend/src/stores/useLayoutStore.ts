@@ -21,6 +21,7 @@ export const PANEL_IDS = {
   LOGS: 'logs',
   NOTES: 'notes',
   SEARCH: 'search',
+  SESSION_LIST: 'session-list',
 } as const;
 
 export type PanelId = (typeof PANEL_IDS)[keyof typeof PANEL_IDS];
@@ -414,7 +415,7 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 24,
+      version: 25,
       migrate: (persistedState, version) => {
         const state = (persistedState ?? {}) as Partial<LayoutState>;
         const legacySnapshot = buildProjectLayoutState({

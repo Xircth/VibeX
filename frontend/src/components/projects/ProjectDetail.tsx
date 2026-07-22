@@ -14,9 +14,8 @@ import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
-  PROJECT_DELETE_TOAST_OPTIONS,
 } from '@/lib/projectDeleteUi';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import {
   AlertCircle,
   ArrowLeft,
@@ -55,11 +54,11 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
 
     try {
       await projectsApi.delete(projectId);
-      toast.success('Project deleted', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.success('Project deleted');
       onBack();
     } catch (error) {
       console.error('Failed to delete project:', error);
-      toast.error('Failed to delete project', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.error('Failed to delete project');
     }
   };
 

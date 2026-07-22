@@ -23,6 +23,10 @@ import {
   Tablet,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import {
+  NativeWebviewPreview,
+  shouldUseNativeWebview,
+} from './NativeWebviewPreview';
 
 type ViewMode = 'desktop' | 'tablet' | 'mobile';
 type DeviceViewMode = Exclude<ViewMode, 'desktop'>;
@@ -160,6 +164,7 @@ export function ReadyContent({
   }, [displayUrl, url]);
 
   const effectiveSrc = url;
+  const usesNativeWebview = shouldUseNativeWebview(effectiveSrc);
   const deviceViewportSize =
     viewMode === 'desktop' ? null : viewportSizes[viewMode];
   const previewViewportStyle: CSSProperties = deviceViewportSize
@@ -324,17 +329,25 @@ export function ReadyContent({
             }`}
             style={previewViewportStyle}
           >
-            <iframe
-              key={`${iframeKey}-${localRefreshKey}`}
-              ref={iframeRef}
-              src={effectiveSrc}
-              title={t('readyContent.previewTitle')}
-              className="h-full w-full border-0 bg-[var(--preview-canvas,hsl(var(--background)))]"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-              referrerPolicy="no-referrer"
-              onLoad={() => onIframeLoad?.(iframeRef.current)}
-              onError={onIframeError}
-            />
+            {usesNativeWebview && effectiveSrc ? (
+              <NativeWebviewPreview
+                key={`${iframeKey}-${localRefreshKey}`}
+                url={effectiveSrc}
+                onCreated={() => onIframeLoad?.(null)}
+              />
+            ) : (
+              <iframe
+                key={`${iframeKey}-${localRefreshKey}`}
+                ref={iframeRef}
+                src={effectiveSrc}
+                title={t('readyContent.previewTitle')}
+                className="h-full w-full border-0 bg-[var(--preview-canvas,hsl(var(--background)))]"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                referrerPolicy="no-referrer"
+                onLoad={() => onIframeLoad?.(iframeRef.current)}
+                onError={onIframeError}
+              />
+            )}
             {deviceViewportSize && (
               <button
                 type="button"

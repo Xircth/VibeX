@@ -1,9 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { useProject } from '@/contexts/ProjectContext';
-import { useOptionalKanbanSessionContext } from '@/contexts/KanbanSessionContext';
-import { conversationApi } from '@/features/conversation/conversationApi';
-import { TokenUsageIndicator } from '@/components/tasks/follow-up/TokenUsageIndicator';
 import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
 import { useAgentAvailability } from '@/hooks/useAgentAvailability';
 import { APP_NAME } from '@/lib/branding';
@@ -40,37 +36,6 @@ function AgentStatusLight({ agent }: { agent: AgentKind }) {
   );
 }
 
-/**
- * Context-window ring for the active (right-panel) session (P3-5b). The right
- * session's id IS the DB conversation id, so we read its projected session_stats
- * and reuse the composer's TokenUsageIndicator. Renders nothing on the board view
- * (no active session) or when the agent reports no context window.
- */
-function SessionContextRing() {
-  const sessionContext = useOptionalKanbanSessionContext();
-  const sessionId = sessionContext?.rightSession?.sessionId ?? null;
-
-  const { data } = useQuery({
-    queryKey: ['statusBarConversationContext', sessionId],
-    queryFn: () => conversationApi.detail(sessionId as string),
-    enabled: !!sessionId,
-    refetchInterval: 15_000,
-    meta: { suppressGlobalError: true },
-  });
-
-  const stats = data?.session_stats;
-  if (!stats) return null;
-
-  return (
-    <TokenUsageIndicator
-      tokenUsageInfo={{
-        total_tokens: Number(stats.context_window_used_tokens ?? 0n),
-        model_context_window: Number(stats.context_window_max_tokens ?? 0n),
-      }}
-    />
-  );
-}
-
 function AgentStatusCluster() {
   return (
     <div className="flex items-center gap-1.5">
@@ -96,7 +61,6 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-2">
-        <SessionContextRing />
         <AttentionInboxBadge />
         <BackgroundTaskCountBadge />
         <UpdateAvailableBadge />

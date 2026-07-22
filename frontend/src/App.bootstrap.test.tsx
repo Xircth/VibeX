@@ -73,12 +73,12 @@ vi.mock('@/components/desktop-toast/DesktopToastWindow', () => ({
   DesktopToastWindow: () => null,
 }));
 
-vi.mock('@/components/layout/ProjectRail', () => ({
-  ProjectRail: () => null,
-}));
-
-vi.mock('@/components/ui/sonner', () => ({
+vi.mock('@/components/ui/toast', () => ({
   Toaster: () => null,
+  toast: {
+    dismiss: vi.fn(),
+    warning: mocks.toastWarning,
+  },
 }));
 
 vi.mock('@/features/agents/useAgentWorkbench', () => ({
@@ -154,13 +154,6 @@ vi.mock('@/components/dialogs/global/OnboardingDialog', () => ({
 
 vi.mock('@/components/dialogs/global/CrashReportDialog', () => ({
   CrashReportDialog: { hide: vi.fn(), show: vi.fn() },
-}));
-
-vi.mock('sonner', () => ({
-  toast: {
-    dismiss: vi.fn(),
-    warning: mocks.toastWarning,
-  },
 }));
 
 import App from './App';

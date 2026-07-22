@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type SyntheticEvent } from 'react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { Plus } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
 
 import { PANEL_IDS } from '@/stores/useLayoutStore';

@@ -19,7 +19,7 @@ import {
   MoreHorizontal,
   Trash2,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { Project } from 'shared/types';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,7 +30,6 @@ import { projectsApi } from '@/lib/api';
 import {
   PROJECT_DELETE_CONFIRM_CLASSNAME,
   PROJECT_DELETE_CONFIRM_STYLE,
-  PROJECT_DELETE_TOAST_OPTIONS,
 } from '@/lib/projectDeleteUi';
 type Props = {
   project: Project;
@@ -72,11 +71,11 @@ function ProjectCard({ project, isFocused, setError, onEdit }: Props) {
 
     try {
       await projectsApi.delete(id);
-      toast.success('Project deleted', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.success('Project deleted');
     } catch (error) {
       console.error('Failed to delete project:', error);
       setError('Failed to delete project');
-      toast.error('Failed to delete project', PROJECT_DELETE_TOAST_OPTIONS);
+      toast.error('Failed to delete project');
     }
   };
 

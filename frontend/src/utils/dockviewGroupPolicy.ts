@@ -8,6 +8,7 @@ export const LEFT_PANEL_IDS: ReadonlySet<string> = new Set([
   PANEL_IDS.FILE_TREE,
   PANEL_IDS.GIT,
   PANEL_IDS.SEARCH,
+  PANEL_IDS.SESSION_LIST,
 ]);
 
 export const BOTTOM_PANEL_IDS: ReadonlySet<string> = new Set([

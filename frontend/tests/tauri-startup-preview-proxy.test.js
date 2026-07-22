@@ -59,6 +59,15 @@ test('preview proxy uses a short local connect timeout before retrying host vari
   assert.match(source, /remember_successful_upstream_host/);
 });
 
+test('native external preview enables Tauri child webview support', () => {
+  const manifest = readRepoFile('src-tauri/Cargo.toml');
+
+  assert.match(
+    manifest,
+    /tauri\s*=\s*\{[^}]*features\s*=\s*\[[^\]]*"unstable"[^\]]*\]/s
+  );
+});
+
 test('tauri setup manages AppState before async background tasks start', () => {
   const source = readRepoFile('src-tauri/src/lib.rs');
 

@@ -12,7 +12,7 @@ cc = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools", "image-png", "tray-icon"] }
+tauri = { version = "2", features = ["devtools", "image-png", "tray-icon", "unstable"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"

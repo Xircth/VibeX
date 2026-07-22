@@ -190,11 +190,6 @@ pub fn run() {
             if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
                 tracing::warn!("Failed to initialize desktop toast window: {}", error);
             }
-            if let Err(error) =
-                commands::project_rail_window::ensure_project_rail_window(app.handle())
-            {
-                tracing::warn!("Failed to initialize project rail window: {}", error);
-            }
             if let Err(error) = tauri::async_runtime::block_on(
                 commands::web_service::ensure_web_service_autostart(app.handle().clone()),
             ) {
@@ -211,13 +206,6 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let _ = app_handle.emit(MAIN_WINDOW_CLOSE_REQUESTED_EVENT, ());
-                    }
-                    tauri::WindowEvent::Moved(_)
-                    | tauri::WindowEvent::Resized(_)
-                    | tauri::WindowEvent::ScaleFactorChanged { .. }
-                    | tauri::WindowEvent::Focused(true) => {
-                        let _ =
-                            commands::project_rail_window::sync_project_rail_window(&app_handle);
                     }
                     _ => {}
                 });
@@ -346,6 +334,7 @@ pub fn run() {
             commands::sessions::delete_session,
             commands::sessions::reset_session_process,
             commands::conversations::conversation_detail,
+            commands::conversations::conversation_ensure_session_controls,
             commands::conversations::conversation_list,
             commands::conversations::conversation_start_turn,
             commands::conversations::conversation_events_since,
@@ -356,6 +345,7 @@ pub fn run() {
             commands::conversations::conversation_set_session_config_option,
             commands::conversations::conversation_cancel_turn,
             commands::conversations::conversation_truncate_to_turn,
+            commands::conversations::conversation_checkpoint_file_changes_preview,
             commands::conversations::conversation_close,
             commands::conversations::conversation_export,
             commands::conversations::conversation_export_markdown,
@@ -474,10 +464,6 @@ pub fn run() {
             commands::desktop_toast::is_main_window_focused,
             commands::desktop_toast::activate_desktop_toast,
             commands::desktop_toast::desktop_toast_window_ready,
-            commands::project_rail_window::set_project_rail_window_visible,
-            commands::project_rail_window::sync_project_rail_window_bounds,
-            commands::project_rail_window::activate_project_rail_target,
-            commands::project_rail_window::request_project_rail_project_dialog,
             // Agent settings commands
             commands::agent_settings::list_agents,
             commands::agent_settings::update_agent_preferences,

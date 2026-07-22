@@ -4,7 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
 import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { NormalLayout } from '@/components/layout/NormalLayout';
-import { ProjectRailProjectDialogBridge } from '@/components/layout/ProjectWindowManager';
+import { ProjectRail } from '@/components/layout/ProjectRail';
 import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
 import { ProjectTasks } from '@/pages/ProjectTasks';
 import { Projects } from '@/pages/Projects';
@@ -31,13 +31,15 @@ import {
 function MainLegacyScope({
   children,
   className,
+  showProjectRail = false,
 }: {
   children: ReactNode;
   className?: string;
+  showProjectRail?: boolean;
 }) {
   return (
     <LegacyDesignScope className={className}>
-      <ProjectRailProjectDialogBridge />
+      {showProjectRail ? <ProjectRail /> : null}
       {children}
     </LegacyDesignScope>
   );
@@ -57,7 +59,7 @@ export function MainAppRoutes() {
 
       <Route
         element={
-          <MainLegacyScope>
+          <MainLegacyScope showProjectRail>
             <IDEWorkspaceRoute />
           </MainLegacyScope>
         }
@@ -105,7 +107,7 @@ export function MainAppRoutes() {
 
       <Route
         element={
-          <MainLegacyScope>
+          <MainLegacyScope showProjectRail>
             <NormalLayout />
           </MainLegacyScope>
         }

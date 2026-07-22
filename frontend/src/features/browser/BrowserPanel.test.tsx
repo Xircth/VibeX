@@ -47,6 +47,7 @@ function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
     loading: false,
     canGoBack: false,
     canGoForward: false,
+    zoomLevel: 0,
     profile: { kind: 'workspace', workspaceId: 'workspace-1' },
     surface: initialSurface,
     ...overrides,
@@ -191,6 +192,114 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('keeps popup navigation in a managed native tab strip', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'popupCreated',
+        openerTabId: 'browser-tab-1',
+        tab: tab({
+          id: 'browser-tab-2',
+          url: 'https://example.test/popup',
+          title: 'Popup',
+          surface: { ...initialSurface, visible: false },
+        }),
+      });
+    });
+
+    expect(await screen.findByRole('tab', { name: 'Popup' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-2', {
+      type: 'setSurface',
+      surface: initialSurface,
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Example' }));
+    expect(screen.getByRole('tab', { name: 'Example' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('requires an explicit user decision for Chromium permissions', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'permissionRequested',
+        tabId: 'browser-tab-1',
+        requestId: 9,
+        origin: 'https://example.test',
+        kind: 'media',
+        requestedPermissions: 3,
+      });
+    });
+
+    expect(screen.getByText(/example\.test wants media access/i)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Permission' }));
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'resolvePermission',
+      requestId: 9,
+      allow: true,
+    });
+  });
+
+  it('shows Chromium download progress and allows cancellation', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'downloadUpdated',
+        tabId: 'browser-tab-1',
+        downloadId: 11,
+        url: 'https://example.test/archive.zip',
+        fileName: 'archive.zip',
+        receivedBytes: 512,
+        totalBytes: 1024,
+        percentComplete: 50,
+        state: 'inProgress',
+      });
+    });
+
+    expect(screen.getByText(/archive\.zip/)).toHaveTextContent('50%');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Download' }));
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'cancelDownload',
+      downloadId: 11,
+    });
+  });
+
   it('navigates from the address bar and closes the native tab on unmount', async () => {
     const view = render(
       <BrowserPanel
@@ -220,6 +329,43 @@ describe('BrowserPanel', () => {
     await waitFor(() =>
       expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-1')
     );
+  });
+
+  it('exposes native zoom and find controls without touching page code', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Zoom' }), {
+      target: { value: '1' },
+    });
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setZoom',
+      level: 1,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find in Page' }));
+    const findInput = screen.getByRole('textbox', { name: 'Find in Page' });
+    fireEvent.change(findInput, { target: { value: 'runtime' } });
+    fireEvent.submit(findInput.closest('form')!);
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'find',
+      query: 'runtime',
+      forward: true,
+      matchCase: false,
+      findNext: false,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Find' }));
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'stopFinding',
+    });
   });
 
   it('hides the native surface so a load error remains visible', async () => {

@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use browser_runtime::{
-    BrowserEngine, BrowserEngineCommand, BrowserEngineEvent, BrowserEvent, BrowserIntent,
-    BrowserProfile, BrowserRuntime, BrowserSurface, CreateBrowserTab,
+    BrowserDownloadState, BrowserEngine, BrowserEngineCommand, BrowserEngineEvent, BrowserEvent,
+    BrowserIntent, BrowserPermissionKind, BrowserProfile, BrowserRuntime, BrowserSurface,
+    CreateBrowserTab,
 };
 use serde_json::json;
 
@@ -93,6 +94,72 @@ fn standard_navigation_controls_are_dispatched_to_chromium() {
             BrowserEngineCommand::Stop { tab_id: tab.id },
         ]
     );
+}
+
+#[test]
+fn zoom_and_find_controls_are_owned_by_the_browser_runtime() {
+    let engine = RecordingEngine::default();
+    let runtime = BrowserRuntime::new(engine.clone());
+    let mut events = runtime.subscribe();
+    let tab = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Global,
+            surface: BrowserSurface {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                scale_factor: 1.0,
+                visible: true,
+            },
+        })
+        .expect("tab should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply(&tab.id, BrowserIntent::SetZoom { level: 1.5 })
+        .expect("zoom should be accepted");
+    runtime
+        .apply(
+            &tab.id,
+            BrowserIntent::Find {
+                query: "runtime".to_string(),
+                forward: true,
+                match_case: false,
+                find_next: false,
+            },
+        )
+        .expect("find should be accepted");
+    runtime
+        .apply(&tab.id, BrowserIntent::StopFinding)
+        .expect("find should stop");
+
+    assert_eq!(
+        &engine.commands()[1..],
+        &[
+            BrowserEngineCommand::SetZoom {
+                tab_id: tab.id.clone(),
+                level: 1.5,
+            },
+            BrowserEngineCommand::Find {
+                tab_id: tab.id.clone(),
+                query: "runtime".to_string(),
+                forward: true,
+                match_case: false,
+                find_next: false,
+            },
+            BrowserEngineCommand::StopFinding {
+                tab_id: tab.id.clone(),
+            },
+        ]
+    );
+    let BrowserEvent::TabUpdated { tab: updated } =
+        events.try_recv().expect("zoom publishes tab state")
+    else {
+        panic!("expected tab update");
+    };
+    assert_eq!(updated.zoom_level, 1.5);
 }
 
 #[test]
@@ -438,5 +505,175 @@ fn creating_a_tab_dispatches_chromium_work_and_publishes_initial_state() {
     assert_eq!(
         events.try_recv().expect("tab-created event"),
         BrowserEvent::TabCreated { tab }
+    );
+}
+
+#[test]
+fn popup_requests_create_a_managed_sibling_tab_in_the_same_profile() {
+    let engine = RecordingEngine::default();
+    let runtime = BrowserRuntime::new(engine.clone());
+    let mut events = runtime.subscribe();
+    let opener = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Workspace {
+                workspace_id: "workspace-1".to_string(),
+            },
+            surface: BrowserSurface {
+                x: 10,
+                y: 20,
+                width: 800,
+                height: 600,
+                scale_factor: 2.0,
+                visible: true,
+            },
+        })
+        .expect("opener should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::PopupRequested {
+            opener_tab_id: opener.id.clone(),
+            url: "https://example.com/popup".to_string(),
+        })
+        .expect("popup should be managed");
+
+    let BrowserEvent::PopupCreated {
+        opener_tab_id,
+        tab: popup,
+    } = events.try_recv().expect("popup event")
+    else {
+        panic!("expected popup-created event");
+    };
+    assert_eq!(opener_tab_id, opener.id);
+    assert_eq!(popup.profile, opener.profile);
+    assert_eq!(popup.url, "https://example.com/popup");
+    assert!(!popup.surface.visible);
+    assert_eq!(
+        engine.commands().last(),
+        Some(&BrowserEngineCommand::Create {
+            tab_id: popup.id,
+            initial_url: "https://example.com/popup".to_string(),
+            profile: opener.profile,
+            surface: BrowserSurface {
+                visible: false,
+                ..opener.surface
+            },
+        })
+    );
+}
+
+#[test]
+fn permission_requests_wait_for_an_explicit_user_decision() {
+    let engine = RecordingEngine::default();
+    let runtime = BrowserRuntime::new(engine.clone());
+    let mut events = runtime.subscribe();
+    let tab = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Ephemeral,
+            surface: BrowserSurface {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                scale_factor: 1.0,
+                visible: true,
+            },
+        })
+        .expect("tab should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::PermissionRequested {
+            tab_id: tab.id.clone(),
+            request_id: 7,
+            origin: "https://example.com".to_string(),
+            kind: BrowserPermissionKind::Media,
+            requested_permissions: 3,
+        })
+        .expect("permission should be published");
+    assert_eq!(
+        events.try_recv().expect("permission event"),
+        BrowserEvent::PermissionRequested {
+            tab_id: tab.id.clone(),
+            request_id: 7,
+            origin: "https://example.com".to_string(),
+            kind: BrowserPermissionKind::Media,
+            requested_permissions: 3,
+        }
+    );
+
+    runtime
+        .apply(
+            &tab.id,
+            BrowserIntent::ResolvePermission {
+                request_id: 7,
+                allow: true,
+            },
+        )
+        .expect("decision should reach CEF");
+    assert_eq!(
+        engine.commands().last(),
+        Some(&BrowserEngineCommand::ResolvePermission {
+            tab_id: tab.id,
+            request_id: 7,
+            allow: true,
+        })
+    );
+}
+
+#[test]
+fn download_progress_is_visible_and_cancelable() {
+    let engine = RecordingEngine::default();
+    let runtime = BrowserRuntime::new(engine.clone());
+    let mut events = runtime.subscribe();
+    let tab = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Global,
+            surface: BrowserSurface {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                scale_factor: 1.0,
+                visible: true,
+            },
+        })
+        .expect("tab should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::DownloadUpdated {
+            tab_id: tab.id.clone(),
+            download_id: 11,
+            url: "https://example.com/archive.zip".to_string(),
+            file_name: "archive.zip".to_string(),
+            received_bytes: 512,
+            total_bytes: 1024,
+            percent_complete: 50,
+            state: BrowserDownloadState::InProgress,
+        })
+        .expect("download should be published");
+    assert!(matches!(
+        events.try_recv().expect("download event"),
+        BrowserEvent::DownloadUpdated {
+            download_id: 11,
+            percent_complete: 50,
+            state: BrowserDownloadState::InProgress,
+            ..
+        }
+    ));
+
+    runtime
+        .apply(&tab.id, BrowserIntent::CancelDownload { download_id: 11 })
+        .expect("cancel should reach CEF");
+    assert_eq!(
+        engine.commands().last(),
+        Some(&BrowserEngineCommand::CancelDownload {
+            tab_id: tab.id,
+            download_id: 11,
+        })
     );
 }

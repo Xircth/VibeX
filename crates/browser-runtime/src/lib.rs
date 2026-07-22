@@ -41,6 +41,22 @@ pub enum BrowserProfile {
     Ephemeral,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserPermissionKind {
+    Media,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserDownloadState {
+    InProgress,
+    Complete,
+    Canceled,
+    Interrupted,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserSurface {
@@ -69,6 +85,7 @@ pub struct BrowserTab {
     pub loading: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+    pub zoom_level: f64,
     pub profile: BrowserProfile,
     pub surface: BrowserSurface,
 }
@@ -88,6 +105,23 @@ pub enum BrowserIntent {
     },
     Focus,
     OpenDevTools,
+    SetZoom {
+        level: f64,
+    },
+    Find {
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+    },
+    StopFinding,
+    ResolvePermission {
+        request_id: u64,
+        allow: bool,
+    },
+    CancelDownload {
+        download_id: u32,
+    },
     ExecuteDevTools {
         request_id: u32,
         method: String,
@@ -132,6 +166,29 @@ pub enum BrowserEngineCommand {
     OpenDevTools {
         tab_id: BrowserTabId,
     },
+    SetZoom {
+        tab_id: BrowserTabId,
+        level: f64,
+    },
+    Find {
+        tab_id: BrowserTabId,
+        query: String,
+        forward: bool,
+        match_case: bool,
+        find_next: bool,
+    },
+    StopFinding {
+        tab_id: BrowserTabId,
+    },
+    ResolvePermission {
+        tab_id: BrowserTabId,
+        request_id: u64,
+        allow: bool,
+    },
+    CancelDownload {
+        tab_id: BrowserTabId,
+        download_id: u32,
+    },
     ExecuteDevTools {
         tab_id: BrowserTabId,
         request_id: u32,
@@ -142,6 +199,27 @@ pub enum BrowserEngineCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BrowserEngineEvent {
+    PopupRequested {
+        opener_tab_id: BrowserTabId,
+        url: String,
+    },
+    PermissionRequested {
+        tab_id: BrowserTabId,
+        request_id: u64,
+        origin: String,
+        kind: BrowserPermissionKind,
+        requested_permissions: u32,
+    },
+    DownloadUpdated {
+        tab_id: BrowserTabId,
+        download_id: u32,
+        url: String,
+        file_name: String,
+        received_bytes: i64,
+        total_bytes: i64,
+        percent_complete: i32,
+        state: BrowserDownloadState,
+    },
     NavigationStateChanged {
         tab_id: BrowserTabId,
         url: String,
@@ -179,6 +257,27 @@ pub enum BrowserEvent {
     },
     TabClosed {
         tab_id: BrowserTabId,
+    },
+    PopupCreated {
+        opener_tab_id: BrowserTabId,
+        tab: BrowserTab,
+    },
+    PermissionRequested {
+        tab_id: BrowserTabId,
+        request_id: u64,
+        origin: String,
+        kind: BrowserPermissionKind,
+        requested_permissions: u32,
+    },
+    DownloadUpdated {
+        tab_id: BrowserTabId,
+        download_id: u32,
+        url: String,
+        file_name: String,
+        received_bytes: i64,
+        total_bytes: i64,
+        percent_complete: i32,
+        state: BrowserDownloadState,
     },
     TabFailed {
         tab: BrowserTab,
@@ -240,6 +339,7 @@ impl BrowserRuntime {
             loading: true,
             can_go_back: false,
             can_go_forward: false,
+            zoom_level: 0.0,
             profile: request.profile,
             surface: request.surface,
         };
@@ -318,6 +418,54 @@ impl BrowserRuntime {
                     tab_id: tab_id.clone(),
                 })
             }
+            BrowserIntent::SetZoom { level } => {
+                self.engine.dispatch(BrowserEngineCommand::SetZoom {
+                    tab_id: tab_id.clone(),
+                    level,
+                })?;
+                let tab = {
+                    let mut tabs = self
+                        .tabs
+                        .lock()
+                        .map_err(|_| BrowserError::StateUnavailable)?;
+                    let tab = tabs
+                        .get_mut(tab_id)
+                        .ok_or_else(|| BrowserError::TabNotFound(tab_id.clone()))?;
+                    tab.zoom_level = level;
+                    tab.clone()
+                };
+                let _ = self.events.send(BrowserEvent::TabUpdated { tab });
+                Ok(())
+            }
+            BrowserIntent::Find {
+                query,
+                forward,
+                match_case,
+                find_next,
+            } => self.engine.dispatch(BrowserEngineCommand::Find {
+                tab_id: tab_id.clone(),
+                query,
+                forward,
+                match_case,
+                find_next,
+            }),
+            BrowserIntent::StopFinding => self.engine.dispatch(BrowserEngineCommand::StopFinding {
+                tab_id: tab_id.clone(),
+            }),
+            BrowserIntent::ResolvePermission { request_id, allow } => {
+                self.engine
+                    .dispatch(BrowserEngineCommand::ResolvePermission {
+                        tab_id: tab_id.clone(),
+                        request_id,
+                        allow,
+                    })
+            }
+            BrowserIntent::CancelDownload { download_id } => {
+                self.engine.dispatch(BrowserEngineCommand::CancelDownload {
+                    tab_id: tab_id.clone(),
+                    download_id,
+                })
+            }
             BrowserIntent::ExecuteDevTools {
                 request_id,
                 method,
@@ -333,6 +481,82 @@ impl BrowserRuntime {
 
     pub fn apply_engine_event(&self, event: BrowserEngineEvent) -> Result<(), BrowserError> {
         match event {
+            BrowserEngineEvent::PopupRequested { opener_tab_id, url } => {
+                let opener = self
+                    .tab(&opener_tab_id)?
+                    .ok_or_else(|| BrowserError::TabNotFound(opener_tab_id.clone()))?;
+                let mut surface = opener.surface;
+                surface.visible = false;
+                let tab = BrowserTab {
+                    id: BrowserTabId::new(),
+                    url,
+                    title: String::new(),
+                    loading: true,
+                    can_go_back: false,
+                    can_go_forward: false,
+                    zoom_level: opener.zoom_level,
+                    profile: opener.profile,
+                    surface,
+                };
+                self.engine.dispatch(BrowserEngineCommand::Create {
+                    tab_id: tab.id.clone(),
+                    initial_url: tab.url.clone(),
+                    profile: tab.profile.clone(),
+                    surface: tab.surface.clone(),
+                })?;
+                self.tabs
+                    .lock()
+                    .map_err(|_| BrowserError::StateUnavailable)?
+                    .insert(tab.id.clone(), tab.clone());
+                let _ = self
+                    .events
+                    .send(BrowserEvent::PopupCreated { opener_tab_id, tab });
+                Ok(())
+            }
+            BrowserEngineEvent::PermissionRequested {
+                tab_id,
+                request_id,
+                origin,
+                kind,
+                requested_permissions,
+            } => {
+                if self.tab(&tab_id)?.is_none() {
+                    return Err(BrowserError::TabNotFound(tab_id));
+                }
+                let _ = self.events.send(BrowserEvent::PermissionRequested {
+                    tab_id,
+                    request_id,
+                    origin,
+                    kind,
+                    requested_permissions,
+                });
+                Ok(())
+            }
+            BrowserEngineEvent::DownloadUpdated {
+                tab_id,
+                download_id,
+                url,
+                file_name,
+                received_bytes,
+                total_bytes,
+                percent_complete,
+                state,
+            } => {
+                if self.tab(&tab_id)?.is_none() {
+                    return Err(BrowserError::TabNotFound(tab_id));
+                }
+                let _ = self.events.send(BrowserEvent::DownloadUpdated {
+                    tab_id,
+                    download_id,
+                    url,
+                    file_name,
+                    received_bytes,
+                    total_bytes,
+                    percent_complete,
+                    state,
+                });
+                Ok(())
+            }
             BrowserEngineEvent::NavigationStateChanged {
                 tab_id,
                 url,

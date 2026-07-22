@@ -9,15 +9,20 @@ import {
   ArrowLeft,
   ArrowRight,
   Bug,
+  ChevronDown,
+  ChevronUp,
   Crosshair,
   LoaderCircle,
   RefreshCw,
+  Search,
   Square,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { browserApi } from './browserApi';
 import { BrowserDevToolsSession } from './devToolsSession';
+import { applyDevicePreset, type DevicePresetId } from './deviceEmulation';
 import { createFrameScheduler, type FrameScheduler } from './frameScheduler';
 import type { OpenInEditorPayload } from './inspectTypes';
 import type {
@@ -170,6 +175,8 @@ export function BrowserPanel({
   const surfaceSchedulerRef = useRef<FrameScheduler | null>(null);
   const currentSurfaceRef = useRef<BrowserSurface | null>(null);
   const tabIdRef = useRef<string | null>(null);
+  const knownTabIdsRef = useRef(new Set<string>());
+  const tabsRef = useRef<BrowserTab[]>([]);
   const devToolsSessionRef = useRef<BrowserDevToolsSession | null>(null);
   const editingAddressRef = useRef(false);
   const intersectionVisibleRef = useRef(true);
@@ -177,11 +184,22 @@ export function BrowserPanel({
   const surfaceBlockedRef = useRef(false);
   const onInspectElementRef = useRef(onInspectElement);
   const initialUrlRef = useRef(initialUrl);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const [surfaceReady, setSurfaceReady] = useState(false);
   const [tab, setTab] = useState<BrowserTab | null>(null);
+  const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [address, setAddress] = useState(initialUrl ?? '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isInspecting, setIsInspecting] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [devicePreset, setDevicePreset] = useState<DevicePresetId>('desktop');
+  const [permissionRequest, setPermissionRequest] = useState<
+    Extract<BrowserEvent, { type: 'permissionRequested' }> | undefined
+  >();
+  const [downloads, setDownloads] = useState<
+    Extract<BrowserEvent, { type: 'downloadUpdated' }>[]
+  >([]);
   const requestToken = `${requestNonce}\u0000${initialUrl ?? ''}`;
   const lastRequestTokenRef = useRef(requestToken);
 
@@ -208,9 +226,69 @@ export function BrowserPanel({
     [showError]
   );
 
+  const attachDevToolsSession = useCallback(
+    (tabId: string) => {
+      devToolsSessionRef.current?.dispose();
+      const session = new BrowserDevToolsSession(tabId, (intent) =>
+        browserApi.applyIntent(tabId, intent)
+      );
+      session.on('Overlay.inspectNodeRequested', (params) => {
+        void describeInspectedElement(session, params)
+          .then((element) => {
+            if (element) onInspectElementRef.current?.(element);
+            setIsInspecting(false);
+          })
+          .catch((error: unknown) => {
+            setIsInspecting(false);
+            showError(commandErrorMessage(error));
+          });
+      });
+      devToolsSessionRef.current = session;
+    },
+    [showError]
+  );
+
+  const activateTab = useCallback(
+    (nextTab: BrowserTab) => {
+      const previousTabId = tabIdRef.current;
+      const surface = currentSurfaceRef.current;
+      if (surface && previousTabId && previousTabId !== nextTab.id) {
+        void browserApi
+          .applyIntent(previousTabId, {
+            type: 'setSurface',
+            surface: { ...surface, visible: false },
+          })
+          .catch((error: unknown) => showError(commandErrorMessage(error)));
+      }
+      if (surface && previousTabId !== nextTab.id) {
+        void browserApi
+          .applyIntent(nextTab.id, { type: 'setSurface', surface })
+          .catch((error: unknown) => showError(commandErrorMessage(error)));
+      }
+      tabIdRef.current = nextTab.id;
+      attachDevToolsSession(nextTab.id);
+      setTab(nextTab);
+      setAddress(nextTab.url);
+      onTitleChange?.(nextTab.title);
+    },
+    [attachDevToolsSession, onTitleChange, showError]
+  );
+
   useEffect(() => {
     onInspectElementRef.current = onInspectElement;
   }, [onInspectElement]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setFindOpen(true);
+        requestAnimationFrame(() => findInputRef.current?.focus());
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const syncSurface = useCallback(() => {
     const element = surfaceElementRef.current;
@@ -287,35 +365,81 @@ export function BrowserPanel({
     let createdTabId: string | null = null;
     let unlisten: (() => void) | undefined;
     const pendingEvents: BrowserEvent[] = [];
+    const ownedTabIds = knownTabIdsRef.current;
 
     const acceptEvent = (event: BrowserEvent) => {
+      if (!createdTabId) {
+        if (pendingEvents.length < 32) pendingEvents.push(event);
+        return;
+      }
+      if (event.type === 'popupCreated') {
+        if (!ownedTabIds.has(event.openerTabId)) return;
+        ownedTabIds.add(event.tab.id);
+        tabsRef.current = [...tabsRef.current, event.tab];
+        setTabs(tabsRef.current);
+        activateTab(event.tab);
+        return;
+      }
       const eventTabId =
         event.type === 'tabCreated' ||
         event.type === 'tabUpdated' ||
         event.type === 'tabFailed'
           ? event.tab.id
           : event.tabId;
-      if (!createdTabId) {
-        if (pendingEvents.length < 32) pendingEvents.push(event);
-        return;
-      }
-      if (eventTabId !== createdTabId) return;
+      if (!ownedTabIds.has(eventTabId)) return;
 
       if (event.type === 'devToolsResult' || event.type === 'devToolsEvent') {
         devToolsSessionRef.current?.receive(event);
         return;
       }
-      if (event.type === 'tabClosed') {
-        devToolsSessionRef.current?.dispose();
-        devToolsSessionRef.current = null;
-        tabIdRef.current = null;
-        setTab(null);
+      if (event.type === 'permissionRequested') {
+        setPermissionRequest(event);
         return;
       }
-      setTab(event.tab);
-      if (!editingAddressRef.current) setAddress(event.tab.url);
-      onTitleChange?.(event.tab.title);
-      if (event.type === 'tabFailed') showError(event.message);
+      if (event.type === 'downloadUpdated') {
+        setDownloads((current) => {
+          const next = current.filter(
+            (download) =>
+              download.tabId !== event.tabId ||
+              download.downloadId !== event.downloadId
+          );
+          return [...next, event].slice(-5);
+        });
+        return;
+      }
+      if (event.type === 'tabClosed') {
+        ownedTabIds.delete(event.tabId);
+        const remainingTabs = tabsRef.current.filter(
+          (candidate) => candidate.id !== event.tabId
+        );
+        tabsRef.current = remainingTabs;
+        setTabs(remainingTabs);
+        setPermissionRequest((request) =>
+          request?.tabId === event.tabId ? undefined : request
+        );
+        setDownloads((current) =>
+          current.filter((download) => download.tabId !== event.tabId)
+        );
+        if (tabIdRef.current === event.tabId) {
+          devToolsSessionRef.current?.dispose();
+          devToolsSessionRef.current = null;
+          tabIdRef.current = null;
+          const replacement = remainingTabs.at(-1);
+          if (replacement) activateTab(replacement);
+          else setTab(null);
+        }
+        return;
+      }
+      tabsRef.current = tabsRef.current.map((candidate) =>
+        candidate.id === event.tab.id ? event.tab : candidate
+      );
+      setTabs(tabsRef.current);
+      if (tabIdRef.current === event.tab.id) {
+        setTab(event.tab);
+        if (!editingAddressRef.current) setAddress(event.tab.url);
+        onTitleChange?.(event.tab.title);
+        if (event.type === 'tabFailed') showError(event.message);
+      }
     };
 
     void (async () => {
@@ -335,27 +459,11 @@ export function BrowserPanel({
           await browserApi.closeTab(createdTab.id);
           return;
         }
+        ownedTabIds.add(createdTab.id);
+        tabsRef.current = [createdTab];
+        setTabs([createdTab]);
         tabIdRef.current = createdTab.id;
-        devToolsSessionRef.current = new BrowserDevToolsSession(
-          createdTab.id,
-          (intent) => browserApi.applyIntent(createdTab.id, intent)
-        );
-        devToolsSessionRef.current.on(
-          'Overlay.inspectNodeRequested',
-          (params) => {
-            const session = devToolsSessionRef.current;
-            if (!session) return;
-            void describeInspectedElement(session, params)
-              .then((element) => {
-                if (element) onInspectElementRef.current?.(element);
-                setIsInspecting(false);
-              })
-              .catch((error: unknown) => {
-                setIsInspecting(false);
-                showError(commandErrorMessage(error));
-              });
-          }
-        );
+        attachDevToolsSession(createdTab.id);
         setTab(createdTab);
         setAddress(createdTab.url);
         onTitleChange?.(createdTab.title);
@@ -368,13 +476,22 @@ export function BrowserPanel({
     return () => {
       disposed = true;
       unlisten?.();
-      const tabId = createdTabId ?? tabIdRef.current;
       devToolsSessionRef.current?.dispose();
       devToolsSessionRef.current = null;
       tabIdRef.current = null;
-      if (tabId) void browserApi.closeTab(tabId);
+      const tabIds = [...ownedTabIds];
+      ownedTabIds.clear();
+      tabsRef.current = [];
+      for (const tabId of tabIds) void browserApi.closeTab(tabId);
     };
-  }, [onTitleChange, showError, surfaceReady, workspaceId]);
+  }, [
+    activateTab,
+    attachDevToolsSession,
+    onTitleChange,
+    showError,
+    surfaceReady,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!tab || requestToken === lastRequestTokenRef.current || !initialUrl) {
@@ -422,6 +539,32 @@ export function BrowserPanel({
       setIsInspecting(true);
     })().catch((error: unknown) => {
       setIsInspecting(false);
+      showError(commandErrorMessage(error));
+    });
+  };
+
+  const runFind = (forward: boolean, findNext: boolean) => {
+    if (!findQuery) return;
+    applyIntent({
+      type: 'find',
+      query: findQuery,
+      forward,
+      matchCase: false,
+      findNext,
+    });
+  };
+
+  const closeFind = () => {
+    setFindOpen(false);
+    applyIntent({ type: 'stopFinding' });
+  };
+
+  const changeDevicePreset = (preset: DevicePresetId) => {
+    const session = devToolsSessionRef.current;
+    if (!session) return;
+    setDevicePreset(preset);
+    clearError();
+    void applyDevicePreset(session, preset).catch((error: unknown) => {
       showError(commandErrorMessage(error));
     });
   };
@@ -498,6 +641,51 @@ export function BrowserPanel({
           />
         </form>
 
+        <select
+          aria-label="Zoom"
+          title="Zoom"
+          value={String(tab?.zoomLevel ?? 0)}
+          disabled={!tab}
+          onChange={(event) =>
+            applyIntent({ type: 'setZoom', level: Number(event.target.value) })
+          }
+          className="h-7 w-[4.25rem] rounded-md border border-border bg-background px-1 text-[11px] text-foreground outline-none"
+        >
+          <option value="-2">80%</option>
+          <option value="-1">90%</option>
+          <option value="0">100%</option>
+          <option value="1">110%</option>
+          <option value="2">125%</option>
+        </select>
+        <select
+          aria-label="Device"
+          title="Device emulation"
+          value={devicePreset}
+          disabled={!tab}
+          onChange={(event) =>
+            changeDevicePreset(event.target.value as DevicePresetId)
+          }
+          className="h-7 w-[4.75rem] rounded-md border border-border bg-background px-1 text-[11px] text-foreground outline-none"
+        >
+          <option value="desktop">Desktop</option>
+          <option value="tablet">Tablet</option>
+          <option value="mobile">Mobile</option>
+        </select>
+        <Button
+          aria-label="Find in Page"
+          title="Find in Page"
+          variant="icon"
+          size="icon"
+          className="h-7 w-7"
+          disabled={!tab}
+          onClick={() => {
+            setFindOpen(true);
+            requestAnimationFrame(() => findInputRef.current?.focus());
+          }}
+        >
+          <Search className="h-3.5 w-3.5" />
+        </Button>
+
         <Button
           aria-label="Select Element"
           aria-pressed={isInspecting}
@@ -522,6 +710,192 @@ export function BrowserPanel({
           <Bug className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {tabs.length > 1 && (
+        <div
+          role="tablist"
+          aria-label="Browser Tabs"
+          className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-1"
+        >
+          {tabs.map((candidate) => {
+            const label = candidate.title || candidate.url || 'New Tab';
+            const active = candidate.id === tab?.id;
+            return (
+              <div
+                key={candidate.id}
+                className={cn(
+                  'flex h-7 min-w-24 max-w-48 items-center rounded-md border px-1',
+                  active
+                    ? 'border-border bg-background text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-muted'
+                )}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-label={label}
+                  aria-selected={active}
+                  className="min-w-0 flex-1 truncate px-1 text-left text-xs"
+                  onClick={() => activateTab(candidate)}
+                >
+                  {label}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Close ${label}`}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+                  onClick={() => void browserApi.closeTab(candidate.id)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {findOpen && (
+        <form
+          className="flex h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-muted/30 px-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            runFind(true, false);
+          }}
+        >
+          <input
+            ref={findInputRef}
+            aria-label="Find in Page"
+            value={findQuery}
+            onChange={(event) => setFindQuery(event.target.value)}
+            className="h-7 w-56 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-primary/70"
+          />
+          <Button
+            type="button"
+            aria-label="Previous Match"
+            title="Previous Match"
+            variant="icon"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => runFind(false, true)}
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            aria-label="Next Match"
+            title="Next Match"
+            variant="icon"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => runFind(true, true)}
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            aria-label="Close Find"
+            title="Close Find"
+            variant="icon"
+            size="icon"
+            className="h-7 w-7"
+            onClick={closeFind}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </form>
+      )}
+
+      {permissionRequest && permissionRequest.tabId === tab?.id && (
+        <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border bg-amber-500/10 px-3 text-xs text-foreground">
+          <span className="min-w-0 flex-1 truncate">
+            {permissionRequest.origin || 'This page'} wants{' '}
+            {permissionRequest.kind === 'media' ? 'media' : 'browser'} access.
+          </span>
+          <Button
+            type="button"
+            aria-label="Deny Permission"
+            variant="secondary"
+            size="sm"
+            className="h-7"
+            onClick={() => {
+              void browserApi.applyIntent(permissionRequest.tabId, {
+                type: 'resolvePermission',
+                requestId: permissionRequest.requestId,
+                allow: false,
+              });
+              setPermissionRequest(undefined);
+            }}
+          >
+            Deny
+          </Button>
+          <Button
+            type="button"
+            aria-label="Allow Permission"
+            size="sm"
+            className="h-7"
+            onClick={() => {
+              void browserApi.applyIntent(permissionRequest.tabId, {
+                type: 'resolvePermission',
+                requestId: permissionRequest.requestId,
+                allow: true,
+              });
+              setPermissionRequest(undefined);
+            }}
+          >
+            Allow
+          </Button>
+        </div>
+      )}
+
+      {downloads
+        .filter((download) => download.tabId === tab?.id)
+        .map((download) => (
+          <div
+            key={download.downloadId}
+            className="flex min-h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3 text-xs text-foreground"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {download.fileName || download.url}{' '}
+              {download.percentComplete >= 0
+                ? `${download.percentComplete}%`
+                : `${download.receivedBytes} bytes`}
+            </span>
+            {download.state === 'inProgress' ? (
+              <Button
+                type="button"
+                aria-label="Cancel Download"
+                variant="secondary"
+                size="sm"
+                className="h-7"
+                onClick={() =>
+                  void browserApi.applyIntent(download.tabId, {
+                    type: 'cancelDownload',
+                    downloadId: download.downloadId,
+                  })
+                }
+              >
+                Cancel
+              </Button>
+            ) : (
+              <button
+                type="button"
+                aria-label="Dismiss Download"
+                className="flex h-6 w-6 items-center justify-center rounded hover:bg-muted"
+                onClick={() =>
+                  setDownloads((current) =>
+                    current.filter(
+                      (candidate) =>
+                        candidate.tabId !== download.tabId ||
+                        candidate.downloadId !== download.downloadId
+                    )
+                  )
+                }
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ))}
 
       <div className="relative min-h-0 flex-1">
         <div

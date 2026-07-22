@@ -162,12 +162,18 @@ Chromium Browser Runtime，并彻底替换 iframe + preview proxy 的 Web Previe
   staging、resource overlay 与 Linux rpath 已实现，但仍须在对应 CI runner 上做实机
   bundle 验证。
 
-以下属于发布门禁，而不是旧实现 fallback：
+随后完成的浏览器能力：
 
-- popup 目前在受控 tab 内导航；多 tab UI 与 popup disposition 策略尚未交付。
-- 下载使用 Chromium 原生 Save As；下载事件列表和 VibeX 路径选择 UI 尚未交付。
-- 权限请求默认拒绝；VibeX 权限决策 UI 尚未交付。
-- 原生 DevTools 与通用 CDP 已可用，专用 console/network、device emulation 与
-  find-in-page UI 尚未交付。
+- popup 由 Browser Runtime 创建同 profile 的受控 sibling tab；React tab strip 只切换
+  native surface 可见性，不重建页面。
+- 下载保留 Chromium 原生 Save As，并通过事件流显示进度、完成状态与取消操作。
+- CEF 权限 callback 会等待 VibeX 显式 Allow/Deny，不静默允许或拒绝。
+- 已交付 native zoom、find-in-page，以及通过 CDP 实现的 desktop/tablet/mobile
+  viewport、DPR、touch、UA 和 media emulation。
+
+以下仍属于发布门禁，而不是旧实现 fallback：
+
+- 原生 DevTools 与通用 CDP 已可用；专用 console/network pane 与 screenshot UI 尚未
+  交付，但底层 domain/transport 不需再次重构。
 - Windows、Linux bundle smoke、HMR/Cookie/login 的三平台端到端矩阵仍是正式发布的
   必须条件。

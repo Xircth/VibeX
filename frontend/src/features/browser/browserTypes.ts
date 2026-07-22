@@ -27,6 +27,7 @@ export interface BrowserTab {
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
+  zoomLevel: number;
   profile: BrowserProfile;
   surface: BrowserSurface;
 }
@@ -40,6 +41,17 @@ export type BrowserIntent =
   | { type: 'setSurface'; surface: BrowserSurface }
   | { type: 'focus' }
   | { type: 'openDevTools' }
+  | { type: 'setZoom'; level: number }
+  | {
+      type: 'find';
+      query: string;
+      forward: boolean;
+      matchCase: boolean;
+      findNext: boolean;
+    }
+  | { type: 'stopFinding' }
+  | { type: 'resolvePermission'; requestId: number; allow: boolean }
+  | { type: 'cancelDownload'; downloadId: number }
   | {
       type: 'executeDevTools';
       requestId: number;
@@ -51,6 +63,30 @@ export type BrowserEvent =
   | { type: 'tabCreated'; tab: BrowserTab }
   | { type: 'tabUpdated'; tab: BrowserTab }
   | { type: 'tabClosed'; tabId: BrowserTabId }
+  | {
+      type: 'popupCreated';
+      openerTabId: BrowserTabId;
+      tab: BrowserTab;
+    }
+  | {
+      type: 'permissionRequested';
+      tabId: BrowserTabId;
+      requestId: number;
+      origin: string;
+      kind: 'media' | 'generic';
+      requestedPermissions: number;
+    }
+  | {
+      type: 'downloadUpdated';
+      tabId: BrowserTabId;
+      downloadId: number;
+      url: string;
+      fileName: string;
+      receivedBytes: number;
+      totalBytes: number;
+      percentComplete: number;
+      state: 'inProgress' | 'complete' | 'canceled' | 'interrupted';
+    }
   | {
       type: 'tabFailed';
       tab: BrowserTab;

@@ -8,8 +8,8 @@ use std::{
 };
 
 use browser_runtime::{
-    BrowserEngineCommand, BrowserEngineEvent, BrowserProfile, BrowserRuntime, BrowserSurface,
-    BrowserTabId,
+    BrowserDownloadState, BrowserEngineCommand, BrowserEngineEvent, BrowserPermissionKind,
+    BrowserProfile, BrowserRuntime, BrowserSurface, BrowserTabId,
 };
 use cef::{self, args::Args, *};
 use thiserror::Error;
@@ -48,6 +48,10 @@ pub enum CefHostError {
     NativeSurface(String),
     #[error("CEF rejected DevTools Protocol message: {0}")]
     DevTools(String),
+    #[error("CEF permission request is unavailable: {0}")]
+    PermissionUnavailable(u64),
+    #[error("CEF download is unavailable: {0}")]
+    DownloadUnavailable(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +189,17 @@ struct BrowserRegistry {
     devtools: HashMap<BrowserTabId, Registration>,
     surfaces: HashMap<BrowserTabId, BrowserSurface>,
     pending: HashMap<BrowserTabId, Vec<BrowserEngineCommand>>,
+    pending_permissions: HashMap<(BrowserTabId, u64), PendingPermission>,
+    downloads: HashMap<(BrowserTabId, u32), DownloadItemCallback>,
+    next_permission_id: u64,
+}
+
+enum PendingPermission {
+    Media {
+        callback: MediaAccessCallback,
+        requested_permissions: u32,
+    },
+    Generic(PermissionPromptCallback),
 }
 
 pub struct CefSession {
@@ -252,6 +267,15 @@ impl CefSession {
                 profile,
                 surface,
             } => self.create_browser(tab_id, initial_url, profile, surface),
+            BrowserEngineCommand::ResolvePermission {
+                tab_id,
+                request_id,
+                allow,
+            } => self.resolve_permission(tab_id, request_id, allow),
+            BrowserEngineCommand::CancelDownload {
+                tab_id,
+                download_id,
+            } => self.cancel_download(tab_id, download_id),
             command => {
                 let tab_id = command_tab_id(&command).clone();
                 let browser = self.registry.borrow().browsers.get(&tab_id).cloned();
@@ -268,6 +292,49 @@ impl CefSession {
                 Ok(())
             }
         }
+    }
+
+    fn resolve_permission(
+        &self,
+        tab_id: BrowserTabId,
+        request_id: u64,
+        allow: bool,
+    ) -> Result<(), CefHostError> {
+        let permission = self
+            .registry
+            .borrow_mut()
+            .pending_permissions
+            .remove(&(tab_id, request_id))
+            .ok_or(CefHostError::PermissionUnavailable(request_id))?;
+        match permission {
+            PendingPermission::Media {
+                callback,
+                requested_permissions,
+            } => {
+                if allow {
+                    callback.cont(requested_permissions);
+                } else {
+                    callback.cancel();
+                }
+            }
+            PendingPermission::Generic(callback) => callback.cont(if allow {
+                PermissionRequestResult::ACCEPT
+            } else {
+                PermissionRequestResult::DENY
+            }),
+        }
+        Ok(())
+    }
+
+    fn cancel_download(&self, tab_id: BrowserTabId, download_id: u32) -> Result<(), CefHostError> {
+        let callback = self
+            .registry
+            .borrow_mut()
+            .downloads
+            .remove(&(tab_id, download_id))
+            .ok_or(CefHostError::DownloadUnavailable(download_id))?;
+        callback.cancel();
+        Ok(())
     }
 
     fn create_browser(
@@ -351,6 +418,11 @@ fn command_tab_id(command: &BrowserEngineCommand) -> &BrowserTabId {
         | BrowserEngineCommand::Close { tab_id }
         | BrowserEngineCommand::Focus { tab_id }
         | BrowserEngineCommand::OpenDevTools { tab_id }
+        | BrowserEngineCommand::SetZoom { tab_id, .. }
+        | BrowserEngineCommand::Find { tab_id, .. }
+        | BrowserEngineCommand::StopFinding { tab_id }
+        | BrowserEngineCommand::ResolvePermission { tab_id, .. }
+        | BrowserEngineCommand::CancelDownload { tab_id, .. }
         | BrowserEngineCommand::ExecuteDevTools { tab_id, .. } => tab_id,
     }
 }
@@ -391,6 +463,35 @@ fn execute_browser_command(
                 .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
                 .show_dev_tools(None, None, Some(&BrowserSettings::default()), None);
         }
+        BrowserEngineCommand::SetZoom { level, .. } => {
+            browser
+                .host()
+                .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
+                .set_zoom_level(*level);
+        }
+        BrowserEngineCommand::Find {
+            query,
+            forward,
+            match_case,
+            find_next,
+            ..
+        } => {
+            browser
+                .host()
+                .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
+                .find(
+                    Some(&CefString::from(query.as_str())),
+                    i32::from(*forward),
+                    i32::from(*match_case),
+                    i32::from(*find_next),
+                );
+        }
+        BrowserEngineCommand::StopFinding { .. } => {
+            browser
+                .host()
+                .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
+                .stop_finding(1);
+        }
         BrowserEngineCommand::ExecuteDevTools {
             request_id,
             method,
@@ -411,7 +512,9 @@ fn execute_browser_command(
                 return Err(CefHostError::DevTools(method.clone()));
             }
         }
-        BrowserEngineCommand::Create { .. } => {}
+        BrowserEngineCommand::Create { .. }
+        | BrowserEngineCommand::ResolvePermission { .. }
+        | BrowserEngineCommand::CancelDownload { .. } => {}
     }
     Ok(())
 }
@@ -475,7 +578,11 @@ cef::wrap_client! {
         }
 
         fn download_handler(&self) -> Option<DownloadHandler> {
-            Some(VibeXDownloadHandler::new())
+            Some(VibeXDownloadHandler::new(
+                self.tab_id.clone(),
+                self.runtime.clone(),
+                self.registry.clone(),
+            ))
         }
 
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
@@ -491,13 +598,21 @@ cef::wrap_client! {
         }
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
-            Some(VibeXPermissionHandler::new())
+            Some(VibeXPermissionHandler::new(
+                self.tab_id.clone(),
+                self.runtime.clone(),
+                self.registry.clone(),
+            ))
         }
     }
 }
 
 cef::wrap_download_handler! {
-    struct VibeXDownloadHandler;
+    struct VibeXDownloadHandler {
+        tab_id: BrowserTabId,
+        runtime: Arc<BrowserRuntime>,
+        registry: Rc<RefCell<BrowserRegistry>>,
+    }
 
     impl DownloadHandler {
         fn can_download(
@@ -523,38 +638,123 @@ cef::wrap_download_handler! {
                 0
             }
         }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            callback: Option<&mut DownloadItemCallback>,
+        ) {
+            let Some(item) = download_item else {
+                return;
+            };
+            let download_id = item.id();
+            let state = if item.is_complete() != 0 {
+                BrowserDownloadState::Complete
+            } else if item.is_canceled() != 0 {
+                BrowserDownloadState::Canceled
+            } else if item.is_interrupted() != 0 {
+                BrowserDownloadState::Interrupted
+            } else {
+                BrowserDownloadState::InProgress
+            };
+            let key = (self.tab_id.clone(), download_id);
+            if state == BrowserDownloadState::InProgress {
+                if let Some(callback) = callback {
+                    self.registry
+                        .borrow_mut()
+                        .downloads
+                        .insert(key, callback.clone());
+                }
+            } else {
+                self.registry.borrow_mut().downloads.remove(&key);
+            }
+            let url = item.url();
+            let file_name = item.suggested_file_name();
+            let _ = self.runtime.apply_engine_event(
+                BrowserEngineEvent::DownloadUpdated {
+                    tab_id: self.tab_id.clone(),
+                    download_id,
+                    url: CefString::from(&url).to_string(),
+                    file_name: CefString::from(&file_name).to_string(),
+                    received_bytes: item.received_bytes(),
+                    total_bytes: item.total_bytes(),
+                    percent_complete: item.percent_complete(),
+                    state,
+                },
+            );
+        }
     }
 }
 
 cef::wrap_permission_handler! {
-    struct VibeXPermissionHandler;
+    struct VibeXPermissionHandler {
+        tab_id: BrowserTabId,
+        runtime: Arc<BrowserRuntime>,
+        registry: Rc<RefCell<BrowserRegistry>>,
+    }
 
     impl PermissionHandler {
         fn on_request_media_access_permission(
             &self,
             _browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
-            _requesting_origin: Option<&CefString>,
-            _requested_permissions: u32,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
             callback: Option<&mut MediaAccessCallback>,
         ) -> i32 {
-            if let Some(callback) = callback {
-                callback.cont(0);
-            }
+            let Some(callback) = callback.map(|callback| callback.clone()) else {
+                return 0;
+            };
+            let request_id = {
+                let mut registry = self.registry.borrow_mut();
+                registry.next_permission_id = registry.next_permission_id.saturating_add(1);
+                let request_id = registry.next_permission_id;
+                registry.pending_permissions.insert(
+                    (self.tab_id.clone(), request_id),
+                    PendingPermission::Media {
+                        callback,
+                        requested_permissions,
+                    },
+                );
+                request_id
+            };
+            let _ = self.runtime.apply_engine_event(
+                BrowserEngineEvent::PermissionRequested {
+                    tab_id: self.tab_id.clone(),
+                    request_id,
+                    origin: requesting_origin.map(CefString::to_string).unwrap_or_default(),
+                    kind: BrowserPermissionKind::Media,
+                    requested_permissions,
+                },
+            );
             1
         }
 
         fn on_show_permission_prompt(
             &self,
             _browser: Option<&mut Browser>,
-            _prompt_id: u64,
-            _requesting_origin: Option<&CefString>,
-            _requested_permissions: u32,
+            prompt_id: u64,
+            requesting_origin: Option<&CefString>,
+            requested_permissions: u32,
             callback: Option<&mut PermissionPromptCallback>,
         ) -> i32 {
-            if let Some(callback) = callback {
-                callback.cont(PermissionRequestResult::DENY);
-            }
+            let Some(callback) = callback.map(|callback| callback.clone()) else {
+                return 0;
+            };
+            self.registry.borrow_mut().pending_permissions.insert(
+                (self.tab_id.clone(), prompt_id),
+                PendingPermission::Generic(callback),
+            );
+            let _ = self.runtime.apply_engine_event(
+                BrowserEngineEvent::PermissionRequested {
+                    tab_id: self.tab_id.clone(),
+                    request_id: prompt_id,
+                    origin: requesting_origin.map(CefString::to_string).unwrap_or_default(),
+                    kind: BrowserPermissionKind::Generic,
+                    requested_permissions,
+                },
+            );
             1
         }
     }
@@ -570,7 +770,7 @@ cef::wrap_life_span_handler! {
     impl LifeSpanHandler {
         fn on_before_popup(
             &self,
-            browser: Option<&mut Browser>,
+            _browser: Option<&mut Browser>,
             _frame: Option<&mut Frame>,
             _popup_id: i32,
             target_url: Option<&CefString>,
@@ -584,10 +784,13 @@ cef::wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
-            if let (Some(frame), Some(target_url)) =
-                (browser.and_then(|browser| browser.main_frame()), target_url)
-            {
-                frame.load_url(Some(target_url));
+            if let Some(target_url) = target_url {
+                let _ = self.runtime.apply_engine_event(
+                    BrowserEngineEvent::PopupRequested {
+                        opener_tab_id: self.tab_id.clone(),
+                        url: target_url.to_string(),
+                    },
+                );
             }
             1
         }

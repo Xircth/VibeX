@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/api-types",
     "crates/agents",
+    "crates/browser-runtime",
     "crates/delegation-proto",
     "crates/delegation",
     "crates/vibex-mcp",

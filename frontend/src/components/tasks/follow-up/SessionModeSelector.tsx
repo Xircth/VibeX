@@ -1,4 +1,5 @@
 import { Check, SlidersHorizontal } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentSessionMode } from 'shared/types';
 import {
@@ -9,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 import {
   blockItemPointerMoveFocus,
   COMPOSER_SELECT_ITEM_CLASS,
@@ -16,15 +18,29 @@ import {
   COMPOSER_SELECT_LIST_CLASS,
   ComposerOptionName,
 } from './ComposerSelect';
+import { compactSessionControlLabel } from './sessionControlLabels';
 
 /**
- * Preserve every mode exactly as the active ACP Session advertises it. Shared
- * by the composer's icon picker and the create form's labeled field.
+ * Keep Agent-advertised modes intact, except that bypass-permissions remains
+ * behind VibeX's explicit local safety gate. Shared by the composer's icon
+ * picker and the create form's labeled field.
  */
 export function presentableSessionModes(
-  modes: AgentSessionMode[]
+  modes: AgentSessionMode[],
+  dangerousOperationsAllowed = false,
+  activeId: string | null = null
 ): AgentSessionMode[] {
-  return modes;
+  return modes
+    .filter(
+      (mode) =>
+        !isDangerousPermissionsMode(mode.id) ||
+        dangerousOperationsAllowed ||
+        mode.id === activeId
+    )
+    .map((mode) => {
+      const label = compactSessionControlLabel(mode.id, mode.label);
+      return label === mode.label ? mode : { ...mode, label };
+    });
 }
 
 export function presentedActiveModeId(
@@ -57,10 +73,27 @@ export function SessionModeSelector({
 }) {
   const { t } = useTranslation(['tasks', 'common']);
 
+  const activeModeId = selected ?? current;
+  const hasDangerousPermissionsMode = modes.some((mode) =>
+    isDangerousPermissionsMode(mode.id)
+  );
+  const [dangerousOperationsAllowed, setDangerousOperationsAllowed] = useState(
+    () => isDangerousPermissionsMode(activeModeId)
+  );
+  useEffect(() => {
+    if (isDangerousPermissionsMode(activeModeId)) {
+      setDangerousOperationsAllowed(true);
+    }
+  }, [activeModeId]);
+
   if (modes.length === 0) return null;
 
-  const presentableModes = presentableSessionModes(modes);
-  const presentedActiveId = presentedActiveModeId(modes, selected ?? current);
+  const presentableModes = presentableSessionModes(
+    modes,
+    dangerousOperationsAllowed,
+    activeModeId
+  );
+  const presentedActiveId = presentedActiveModeId(modes, activeModeId);
   const activeMode =
     presentableModes.find((mode) => mode.id === presentedActiveId) ?? null;
   const triggerTitle = `${t('sessionModeSelector.title')}: ${
@@ -121,7 +154,30 @@ export function SessionModeSelector({
             );
           })}
         </div>
+        {hasDangerousPermissionsMode ? (
+          <div className="mt-1 flex items-center justify-between gap-3 border-t px-2 py-2">
+            <span className="text-xs text-muted-foreground">
+              {t('sessionModeSelector.allowDangerousOperations', {
+                defaultValue: '允许危险操作',
+              })}
+            </span>
+            <Switch
+              checked={dangerousOperationsAllowed}
+              onCheckedChange={setDangerousOperationsAllowed}
+              disabled={disabled}
+              aria-label={t('sessionModeSelector.allowDangerousOperations', {
+                defaultValue: '允许危险操作',
+              })}
+            />
+          </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+export function isDangerousPermissionsMode(modeId: string | null): boolean {
+  return (
+    modeId?.replace(/[^a-z0-9]/gi, '').toLowerCase() === 'bypasspermissions'
   );
 }

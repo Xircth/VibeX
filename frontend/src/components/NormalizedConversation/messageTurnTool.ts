@@ -319,7 +319,13 @@ function editChanges(
     };
   }
 
-  return null;
+  // ACP edit calls may advertise only the target location while the actual
+  // patch is applied out-of-band. Preserve edit semantics so the UI can still
+  // name and open the affected file instead of misclassifying it as a read.
+  return {
+    path,
+    changes: [{ action: 'edit', unified_diff: '', has_line_numbers: false }],
+  };
 }
 
 /** Normalize a tool/kind name for set membership (drops spaces, _, -, dots). */

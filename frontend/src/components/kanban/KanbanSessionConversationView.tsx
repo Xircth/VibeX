@@ -23,6 +23,7 @@ import VirtualizedList, {
 import { TaskFollowUpSection } from '@/components/tasks/TaskFollowUpSection';
 import { ActiveExecutorProfileProvider } from '@/contexts/ActiveExecutorProfileContext';
 import { EntriesProvider } from '@/contexts/EntriesContext';
+import { ConversationStatusProvider } from '@/contexts/ConversationStatusContext';
 import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext';
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
@@ -285,64 +286,66 @@ function KanbanSessionConversationContent({
 
   return (
     <EntriesProvider runtimeKey={conversationKey}>
-      <ExecutionProcessesProvider
-        attemptId={attempt.id}
-        sessionId={activeSession?.id ?? attempt.session?.id}
-      >
-        <RetryUiProvider attemptId={attempt.id}>
-          <ActiveExecutorProfileProvider>
-            <div className="flex h-full min-h-0 flex-col">
-              {shouldShowNewSessionPrompt ? (
-                <RightPanelNewSessionPrompt
-                  className="flex-1"
-                  onCreateSession={() => {
-                    onCreateSessionRequested?.();
-                  }}
-                />
-              ) : (
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <VirtualizedList
-                    ref={logsRef}
-                    attempt={activeAttempt}
-                    task={null}
-                    onAtBottomChange={setIsAtConversationBottom}
+      <ConversationStatusProvider key={conversationKey} enabled={interactive}>
+        <ExecutionProcessesProvider
+          attemptId={attempt.id}
+          sessionId={activeSession?.id ?? attempt.session?.id}
+        >
+          <RetryUiProvider attemptId={attempt.id}>
+            <ActiveExecutorProfileProvider>
+              <div className="flex h-full min-h-0 flex-col">
+                {shouldShowNewSessionPrompt ? (
+                  <RightPanelNewSessionPrompt
+                    className="flex-1"
+                    onCreateSession={() => {
+                      onCreateSessionRequested?.();
+                    }}
                   />
-                </div>
-              )}
-              {interactive &&
-              !shouldShowNewSessionPrompt &&
-              !isAtConversationBottom ? (
-                <div className="pointer-events-none relative z-20 h-0">
-                  <button
-                    type="button"
-                    className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
-                    aria-label={t('sessionConversationView.backToBottom')}
-                    title={t('sessionConversationView.backToBottom')}
-                    onClick={() => logsRef.current?.scrollToBottom()}
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
-              {interactive && !shouldShowNewSessionPrompt ? (
-                <TaskFollowUpSection
-                  taskId={taskId}
-                  session={activeSession}
-                  workspaceId={attempt.id}
-                  sessionState={sessionState}
-                  showSessionSelector={showSessionSelector}
-                  onSessionCreated={onSessionCreated}
-                  onSessionSelected={onSessionSelected}
-                  onCreateSessionRequested={onCreateSessionRequested}
-                  onJumpToPreviousUserMessage={() =>
-                    logsRef.current?.scrollToPreviousUserMessage()
-                  }
-                />
-              ) : null}
-            </div>
-          </ActiveExecutorProfileProvider>
-        </RetryUiProvider>
-      </ExecutionProcessesProvider>
+                ) : (
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <VirtualizedList
+                      ref={logsRef}
+                      attempt={activeAttempt}
+                      task={null}
+                      onAtBottomChange={setIsAtConversationBottom}
+                    />
+                  </div>
+                )}
+                {interactive &&
+                !shouldShowNewSessionPrompt &&
+                !isAtConversationBottom ? (
+                  <div className="pointer-events-none relative z-20 h-0">
+                    <button
+                      type="button"
+                      className="tahoe-popover pointer-events-auto absolute left-1/2 top-0 inline-flex h-9 w-9 -translate-x-1/2 -translate-y-[calc(100%+8px)] items-center justify-center rounded-full text-foreground/80 transition-colors hover:text-foreground"
+                      aria-label={t('sessionConversationView.backToBottom')}
+                      title={t('sessionConversationView.backToBottom')}
+                      onClick={() => logsRef.current?.scrollToBottom()}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
+                {interactive && !shouldShowNewSessionPrompt ? (
+                  <TaskFollowUpSection
+                    taskId={taskId}
+                    session={activeSession}
+                    workspaceId={attempt.id}
+                    sessionState={sessionState}
+                    showSessionSelector={showSessionSelector}
+                    onSessionCreated={onSessionCreated}
+                    onSessionSelected={onSessionSelected}
+                    onCreateSessionRequested={onCreateSessionRequested}
+                    onJumpToPreviousUserMessage={() =>
+                      logsRef.current?.scrollToPreviousUserMessage()
+                    }
+                  />
+                ) : null}
+              </div>
+            </ActiveExecutorProfileProvider>
+          </RetryUiProvider>
+        </ExecutionProcessesProvider>
+      </ConversationStatusProvider>
     </EntriesProvider>
   );
 }

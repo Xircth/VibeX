@@ -1,5 +1,6 @@
 import type {
   AgentSessionConfigOption,
+  AgentSessionControlsSnapshot,
   AgentSessionMode,
   ContentBlock,
   ConversationRowOp,
@@ -79,6 +80,11 @@ export type ConversationStoreAction =
       detail: DbConversationDetail;
     }
   | { type: 'load_error'; conversationId: string; error: string }
+  | {
+      type: 'session_controls_hydrated';
+      conversationId: string;
+      controls: AgentSessionControlsSnapshot;
+    }
   | { type: 'row_ops'; batch: ConversationRowOpBatch }
   | {
       type: 'upsert_rows';
@@ -118,7 +124,9 @@ export function conversationStoreReducer(
           detail: action.detail,
           rows: keepRealtimeRows ? entry.rows : action.detail.timeline.rows,
           liveText: keepRealtimeRows ? entry.liveText : {},
-          lastSequence: keepRealtimeRows ? entry.lastSequence : detailLastSequence,
+          lastSequence: keepRealtimeRows
+            ? entry.lastSequence
+            : detailLastSequence,
           projectionVersion: action.detail.projection_version,
           currentTurnId: action.detail.current_turn?.id ?? entry.currentTurnId,
           loading: false,
@@ -150,11 +158,18 @@ export function conversationStoreReducer(
         loading: false,
         error: action.error,
       }));
+    case 'session_controls_hydrated':
+      return updateEntry(state, action.conversationId, (entry) => ({
+        ...entry,
+        sessionModes: {
+          current: action.controls.current_mode ?? null,
+          modes: action.controls.modes,
+        },
+        sessionConfigOptions: action.controls.config_options,
+      }));
     case 'row_ops':
-      return updateEntry(
-        state,
-        action.batch.conversation_id,
-        (entry) => applyRowOpBatch(entry, action.batch)
+      return updateEntry(state, action.batch.conversation_id, (entry) =>
+        applyRowOpBatch(entry, action.batch)
       );
     case 'upsert_rows':
       return updateEntry(state, action.conversationId, (entry) => {
@@ -304,7 +319,10 @@ export function timelineTurnsForEntry(
     if (row.row.kind !== 'message_turn') return [];
     const overlay = entry.liveText[row.row_id];
     const turn = overlay
-      ? { ...row.row.turn, blocks: overlayLiveText(row.row.turn.blocks, overlay) }
+      ? {
+          ...row.row.turn,
+          blocks: overlayLiveText(row.row.turn.blocks, overlay),
+        }
       : row.row.turn;
     return [
       {
@@ -444,7 +462,9 @@ function withPendingAssistantTurns(
 ): ConversationTimelineTurn[] {
   const result = [...turns];
   const assistantIds = new Set(
-    turns.filter((row) => row.turn.role === 'assistant').map((row) => row.turn.id)
+    turns
+      .filter((row) => row.turn.role === 'assistant')
+      .map((row) => row.turn.id)
   );
 
   for (const [rowId, overlay] of Object.entries(entry.liveText)) {
@@ -473,12 +493,21 @@ function withPendingAssistantTurns(
     assistantIds.add(rowId);
   }
 
-  // Optimistic user turn with no backend/assistant row yet → empty streaming bubble.
-  const optimisticUser = [...turns]
+  // A sent user turn remains in-flight while it transitions from the optimistic
+  // client row to the backend-projected streaming row. Keep one empty assistant
+  // bubble across that handoff so the waiting indicator never disappears before
+  // the first assistant delta arrives.
+  const pendingUser = [...turns]
     .reverse()
-    .find((row) => row.phase === 'optimistic' && row.turn.role === 'user');
-  if (optimisticUser) {
-    const assistantId = `${optimisticUser.turn.id}:assistant`;
+    .find(
+      (row) =>
+        row.turn.role === 'user' &&
+        (row.phase === 'optimistic' || row.phase === 'streaming')
+    );
+  if (pendingUser) {
+    const assistantId = pendingUser.turn.id.endsWith(':user')
+      ? `${pendingUser.turn.id.slice(0, -':user'.length)}:assistant`
+      : `${pendingUser.turn.id}:assistant`;
     if (!assistantIds.has(assistantId)) {
       result.push({
         key: `pending-${assistantId}`,
@@ -487,7 +516,7 @@ function withPendingAssistantTurns(
           id: assistantId,
           role: 'assistant',
           blocks: [],
-          timestamp: optimisticUser.turn.timestamp,
+          timestamp: pendingUser.turn.timestamp,
         },
       });
     }

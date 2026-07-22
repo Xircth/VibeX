@@ -1,16 +1,24 @@
-import { memo, useCallback, useMemo, useState, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronDown,
   ChevronRight,
   Clipboard,
+  Loader2,
+  Pencil,
   RotateCcw,
   Wrench,
 } from 'lucide-react';
-import { type MessageTurn,
-  type TaskWithAttemptStatus,
-} from 'shared/types';
+import { type MessageTurn, type TaskWithAttemptStatus } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { cn } from '@/lib/utils';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -164,9 +172,11 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
 function UserMessageActions({
   text,
   onRetry,
+  onEdit,
 }: {
   text: string;
   onRetry?: () => void;
+  onEdit?: () => void;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(1600);
@@ -181,7 +191,7 @@ function UserMessageActions({
     }
   }, [text, triggerCopied]);
 
-  if (!text && !onRetry) return null;
+  if (!text && !onRetry && !onEdit) return null;
 
   return (
     <div className="conv-user-actions">
@@ -219,6 +229,97 @@ function UserMessageActions({
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
       ) : null}
+      {onEdit ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="conv-user-action-btn"
+          title={t('messageTurnView.edit')}
+          aria-label={t('messageTurnView.edit')}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function UserMessageEditor({
+  initialText,
+  onCancel,
+  onSubmit,
+}: {
+  initialText: string;
+  onCancel: () => void;
+  onSubmit: (text: string) => Promise<boolean>;
+}) {
+  const { t } = useTranslation(['conversation', 'common']);
+  const [text, setText] = useState(initialText);
+  const [submitting, setSubmitting] = useState(false);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const resizeEditor = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.style.height = '0px';
+    editor.style.height = `${Math.max(88, editor.scrollHeight)}px`;
+  }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+    resizeEditor();
+  }, [resizeEditor]);
+
+  const handleSubmit = async () => {
+    const next = text.trim();
+    if (!next || submitting) return;
+    setSubmitting(true);
+    try {
+      if (await onSubmit(next)) onCancel();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="conv-user-edit-panel">
+      <textarea
+        ref={editorRef}
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value);
+          window.requestAnimationFrame(resizeEditor);
+        }}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            void handleSubmit();
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        disabled={submitting}
+        aria-label={t('messageTurnView.editInput')}
+      />
+      <div className="conv-user-edit-actions">
+        <button type="button" onClick={onCancel} disabled={submitting}>
+          {t('common:cancel')}
+        </button>
+        <button
+          type="button"
+          className="is-primary"
+          onClick={() => void handleSubmit()}
+          disabled={!text.trim() || submitting}
+        >
+          {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {t('messageTurnView.sendEdited')}
+        </button>
+      </div>
     </div>
   );
 }
@@ -308,7 +409,11 @@ function TurnToolGroupCard({
   offset: number;
   aggregationType: TurnAggregationType;
   items: IndexedTurnItem[];
-  renderTurnItem: (item: TurnRenderItem, key: string) => ReactNode;
+  renderTurnItem: (
+    item: TurnRenderItem,
+    key: string,
+    hideToolLabel?: boolean
+  ) => ReactNode;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const [expanded, toggle] = useExpandable(
@@ -356,7 +461,11 @@ function TurnToolGroupCard({
               key={`${turnId}-${offset + index}`}
               className="conv-agg-timeline-item"
             >
-              {render(item, `${turnId}-${offset + index}`)}
+              {render(
+                item,
+                `${turnId}-${offset + index}`,
+                aggregationType === 'command_run'
+              )}
             </div>
           ))}
         </div>
@@ -371,17 +480,22 @@ export const MessageTurnView = memo(function MessageTurnView({
   attempt,
   task,
   onRetry,
+  onEditRetry,
   collapseProcess = false,
   workspacePath,
+  showInterruptedNotice = true,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
   onRetry?: () => void;
+  onEditRetry?: (text: string) => Promise<boolean>;
   collapseProcess?: boolean;
   workspacePath?: string | null;
+  showInterruptedNotice?: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
   // Prefer the resolved absolute root (caller may supply the repo path when the
   // workspace has no container_ref) so clickable file paths open a real file.
   const resolvedWorkspacePath = workspacePath ?? attempt.container_ref;
@@ -398,10 +512,25 @@ export const MessageTurnView = memo(function MessageTurnView({
     const text = turn.blocks
       .flatMap((block) => (block.type === 'text' ? [block.text] : []))
       .join('\n\n');
+    if (editing && onEditRetry) {
+      return (
+        <div className="conv-entry-item conv-user-turn conv-user-turn-editing">
+          <UserMessageEditor
+            initialText={text}
+            onCancel={() => setEditing(false)}
+            onSubmit={onEditRetry}
+          />
+        </div>
+      );
+    }
     return (
       <div className="conv-entry-item conv-user-turn group">
         <div className="conv-user-bubble-wrap">
-          <UserMessageActions text={text} onRetry={onRetry} />
+          <UserMessageActions
+            text={text}
+            onRetry={onRetry}
+            onEdit={onEditRetry ? () => setEditing(true) : undefined}
+          />
           <div className="conv-user-bubble">
             <Markdown
               value={text}
@@ -411,14 +540,18 @@ export const MessageTurnView = memo(function MessageTurnView({
             />
           </div>
         </div>
-        {phase === 'interrupted' ? (
+        {phase === 'interrupted' && showInterruptedNotice ? (
           <InterruptedTurnNotice onResend={onRetry} />
         ) : null}
       </div>
     );
   }
 
-  const renderTurnItem = (item: TurnRenderItem, key: string): ReactNode => {
+  const renderTurnItem = (
+    item: TurnRenderItem,
+    key: string,
+    hideToolLabel = false
+  ): ReactNode => {
     if (item.kind === 'tool' && item.use) {
       return (
         <DisplayConversationEntry
@@ -431,6 +564,7 @@ export const MessageTurnView = memo(function MessageTurnView({
           expansionKey={key}
           taskAttempt={attempt}
           task={task ?? undefined}
+          hideToolLabel={hideToolLabel}
         />
       );
     }
@@ -458,7 +592,8 @@ export const MessageTurnView = memo(function MessageTurnView({
     });
 
   const hideThinking =
-    attempt.session?.executor === 'claude_code';
+    attempt.session?.executor === 'claude_code' ||
+    attempt.session?.executor === 'codex';
   const plannedItems = planTurnBlocks(turn.blocks);
   const items = hideThinking
     ? plannedItems.filter((item) => item.kind !== 'thinking')
@@ -466,7 +601,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   if (phase === 'streaming' && items.length === 0) {
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
-        <AssistantStreamingStatus hasContent={hideThinking} />
+        <AssistantStreamingStatus hasContent={false} />
       </div>
     );
   }

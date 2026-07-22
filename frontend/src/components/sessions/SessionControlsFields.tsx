@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useEffect, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import type { AgentSessionConfigOption, AgentSessionMode } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -13,9 +14,11 @@ import {
 import {
   configOptionDisplayState,
   resolvedConfigOptionChoices,
+  visibleSessionConfigOptions,
   type DisplayChoice,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import {
+  isDangerousPermissionsMode,
   presentableSessionModes,
   presentedActiveModeId,
 } from '@/components/tasks/follow-up/SessionModeSelector';
@@ -54,22 +57,36 @@ export function SessionControlsFields({
 }) {
   const { t } = useTranslation(['tasks', 'common']);
 
-  const presentableModes = presentableSessionModes(modes);
+  const activeModeId = selectedModeId ?? currentModeId;
+  const hasDangerousPermissionsMode = modes.some((mode) =>
+    isDangerousPermissionsMode(mode.id)
+  );
+  const [dangerousOperationsAllowed, setDangerousOperationsAllowed] = useState(
+    () => isDangerousPermissionsMode(activeModeId)
+  );
+  useEffect(() => {
+    if (isDangerousPermissionsMode(activeModeId)) {
+      setDangerousOperationsAllowed(true);
+    }
+  }, [activeModeId]);
+  const presentableModes = presentableSessionModes(
+    modes,
+    dangerousOperationsAllowed,
+    activeModeId
+  );
   const showModeField = presentableModes.length > 0;
   // Same dedupe rule as the composer's ActionBar: when the dedicated mode
   // field is shown, drop the overlapping `mode`-category config option.
+  const visibleConfigOptions = visibleSessionConfigOptions(configOptions);
   const dedupedOptions = showModeField
-    ? configOptions.filter(
+    ? visibleConfigOptions.filter(
         (option) => (option.category ?? option.key) !== 'mode'
       )
-    : configOptions;
+    : visibleConfigOptions;
 
-  const activeModeId = presentedActiveModeId(
-    modes,
-    selectedModeId ?? currentModeId
-  );
+  const presentedModeId = presentedActiveModeId(modes, activeModeId);
   const activeMode =
-    presentableModes.find((mode) => mode.id === activeModeId) ?? null;
+    presentableModes.find((mode) => mode.id === presentedModeId) ?? null;
 
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -85,11 +102,28 @@ export function SessionControlsFields({
             name: mode.label,
             description: mode.description,
           }))}
-          activeValue={activeModeId}
+          activeValue={presentedModeId}
           onSelect={onSelectMode}
           disabled={disabled}
           dropdownSide={dropdownSide}
         />
+      ) : null}
+      {hasDangerousPermissionsMode ? (
+        <div className="flex h-8 items-center justify-between rounded-md border border-input bg-background px-3">
+          <span className="truncate text-xs">
+            {t('sessionModeSelector.allowDangerousOperations', {
+              defaultValue: '允许危险操作',
+            })}
+          </span>
+          <Switch
+            checked={dangerousOperationsAllowed}
+            onCheckedChange={setDangerousOperationsAllowed}
+            disabled={disabled}
+            aria-label={t('sessionModeSelector.allowDangerousOperations', {
+              defaultValue: '允许危险操作',
+            })}
+          />
+        </div>
       ) : null}
       {dedupedOptions.map((option) => {
         if (typeof option.value === 'boolean') {
@@ -116,7 +150,7 @@ export function SessionControlsFields({
         }
         const choices = resolvedConfigOptionChoices(
           option,
-          configOptions,
+          visibleConfigOptions,
           pendingConfigValues
         );
         const { displayChoices, presentedActiveValue } =

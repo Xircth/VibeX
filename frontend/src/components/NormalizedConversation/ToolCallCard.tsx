@@ -71,7 +71,14 @@ export const ToolCallCard: FC<{
   expansionKey: string;
   forceExpanded?: boolean;
   taskAttemptId?: string;
-}> = ({ entry, expansionKey, forceExpanded = false, taskAttemptId }) => {
+  hideLabel?: boolean;
+}> = ({
+  entry,
+  expansionKey,
+  forceExpanded = false,
+  taskAttemptId,
+  hideLabel = false,
+}) => {
   if (!isNormalizedEntry(entry)) {
     return (
       <GenericToolCard
@@ -106,6 +113,7 @@ export const ToolCallCard: FC<{
         forceExpanded={forceExpanded}
         defaultExpanded={toolEntry?.tool_name === 'Tool Install Script'}
         linkifyUrls={toolEntry?.tool_name === 'Tool Install Script'}
+        hideLabel={hideLabel}
       />
     );
   }
@@ -129,9 +137,7 @@ export const ToolCallCard: FC<{
   }
 
   if (isAskQuestionToolEntry(entry)) {
-    return (
-      <AskQuestionResultCard entry={entry} expansionKey={expansionKey} />
-    );
+    return <AskQuestionResultCard entry={entry} expansionKey={expansionKey} />;
   }
 
   if (isFeedbackCheckToolEntry(entry)) {
@@ -157,6 +163,7 @@ export const ScriptToolCallCard: FC<{
   isFailed: boolean;
   toolName: string;
   forceExpanded?: boolean;
+  hideLabel?: boolean;
 }> = ({
   entry,
   expansionKey,
@@ -165,6 +172,7 @@ export const ScriptToolCallCard: FC<{
   isFailed,
   toolName,
   forceExpanded = false,
+  hideLabel = false,
 }) => {
   const { repos } = useAttemptRepo(taskAttemptId);
 
@@ -192,6 +200,7 @@ export const ScriptToolCallCard: FC<{
           expansionKey={expansionKey}
           forceExpanded={forceExpanded}
           taskAttemptId={taskAttemptId}
+          hideLabel={hideLabel}
         />
       </div>
       {canFix ? (

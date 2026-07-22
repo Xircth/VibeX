@@ -60,6 +60,7 @@ type Props = {
   executionProcessId?: string;
   taskAttempt?: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
+  hideToolLabel?: boolean;
 };
 
 /*******************
@@ -82,6 +83,7 @@ function DisplayConversationEntry({
   executionProcessId,
   taskAttempt,
   task,
+  hideToolLabel = false,
 }: Props) {
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
@@ -122,6 +124,7 @@ function DisplayConversationEntry({
             entry={entry}
             expansionKey={expansionKey}
             taskAttemptId={taskAttempt?.id}
+            hideLabel={hideToolLabel}
           />
         </div>
       </div>
@@ -272,6 +275,7 @@ function DisplayConversationEntry({
             isFailed={isFailed}
             toolName={toolEntry.tool_name}
             forceExpanded={isPendingApproval}
+            hideLabel={hideToolLabel}
           />
         );
       }
@@ -282,6 +286,7 @@ function DisplayConversationEntry({
           expansionKey={expansionKey}
           forceExpanded={isPendingApproval}
           taskAttemptId={taskAttempt?.id}
+          hideLabel={hideToolLabel}
         />
       );
     })();

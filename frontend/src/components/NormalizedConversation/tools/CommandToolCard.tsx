@@ -58,12 +58,14 @@ export function CommandToolCard({
   forceExpanded = false,
   defaultExpanded = false,
   linkifyUrls = false,
+  hideLabel = false,
 }: {
   entry: NormalizedEntry;
   expansionKey: string;
   forceExpanded?: boolean;
   defaultExpanded?: boolean;
   linkifyUrls?: boolean;
+  hideLabel?: boolean;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const toolEntry =
@@ -95,7 +97,7 @@ export function CommandToolCard({
   return (
     <ToolCardShell
       icon={<TerminalSquare className="h-3 w-3" />}
-      label={summary.label}
+      label={hideLabel ? '' : 'Terminal'}
       detail={summary.detail || command}
       statusClassName={statusClass}
       statusDotClassName={statusDotClass}

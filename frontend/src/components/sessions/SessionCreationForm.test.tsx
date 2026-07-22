@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -15,7 +15,10 @@ const discardPreparedSession = vi.fn();
 const terminalProfileControls = vi.fn();
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, options?: Record<string, unknown>) =>
+      typeof options?.error === 'string' ? `${key}: ${options.error}` : key,
+  }),
 }));
 vi.mock('@/components/tasks/TerminalProfileControls', () => ({
   TerminalProfileControls: (props: unknown) => {
@@ -35,7 +38,7 @@ vi.mock('@/features/agents/api', () => ({
     setPreparedSessionConfig: (...args: unknown[]) =>
       setPreparedSessionConfig(...args),
     discardPreparedSession: (...args: unknown[]) =>
-      discardPreparedSession(...args),
+      Promise.resolve(discardPreparedSession(...args)),
   },
 }));
 
@@ -82,7 +85,8 @@ function prepared(controls: {
 
 function renderForm(
   executor: 'claude_code' | 'codex' | 'gemini',
-  onPreset: (preset: SessionControlsPreset | null) => void
+  onPreset: (preset: SessionControlsPreset | null) => void,
+  reactStrictMode = false
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -92,7 +96,7 @@ function renderForm(
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
   }
-  return render(
+  const form = (selectedExecutor: typeof executor) => (
     <SessionCreationForm
       mode="existing_workspace"
       onModeChange={() => {}}
@@ -102,7 +106,7 @@ function renderForm(
       sessionName=""
       onSessionNameChange={() => {}}
       profiles={{}}
-      selectedExecutorProfile={{ executor, variant: null }}
+      selectedExecutorProfile={{ executor: selectedExecutor, variant: null }}
       onSelectedExecutorProfileChange={() => {}}
       repoBranchConfigs={[]}
       onRepoBranchChange={() => {}}
@@ -111,9 +115,17 @@ function renderForm(
       isSubmitting={false}
       onSubmit={() => {}}
       onSessionControlsPresetChange={onPreset}
-    />,
-    { wrapper: Wrapper }
+    />
   );
+  const result = render(form(executor), {
+    wrapper: Wrapper,
+    reactStrictMode,
+  });
+  return {
+    ...result,
+    switchExecutor: (selectedExecutor: typeof executor) =>
+      result.rerender(form(selectedExecutor)),
+  };
 }
 
 const CONTROLS = {
@@ -174,7 +186,7 @@ describe('SessionCreationForm prepared ACP session controls', () => {
       suppressAcpManagedControls: true,
     });
     await waitFor(() =>
-      expect(screen.getByTestId('session-control-model')).toBeInTheDocument()
+      expect(screen.getByTestId('session-settings-summary')).toBeInTheDocument()
     );
     expect(onPreset).toHaveBeenLastCalledWith({
       preparedSessionId: expect.any(String),
@@ -197,22 +209,26 @@ describe('SessionCreationForm prepared ACP session controls', () => {
     renderForm('claude_code', vi.fn());
     const user = userEvent.setup();
 
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('sessionModeSelector.title'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Plan' }));
     await waitFor(() =>
-      expect(screen.getByTestId('session-control-mode')).toBeInTheDocument()
-    );
-    await user.click(screen.getByTestId('session-control-mode'));
-    await user.click(screen.getByText('Plan'));
-    expect(setPreparedSessionMode).toHaveBeenCalledWith(
-      expect.any(String),
-      'plan'
+      expect(setPreparedSessionMode).toHaveBeenCalledWith(
+        expect.any(String),
+        'plan'
+      )
     );
 
-    await user.click(screen.getByTestId('session-control-model'));
-    await user.click(screen.getByText('Opus'));
-    expect(setPreparedSessionConfig).toHaveBeenCalledWith(
-      expect.any(String),
-      'model',
-      'opus'
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus' }));
+    await waitFor(() =>
+      expect(setPreparedSessionConfig).toHaveBeenCalledWith(
+        expect.any(String),
+        'model',
+        'opus'
+      )
     );
   });
 
@@ -226,12 +242,157 @@ describe('SessionCreationForm prepared ACP session controls', () => {
     renderForm('codex', vi.fn());
     const user = userEvent.setup();
 
-    const fast = await screen.findByRole('switch', { name: 'Fast mode' });
-    await user.click(fast);
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('Fast mode'));
     expect(setPreparedSessionConfig).toHaveBeenCalledWith(
       expect.any(String),
       'fast',
       true
     );
+  });
+
+  it('keeps dangerous permissions separate from the Claude mode picker', async () => {
+    const permissionControls = {
+      ...CONTROLS,
+      modes: [
+        ...CONTROLS.modes,
+        {
+          id: 'bypassPermissions',
+          label: 'Bypass permissions',
+          description: null,
+        },
+      ],
+    };
+    prepareSession.mockResolvedValue(prepared(permissionControls));
+    setPreparedSessionMode.mockResolvedValue({
+      ...permissionControls,
+      current_mode: 'bypassPermissions',
+    });
+    renderForm('claude_code', vi.fn());
+    const user = userEvent.setup();
+
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('sessionModeSelector.title'));
+    expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('menuitem', {
+        name: /sessionModeSelector\.allowDangerousOperations/,
+      })
+    );
+    await screen.findByRole('menuitem', {
+      name: /sessionModeSelector\.allowDangerousOperationssessionSettings\.on/,
+    });
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('sessionModeSelector.title'));
+    fireEvent.click(await screen.findByText('Bypass permissions'));
+    await waitFor(() =>
+      expect(setPreparedSessionMode).toHaveBeenCalledWith(
+        expect.any(String),
+        'bypassPermissions'
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('session-settings-summary')).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('Bypass permissions')
+      )
+    );
+  });
+
+  it('hides Codex collaboration mode from the creation summary and menu', async () => {
+    prepareSession.mockResolvedValue(
+      prepared({
+        ...CONTROLS,
+        config_options: [
+          ...CONTROLS.config_options,
+          {
+            key: 'collaboration_mode',
+            label: 'Collaboration mode',
+            description: null,
+            category: 'other',
+            value: 'default',
+            choices: [
+              { value: 'default', label: 'Default', description: null },
+              { value: 'plan', label: 'Plan', description: null },
+            ],
+          },
+        ],
+      })
+    );
+    renderForm('codex', vi.fn());
+    const user = userEvent.setup();
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    expect(summary).not.toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Default')
+    );
+    await user.click(summary);
+    expect(screen.queryByText('Collaboration mode')).not.toBeInTheDocument();
+  });
+
+  it('adds preparation context when switching to Codex returns a missing session', async () => {
+    const missingSessionId = '6d74708a-398b-4167-b082-cbec47726dcd';
+    const view = renderForm('claude_code', vi.fn());
+
+    await screen.findByTestId('session-settings-summary');
+    prepareSession.mockRejectedValueOnce(`Not found: ${missingSessionId}`);
+    view.switchExecutor('codex');
+
+    expect(
+      await screen.findByText(
+        `sessionCreation.controlsPrepareFailed: Not found: ${missingSessionId}`
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('adds operation context when a Codex option update fails', async () => {
+    const missingSessionId = '6d74708a-398b-4167-b082-cbec47726dcd';
+    setPreparedSessionMode.mockRejectedValueOnce(
+      `Not found: ${missingSessionId}`
+    );
+    renderForm('codex', vi.fn());
+    const user = userEvent.setup();
+
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('sessionModeSelector.title'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Plan' }));
+
+    expect(
+      await screen.findByText(
+        `sessionCreation.controlsUpdateFailed: Not found: ${missingSessionId}`
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('does not discard the active prepared session under React strict effects', async () => {
+    renderForm('codex', vi.fn(), true);
+
+    await screen.findByTestId('session-settings-summary');
+    const activeSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
+    expect(activeSessionId).toEqual(expect.any(String));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(discardPreparedSession).not.toHaveBeenCalledWith(activeSessionId);
+  });
+
+  it('discards only the superseded session when the executor changes', async () => {
+    const view = renderForm('claude_code', vi.fn());
+
+    await screen.findByTestId('session-settings-summary');
+    const claudeSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
+    view.switchExecutor('codex');
+    await waitFor(() => expect(prepareSession).toHaveBeenCalledTimes(2));
+    const codexSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
+
+    await waitFor(() =>
+      expect(discardPreparedSession).toHaveBeenCalledWith(claudeSessionId)
+    );
+    expect(codexSessionId).not.toBe(claudeSessionId);
+    expect(discardPreparedSession).not.toHaveBeenCalledWith(codexSessionId);
   });
 });

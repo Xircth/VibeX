@@ -39,6 +39,7 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
   }
 
   const items: TurnRenderItem[] = [];
+  let planItemIndex: number | null = null;
   // Tool cards still awaiting a result, in document order. The persisted
   // projection (conversation_projection.rs) emits a ToolResult with a null
   // tool_use_id immediately after its ToolUse, so an id-less result attaches to
@@ -74,7 +75,12 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
         });
         break;
       case 'plan':
-        items.push({ kind: 'plan', entries: block.entries });
+        if (planItemIndex == null) {
+          planItemIndex = items.length;
+          items.push({ kind: 'plan', entries: block.entries });
+        } else {
+          items[planItemIndex] = { kind: 'plan', entries: block.entries };
+        }
         break;
       case 'tool_use': {
         const result = block.tool_use_id

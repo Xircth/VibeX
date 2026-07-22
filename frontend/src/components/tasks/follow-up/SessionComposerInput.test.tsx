@@ -509,6 +509,35 @@ describe('SessionComposerInput', () => {
     expect(onChange).toHaveBeenCalledWith('Review now');
   });
 
+  it.each([
+    ['/', 'compact', 'compact'],
+    ['@', 'App.tsx', 'src/App.tsx'],
+    ['#', 'frontend', 'frontend'],
+    ['$', 'review', 'review'],
+  ] as const)(
+    'deletes a selected %s command chip with one Backspace even when the browser caret is inside it',
+    (type, key, tokenValue) => {
+      const onChange = vi.fn();
+      const command = formatSessionComposerCommand({
+        type,
+        key,
+        value: tokenValue,
+      });
+      renderComposerInput({ value: `Run ${command} now`, onChange });
+
+      const editor = getEditor();
+      const chip = screen.getByTestId('session-composer-token-chip');
+      const chipLabel = chip.firstChild;
+      if (!chipLabel) throw new Error('Expected command chip label');
+      setCaretInTextNode(chipLabel, 0);
+
+      fireEvent.keyDown(editor, { key: 'Backspace' });
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith('Run now');
+    }
+  );
+
   it('accepts file-tree custom drops and inserts an @ command object', () => {
     const onChange = vi.fn();
     renderComposerInput({ value: 'Review ', onChange });

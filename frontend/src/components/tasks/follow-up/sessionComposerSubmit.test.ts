@@ -7,6 +7,7 @@ import {
   canSendFollowUp,
   canTypeFollowUp,
   getAfterSendCleanup,
+  isComposerExecutionActive,
   hasPendingToolApproval,
   getSubmitShortcutAction,
   hasFollowUpContent,
@@ -283,6 +284,15 @@ describe('session composer submit helpers', () => {
     expect(
       getSubmitShortcutAction({ isAttemptRunning: true, isQueued: true })
     ).toBe('none');
+  });
+
+  it('treats a streaming canonical turn as active while legacy process state lags', () => {
+    expect(
+      isComposerExecutionActive({
+        isAttemptRunning: false,
+        isConversationTurnInFlight: true,
+      })
+    ).toBe(true);
   });
 
   it('builds queued follow-up requests with context and images', () => {

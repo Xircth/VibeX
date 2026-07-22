@@ -50,20 +50,53 @@ describe('ActionBar', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps send behavior after removing dead todo UI', () => {
+  it('shows an arrow action that sends while the conversation is idle', () => {
     const onSendFollowUp = vi.fn();
     renderActionBar({ onSendFollowUp });
 
-    fireEvent.click(screen.getByRole('button', { name: '\u53d1\u9001' }));
+    const sendButton = screen.getByRole('button', { name: '\u53d1\u9001' });
+    expect(sendButton.querySelector('.lucide-arrow-up')).toBeInTheDocument();
+    expect(sendButton).not.toHaveTextContent('\u53d1\u9001');
+
+    fireEvent.click(sendButton);
 
     expect(onSendFollowUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the arrow with a square action that stops a running turn', () => {
+    const onStopExecution = vi.fn();
+    renderActionBar({ isAttemptRunning: true, onStopExecution });
+
+    const stopButton = screen.getByRole('button', { name: '\u505c\u6b62' });
+    expect(stopButton.querySelector('.lucide-square')).toBeInTheDocument();
+    expect(stopButton).not.toHaveTextContent('\u505c\u6b62');
+
+    fireEvent.click(stopButton);
+
+    expect(onStopExecution).toHaveBeenCalledTimes(1);
+  });
+
+  it('groups attachment and utility actions immediately before send', () => {
+    renderActionBar({ promptEnhancementEnabled: true });
+
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual([
+      '附加图片',
+      '压缩上下文',
+      '提示词优化',
+      '发送',
+    ]);
   });
 
   it('uses context and attachments as queueable content while running', () => {
     const queueCases = [
       { conflictResolutionInstructions: 'conflicts', reviewMarkdown: null },
       { conflictResolutionInstructions: null, reviewMarkdown: 'review' },
-      { conflictResolutionInstructions: null, reviewMarkdown: null, attachmentCount: 1 },
+      {
+        conflictResolutionInstructions: null,
+        reviewMarkdown: null,
+        attachmentCount: 1,
+      },
     ];
 
     queueCases.forEach((queueCase) => {

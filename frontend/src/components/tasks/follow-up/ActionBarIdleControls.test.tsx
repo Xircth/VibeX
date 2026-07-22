@@ -64,7 +64,10 @@ describe('ActionBarIdleControls', () => {
     const onSendFollowUp = vi.fn();
     renderIdleControls({ onSendFollowUp });
 
-    fireEvent.click(screen.getByRole('button', { name: SEND_LABEL }));
+    const sendButton = screen.getByRole('button', { name: SEND_LABEL });
+    expect(sendButton.querySelector('.lucide-arrow-up')).toBeInTheDocument();
+    expect(sendButton).not.toHaveTextContent(SEND_LABEL);
+    fireEvent.click(sendButton);
 
     expect(onSendFollowUp).toHaveBeenCalledTimes(1);
   });

@@ -8,6 +8,16 @@ import { serializeSessionComposerBackendMessage } from './sessionComposerStructu
 
 export type SubmitShortcutAction = 'send' | 'queue' | 'none';
 
+export function isComposerExecutionActive({
+  isAttemptRunning,
+  isConversationTurnInFlight,
+}: {
+  isAttemptRunning: boolean;
+  isConversationTurnInFlight: boolean;
+}): boolean {
+  return isAttemptRunning || isConversationTurnInFlight;
+}
+
 export function hasFollowUpContent({
   message,
   conflictMarkdown,

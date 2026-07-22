@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, beforeEach } from 'vitest';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
+import type { PlanEntry } from 'shared/types';
 import {
   clearEntriesRuntimeForTests,
   EntriesProvider,
@@ -52,6 +53,33 @@ function TokenUsageTotal() {
   const { tokenUsageInfo } = useEntries();
   return (
     <div data-testid="token-total">{tokenUsageInfo?.total_tokens ?? 0}</div>
+  );
+}
+
+const visiblePlan: PlanEntry[] = [
+  { content: 'Repair queue state', status: 'in_progress', priority: null },
+  { content: 'Verify the composer', status: 'pending', priority: null },
+];
+
+function SaveConversationRuntimeOnMount() {
+  const { setConversationPlanEntries, setConversationTurnInFlight } =
+    useEntries();
+
+  useEffect(() => {
+    setConversationPlanEntries(visiblePlan);
+    setConversationTurnInFlight(true);
+  }, [setConversationPlanEntries, setConversationTurnInFlight]);
+
+  return null;
+}
+
+function ConversationRuntimeSummary() {
+  const { conversationPlanEntries, conversationTurnInFlight } = useEntries();
+  return (
+    <div data-testid="conversation-runtime">
+      {conversationTurnInFlight ? 'running' : 'idle'}:
+      {conversationPlanEntries.map((entry) => entry.content).join('|')}
+    </div>
   );
 }
 
@@ -147,5 +175,22 @@ describe('EntriesProvider', () => {
     });
 
     expect(screen.getByTestId('entries-count')).toHaveTextContent('1');
+  });
+
+  it('shares canonical turn state and visible plans with the composer provider', () => {
+    render(
+      <>
+        <EntriesProvider runtimeKey="workspace-1:session-1">
+          <SaveConversationRuntimeOnMount />
+        </EntriesProvider>
+        <EntriesProvider runtimeKey="workspace-1:session-1">
+          <ConversationRuntimeSummary />
+        </EntriesProvider>
+      </>
+    );
+
+    expect(screen.getByTestId('conversation-runtime')).toHaveTextContent(
+      'running:Repair queue state|Verify the composer'
+    );
   });
 });

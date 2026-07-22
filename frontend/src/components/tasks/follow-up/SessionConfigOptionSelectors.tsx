@@ -22,6 +22,7 @@ import {
   COMPOSER_SELECT_LIST_CLASS,
   ComposerOptionName,
 } from './ComposerSelect';
+import { compactSessionControlLabel } from './sessionControlLabels';
 
 /**
  * A choice prepared for display without changing the Agent-advertised value,
@@ -31,6 +32,28 @@ export interface DisplayChoice {
   value: string;
   name: string;
   description?: string | null;
+}
+
+const HIDDEN_SESSION_CONFIG_OPTION_KEYS = new Set(['collaboration_mode']);
+
+function normalizedConfigOptionKey(key: string): string {
+  return key.trim().toLowerCase().replaceAll('-', '_');
+}
+
+/**
+ * Codex advertises collaboration mode as a session option, but VibeX keeps it
+ * at the runtime default. Hiding it at this shared presentation boundary keeps
+ * creation and composer menus consistent and prevents an oversized summary.
+ */
+export function visibleSessionConfigOptions(
+  options: AgentSessionConfigOption[]
+): AgentSessionConfigOption[] {
+  return options.filter(
+    (option) =>
+      !HIDDEN_SESSION_CONFIG_OPTION_KEYS.has(
+        normalizedConfigOptionKey(option.key)
+      )
+  );
 }
 
 function configOptionDependency(
@@ -65,15 +88,21 @@ export function resolvedConfigOptionChoices(
 }
 
 /**
- * Drops stale dependent selections. This is used both before emitting a
- * create-session preset and before sending next-turn overrides, so an effort
- * can never be submitted without a selected model or for the wrong model.
+ * Drops hidden/removed options and stale dependent selections. This is used
+ * before sending next-turn overrides, so a hidden Codex collaboration mode or
+ * an effort for the wrong model can never leak into a later request.
  */
 export function sanitizeDependentConfigValues(
   options: AgentSessionConfigOption[],
   values: Record<string, string>
 ): Record<string, string> {
   let next = values;
+  const visibleKeys = new Set(options.map((option) => option.key));
+  for (const key of Object.keys(values)) {
+    if (visibleKeys.has(key)) continue;
+    if (next === values) next = { ...values };
+    delete next[key];
+  }
   // Dependencies are currently model → effort, but converge generically if a
   // future agent adds a short dependency chain.
   for (let pass = 0; pass < options.length; pass += 1) {
@@ -128,14 +157,31 @@ export function areConfigValuesEqual(
 }
 
 export function buildDisplayChoices(
-  _isModelOption: boolean,
-  choices: NonNullable<AgentSessionConfigOption['choices']>
+  isModelOption: boolean,
+  choices: NonNullable<AgentSessionConfigOption['choices']>,
+  activeValue = ''
 ): DisplayChoice[] {
-  return choices.map((choice) => ({
-    value: jsonValueToString(choice.value),
-    name: choice.label,
-    description: choice.description,
-  }));
+  return choices
+    .filter((choice) => {
+      const value = jsonValueToString(choice.value);
+      // Claude's ACP bridge prepends a "Default (recommended)" model
+      // sentinel even when it resolves to the model that is already active.
+      // It is not a distinct model, so omit it unless an older session has it
+      // selected and we need to render that real current state faithfully.
+      return (
+        !isModelOption ||
+        value === activeValue ||
+        !(value === 'default' && /^default(?:\s|$)/i.test(choice.label))
+      );
+    })
+    .map((choice) => ({
+      value: jsonValueToString(choice.value),
+      name: compactSessionControlLabel(
+        jsonValueToString(choice.value),
+        choice.label
+      ),
+      description: choice.description,
+    }));
 }
 
 /**
@@ -158,7 +204,8 @@ export function SessionConfigOptionSelectors({
   onSelect: (key: string, value: string) => void;
   disabled?: boolean;
 }) {
-  const selectable = options.filter(
+  const visibleOptions = visibleSessionConfigOptions(options);
+  const selectable = visibleOptions.filter(
     (option) => resolvedConfigOptionChoices(option, options, pending).length > 1
   );
   if (selectable.length === 0) return null;
@@ -337,7 +384,11 @@ export function configOptionDisplayState(
   const normalizedKey = `${option.category ?? ''} ${option.key}`.toLowerCase();
   const isModelOption =
     option.category === 'model' || normalizedKey.includes('model');
-  const displayChoices = buildDisplayChoices(isModelOption, choices);
+  const displayChoices = buildDisplayChoices(
+    isModelOption,
+    choices,
+    activeValue
+  );
   return { displayChoices, presentedActiveValue: activeValue };
 }
 

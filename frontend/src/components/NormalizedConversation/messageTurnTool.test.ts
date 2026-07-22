@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 
-function use(tool_name: string, input: unknown): ToolUseBlock {
+function use(tool_name: string, input: unknown, kind?: string): ToolUseBlock {
   return {
     type: 'tool_use',
     tool_use_id: 't1',
     tool_name,
+    kind: kind ?? null,
     input_preview: input === undefined ? null : JSON.stringify(input),
     meta: null,
   };
@@ -212,6 +213,22 @@ describe('toolBlockToNormalizedEntry', () => {
     );
     expect(entry.entry_type).toMatchObject({
       action_type: { action: 'file_edit', path: 'b.ts' },
+    });
+  });
+
+  it('keeps a path-only edit as an Edit file card instead of a generic title', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('Editing files', { path: 'src/App.tsx' }, 'edit'),
+      null,
+      null
+    );
+
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'file_edit',
+        path: 'src/App.tsx',
+        changes: [{ action: 'edit' }],
+      },
     });
   });
 

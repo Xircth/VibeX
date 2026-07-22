@@ -14,7 +14,7 @@ vi.mock('./conversationApi', () => ({
   },
 }));
 
-vi.mock('sonner', () => ({
+vi.mock('@/components/ui/toast', () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),

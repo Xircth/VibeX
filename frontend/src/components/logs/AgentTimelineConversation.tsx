@@ -16,7 +16,9 @@ import { AgentKind } from 'shared/types';
 import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
+  ConversationFileChange,
   MessageTurn,
+  PlanEntry,
   TaskWithAttemptStatus,
   TimelineRow,
   TokenUsageInfo,
@@ -32,8 +34,9 @@ import { agentsApi } from '@/features/agents/api';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
+import { ResendCheckpointDialog } from '@/components/dialogs';
 import { getErrorMessage } from '@/lib/modals';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 import { TurnStats } from '@/components/conversation-thread/TurnStats';
 import { LiveTurnStats } from '@/components/conversation-thread/LiveTurnStats';
 import type { TurnStatsData } from '@/components/conversation-thread/turnStatsModel';
@@ -46,6 +49,7 @@ import {
 import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
+import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
 import {
   resolveResendExecutorProfile,
   useActiveExecutorProfile,
@@ -97,6 +101,39 @@ export function buildTimelineNavEntries(
     });
   });
   return entries;
+}
+
+export function isTimelineTurnInFlight(
+  timeline: ConversationTimelineTurn[]
+): boolean {
+  return timeline.some(
+    (row) => row.phase === 'streaming' || row.phase === 'optimistic'
+  );
+}
+
+export function getLatestTimelinePlanEntries(
+  timeline: ConversationTimelineTurn[]
+): PlanEntry[] {
+  let latest: PlanEntry[] = [];
+
+  for (const row of timeline) {
+    for (const block of row.turn.blocks) {
+      if (block.type === 'plan') {
+        latest = block.entries;
+      }
+    }
+  }
+
+  return latest;
+}
+
+/** Only the latest user message offers edit-and-resend, including while its
+ * assistant turn is still in flight. */
+export function isEditableUserTimelineRow(
+  row: ConversationTimelineTurn,
+  lastUserRowKey: string | null
+): boolean {
+  return row.turn.role === 'user' && row.key === lastUserRowKey;
 }
 
 function assistantCopyText(turn: MessageTurn): string {
@@ -155,11 +192,13 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
 
 function ConversationSideRows({
   rows,
+  showSessionNotices,
   onRespondQuestion,
   respondingQuestionId,
   onOpenChild,
 }: {
   rows: TimelineRow[];
+  showSessionNotices: boolean;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
@@ -174,7 +213,8 @@ function ConversationSideRows({
     (entry) =>
       entry.row.kind !== 'turn_error' &&
       entry.row.kind !== 'file_change_summary' &&
-      entry.row.kind !== 'permission_request'
+      entry.row.kind !== 'permission_request' &&
+      (showSessionNotices || entry.row.kind !== 'session_notice')
   );
   if (visibleRows.length === 0) return null;
 
@@ -289,9 +329,20 @@ const AgentTimelineConversation = forwardRef<
   const { repos } = useAttemptRepo(attempt.id);
   const workspaceRoot = attempt.container_ref ?? repos[0]?.path ?? null;
   const conversation = useConversationTimeline(sessionId);
+  const conversationStatus = useOptionalConversationStatus();
+  const setConversationStatusNotices = conversationStatus?.setNotices;
+  const usesComposerStatusDock = conversationStatus?.enabled ?? false;
   const timeline = conversation.timeline;
+  const isTurnInFlight = useMemo(
+    () => isTimelineTurnInFlight(timeline),
+    [timeline]
+  );
   const detailLoading = conversation.loading;
+  const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
+  useEffect(() => {
+    if (conversationError) toast.error(conversationError);
+  }, [conversationError]);
   // Stable reference (memoized in the hook) for the reset-to-here retry flow.
   const conversationResetAndReload = conversation.resetAndReload;
   // Stable reference for answering permission requests inline.
@@ -348,10 +399,16 @@ const AgentTimelineConversation = forwardRef<
   const { getActiveExecutorProfile } = useActiveExecutorProfile();
   // Keep the latest turn error in full (message + the agent's real ACP error
   // code) so the card can offer code-specific recovery instead of a flat banner.
-  const turnErrors = sideRows.flatMap((entry) =>
-    entry.row.kind === 'turn_error' ? [entry.row.error.error] : []
-  );
-  const latestTurnError = turnErrors[turnErrors.length - 1] ?? null;
+  const latestTurnErrorRow = sideRows
+    .filter((entry) => entry.row.kind === 'turn_error')
+    .at(-1);
+  const latestTurnError =
+    latestTurnErrorRow?.row.kind === 'turn_error'
+      ? latestTurnErrorRow.row.error.error
+      : null;
+  const latestSessionNoticeRow = sideRows
+    .filter((entry) => entry.row.kind === 'session_notice')
+    .at(-1);
 
   // Feed the composer's context-usage ring (EntriesContext). The setter is
   // stable, and useOptionalEntries no-ops outside a provider (e.g. logs panel).
@@ -380,6 +437,21 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setSessionConfigOptions?.(conversationSessionConfigOptions);
   }, [setSessionConfigOptions, conversationSessionConfigOptions]);
+
+  // Canonical turn state and Plan blocks drive the composer even when the
+  // legacy process stream has not caught up yet.
+  const setConversationPlanEntries = entries?.setConversationPlanEntries;
+  const setConversationTurnInFlight = entries?.setConversationTurnInFlight;
+  const conversationPlanEntries = useMemo(
+    () => getLatestTimelinePlanEntries(timeline),
+    [timeline]
+  );
+  useEffect(() => {
+    setConversationPlanEntries?.(conversationPlanEntries);
+  }, [conversationPlanEntries, setConversationPlanEntries]);
+  useEffect(() => {
+    setConversationTurnInFlight?.(isTurnInFlight);
+  }, [isTurnInFlight, setConversationTurnInFlight]);
 
   const liveStats = useMemo<TurnStatsData>(
     () => ({
@@ -620,6 +692,13 @@ const AgentTimelineConversation = forwardRef<
     }
     return map;
   }, [timeline]);
+  const lastUserRowKey = navEntries.at(-1)?.key ?? null;
+  const latestInterruptedRow = useMemo(() => {
+    const latestRow = timeline.at(-1);
+    return latestRow?.turn.role === 'user' && latestRow.phase === 'interrupted'
+      ? latestRow
+      : null;
+  }, [timeline]);
 
   // Same ordinal keyed by turn id (message rows are `${turnId}:user`), for the
   // per-turn files-changed Undo which rolls back to that turn's checkpoint.
@@ -650,14 +729,6 @@ const AgentTimelineConversation = forwardRef<
     }
     return map;
   }, [sideRows]);
-
-  const isTurnInFlight = useMemo(
-    () =>
-      timeline.some(
-        (row) => row.phase === 'streaming' || row.phase === 'optimistic'
-      ),
-    [timeline]
-  );
 
   // Unanswered permission requests dock at the bottom of the stream (above the
   // composer) instead of scrolling away with the timeline; answered ones are
@@ -698,27 +769,40 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const handleRetry = useCallback(
-    async (turn: MessageTurn, ordinal: number) => {
+    async (
+      turn: MessageTurn,
+      ordinal: number,
+      replacementText?: string
+    ): Promise<boolean> => {
       const session = attempt.session;
-      if (!session?.executor) return;
-      const text = turn.blocks
-        .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-        .join('\n\n');
-      if (!text) return;
+      if (!session?.executor) return false;
+      const text =
+        replacementText ??
+        turn.blocks
+          .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+          .join('\n\n');
+      if (!text) return false;
 
-      // Reset-to-here: re-send this message in its original position and reset
-      // everything after it. The two-choice modal only controls the *independent*
-      // workspace file rollback (native window.confirm is blocked in the Tauri
-      // webview). 'confirmed' = also roll back files; 'canceled' (button/dismiss)
-      // = reset context only, leave files as-is.
-      const choice = await ConfirmDialog.show({
+      let rollbackFiles: ConversationFileChange[] = [];
+      let previewUnavailable = false;
+      try {
+        const preview = await conversationApi.previewCheckpointFileChanges({
+          conversationId: session.id,
+          ordinal,
+        });
+        rollbackFiles = preview.files;
+      } catch (error) {
+        previewUnavailable = true;
+        console.warn('checkpoint preview unavailable', error);
+      }
+
+      const choice = await ResendCheckpointDialog.show({
         title: t('timeline.resendMessageTitle'),
-        message: t('timeline.resendMessageBody'),
-        confirmText: t('timeline.restoreAndResend'),
-        cancelText: t('timeline.resendOnly'),
-        variant: 'default',
+        files: rollbackFiles,
+        previewUnavailable,
       });
-      const restoreFiles = choice === 'confirmed';
+      if (choice === 'dismissed') return false;
+      const restoreFiles = choice === 'restore';
 
       try {
         // Optional workspace rollback first — it relies on the checkpoint recorded
@@ -754,8 +838,10 @@ const AgentTimelineConversation = forwardRef<
           ),
           text,
         });
+        return true;
       } catch (error) {
         toast.error(getErrorMessage(error));
+        return false;
       }
     },
     [
@@ -766,6 +852,55 @@ const AgentTimelineConversation = forwardRef<
       t,
     ]
   );
+
+  const composerStatusNotices = useMemo(() => {
+    if (!usesComposerStatusDock) return [];
+
+    const notices = [];
+    if (latestTurnError && latestTurnErrorRow) {
+      notices.push({
+        id: latestTurnErrorRow.row_id,
+        kind: 'turn-error' as const,
+        error: latestTurnError,
+        onReload: conversationResetAndReload,
+      });
+    }
+    if (latestInterruptedRow) {
+      notices.push({
+        id: latestInterruptedRow.key,
+        kind: 'interrupted-turn' as const,
+        onResend: () =>
+          void handleRetry(
+            latestInterruptedRow.turn,
+            userOrdinalByKey.get(latestInterruptedRow.key) ?? 0
+          ),
+      });
+    }
+    if (
+      latestSessionNoticeRow?.row.kind === 'session_notice' &&
+      latestSessionNoticeRow.row.notice
+    ) {
+      notices.push({
+        id: latestSessionNoticeRow.row_id,
+        kind: 'session-notice' as const,
+        notice: latestSessionNoticeRow.row.notice,
+      });
+    }
+    return notices;
+  }, [
+    conversationResetAndReload,
+    handleRetry,
+    latestInterruptedRow,
+    latestSessionNoticeRow,
+    latestTurnError,
+    latestTurnErrorRow,
+    userOrdinalByKey,
+    usesComposerStatusDock,
+  ]);
+
+  useEffect(() => {
+    setConversationStatusNotices?.(composerStatusNotices);
+  }, [composerStatusNotices, setConversationStatusNotices]);
 
   return (
     <div
@@ -784,7 +919,7 @@ const AgentTimelineConversation = forwardRef<
       ) : (
         <div className="conv-thread-shell relative mx-auto w-full max-w-6xl">
           <div className="conv-thread-content min-w-0">
-            {latestTurnError ? (
+            {latestTurnError && !usesComposerStatusDock ? (
               <TurnErrorCard
                 error={latestTurnError}
                 onReload={conversationResetAndReload}
@@ -792,6 +927,7 @@ const AgentTimelineConversation = forwardRef<
             ) : null}
             <ConversationSideRows
               rows={sideRows}
+              showSessionNotices={!usesComposerStatusDock}
               onRespondQuestion={handleRespondQuestion}
               respondingQuestionId={respondingQuestionId}
               onOpenChild={handleOpenChild}
@@ -836,7 +972,18 @@ const AgentTimelineConversation = forwardRef<
                               )
                           : undefined
                       }
+                      onEditRetry={
+                        isEditableUserTimelineRow(row, lastUserRowKey)
+                          ? (editedText) =>
+                              handleRetry(
+                                row.turn,
+                                userOrdinalByKey.get(row.key) ?? 0,
+                                editedText
+                              )
+                          : undefined
+                      }
                       collapseProcess={collapseProcess}
+                      showInterruptedNotice={!usesComposerStatusDock}
                     />
                     {row.turn.role === 'assistant'
                       ? (() => {

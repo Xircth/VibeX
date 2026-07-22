@@ -65,7 +65,7 @@ describe('SessionModeSelector', () => {
     expect(onSelect).toHaveBeenCalledWith('code');
   });
 
-  it('keeps every Agent-advertised mode selectable', async () => {
+  it('requires separately enabling dangerous permissions before bypass is selectable', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(
@@ -81,6 +81,8 @@ describe('SessionModeSelector', () => {
     );
 
     await user.click(screen.getByTitle('会话模式: Default'));
+    expect(screen.queryByText('Bypass permissions')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: '允许危险操作' }));
     await user.click(await screen.findByText('Bypass permissions'));
     expect(onSelect).toHaveBeenCalledWith('bypassPermissions');
   });

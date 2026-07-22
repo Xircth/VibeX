@@ -31,7 +31,7 @@ export function TimelinePlanCard({ entries }: { entries: PlanEntry[] }) {
           {completed}/{entries.length}
         </span>
       </div>
-      <ul className="conv-tool-details space-y-1 text-xs">
+      <ul className="conv-tool-details space-y-1 text-sm leading-5">
         {entries.map((entry, index) => (
           <li key={index} className="flex items-start gap-2">
             <span className="mt-0.5">

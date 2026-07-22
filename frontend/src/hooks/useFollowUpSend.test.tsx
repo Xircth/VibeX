@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { createMock, sendTurnMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
@@ -16,6 +16,10 @@ vi.mock('@/features/agents/sendAgentRuntimeTurn', () => ({
 }));
 
 import { useFollowUpSend } from './useFollowUpSend';
+import {
+  subscribeToOptimisticConversationTurns,
+  type OptimisticConversationTurnEvent,
+} from '@/features/conversation/optimisticTurnEvents';
 
 function renderFollowUpSend() {
   const queryClient = new QueryClient();
@@ -43,6 +47,11 @@ function renderFollowUpSend() {
 }
 
 describe('useFollowUpSend', () => {
+  beforeEach(() => {
+    createMock.mockReset();
+    sendTurnMock.mockReset();
+  });
+
   it('creates a session and sends the turn exactly once for one message', async () => {
     let resolveCreate: (value: {
       id: string;
@@ -74,5 +83,50 @@ describe('useFollowUpSend', () => {
     });
 
     await waitFor(() => expect(sendTurnMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('publishes the optimistic user turn before the runtime request settles', async () => {
+    sendTurnMock.mockReturnValue(new Promise(() => {}));
+    const events: OptimisticConversationTurnEvent[] = [];
+    const unsubscribe = subscribeToOptimisticConversationTurns((event) =>
+      events.push(event)
+    );
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: '立即显示等待状态',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    try {
+      act(() => {
+        void result.current.onSendFollowUp();
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          type: 'add',
+          conversationId: 'conversation-1',
+          turn: expect.objectContaining({
+            role: 'user',
+            blocks: [{ type: 'text', text: '立即显示等待状态' }],
+          }),
+        }),
+      ]);
+    } finally {
+      unsubscribe();
+    }
   });
 });

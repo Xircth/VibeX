@@ -2,8 +2,12 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { sessionsApi } from '@/lib/api';
-import type { AgentSessionConfigOverride, ExecutorProfileId } from 'shared/types';
+import type {
+  AgentSessionConfigOverride,
+  ExecutorProfileId,
+} from 'shared/types';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
+import { publishOptimisticConversationTurn } from '@/features/conversation/optimisticTurnEvents';
 import {
   buildAgentPrompt,
   isSessionScopedSlashCommand,
@@ -34,6 +38,8 @@ type Args = {
   onBeforeSend?: () => void;
   onAfterSendCleanup: () => void | Promise<void>;
 };
+
+let optimisticTurnSequence = 0;
 
 export function useFollowUpSend({
   sessionId,
@@ -130,16 +136,36 @@ export function useFollowUpSend({
         throw new Error('No workspace available for ACP agent turn');
       }
 
-      await sendAgentRuntimeTurn({
-        workspaceId: targetWorkspaceId,
-        sessionId: targetSessionId,
-        executorProfileId,
-        text: prompt,
-        displayText: displayPrompt,
-        images,
-        modeOverride,
-        configOverrides,
+      const optimisticTurnId = `optimistic-${Date.now()}-${optimisticTurnSequence++}`;
+      publishOptimisticConversationTurn({
+        type: 'add',
+        conversationId: targetSessionId,
+        turn: {
+          id: optimisticTurnId,
+          role: 'user',
+          blocks: displayPrompt ? [{ type: 'text', text: displayPrompt }] : [],
+          timestamp: new Date().toISOString(),
+        },
       });
+      try {
+        await sendAgentRuntimeTurn({
+          workspaceId: targetWorkspaceId,
+          sessionId: targetSessionId,
+          executorProfileId,
+          text: prompt,
+          displayText: displayPrompt,
+          images,
+          modeOverride,
+          configOverrides,
+        });
+      } catch (error) {
+        publishOptimisticConversationTurn({
+          type: 'remove',
+          conversationId: targetSessionId,
+          turnId: optimisticTurnId,
+        });
+        throw error;
+      }
       if (!isSlashCommand) {
         clearComments();
       }
@@ -149,7 +175,7 @@ export function useFollowUpSend({
       setFollowUpError(
         t('followUpSend.startFailed', {
           error: err.message ?? t('followUpSend.unknownError'),
-        }),
+        })
       );
     } finally {
       isSendingRef.current = false;

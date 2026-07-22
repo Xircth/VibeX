@@ -283,10 +283,7 @@ function getTopLevelEditorChild(
   return current instanceof Node ? (current as ChildNode) : null;
 }
 
-function sumEditorChildLengths(
-  editor: HTMLDivElement,
-  count: number
-): number {
+function sumEditorChildLengths(editor: HTMLDivElement, count: number): number {
   return Array.from(editor.childNodes)
     .slice(0, Math.max(0, count))
     .reduce((total, child) => total + getRenderedNodeSourceLength(child), 0);
@@ -295,7 +292,8 @@ function sumEditorChildLengths(
 function getEditorPointOffset(
   editor: HTMLDivElement,
   node: Node,
-  offset: number
+  offset: number,
+  atomicBias: 'start' | 'end' | null = null
 ): number {
   if (node === editor) {
     return sumEditorChildLengths(editor, offset);
@@ -310,11 +308,15 @@ function getEditorPointOffset(
   const childStart = sumEditorChildLengths(editor, childIndex);
 
   if (!(topLevelChild instanceof HTMLElement)) {
-    return childStart + Math.min(offset, topLevelChild.textContent?.length ?? 0);
+    return (
+      childStart + Math.min(offset, topLevelChild.textContent?.length ?? 0)
+    );
   }
 
   const childEnd = childStart + getRenderedNodeSourceLength(topLevelChild);
   if (typeof topLevelChild.dataset.commandRaw === 'string') {
+    if (atomicBias === 'start') return childStart;
+    if (atomicBias === 'end') return childEnd;
     return offset <= 0 ? childStart : childEnd;
   }
 
@@ -332,7 +334,8 @@ function getEditorPointOffset(
 }
 
 function getEditorSelection(
-  editor: HTMLDivElement
+  editor: HTMLDivElement,
+  atomicBias: 'start' | 'end' | null = null
 ): ComposerSelection | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) {
@@ -347,8 +350,20 @@ function getEditorSelection(
     return null;
   }
 
-  const anchor = getEditorPointOffset(editor, anchorNode, anchorOffset);
-  const focus = getEditorPointOffset(editor, focusNode, focusOffset);
+  const collapsedAtomicBias = selection.isCollapsed ? atomicBias : null;
+
+  const anchor = getEditorPointOffset(
+    editor,
+    anchorNode,
+    anchorOffset,
+    collapsedAtomicBias
+  );
+  const focus = getEditorPointOffset(
+    editor,
+    focusNode,
+    focusOffset,
+    collapsedAtomicBias
+  );
 
   return anchor <= focus
     ? { start: anchor, end: focus }
@@ -745,7 +760,10 @@ export function SessionComposerInput({
       selectionEnd: selection.end,
       relativePath,
     });
-    pendingSelectionRef.current = { start: next.caretOffset, end: next.caretOffset };
+    pendingSelectionRef.current = {
+      start: next.caretOffset,
+      end: next.caretOffset,
+    };
     onChange(next.value);
     window.requestAnimationFrame(() => editorRef.current?.focus());
   }, [
@@ -763,7 +781,7 @@ export function SessionComposerInput({
       const editor = editorRef.current;
       const hasActiveEditor = !!editor && document.activeElement === editor;
       const selection = hasActiveEditor
-        ? getEditorSelection(editor) ?? selectionRef.current
+        ? (getEditorSelection(editor) ?? selectionRef.current)
         : { start: value.length, end: value.length };
       const next = insertFileReferenceToken({
         value,
@@ -913,7 +931,7 @@ export function SessionComposerInput({
           event.preventDefault();
           const editor = editorRef.current;
           const selection = editor
-            ? getEditorSelection(editor) ?? selectionRef.current
+            ? (getEditorSelection(editor) ?? selectionRef.current)
             : selectionRef.current;
           const nextValue =
             value.slice(0, selection.start) +
@@ -971,7 +989,10 @@ export function SessionComposerInput({
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
         const selection =
-          getEditorSelection(event.currentTarget) ?? selectionRef.current;
+          getEditorSelection(
+            event.currentTarget,
+            event.key === 'Backspace' ? 'end' : 'start'
+          ) ?? selectionRef.current;
         const deletion = deleteSessionComposerStructuredToken({
           value,
           selectionStart: selection.start,

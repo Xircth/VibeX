@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
-import type { AgentSessionConfigOption, TokenUsageInfo } from 'shared/types';
+import type {
+  AgentSessionConfigOption,
+  PlanEntry,
+  TokenUsageInfo,
+} from 'shared/types';
 import type { ConversationSessionModesState } from '@/features/conversation/conversationStore';
 
 const EMPTY_SESSION_MODES: ConversationSessionModesState = {
@@ -18,6 +22,7 @@ const EMPTY_SESSION_MODES: ConversationSessionModesState = {
 };
 
 const EMPTY_SESSION_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
+const EMPTY_CONVERSATION_PLAN_ENTRIES: PlanEntry[] = [];
 
 interface EntriesContextType {
   entries: PatchTypeWithKey[];
@@ -25,10 +30,14 @@ interface EntriesContextType {
   setTokenUsageInfo: (info: TokenUsageInfo | null) => void;
   setSessionModes: (modes: ConversationSessionModesState) => void;
   setSessionConfigOptions: (options: AgentSessionConfigOption[]) => void;
+  setConversationPlanEntries: (entries: PlanEntry[]) => void;
+  setConversationTurnInFlight: (inFlight: boolean) => void;
   reset: () => void;
   tokenUsageInfo: TokenUsageInfo | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
+  conversationPlanEntries: PlanEntry[];
+  conversationTurnInFlight: boolean;
 }
 
 type EntriesRuntimeValue = {
@@ -36,6 +45,8 @@ type EntriesRuntimeValue = {
   tokenUsageInfo: TokenUsageInfo | null;
   sessionModes: ConversationSessionModesState;
   sessionConfigOptions: AgentSessionConfigOption[];
+  conversationPlanEntries: PlanEntry[];
+  conversationTurnInFlight: boolean;
 };
 
 const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
@@ -43,14 +54,30 @@ const EMPTY_RUNTIME_VALUE: EntriesRuntimeValue = {
   tokenUsageInfo: null,
   sessionModes: EMPTY_SESSION_MODES,
   sessionConfigOptions: EMPTY_SESSION_CONFIG_OPTIONS,
+  conversationPlanEntries: EMPTY_CONVERSATION_PLAN_ENTRIES,
+  conversationTurnInFlight: false,
 };
+
+function planEntriesEqual(a: PlanEntry[], b: PlanEntry[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => {
+    const other = b[index];
+    return (
+      entry.content === other?.content &&
+      entry.status === other.status &&
+      entry.priority === other.priority
+    );
+  });
+}
 
 function sessionModesEqual(
   a: ConversationSessionModesState,
   b: ConversationSessionModesState
 ): boolean {
   if (a === b) return true;
-  if (a.current !== b.current || a.modes.length !== b.modes.length) return false;
+  if (a.current !== b.current || a.modes.length !== b.modes.length)
+    return false;
   return a.modes.every((mode, index) => {
     const other = b.modes[index];
     return (
@@ -246,6 +273,53 @@ export const EntriesProvider = ({
     [runtimeKey]
   );
 
+  const setConversationPlanEntries = useCallback(
+    (entries: PlanEntry[]) => {
+      if (
+        planEntriesEqual(localValueRef.current.conversationPlanEntries, entries)
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        conversationPlanEntries: entries,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
+  const setConversationTurnInFlight = useCallback(
+    (conversationTurnInFlight: boolean) => {
+      if (
+        localValueRef.current.conversationTurnInFlight ===
+        conversationTurnInFlight
+      ) {
+        return;
+      }
+      const nextValue = {
+        ...localValueRef.current,
+        conversationTurnInFlight,
+      };
+      localValueRef.current = nextValue;
+
+      if (runtimeKey) {
+        writeRuntimeValue(runtimeKey, nextValue);
+        return;
+      }
+
+      setLocalValue(nextValue);
+    },
+    [runtimeKey]
+  );
+
   const reset = useCallback(() => {
     localValueRef.current = EMPTY_RUNTIME_VALUE;
 
@@ -264,10 +338,14 @@ export const EntriesProvider = ({
       setTokenUsageInfo,
       setSessionModes,
       setSessionConfigOptions,
+      setConversationPlanEntries,
+      setConversationTurnInFlight,
       reset,
       tokenUsageInfo: localValue.tokenUsageInfo,
       sessionModes: localValue.sessionModes,
       sessionConfigOptions: localValue.sessionConfigOptions,
+      conversationPlanEntries: localValue.conversationPlanEntries,
+      conversationTurnInFlight: localValue.conversationTurnInFlight,
     }),
     [
       localValue,
@@ -276,6 +354,8 @@ export const EntriesProvider = ({
       setTokenUsageInfo,
       setSessionModes,
       setSessionConfigOptions,
+      setConversationPlanEntries,
+      setConversationTurnInFlight,
     ]
   );
 

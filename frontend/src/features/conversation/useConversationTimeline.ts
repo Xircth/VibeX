@@ -9,6 +9,7 @@ import type {
 } from 'shared/types';
 import { conversationApi } from './conversationApi';
 import { listenToConversationEvents } from './events';
+import { subscribeToOptimisticConversationTurns } from './optimisticTurnEvents';
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
@@ -80,6 +81,20 @@ export function useConversationTimeline(
           return;
         }
         dispatch({ type: 'load_success', conversationId, detail });
+        const controlsMissing =
+          (!detail.session_modes || detail.session_modes.modes.length === 0) &&
+          detail.session_config_options.length === 0;
+        if (detail.summary.agent_type === 'codex' && controlsMissing) {
+          return conversationApi
+            .ensureSessionControls(conversationId)
+            .then((controls) => {
+              dispatch({
+                type: 'session_controls_hydrated',
+                conversationId,
+                controls,
+              });
+            });
+        }
       })
       .catch((error: unknown) => {
         dispatch({
@@ -209,6 +224,27 @@ export function useConversationTimeline(
       if (!conversationId) return;
       dispatch({ type: 'remove_optimistic_turn', conversationId, turnId });
     },
+    [conversationId]
+  );
+
+  useEffect(
+    () =>
+      subscribeToOptimisticConversationTurns((event) => {
+        if (event.conversationId !== conversationId) return;
+        if (event.type === 'add') {
+          dispatch({
+            type: 'optimistic_turn',
+            conversationId: event.conversationId,
+            turn: event.turn,
+          });
+          return;
+        }
+        dispatch({
+          type: 'remove_optimistic_turn',
+          conversationId: event.conversationId,
+          turnId: event.turnId,
+        });
+      }),
     [conversationId]
   );
 

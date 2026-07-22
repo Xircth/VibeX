@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgentKind } from 'shared/types';
@@ -8,6 +8,7 @@ import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
+import { useConversationStatus } from '@/contexts/ConversationStatusContext';
 import { useTodos } from '@/hooks/useTodos';
 import { useKeySubmitFollowUp, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -23,7 +24,6 @@ import { useGitStatus } from '@/hooks/git';
 import type { Session } from 'shared/types';
 import { getLatestProfileFromProcesses } from '@/utils/executor';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
-import { useTokenUsage } from '@/contexts/EntriesContext';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useParams } from 'react-router-dom';
@@ -32,9 +32,11 @@ import { SessionComposerTopbar } from './follow-up/SessionComposerTopbar';
 import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
+import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import {
   areConfigValuesEqual,
   sanitizeDependentConfigValues,
+  visibleSessionConfigOptions,
   selectConfigOptionValue,
 } from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
@@ -66,6 +68,7 @@ import {
   canSendFollowUp as getCanSendFollowUp,
   canTypeFollowUp as getCanTypeFollowUp,
   hasPendingToolApproval,
+  isComposerExecutionActive,
 } from './follow-up/sessionComposerSubmit';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
@@ -175,7 +178,18 @@ export function TaskFollowUpSection({
 
   const { enableScope, disableScope } = useHotkeysContext();
 
-  const tokenUsageInfo = useTokenUsage();
+  const {
+    entries,
+    tokenUsageInfo,
+    sessionModes,
+    sessionConfigOptions,
+    conversationPlanEntries,
+    conversationTurnInFlight,
+  } = useEntries();
+  const isComposerExecutionRunning = isComposerExecutionActive({
+    isAttemptRunning,
+    isConversationTurnInFlight: conversationTurnInFlight,
+  });
   const summaryRepoId = useMemo(
     () => getSummaryRepoId(selectedRepoId, repos),
     [repos, selectedRepoId]
@@ -347,7 +361,7 @@ export function TaskFollowUpSection({
   } = useSessionComposerQueue({
     sessionId,
     workspaceId,
-    isAttemptRunning,
+    isAttemptRunning: isComposerExecutionRunning,
     processCount: processes.length,
   });
   const handleEditQueuedMessage = useCallback(
@@ -359,11 +373,14 @@ export function TaskFollowUpSection({
     [cancelQueue, setAttachedImages, setLocalMessage]
   );
 
-  const { entries, sessionModes, sessionConfigOptions } = useEntries();
+  const { notices: conversationStatusNotices } = useConversationStatus();
   // Live ACP session state is the sole source for composer controls. A global
   // agent catalog cannot account for workspace/provider/account differences.
   const displaySessionModes = sessionModes;
-  const displaySessionConfigOptions = sessionConfigOptions;
+  const displaySessionConfigOptions = useMemo(
+    () => visibleSessionConfigOptions(sessionConfigOptions),
+    [sessionConfigOptions]
+  );
   // A live `config_option_update` can replace an effort's choice set after a
   // model change. Keep pending next-turn values aligned with that update.
   useEffect(() => {
@@ -468,7 +485,17 @@ export function TaskFollowUpSection({
     () => buildPromptEnhancementContext(entries),
     [entries]
   );
-  const { todos } = useTodos(entries);
+  const { todos: legacyTodos } = useTodos(entries);
+  const todos = useMemo(
+    () =>
+      conversationPlanEntries.length > 0
+        ? conversationPlanEntries.map((entry) => ({
+            ...entry,
+            priority: entry.priority ?? null,
+          }))
+        : legacyTodos,
+    [conversationPlanEntries, legacyTodos]
+  );
   const hasPendingApproval = useMemo(
     () => hasPendingToolApproval(entries),
     [entries]
@@ -506,7 +533,7 @@ export function TaskFollowUpSection({
       isSendingFollowUp,
       isRetryActive,
       hasPendingApproval,
-      isAttemptRunning,
+      isAttemptRunning: isComposerExecutionRunning,
       isAwaitingNewSessionConfirmation,
       isNewSessionMode,
     });
@@ -566,7 +593,7 @@ export function TaskFollowUpSection({
   });
   const conflictActionState = getConflictActionState({
     canSendFollowUp,
-    isAttemptRunning,
+    isAttemptRunning: isComposerExecutionRunning,
     isEditable,
   });
   const showTopbar = getComposerTopbarVisibility({
@@ -584,7 +611,7 @@ export function TaskFollowUpSection({
       reviewMarkdown,
       attachedImagePaths,
       effectiveExecutorProfile,
-      isAttemptRunning,
+      isAttemptRunning: isComposerExecutionRunning,
       isQueued,
       clearStopping,
       cancelDebouncedSave,
@@ -622,7 +649,7 @@ export function TaskFollowUpSection({
 
   useSessionComposerPluginHookInsertion({
     workspaceId: workspaceIdValue,
-    isAttemptRunning,
+    isAttemptRunning: isComposerExecutionRunning,
     getMessage: getPreviewInsertionMessage,
     onChange: handleEditorChange,
   });
@@ -667,7 +694,7 @@ export function TaskFollowUpSection({
   });
 
   useSessionComposerAttemptRefresh({
-    isAttemptRunning,
+    isAttemptRunning: isComposerExecutionRunning,
     workspaceId,
     refetchBranchStatus,
     refetchAttemptBranch,
@@ -694,15 +721,6 @@ export function TaskFollowUpSection({
         {/* Scrollable content area */}
         <div className="min-h-0 overflow-y-auto px-3">
           <div className="space-y-2">
-            {followUpError && (
-              <div
-                role="alert"
-                className="flex items-start gap-1.5 rounded-lg border border-[hsl(var(--destructive)/0.32)] bg-[hsl(var(--destructive)/0.08)] px-2.5 py-1.5 text-[11px] leading-4 text-[hsl(var(--destructive))]"
-              >
-                <AlertCircle className="mt-px h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 break-words">{followUpError}</span>
-              </div>
-            )}
             <div className="space-y-2">
               <ReviewCommentsPreview reviewMarkdown={reviewMarkdown} />
 
@@ -732,6 +750,11 @@ export function TaskFollowUpSection({
             </div>
           </div>
         </div>
+
+        <ConversationStatusDock
+          notices={conversationStatusNotices}
+          localError={followUpError}
+        />
 
         {/* Input area with buttons inside */}
         <div
@@ -795,7 +818,7 @@ export function TaskFollowUpSection({
             selectedConfigValues={selectedConfigValues}
             onSelectConfigOption={handleSelectConfigOption}
             isEditable={isEditable}
-            isAttemptRunning={isAttemptRunning}
+            isAttemptRunning={isComposerExecutionRunning}
             isQueued={queueIndicatorState.isQueued}
             isQueueLoading={isQueueLoading}
             canCompactContext={canCompactContext}

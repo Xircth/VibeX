@@ -237,7 +237,9 @@ describe('conversationStore (row-op dumb container)', () => {
   });
 
   it('ignores an upsert whose revision is stale', () => {
-    let state = loaded([assistantRow('t1', [{ type: 'text', text: 'new' }], 5n)]);
+    let state = loaded([
+      assistantRow('t1', [{ type: 'text', text: 'new' }], 5n),
+    ]);
     state = conversationStoreReducer(state, {
       type: 'row_ops',
       batch: batch(
@@ -264,7 +266,17 @@ describe('conversationStore (row-op dumb container)', () => {
     state = conversationStoreReducer(state, {
       type: 'row_ops',
       batch: batch(
-        [{ op: 'upsert', row: assistantRow('t1', [{ type: 'text', text: 'he' }], 2n, 'streaming') }],
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'he' }],
+              2n,
+              'streaming'
+            ),
+          },
+        ],
         2n
       ),
     });
@@ -276,7 +288,15 @@ describe('conversationStore (row-op dumb container)', () => {
       state = conversationStoreReducer(state, {
         type: 'row_ops',
         batch: batch(
-          [{ op: 'append_text', row_id: 't1:assistant', revision, stream: 'text', delta }],
+          [
+            {
+              op: 'append_text',
+              row_id: 't1:assistant',
+              revision,
+              stream: 'text',
+              delta,
+            },
+          ],
           revision
         ),
       });
@@ -285,7 +305,17 @@ describe('conversationStore (row-op dumb container)', () => {
     state = conversationStoreReducer(state, {
       type: 'row_ops',
       batch: batch(
-        [{ op: 'upsert', row: assistantRow('t1', [{ type: 'text', text: 'he' }], 2n, 'streaming') }],
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'he' }],
+              2n,
+              'streaming'
+            ),
+          },
+        ],
         2n
       ),
     });
@@ -349,13 +379,44 @@ describe('conversationStore (row-op dumb container)', () => {
     state = conversationStoreReducer(state, {
       type: 'optimistic_turn',
       conversationId: CONVERSATION_ID,
-      turn: messageTurn('optimistic-1', 'user', [
-        { type: 'text', text: 'go' },
-      ]),
+      turn: messageTurn('optimistic-1', 'user', [{ type: 'text', text: 'go' }]),
     });
     const turns = timelineTurnsForEntry(entryOf(state));
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
       ['user', 'optimistic'],
+      ['assistant', 'streaming'],
+    ]);
+  });
+
+  it('keeps the pending assistant bubble while the sent user turn is confirmed', () => {
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [{ type: 'text', text: 'go' }]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: 'go' },
+              ]),
+            }),
+          },
+        ],
+        1n
+      ),
+    });
+
+    const turns = timelineTurnsForEntry(entryOf(state));
+    expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
+      ['user', 'streaming'],
       ['assistant', 'streaming'],
     ]);
   });

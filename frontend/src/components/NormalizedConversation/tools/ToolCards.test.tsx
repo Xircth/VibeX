@@ -108,13 +108,35 @@ describe('conversation tool cards', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /终端/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Terminal/ }));
 
     expect(screen.getAllByText('命令')).toHaveLength(1);
-    expect(screen.getByText('终端')).toBeInTheDocument();
+    expect(screen.getByText('Terminal')).toBeInTheDocument();
     expect(screen.getAllByText('pnpm test')).toHaveLength(2);
     expect(screen.getByText('输出')).toBeInTheDocument();
     expect(screen.getByText('all green')).toBeInTheDocument();
+  });
+
+  it('omits the repeated terminal name inside an expanded terminal group', () => {
+    render(
+      <CommandToolCard
+        entry={toolEntry({
+          toolName: 'shell',
+          content: 'pnpm test',
+          actionType: {
+            action: 'command_run',
+            command: 'pnpm test',
+            result: null,
+          },
+        })}
+        expansionKey="grouped-command"
+        hideLabel
+      />
+    );
+
+    expect(screen.queryByText('Terminal')).not.toBeInTheDocument();
+    expect(screen.queryByText('终端')).not.toBeInTheDocument();
+    expect(screen.getByText('pnpm test')).toBeInTheDocument();
   });
 
   it('styles a failed command from its exit status even when the tool call completed', () => {
@@ -346,12 +368,25 @@ describe('conversation tool cards', () => {
           has_line_numbers: true,
         }}
         expansionKey="inline-diff"
+        containerRef="/workspace/project"
       />
     );
 
+    expect(screen.getByText('Edit')).toBeInTheDocument();
     expect(screen.getByText('src/App.tsx')).toBeInTheDocument();
     expect(screen.getByText('+1')).toBeInTheDocument();
     expect(screen.getByText('-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('src/App.tsx'));
+    expect(panelMocks.openFilePreview).toHaveBeenCalledWith(
+      '/workspace/project/src/App.tsx',
+      {
+        mode: 'diff',
+        diffViewMode: 'inline',
+        displayPath: 'src/App.tsx',
+        title: 'src/App.tsx',
+      }
+    );
   });
 
   it('routes question tool results to a question card', () => {

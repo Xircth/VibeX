@@ -1,6 +1,5 @@
-import { Loader2, Send } from 'lucide-react';
-
 import { Button } from '@/components/ui/button';
+import { ComposerPrimaryActionButton } from './ComposerPrimaryActionButton';
 
 const CLEAR_REVIEW_LABEL = '\u6e05\u9664\u5ba1\u67e5';
 const SEND_LABEL = '\u53d1\u9001';
@@ -45,24 +44,15 @@ export function ActionBarIdleControls({
         </Button>
       ) : null}
 
-      <Button
+      <ComposerPrimaryActionButton
+        action="send"
+        label={sendLabel}
         onClick={onSendFollowUp}
         disabled={
           !canSendFollowUp || !isEditable || isAwaitingNewSessionConfirmation
         }
-        size="sm"
-        className="h-7 rounded-lg px-2 text-xs"
-        aria-label={sendLabel}
-      >
-        {isSendingFollowUp ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <>
-            <Send className="mr-1 h-3.5 w-3.5" />
-            {sendLabel}
-          </>
-        )}
-      </Button>
+        pending={isSendingFollowUp}
+      />
     </div>
   );
 }

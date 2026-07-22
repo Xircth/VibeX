@@ -1,9 +1,5 @@
 import { useMemo } from 'react';
-import {
-  DiffView,
-  DiffModeEnum,
-  parseInstance,
-} from '@git-diff-view/react';
+import { DiffView, DiffModeEnum, parseInstance } from '@git-diff-view/react';
 import { ChevronRight, Edit } from 'lucide-react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
@@ -92,6 +88,7 @@ function EditDiffRenderer({
   );
 
   const hideLineNumbersClass = hideLineNumbers ? ' edit-diff-hide-nums' : '';
+  const hasDiff = unifiedDiff.trim().length > 0;
 
   const diffData = useMemo(() => {
     const lang = getHighLightLanguageFromPath(path) || 'plaintext';
@@ -119,25 +116,37 @@ function EditDiffRenderer({
           )}
         />
         <Edit className="h-3 w-3 conv-file-icon" />
-        <span
-          className="conv-file-name"
+        <span className="conv-tool-label shrink-0">Edit</span>
+        <button
+          type="button"
+          className="conv-file-name border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          aria-label={`Open ${path}`}
           onClick={(e) => {
             e.stopPropagation();
-            openFilePreview(resolveFilePath(path, containerRef), {
-              mode: 'diff',
-              diffViewMode: 'inline',
-              displayPath: path,
-              title: path,
-            });
+            openFilePreview(
+              resolveFilePath(path, containerRef),
+              hasDiff
+                ? {
+                    mode: 'diff',
+                    diffViewMode: 'inline',
+                    displayPath: path,
+                    title: path,
+                  }
+                : { displayPath: path, title: path }
+            );
           }}
         >
           {path}
-        </span>
-        <span className="conv-file-stat-add">+{additions}</span>
-        <span className="conv-file-stat-del">-{deletions}</span>
+        </button>
+        {hasDiff ? (
+          <>
+            <span className="conv-file-stat-add">+{additions}</span>
+            <span className="conv-file-stat-del">-{deletions}</span>
+          </>
+        ) : null}
       </div>
 
-      {effectiveExpanded && (
+      {effectiveExpanded && hasDiff && (
         <div
           className={cn(
             'mt-1 overflow-hidden rounded-b-lg border border-t-0',

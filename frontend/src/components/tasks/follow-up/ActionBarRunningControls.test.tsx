@@ -60,9 +60,9 @@ describe('ActionBarRunningControls', () => {
     const { rerender } = renderRunningControls({ isQueueLoading: true });
 
     expect(
-      screen.getByRole('button', { name: '队列' }).querySelector(
-        '.animate-spin'
-      )
+      screen
+        .getByRole('button', { name: '队列' })
+        .querySelector('.animate-spin')
     ).toBeInTheDocument();
 
     rerender(
@@ -80,9 +80,9 @@ describe('ActionBarRunningControls', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: '取消队列' }).querySelector(
-        '.animate-spin'
-      )
+      screen
+        .getByRole('button', { name: '取消队列' })
+        .querySelector('.animate-spin')
     ).toBeInTheDocument();
   });
 
@@ -97,7 +97,13 @@ describe('ActionBarRunningControls', () => {
     const onStopExecution = vi.fn();
     const { rerender } = renderRunningControls({ onStopExecution });
 
-    fireEvent.click(screen.getByRole('button', { name: '停止' }));
+    const runningStopButton = screen.getByRole('button', { name: '停止' });
+    expect(
+      runningStopButton.querySelector('.lucide-square')
+    ).toBeInTheDocument();
+    expect(runningStopButton).not.toHaveTextContent('停止');
+
+    fireEvent.click(runningStopButton);
     expect(onStopExecution).toHaveBeenCalledTimes(1);
 
     rerender(

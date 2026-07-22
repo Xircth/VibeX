@@ -37,7 +37,8 @@ async function loadMermaid(theme: 'default' | 'dark') {
       startOnLoad: false,
       securityLevel: 'strict',
       theme,
-      fontFamily: 'IBM Plex Sans, Noto Emoji, sans-serif',
+      fontFamily:
+        'Noto Sans SC Variable, Source Han Sans SC, Source Han Sans CN, Noto Sans CJK SC, Noto Sans SC, 思源黑体, sans-serif',
     });
     lastMermaidTheme = theme;
   }

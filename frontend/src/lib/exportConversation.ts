@@ -1,6 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/toast';
 
 import { conversationApi } from '@/features/conversation/conversationApi';
 import i18n from '@/i18n';

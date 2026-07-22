@@ -102,6 +102,7 @@ export interface PanelActions {
   toggleFileTree: () => void;
   toggleGitPanel: () => void;
   toggleSearchPanel: () => void;
+  toggleSessionList: () => void;
   isPanelOpen: (panelId: string) => boolean;
   focusKanban: () => void;
   openLogs: () => void;
@@ -944,6 +945,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     switchLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.SESSION_LIST,
     ]);
   }, [switchLeftPanel]);
 
@@ -951,6 +953,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     switchLeftPanel(PANEL_IDS.GIT, PANEL_IDS.GIT, 'Git', [
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.SESSION_LIST,
     ]);
   }, [switchLeftPanel]);
 
@@ -958,7 +961,17 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     switchLeftPanel(PANEL_IDS.SEARCH, PANEL_IDS.SEARCH, 'Search', [
       PANEL_IDS.FILE_TREE,
       PANEL_IDS.GIT,
+      PANEL_IDS.SESSION_LIST,
     ]);
+  }, [switchLeftPanel]);
+
+  const toggleSessionList = useCallback(() => {
+    switchLeftPanel(
+      PANEL_IDS.SESSION_LIST,
+      PANEL_IDS.SESSION_LIST,
+      'Sessions',
+      [PANEL_IDS.FILE_TREE, PANEL_IDS.GIT, PANEL_IDS.SEARCH]
+    );
   }, [switchLeftPanel]);
 
   const showFileTree = useCallback(() => {
@@ -966,6 +979,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     showLeftPanel(PANEL_IDS.FILE_TREE, PANEL_IDS.FILE_TREE, 'Files', [
       PANEL_IDS.GIT,
       PANEL_IDS.SEARCH,
+      PANEL_IDS.SESSION_LIST,
     ]);
   }, [setFileTreeVisible, showLeftPanel]);
 
@@ -1006,6 +1020,11 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (panelId === PANEL_IDS.SESSION_LIST) {
+        toggleSessionList();
+        return;
+      }
+
       const existingPanel = dockviewApi.getPanel(panelId);
       if (existingPanel) {
         if (existingPanel.title !== title) {
@@ -1030,6 +1049,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,
+      toggleSessionList,
     ]
   );
 
@@ -1146,6 +1166,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,
+      toggleSessionList,
       isPanelOpen,
       focusKanban,
       openLogs,
@@ -1176,6 +1197,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       toggleFileTree,
       toggleGitPanel,
       toggleSearchPanel,
+      toggleSessionList,
     ]
   );
 

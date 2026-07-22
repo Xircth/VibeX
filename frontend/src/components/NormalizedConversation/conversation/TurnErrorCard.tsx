@@ -17,9 +17,11 @@ import { cn } from '@/lib/utils';
 export function TurnErrorCard({
   error,
   onReload,
+  placement = 'timeline',
 }: {
   error: ConversationError;
   onReload?: () => void | Promise<unknown>;
+  placement?: 'timeline' | 'composer';
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
@@ -33,15 +35,28 @@ export function TurnErrorCard({
 
   return (
     <div
+      role={view.tone === 'error' ? 'alert' : 'status'}
+      data-tone={view.tone}
       className={cn(
-        'conv-entry-item mb-2 rounded-lg border px-3 py-2.5 text-sm',
-        view.tone === 'neutral'
-          ? 'border-border bg-muted/40 text-muted-foreground'
-          : 'border-destructive/40 bg-destructive/10 text-destructive'
+        placement === 'composer'
+          ? 'composer-status-row px-3 py-2 text-xs text-foreground'
+          : cn(
+              'conv-entry-item mb-2 rounded-lg border px-3 py-2.5 text-sm',
+              view.tone === 'neutral'
+                ? 'border-border bg-muted/40 text-muted-foreground'
+                : 'border-destructive/40 bg-destructive/10 text-destructive'
+            )
       )}
     >
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 shrink-0">{view.icon}</span>
+        <span
+          className={cn(
+            'mt-0.5 shrink-0',
+            placement === 'composer' && 'composer-status-icon'
+          )}
+        >
+          {view.icon}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium">{view.title}</div>
           {view.detail ? (
@@ -59,7 +74,10 @@ export function TurnErrorCard({
                 onClick={handleReload}
               >
                 <RefreshCw
-                  className={cn('mr-1 h-3.5 w-3.5', reloading && 'animate-spin')}
+                  className={cn(
+                    'mr-1 h-3.5 w-3.5',
+                    reloading && 'animate-spin'
+                  )}
                 />
                 {t('turnErrorCard.reloadSession')}
               </Button>
@@ -81,10 +99,7 @@ type ErrorView = {
   canReload: boolean;
 };
 
-function describeError(
-  error: ConversationError,
-  t: TFunction
-): ErrorView {
+function describeError(error: ConversationError, t: TFunction): ErrorView {
   const message = error.message?.trim() || null;
   switch (error.code) {
     case 'cancelled':

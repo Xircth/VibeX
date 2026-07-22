@@ -82,6 +82,35 @@ describe('planTurnBlocks', () => {
     ]);
   });
 
+  it('renders only the latest state when a plan is updated in the same turn', () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: 'plan',
+        entries: [
+          { content: 'Inspect', status: 'pending' },
+          { content: 'Implement', status: 'pending' },
+        ],
+      },
+      {
+        type: 'plan',
+        entries: [
+          { content: 'Inspect', status: 'completed' },
+          { content: 'Implement', status: 'completed' },
+        ],
+      },
+    ];
+
+    expect(planTurnBlocks(blocks)).toEqual([
+      {
+        kind: 'plan',
+        entries: [
+          { content: 'Inspect', status: 'completed' },
+          { content: 'Implement', status: 'completed' },
+        ],
+      },
+    ]);
+  });
+
   it('renders an orphan tool_result standalone', () => {
     const blocks: ContentBlock[] = [
       {

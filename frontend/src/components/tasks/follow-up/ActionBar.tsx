@@ -10,8 +10,8 @@ import { ActionBarImageButton } from './ActionBarImageButton';
 import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
-import { SessionModeSelector } from './SessionModeSelector';
-import { SessionConfigOptionSelectors } from './SessionConfigOptionSelectors';
+import { SessionSettingsSummary } from './SessionSettingsSummary';
+import { visibleSessionConfigOptions } from './SessionConfigOptionSelectors';
 
 interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
@@ -108,11 +108,13 @@ export function ActionBar({
   const showModeSelector = Boolean(
     sessionModes && onSelectMode && sessionModes.modes.length > 0
   );
+  const visibleConfigOptions =
+    visibleSessionConfigOptions(sessionConfigOptions);
   const dedupedConfigOptions = showModeSelector
-    ? sessionConfigOptions.filter(
+    ? visibleConfigOptions.filter(
         (option) => (option.category ?? option.key) !== 'mode'
       )
-    : sessionConfigOptions;
+    : visibleConfigOptions;
 
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
@@ -133,24 +135,17 @@ export function ActionBar({
         />
       ) : null}
 
-      {sessionModes && onSelectMode ? (
-        <SessionModeSelector
-          modes={sessionModes.modes}
-          current={sessionModes.current}
-          selected={selectedMode}
-          onSelect={onSelectMode}
-          disabled={!isEditable}
-        />
-      ) : null}
+      <SessionSettingsSummary
+        sessionModes={sessionModes}
+        selectedMode={selectedMode}
+        onSelectMode={onSelectMode}
+        options={dedupedConfigOptions}
+        pending={selectedConfigValues}
+        onSelectConfigOption={onSelectConfigOption}
+        disabled={!isEditable}
+      />
 
-      {onSelectConfigOption ? (
-        <SessionConfigOptionSelectors
-          options={dedupedConfigOptions}
-          pending={selectedConfigValues}
-          onSelect={onSelectConfigOption}
-          disabled={!isEditable}
-        />
-      ) : null}
+      <div className="flex-1" />
 
       <ActionBarImageButton
         isEditable={isEditable}
@@ -166,8 +161,6 @@ export function ActionBar({
         onCompactContext={onCompactContext}
         onEnhancePrompt={onEnhancePrompt}
       />
-
-      <div className="flex-1" />
 
       {isAttemptRunning ? (
         <ActionBarRunningControls

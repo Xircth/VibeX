@@ -68,7 +68,7 @@ export function ToolCardShell({
     typeof detail === 'string' || typeof detail === 'number'
       ? String(detail)
       : '';
-  const accessibleLabel = stringDetail ? `${label} ${stringDetail}` : label;
+  const accessibleLabel = [label, stringDetail].filter(Boolean).join(' ');
 
   const handleToggle = () => {
     if (!expandable) return;
@@ -99,7 +99,9 @@ export function ToolCardShell({
             {icon ? (
               <span className="shrink-0 conv-tool-icon">{icon}</span>
             ) : null}
-            <span className="conv-tool-label min-w-0 truncate">{label}</span>
+            {label ? (
+              <span className="conv-tool-label min-w-0 truncate">{label}</span>
+            ) : null}
             {detail ? (
               <span className="conv-tool-detail font-mono truncate min-w-0">
                 {detail}
@@ -111,7 +113,9 @@ export function ToolCardShell({
             {icon ? (
               <span className="shrink-0 conv-tool-icon">{icon}</span>
             ) : null}
-            <span className="conv-tool-label min-w-0 truncate">{label}</span>
+            {label ? (
+              <span className="conv-tool-label min-w-0 truncate">{label}</span>
+            ) : null}
             {detail ? (
               <span className="conv-tool-detail font-mono truncate min-w-0">
                 {detail}

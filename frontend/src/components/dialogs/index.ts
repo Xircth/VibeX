@@ -62,6 +62,11 @@ export { GhCliSetupDialog } from './auth/GhCliSetupDialog';
 // Shared/Generic dialogs
 export { ConfirmDialog, type ConfirmDialogProps } from './shared/ConfirmDialog';
 export {
+  ResendCheckpointDialog,
+  type ResendCheckpointDialogProps,
+  type ResendCheckpointResult,
+} from './shared/ResendCheckpointDialog';
+export {
   FolderPickerDialog,
   type FolderPickerDialogProps,
 } from './shared/FolderPickerDialog';

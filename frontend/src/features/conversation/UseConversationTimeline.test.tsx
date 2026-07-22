@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConversationTimeline } from './useConversationTimeline';
+import { publishOptimisticConversationTurn } from './optimisticTurnEvents';
 import type {
   ConversationRowOp,
   ConversationRowOpBatch,
@@ -12,11 +13,18 @@ import type {
 
 const CONVERSATION_ID = 'conversation-1';
 
-const { detailMock, eventsSinceMock, listenMock, listeners } = vi.hoisted(() => {
+const {
+  detailMock,
+  ensureSessionControlsMock,
+  eventsSinceMock,
+  listenMock,
+  listeners,
+} = vi.hoisted(() => {
   const listeners = [] as Array<(batch: ConversationRowOpBatch) => void>;
   return {
     listeners,
     detailMock: vi.fn(),
+    ensureSessionControlsMock: vi.fn(),
     eventsSinceMock: vi.fn(),
     listenMock: vi.fn((handler: (batch: ConversationRowOpBatch) => void) => {
       listeners.push(handler);
@@ -28,6 +36,7 @@ const { detailMock, eventsSinceMock, listenMock, listeners } = vi.hoisted(() => 
 vi.mock('./conversationApi', () => ({
   conversationApi: {
     detail: detailMock,
+    ensureSessionControls: ensureSessionControlsMock,
     eventsSince: eventsSinceMock,
     cancel: vi.fn(),
     respondPermission: vi.fn(),
@@ -108,7 +117,10 @@ function assistantRow(
   };
 }
 
-function batch(ops: ConversationRowOp[], lastSequence: bigint): ConversationRowOpBatch {
+function batch(
+  ops: ConversationRowOp[],
+  lastSequence: bigint
+): ConversationRowOpBatch {
   return {
     conversation_id: CONVERSATION_ID,
     last_sequence: lastSequence,
@@ -139,6 +151,12 @@ describe('useConversationTimeline', () => {
   beforeEach(() => {
     listeners.length = 0;
     detailMock.mockReset();
+    ensureSessionControlsMock.mockReset();
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [],
+    });
     eventsSinceMock.mockReset();
     // The hook backfills rows once on subscribe; default to "nothing changed".
     eventsSinceMock.mockResolvedValue(rowPage([], 0n));
@@ -186,10 +204,72 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
+  it('shows the optimistic user turn and loading row in the same send frame', async () => {
+    detailMock.mockResolvedValue(detail());
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      publishOptimisticConversationTurn({
+        type: 'add',
+        conversationId: CONVERSATION_ID,
+        turn: messageTurn('optimistic-1', 'user', [
+          { type: 'text', text: 'go' },
+        ]),
+      });
+    });
+
+    expect(result.current.timeline.map((row) => row.turn.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
+    expect(result.current.timeline.at(-1)?.phase).toBe('streaming');
+  });
+
+  it('rehydrates controls when an existing Codex conversation has no control events', async () => {
+    detailMock.mockResolvedValue(detail());
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [
+        {
+          key: 'mode',
+          label: 'Mode',
+          category: 'mode',
+          value: 'agent',
+          choices: [
+            { value: 'agent', label: 'Agent' },
+            { value: 'agent-full-access', label: 'Agent (full access)' },
+          ],
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
+    );
+    await waitFor(() =>
+      expect(result.current.sessionConfigOptions).toEqual([
+        expect.objectContaining({ key: 'mode', value: 'agent' }),
+      ])
+    );
+  });
+
   it('backfills changed rows on subscribe', async () => {
     detailMock.mockResolvedValue(detail());
     eventsSinceMock.mockResolvedValue(
-      rowPage([userRow('t1', 'sent message', 1n), assistantRow('t1', 'ok', 2n)], 2n)
+      rowPage(
+        [userRow('t1', 'sent message', 1n), assistantRow('t1', 'ok', 2n)],
+        2n
+      )
     );
 
     const { result } = renderHook(() =>
@@ -222,7 +302,9 @@ describe('useConversationTimeline', () => {
     await waitFor(() => expect(listeners).toHaveLength(1));
 
     act(() => {
-      listeners[0]?.(batch([{ op: 'upsert', row: userRow('t1', 'go', 1n) }], 1n));
+      listeners[0]?.(
+        batch([{ op: 'upsert', row: userRow('t1', 'go', 1n) }], 1n)
+      );
       for (let index = 0; index < 24; index += 1) {
         listeners[0]?.(
           batch(

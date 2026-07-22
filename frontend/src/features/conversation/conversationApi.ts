@@ -3,10 +3,12 @@ import type {
   AgentElicitationResponse,
   AgentPermissionResponse,
   AgentSessionConfigOverride,
+  AgentSessionControlsSnapshot,
   AgentKind,
   ConversationRowPage,
   ConversationBundlePayload,
   ConversationExportResult,
+  ConversationFileChangeSummary,
   ConversationImportResult,
   ConversationSearchHit,
   ConversationTimelinePage,
@@ -77,6 +79,11 @@ export type ConversationTruncateToTurnRequest = {
   ordinal: number;
 };
 
+export type ConversationCheckpointPreviewRequest = {
+  conversationId: string;
+  ordinal: number;
+};
+
 export type ConversationExportRequest = {
   conversationId: string;
   destinationPath?: string | null;
@@ -109,6 +116,13 @@ export const conversationApi = {
   // Conversation detail (metadata + projected timeline) from the durable event log.
   detail: (sessionId: string): Promise<DbConversationDetail | null> =>
     tauriInvoke('conversation_detail', { sessionId }),
+
+  // Lazily reconnect an existing Codex session and return its authoritative
+  // ACP controls. This never sends a prompt.
+  ensureSessionControls: (
+    conversationId: string
+  ): Promise<AgentSessionControlsSnapshot> =>
+    tauriInvoke('conversation_ensure_session_controls', { conversationId }),
 
   startTurn: (
     request: ConversationStartTurnRequest
@@ -144,8 +158,7 @@ export const conversationApi = {
 
   respondQuestion: (
     request: ConversationQuestionResponseRequest
-  ): Promise<void> =>
-    tauriInvoke('conversation_respond_question', { request }),
+  ): Promise<void> => tauriInvoke('conversation_respond_question', { request }),
 
   cancel: (request: ConversationCancelTurnRequest): Promise<void> =>
     tauriInvoke('conversation_cancel_turn', { request }),
@@ -162,15 +175,20 @@ export const conversationApi = {
     tauriInvoke('conversation_set_session_config_option', { request }),
 
   // Reset-to-here: truncate the conversation to before the user turn at `ordinal`.
-  truncateToTurn: (
-    request: ConversationTruncateToTurnRequest
-  ): Promise<void> =>
+  truncateToTurn: (request: ConversationTruncateToTurnRequest): Promise<void> =>
     tauriInvoke('conversation_truncate_to_turn', { request }),
+
+  previewCheckpointFileChanges: (
+    request: ConversationCheckpointPreviewRequest
+  ): Promise<ConversationFileChangeSummary> =>
+    tauriInvoke('conversation_checkpoint_file_changes_preview', { request }),
 
   close: (request: ConversationCloseRequest): Promise<void> =>
     tauriInvoke('conversation_close', { request }),
 
-  export: (request: ConversationExportRequest): Promise<ConversationExportResult> =>
+  export: (
+    request: ConversationExportRequest
+  ): Promise<ConversationExportResult> =>
     tauriInvoke('conversation_export', { request }),
 
   exportMarkdown: (conversationId: string): Promise<string> =>
@@ -190,7 +208,9 @@ export const conversationApi = {
       limit: limit ?? null,
     }),
 
-  import: (request: ConversationImportRequest): Promise<ConversationImportResult> =>
+  import: (
+    request: ConversationImportRequest
+  ): Promise<ConversationImportResult> =>
     tauriInvoke('conversation_import', { request }),
 
   fork: (conversationId: string): Promise<ConversationImportResult> =>

@@ -10,10 +10,11 @@ import { TerminalProfileControls } from '@/components/tasks/TerminalProfileContr
 import {
   jsonValueToString,
   resolvedConfigOptionChoices,
+  visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
+import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
-import { SessionControlsFields } from './SessionControlsFields';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
 import {
@@ -107,6 +108,9 @@ export function SessionCreationForm({
     key: string;
     id: string;
   } | null>(null);
+  const scheduledDiscardsRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  );
   if (preparedSessionIdentityRef.current?.key !== preparedSessionKey) {
     preparedSessionIdentityRef.current = {
       key: preparedSessionKey,
@@ -114,6 +118,11 @@ export function SessionCreationForm({
     };
   }
   const preparedSessionId = preparedSessionIdentityRef.current.id;
+  const wantsPreparedSession = Boolean(executor && preparedWorkspaceId);
+  const wantedPreparedSessionIdRef = useRef<string | null>(null);
+  wantedPreparedSessionIdRef.current = wantsPreparedSession
+    ? preparedSessionId
+    : null;
   const preparedSessionQuery = useQuery({
     queryKey: [
       'agent-prepared-session',
@@ -127,13 +136,16 @@ export function SessionCreationForm({
         workspaceId: preparedWorkspaceId!,
         sessionId: preparedSessionId,
       });
-      if (signal.aborted) {
+      if (
+        signal.aborted &&
+        wantedPreparedSessionIdRef.current !== preparedSessionId
+      ) {
         await agentsApi.discardPreparedSession(preparedSessionId);
         throw new Error('Prepared ACP session was cancelled');
       }
       return prepared;
     },
-    enabled: Boolean(executor && preparedWorkspaceId),
+    enabled: wantsPreparedSession,
     staleTime: Infinity,
     retry: false,
   });
@@ -147,6 +159,16 @@ export function SessionCreationForm({
   } | null>(null);
   const [isChangingControl, setIsChangingControl] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
+  useEffect(() => {
+    wantedPreparedSessionIdRef.current = wantsPreparedSession
+      ? preparedSessionId
+      : null;
+    return () => {
+      if (wantedPreparedSessionIdRef.current === preparedSessionId) {
+        wantedPreparedSessionIdRef.current = null;
+      }
+    };
+  }, [preparedSessionId, wantsPreparedSession]);
   useEffect(() => {
     const controls = preparedSessionQuery.data?.controls;
     if (!controls) {
@@ -171,12 +193,29 @@ export function SessionCreationForm({
   ]);
   useEffect(() => {
     if (!preparedSessionQuery.data) return;
+
+    const scheduledDiscards = scheduledDiscardsRef.current;
+    // React Strict Mode replays effects by running cleanup and setup again.
+    // Delay disposal until the next task so the repeated setup can cancel it;
+    // a real executor/workspace change (or unmount) leaves it scheduled.
+    const scheduledDiscard = scheduledDiscards.get(preparedSessionId);
+    if (scheduledDiscard) {
+      clearTimeout(scheduledDiscard);
+      scheduledDiscards.delete(preparedSessionId);
+    }
+
     return () => {
-      void agentsApi
-        .discardPreparedSession(preparedSessionId)
-        .catch((error) => {
-          console.warn('Failed to discard prepared ACP session', error);
-        });
+      const previousDiscard = scheduledDiscards.get(preparedSessionId);
+      if (previousDiscard) clearTimeout(previousDiscard);
+      const timeout = setTimeout(() => {
+        scheduledDiscards.delete(preparedSessionId);
+        void agentsApi
+          .discardPreparedSession(preparedSessionId)
+          .catch((error) => {
+            console.warn('Failed to discard prepared ACP session', error);
+          });
+      }, 0);
+      scheduledDiscards.set(preparedSessionId, timeout);
     };
   }, [preparedSessionId, preparedSessionQuery.data]);
   const replaceControls = (
@@ -191,6 +230,9 @@ export function SessionCreationForm({
   };
   const activeControls =
     controlsSource?.sessionId === preparedSessionId ? controlsSource : null;
+  const visibleConfigOptions = visibleSessionConfigOptions(
+    activeControls?.configOptions ?? []
+  );
   const handleSelectMode = async (modeId: string) => {
     setIsChangingControl(true);
     setControlError(null);
@@ -199,7 +241,14 @@ export function SessionCreationForm({
         await agentsApi.setPreparedSessionMode(preparedSessionId, modeId)
       );
     } catch (error) {
-      setControlError(String(error));
+      setControlError(
+        t('sessionCreation.controlsUpdateFailed', {
+          agent: executor,
+          option: modeId,
+          sessionId: preparedSessionId,
+          error: String(error),
+        })
+      );
     } finally {
       setIsChangingControl(false);
     }
@@ -223,7 +272,14 @@ export function SessionCreationForm({
         )
       );
     } catch (error) {
-      setControlError(String(error));
+      setControlError(
+        t('sessionCreation.controlsUpdateFailed', {
+          agent: executor,
+          option: key,
+          sessionId: preparedSessionId,
+          error: String(error),
+        })
+      );
     } finally {
       setIsChangingControl(false);
     }
@@ -231,15 +287,23 @@ export function SessionCreationForm({
   const hasControls =
     activeControls !== null &&
     (activeControls.modes.length > 0 ||
-      activeControls.configOptions.some(
+      visibleConfigOptions.some(
         (option) =>
-          resolvedConfigOptionChoices(option, activeControls.configOptions, {})
-            .length > 1
+          typeof option.value === 'boolean' ||
+          resolvedConfigOptionChoices(option, visibleConfigOptions, {}).length >
+            1
       ));
   // Don't flash the "after first session" hint while the backend answer is in
   // flight for an agent we haven't resolved yet.
   const controlsPending =
     Boolean(executor && preparedWorkspaceId) && preparedSessionQuery.isPending;
+  const preparationError = preparedSessionQuery.error
+    ? t('sessionCreation.controlsPrepareFailed', {
+        agent: executor,
+        sessionId: preparedSessionId,
+        error: String(preparedSessionQuery.error),
+      })
+    : null;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
   const workspaceWarning = getWorkspaceBranchWarning(selectedWorkspaceOption);
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
@@ -345,14 +409,15 @@ export function SessionCreationForm({
           )}
         />
         {hasControls && activeControls ? (
-          <SessionControlsFields
-            modes={activeControls.modes}
-            currentModeId={activeControls.currentModeId}
-            configOptions={activeControls.configOptions}
-            selectedModeId={null}
-            pendingConfigValues={{}}
+          <SessionSettingsSummary
+            sessionModes={{
+              current: activeControls.currentModeId,
+              modes: activeControls.modes,
+            }}
+            options={visibleConfigOptions}
+            pending={{}}
             onSelectMode={handleSelectMode}
-            onSelectConfigValue={handleSelectConfigValue}
+            onSelectConfigOption={handleSelectConfigValue}
             disabled={isSubmitting || isChangingControl}
             dropdownSide={dropdownSide}
           />
@@ -360,22 +425,27 @@ export function SessionCreationForm({
           <p className="text-[11px] text-muted-foreground">
             {t('sessionCreation.controlsLoading')}
           </p>
-        ) : executor ? (
+        ) : executor && !preparationError ? (
           <p className="text-[11px] text-muted-foreground">
             {t('sessionCreation.controlsUnavailable')}
           </p>
         ) : null}
       </div>
 
-      {errorMessage || controlError || preparedSessionQuery.error ? (
+      {errorMessage || controlError || preparationError ? (
         <p className="text-sm text-destructive">
-          {errorMessage ?? controlError ?? String(preparedSessionQuery.error)}
+          {errorMessage ?? controlError ?? preparationError}
         </p>
       ) : null}
 
       <div className="flex items-center justify-end gap-2">
         {onCancel ? (
-          <Button type="button" variant="outline" onClick={onCancel}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={isSubmitting}
+          >
             {resolvedCancelLabel}
           </Button>
         ) : null}
@@ -383,6 +453,7 @@ export function SessionCreationForm({
           type="submit"
           disabled={
             !canSubmit ||
+            isSubmitting ||
             isChangingControl ||
             Boolean(executor && preparedWorkspaceId && !activeControls)
           }

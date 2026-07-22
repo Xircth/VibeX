@@ -2642,7 +2642,7 @@ mod tests {
     fn maps_registry_npx_agents_to_npm_package_specs() {
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::ClaudeCode)).as_deref(),
-            Some("@agentclientprotocol/claude-agent-acp@0.44.0")
+            Some("@agentclientprotocol/claude-agent-acp@0.59.0")
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Gemini)).as_deref(),
@@ -2650,11 +2650,11 @@ mod tests {
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Codex)).as_deref(),
-            Some("@agentclientprotocol/codex-acp@1.1.2")
+            Some("@agentclientprotocol/codex-acp@1.1.4")
         );
         assert_eq!(
             npm_package_for_entry(&registry_entry(AgentKind::Opencode)).as_deref(),
-            Some("opencode-ai@1.17.4")
+            Some("opencode-ai@1.18.2")
         );
         assert_eq!(
             npm_package_name("@google/gemini-cli@0.45.2"),
@@ -2813,7 +2813,7 @@ mod tests {
             version_args_for_entry(&codex),
             vec![
                 "-y".to_string(),
-                "@agentclientprotocol/codex-acp@1.1.2".to_string(),
+                "@agentclientprotocol/codex-acp@1.1.4".to_string(),
                 "codex-acp".to_string(),
                 "--version".to_string()
             ]

@@ -98,3 +98,6 @@ logs/
 
 # Claude Code isolated worktrees (parallel agents)
 .claude/worktrees/
+
+# Codex isolated worktrees
+.worktrees/

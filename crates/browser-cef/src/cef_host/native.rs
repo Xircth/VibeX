@@ -104,6 +104,45 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
+    use objc2::{
+        msg_send,
+        runtime::{AnyObject, Bool},
+    };
+
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle.is_null() {
+        return Err("browser native view is missing".to_string());
+    }
+    let view = unsafe { &*handle.cast::<AnyObject>() };
+    unsafe {
+        let _: () = msg_send![view, setHidden: Bool::new(true)];
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
+    use objc2::{msg_send, runtime::AnyObject};
+
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle.is_null() {
+        return Err("browser native view is missing".to_string());
+    }
+    let view = unsafe { &*handle.cast::<AnyObject>() };
+    unsafe {
+        let _: () = msg_send![view, removeFromSuperview];
+    }
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -132,6 +171,40 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
             return Err("SetWindowPos failed".to_string());
         }
         ShowWindow(handle, if surface.visible { SW_SHOW } else { SW_HIDE });
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle.is_null() {
+        return Err("browser native window is missing".to_string());
+    }
+    unsafe {
+        ShowWindow(handle, SW_HIDE);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow;
+
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle.is_null() {
+        return Err("browser native window is missing".to_string());
+    }
+    if unsafe { DestroyWindow(handle) } == 0 {
+        return Err("DestroyWindow failed".to_string());
     }
     Ok(())
 }
@@ -170,6 +243,60 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
         } else {
             (xlib.XUnmapWindow)(display, handle);
         }
+        (xlib.XFlush)(display);
+        (xlib.XCloseDisplay)(display);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
+    use std::sync::OnceLock;
+
+    use x11_dl::xlib;
+
+    static XLIB: OnceLock<xlib::Xlib> = OnceLock::new();
+    let xlib = XLIB.get_or_try_init(|| xlib::Xlib::open().map_err(|error| error.to_string()))?;
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle == 0 {
+        return Err("browser native window is missing".to_string());
+    }
+    let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
+    if display.is_null() {
+        return Err("X11 display is unavailable".to_string());
+    }
+    unsafe {
+        (xlib.XUnmapWindow)(display, handle);
+        (xlib.XFlush)(display);
+        (xlib.XCloseDisplay)(display);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
+    use std::sync::OnceLock;
+
+    use x11_dl::xlib;
+
+    static XLIB: OnceLock<xlib::Xlib> = OnceLock::new();
+    let xlib = XLIB.get_or_try_init(|| xlib::Xlib::open().map_err(|error| error.to_string()))?;
+    let host = browser
+        .host()
+        .ok_or_else(|| "browser host is missing".to_string())?;
+    let handle = host.window_handle();
+    if handle == 0 {
+        return Err("browser native window is missing".to_string());
+    }
+    let display = unsafe { (xlib.XOpenDisplay)(std::ptr::null()) };
+    if display.is_null() {
+        return Err("X11 display is unavailable".to_string());
+    }
+    unsafe {
+        (xlib.XDestroyWindow)(display, handle);
         (xlib.XFlush)(display);
         (xlib.XCloseDisplay)(display);
     }

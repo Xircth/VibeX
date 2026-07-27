@@ -34,7 +34,11 @@ impl fmt::Display for BrowserTabId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum BrowserProfile {
     Global,
     Workspace { workspace_id: String },
@@ -91,7 +95,11 @@ pub struct BrowserTab {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum BrowserIntent {
     Navigate {
         url: String,
@@ -247,7 +255,11 @@ pub enum BrowserEngineEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum BrowserEvent {
     TabCreated {
         tab: BrowserTab,

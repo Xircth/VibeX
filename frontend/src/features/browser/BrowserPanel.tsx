@@ -13,6 +13,7 @@ import {
   ChevronUp,
   Crosshair,
   LoaderCircle,
+  Plus,
   RefreshCw,
   Search,
   Square,
@@ -34,6 +35,14 @@ import type {
 } from './browserTypes';
 
 const BLANK_PAGE = 'about:blank';
+const ZOOM_PERCENTAGES = [50, 80, 90, 100, 110, 125, 150] as const;
+const INSPECT_HIGHLIGHT_CONFIG = {
+  showInfo: true,
+  showStyles: true,
+  showAccessibilityInfo: true,
+  contentColor: { r: 111, g: 168, b: 220, a: 0.35 },
+  borderColor: { r: 79, g: 140, b: 201, a: 0.9 },
+};
 
 interface BrowserPanelProps {
   initialUrl: string | null;
@@ -53,6 +62,12 @@ interface DescribedNode {
   nodeName?: string;
 }
 
+interface HorizontalPageScroll {
+  contentWidth: number;
+  viewportWidth: number;
+  pageX: number;
+}
+
 function objectValue(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
@@ -70,6 +85,30 @@ function stringAttributes(attributes: unknown): Record<string, string> {
     }
   }
   return result;
+}
+
+function horizontalPageScrollMetrics(
+  result: unknown
+): HorizontalPageScroll | null {
+  const metrics = objectValue(result);
+  const content = objectValue(metrics?.cssContentSize);
+  const viewport = objectValue(metrics?.cssLayoutViewport);
+  const contentWidth = content?.width;
+  const viewportWidth = viewport?.clientWidth;
+  const pageX = viewport?.pageX;
+  if (
+    typeof contentWidth !== 'number' ||
+    typeof viewportWidth !== 'number' ||
+    typeof pageX !== 'number' ||
+    contentWidth <= viewportWidth + 1
+  ) {
+    return null;
+  }
+  return {
+    contentWidth,
+    viewportWidth,
+    pageX: Math.max(0, Math.min(pageX, contentWidth - viewportWidth)),
+  };
 }
 
 async function describeInspectedElement(
@@ -133,6 +172,28 @@ function browserProfile(workspaceId?: string): BrowserProfile {
   return workspaceId ? { kind: 'workspace', workspaceId } : { kind: 'global' };
 }
 
+function browserAddress(url: string): string {
+  return url === BLANK_PAGE ? '' : url;
+}
+
+function browserTabLabel(tab: BrowserTab): string {
+  if (tab.title) return tab.title;
+  return tab.url === BLANK_PAGE ? 'New Tab' : tab.url || 'New Tab';
+}
+
+function zoomLevelForPercent(percent: number): number {
+  return Math.log(percent / 100) / Math.log(1.2);
+}
+
+function zoomPercentForLevel(level: number): number {
+  const percent = 100 * Math.pow(1.2, level);
+  return ZOOM_PERCENTAGES.reduce((nearest, candidate) =>
+    Math.abs(candidate - percent) < Math.abs(nearest - percent)
+      ? candidate
+      : nearest
+  );
+}
+
 export function normalizeBrowserUrl(value: string): string {
   const target = value.trim();
   if (!target) return BLANK_PAGE;
@@ -184,15 +245,22 @@ export function BrowserPanel({
   const surfaceBlockedRef = useRef(false);
   const onInspectElementRef = useRef(onInspectElement);
   const initialUrlRef = useRef(initialUrl);
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
+  const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
+  const desiredPageXRef = useRef(0);
+  const scrollCommandInFlightRef = useRef(false);
   const [surfaceReady, setSurfaceReady] = useState(false);
   const [tab, setTab] = useState<BrowserTab | null>(null);
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [address, setAddress] = useState(initialUrl ?? '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [creatingTab, setCreatingTab] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
+  const [horizontalPageScroll, setHorizontalPageScroll] =
+    useState<HorizontalPageScroll | null>(null);
   const [devicePreset, setDevicePreset] = useState<DevicePresetId>('desktop');
   const [permissionRequest, setPermissionRequest] = useState<
     Extract<BrowserEvent, { type: 'permissionRequested' }> | undefined
@@ -226,9 +294,29 @@ export function BrowserPanel({
     [showError]
   );
 
+  const hideNativeSurfaces = useCallback(() => {
+    const currentSurface = currentSurfaceRef.current;
+    if (!currentSurface?.visible) return;
+
+    const hiddenSurface = { ...currentSurface, visible: false };
+    currentSurfaceRef.current = hiddenSurface;
+    const tabIds = new Set(knownTabIdsRef.current);
+    if (tabIdRef.current) tabIds.add(tabIdRef.current);
+
+    for (const tabId of tabIds) {
+      void browserApi
+        .applyIntent(tabId, {
+          type: 'setSurface',
+          surface: hiddenSurface,
+        })
+        .catch((error: unknown) => showError(commandErrorMessage(error)));
+    }
+  }, [showError]);
+
   const attachDevToolsSession = useCallback(
     (tabId: string) => {
       devToolsSessionRef.current?.dispose();
+      setHorizontalPageScroll(null);
       const session = new BrowserDevToolsSession(tabId, (intent) =>
         browserApi.applyIntent(tabId, intent)
       );
@@ -247,6 +335,48 @@ export function BrowserPanel({
     },
     [showError]
   );
+
+  const refreshHorizontalPageScroll = useCallback(() => {
+    const session = devToolsSessionRef.current;
+    if (!session) return;
+    void session
+      .execute('Page.getLayoutMetrics')
+      .then((result) => {
+        const metrics = horizontalPageScrollMetrics(result);
+        desiredPageXRef.current = metrics?.pageX ?? 0;
+        setHorizontalPageScroll(metrics);
+      })
+      .catch(() => {
+        setHorizontalPageScroll(null);
+      });
+  }, []);
+
+  const scrollPageHorizontally = useCallback((pageX: number) => {
+    desiredPageXRef.current = Math.max(0, Math.round(pageX));
+    setHorizontalPageScroll((current) =>
+      current ? { ...current, pageX: desiredPageXRef.current } : current
+    );
+    if (scrollCommandInFlightRef.current) return;
+
+    const flush = () => {
+      const session = devToolsSessionRef.current;
+      if (!session) return;
+      const target = desiredPageXRef.current;
+      scrollCommandInFlightRef.current = true;
+      void session
+        .execute('Runtime.evaluate', {
+          expression: `window.scrollTo(${target}, window.scrollY)`,
+          returnByValue: false,
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          scrollCommandInFlightRef.current = false;
+          if (desiredPageXRef.current !== target) flush();
+        });
+    };
+
+    flush();
+  }, []);
 
   const activateTab = useCallback(
     (nextTab: BrowserTab) => {
@@ -268,8 +398,11 @@ export function BrowserPanel({
       tabIdRef.current = nextTab.id;
       attachDevToolsSession(nextTab.id);
       setTab(nextTab);
-      setAddress(nextTab.url);
+      setAddress(browserAddress(nextTab.url));
       onTitleChange?.(nextTab.title);
+      if (nextTab.url === BLANK_PAGE) {
+        requestAnimationFrame(() => addressInputRef.current?.focus());
+      }
     },
     [attachDevToolsSession, onTitleChange, showError]
   );
@@ -355,8 +488,13 @@ export function BrowserPanel({
 
   useLayoutEffect(() => {
     panelVisibleRef.current = visible;
+    if (!visible) {
+      surfaceSchedulerRef.current?.cancel();
+      hideNativeSurfaces();
+      return;
+    }
     surfaceSchedulerRef.current?.request();
-  }, [layoutVersion, syncSurface, visible]);
+  }, [hideNativeSurfaces, layoutVersion, visible]);
 
   useEffect(() => {
     if (!surfaceReady || !currentSurfaceRef.current) return;
@@ -436,9 +574,14 @@ export function BrowserPanel({
       setTabs(tabsRef.current);
       if (tabIdRef.current === event.tab.id) {
         setTab(event.tab);
-        if (!editingAddressRef.current) setAddress(event.tab.url);
+        if (!editingAddressRef.current)
+          setAddress(browserAddress(event.tab.url));
         onTitleChange?.(event.tab.title);
         if (event.type === 'tabFailed') showError(event.message);
+        if (event.type === 'tabUpdated') {
+          if (event.tab.loading) setHorizontalPageScroll(null);
+          else refreshHorizontalPageScroll();
+        }
       }
     };
 
@@ -452,7 +595,7 @@ export function BrowserPanel({
         const createdTab = await browserApi.createTab({
           initialUrl: normalizeBrowserUrl(initialUrlRef.current ?? BLANK_PAGE),
           profile: browserProfile(workspaceId),
-          surface: currentSurfaceRef.current!,
+          surface: { ...currentSurfaceRef.current!, visible: false },
         });
         createdTabId = createdTab.id;
         if (disposed) {
@@ -465,8 +608,15 @@ export function BrowserPanel({
         tabIdRef.current = createdTab.id;
         attachDevToolsSession(createdTab.id);
         setTab(createdTab);
-        setAddress(createdTab.url);
+        setAddress(browserAddress(createdTab.url));
         onTitleChange?.(createdTab.title);
+        await browserApi.applyIntent(createdTab.id, {
+          type: 'setSurface',
+          surface: currentSurfaceRef.current!,
+        });
+        if (createdTab.url === BLANK_PAGE) {
+          requestAnimationFrame(() => addressInputRef.current?.focus());
+        }
         pendingEvents.splice(0).forEach(acceptEvent);
       } catch (error) {
         if (!disposed) showError(commandErrorMessage(error));
@@ -488,6 +638,7 @@ export function BrowserPanel({
     activateTab,
     attachDevToolsSession,
     onTitleChange,
+    refreshHorizontalPageScroll,
     showError,
     surfaceReady,
     workspaceId,
@@ -503,6 +654,20 @@ export function BrowserPanel({
     applyIntent({ type: 'navigate', url });
   }, [applyIntent, initialUrl, requestToken, tab]);
 
+  useLayoutEffect(() => {
+    const scrollbar = horizontalScrollbarRef.current;
+    if (!scrollbar || !horizontalPageScroll) return;
+    if (Math.abs(scrollbar.scrollLeft - horizontalPageScroll.pageX) > 1) {
+      scrollbar.scrollLeft = horizontalPageScroll.pageX;
+    }
+  }, [horizontalPageScroll]);
+
+  const hasHorizontalPageScroll = horizontalPageScroll !== null;
+  useEffect(() => {
+    if (layoutVersion == null || !hasHorizontalPageScroll) return;
+    refreshHorizontalPageScroll();
+  }, [hasHorizontalPageScroll, layoutVersion, refreshHorizontalPageScroll]);
+
   const navigate = () => {
     const url = normalizeBrowserUrl(address);
     setAddress(url);
@@ -511,14 +676,51 @@ export function BrowserPanel({
     applyIntent({ type: 'navigate', url });
   };
 
+  const createNewTab = () => {
+    const surface = currentSurfaceRef.current;
+    if (!surface || creatingTab) return;
+
+    setCreatingTab(true);
+    clearError();
+    void browserApi
+      .createTab({
+        initialUrl: BLANK_PAGE,
+        profile: browserProfile(workspaceId),
+        surface: { ...surface, visible: false },
+      })
+      .then(async (createdTab) => {
+        if (!surfaceElementRef.current) {
+          await browserApi.closeTab(createdTab.id);
+          return;
+        }
+        knownTabIdsRef.current.add(createdTab.id);
+        tabsRef.current = [...tabsRef.current, createdTab];
+        setTabs(tabsRef.current);
+        activateTab(createdTab);
+      })
+      .catch((error: unknown) => showError(commandErrorMessage(error)))
+      .finally(() => {
+        if (surfaceElementRef.current) setCreatingTab(false);
+      });
+  };
+
+  const stopElementInspection = () => {
+    const session = devToolsSessionRef.current;
+    setIsInspecting(false);
+    if (!session) return Promise.resolve();
+    return session.execute('Overlay.setInspectMode', {
+      mode: 'none',
+      highlightConfig: INSPECT_HIGHLIGHT_CONFIG,
+    });
+  };
+
   const toggleElementInspection = () => {
     const session = devToolsSessionRef.current;
     if (!session) return;
     if (isInspecting) {
-      setIsInspecting(false);
-      void session
-        .execute('Overlay.setInspectMode', { mode: 'none' })
-        .catch((error: unknown) => showError(commandErrorMessage(error)));
+      void stopElementInspection().catch((error: unknown) =>
+        showError(commandErrorMessage(error))
+      );
       return;
     }
 
@@ -528,19 +730,27 @@ export function BrowserPanel({
       await session.execute('Overlay.enable');
       await session.execute('Overlay.setInspectMode', {
         mode: 'searchForNode',
-        highlightConfig: {
-          showInfo: true,
-          showStyles: true,
-          showAccessibilityInfo: true,
-          contentColor: { r: 111, g: 168, b: 220, a: 0.35 },
-          borderColor: { r: 79, g: 140, b: 201, a: 0.9 },
-        },
+        highlightConfig: INSPECT_HIGHLIGHT_CONFIG,
       });
       setIsInspecting(true);
     })().catch((error: unknown) => {
       setIsInspecting(false);
       showError(commandErrorMessage(error));
     });
+  };
+
+  const reloadOrStop = () => {
+    if (tab?.loading) {
+      applyIntent({ type: 'stop' });
+      return;
+    }
+    if (!isInspecting) {
+      applyIntent({ type: 'reload' });
+      return;
+    }
+    void stopElementInspection()
+      .then(() => applyIntent({ type: 'reload' }))
+      .catch((error: unknown) => showError(commandErrorMessage(error)));
   };
 
   const runFind = (forward: boolean, findNext: boolean) => {
@@ -605,9 +815,7 @@ export function BrowserPanel({
           size="icon"
           className="h-7 w-7"
           disabled={!tab}
-          onClick={() =>
-            applyIntent({ type: tab?.loading ? 'stop' : 'reload' })
-          }
+          onClick={reloadOrStop}
         >
           {tab?.loading ? (
             <Square className="h-3.5 w-3.5" />
@@ -624,6 +832,7 @@ export function BrowserPanel({
           }}
         >
           <input
+            ref={addressInputRef}
             aria-label="Address"
             value={address}
             spellCheck={false}
@@ -644,18 +853,21 @@ export function BrowserPanel({
         <select
           aria-label="Zoom"
           title="Zoom"
-          value={String(tab?.zoomLevel ?? 0)}
+          value={String(zoomPercentForLevel(tab?.zoomLevel ?? 0))}
           disabled={!tab}
           onChange={(event) =>
-            applyIntent({ type: 'setZoom', level: Number(event.target.value) })
+            applyIntent({
+              type: 'setZoom',
+              level: zoomLevelForPercent(Number(event.target.value)),
+            })
           }
           className="h-7 w-[4.25rem] rounded-md border border-border bg-background px-1 text-[11px] text-foreground outline-none"
         >
-          <option value="-2">80%</option>
-          <option value="-1">90%</option>
-          <option value="0">100%</option>
-          <option value="1">110%</option>
-          <option value="2">125%</option>
+          {ZOOM_PERCENTAGES.map((percent) => (
+            <option key={percent} value={percent}>
+              {percent}%
+            </option>
+          ))}
         </select>
         <select
           aria-label="Device"
@@ -711,48 +923,61 @@ export function BrowserPanel({
         </Button>
       </div>
 
-      {tabs.length > 1 && (
-        <div
-          role="tablist"
-          aria-label="Browser Tabs"
-          className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-1"
-        >
-          {tabs.map((candidate) => {
-            const label = candidate.title || candidate.url || 'New Tab';
-            const active = candidate.id === tab?.id;
-            return (
-              <div
-                key={candidate.id}
-                className={cn(
-                  'flex h-7 min-w-24 max-w-48 items-center rounded-md border px-1',
-                  active
-                    ? 'border-border bg-background text-foreground'
-                    : 'border-transparent text-muted-foreground hover:bg-muted'
-                )}
+      <div
+        role="tablist"
+        aria-label="Browser Tabs"
+        className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-1"
+      >
+        {tabs.map((candidate) => {
+          const label = browserTabLabel(candidate);
+          const active = candidate.id === tab?.id;
+          return (
+            <div
+              key={candidate.id}
+              className={cn(
+                'flex h-7 min-w-24 max-w-48 items-center rounded-md border px-1',
+                active
+                  ? 'border-border bg-background text-foreground'
+                  : 'border-transparent text-muted-foreground hover:bg-muted'
+              )}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-label={label}
+                aria-selected={active}
+                className="min-w-0 flex-1 truncate px-1 text-left text-xs"
+                onClick={() => activateTab(candidate)}
               >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-label={label}
-                  aria-selected={active}
-                  className="min-w-0 flex-1 truncate px-1 text-left text-xs"
-                  onClick={() => activateTab(candidate)}
-                >
-                  {label}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Close ${label}`}
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
-                  onClick={() => void browserApi.closeTab(candidate.id)}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                {label}
+              </button>
+              <button
+                type="button"
+                aria-label={`Close ${label}`}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
+                onClick={() => void browserApi.closeTab(candidate.id)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          );
+        })}
+        <Button
+          aria-label="New Tab"
+          title="New Tab"
+          variant="icon"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          disabled={!tab || creatingTab}
+          onClick={createNewTab}
+        >
+          {creatingTab ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </div>
 
       {findOpen && (
         <form
@@ -902,7 +1127,7 @@ export function BrowserPanel({
           ref={surfaceElementRef}
           data-testid="native-browser-surface"
           aria-busy={loading}
-          className="absolute inset-0 bg-transparent"
+          className="absolute inset-0 bg-background"
           onPointerDown={() => applyIntent({ type: 'focus' })}
         />
         {!tab && !errorMessage && (
@@ -922,6 +1147,32 @@ export function BrowserPanel({
           </div>
         )}
       </div>
+      {horizontalPageScroll ? (
+        <div
+          ref={horizontalScrollbarRef}
+          role="scrollbar"
+          aria-label="Horizontal page scroll"
+          aria-orientation="horizontal"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(
+            horizontalPageScroll.contentWidth -
+              horizontalPageScroll.viewportWidth
+          )}
+          aria-valuenow={Math.round(horizontalPageScroll.pageX)}
+          tabIndex={0}
+          className="h-3 shrink-0 overflow-x-scroll overflow-y-hidden bg-background"
+          onScroll={(event) =>
+            scrollPageHorizontally(event.currentTarget.scrollLeft)
+          }
+        >
+          <div
+            className="h-px"
+            style={{
+              width: `${Math.ceil(horizontalPageScroll.contentWidth)}px`,
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { withNativeBuildEnv } = require('./cargo-path');
+const { resetCargoDebugTarget } = require('./cargo-dev-target');
 const { getPorts } = require('./setup-dev-environment');
 
 const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
@@ -148,8 +149,15 @@ exit 0
 }
 
 function writeGeneratedTauriDevConfig(ports) {
-  const baseConfigPath = path.join(process.cwd(), 'src-tauri', 'tauri.conf.json');
-  const generatedConfigPath = path.join(process.cwd(), GENERATED_TAURI_DEV_CONFIG);
+  const baseConfigPath = path.join(
+    process.cwd(),
+    'src-tauri',
+    'tauri.conf.json'
+  );
+  const generatedConfigPath = path.join(
+    process.cwd(),
+    GENERATED_TAURI_DEV_CONFIG
+  );
   const config = JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'));
 
   config.build = {
@@ -160,6 +168,12 @@ function writeGeneratedTauriDevConfig(ports) {
   };
 
   fs.writeFileSync(generatedConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function hasRunnerArg(args) {
+  return args.some(
+    (arg) => arg === '--runner' || arg === '-r' || arg.startsWith('--runner=')
+  );
 }
 
 function describeTauriDevExit(code, signal, ports) {
@@ -183,6 +197,22 @@ async function runTauriDesktopDev() {
   clearRelocatedCargoBuildCache();
   clearIncrementalCacheIfDisabled(env);
   terminateStaleDesktopProcess();
+  const debugTarget = path.join(process.cwd(), 'target', 'debug');
+  if (fs.existsSync(debugTarget)) {
+    console.warn('Removing previous Cargo debug artifacts before Tauri dev.');
+  }
+  if (resetCargoDebugTarget(process.cwd())) {
+    console.warn('Removed previous Cargo debug artifacts.');
+  }
+
+  const userArgs = process.argv.slice(2);
+  const runnerArgs =
+    process.platform === 'darwin' && !hasRunnerArg(userArgs)
+      ? [
+          '--runner',
+          path.join(process.cwd(), 'scripts', 'run-tauri-dev-macos.js'),
+        ]
+      : [];
 
   const child = runCommand(
     'pnpm',
@@ -192,7 +222,8 @@ async function runTauriDesktopDev() {
       'dev',
       '-c',
       GENERATED_TAURI_DEV_CONFIG.replace(/\\/g, '/'),
-      ...process.argv.slice(2),
+      ...runnerArgs,
+      ...userArgs,
     ],
     {
       env,

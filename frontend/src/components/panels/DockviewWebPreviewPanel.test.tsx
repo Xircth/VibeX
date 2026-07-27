@@ -1,31 +1,39 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { describe, expect, it, vi } from 'vitest';
+import { RightPanelSlotContext } from '@/contexts/RightPanelSlotContext';
 import DockviewWebPreviewPanel from './DockviewWebPreviewPanel';
 
-const { browserPanelMock, useKanbanSessionContextMock, useWorktreeMock } =
-  vi.hoisted(() => ({
-    browserPanelMock: vi.fn(
-      (props: {
-        initialUrl: string | null;
-        requestNonce: number;
-        workspaceId?: string;
-        visible: boolean;
-      }) => (
-        <div
-          data-testid="browser-panel"
-          data-url={props.initialUrl}
-          data-request-nonce={props.requestNonce}
-          data-workspace-id={props.workspaceId}
-          data-visible={props.visible}
-        />
-      )
-    ),
-    useKanbanSessionContextMock: vi.fn(() => ({
-      visibleRightSession: { workspaceId: 'workspace-session' },
-    })),
-    useWorktreeMock: vi.fn(() => ({ activeWorktreeId: 'workspace-tree' })),
-  }));
+const {
+  browserPanelMock,
+  useKanbanSessionContextMock,
+  usePreviewSettingsMock,
+  useWorktreeMock,
+} = vi.hoisted(() => ({
+  browserPanelMock: vi.fn(
+    (props: {
+      initialUrl: string | null;
+      requestNonce: number;
+      workspaceId?: string;
+      visible: boolean;
+    }) => (
+      <div
+        data-testid="browser-panel"
+        data-url={props.initialUrl}
+        data-request-nonce={props.requestNonce}
+        data-workspace-id={props.workspaceId}
+        data-visible={props.visible}
+      />
+    )
+  ),
+  useKanbanSessionContextMock: vi.fn(() => ({
+    visibleRightSession: { workspaceId: 'workspace-session' },
+  })),
+  usePreviewSettingsMock: vi.fn(() => ({
+    overrideUrl: 'https://www.baidu.com',
+  })),
+  useWorktreeMock: vi.fn(() => ({ activeWorktreeId: 'workspace-tree' })),
+}));
 
 vi.mock('@/features/browser/BrowserPanel', () => ({
   BrowserPanel: browserPanelMock,
@@ -64,7 +72,7 @@ vi.mock('@/hooks/useDevserverUrl', () => ({
 }));
 
 vi.mock('@/hooks/usePreviewSettings', () => ({
-  usePreviewSettings: vi.fn(() => ({ overrideUrl: null })),
+  usePreviewSettings: usePreviewSettingsMock,
 }));
 
 function panelProps(): IDockviewPanelProps {
@@ -104,6 +112,75 @@ describe('DockviewWebPreviewPanel', () => {
     expect(screen.getByTestId('browser-panel')).toHaveAttribute(
       'data-visible',
       'true'
+    );
+  });
+
+  it('opens a fresh blank browser when no URL was explicitly requested', () => {
+    const props = panelProps();
+    props.params = {};
+
+    render(<DockviewWebPreviewPanel {...props} />);
+
+    expect(browserPanelMock.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ initialUrl: null })
+    );
+  });
+
+  it('keeps the browser surface visible when the panel loses focus', () => {
+    const props = panelProps();
+    let notifyActiveChange: (() => void) | undefined;
+    vi.mocked(props.api.onDidActiveChange).mockImplementation((listener) => {
+      notifyActiveChange = () =>
+        listener({ isActive: false } as Parameters<typeof listener>[0]);
+      return { dispose: vi.fn() };
+    });
+    render(<DockviewWebPreviewPanel {...props} />);
+
+    Object.defineProperty(props.api, 'isActive', {
+      configurable: true,
+      value: false,
+    });
+    act(() => notifyActiveChange?.());
+
+    expect(screen.getByTestId('browser-panel')).toHaveAttribute(
+      'data-visible',
+      'true'
+    );
+  });
+
+  it('uses the Dockview visibility event as the source of truth', () => {
+    const props = panelProps();
+    let notifyVisibilityChange:
+      | ((event: { isVisible: boolean }) => void)
+      | undefined;
+    vi.mocked(props.api.onDidVisibilityChange).mockImplementation(
+      (listener) => {
+        notifyVisibilityChange = listener;
+        return { dispose: vi.fn() };
+      }
+    );
+    render(<DockviewWebPreviewPanel {...props} />);
+
+    act(() => notifyVisibilityChange?.({ isVisible: false }));
+
+    expect(screen.getByTestId('browser-panel')).toHaveAttribute(
+      'data-visible',
+      'false'
+    );
+  });
+
+  it('hides the native browser surface when Kanban covers the workspace', () => {
+    render(
+      <RightPanelSlotContext.Provider
+        value={{ host: null, placement: 'kanban' }}
+      >
+        <DockviewWebPreviewPanel {...panelProps()} />
+      </RightPanelSlotContext.Provider>
+    );
+
+    expect(screen.getByTestId('browser-panel')).toHaveAttribute(
+      'data-visible',
+      'false'
     );
   });
 });

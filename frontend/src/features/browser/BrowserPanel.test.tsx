@@ -109,6 +109,44 @@ describe('BrowserPanel', () => {
     vi.unstubAllGlobals();
   });
 
+  async function startElementInspection() {
+    const selectElement = await screen.findByRole('button', {
+      name: 'Select Element',
+    });
+    await waitFor(() => expect(selectElement).toBeEnabled());
+    fireEvent.click(selectElement);
+
+    for (const [requestId, method] of [
+      [1, 'DOM.enable'],
+      [2, 'Overlay.enable'],
+      [3, 'Overlay.setInspectMode'],
+    ] as const) {
+      await waitFor(() =>
+        expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+          'browser-tab-1',
+          expect.objectContaining({
+            type: 'executeDevTools',
+            requestId,
+            method,
+          })
+        )
+      );
+      act(() => {
+        browserEventListener?.({
+          type: 'devToolsResult',
+          tabId: 'browser-tab-1',
+          requestId,
+          success: true,
+          result: {},
+        });
+      });
+    }
+    await waitFor(() =>
+      expect(selectElement).toHaveAttribute('aria-pressed', 'true')
+    );
+    return selectElement;
+  }
+
   it('creates a workspace-scoped native browser and follows CEF navigation state', async () => {
     render(
       <BrowserPanel
@@ -126,8 +164,15 @@ describe('BrowserPanel', () => {
     expect(createBrowserTabMock).toHaveBeenCalledWith({
       initialUrl: 'https://example.test',
       profile: { kind: 'workspace', workspaceId: 'workspace-1' },
-      surface: initialSurface,
+      surface: { ...initialSurface, visible: false },
     });
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: initialSurface,
+      })
+    );
+    applyBrowserIntentMock.mockClear();
 
     expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
     act(() => {
@@ -192,6 +237,221 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('reconciles the native child surface after Chromium creates the tab', async () => {
+    render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: initialSurface,
+      })
+    );
+  });
+
+  it('opens a fresh browser on a focused empty address field', async () => {
+    createBrowserTabMock.mockResolvedValue(
+      tab({ url: 'about:blank', title: '', loading: false })
+    );
+    render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() =>
+      expect(createBrowserTabMock).toHaveBeenCalledWith(
+        expect.objectContaining({ initialUrl: 'about:blank' })
+      )
+    );
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await waitFor(() => expect(address).toHaveValue(''));
+    expect(address).toHaveFocus();
+    expect(screen.getByTestId('native-browser-surface')).toHaveClass(
+      'bg-background'
+    );
+    expect(screen.getByTestId('native-browser-surface')).not.toHaveClass(
+      'bg-transparent'
+    );
+  });
+
+  it('resizes and repositions the native surface with its Dockview panel', async () => {
+    const view = render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        layoutVersion={0}
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    applyBrowserIntentMock.mockClear();
+
+    const resizedSurface = {
+      x: 36,
+      y: 84,
+      width: 520,
+      height: 340,
+      scaleFactor: initialSurface.scaleFactor,
+      visible: true,
+    };
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      x: resizedSurface.x,
+      y: resizedSurface.y,
+      top: resizedSurface.y,
+      left: resizedSurface.x,
+      right: resizedSurface.x + resizedSurface.width,
+      bottom: resizedSurface.y + resizedSurface.height,
+      width: resizedSurface.width,
+      height: resizedSurface.height,
+      toJSON: () => ({}),
+    });
+
+    view.rerender(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        layoutVersion={1}
+      />
+    );
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: resizedSurface,
+      })
+    );
+  });
+
+  it('hides the native surface immediately when its workspace becomes hidden', async () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    let nextFrameId = 1;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback);
+      return nextFrameId++;
+    });
+
+    const view = render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    act(() => {
+      frameCallbacks.shift()?.(0);
+      frameCallbacks.shift()?.(16);
+    });
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    applyBrowserIntentMock.mockClear();
+
+    view.rerender(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible={false}
+      />
+    );
+
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+  });
+
+  it('shows a horizontal page scrollbar when Chromium content exceeds the viewport', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test/wide"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ url: 'https://example.test/wide', loading: false }),
+      });
+    });
+
+    let metricsRequestId = 0;
+    await waitFor(() => {
+      const metricsCall = applyBrowserIntentMock.mock.calls.find(
+        ([, intent]) =>
+          intent.type === 'executeDevTools' &&
+          intent.method === 'Page.getLayoutMetrics'
+      );
+      expect(metricsCall).toBeDefined();
+      metricsRequestId = metricsCall?.[1].requestId ?? 0;
+    });
+    act(() => {
+      browserEventListener?.({
+        type: 'devToolsResult',
+        tabId: 'browser-tab-1',
+        requestId: metricsRequestId,
+        success: true,
+        result: {
+          cssContentSize: { width: 1600, height: 900 },
+          cssLayoutViewport: {
+            clientWidth: 800,
+            clientHeight: 600,
+            pageX: 0,
+            pageY: 0,
+          },
+        },
+      });
+    });
+
+    const scrollbar = await screen.findByRole('scrollbar', {
+      name: 'Horizontal page scroll',
+    });
+    expect(scrollbar).toHaveAttribute('aria-valuemax', '800');
+
+    scrollbar.scrollLeft = 320;
+    fireEvent.scroll(scrollbar);
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'executeDevTools',
+          method: 'Runtime.evaluate',
+          params: expect.objectContaining({
+            expression: 'window.scrollTo(320, window.scrollY)',
+          }),
+        })
+      )
+    );
+  });
+
   it('keeps popup navigation in a managed native tab strip', async () => {
     render(
       <BrowserPanel
@@ -234,6 +494,71 @@ describe('BrowserPanel', () => {
       'aria-selected',
       'true'
     );
+  });
+
+  it('opens an explicit blank Chromium tab from the browser tab strip', async () => {
+    createBrowserTabMock.mockResolvedValueOnce(tab()).mockResolvedValueOnce(
+      tab({
+        id: 'browser-tab-2',
+        url: 'about:blank',
+        title: '',
+        surface: { ...initialSurface, visible: false },
+      })
+    );
+    render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'setSurface',
+        surface: initialSurface,
+      })
+    );
+    applyBrowserIntentMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Tab' }));
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledTimes(2));
+    expect(createBrowserTabMock).toHaveBeenLastCalledWith({
+      initialUrl: 'about:blank',
+      profile: { kind: 'workspace', workspaceId: 'workspace-1' },
+      surface: { ...initialSurface, visible: false },
+    });
+    expect(await screen.findByRole('tab', { name: 'New Tab' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-2', {
+      type: 'setSurface',
+      surface: initialSurface,
+    });
+  });
+
+  it('closes a browser-strip tab through the owned browser runtime', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Example' }));
+
+    expect(closeBrowserTabMock).toHaveBeenCalledOnce();
+    expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-1');
   });
 
   it('requires an explicit user decision for Chromium permissions', async () => {
@@ -342,13 +667,44 @@ describe('BrowserPanel', () => {
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Zoom' }), {
-      target: { value: '1' },
+    const zoom = screen.getByRole('combobox', {
+      name: 'Zoom',
+    }) as HTMLSelectElement;
+    expect(Array.from(zoom.options, (option) => option.textContent)).toEqual([
+      '50%',
+      '80%',
+      '90%',
+      '100%',
+      '110%',
+      '125%',
+      '150%',
+    ]);
+    expect(Array.from(zoom.options, (option) => option.value)).toEqual([
+      '50',
+      '80',
+      '90',
+      '100',
+      '110',
+      '125',
+      '150',
+    ]);
+    expect(zoom).toHaveValue('100');
+    const level80 = Math.log(0.8) / Math.log(1.2);
+    fireEvent.change(zoom, {
+      target: { value: '80' },
     });
     expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
       type: 'setZoom',
-      level: 1,
+      level: level80,
     });
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ zoomLevel: -1 }),
+      });
+    });
+    expect(zoom).toHaveValue('80');
 
     fireEvent.click(screen.getByRole('button', { name: 'Find in Page' }));
     const findInput = screen.getByRole('textbox', { name: 'Find in Page' });
@@ -399,6 +755,83 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('always supplies Chromium highlight configuration when inspection stops', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onInspectElement={vi.fn()}
+      />
+    );
+    const selectElement = await startElementInspection();
+
+    fireEvent.click(selectElement);
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenLastCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'executeDevTools',
+          requestId: 4,
+          method: 'Overlay.setInspectMode',
+          params: expect.objectContaining({
+            mode: 'none',
+            highlightConfig: expect.objectContaining({ showInfo: true }),
+          }),
+        })
+      )
+    );
+  });
+
+  it('stops element inspection before reloading the page', async () => {
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onInspectElement={vi.fn()}
+      />
+    );
+    await startElementInspection();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenLastCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'executeDevTools',
+          requestId: 4,
+          method: 'Overlay.setInspectMode',
+          params: expect.objectContaining({
+            mode: 'none',
+            highlightConfig: expect.any(Object),
+          }),
+        })
+      )
+    );
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith('browser-tab-1', {
+      type: 'reload',
+    });
+    act(() => {
+      browserEventListener?.({
+        type: 'devToolsResult',
+        tabId: 'browser-tab-1',
+        requestId: 4,
+        success: true,
+        result: {},
+      });
+    });
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+        type: 'reload',
+      })
+    );
+  });
+
   it('selects a page element through CDP without injecting application code', async () => {
     const onInspectElement = vi.fn();
     render(
@@ -410,66 +843,8 @@ describe('BrowserPanel', () => {
         onInspectElement={onInspectElement}
       />
     );
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Select Element' })
-      ).toBeEnabled()
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Select Element' }));
-    await waitFor(() =>
-      expect(applyBrowserIntentMock).toHaveBeenLastCalledWith('browser-tab-1', {
-        type: 'executeDevTools',
-        requestId: 1,
-        method: 'DOM.enable',
-        params: {},
-      })
-    );
+    await startElementInspection();
     act(() => {
-      browserEventListener?.({
-        type: 'devToolsResult',
-        tabId: 'browser-tab-1',
-        requestId: 1,
-        success: true,
-        result: {},
-      });
-    });
-    await waitFor(() =>
-      expect(applyBrowserIntentMock).toHaveBeenLastCalledWith('browser-tab-1', {
-        type: 'executeDevTools',
-        requestId: 2,
-        method: 'Overlay.enable',
-        params: {},
-      })
-    );
-    act(() => {
-      browserEventListener?.({
-        type: 'devToolsResult',
-        tabId: 'browser-tab-1',
-        requestId: 2,
-        success: true,
-        result: {},
-      });
-    });
-    await waitFor(() =>
-      expect(applyBrowserIntentMock).toHaveBeenLastCalledWith(
-        'browser-tab-1',
-        expect.objectContaining({
-          type: 'executeDevTools',
-          requestId: 3,
-          method: 'Overlay.setInspectMode',
-          params: expect.objectContaining({ mode: 'searchForNode' }),
-        })
-      )
-    );
-    act(() => {
-      browserEventListener?.({
-        type: 'devToolsResult',
-        tabId: 'browser-tab-1',
-        requestId: 3,
-        success: true,
-        result: {},
-      });
       browserEventListener?.({
         type: 'devToolsEvent',
         tabId: 'browser-tab-1',

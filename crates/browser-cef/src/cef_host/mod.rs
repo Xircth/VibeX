@@ -22,6 +22,19 @@ mod native;
 
 pub type PumpScheduler = Arc<dyn Fn(i64) + Send + Sync + 'static>;
 
+// The native child disappears immediately, but its compositor resources need
+// one frame to drain before the platform view is physically detached.
+const BROWSER_VIEW_TEARDOWN_DELAY_MS: i64 = 16;
+// ARGB for the opaque light content surface defined by DESIGN.md (#fafbfc).
+const BROWSER_CONTENT_BACKGROUND_COLOR: u32 = 0xFFFAFBFC;
+
+fn browser_settings() -> BrowserSettings {
+    BrowserSettings {
+        background_color: BROWSER_CONTENT_BACKGROUND_COLOR,
+        ..Default::default()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum CefHostError {
     #[error("failed to resolve the current executable: {0}")]
@@ -140,6 +153,7 @@ impl CefBootstrap {
         let settings = Settings {
             no_sandbox: 1,
             external_message_pump: 1,
+            background_color: BROWSER_CONTENT_BACKGROUND_COLOR,
             root_cache_path: path_to_cef_string(config.root_cache_path()),
             cache_path: path_to_cef_string(&cache_path),
             persist_session_cookies: 1,
@@ -357,7 +371,7 @@ impl CefSession {
             Some(&window_info),
             Some(&mut client),
             Some(&url),
-            Some(&BrowserSettings::default()),
+            Some(&browser_settings()),
             None,
             Some(&mut request_context),
         ) != 1
@@ -446,10 +460,12 @@ fn execute_browser_command(
             native::apply_surface(browser, surface).map_err(CefHostError::NativeSurface)?;
         }
         BrowserEngineCommand::Close { .. } => {
+            native::hide_browser_view(browser).map_err(CefHostError::NativeSurface)?;
+            // Runtime state is removed immediately, so page unload must not veto the close.
             browser
                 .host()
                 .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
-                .close_browser(0);
+                .close_browser(1);
         }
         BrowserEngineCommand::Focus { .. } => {
             browser
@@ -461,7 +477,7 @@ fn execute_browser_command(
             browser
                 .host()
                 .ok_or_else(|| CefHostError::TabUnavailable(command_tab_id(command).clone()))?
-                .show_dev_tools(None, None, Some(&BrowserSettings::default()), None);
+                .show_dev_tools(None, None, Some(&browser_settings()), None);
         }
         BrowserEngineCommand::SetZoom { level, .. } => {
             browser
@@ -760,6 +776,32 @@ cef::wrap_permission_handler! {
     }
 }
 
+cef::wrap_task! {
+    struct VibeXDestroyBrowserViewTask {
+        browser: Browser,
+    }
+
+    impl Task {
+        fn execute(&self) {
+            let _ = native::destroy_browser_view(&self.browser);
+        }
+    }
+}
+
+fn schedule_browser_view_destruction(browser: &Browser) {
+    let mut task = VibeXDestroyBrowserViewTask::new(browser.clone());
+    if cef::post_delayed_task(
+        ThreadId::UI,
+        Some(&mut task),
+        BROWSER_VIEW_TEARDOWN_DELAY_MS,
+    ) == 0
+    {
+        // If CEF is already shutting down it may reject the task. Detach the
+        // child directly so the application never leaks a native browser view.
+        let _ = native::destroy_browser_view(browser);
+    }
+}
+
 cef::wrap_life_span_handler! {
     struct VibeXLifeSpanHandler {
         tab_id: BrowserTabId,
@@ -823,6 +865,14 @@ cef::wrap_life_span_handler! {
             for command in pending {
                 let _ = execute_browser_command(&browser, &command);
             }
+        }
+
+        fn do_close(&self, browser: Option<&mut Browser>) -> i32 {
+            if let Some(browser) = browser {
+                schedule_browser_view_destruction(browser);
+            }
+            // Returning 0 would ask CEF to close the top-level Tauri window.
+            1
         }
 
         fn on_before_close(&self, _browser: Option<&mut Browser>) {

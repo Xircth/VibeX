@@ -6,11 +6,11 @@ import {
 } from '@/contexts/ExecutionProcessesContext';
 import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { BrowserPanel } from '@/features/browser/BrowserPanel';
 import { useDevserverUrlFromLogs } from '@/hooks/useDevserverUrl';
 import { useLogStream } from '@/hooks/useLogStream';
-import { usePreviewSettings } from '@/hooks/usePreviewSettings';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import type { WebPreviewPanelParams } from '@/types/panels';
 
@@ -41,8 +41,7 @@ function WorkspaceBrowserPanel({
     .sort((left, right) => right.created_at.localeCompare(left.created_at))[0];
   const { logs } = useLogStream(primaryDevServer?.id ?? '');
   const detectedUrl = useDevserverUrlFromLogs(logs)?.url;
-  const { overrideUrl } = usePreviewSettings(workspaceId);
-  const initialUrl = requestedUrl ?? overrideUrl ?? detectedUrl ?? null;
+  const initialUrl = requestedUrl ?? detectedUrl ?? null;
 
   const updateTitle = useCallback(
     (title: string) => {
@@ -66,6 +65,7 @@ function WorkspaceBrowserPanel({
 
 export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
   const params = (props.params ?? {}) as Partial<WebPreviewPanelParams>;
+  const { placement } = useRightPanelSlot();
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
   const workspaceId =
@@ -74,19 +74,21 @@ export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
   const executionKey = `${workspaceId ?? 'none'}:${attempt?.session?.id ?? 'none'}`;
   const [layoutState, setLayoutState] = useState(() => ({
     version: 0,
-    visible: props.api.isVisible && props.api.isActive,
+    visible: props.api.isVisible,
   }));
 
   useEffect(() => {
-    const syncLayout = () => {
+    const syncLayout = (nextVisible = props.api.isVisible) => {
       setLayoutState((current) => ({
         version: current.version + 1,
-        visible: props.api.isVisible && props.api.isActive,
+        visible: nextVisible,
       }));
     };
-    const visibility = props.api.onDidVisibilityChange(syncLayout);
-    const dimensions = props.api.onDidDimensionsChange(syncLayout);
-    const active = props.api.onDidActiveChange(syncLayout);
+    const visibility = props.api.onDidVisibilityChange((event) => {
+      syncLayout(event.isVisible);
+    });
+    const dimensions = props.api.onDidDimensionsChange(() => syncLayout());
+    const active = props.api.onDidActiveChange(() => syncLayout());
 
     return () => {
       visibility.dispose();
@@ -106,7 +108,7 @@ export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
         layoutVersion={layoutState.version}
         requestedUrl={params.requestedUrl ?? null}
         requestedUrlNonce={params.requestedUrlNonce ?? 0}
-        visible={layoutState.visible}
+        visible={layoutState.visible && placement === 'workspace'}
         workspaceId={workspaceId}
       />
     </ExecutionProcessesProvider>

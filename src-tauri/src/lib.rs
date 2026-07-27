@@ -92,6 +92,12 @@ fn cef_subprocess_path() -> Option<PathBuf> {
         if bundled.is_file() {
             return Some(bundled);
         }
+        let staged = directory.join(
+            "../Frameworks/Chromium Embedded Framework.framework/Helpers/vibex Helper.app/Contents/MacOS/vibex Helper",
+        );
+        if staged.is_file() {
+            return Some(staged);
+        }
         let development_helper = directory.join("vibex_cef_helper");
         if development_helper.is_file() {
             return Some(development_helper);
@@ -232,8 +238,8 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
             // Inventory and automatic ACP bridge installation run after the
-            // window is interactive. Session controls are never probed or
-            // catalogued globally: a concrete Prepared Session owns them.
+            // window is interactive. This also persists the verified runtime
+            // identity required by the on-demand session-controls catalog.
             let agent_startup_pool = state.deployment.db().pool.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) =

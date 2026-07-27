@@ -65,6 +65,7 @@ describe('ActionBarIdleControls', () => {
     renderIdleControls({ onSendFollowUp });
 
     const sendButton = screen.getByRole('button', { name: SEND_LABEL });
+    expect(sendButton).toHaveClass('h-[22.4px]', 'w-[22.4px]');
     expect(sendButton.querySelector('.lucide-arrow-up')).toBeInTheDocument();
     expect(sendButton).not.toHaveTextContent(SEND_LABEL);
     fireEvent.click(sendButton);

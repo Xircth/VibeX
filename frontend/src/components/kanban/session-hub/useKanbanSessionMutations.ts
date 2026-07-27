@@ -73,10 +73,6 @@ export function useKanbanSessionMutations({
           repoInputs:
             mode === 'new_workspace' ? getWorkspaceRepoInputs() : undefined,
         }),
-        session_id:
-          mode === 'existing_workspace'
-            ? sessionControls?.preparedSessionId
-            : undefined,
       });
 
       if (executorProfile?.executor) {
@@ -88,7 +84,8 @@ export function useKanbanSessionMutations({
               images: [],
               executor_config: executorProfile,
               queued: false,
-              config_overrides: {},
+              mode_override: sessionControls?.modeOverride ?? undefined,
+              config_overrides: sessionControls?.configOverrides ?? {},
             },
           },
         });

@@ -214,8 +214,8 @@ function MainAppContent() {
         agentBootstrapResultHandledRef.current = true;
         if (result.installedAcpAgents.length > 0) {
           // Availability changes immediately after adapter verification.
-          // Session controls are established later by the concrete Prepared
-          // Session and are never refreshed through a global catalog.
+          // Session controls are discovered lazily by the first creation form
+          // and then reused from the fingerprinted catalog.
           void queryClient.invalidateQueries({ queryKey: ['agent-settings'] });
         }
         // Optional *missing* Agents are not a startup error: a Codex user

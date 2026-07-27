@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
@@ -10,10 +10,13 @@ import { TerminalProfileControls } from '@/components/tasks/TerminalProfileContr
 import {
   jsonValueToString,
   resolvedConfigOptionChoices,
+  sanitizeDependentConfigValues,
+  selectConfigOptionValue,
   visibleSessionConfigOptions,
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
+import { sessionControlsQueryKey } from '@/features/agents/sessionControlsQuery';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
@@ -27,12 +30,13 @@ import {
 export type SessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 /**
- * Identity of the concrete ACP session prepared by this form. The persisted
- * conversation adopts this UUID, so no control values need to be copied into
- * a second session or replayed as first-turn overrides.
+ * Agent-advertised control choices made before the conversation's ACP session
+ * exists. They ride the draft into the composer and are applied to the first
+ * turn through the normal mode/config override contract.
  */
 export interface SessionControlsPreset {
-  preparedSessionId: string;
+  modeOverride: string | null;
+  configOverrides: Record<string, string>;
 }
 
 interface SessionCreationFormProps {
@@ -46,7 +50,7 @@ interface SessionCreationFormProps {
   profiles: ExecutorConfigs['executors'] | null;
   selectedExecutorProfile: ExecutorProfileId | null;
   onSelectedExecutorProfileChange: (value: ExecutorProfileId) => void;
-  /** Reports the current ACP control preset (null when nothing was picked). */
+  /** Reports the current ACP control preset (null until controls are ready). */
   onSessionControlsPresetChange?: (
     preset: SessionControlsPreset | null
   ) => void;
@@ -99,209 +103,104 @@ export function SessionCreationForm({
     workspaceBranchOptions,
     selectedWorkspaceValue
   );
-  const preparedWorkspaceId =
+  const controlsWorkspaceId =
     mode === 'existing_workspace'
       ? (selectedWorkspaceOption?.existingWorkspaceId ?? null)
       : null;
-  const preparedSessionKey = `${executor ?? ''}:${preparedWorkspaceId ?? ''}`;
-  const preparedSessionIdentityRef = useRef<{
-    key: string;
-    id: string;
-  } | null>(null);
-  const scheduledDiscardsRef = useRef(
-    new Map<string, ReturnType<typeof setTimeout>>()
-  );
-  if (preparedSessionIdentityRef.current?.key !== preparedSessionKey) {
-    preparedSessionIdentityRef.current = {
-      key: preparedSessionKey,
-      id: crypto.randomUUID(),
-    };
-  }
-  const preparedSessionId = preparedSessionIdentityRef.current.id;
-  const wantsPreparedSession = Boolean(executor && preparedWorkspaceId);
-  const wantedPreparedSessionIdRef = useRef<string | null>(null);
-  wantedPreparedSessionIdRef.current = wantsPreparedSession
-    ? preparedSessionId
-    : null;
-  const preparedSessionQuery = useQuery({
-    queryKey: [
-      'agent-prepared-session',
-      executor,
-      preparedWorkspaceId,
-      preparedSessionId,
-    ],
-    queryFn: async ({ signal }) => {
-      const prepared = await agentsApi.prepareSession({
-        agentType: executor!,
-        workspaceId: preparedWorkspaceId!,
-        sessionId: preparedSessionId,
-      });
-      if (
-        signal.aborted &&
-        wantedPreparedSessionIdRef.current !== preparedSessionId
-      ) {
-        await agentsApi.discardPreparedSession(preparedSessionId);
-        throw new Error('Prepared ACP session was cancelled');
+  const controlsQuery = useQuery({
+    // Every create surface shares a per-Agent/workspace cache. A live composer
+    // can seed the exact workspace entry; a new workspace falls back to the
+    // verified global catalog without starting a temporary user session.
+    queryKey: sessionControlsQueryKey(executor!, controlsWorkspaceId),
+    queryFn: async () => {
+      const cached = await agentsApi.capabilityCatalog(executor!);
+      if (cached) return cached;
+
+      // First run after install/login: build the verified catalog once. The
+      // backend deduplicates concurrent probes and persists the result by the
+      // local runtime/config fingerprint.
+      const refreshed = await agentsApi.refreshCapabilityCatalog(executor!);
+      if (!refreshed) {
+        throw new Error('Agent session controls discovery failed');
       }
-      return prepared;
+      const discovered = await agentsApi.capabilityCatalog(executor!);
+      if (!discovered) {
+        throw new Error('Agent session controls catalog is unavailable');
+      }
+      return discovered;
     },
-    enabled: wantsPreparedSession,
-    staleTime: Infinity,
+    enabled: Boolean(executor),
+    // Keep data resident so opening the form is immediate, but periodically
+    // re-check the backend fingerprint so install/login/config changes cannot
+    // leave a process-lifetime stale catalog.
+    staleTime: 60_000,
+    gcTime: Infinity,
     retry: false,
   });
-  const [controlsSource, setControlsSource] = useState<{
-    sessionId: string;
-    modes: NonNullable<typeof preparedSessionQuery.data>['controls']['modes'];
-    currentModeId: string | null;
-    configOptions: NonNullable<
-      typeof preparedSessionQuery.data
-    >['controls']['config_options'];
-  } | null>(null);
-  const [isChangingControl, setIsChangingControl] = useState(false);
-  const [controlError, setControlError] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<string | null>(null);
+  const [selectedConfigValues, setSelectedConfigValues] = useState<
+    Record<string, string>
+  >({});
   useEffect(() => {
-    wantedPreparedSessionIdRef.current = wantsPreparedSession
-      ? preparedSessionId
-      : null;
-    return () => {
-      if (wantedPreparedSessionIdRef.current === preparedSessionId) {
-        wantedPreparedSessionIdRef.current = null;
-      }
-    };
-  }, [preparedSessionId, wantsPreparedSession]);
-  useEffect(() => {
-    const controls = preparedSessionQuery.data?.controls;
-    if (!controls) {
-      setControlsSource(null);
-      return;
-    }
-    setControlsSource({
-      sessionId: preparedSessionId,
-      modes: controls.modes,
-      currentModeId: controls.current_mode ?? null,
-      configOptions: controls.config_options,
-    });
-  }, [preparedSessionId, preparedSessionQuery.data]);
+    setSelectedMode(null);
+    setSelectedConfigValues({});
+  }, [controlsWorkspaceId, executor]);
+
+  const activeControls = controlsQuery.data ?? null;
+  const visibleConfigOptions = visibleSessionConfigOptions(
+    activeControls?.config_options ?? []
+  );
+  const handleSelectMode = (modeId: string) => {
+    setSelectedMode(modeId);
+  };
+  const handleSelectConfigValue = (key: string, value: string) => {
+    setSelectedConfigValues((previous) =>
+      selectConfigOptionValue(visibleConfigOptions, previous, key, value)
+    );
+  };
+  const advertisedConfigValues = Object.fromEntries(
+    visibleConfigOptions.flatMap((option) => {
+      const value = jsonValueToString(option.value ?? null);
+      return value ? [[option.key, value]] : [];
+    })
+  );
+  const configOverrides = sanitizeDependentConfigValues(visibleConfigOptions, {
+    ...advertisedConfigValues,
+    ...selectedConfigValues,
+  });
+  const modeOverride = selectedMode ?? activeControls?.current_mode ?? null;
   useEffect(() => {
     onSessionControlsPresetChange?.(
-      preparedSessionQuery.data ? { preparedSessionId } : null
+      activeControls
+        ? {
+            modeOverride,
+            configOverrides,
+          }
+        : null
     );
   }, [
+    activeControls,
+    configOverrides,
+    modeOverride,
     onSessionControlsPresetChange,
-    preparedSessionId,
-    preparedSessionQuery.data,
   ]);
-  useEffect(() => {
-    if (!preparedSessionQuery.data) return;
-
-    const scheduledDiscards = scheduledDiscardsRef.current;
-    // React Strict Mode replays effects by running cleanup and setup again.
-    // Delay disposal until the next task so the repeated setup can cancel it;
-    // a real executor/workspace change (or unmount) leaves it scheduled.
-    const scheduledDiscard = scheduledDiscards.get(preparedSessionId);
-    if (scheduledDiscard) {
-      clearTimeout(scheduledDiscard);
-      scheduledDiscards.delete(preparedSessionId);
-    }
-
-    return () => {
-      const previousDiscard = scheduledDiscards.get(preparedSessionId);
-      if (previousDiscard) clearTimeout(previousDiscard);
-      const timeout = setTimeout(() => {
-        scheduledDiscards.delete(preparedSessionId);
-        void agentsApi
-          .discardPreparedSession(preparedSessionId)
-          .catch((error) => {
-            console.warn('Failed to discard prepared ACP session', error);
-          });
-      }, 0);
-      scheduledDiscards.set(preparedSessionId, timeout);
-    };
-  }, [preparedSessionId, preparedSessionQuery.data]);
-  const replaceControls = (
-    controls: NonNullable<typeof preparedSessionQuery.data>['controls']
-  ) => {
-    setControlsSource({
-      sessionId: preparedSessionId,
-      modes: controls.modes,
-      currentModeId: controls.current_mode ?? null,
-      configOptions: controls.config_options,
-    });
-  };
-  const activeControls =
-    controlsSource?.sessionId === preparedSessionId ? controlsSource : null;
-  const visibleConfigOptions = visibleSessionConfigOptions(
-    activeControls?.configOptions ?? []
-  );
-  const handleSelectMode = async (modeId: string) => {
-    setIsChangingControl(true);
-    setControlError(null);
-    try {
-      replaceControls(
-        await agentsApi.setPreparedSessionMode(preparedSessionId, modeId)
-      );
-    } catch (error) {
-      setControlError(
-        t('sessionCreation.controlsUpdateFailed', {
-          agent: executor,
-          option: modeId,
-          sessionId: preparedSessionId,
-          error: String(error),
-        })
-      );
-    } finally {
-      setIsChangingControl(false);
-    }
-  };
-  const handleSelectConfigValue = async (key: string, value: string) => {
-    const option = activeControls?.configOptions.find(
-      (candidate) => candidate.key === key
-    );
-    const selected = option?.choices?.find(
-      (choice) => jsonValueToString(choice.value) === value
-    );
-    if (!selected) return;
-    setIsChangingControl(true);
-    setControlError(null);
-    try {
-      replaceControls(
-        await agentsApi.setPreparedSessionConfig(
-          preparedSessionId,
-          key,
-          selected.value
-        )
-      );
-    } catch (error) {
-      setControlError(
-        t('sessionCreation.controlsUpdateFailed', {
-          agent: executor,
-          option: key,
-          sessionId: preparedSessionId,
-          error: String(error),
-        })
-      );
-    } finally {
-      setIsChangingControl(false);
-    }
-  };
   const hasControls =
     activeControls !== null &&
     (activeControls.modes.length > 0 ||
       visibleConfigOptions.some(
         (option) =>
           typeof option.value === 'boolean' ||
-          resolvedConfigOptionChoices(option, visibleConfigOptions, {}).length >
-            1
+          resolvedConfigOptionChoices(
+            option,
+            visibleConfigOptions,
+            configOverrides
+          ).length > 1
       ));
-  // Don't flash the "after first session" hint while the backend answer is in
-  // flight for an agent we haven't resolved yet.
-  const controlsPending =
-    Boolean(executor && preparedWorkspaceId) && preparedSessionQuery.isPending;
-  const preparationError = preparedSessionQuery.error
+  const controlsPending = Boolean(executor) && controlsQuery.isPending;
+  const preparationError = controlsQuery.error
     ? t('sessionCreation.controlsPrepareFailed', {
         agent: executor,
-        sessionId: preparedSessionId,
-        error: String(preparedSessionQuery.error),
+        error: String(controlsQuery.error),
       })
     : null;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
@@ -411,30 +310,27 @@ export function SessionCreationForm({
         {hasControls && activeControls ? (
           <SessionSettingsSummary
             sessionModes={{
-              current: activeControls.currentModeId,
+              current: activeControls.current_mode ?? null,
               modes: activeControls.modes,
             }}
             options={visibleConfigOptions}
-            pending={{}}
+            selectedMode={selectedMode}
+            pending={configOverrides}
             onSelectMode={handleSelectMode}
             onSelectConfigOption={handleSelectConfigValue}
-            disabled={isSubmitting || isChangingControl}
+            disabled={isSubmitting}
             dropdownSide={dropdownSide}
           />
         ) : executor && controlsPending ? (
           <p className="text-[11px] text-muted-foreground">
             {t('sessionCreation.controlsLoading')}
           </p>
-        ) : executor && !preparationError ? (
-          <p className="text-[11px] text-muted-foreground">
-            {t('sessionCreation.controlsUnavailable')}
-          </p>
         ) : null}
       </div>
 
-      {errorMessage || controlError || preparationError ? (
+      {errorMessage || preparationError ? (
         <p className="text-sm text-destructive">
-          {errorMessage ?? controlError ?? preparationError}
+          {errorMessage ?? preparationError}
         </p>
       ) : null}
 
@@ -452,10 +348,7 @@ export function SessionCreationForm({
         <Button
           type="submit"
           disabled={
-            !canSubmit ||
-            isSubmitting ||
-            isChangingControl ||
-            Boolean(executor && preparedWorkspaceId && !activeControls)
+            !canSubmit || isSubmitting || Boolean(executor && !activeControls)
           }
         >
           {isSubmitting ? t('sessionCreation.creating') : resolvedSubmitLabel}

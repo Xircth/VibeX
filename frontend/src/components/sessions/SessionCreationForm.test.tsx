@@ -8,10 +8,8 @@ import {
   type SessionControlsPreset,
 } from './SessionCreationForm';
 
-const prepareSession = vi.fn();
-const setPreparedSessionMode = vi.fn();
-const setPreparedSessionConfig = vi.fn();
-const discardPreparedSession = vi.fn();
+const capabilityCatalog = vi.fn();
+const refreshCapabilityCatalog = vi.fn();
 const terminalProfileControls = vi.fn();
 
 vi.mock('react-i18next', () => ({
@@ -32,13 +30,9 @@ vi.mock('@/components/tasks/RepoBranchSelector', () => ({
 vi.mock('./WorkspaceSelector', () => ({ WorkspaceSelector: () => null }));
 vi.mock('@/features/agents/api', () => ({
   agentsApi: {
-    prepareSession: (...args: unknown[]) => prepareSession(...args),
-    setPreparedSessionMode: (...args: unknown[]) =>
-      setPreparedSessionMode(...args),
-    setPreparedSessionConfig: (...args: unknown[]) =>
-      setPreparedSessionConfig(...args),
-    discardPreparedSession: (...args: unknown[]) =>
-      Promise.resolve(discardPreparedSession(...args)),
+    capabilityCatalog: (...args: unknown[]) => capabilityCatalog(...args),
+    refreshCapabilityCatalog: (...args: unknown[]) =>
+      refreshCapabilityCatalog(...args),
   },
 }));
 
@@ -51,82 +45,6 @@ const WORKSPACE_OPTION = {
   useWorktree: true,
   isCurrentProjectBranch: true,
 };
-
-function prepared(controls: {
-  modes: Array<{ id: string; label: string; description: null }>;
-  current_mode: string | null;
-  config_options: Array<{
-    key: string;
-    label: string;
-    description: null;
-    category: string;
-    value: string | boolean | null;
-    choices: Array<{
-      value: string | boolean;
-      label: string;
-      description: null;
-    }>;
-  }>;
-}) {
-  return {
-    session: {
-      id: 'prepared-session',
-      connection_id: 'connection-1',
-      acp_session_id: 'acp-session-1',
-      status: 'ready',
-      active_prompt_id: null,
-      queued_prompt_ids: [],
-      created_at: '2026-07-16T00:00:00Z',
-      updated_at: '2026-07-16T00:00:00Z',
-    },
-    controls,
-  };
-}
-
-function renderForm(
-  executor: 'claude_code' | 'codex' | 'gemini',
-  onPreset: (preset: SessionControlsPreset | null) => void,
-  reactStrictMode = false
-) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-  }
-  const form = (selectedExecutor: typeof executor) => (
-    <SessionCreationForm
-      mode="existing_workspace"
-      onModeChange={() => {}}
-      workspaceBranchOptions={[WORKSPACE_OPTION]}
-      selectedWorkspaceValue={WORKSPACE_OPTION.value}
-      onSelectedWorkspaceValueChange={() => {}}
-      sessionName=""
-      onSessionNameChange={() => {}}
-      profiles={{}}
-      selectedExecutorProfile={{ executor: selectedExecutor, variant: null }}
-      onSelectedExecutorProfileChange={() => {}}
-      repoBranchConfigs={[]}
-      onRepoBranchChange={() => {}}
-      isLoadingBranches={false}
-      canSubmit={true}
-      isSubmitting={false}
-      onSubmit={() => {}}
-      onSessionControlsPresetChange={onPreset}
-    />
-  );
-  const result = render(form(executor), {
-    wrapper: Wrapper,
-    reactStrictMode,
-  });
-  return {
-    ...result,
-    switchExecutor: (selectedExecutor: typeof executor) =>
-      result.rerender(form(selectedExecutor)),
-  };
-}
 
 const CONTROLS = {
   modes: [
@@ -160,100 +78,149 @@ const CONTROLS = {
   ],
 };
 
-describe('SessionCreationForm prepared ACP session controls', () => {
+function renderForm(
+  executor: 'claude_code' | 'codex' | 'gemini',
+  onPreset: (preset: SessionControlsPreset | null) => void,
+  mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace'
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+  }
+  const form = (
+    selectedExecutor: typeof executor,
+    selectedMode: typeof mode
+  ) => (
+    <SessionCreationForm
+      mode={selectedMode}
+      onModeChange={() => {}}
+      workspaceBranchOptions={[WORKSPACE_OPTION]}
+      selectedWorkspaceValue={WORKSPACE_OPTION.value}
+      onSelectedWorkspaceValueChange={() => {}}
+      sessionName=""
+      onSessionNameChange={() => {}}
+      profiles={{}}
+      selectedExecutorProfile={{ executor: selectedExecutor, variant: null }}
+      onSelectedExecutorProfileChange={() => {}}
+      repoBranchConfigs={[]}
+      onRepoBranchChange={() => {}}
+      isLoadingBranches={false}
+      canSubmit={true}
+      isSubmitting={false}
+      onSubmit={() => {}}
+      onSessionControlsPresetChange={onPreset}
+    />
+  );
+  const result = render(form(executor, mode), { wrapper: Wrapper });
+  return {
+    ...result,
+    switchExecutor: (selectedExecutor: typeof executor) =>
+      result.rerender(form(selectedExecutor, mode)),
+  };
+}
+
+describe('SessionCreationForm agent capability catalog controls', () => {
   beforeEach(() => {
-    prepareSession.mockReset();
-    setPreparedSessionMode.mockReset();
-    setPreparedSessionConfig.mockReset();
-    discardPreparedSession.mockReset();
-    discardPreparedSession.mockResolvedValue(undefined);
+    capabilityCatalog.mockReset();
+    refreshCapabilityCatalog.mockReset();
     terminalProfileControls.mockReset();
-    prepareSession.mockResolvedValue(prepared(CONTROLS));
+    capabilityCatalog.mockResolvedValue(CONTROLS);
+    refreshCapabilityCatalog.mockResolvedValue(true);
   });
 
-  it('prepares a concrete session as soon as agent and workspace are known', async () => {
+  it('loads editable controls for the first session in a new workspace', async () => {
     const onPreset = vi.fn();
-    renderForm('codex', onPreset);
+    renderForm('codex', onPreset, 'new_workspace');
 
-    await waitFor(() => expect(prepareSession).toHaveBeenCalledTimes(1));
-    expect(prepareSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentType: 'codex',
-        workspaceId: 'workspace-1',
-      })
+    await waitFor(() =>
+      expect(capabilityCatalog).toHaveBeenCalledWith('codex')
     );
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('sessionCreation.controlsUnavailable')
+    ).not.toBeInTheDocument();
     expect(terminalProfileControls.mock.calls.at(-1)?.[0]).toMatchObject({
       suppressAcpManagedControls: true,
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('session-settings-summary')).toBeInTheDocument()
-    );
     expect(onPreset).toHaveBeenLastCalledWith({
-      preparedSessionId: expect.any(String),
+      modeOverride: 'auto',
+      configOverrides: {
+        model: 'sonnet',
+        fast: 'false',
+      },
     });
   });
 
-  it('applies changes to the same ACP session and replaces the complete controls response', async () => {
-    const modeChanged = {
-      ...CONTROLS,
-      current_mode: 'plan',
-    };
-    const configChanged = {
-      ...modeChanged,
-      config_options: CONTROLS.config_options.map((option) =>
-        option.key === 'model' ? { ...option, value: 'opus' } : option
-      ),
-    };
-    setPreparedSessionMode.mockResolvedValue(modeChanged);
-    setPreparedSessionConfig.mockResolvedValue(configChanged);
-    renderForm('claude_code', vi.fn());
+  it('discovers and persists controls once when no verified catalog exists yet', async () => {
+    capabilityCatalog
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(CONTROLS);
+    renderForm('gemini', vi.fn(), 'new_workspace');
+
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    expect(refreshCapabilityCatalog).toHaveBeenCalledTimes(1);
+    expect(refreshCapabilityCatalog).toHaveBeenCalledWith('gemini');
+    expect(capabilityCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses each agent catalog from the shared query cache', async () => {
+    const view = renderForm('claude_code', vi.fn());
+    await screen.findByTestId('session-settings-summary');
+
+    view.switchExecutor('codex');
+    await waitFor(() =>
+      expect(capabilityCatalog).toHaveBeenCalledWith('codex')
+    );
+    view.switchExecutor('claude_code');
+
+    await waitFor(() => {
+      expect(
+        capabilityCatalog.mock.calls.filter(
+          ([agent]) => agent === 'claude_code'
+        )
+      ).toHaveLength(1);
+    });
+    expect(refreshCapabilityCatalog).not.toHaveBeenCalled();
+  });
+
+  it('captures mode, model, and boolean picks as first-turn overrides', async () => {
+    const onPreset = vi.fn();
+    renderForm('claude_code', onPreset);
     const user = userEvent.setup();
 
     await screen.findByTestId('session-settings-summary');
     await user.click(screen.getByTestId('session-settings-summary'));
     await user.click(screen.getByText('sessionModeSelector.title'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Plan' }));
-    await waitFor(() =>
-      expect(setPreparedSessionMode).toHaveBeenCalledWith(
-        expect.any(String),
-        'plan'
-      )
-    );
 
     await user.click(screen.getByTestId('session-settings-summary'));
     await user.click(screen.getByText('Model'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Opus' }));
-    await waitFor(() =>
-      expect(setPreparedSessionConfig).toHaveBeenCalledWith(
-        expect.any(String),
-        'model',
-        'opus'
-      )
-    );
-  });
 
-  it('renders and sends boolean Fast as a boolean value', async () => {
-    setPreparedSessionConfig.mockResolvedValue({
-      ...CONTROLS,
-      config_options: CONTROLS.config_options.map((option) =>
-        option.key === 'fast' ? { ...option, value: true } : option
-      ),
-    });
-    renderForm('codex', vi.fn());
-    const user = userEvent.setup();
-
-    await screen.findByTestId('session-settings-summary');
     await user.click(screen.getByTestId('session-settings-summary'));
     await user.click(screen.getByText('Fast mode'));
-    expect(setPreparedSessionConfig).toHaveBeenCalledWith(
-      expect.any(String),
-      'fast',
-      true
+
+    await waitFor(() =>
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'plan',
+        configOverrides: {
+          model: 'opus',
+          fast: 'true',
+        },
+      })
     );
   });
 
-  it('keeps dangerous permissions separate from the Claude mode picker', async () => {
-    const permissionControls = {
+  it('keeps dangerous permissions behind the explicit safety toggle', async () => {
+    capabilityCatalog.mockResolvedValue({
       ...CONTROLS,
       modes: [
         ...CONTROLS.modes,
@@ -263,13 +230,9 @@ describe('SessionCreationForm prepared ACP session controls', () => {
           description: null,
         },
       ],
-    };
-    prepareSession.mockResolvedValue(prepared(permissionControls));
-    setPreparedSessionMode.mockResolvedValue({
-      ...permissionControls,
-      current_mode: 'bypassPermissions',
     });
-    renderForm('claude_code', vi.fn());
+    const onPreset = vi.fn();
+    renderForm('claude_code', onPreset);
     const user = userEvent.setup();
 
     await screen.findByTestId('session-settings-summary');
@@ -282,47 +245,40 @@ describe('SessionCreationForm prepared ACP session controls', () => {
         name: /sessionModeSelector\.allowDangerousOperations/,
       })
     );
-    await screen.findByRole('menuitem', {
-      name: /sessionModeSelector\.allowDangerousOperationssessionSettings\.on/,
-    });
     await user.click(screen.getByTestId('session-settings-summary'));
     await user.click(screen.getByTestId('session-settings-summary'));
     await user.click(screen.getByText('sessionModeSelector.title'));
     fireEvent.click(await screen.findByText('Bypass permissions'));
+
     await waitFor(() =>
-      expect(setPreparedSessionMode).toHaveBeenCalledWith(
-        expect.any(String),
-        'bypassPermissions'
-      )
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId('session-settings-summary')).toHaveAttribute(
-        'aria-label',
-        expect.stringContaining('Bypass permissions')
-      )
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'bypassPermissions',
+        configOverrides: {
+          model: 'sonnet',
+          fast: 'false',
+        },
+      })
     );
   });
 
   it('hides Codex collaboration mode from the creation summary and menu', async () => {
-    prepareSession.mockResolvedValue(
-      prepared({
-        ...CONTROLS,
-        config_options: [
-          ...CONTROLS.config_options,
-          {
-            key: 'collaboration_mode',
-            label: 'Collaboration mode',
-            description: null,
-            category: 'other',
-            value: 'default',
-            choices: [
-              { value: 'default', label: 'Default', description: null },
-              { value: 'plan', label: 'Plan', description: null },
-            ],
-          },
-        ],
-      })
-    );
+    capabilityCatalog.mockResolvedValue({
+      ...CONTROLS,
+      config_options: [
+        ...CONTROLS.config_options,
+        {
+          key: 'collaboration_mode',
+          label: 'Collaboration mode',
+          description: null,
+          category: 'other',
+          value: 'default',
+          choices: [
+            { value: 'default', label: 'Default', description: null },
+            { value: 'plan', label: 'Plan', description: null },
+          ],
+        },
+      ],
+    });
     renderForm('codex', vi.fn());
     const user = userEvent.setup();
 
@@ -335,64 +291,18 @@ describe('SessionCreationForm prepared ACP session controls', () => {
     expect(screen.queryByText('Collaboration mode')).not.toBeInTheDocument();
   });
 
-  it('adds preparation context when switching to Codex returns a missing session', async () => {
-    const missingSessionId = '6d74708a-398b-4167-b082-cbec47726dcd';
-    const view = renderForm('claude_code', vi.fn());
-
-    await screen.findByTestId('session-settings-summary');
-    prepareSession.mockRejectedValueOnce(`Not found: ${missingSessionId}`);
-    view.switchExecutor('codex');
+  it('shows a contextual error instead of the misleading unavailable hint', async () => {
+    capabilityCatalog.mockResolvedValue(null);
+    refreshCapabilityCatalog.mockResolvedValue(false);
+    renderForm('codex', vi.fn(), 'new_workspace');
 
     expect(
       await screen.findByText(
-        `sessionCreation.controlsPrepareFailed: Not found: ${missingSessionId}`
+        'sessionCreation.controlsPrepareFailed: Error: Agent session controls discovery failed'
       )
     ).toBeInTheDocument();
-  });
-
-  it('adds operation context when a Codex option update fails', async () => {
-    const missingSessionId = '6d74708a-398b-4167-b082-cbec47726dcd';
-    setPreparedSessionMode.mockRejectedValueOnce(
-      `Not found: ${missingSessionId}`
-    );
-    renderForm('codex', vi.fn());
-    const user = userEvent.setup();
-
-    await screen.findByTestId('session-settings-summary');
-    await user.click(screen.getByTestId('session-settings-summary'));
-    await user.click(screen.getByText('sessionModeSelector.title'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Plan' }));
-
     expect(
-      await screen.findByText(
-        `sessionCreation.controlsUpdateFailed: Not found: ${missingSessionId}`
-      )
-    ).toBeInTheDocument();
-  });
-
-  it('does not discard the active prepared session under React strict effects', async () => {
-    renderForm('codex', vi.fn(), true);
-
-    await screen.findByTestId('session-settings-summary');
-    const activeSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
-    expect(activeSessionId).toEqual(expect.any(String));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(discardPreparedSession).not.toHaveBeenCalledWith(activeSessionId);
-  });
-
-  it('discards only the superseded session when the executor changes', async () => {
-    const view = renderForm('claude_code', vi.fn());
-
-    await screen.findByTestId('session-settings-summary');
-    const claudeSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
-    view.switchExecutor('codex');
-    await waitFor(() => expect(prepareSession).toHaveBeenCalledTimes(2));
-    const codexSessionId = prepareSession.mock.calls.at(-1)?.[0].sessionId;
-
-    await waitFor(() =>
-      expect(discardPreparedSession).toHaveBeenCalledWith(claudeSessionId)
-    );
-    expect(codexSessionId).not.toBe(claudeSessionId);
-    expect(discardPreparedSession).not.toHaveBeenCalledWith(codexSessionId);
+      screen.queryByText('sessionCreation.controlsUnavailable')
+    ).not.toBeInTheDocument();
   });
 });

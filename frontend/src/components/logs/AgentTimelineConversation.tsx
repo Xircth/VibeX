@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useQueryClient } from '@tanstack/react-query';
 import { AgentKind } from 'shared/types';
 import type {
   AgentElicitationResponse,
@@ -31,6 +32,7 @@ import { QuestionRequestCard } from '@/components/NormalizedConversation/convers
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { agentsApi } from '@/features/agents/api';
+import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
@@ -308,6 +310,7 @@ const AgentTimelineConversation = forwardRef<
   AgentTimelineConversationProps
 >(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
   const { t } = useTranslation(['panels', 'conversation', 'common']);
+  const queryClient = useQueryClient();
   const { config } = useUserSystem();
   const collapseProcess = config?.ai_message_default_collapsed ?? false;
   const prefersReducedMotion = useMediaQuery(
@@ -437,6 +440,32 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setSessionConfigOptions?.(conversationSessionConfigOptions);
   }, [setSessionConfigOptions, conversationSessionConfigOptions]);
+  const sessionAgentType = (attempt.session?.agent_type ??
+    attempt.session?.executor) as AgentKind | null;
+  useEffect(() => {
+    if (
+      !sessionAgentType ||
+      (conversationSessionModes.modes.length === 0 &&
+        conversationSessionConfigOptions.length === 0)
+    ) {
+      return;
+    }
+    publishLiveSessionControls(queryClient, {
+      agentType: sessionAgentType,
+      workspaceId: attempt.id,
+      controls: {
+        modes: conversationSessionModes.modes,
+        current_mode: conversationSessionModes.current,
+        config_options: conversationSessionConfigOptions,
+      },
+    });
+  }, [
+    attempt.id,
+    conversationSessionConfigOptions,
+    conversationSessionModes,
+    queryClient,
+    sessionAgentType,
+  ]);
 
   // Canonical turn state and Plan blocks drive the composer even when the
   // legacy process stream has not caught up yet.

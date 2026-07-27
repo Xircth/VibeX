@@ -32,11 +32,8 @@
     "sessionNameLabel": "Session name (optional)",
     "sessionNamePlaceholder": "Auto-named from the first message if left blank",
     "codingAgent": "Coding agent",
-    "controlsLoading": "Reading the preloaded session options…",
-    "controlsUnavailable": "This agent has not published usable session options. Check its installation and sign-in status.",
-    "controlsPrepareFailed": "Failed to prepare the {{agent}} ACP session (VibeX Runtime session ID: {{sessionId}}): {{error}}",
-    "controlsUpdateFailed": "Failed to update option “{{option}}” for the {{agent}} ACP session (VibeX Runtime session ID: {{sessionId}}): {{error}}",
-    "controlsAfterFirstSession": "Model and permission options are provided by the agent itself after its first session, in the message composer.",
+    "controlsLoading": "Preparing session options…",
+    "controlsPrepareFailed": "Failed to load session options for {{agent}}: {{error}}",
     "creating": "Creating..."
   },
   "sessionHub": {

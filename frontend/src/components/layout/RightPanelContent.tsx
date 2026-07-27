@@ -404,10 +404,6 @@ export function RightPanelContent() {
           : { workspaceId: null, branch: null };
 
       return sessionsApi.createProject({
-        session_id:
-          createMode === 'existing_workspace'
-            ? sessionControlsPresetRef.current?.preparedSessionId
-            : undefined,
         project_id: effectiveProjectId,
         workspace_id: workspaceSelection.workspaceId,
         branch: workspaceSelection.branch,
@@ -429,7 +425,10 @@ export function RightPanelContent() {
                 images: [],
                 executor_config: selectedExecutorProfile,
                 queued: false,
-                config_overrides: {},
+                mode_override:
+                  sessionControlsPresetRef.current?.modeOverride ?? undefined,
+                config_overrides:
+                  sessionControlsPresetRef.current?.configOverrides ?? {},
               },
             },
           });
@@ -468,6 +467,7 @@ export function RightPanelContent() {
       setIsCreateOverlayOpen(open);
 
       if (open) {
+        sessionControlsPresetRef.current = null;
         setCreateWorkspaceValue(defaultWorkspaceValue);
         setSelectedExecutorProfile(defaultExecutorProfile);
         setCreateSessionName('');

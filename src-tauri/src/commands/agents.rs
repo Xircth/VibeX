@@ -277,13 +277,23 @@ fn opencode_models_from_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<
     models
 }
 
-/// Schedule a discovery refresh explicitly (startup/install/config lifecycle
-/// callers use this), never from a selector read.
+/// Discover and persist a verified catalog explicitly. Normal selector reads
+/// stay side-effect free; the create form escalates here once when no matching
+/// catalog or live-workspace snapshot exists.
 #[tauri::command]
 pub async fn agent_refresh_capability_catalog(
     state: tauri::State<'_, AppState>,
     agent_type: AgentKind,
 ) -> Result<bool, AppError> {
+    // The app window becomes interactive while startup runtime verification is
+    // still running. A create form can therefore request its first catalog
+    // before the verified runtime identity (part of the catalog fingerprint)
+    // has been persisted. Join that same process-wide bootstrap operation
+    // first; its OnceLock/mutex deduplicates the frontend and startup callers.
+    crate::commands::agent_settings::agent_bootstrap_installation_for_startup(
+        &state.deployment.db().pool,
+    )
+    .await?;
     refresh_capability_catalog_for_pool(&state.deployment.db().pool, agent_type).await
 }
 

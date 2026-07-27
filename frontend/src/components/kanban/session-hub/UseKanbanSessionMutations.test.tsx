@@ -95,13 +95,13 @@ describe('useKanbanSessionMutations', () => {
         executorProfile: executorProfile('codex' as const),
         mode: 'existing_workspace',
         sessionControls: {
-          preparedSessionId: 'prepared-session-1',
+          modeOverride: 'plan',
+          configOverrides: { model: 'gpt-5.6-sol' },
         },
       });
     });
 
     expect(sessionsCreateProjectMock).toHaveBeenCalledWith({
-      session_id: 'prepared-session-1',
       project_id: 'project-1',
       workspace_id: 'workspace-1',
       branch: null,
@@ -121,7 +121,8 @@ describe('useKanbanSessionMutations', () => {
             images: [],
             executor_config: executorProfile('codex' as const),
             queued: false,
-            config_overrides: {},
+            mode_override: 'plan',
+            config_overrides: { model: 'gpt-5.6-sol' },
           },
         },
       }

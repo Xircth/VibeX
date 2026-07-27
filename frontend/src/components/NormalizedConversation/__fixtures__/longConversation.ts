@@ -118,6 +118,7 @@ export const mixedRenderingConversationFixture: PatchTypeWithKey[] = [
     toolName: 'shell',
     actionType: {
       action: 'command_run',
+      category: 'other',
       command: 'pnpm run frontend:check',
       result: null,
     },
@@ -130,6 +131,7 @@ export const mixedRenderingConversationFixture: PatchTypeWithKey[] = [
     toolName: 'shell',
     actionType: {
       action: 'command_run',
+      category: 'other',
       command: 'pnpm exec vitest run src/components/NormalizedConversation',
       result: {
         exit_status: { type: 'exit_code', code: 0 },

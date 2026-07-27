@@ -356,6 +356,7 @@ function commandResult(
 ): CommandRunAction {
   return {
     action: 'command_run',
+    category: 'other',
     command: '',
     result:
       status === 'created'
@@ -420,7 +421,15 @@ function toolActionType(
 
   // Search — by kind, by name, or a bare pattern with no file path.
   if (kind === 'search' || SEARCH_NAMES.has(name) || (query && !path)) {
-    return { action: 'search', query: query ?? '' };
+    return {
+      action: 'search',
+      query: query ?? '',
+      arguments: (parsed ?? null) as JsonValue,
+      result:
+        output != null
+          ? { type: { type: 'markdown' }, value: output }
+          : undefined,
+    };
   }
 
   // Web fetch — by kind, by name, or a url with no command.

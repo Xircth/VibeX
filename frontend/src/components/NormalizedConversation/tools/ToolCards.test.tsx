@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionType, NormalizedEntry, ToolStatus } from 'shared/types';
 import { ToolCallCard } from '../ToolCallCard';
+import type { ToolResultBlock, ToolUseBlock } from '../messageTurnBlocks';
+import { toolBlockToNormalizedEntry } from '../messageTurnTool';
 import { CommandToolCard } from './CommandToolCard';
 import { FileToolCard } from './FileToolCard';
 import { GenericToolCard } from './GenericToolCard';
@@ -97,6 +99,7 @@ describe('conversation tool cards', () => {
           content: 'pnpm test',
           actionType: {
             action: 'command_run',
+            category: 'other',
             command: 'pnpm test',
             result: {
               exit_status: { type: 'exit_code', code: 0 },
@@ -125,6 +128,7 @@ describe('conversation tool cards', () => {
           content: 'pnpm test',
           actionType: {
             action: 'command_run',
+            category: 'other',
             command: 'pnpm test',
             result: null,
           },
@@ -148,6 +152,7 @@ describe('conversation tool cards', () => {
           status: { status: 'success' },
           actionType: {
             action: 'command_run',
+            category: 'other',
             command: 'pnpm test',
             result: {
               exit_status: { type: 'exit_code', code: 1 },
@@ -171,6 +176,7 @@ describe('conversation tool cards', () => {
           status: { status: 'created' },
           actionType: {
             action: 'command_run',
+            category: 'other',
             command: 'pnpm build',
             result: null,
           },
@@ -191,6 +197,7 @@ describe('conversation tool cards', () => {
           content: 'pnpm install',
           actionType: {
             action: 'command_run',
+            category: 'other',
             command: 'pnpm install',
             result: {
               exit_status: { type: 'exit_code', code: 0 },
@@ -265,6 +272,43 @@ describe('conversation tool cards', () => {
       expect(clipboardWrite).toHaveBeenCalledWith('https://example.com/docs')
     );
     expect(screen.queryByText('URL')).not.toBeInTheDocument();
+  });
+
+  it('keeps search parameters and the result summary inspectable', () => {
+    const use: ToolUseBlock = {
+      type: 'tool_use',
+      tool_use_id: 'search-1',
+      tool_name: 'search',
+      kind: 'search',
+      input_preview: JSON.stringify({
+        query: 'session cancel',
+        path: 'crates/conversations',
+        maxResults: 20,
+      }),
+      meta: null,
+    };
+    const result: ToolResultBlock = {
+      type: 'tool_result',
+      tool_use_id: 'search-1',
+      output_preview: '2 matches in crates/conversations/src/service.rs',
+      is_error: false,
+      agent_stats: null,
+    };
+    const entry = toolBlockToNormalizedEntry(use, result, null);
+
+    render(<ToolCallCard entry={entry} expansionKey="search-with-details" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /搜索/ }));
+
+    expect(screen.getByText('参数')).toBeInTheDocument();
+    expect(
+      screen.getByText(/"path": "crates\/conversations"/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/"maxResults": 20/)).toBeInTheDocument();
+    expect(screen.getByText('结果')).toBeInTheDocument();
+    expect(
+      screen.getByText('2 matches in crates/conversations/src/service.rs')
+    ).toBeInTheDocument();
   });
 
   it('keeps generic tool arguments and result inspectable', () => {

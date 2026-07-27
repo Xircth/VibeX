@@ -205,6 +205,7 @@ describe('conversation meta notices', () => {
             tool_name: 'terminal',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'pnpm run dev',
               result: null,
             },
@@ -295,6 +296,7 @@ describe('conversation meta notices', () => {
             tool_name: 'bash',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'pwd',
               result: null,
             },
@@ -314,6 +316,7 @@ describe('conversation meta notices', () => {
             tool_name: 'bash',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'ls',
               result: null,
             },
@@ -368,6 +371,7 @@ describe('conversation meta notices', () => {
             tool_name: 'shell_command',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'pwd',
               result: null,
             },
@@ -387,6 +391,7 @@ describe('conversation meta notices', () => {
             tool_name: 'powershell',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'ls',
               result: null,
             },
@@ -419,6 +424,7 @@ describe('conversation meta notices', () => {
             tool_name: 'bash',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'pwd',
               result: null,
             },
@@ -438,6 +444,7 @@ describe('conversation meta notices', () => {
             tool_name: 'Setup Script',
             action_type: {
               action: 'command_run',
+              category: 'other',
               command: 'pnpm install',
               result: null,
             },

@@ -191,6 +191,12 @@ pub enum ActionType {
     },
     Search {
         query: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        arguments: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        result: Option<ToolResult>,
     },
     WebFetch {
         url: String,

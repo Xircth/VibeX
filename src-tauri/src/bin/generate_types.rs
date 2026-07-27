@@ -56,6 +56,7 @@ use db::models::{
 };
 use executors::{
     executors::{SlashCommandDescription, SlashCommandKind},
+    logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
 use git::{GitBranch, StashEntry};
@@ -236,6 +237,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<LinkOpenBehavior>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
+    insert_declaration::<ActionType>(&mut decls);
+    insert_declaration::<CommandCategory>(&mut decls);
     // Single agent-identity enum (ADR-0002). Replaces the former AgentKind +
     // AgentKind TS declarations (tombstoned in `removed_declarations`).
     insert_declaration::<AgentKind>(&mut decls);

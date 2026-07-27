@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { getToolSummary } from '../conversation-entry-utils';
+import { getToolSummary, renderJson } from '../conversation-entry-utils';
+import { ToolResultView } from './ToolResultView';
 import {
   ToolCardShell,
   getToolStatusClassName,
@@ -128,6 +129,26 @@ export function SearchToolCard({
         {isWebFetch ? 'URL' : t('searchTool.query')}
       </div>
       <div className="conv-tool-details-content">{detail}</div>
+      {actionType.action === 'search' && actionType.arguments ? (
+        <>
+          <div className="conv-tool-details-section-label">
+            {t('genericTool.arguments')}
+          </div>
+          <div className="conv-tool-details-content">
+            {renderJson(actionType.arguments)}
+          </div>
+        </>
+      ) : null}
+      {actionType.action === 'search' && actionType.result ? (
+        <>
+          <div className="conv-tool-details-section-label">
+            {t('genericTool.result')}
+          </div>
+          <div className="conv-tool-details-content">
+            <ToolResultView result={actionType.result} />
+          </div>
+        </>
+      ) : null}
     </ToolCardShell>
   );
 }

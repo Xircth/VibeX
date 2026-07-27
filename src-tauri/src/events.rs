@@ -687,12 +687,19 @@ async fn active_turn_id_cached(
     cache: &mut HashMap<Uuid, Option<Uuid>>,
     conversation_id: Uuid,
 ) -> Result<Option<Uuid>, sqlx::Error> {
-    if let Some(turn_id) = cache.get(&conversation_id).copied() {
-        return Ok(turn_id);
+    if let Some(Some(turn_id)) = cache.get(&conversation_id).copied() {
+        return Ok(Some(turn_id));
     }
 
     let turn_id = active_turn_id(pool, conversation_id).await?;
-    cache.insert(conversation_id, turn_id);
+    // An idle session can become active at any time after recovery/session setup.
+    // Caching `None` would make every later agent error look like a binding error
+    // instead of the terminal failure for the newly-created turn.
+    if turn_id.is_some() {
+        cache.insert(conversation_id, turn_id);
+    } else {
+        cache.remove(&conversation_id);
+    }
     Ok(turn_id)
 }
 
@@ -1134,6 +1141,8 @@ pub fn start_agent_terminal_forwarding(app: &AppHandle, state: &AppState) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use agents::{
         AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentEvent,
         AgentEventEnvelope, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
@@ -1162,6 +1171,62 @@ mod tests {
             super::active_turn_id(&pool, conversation_id).await.unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn recovery_error_after_turn_creation_is_mapped_to_turn_failed() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query("CREATE TABLE sessions (id BLOB PRIMARY KEY, active_turn_id BLOB NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let conversation_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO sessions (id, active_turn_id) VALUES (?, NULL)")
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut active_turn_cache = HashMap::new();
+        assert_eq!(
+            super::active_turn_id_cached(&pool, &mut active_turn_cache, conversation_id)
+                .await
+                .unwrap(),
+            None
+        );
+
+        let turn_id = Uuid::new_v4();
+        sqlx::query("UPDATE sessions SET active_turn_id = ? WHERE id = ?")
+            .bind(turn_id)
+            .bind(conversation_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mapped = super::map_conversation_event_record(
+            &pool,
+            &AgentEventEnvelope {
+                sequence: 2,
+                workspace_id: Uuid::new_v4(),
+                connection_id: AgentConnectionId::new(),
+                session_id: Some(AgentSessionId(conversation_id)),
+                event: AgentEvent::Error {
+                    error: agents::AgentErrorEvent {
+                        message: "OAuth session expired".to_string(),
+                        code: Some("authentication_failed".to_string()),
+                        raw: None,
+                    },
+                },
+                created_at: now(),
+            },
+            &mut active_turn_cache,
+        )
+        .await
+        .unwrap()
+        .expect("mapped conversation event");
+
+        assert_eq!(mapped.turn_id, Some(turn_id));
+        assert!(matches!(mapped.event, ConversationEvent::TurnFailed { .. }));
     }
 
     #[test]

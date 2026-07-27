@@ -9,6 +9,7 @@ import { useExecutionProcessesContext } from '@/contexts/ExecutionProcessesConte
 import type { AttemptData } from '@/lib/types';
 import type { ExecutionProcess } from 'shared/types';
 import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
+import { conversationApi } from '@/features/conversation/conversationApi';
 
 export function useAttemptExecution(
   attemptId?: string,
@@ -18,7 +19,7 @@ export function useAttemptExecution(
   const { isStopping, setIsStopping } = useTaskStopping(taskId || '');
   const { markStopToastSuppressed, clearStopToastSuppression } =
     useStopToastSuppression();
-  const { sessions: agentSessions, cancelPrompt } = useAgentWorkbench();
+  const { sessions: agentSessions } = useAgentWorkbench();
   const agentSession = sessionId ? agentSessions[sessionId] : undefined;
   const activeAgentPromptId = agentSession?.active_prompt_id ?? null;
   const isAgentPromptRunning = Boolean(activeAgentPromptId);
@@ -67,7 +68,7 @@ export function useAttemptExecution(
   }, [executionProcesses, setupProcesses, processDetailQueries]);
 
   const stopExecution = useCallback(async () => {
-    if ((!attemptId && !agentSession) || isStopping) return;
+    if ((!attemptId && !sessionId) || isStopping) return;
 
     try {
       setIsStopping(true);
@@ -75,11 +76,10 @@ export function useAttemptExecution(
         markStopToastSuppressed(attemptId);
       }
 
-      if (agentSession && activeAgentPromptId) {
-        await cancelPrompt({
-          connectionId: agentSession.connection_id,
-          sessionId: agentSession.id,
-          promptId: activeAgentPromptId,
+      if (sessionId) {
+        await conversationApi.cancel({
+          conversationId: sessionId,
+          reason: '用户请求停止',
         });
         return;
       }
@@ -96,13 +96,11 @@ export function useAttemptExecution(
       throw error;
     }
   }, [
-    activeAgentPromptId,
-    agentSession,
     attemptId,
-    cancelPrompt,
     clearStopToastSuppression,
     isStopping,
     markStopToastSuppressed,
+    sessionId,
     setIsStopping,
   ]);
 
@@ -115,7 +113,12 @@ export function useAttemptExecution(
     if (isStopping && !isAttemptRunning) {
       setIsStopping(false);
     }
-  }, [isAgentPromptRunning, isExecutionProcessRunning, isStopping, setIsStopping]);
+  }, [
+    isAgentPromptRunning,
+    isExecutionProcessRunning,
+    isStopping,
+    setIsStopping,
+  ]);
 
   const isLoading =
     streamLoading || processDetailQueries.some((q) => q.isLoading);

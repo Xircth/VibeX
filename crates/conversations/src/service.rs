@@ -612,7 +612,21 @@ impl ConversationSessionService {
         reason: Option<String>,
     ) -> Result<(), ConversationServiceError> {
         let snapshot = self.runtime_snapshot(conversation_id).await;
-        let turn_id = snapshot.active_turn_id;
+        let pool = &self.ctx.deployment.db().pool;
+        // Runtime coordination is deliberately ephemeral. After a failed session
+        // recovery it may be empty even though the event-sourced conversation still
+        // has a persisted in-flight turn, so use the database as the fallback.
+        let persisted_turn_id = ConversationRecord::find_by_id(pool, conversation_id)
+            .await?
+            .and_then(|conversation| conversation.active_turn_id);
+        let turn_id = persisted_turn_id.or(snapshot.active_turn_id);
+        let turn_id = match turn_id {
+            Some(turn_id) => ConversationTurnRecord::find_by_id(pool, turn_id)
+                .await?
+                .filter(|turn| is_in_flight_turn_status(&turn.status))
+                .map(|turn| turn.id),
+            None => None,
+        };
         if let (Some(connection_id), Some(prompt_id)) = (
             snapshot
                 .connection_id
@@ -623,14 +637,26 @@ impl ConversationSessionService {
                 .as_deref()
                 .and_then(parse_agent_prompt_id),
         ) {
-            self.ctx
+            if let Err(error) = self
+                .ctx
                 .agent_runtime
                 .cancel_prompt(CancelAgentPromptInput {
                     connection_id,
                     session_id: AgentSessionId(conversation_id),
                     prompt_id,
                 })
-                .await?;
+                .await
+            {
+                // The runtime may already be dead (auth expiry, crashed process, lost
+                // transport). The user's cancel intent must still settle the durable
+                // turn locally instead of leaving the composer stuck forever.
+                tracing::warn!(
+                    %conversation_id,
+                    %prompt_id,
+                    %error,
+                    "Agent prompt cancellation failed; settling turn locally"
+                );
+            }
         }
         self.append_event(
             conversation_id,
@@ -647,12 +673,7 @@ impl ConversationSessionService {
             )),
         )
         .await?;
-        ConversationRecord::update_active_turn(
-            &self.ctx.deployment.db().pool,
-            conversation_id,
-            None,
-        )
-        .await?;
+        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
         self.update_runtime_state(conversation_id, |state| {
             state.turn_in_flight = false;
             state.active_turn_id = None;

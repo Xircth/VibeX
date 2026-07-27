@@ -5,8 +5,8 @@ import { DownloadCloud } from 'lucide-react';
 
 /**
  * Status-bar module (P3-5): surfaces an available app update (P1-6 updater feed).
- * Best-effort — check() only resolves meaningfully in a packaged, updater-configured
- * build and throws in dev, so all errors are swallowed and the badge stays hidden.
+ * Best-effort — update checks only run in packaged builds. Runtime failures are
+ * swallowed so an unavailable release feed leaves the badge hidden.
  * Polls on a long interval to avoid hammering the release feed. Clicking opens the
  * system settings where AppUpdaterSection performs the download/install/relaunch.
  */
@@ -28,11 +28,13 @@ export function UpdateAvailableBadge() {
       // avoid leaking one resource-table entry on every poll.
       await update?.close();
     } catch {
-      // No updater configured / dev build / offline — stay silent.
+      // No updater configured / release feed unavailable / offline — stay silent.
     }
   }, []);
 
   useEffect(() => {
+    if (import.meta.env.DEV) return;
+
     void refresh();
     const timer = setInterval(() => void refresh(), POLL_MS);
     return () => clearInterval(timer);

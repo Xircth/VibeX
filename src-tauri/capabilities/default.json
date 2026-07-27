@@ -15,6 +15,10 @@
       "identifier": "fs:allow-write",
       "allow": [{ "path": "**" }]
     },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [{ "path": "**" }]
+    },
     "dialog:default",
     "updater:default",
     "process:default",

@@ -86,7 +86,9 @@ interface LayoutState {
   resetLayout: () => void;
 }
 
-const DEFAULT_RIGHT_PANEL_WIDTH = 620;
+// Previous default was 620px; 434px is exactly 30% smaller. This is only the
+// seed for new/reset project snapshots and never overwrites a persisted drag.
+const DEFAULT_RIGHT_PANEL_WIDTH = 434;
 const DEFAULT_KANBAN_SESSION_WIDTH = 520;
 /** Exported so the workspace dockview can self-heal a crushed session column. */
 export const MIN_RIGHT_PANEL_WIDTH = 400;

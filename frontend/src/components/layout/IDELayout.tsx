@@ -83,16 +83,17 @@ import {
 } from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
 import {
+  defaultSessionPanelWidth,
   shouldDeferDefaultSizing,
   shouldRepairStartupDockWidth,
 } from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
   // Default zone widths are fractions of the full grid width: A (dock) 10%,
-  // C (session) 30%. Users can resize either column above its usable minimum;
-  // that choice persists and nothing snaps it back to the defaults.
+  // while C (session) is calculated by defaultSessionPanelWidth. Users can
+  // resize either column above its usable minimum; that choice persists and
+  // nothing snaps it back to the defaults.
   LEFT_PANEL_DEFAULT_RATIO: 0.1,
-  SESSION_PANEL_DEFAULT_RATIO: 0.3,
   LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
   // Frame budget for the width-stability wait in applyDefaultSizes. Window
   // restore can animate for a few hundred ms; waiting costs nothing while the
@@ -117,10 +118,7 @@ function defaultDockWidth(gridWidth: number): number {
 }
 
 function defaultSessionWidth(gridWidth: number): number {
-  return Math.max(
-    MIN_RIGHT_PANEL_WIDTH,
-    Math.round(gridWidth * LAYOUT.SESSION_PANEL_DEFAULT_RATIO)
-  );
+  return defaultSessionPanelWidth(gridWidth, MIN_RIGHT_PANEL_WIDTH);
 }
 
 type DockviewGroup = NonNullable<ReturnType<DockviewApi['getGroup']>>;

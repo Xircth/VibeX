@@ -12,6 +12,24 @@ export function shouldDeferDefaultSizing(retries: number): boolean {
   return retries > 0;
 }
 
+const SESSION_PANEL_DEFAULT_RATIO = 0.21;
+
+/**
+ * Initial session-column width only. The prior default occupied 30% of the
+ * grid; 21% is exactly 30% smaller. The existing minimum remains a usability
+ * floor for compact windows, while Dockview remains free to persist any later
+ * user drag verbatim.
+ */
+export function defaultSessionPanelWidth(
+  gridWidth: number,
+  minimumWidth: number
+): number {
+  return Math.max(
+    minimumWidth,
+    Math.round(gridWidth * SESSION_PANEL_DEFAULT_RATIO)
+  );
+}
+
 const STARTUP_DOCK_MAX_WIDTH = 320;
 const STARTUP_DOCK_MAX_RATIO = 0.28;
 const STARTUP_DOCK_MIN_WIDTH = 200;

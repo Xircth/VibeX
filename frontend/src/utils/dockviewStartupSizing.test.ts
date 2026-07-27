@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  defaultSessionPanelWidth,
   shouldDeferDefaultSizing,
   shouldRepairStartupDockWidth,
 } from './dockviewStartupSizing';
 
 describe('shouldDeferDefaultSizing', () => {
+  it('makes only the initial session column 30% narrower', () => {
+    // Previous default: 30% of the grid. New default: 70% of that (21%).
+    expect(defaultSessionPanelWidth(2560, 400)).toBe(538);
+    // Small windows retain the existing usability floor.
+    expect(defaultSessionPanelWidth(1440, 400)).toBe(400);
+  });
+
   it('does not settle during an early pause before the native window finishes restoring', () => {
     expect(shouldDeferDefaultSizing(30)).toBe(true);
 

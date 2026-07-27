@@ -636,27 +636,25 @@ impl ConversationSessionService {
                 .active_prompt_id
                 .as_deref()
                 .and_then(parse_agent_prompt_id),
-        ) {
-            if let Err(error) = self
-                .ctx
-                .agent_runtime
-                .cancel_prompt(CancelAgentPromptInput {
-                    connection_id,
-                    session_id: AgentSessionId(conversation_id),
-                    prompt_id,
-                })
-                .await
-            {
-                // The runtime may already be dead (auth expiry, crashed process, lost
-                // transport). The user's cancel intent must still settle the durable
-                // turn locally instead of leaving the composer stuck forever.
-                tracing::warn!(
-                    %conversation_id,
-                    %prompt_id,
-                    %error,
-                    "Agent prompt cancellation failed; settling turn locally"
-                );
-            }
+        ) && let Err(error) = self
+            .ctx
+            .agent_runtime
+            .cancel_prompt(CancelAgentPromptInput {
+                connection_id,
+                session_id: AgentSessionId(conversation_id),
+                prompt_id,
+            })
+            .await
+        {
+            // The runtime may already be dead (auth expiry, crashed process, lost
+            // transport). The user's cancel intent must still settle the durable
+            // turn locally instead of leaving the composer stuck forever.
+            tracing::warn!(
+                %conversation_id,
+                %prompt_id,
+                %error,
+                "Agent prompt cancellation failed; settling turn locally"
+            );
         }
         self.append_event(
             conversation_id,

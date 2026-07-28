@@ -1,7 +1,8 @@
+#[cfg(target_os = "macos")]
+use std::ffi::CString;
 use std::{
     cell::RefCell,
     collections::HashMap,
-    ffi::CString,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, mpsc::Receiver},

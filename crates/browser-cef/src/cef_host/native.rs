@@ -61,6 +61,19 @@ pub fn parent_handle(raw: usize) -> cef::sys::cef_window_handle_t {
     raw as _
 }
 
+#[cfg(target_os = "linux")]
+fn shared_xlib() -> Result<&'static x11_dl::xlib::Xlib, String> {
+    use std::sync::OnceLock;
+
+    use x11_dl::xlib;
+
+    static XLIB: OnceLock<Result<xlib::Xlib, String>> = OnceLock::new();
+    match XLIB.get_or_init(|| xlib::Xlib::open().map_err(|error| error.to_string())) {
+        Ok(xlib) => Ok(xlib),
+        Err(error) => Err(error.clone()),
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), String> {
     use objc2::{
@@ -211,12 +224,7 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), String> {
-    use std::sync::OnceLock;
-
-    use x11_dl::xlib;
-
-    static XLIB: OnceLock<xlib::Xlib> = OnceLock::new();
-    let xlib = XLIB.get_or_try_init(|| xlib::Xlib::open().map_err(|error| error.to_string()))?;
+    let xlib = shared_xlib()?;
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
@@ -251,12 +259,7 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
 
 #[cfg(target_os = "linux")]
 pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
-    use std::sync::OnceLock;
-
-    use x11_dl::xlib;
-
-    static XLIB: OnceLock<xlib::Xlib> = OnceLock::new();
-    let xlib = XLIB.get_or_try_init(|| xlib::Xlib::open().map_err(|error| error.to_string()))?;
+    let xlib = shared_xlib()?;
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
@@ -278,12 +281,7 @@ pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
-    use std::sync::OnceLock;
-
-    use x11_dl::xlib;
-
-    static XLIB: OnceLock<xlib::Xlib> = OnceLock::new();
-    let xlib = XLIB.get_or_try_init(|| xlib::Xlib::open().map_err(|error| error.to_string()))?;
+    let xlib = shared_xlib()?;
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/tauri.conf.json",
   "productName": "VibeX",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.vibex.app",
   "build": {
     "beforeDevCommand": "pnpm --filter ./frontend dev --host 127.0.0.1 --strictPort",
@@ -52,9 +52,9 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/vibex/vibex/releases/latest/download/latest.json"
+        "https://github.com/Xircth/VibeX/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCQjZGQkYxNERBNzMwODMKUldTRE1LZE44ZnUyeXdOZFNFWHBIZDJjZDZYN0xnRzVFcDhhSmlwNmJ1aFE1L2xCYUZ1UzExRnAK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxQTAwNjE1QTBFRDg2OTIKUldTU2h1MmdGUWFnY1lZT09pbXU0a2xZeG9EMlRzRXJRUHpEcGp3VUhmTDZ2K09RUUREMGZEZDQK"
     }
   }
 }

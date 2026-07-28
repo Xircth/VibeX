@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Optional GitHub Release tag to upload installers to'
+        description: "Optional GitHub Release tag to upload installers to"
         required: false
         type: string
       upload_to_release:
-        description: 'Upload installers to the GitHub Release named by release_tag'
+        description: "Upload installers to the GitHub Release named by release_tag"
         required: false
         default: false
         type: boolean
@@ -20,7 +20,7 @@ env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
-  SQLX_OFFLINE: 'true'
+  SQLX_OFFLINE: "true"
   SQLX_OFFLINE_DIR: ${{ github.workspace }}/crates/db/.sqlx
 
 jobs:
@@ -95,7 +95,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: '.'
+          workspaces: "."
           cache-provider: github
           cache-on-failure: true
           shared-key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}
@@ -105,6 +105,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop installers
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Upload workflow artifact
@@ -132,3 +135,44 @@ jobs:
             target/release/bundle/**/*.AppImage
             target/release/bundle/**/*.deb
             target/release/bundle/**/*.dmg
+
+  publish-updater:
+    name: Publish updater manifest
+    needs: build
+    if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download desktop build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: VibeX-*
+          path: updater-artifacts
+
+      - name: Generate updater manifest
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          node scripts/generate-updater-manifest.js \
+            --artifacts-dir updater-artifacts \
+            --output-dir updater-release \
+            --repository "$RELEASE_REPOSITORY" \
+            --release-tag "$RELEASE_TAG" \
+            --version "$VERSION"
+
+      - name: Upload updater manifest and signed bundles
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          fail_on_unmatched_files: true
+          files: updater-release/*
+
+      - name: Mark desktop release as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release edit "$RELEASE_TAG" --latest

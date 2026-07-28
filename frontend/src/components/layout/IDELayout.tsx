@@ -82,11 +82,7 @@ import {
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
-import {
-  defaultSessionPanelWidth,
-  shouldDeferDefaultSizing,
-  shouldRepairStartupDockWidth,
-} from '@/utils/dockviewStartupSizing';
+import { defaultSessionPanelWidth } from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
   // A (dock) defaults to 10% of the full grid; C (session) uses the shared
@@ -94,20 +90,12 @@ const LAYOUT = {
   // either column above its usable minimum; that choice persists verbatim.
   LEFT_PANEL_DEFAULT_RATIO: 0.1,
   LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
-  // Frame budget for the width-stability wait in applyDefaultSizes. Window
-  // restore can animate for a few hundred ms; waiting costs nothing while the
-  // width is still changing.
-  DEFAULT_SIZE_RETRIES: 30,
-  WORKSPACE_DOCK_REPAIR_WINDOW_MS: 2000,
   LAYOUT_CHANGE_DEBOUNCE_MS: 500,
   IDLE_PERSIST_TIMEOUT_MS: 1000,
 } as const;
 
 /**
- * Percentage-based default widths, floored at each zone's usable minimum for
- * small windows. Percentages survive dockview's proportional rescaling, so a
- * default applied against a still-animating window width settles at the same
- * visual proportions once the window reaches its final size.
+ * Default widths, floored at each zone's usable minimum for small windows.
  */
 function defaultDockWidth(gridWidth: number): number {
   return Math.max(
@@ -430,8 +418,6 @@ export function IDELayout({
   const prevSerializedLayoutRef = useRef(serializedLayout);
   const appliedArrangementRef = useRef<LayoutArrangement | null>(null);
   const lastSelfHealAtRef = useRef(0);
-  const repairedWorkspaceDockKeyRef = useRef<string | null>(null);
-  const workspaceDockRepairCleanupRef = useRef<(() => void) | null>(null);
   const [tabContextMenu, setTabContextMenu] =
     useState<TabContextMenuState | null>(null);
   // Detached element hosting the session (C zone) content; the workspace
@@ -461,21 +447,7 @@ export function IDELayout({
   isCollapsedRef.current = isWorkspaceEditorAreaCollapsed;
 
   const applyDefaultSizes = useCallback(
-    (
-      api: DockviewApi,
-      retries: number = LAYOUT.DEFAULT_SIZE_RETRIES,
-      onDone?: () => void
-    ) => {
-      // Spend the full startup frame budget. Native restoration can pause at
-      // the launch size for several identical frames before resizing, so two
-      // equal samples are not a reliable settled-width signal.
-      if (shouldDeferDefaultSizing(retries)) {
-        requestAnimationFrame(() =>
-          applyDefaultSizes(api, retries - 1, onDone)
-        );
-        return;
-      }
-
+    (api: DockviewApi, onDone?: () => void) => {
       try {
         const currentArrangement = getLayoutArrangement();
 
@@ -511,56 +483,6 @@ export function IDELayout({
       onDone?.();
     },
     []
-  );
-
-  const repairStartupDockWidth = useCallback((api: DockviewApi): boolean => {
-    try {
-      const dockSlot = slotOfZone(getLayoutArrangement(), 'dock');
-      if (dockSlot === 'center' || dockSlot === 'bottom') return true;
-
-      const leftGroup = getLeftGroup(api);
-      if (!leftGroup?.api.isVisible || api.width <= 0) return false;
-
-      if (shouldRepairStartupDockWidth(leftGroup.api.width, api.width)) {
-        leftGroup.api.setSize({ width: defaultDockWidth(api.width) });
-      }
-      return true;
-    } catch {
-      // Ignore transient dimensions while dockview is restoring its grid.
-      return false;
-    }
-  }, []);
-
-  const startInitialWorkspaceDockRepair = useCallback(
-    (api: DockviewApi) => {
-      const workspaceKey = effectiveWorkspaceId ?? '__workspace__';
-      if (repairedWorkspaceDockKeyRef.current === workspaceKey) return;
-
-      workspaceDockRepairCleanupRef.current?.();
-      repairedWorkspaceDockKeyRef.current = workspaceKey;
-
-      let disposed = false;
-      const repair = () => {
-        if (!disposed) repairStartupDockWidth(api);
-      };
-      const disposable = api.onDidLayoutChange(repair);
-      const frame = requestAnimationFrame(repair);
-      const timer = window.setTimeout(() => {
-        disposed = true;
-        disposable.dispose();
-        workspaceDockRepairCleanupRef.current = null;
-      }, LAYOUT.WORKSPACE_DOCK_REPAIR_WINDOW_MS);
-
-      workspaceDockRepairCleanupRef.current = () => {
-        if (disposed) return;
-        disposed = true;
-        cancelAnimationFrame(frame);
-        clearTimeout(timer);
-        disposable.dispose();
-        workspaceDockRepairCleanupRef.current = null;
-      };
-    },
-    [effectiveWorkspaceId, repairStartupDockWidth]
   );
 
   const buildArrangeOptions = useCallback((): ArrangeLayoutOptions => {
@@ -671,7 +593,7 @@ export function IDELayout({
 
       isResettingRef.current = false;
       requestAnimationFrame(() =>
-        applyDefaultSizes(api, LAYOUT.DEFAULT_SIZE_RETRIES, () => {
+        applyDefaultSizes(api, () => {
           if (!persistAfterBuild) return;
 
           try {
@@ -735,7 +657,6 @@ export function IDELayout({
       }
 
       leftGroup.api.setVisible(true);
-      startInitialWorkspaceDockRepair(api);
 
       let bottomGroup = getBottomGroup(api);
       const hadBottomGroup = !!bottomGroup;
@@ -795,7 +716,7 @@ export function IDELayout({
       }
       normalizeGroupIds(api);
     },
-    [effectiveActiveTab, effectiveWorkspaceId, startInitialWorkspaceDockRepair]
+    [effectiveActiveTab, effectiveWorkspaceId]
   );
 
   const ensureSessionPanel = useCallback((api: DockviewApi) => {
@@ -1071,7 +992,6 @@ export function IDELayout({
       });
 
       return () => {
-        workspaceDockRepairCleanupRef.current?.();
         dndGuardDisposable.dispose();
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();

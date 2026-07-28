@@ -153,7 +153,7 @@ describe('persisted layout migration', () => {
     panels: {},
   } as unknown as SerializedDockview;
 
-  it('rebuilds only layouts that still carry the previous default session width', () => {
+  it('preserves every persisted user width when upgrading from v25', () => {
     const migrated = migratePersistedLayoutState(
       {
         currentProjectKey: 'project-a',
@@ -171,33 +171,28 @@ describe('persisted layout migration', () => {
       25
     );
 
-    expect(migrated.projectLayouts['project-a'].serializedLayout).toBeNull();
-    expect(migrated.projectLayouts['project-a'].rightPanelWidth).toBe(434);
-    expect(migrated.projectLayouts['project-b'].serializedLayout).toBe(
-      serializedLayout
-    );
-    expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);
-    expect(migrated.serializedLayout).toBeNull();
-    expect(migrated.rightPanelWidth).toBe(434);
-  });
-
-  it('does not reinterpret a user-selected 620px width after the migration version', () => {
-    const migrated = migratePersistedLayoutState(
-      {
-        currentProjectKey: 'project-a',
-        projectLayouts: {
-          'project-a': {
-            serializedLayout,
-            rightPanelWidth: 620,
-          },
-        },
-      },
-      26
-    );
-
     expect(migrated.projectLayouts['project-a'].serializedLayout).toBe(
       serializedLayout
     );
     expect(migrated.projectLayouts['project-a'].rightPanelWidth).toBe(620);
+    expect(migrated.projectLayouts['project-b'].serializedLayout).toBe(
+      serializedLayout
+    );
+    expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);
+    expect(migrated.serializedLayout).toBe(serializedLayout);
+    expect(migrated.rightPanelWidth).toBe(620);
+  });
+
+  it('keeps the fixed default limited to new project snapshots', () => {
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'new-project',
+        projectLayouts: {},
+      },
+      25
+    );
+
+    expect(migrated.projectLayouts['new-project'].serializedLayout).toBeNull();
+    expect(migrated.projectLayouts['new-project'].rightPanelWidth).toBe(434);
   });
 });

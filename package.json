@@ -33,6 +33,7 @@
     "tauri:build:macos": "node scripts/run-tauri-build.js --bundles app,dmg",
     "tauri:build:linux": "node scripts/run-tauri-build.js --bundles appimage,deb",
     "tauri:build:all": "node scripts/run-tauri-build-all.js",
+    "test:updater-manifest": "node --test scripts/generate-updater-manifest.test.js",
     "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@ import {
   ReactNode,
   useMemo,
   useEffect,
+  useLayoutEffect,
 } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { Project } from 'shared/types';
@@ -31,12 +32,16 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   const setCurrentLayoutProject = useLayoutStore(
     (state) => state.setCurrentProject
   );
+  const currentLayoutProject = useLayoutStore(
+    (state) => state.currentProjectKey
+  );
 
   // Extract projectId from current route path
   const projectId = useMemo(() => {
     const match = location.pathname.match(/^\/local-projects\/([^/]+)/);
     return match ? match[1] : undefined;
   }, [location.pathname]);
+  const layoutProjectKey = getProjectScopeKey(projectId);
 
   const { projectsById, isLoading, error } = useProjects();
   const project = projectId ? projectsById[projectId] : undefined;
@@ -61,12 +66,18 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
   }, [project]);
 
-  useEffect(() => {
-    setCurrentLayoutProject(getProjectScopeKey(projectId));
-  }, [projectId, setCurrentLayoutProject]);
+  // A project's Dockview must never mount against the previous project's
+  // persisted snapshot. Besides flashing the wrong geometry, Dockview's
+  // delayed layout event can otherwise write that geometry into the new
+  // project after the scope changes.
+  useLayoutEffect(() => {
+    setCurrentLayoutProject(layoutProjectKey);
+  }, [layoutProjectKey, setCurrentLayoutProject]);
 
   return (
-    <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+    <ProjectContext.Provider value={value}>
+      {currentLayoutProject === layoutProjectKey ? children : null}
+    </ProjectContext.Provider>
   );
 }
 

@@ -90,7 +90,6 @@ interface LayoutState {
 // Previous default was 620px; 434px is exactly 30% smaller. This is only the
 // seed for new/reset project snapshots and never overwrites a persisted drag.
 const DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_SESSION_PANEL_WIDTH;
-const LEGACY_DEFAULT_RIGHT_PANEL_WIDTH = 620;
 const DEFAULT_KANBAN_SESSION_WIDTH = 520;
 /** Exported so the workspace dockview can self-heal a crushed session column. */
 export const MIN_RIGHT_PANEL_WIDTH = 400;
@@ -212,24 +211,19 @@ export interface MigratedLayoutState extends LayoutSnapshot {
 /**
  * Upgrade persisted per-project layout snapshots.
  *
- * v26 fixes the previous default session width: only snapshots whose width
- * memory still exactly matches the old 620px seed are rebuilt. Their
- * visibility and active-tab preferences remain intact, while Dockview gets
- * one clean initialization with the new default.
+ * Persisted widths always represent user choices. Default-width changes apply
+ * only when a project has no snapshot yet; migrations must not infer intent
+ * from a pixel value that a user may also have selected by dragging.
  */
 export function migratePersistedLayoutState(
   persistedState: unknown,
   version: number
 ): MigratedLayoutState {
   const state = (persistedState ?? {}) as Partial<LayoutState>;
-  const legacyUsedPreviousDefault =
-    version < 26 && state.rightPanelWidth === LEGACY_DEFAULT_RIGHT_PANEL_WIDTH;
   const legacySnapshot = buildProjectLayoutState({
     serializedLayout: null,
     isFileTreeVisible: state.isFileTreeVisible,
-    rightPanelWidth: legacyUsedPreviousDefault
-      ? DEFAULT_RIGHT_PANEL_WIDTH
-      : state.rightPanelWidth,
+    rightPanelWidth: state.rightPanelWidth,
     isRightPanelVisible: state.isRightPanelVisible,
     isEditorAreaVisible: state.isEditorAreaVisible,
     activeTab: state.activeTab,
@@ -238,16 +232,7 @@ export function migratePersistedLayoutState(
   const projectLayouts = Object.entries(state.projectLayouts ?? {}).reduce<
     Record<string, LayoutSnapshot>
   >((accumulator, [projectKey, projectState]) => {
-    const usedPreviousDefault =
-      version < 26 &&
-      projectState.rightPanelWidth === LEGACY_DEFAULT_RIGHT_PANEL_WIDTH;
-
-    accumulator[projectKey] = buildProjectLayoutState({
-      ...projectState,
-      rightPanelWidth: usedPreviousDefault
-        ? DEFAULT_RIGHT_PANEL_WIDTH
-        : projectState.rightPanelWidth,
-    });
+    accumulator[projectKey] = buildProjectLayoutState(projectState);
 
     // One-time reset for v<21 snapshots: interim builds persisted corrupted
     // zone sizes, so rebuild the grid with fresh defaults (panel sizes only;
@@ -267,11 +252,6 @@ export function migratePersistedLayoutState(
     }
     // v24: Dockview now owns A/C zone minimum-width constraints.
     if (version < 24) {
-      accumulator[projectKey].serializedLayout = null;
-    }
-    // v26: the 620px seed became 30% narrower. Rebuild only untouched legacy
-    // defaults; every other serialized width is a user choice and stays exact.
-    if (usedPreviousDefault) {
       accumulator[projectKey].serializedLayout = null;
     }
     return accumulator;

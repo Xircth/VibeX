@@ -51,9 +51,14 @@ mod macos_tests {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(target_os = "macos")]
 pub fn parent_handle(raw: usize) -> cef::sys::cef_window_handle_t {
     raw as *mut std::ffi::c_void
+}
+
+#[cfg(target_os = "windows")]
+pub fn parent_handle(raw: usize) -> cef::sys::cef_window_handle_t {
+    cef::sys::HWND(raw as *mut _)
 }
 
 #[cfg(target_os = "linux")]
@@ -165,7 +170,7 @@ pub fn apply_surface(browser: &Browser, surface: &BrowserSurface) -> Result<(), 
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle();
+    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
     if handle.is_null() {
         return Err("browser native window is missing".to_string());
     }
@@ -195,7 +200,7 @@ pub fn hide_browser_view(browser: &Browser) -> Result<(), String> {
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle();
+    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
     if handle.is_null() {
         return Err("browser native window is missing".to_string());
     }
@@ -212,7 +217,7 @@ pub fn destroy_browser_view(browser: &Browser) -> Result<(), String> {
     let host = browser
         .host()
         .ok_or_else(|| "browser host is missing".to_string())?;
-    let handle = host.window_handle();
+    let handle = host.window_handle().0.cast::<std::ffi::c_void>();
     if handle.is_null() {
         return Err("browser native window is missing".to_string());
     }

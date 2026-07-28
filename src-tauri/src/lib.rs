@@ -76,7 +76,8 @@ fn native_browser_parent(window: &tauri::WebviewWindow) -> Result<NativeBrowserP
         .as_raw()
     {
         RawWindowHandle::Xlib(handle) => handle.window as usize,
-        RawWindowHandle::Xcb(handle) => usize::from(handle.window.get()),
+        RawWindowHandle::Xcb(handle) => usize::try_from(handle.window.get())
+            .map_err(|_| "XCB window handle does not fit in usize".to_string())?,
         _ => return Err("CEF child windows require an X11/XWayland parent".to_string()),
     };
     // SAFETY: Tauri owns this X11 window for the lifetime of the main window.

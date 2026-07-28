@@ -18,6 +18,7 @@ import { EffortSlider } from '@/components/tasks/effort-slider/EffortSlider';
 import {
   configOptionDisplayState,
   jsonValueToString,
+  presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   visibleSessionConfigOptions,
 } from './SessionConfigOptionSelectors';
@@ -30,7 +31,7 @@ type ConfigRow = {
   option: AgentSessionConfigOption;
   activeLabel: string;
   activeValue: string;
-  isBoolean: boolean;
+  toggleValues: { off: string; on: string } | null;
 };
 
 type SummaryItem = {
@@ -45,9 +46,8 @@ function normalizedOption(option: AgentSessionConfigOption) {
 }
 
 function isModelOption(option: AgentSessionConfigOption) {
-  return (
-    option.category === 'model' || normalizedOption(option).includes('model')
-  );
+  const identity = `${option.key} ${option.label}`.toLowerCase();
+  return option.category === 'model' || identity.includes('model');
 }
 
 function isModeOption(option: AgentSessionConfigOption) {
@@ -70,6 +70,31 @@ function isEffortOption(option: AgentSessionConfigOption) {
 
 function isFastOption(option: AgentSessionConfigOption) {
   return normalizedOption(option).includes('fast');
+}
+
+function toggleValuesForOption(
+  option: AgentSessionConfigOption,
+  choices: NonNullable<AgentSessionConfigOption['choices']>
+): ConfigRow['toggleValues'] {
+  if (typeof option.value === 'boolean') {
+    return { off: 'false', on: 'true' };
+  }
+  if (!isFastOption(option)) return null;
+
+  const findChoiceValue = (values: Set<string>) =>
+    choices.find((choice) => {
+      const value = jsonValueToString(choice.value).trim().toLowerCase();
+      const label = choice.label.trim().toLowerCase();
+      return values.has(value) || values.has(label);
+    });
+  const offChoice = findChoiceValue(new Set(['false', 'off', 'disabled']));
+  const onChoice = findChoiceValue(new Set(['true', 'on', 'enabled']));
+  if (!offChoice || !onChoice) return null;
+
+  return {
+    off: jsonValueToString(offChoice.value),
+    on: jsonValueToString(onChoice.value),
+  };
 }
 
 function optionPriority(option: AgentSessionConfigOption) {
@@ -125,6 +150,14 @@ export function SessionSettingsSummary({
     () => visibleSessionConfigOptions(options),
     [options]
   );
+  const presentableOptions = useMemo(
+    () =>
+      presentableSessionConfigOptions(
+        options,
+        onSelectMode ? (sessionModes?.modes ?? []) : []
+      ),
+    [onSelectMode, options, sessionModes?.modes]
+  );
   const [dangerousOperationsAllowed, setDangerousOperationsAllowed] = useState(
     () => isDangerousPermissionsMode(activeModeId)
   );
@@ -149,27 +182,27 @@ export function SessionSettingsSummary({
   const configRows = useMemo<ConfigRow[]>(() => {
     if (!onSelectConfigOption) return [];
 
-    return visibleOptions
+    return presentableOptions
       .map((option) => {
         const choices = resolvedConfigOptionChoices(
           option,
           visibleOptions,
           pending
         );
-        const isBoolean = typeof option.value === 'boolean';
-        if (!isBoolean && choices.length <= 1) return null;
+        const toggleValues = toggleValuesForOption(option, choices);
+        if (!toggleValues && choices.length <= 1) return null;
 
-        if (isBoolean) {
-          const checked = pending[option.key]
-            ? pending[option.key] === 'true'
-            : option.value;
+        if (toggleValues) {
+          const activeValue =
+            pending[option.key] ?? jsonValueToString(option.value ?? null);
+          const checked = activeValue === toggleValues.on;
           return {
             option,
             activeLabel: checked
               ? t('sessionSettings.on')
               : t('sessionSettings.off'),
-            activeValue: String(checked),
-            isBoolean: true,
+            activeValue,
+            toggleValues,
           };
         }
 
@@ -191,7 +224,7 @@ export function SessionSettingsSummary({
               )
             : (activeChoice?.name ?? jsonValueToString(option.value ?? null)),
           activeValue: presentedActiveValue,
-          isBoolean: false,
+          toggleValues: null,
         };
       })
       .filter((row): row is ConfigRow => row !== null)
@@ -199,7 +232,7 @@ export function SessionSettingsSummary({
         (left, right) =>
           optionPriority(left.option) - optionPriority(right.option)
       );
-  }, [onSelectConfigOption, pending, t, visibleOptions]);
+  }, [onSelectConfigOption, pending, presentableOptions, t, visibleOptions]);
 
   const summary: SummaryItem[] = [
     ...(activeMode?.label
@@ -213,15 +246,17 @@ export function SessionSettingsSummary({
         ]
       : []),
     ...configRows.flatMap((row): SummaryItem[] => {
-      if (row.isBoolean && row.activeValue !== 'true') return [];
+      if (row.toggleValues && row.activeValue !== row.toggleValues.on) {
+        return [];
+      }
 
-      const isFast = row.isBoolean && isFastOption(row.option);
+      const isFast = Boolean(row.toggleValues) && isFastOption(row.option);
       return [
         {
           key: row.option.key,
           label: isFast
             ? 'Fast'
-            : row.isBoolean
+            : row.toggleValues
               ? row.option.label
               : row.activeLabel,
           isFast,
@@ -303,8 +338,8 @@ export function SessionSettingsSummary({
           />
         ) : null}
         {configRows.map((row) =>
-          row.isBoolean ? (
-            <BooleanRow
+          row.toggleValues ? (
+            <ToggleRow
               key={row.option.key}
               row={row}
               disabled={disabled}
@@ -500,7 +535,7 @@ function ChoiceRow({
   );
 }
 
-function BooleanRow({
+function ToggleRow({
   row,
   onSelect,
   disabled,
@@ -509,13 +544,15 @@ function BooleanRow({
   onSelect: (key: string, value: string) => void;
   disabled: boolean;
 }) {
-  const checked = row.activeValue === 'true';
+  const toggleValues = row.toggleValues;
+  if (!toggleValues) return null;
+  const checked = row.activeValue === toggleValues.on;
   return (
     <DropdownMenuItem
       disabled={disabled}
       onSelect={(event) => {
         event.preventDefault();
-        onSelect(row.option.key, String(!checked));
+        onSelect(row.option.key, checked ? toggleValues.off : toggleValues.on);
       }}
       className="rounded-[0.8rem] px-2.5 py-2 text-sm"
     >

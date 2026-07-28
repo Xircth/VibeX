@@ -11,7 +11,6 @@ import { ActionBarIdleControls } from './ActionBarIdleControls';
 import { ActionBarUtilityButtons } from './ActionBarUtilityButtons';
 import { ActionBarRunningControls } from './ActionBarRunningControls';
 import { SessionSettingsSummary } from './SessionSettingsSummary';
-import { visibleSessionConfigOptions } from './SessionConfigOptionSelectors';
 
 interface ActionBarProps {
   profiles: Record<string, ExecutorConfig> | null;
@@ -103,19 +102,6 @@ export function ActionBar({
     imageCount: attachmentCount,
   });
 
-  // Claude's adapter advertises the permission mode both as `modes` and as a
-  // `mode`-category config option; the dedicated mode picker wins.
-  const showModeSelector = Boolean(
-    sessionModes && onSelectMode && sessionModes.modes.length > 0
-  );
-  const visibleConfigOptions =
-    visibleSessionConfigOptions(sessionConfigOptions);
-  const dedupedConfigOptions = showModeSelector
-    ? visibleConfigOptions.filter(
-        (option) => (option.category ?? option.key) !== 'mode'
-      )
-    : visibleConfigOptions;
-
   return (
     <div className="flex flex-wrap items-center gap-1 pt-1">
       {showProfileControls ? (
@@ -139,7 +125,7 @@ export function ActionBar({
         sessionModes={sessionModes}
         selectedMode={selectedMode}
         onSelectMode={onSelectMode}
-        options={dedupedConfigOptions}
+        options={sessionConfigOptions}
         pending={selectedConfigValues}
         onSelectConfigOption={onSelectConfigOption}
         disabled={!isEditable}

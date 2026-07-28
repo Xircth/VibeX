@@ -50,7 +50,11 @@ fn derive_session_continuity_mode(has_resume_context: bool) -> SessionContinuity
     }
 }
 
-fn build_session_display_name(session: &Session, first_prompt: Option<&str>) -> String {
+fn build_session_display_name(
+    session: &Session,
+    first_prompt: Option<&str>,
+    fallback_number: usize,
+) -> String {
     session
         .name
         .as_deref()
@@ -58,11 +62,11 @@ fn build_session_display_name(session: &Session, first_prompt: Option<&str>) -> 
         .map(str::to_owned)
         .or_else(|| {
             first_prompt
-                .map(str::trim)
+                .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
                 .filter(|value| !value.is_empty())
-                .map(str::to_owned)
+                .map(|value| value.chars().take(8).collect())
         })
-        .unwrap_or_else(|| "新会话".to_string())
+        .unwrap_or_else(|| format!("新会话{fallback_number}"))
 }
 
 fn to_task_status(status: SessionStatus) -> TaskStatus {
@@ -470,8 +474,19 @@ pub async fn get_session_summaries(
     let sessions = Session::find_by_workspace_id(pool, workspace_id).await?;
 
     let mut summaries = Vec::with_capacity(sessions.len());
+    let mut fallback_number = 0;
     for session in sessions {
         let first_prompt = session.initial_prompt.clone();
+        let needs_fallback_name = session
+            .name
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+            && first_prompt
+                .as_deref()
+                .is_none_or(|value| value.trim().is_empty());
+        if needs_fallback_name {
+            fallback_number += 1;
+        }
         let is_running =
             ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
                 .await?;
@@ -482,7 +497,11 @@ pub async fn get_session_summaries(
             workspace_id: session.workspace_id,
             task_id: session.task_id,
             name: session.name.clone(),
-            display_name: build_session_display_name(&session, first_prompt.as_deref()),
+            display_name: build_session_display_name(
+                &session,
+                first_prompt.as_deref(),
+                fallback_number,
+            ),
             status: session.status.clone(),
             executor: session.executor.clone(),
             workspace_name: workspace.name.clone(),

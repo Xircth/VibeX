@@ -31,6 +31,7 @@ pub mod system_maintenance;
 pub mod system_settings;
 pub mod tags;
 pub mod tasks;
+pub mod tauri_inspector;
 pub mod terminal;
 pub mod version_control;
 pub mod web_service;

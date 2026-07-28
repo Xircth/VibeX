@@ -108,7 +108,7 @@ VibeX：**零**。无任何调度器；executor profiles（`crates/executors/def
 
 ### ④ 供给面
 
-- 数量 7 vs 10：缺 **CodeBuddy、Kimi Code、Pi**。（已决策不追平，见 P2-6 墓碑条目。）
+- 数量 7 vs 10：缺 **CodeBuddy、Kimi Code、Pi**。（关于 Pi 与内置 Agent 的旧决策已由 ADR-0008 取代；本报告的数量对齐结论不再代表当前产品方向。）
 - 深度：codeg 有 Codex 设备码登录、OpenCode 插件管理+provider 目录、Kimi 模型拉取、Pi 二进制管理、Hermes 引导终端、二进制下载缓存/uv 安装；VibeX 的 preflight/fix/login-terminal 覆盖通用面，无专属深度。
 - **诚实性缺陷**：[metadata.rs:31](../crates/agents/src/metadata.rs) `agent_capabilities` 静态声明 `SessionFork`，但 fork 无实现（见⑤）。
 
@@ -346,11 +346,11 @@ VibeX 弱项（全部已核验）：
 - **验收**：关窗后 agent 完成任务 → 桌面通知点击 → 窗口恢复并定位到该会话。
 - **防偏移**：深链命名先查 CONTEXT.md 术语；**禁止**与内部事件名 `vibex://backup-progress` 混用命名空间（内部事件应改名或文档化区隔）。
 
-#### P2-6 agent 覆盖 +3 与 per-agent 接入深度 【已决策 2026-07-04：整项移出计划】
+#### P2-6 agent 覆盖 +3 与 per-agent 接入深度 【已被 ADR-0008 部分取代】
 
-- **决策**：不新增 agent（Kimi Code/CodeBuddy/Pi 不接入），per-agent 接入深度（Codex 设备码登录、OpenCode 插件入口）也不做；7 个 agent 维持现状。未来重开需新决策 + 需求证据。
+- **历史决策**：曾决定不新增 agent（Kimi Code/CodeBuddy/Pi 不接入），per-agent 接入深度（Codex 设备码登录、OpenCode 插件入口）也不做。ADR-0008 已明确将 Pi 纳入内置 Agent，并允许内置 Agent 获得增强能力；Kimi Code 与 CodeBuddy 仍不因数量对齐而自动进入内置集合。
 - **已知悉并接受的风险**：Codex 登录体验（无设备码流）是现有用户的真实痛点，本决策一并搁置。
-- **对执行 Agent 的指令**：本条为墓碑条目——**禁止**以"对齐 codeg agent 数量"为由重新立项。若做 P1-1 历史导入，范围同样只覆盖现有 7 个 agent kind。
+- **对执行 Agent 的指令**：禁止以"对齐 codeg agent 数量"为由重新立项；Agent 供给与增强能力以 ADR-0008 及其后续决策为准。
 
 #### P2-7 IM 通道持久化与审计 【M】
 

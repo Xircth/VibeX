@@ -172,10 +172,27 @@ describe('arrangeSerializedLayout', () => {
     expect(leafId(sessionColumn)).toBe('group-right');
     expect(sessionColumn.size).toBe(500);
     expect(sessionColumn.visible).toBe(false);
-    expect(
-      (sessionColumn.data as { views: string[] }).views
-    ).toEqual(['ai-chat']);
+    expect((sessionColumn.data as { views: string[] }).views).toEqual([
+      'ai-chat',
+    ]);
     expect(result.panels['ai-chat']).toBeDefined();
+  });
+
+  it('never revives the retired 620px default when no size hint exists', () => {
+    const legacy = makeLayout(
+      {
+        type: 'branch',
+        data: [
+          leaf('group-left', ['file-tree'], 220),
+          leaf('group-editor-1', ['welcome'], 1060),
+        ],
+      },
+      ['file-tree', 'welcome']
+    );
+
+    const result = arrangeSerializedLayout(legacy, DEFAULT_LAYOUT_ARRANGEMENT);
+
+    expect(rootChildren(result)[2].size).toBe(434);
   });
 
   it('flattens multi-group workspace splits when the zone changes slots', () => {

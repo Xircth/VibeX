@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { ExecutorProfileId } from 'shared/types';
 import { ScratchType } from 'shared/types';
 import { useScratch } from '@/hooks/useScratch';
@@ -81,7 +75,8 @@ export function useSessionComposerDraftScratch({
       const update = buildDraftFollowUpScratchUpdate(
         message,
         images,
-        executorProfileId
+        executorProfileId,
+        scratchData
       );
       if (!update) return;
 
@@ -91,7 +86,7 @@ export function useSessionComposerDraftScratch({
         console.error('Failed to save follow-up draft', e);
       }
     },
-    [scratchData?.queued, updateScratch, workspaceId]
+    [scratchData, updateScratch, workspaceId]
   );
 
   const { debounced: setFollowUpMessage, cancel: cancelDebouncedSave } =

@@ -6,12 +6,21 @@ import { AgentKind, ScratchType, type ExecutorProfileId } from 'shared/types';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import { useKanbanSessionMutations } from './useKanbanSessionMutations';
 
-const { sessionsCreateProjectMock, sessionsRenameMock, scratchUpdateMock } =
-  vi.hoisted(() => ({
-    sessionsCreateProjectMock: vi.fn(),
-    sessionsRenameMock: vi.fn(),
-    scratchUpdateMock: vi.fn(),
-  }));
+const {
+  sessionsCreateProjectMock,
+  sessionsRenameMock,
+  scratchUpdateMock,
+  ensureSessionControlsMock,
+  setSessionModeMock,
+  setSessionConfigOptionMock,
+} = vi.hoisted(() => ({
+  sessionsCreateProjectMock: vi.fn(),
+  sessionsRenameMock: vi.fn(),
+  scratchUpdateMock: vi.fn(),
+  ensureSessionControlsMock: vi.fn(),
+  setSessionModeMock: vi.fn(),
+  setSessionConfigOptionMock: vi.fn(),
+}));
 
 vi.mock('@/lib/api', () => ({
   sessionsApi: {
@@ -20,6 +29,14 @@ vi.mock('@/lib/api', () => ({
   },
   scratchApi: {
     update: scratchUpdateMock,
+  },
+}));
+
+vi.mock('@/features/conversation/conversationApi', () => ({
+  conversationApi: {
+    ensureSessionControls: ensureSessionControlsMock,
+    setSessionMode: setSessionModeMock,
+    setSessionConfigOption: setSessionConfigOptionMock,
   },
 }));
 
@@ -67,6 +84,13 @@ describe('useKanbanSessionMutations', () => {
       id: 'session-1',
       workspace_id: 'workspace-1',
     });
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [],
+    });
+    setSessionModeMock.mockResolvedValue(undefined);
+    setSessionConfigOptionMock.mockResolvedValue(undefined);
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -110,6 +134,16 @@ describe('useKanbanSessionMutations', () => {
       create_workspace: false,
       repos: undefined,
     });
+    expect(ensureSessionControlsMock).toHaveBeenCalledWith('session-1');
+    expect(setSessionModeMock).toHaveBeenCalledWith({
+      conversationId: 'session-1',
+      modeId: 'plan',
+    });
+    expect(setSessionConfigOptionMock).toHaveBeenCalledWith({
+      conversationId: 'session-1',
+      key: 'model',
+      value: 'gpt-5.6-sol',
+    });
     expect(scratchUpdateMock).toHaveBeenCalledWith(
       ScratchType.DRAFT_FOLLOW_UP,
       'session-1',
@@ -121,8 +155,7 @@ describe('useKanbanSessionMutations', () => {
             images: [],
             executor_config: executorProfile('codex' as const),
             queued: false,
-            mode_override: 'plan',
-            config_overrides: { model: 'gpt-5.6-sol' },
+            config_overrides: {},
           },
         },
       }

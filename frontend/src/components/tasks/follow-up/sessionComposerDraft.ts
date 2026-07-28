@@ -124,13 +124,14 @@ export function shouldPersistDraftFollowUp({
 export function buildDraftFollowUpScratchUpdate(
   message: string,
   images: string[],
-  executorProfileId: ExecutorProfileId | null
+  executorProfileId: ExecutorProfileId | null,
+  existingSessionControls?: Pick<
+    DraftFollowUpData,
+    'mode_override' | 'config_overrides'
+  >
 ): UpdateScratch | null {
   if (!executorProfileId?.executor) return null;
 
-  // Composer autosave rebuilds the draft without create-form session-control
-  // presets: by the time the user can type, hydration has already moved those
-  // presets into the composer's pending state (the source applied on send).
   return {
     payload: {
       type: 'DRAFT_FOLLOW_UP',
@@ -139,7 +140,12 @@ export function buildDraftFollowUpScratchUpdate(
         images,
         executor_config: executorProfileId,
         queued: false,
-        config_overrides: {},
+        ...(existingSessionControls?.mode_override
+          ? { mode_override: existingSessionControls.mode_override }
+          : {}),
+        config_overrides: compactConfigOverrides(
+          existingSessionControls?.config_overrides
+        ),
       },
     },
   };
@@ -333,7 +339,9 @@ export function getScratchExecutorProfileApplication({
     return { appliedKey, nextSelectedExecutorProfile: null };
   }
 
-  if (getExecutorProfileStateKey(currentExecutorProfile) === scratchProfileKey) {
+  if (
+    getExecutorProfileStateKey(currentExecutorProfile) === scratchProfileKey
+  ) {
     return { appliedKey: nextAppliedKey, nextSelectedExecutorProfile: null };
   }
 

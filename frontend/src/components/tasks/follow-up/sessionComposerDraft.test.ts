@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type DraftFollowUpData,
+import {
+  type DraftFollowUpData,
   type ExecutorConfigs,
   type Scratch,
 } from 'shared/types';
@@ -173,6 +174,40 @@ describe('session composer draft helpers', () => {
     expect(buildDraftFollowUpScratchUpdate('continue', [], null)).toBeNull();
   });
 
+  it('preserves session controls when autosaving a created session draft', () => {
+    const profile = {
+      executor: 'codex' as const,
+      variant: null,
+      model: null,
+      fast_mode: null,
+    };
+
+    expect(
+      buildDraftFollowUpScratchUpdate('continue', [], profile, {
+        mode_override: 'agent',
+        config_overrides: {
+          model: 'gpt-5.6-sol',
+          'fast-mode': 'on',
+        },
+      })
+    ).toEqual({
+      payload: {
+        type: 'DRAFT_FOLLOW_UP',
+        data: {
+          message: 'continue',
+          images: [],
+          executor_config: profile,
+          queued: false,
+          mode_override: 'agent',
+          config_overrides: {
+            model: 'gpt-5.6-sol',
+            'fast-mode': 'on',
+          },
+        },
+      },
+    });
+  });
+
   it('autosaves profile changes only when the key changes after loading', () => {
     const profile = {
       executor: 'codex' as const,
@@ -216,8 +251,7 @@ describe('session composer draft helpers', () => {
 
     expect(
       getExecutorProfileAutosaveDecision({
-        previousProfileKey:
-          'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+        previousProfileKey: 'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
         executorProfile: { executor: 'claude_code' as const },
         isScratchLoading: true,
       })
@@ -229,8 +263,7 @@ describe('session composer draft helpers', () => {
 
     expect(
       getExecutorProfileAutosaveDecision({
-        previousProfileKey:
-          'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
+        previousProfileKey: 'codex:PLAN:gpt-5.4:false:REASONING_DEFAULT',
         executorProfile: null,
         isScratchLoading: false,
       })

@@ -7,6 +7,7 @@ import {
 import { scratchApi, sessionsApi } from '@/lib/api';
 import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import type { SessionControlsPreset } from '@/components/sessions/SessionCreationForm';
+import { initializeSessionControls } from '@/features/conversation/initializeSessionControls';
 import {
   getCreateProjectSessionRequest,
   type KanbanSessionCreationMode,
@@ -17,7 +18,7 @@ export interface CreateKanbanSessionMutationInput {
   sessionName: string;
   executorProfile: ExecutorProfileId | null;
   mode: KanbanSessionCreationMode;
-  /** ACP control picks made in the create form, applied on the first turn. */
+  /** ACP control picks made in the create form, applied to the new Session. */
   sessionControls?: SessionControlsPreset | null;
 }
 
@@ -76,6 +77,16 @@ export function useKanbanSessionMutations({
       });
 
       if (executorProfile?.executor) {
+        let controlsInitialized = false;
+        try {
+          await initializeSessionControls(session.id, sessionControls);
+          controlsInitialized = true;
+        } catch (error) {
+          console.warn(
+            'Failed to initialize created session controls; preserving first-turn fallback',
+            error
+          );
+        }
         await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, session.id, {
           payload: {
             type: 'DRAFT_FOLLOW_UP',
@@ -84,8 +95,12 @@ export function useKanbanSessionMutations({
               images: [],
               executor_config: executorProfile,
               queued: false,
-              mode_override: sessionControls?.modeOverride ?? undefined,
-              config_overrides: sessionControls?.configOverrides ?? {},
+              mode_override: controlsInitialized
+                ? undefined
+                : (sessionControls?.modeOverride ?? undefined),
+              config_overrides: controlsInitialized
+                ? {}
+                : (sessionControls?.configOverrides ?? {}),
             },
           },
         });

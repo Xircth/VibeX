@@ -1,6 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageTurnView } from './MessageTurnView';
+
+const conversationMessageStyles = readFileSync(
+  resolve(process.cwd(), 'src/styles/conversation/conv-messages.css'),
+  'utf8'
+);
 
 const { markdownMock } = vi.hoisted(() => ({
   markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
@@ -236,6 +243,49 @@ describe('MessageTurnView', () => {
     await waitFor(() =>
       expect(onEditRetry).toHaveBeenCalledWith('revised prompt')
     );
+  });
+
+  it('renders user message actions as unframed icon-only buttons', () => {
+    const actionButtonRule =
+      conversationMessageStyles.match(
+        /\.conv-user-action-btn\s*\{[^}]+\}/u
+      )?.[0] ?? '';
+
+    expect(actionButtonRule).not.toBe('');
+
+    render(
+      <>
+        <style>{actionButtonRule}</style>
+        <MessageTurnView
+          turn={
+            {
+              id: 'turn-1:user',
+              role: 'user',
+              blocks: [{ type: 'text', text: 'original prompt' }],
+              timestamp: '2026-06-14T00:00:00.000Z',
+            } as never
+          }
+          attempt={{ id: 'attempt-1', container_ref: null } as never}
+          task={null}
+          onRetry={vi.fn()}
+          onEditRetry={vi.fn().mockResolvedValue(true)}
+        />
+      </>
+    );
+
+    const actionButtons = [
+      screen.getByRole('button', { name: '复制消息' }),
+      screen.getByRole('button', { name: '重发' }),
+      screen.getByRole('button', { name: '编辑并重发' }),
+    ];
+
+    expect(actionButtonRule).toContain('border: 0;');
+
+    for (const button of actionButtons) {
+      expect(button).toContainHTML('<svg');
+      expect(button).toHaveTextContent('');
+      expect(getComputedStyle(button).boxShadow).toBe('none');
+    }
   });
 
   it('leaves interrupted status out of the timeline when it is docked above the composer', () => {

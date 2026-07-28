@@ -941,6 +941,218 @@
     box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
   }
 
+  .branch-info-header-host {
+    position: absolute;
+    z-index: 10;
+    top: 0;
+    right: 0;
+    left: 0;
+    padding: 6px 8px 0;
+    container-type: inline-size;
+    pointer-events: none;
+  }
+
+  .branch-info-glass-stage {
+    position: relative;
+    width: 100%;
+    height: 30px;
+    color: var(--text-primary);
+    pointer-events: auto;
+  }
+
+  .branch-info-glass-stage:has(.branch-info-error) {
+    height: 48px;
+  }
+
+  .branch-info-liquid-glass {
+    isolation: isolate;
+    background: transparent !important;
+  }
+
+  .branch-info-liquid-glass .glass {
+    box-sizing: border-box;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    border: 1px solid var(--border-glass);
+    background: color-mix(in srgb, var(--surface-glass) 24%, transparent);
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.28),
+      0 2px 6px hsl(220 36% 8% / 0.08) !important;
+  }
+
+  .branch-info-liquid-glass .glass__warp {
+    background: color-mix(in srgb, var(--surface-glass) 18%, transparent);
+  }
+
+  .branch-info-liquid-glass .glass > div:last-child {
+    display: block;
+    width: 100%;
+    height: 100%;
+    color: inherit !important;
+    font: inherit !important;
+    text-shadow: none !important;
+  }
+
+  .branch-info-toolbar {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .branch-info-summary {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+  }
+
+  .branch-info-context-label,
+  .branch-info-direction {
+    flex: none;
+    color: var(--text-muted);
+  }
+
+  .branch-info-context-label {
+    font-size: 0.6875rem;
+    line-height: 1rem;
+  }
+
+  .branch-info-current-branch {
+    min-width: 0;
+    max-width: 9rem;
+    overflow: hidden;
+    color: var(--text-strong);
+    font-family: var(--font-mono, monospace);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .branch-info-ahead,
+  .branch-info-behind,
+  .branch-info-rebase-status {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    font-weight: 500;
+  }
+
+  .branch-info-ahead {
+    color: hsl(var(--success));
+  }
+
+  .branch-info-behind {
+    color: hsl(var(--warning));
+  }
+
+  .branch-info-rebase-status {
+    color: hsl(var(--destructive));
+  }
+
+  .branch-info-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    padding-left: 6px;
+    border-left: 1px solid var(--border-glass);
+  }
+
+  .branch-info-control-stack {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .branch-info-branch-button {
+    display: inline-flex;
+    height: 26px;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    padding: 0 4px;
+    color: var(--text-strong);
+    font-family: var(--font-mono, monospace);
+    transition:
+      background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .branch-info-branch-button:hover {
+    background: var(--surface-control-hover);
+    color: hsl(var(--primary));
+  }
+
+  .branch-info-branch-button:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+  }
+
+  .branch-info-action {
+    height: 26px;
+    border-radius: 6px;
+    padding: 0 6px;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .branch-info-action:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-strong);
+  }
+
+  .branch-info-action-primary {
+    color: var(--text-strong);
+  }
+
+  .branch-info-error {
+    max-width: 15rem;
+    overflow: hidden;
+    color: hsl(var(--destructive));
+    font-size: 0.75rem;
+    line-height: 1rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @container (max-width: 560px) {
+    .branch-info-toolbar {
+      gap: 4px;
+      padding-inline: 5px;
+    }
+
+    .branch-info-actions {
+      gap: 2px;
+      padding-left: 4px;
+    }
+
+    .branch-info-action {
+      padding-inline: 5px;
+    }
+
+    .branch-info-summary {
+      gap: 4px;
+    }
+
+    .branch-info-current-branch {
+      max-width: 6rem;
+    }
+  }
+
   .workspace-toolbar-divider {
     background: var(--border-subtle);
   }
@@ -1893,7 +2105,7 @@
   }
 
   .session-hub-monitor-inner {
-    padding: 0.75rem 1rem 1rem 0.5rem;
+    padding: 0.25rem;
   }
 
   .kanban-usage-card,
@@ -2415,6 +2627,11 @@
     transform: translate(-50%, -50%) !important;
     transition: none !important;
   }
+
+  :where(.legacy-design) .branch-info-liquid-glass {
+    transform: translate(-50%, -50%) !important;
+    transition: none !important;
+  }
 }
 
 @media (prefers-contrast: more) {
@@ -2463,11 +2680,16 @@
   :where(.legacy-design) .workspace-topbar,
   :where(.legacy-design) .settings-titlebar,
   :where(.legacy-design) .settings-sidebar,
+  :where(.legacy-design) .branch-info-liquid-glass .glass__warp,
   :where(.legacy-design) .project-rail-liquid-glass .glass__warp,
   :where(.legacy-design) .dialog-backdrop,
   :where(.legacy-design) .vu-toast-surface {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+  }
+
+  :where(.legacy-design) .branch-info-liquid-glass .glass {
+    background: var(--surface-glass-solid) !important;
   }
 }
 
@@ -2497,6 +2719,9 @@
 :where(.legacy-design.reduced-transparency) .settings-titlebar,
 :where(.legacy-design.reduced-transparency) .settings-sidebar,
 :where(.legacy-design.reduced-transparency)
+  .branch-info-liquid-glass
+  .glass__warp,
+:where(.legacy-design.reduced-transparency)
   .project-rail-liquid-glass
   .glass__warp,
 :where(.legacy-design.reduced-transparency) .dialog-backdrop,
@@ -2507,6 +2732,9 @@
 :where(.app.reduced-transparency .legacy-design) .settings-titlebar,
 :where(.app.reduced-transparency .legacy-design) .settings-sidebar,
 :where(.app.reduced-transparency .legacy-design)
+  .branch-info-liquid-glass
+  .glass__warp,
+:where(.app.reduced-transparency .legacy-design)
   .project-rail-liquid-glass
   .glass__warp,
 :where(.app.reduced-transparency .legacy-design) .dialog-backdrop,
@@ -2516,12 +2744,25 @@
 }
 
 :where(.legacy-design.reduced-transparency)
+  .branch-info-liquid-glass
+  .glass__warp,
+:where(.app.reduced-transparency .legacy-design)
+  .branch-info-liquid-glass
+  .glass__warp,
+:where(.legacy-design.reduced-transparency)
   .project-rail-liquid-glass
   .glass__warp,
 :where(.app.reduced-transparency .legacy-design)
   .project-rail-liquid-glass
   .glass__warp {
   filter: none !important;
+}
+
+:where(.legacy-design.reduced-transparency) .branch-info-liquid-glass .glass,
+:where(.app.reduced-transparency .legacy-design)
+  .branch-info-liquid-glass
+  .glass {
+  background: var(--surface-glass-solid) !important;
 }
 
 @supports not (
@@ -2531,6 +2772,13 @@
     --surface-glass: var(--surface-glass-solid);
     --surface-popover: var(--surface-glass-solid);
   }
+}
+
+.branch-info-header-host
+  + .right-panel-conversation-region
+  [data-panel='conversation-logs'] {
+  padding-top: 44px;
+  scroll-padding-top: 44px;
 }
 
 @config '../../../tailwind.legacy.config.js';

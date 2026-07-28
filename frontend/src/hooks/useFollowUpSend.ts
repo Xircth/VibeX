@@ -158,6 +158,9 @@ export function useFollowUpSend({
           modeOverride,
           configOverrides,
         });
+        await queryClient.invalidateQueries({
+          queryKey: ['workspaceSessions', targetWorkspaceId],
+        });
       } catch (error) {
         publishOptimisticConversationTurn({
           type: 'remove',

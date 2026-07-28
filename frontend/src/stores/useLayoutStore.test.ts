@@ -5,7 +5,9 @@ import {
   GROUP_IDS,
   EDITOR_GROUP_PREFIX,
   MAX_EDITOR_GROUPS,
+  migratePersistedLayoutState,
 } from './useLayoutStore';
+import type { SerializedDockview } from 'dockview';
 
 describe('useLayoutStore', () => {
   beforeEach(() => {
@@ -137,5 +139,65 @@ describe('constants', () => {
   it('should export editor group settings', () => {
     expect(EDITOR_GROUP_PREFIX).toBe('group-editor-');
     expect(MAX_EDITOR_GROUPS).toBe(4);
+  });
+});
+
+describe('persisted layout migration', () => {
+  const serializedLayout = {
+    grid: {
+      root: {},
+      width: 1360,
+      height: 800,
+      orientation: 0,
+    },
+    panels: {},
+  } as unknown as SerializedDockview;
+
+  it('rebuilds only layouts that still carry the previous default session width', () => {
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'project-a',
+        projectLayouts: {
+          'project-a': {
+            serializedLayout,
+            rightPanelWidth: 620,
+          },
+          'project-b': {
+            serializedLayout,
+            rightPanelWidth: 700,
+          },
+        },
+      },
+      25
+    );
+
+    expect(migrated.projectLayouts['project-a'].serializedLayout).toBeNull();
+    expect(migrated.projectLayouts['project-a'].rightPanelWidth).toBe(434);
+    expect(migrated.projectLayouts['project-b'].serializedLayout).toBe(
+      serializedLayout
+    );
+    expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);
+    expect(migrated.serializedLayout).toBeNull();
+    expect(migrated.rightPanelWidth).toBe(434);
+  });
+
+  it('does not reinterpret a user-selected 620px width after the migration version', () => {
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'project-a',
+        projectLayouts: {
+          'project-a': {
+            serializedLayout,
+            rightPanelWidth: 620,
+          },
+        },
+      },
+      26
+    );
+
+    expect(migrated.projectLayouts['project-a'].serializedLayout).toBe(
+      serializedLayout
+    );
+    expect(migrated.projectLayouts['project-a'].rightPanelWidth).toBe(620);
   });
 });

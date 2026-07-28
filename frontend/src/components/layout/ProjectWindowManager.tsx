@@ -214,7 +214,7 @@ function ProjectActivityTracker({
       const firstPrompt =
         summary.first_prompt?.replace(/\s+/g, ' ').trim() ?? '';
       if (firstPrompt.length > 0) {
-        return Array.from(firstPrompt).slice(0, 6).join('');
+        return Array.from(firstPrompt).slice(0, 8).join('');
       }
 
       return (

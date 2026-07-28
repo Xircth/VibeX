@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   jsonValueToString,
+  presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   sanitizeDependentConfigValues,
   selectConfigOptionValue,
@@ -31,12 +32,27 @@ export type SessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 /**
  * Agent-advertised control choices made before the conversation's ACP session
- * exists. They ride the draft into the composer and are applied to the first
- * turn through the normal mode/config override contract.
+ * exists. They are applied while the created conversation initializes its ACP
+ * session, with the composer draft retaining them as a recovery fallback.
  */
 export interface SessionControlsPreset {
   modeOverride: string | null;
   configOverrides: Record<string, string>;
+}
+
+function preferredCreationMode(
+  executor: ExecutorProfileId['executor'] | null,
+  modes: Array<{ id: string }>,
+  advertisedCurrentMode: string | null
+): string | null {
+  if (executor !== 'codex') return advertisedCurrentMode;
+
+  return (
+    modes.find(
+      (mode) =>
+        mode.id.replace(/[^a-z0-9]/gi, '').toLowerCase() === 'agentfullaccess'
+    )?.id ?? advertisedCurrentMode
+  );
 }
 
 interface SessionCreationFormProps {
@@ -150,6 +166,10 @@ export function SessionCreationForm({
   const visibleConfigOptions = visibleSessionConfigOptions(
     activeControls?.config_options ?? []
   );
+  const presentableConfigOptions = presentableSessionConfigOptions(
+    visibleConfigOptions,
+    activeControls?.modes ?? []
+  );
   const handleSelectMode = (modeId: string) => {
     setSelectedMode(modeId);
   };
@@ -164,11 +184,27 @@ export function SessionCreationForm({
       return value ? [[option.key, value]] : [];
     })
   );
-  const configOverrides = sanitizeDependentConfigValues(visibleConfigOptions, {
-    ...advertisedConfigValues,
-    ...selectedConfigValues,
-  });
-  const modeOverride = selectedMode ?? activeControls?.current_mode ?? null;
+  const sanitizedConfigValues = sanitizeDependentConfigValues(
+    visibleConfigOptions,
+    {
+      ...advertisedConfigValues,
+      ...selectedConfigValues,
+    }
+  );
+  const presentableConfigKeys = new Set(
+    presentableConfigOptions.map((option) => option.key)
+  );
+  const configOverrides = Object.fromEntries(
+    Object.entries(sanitizedConfigValues).filter(([key]) =>
+      presentableConfigKeys.has(key)
+    )
+  );
+  const defaultMode = preferredCreationMode(
+    executor,
+    activeControls?.modes ?? [],
+    activeControls?.current_mode ?? null
+  );
+  const modeOverride = selectedMode ?? defaultMode;
   useEffect(() => {
     onSessionControlsPresetChange?.(
       activeControls
@@ -187,13 +223,13 @@ export function SessionCreationForm({
   const hasControls =
     activeControls !== null &&
     (activeControls.modes.length > 0 ||
-      visibleConfigOptions.some(
+      presentableConfigOptions.some(
         (option) =>
           typeof option.value === 'boolean' ||
           resolvedConfigOptionChoices(
             option,
             visibleConfigOptions,
-            configOverrides
+            sanitizedConfigValues
           ).length > 1
       ));
   const controlsPending = Boolean(executor) && controlsQuery.isPending;
@@ -314,7 +350,7 @@ export function SessionCreationForm({
               modes: activeControls.modes,
             }}
             options={visibleConfigOptions}
-            selectedMode={selectedMode}
+            selectedMode={modeOverride}
             pending={configOverrides}
             onSelectMode={handleSelectMode}
             onSelectConfigOption={handleSelectConfigValue}

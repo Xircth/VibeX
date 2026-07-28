@@ -1,3 +1,4 @@
+use api_types::AgentKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool, Type};
@@ -188,9 +189,15 @@ impl Session {
         id: Uuid,
         workspace_id: Uuid,
     ) -> Result<Self, SessionError> {
+        let agent_type = data
+            .executor
+            .as_deref()
+            .and_then(AgentKind::from_lenient)
+            .map(|agent| agent.as_str().to_string());
         sqlx::query_as::<_, Session>(
-            r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
+                                     agent_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
                          task_id,
@@ -217,6 +224,7 @@ impl Session {
         )
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
+        .bind(agent_type)
         .fetch_one(pool)
         .await
         .map_err(SessionError::from)
@@ -446,6 +454,16 @@ mod tests {
         assert!(session.parent_session_id.is_none());
         assert!(session.parent_tool_use_id.is_none());
         assert!(session.delegation_call_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn regular_session_persists_canonical_agent_identity_before_first_turn() {
+        let pool = setup_pool().await;
+        let session = Session::create(&pool, &sample("CODEX"), Uuid::new_v4(), Uuid::new_v4())
+            .await
+            .expect("create session");
+
+        assert_eq!(session.agent_type.as_deref(), Some("codex"));
     }
 
     #[tokio::test]

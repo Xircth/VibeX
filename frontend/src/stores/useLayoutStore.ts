@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { SerializedDockview } from 'dockview';
 import { GLOBAL_PROJECT_SCOPE } from '@/lib/projectScope';
+import { DEFAULT_SESSION_PANEL_WIDTH } from '@/utils/dockviewStartupSizing';
 
 /**
  * Panel IDs used to register and identify panels in the dockview layout.
@@ -88,13 +89,14 @@ interface LayoutState {
 
 // Previous default was 620px; 434px is exactly 30% smaller. This is only the
 // seed for new/reset project snapshots and never overwrites a persisted drag.
-const DEFAULT_RIGHT_PANEL_WIDTH = 434;
+const DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_SESSION_PANEL_WIDTH;
+const LEGACY_DEFAULT_RIGHT_PANEL_WIDTH = 620;
 const DEFAULT_KANBAN_SESSION_WIDTH = 520;
 /** Exported so the workspace dockview can self-heal a crushed session column. */
 export const MIN_RIGHT_PANEL_WIDTH = 400;
 const MAX_RIGHT_PANEL_WIDTH = 900;
 
-interface LayoutSnapshot {
+export interface LayoutSnapshot {
   serializedLayout: SerializedDockview | null;
   isFileTreeVisible: boolean;
   rightPanelWidth: number;
@@ -199,6 +201,94 @@ function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
     isRightPanelVisible: nextSnapshot.isRightPanelVisible,
     isEditorAreaVisible: nextSnapshot.isEditorAreaVisible,
     activeTab: nextSnapshot.activeTab,
+  };
+}
+
+export interface MigratedLayoutState extends LayoutSnapshot {
+  currentProjectKey: string;
+  projectLayouts: Record<string, LayoutSnapshot>;
+}
+
+/**
+ * Upgrade persisted per-project layout snapshots.
+ *
+ * v26 fixes the previous default session width: only snapshots whose width
+ * memory still exactly matches the old 620px seed are rebuilt. Their
+ * visibility and active-tab preferences remain intact, while Dockview gets
+ * one clean initialization with the new default.
+ */
+export function migratePersistedLayoutState(
+  persistedState: unknown,
+  version: number
+): MigratedLayoutState {
+  const state = (persistedState ?? {}) as Partial<LayoutState>;
+  const legacyUsedPreviousDefault =
+    version < 26 && state.rightPanelWidth === LEGACY_DEFAULT_RIGHT_PANEL_WIDTH;
+  const legacySnapshot = buildProjectLayoutState({
+    serializedLayout: null,
+    isFileTreeVisible: state.isFileTreeVisible,
+    rightPanelWidth: legacyUsedPreviousDefault
+      ? DEFAULT_RIGHT_PANEL_WIDTH
+      : state.rightPanelWidth,
+    isRightPanelVisible: state.isRightPanelVisible,
+    isEditorAreaVisible: state.isEditorAreaVisible,
+    activeTab: state.activeTab,
+  });
+  const currentProjectKey = state.currentProjectKey ?? GLOBAL_PROJECT_SCOPE;
+  const projectLayouts = Object.entries(state.projectLayouts ?? {}).reduce<
+    Record<string, LayoutSnapshot>
+  >((accumulator, [projectKey, projectState]) => {
+    const usedPreviousDefault =
+      version < 26 &&
+      projectState.rightPanelWidth === LEGACY_DEFAULT_RIGHT_PANEL_WIDTH;
+
+    accumulator[projectKey] = buildProjectLayoutState({
+      ...projectState,
+      rightPanelWidth: usedPreviousDefault
+        ? DEFAULT_RIGHT_PANEL_WIDTH
+        : projectState.rightPanelWidth,
+    });
+
+    // One-time reset for v<21 snapshots: interim builds persisted corrupted
+    // zone sizes, so rebuild the grid with fresh defaults (panel sizes only;
+    // visibility flags and tabs are kept).
+    if (version < 21) {
+      accumulator[projectKey].serializedLayout = null;
+    } else if (version < 22) {
+      // v22: Web Preview panel id renamed from 'dev-preview'.
+      accumulator[projectKey].serializedLayout = renameWebPreviewPanelId(
+        accumulator[projectKey].serializedLayout
+      );
+    }
+    // v23: zone defaults became percentage-based and restores became
+    // verbatim. Reset older grids so startup scaling artifacts do not persist.
+    if (version < 23) {
+      accumulator[projectKey].serializedLayout = null;
+    }
+    // v24: Dockview now owns A/C zone minimum-width constraints.
+    if (version < 24) {
+      accumulator[projectKey].serializedLayout = null;
+    }
+    // v26: the 620px seed became 30% narrower. Rebuild only untouched legacy
+    // defaults; every other serialized width is a user choice and stays exact.
+    if (usedPreviousDefault) {
+      accumulator[projectKey].serializedLayout = null;
+    }
+    return accumulator;
+  }, {});
+
+  if (!projectLayouts[currentProjectKey]) {
+    projectLayouts[currentProjectKey] = legacySnapshot;
+  }
+
+  const activeSnapshot = buildProjectLayoutState(
+    projectLayouts[currentProjectKey]
+  );
+
+  return {
+    currentProjectKey,
+    projectLayouts,
+    ...activeSnapshot,
   };
 }
 
@@ -417,71 +507,8 @@ export const useLayoutStore = create<LayoutState>()(
     }),
     {
       name: 'vibex-ide-layout',
-      version: 25,
-      migrate: (persistedState, version) => {
-        const state = (persistedState ?? {}) as Partial<LayoutState>;
-        const legacySnapshot = buildProjectLayoutState({
-          serializedLayout: null,
-          isFileTreeVisible: state.isFileTreeVisible,
-          rightPanelWidth: state.rightPanelWidth,
-          isRightPanelVisible: state.isRightPanelVisible,
-          isEditorAreaVisible: state.isEditorAreaVisible,
-          activeTab: state.activeTab,
-        });
-        const currentProjectKey =
-          state.currentProjectKey ?? GLOBAL_PROJECT_SCOPE;
-        const projectLayouts = Object.entries(
-          state.projectLayouts ?? {}
-        ).reduce<Record<string, LayoutSnapshot>>(
-          (accumulator, [projectKey, projectState]) => {
-            accumulator[projectKey] = buildProjectLayoutState(projectState);
-            // One-time reset for v<21 snapshots: interim builds persisted
-            // corrupted zone sizes, so rebuild the grid with fresh defaults
-            // (panel sizes only; visibility flags and tabs are kept).
-            if (version < 21) {
-              accumulator[projectKey].serializedLayout = null;
-            } else if (version < 22) {
-              // v22: Web Preview panel id renamed from 'dev-preview'.
-              accumulator[projectKey].serializedLayout =
-                renameWebPreviewPanelId(
-                  accumulator[projectKey].serializedLayout
-                );
-            }
-            // v23: zone defaults became percentage-based (dock 20% / session
-            // 30% of the grid width) and restores are now verbatim, so
-            // snapshots persisted under the old fixed-pixel defaults (or the
-            // startup-scaling artifact: inflated dock, crushed session)
-            // would keep their bad widths forever. One-time grid reset;
-            // visibility flags and the active tab are kept.
-            if (version < 23) {
-              accumulator[projectKey].serializedLayout = null;
-            }
-            // v24: Dockview now owns A/C zone minimum-width constraints.
-            // Discard snapshots saved before those constraints existed: they
-            // can restore an inflated dock and crushed session column for one
-            // visible frame before any runtime correction can run.
-            if (version < 24) {
-              accumulator[projectKey].serializedLayout = null;
-            }
-            return accumulator;
-          },
-          {}
-        );
-
-        if (!projectLayouts[currentProjectKey]) {
-          projectLayouts[currentProjectKey] = legacySnapshot;
-        }
-
-        const activeSnapshot = buildProjectLayoutState(
-          projectLayouts[currentProjectKey]
-        );
-
-        return {
-          currentProjectKey,
-          projectLayouts,
-          ...activeSnapshot,
-        };
-      },
+      version: 26,
+      migrate: migratePersistedLayoutState,
       partialize: (state) => ({
         currentProjectKey: state.currentProjectKey,
         projectLayouts: {

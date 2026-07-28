@@ -147,7 +147,7 @@
     "tagline": "高效多并发驱动的 Vibe Coding"
   },
   "kanbanSessions": {
-    "sessionFallback": "会话"
+    "sessionFallback": "新会话"
   },
   "turnTool": {
     "editFile": "编辑 {{path}}",

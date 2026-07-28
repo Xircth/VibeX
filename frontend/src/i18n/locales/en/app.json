@@ -147,7 +147,7 @@
     "tagline": "High-throughput, multi-concurrent Vibe Coding"
   },
   "kanbanSessions": {
-    "sessionFallback": "Session"
+    "sessionFallback": "New session"
   },
   "turnTool": {
     "editFile": "Edit {{path}}",

@@ -41,10 +41,48 @@ import type {
   CommitGraphResult,
 } from './base';
 import { sessionsApi } from './sessions';
+import type {
+  RedlineDocument,
+  TauriInspectorStatus,
+} from '@/features/tauri-inspector/tauriInspector';
 
 // Task Attempts / Workspaces APIs
 // Note: frontend uses "attemptsApi" but Rust commands use "workspace" prefix
 export const attemptsApi = {
+  getTauriInspectorStatus: async (
+    attemptId: string
+  ): Promise<TauriInspectorStatus> => {
+    return tauriInvoke<TauriInspectorStatus>('get_tauri_inspector_status', {
+      workspaceId: attemptId,
+    });
+  },
+
+  installTauriInspector: async (
+    attemptId: string
+  ): Promise<TauriInspectorStatus> => {
+    return tauriInvoke<TauriInspectorStatus>('install_tauri_inspector', {
+      workspaceId: attemptId,
+    });
+  },
+
+  controlTauriInspector: async (
+    attemptId: string,
+    action: 'activate' | 'deactivate'
+  ): Promise<void> => {
+    return tauriInvoke<void>('control_tauri_inspector', {
+      workspaceId: attemptId,
+      action,
+    });
+  },
+
+  takeTauriInspectorCapture: async (
+    attemptId: string
+  ): Promise<RedlineDocument | null> => {
+    return tauriInvoke<RedlineDocument | null>('take_tauri_inspector_capture', {
+      workspaceId: attemptId,
+    });
+  },
+
   getChildren: async (attemptId: string): Promise<TaskRelationships> => {
     return tauriInvoke<TaskRelationships>('get_workspace_children', {
       workspaceId: attemptId,

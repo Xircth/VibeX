@@ -8,6 +8,7 @@ import {
   Puzzle,
   StickyNote,
   Globe,
+  ScanSearch,
 } from 'lucide-react';
 import type { Plugin } from 'shared/types';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
@@ -29,6 +30,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { useTauriInspector } from '@/hooks/useTauriInspector';
 
 function RightPanelSidebarContent({
   workspaceId,
@@ -44,6 +46,11 @@ function RightPanelSidebarContent({
   const { data: plugins = [] } = usePlugins();
   const { launch: launchPlugin, launchingPluginId } =
     usePluginLauncher(workspaceId);
+  const {
+    activate: activateTauriInspector,
+    isActivating: isTauriInspectorActivating,
+    status: tauriInspectorStatus,
+  } = useTauriInspector(workspaceId);
 
   const handleOpenPreview = useCallback(() => {
     openOrFocusPanel(PANEL_IDS.WEB_PREVIEW, 'Web Preview');
@@ -116,6 +123,30 @@ function RightPanelSidebarContent({
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">{networkTooltipLabel}</TooltipContent>
+          </Tooltip>
+        )}
+
+        {workspaceId && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => void activateTauriInspector()}
+                disabled={isTauriInspectorActivating}
+                className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={t('rightPanelSidebar.tauriInspectorTooltip')}
+              >
+                {isTauriInspectorActivating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ScanSearch className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {tauriInspectorStatus?.installed
+                ? t('rightPanelSidebar.tauriInspectorTooltip')
+                : t('rightPanelSidebar.tauriInspectorSetupTooltip')}
+            </TooltipContent>
           </Tooltip>
         )}
 

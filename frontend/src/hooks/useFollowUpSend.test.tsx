@@ -129,4 +129,40 @@ describe('useFollowUpSend', () => {
       unsubscribe();
     }
   });
+
+  it('invalidates the existing session list after its first turn starts', async () => {
+    sendTurnMock.mockResolvedValue({});
+    const queryClient = new QueryClient();
+    const summariesKey = ['workspaceSessions', 'ws-1', 'summaries'];
+    queryClient.setQueryData(summariesKey, [
+      {
+        id: 'conversation-1',
+        first_prompt: null,
+        display_name: '新会话',
+      },
+    ]);
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: '修复会话标题功能',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(queryClient.getQueryState(summariesKey)?.isInvalidated).toBe(true);
+  });
 });

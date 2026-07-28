@@ -312,6 +312,32 @@ impl ConversationRecord {
         Ok(())
     }
 
+    /// Persist the first non-empty user prompt for a conversation that was
+    /// created before its first turn. Later turns never replace the seed.
+    pub async fn capture_initial_prompt(
+        pool: &SqlitePool,
+        id: Uuid,
+        prompt: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return Ok(false);
+        }
+
+        let result = sqlx::query(
+            r#"UPDATE sessions
+               SET initial_prompt = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?
+                 AND (initial_prompt IS NULL OR TRIM(initial_prompt) = '')"#,
+        )
+        .bind(prompt)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn update_active_turn(
         pool: &SqlitePool,
         id: Uuid,
@@ -655,5 +681,44 @@ mod tests {
             .expect("binding exists");
         assert_eq!(latest.acp_session_id.as_deref(), Some("acp-session-1"));
         assert_eq!(latest.status, "ready");
+    }
+
+    #[tokio::test]
+    async fn existing_blank_conversation_captures_only_its_first_prompt() {
+        let pool = migrated_pool().await;
+        let id = Uuid::new_v4();
+        let workspace_id = Uuid::new_v4();
+
+        ConversationRecord::create(
+            &pool,
+            id,
+            CreateConversationRecord {
+                workspace_id,
+                task_id: None,
+                title: Some("手动标题"),
+                initial_prompt: None,
+                status: None,
+                executor: Some("codex"),
+            },
+        )
+        .await
+        .expect("create blank conversation");
+
+        ConversationRecord::capture_initial_prompt(&pool, id, "  这是第一条用户消息  ")
+            .await
+            .expect("capture first prompt");
+        ConversationRecord::capture_initial_prompt(&pool, id, "第二条消息不应覆盖")
+            .await
+            .expect("ignore later prompt");
+
+        let session = Session::find_by_id(&pool, id)
+            .await
+            .expect("find session")
+            .expect("session exists");
+        assert_eq!(
+            session.initial_prompt.as_deref(),
+            Some("这是第一条用户消息")
+        );
+        assert_eq!(session.name.as_deref(), Some("手动标题"));
     }
 }

@@ -242,6 +242,8 @@ impl ConversationSessionService {
 
         let conversation = self.ensure_conversation(pool, &input).await?;
         ensure_conversation_has_no_in_flight_turn(pool, &conversation).await?;
+        ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &input.text)
+            .await?;
         ConversationRecord::update_status(pool, input.conversation_id, SessionStatus::InProgress)
             .await?;
 

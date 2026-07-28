@@ -84,7 +84,23 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 ## Agent domain
 
 - **Agent kind（agent 身份）** — agent 的稳定身份标识（claude_code、codex、opencode…），全系统唯一的身份枚举。回答"这是哪个 agent"。
+- **Built-in agent（内置 agent）** — 由 VibeX 主动选定、验证并承担兼容性责任的一级支持 agent。它可以直接展示并拥有增强能力，但仍按需安装本地 runtime 与 ACP，不表示其可执行文件随 VibeX 捆绑；当前成员为 Codex、Claude Code、OpenCode 与 Pi。
+- **Built-in agent profile（内置 agent 档案）** — VibeX 为一个内置 agent 维护的兼容性契约，定义其本地 agent runtime、ACP 适配器及经验证的组合；它是内置 agent 安装与启动的权威，官方注册表只提供可供评估的分发更新。
+- **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
+- **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
+- **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物。
+- **External agent installation（外部 Agent 安装）** — 由用户或系统所有、经 VibeX 校验后接入的本地 Agent runtime；VibeX 可以使用和重新校验它，但不能擅自升级、修改或卸载它。
+- **Installation lock（安装锁）** — 一次 Agent 安装实际采用的 Agent Runtime、ACP 适配器与基础运行环境的精确版本和来源记录；它使当前安装可以被验证、复现和安全回退。
+- **Installed agent（已安装 Agent）** — 所需本地运行组件已经存在且通过兼容性验证的 Agent；是否已经完成认证不影响其安装状态。
+- **Ready agent（就绪 Agent）** — 已安装且满足必需认证与配置条件、可以创建新会话的 Agent。
+- **Needs-auth agent（待认证 Agent）** — 已安装但尚未满足必需认证条件的 Agent；它保留在 Agent 设置中，但不能用于创建新会话。
 - **Registry entry（注册表条目）** — 某个 agent 身份的元数据（展示名、描述、分发方式、registry id）。registry id（如 claude-acp）是条目的标识，不是身份本身。
+- **Added agent（已添加 Agent）** — 已经被纳入 VibeX Agent 集合的 Agent；内置 Agent 默认属于此集合，其他 Agent 在用户确认添加时立即进入，是否安装完成不影响此关系。
+- **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 VibeX Agent 集合的 Agent。
+- **Uninstall agent（卸载 Agent）** — 删除 VibeX 为 Agent 托管的运行组件，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。
+- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并清除 VibeX 拥有的 Agent 专属设置与产物；它不删除历史会话，也不触碰外部安装。
+- **Agent bar（Agent 导航带）** — “设置 → Agent”中的统一横向 Agent 选择器；所有已添加 Agent 共用同一列表，不按支持等级或安装状态分区，末位固定为打开 Registry 的添加入口。
+- **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
 - **Session fork（会话分叉）** — 从**当前状态**分出一个新 Conversation：新会话是原会话完整历史的独立副本（非破坏性，原会话不受影响），此后独立演化。当 agent 广告了 ACP `session/fork` 且有活会话时，agent 侧上下文也随之分叉（继续对话保有分叉前上下文）；否则新会话为无上下文副本，下次发送冷启动。从当前分叉（非历史某点），以保持可见历史与 agent 上下文一致。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005（2026-07-06 更新）。
 

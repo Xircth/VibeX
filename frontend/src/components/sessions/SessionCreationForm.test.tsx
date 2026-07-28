@@ -191,7 +191,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(refreshCapabilityCatalog).not.toHaveBeenCalled();
   });
 
-  it('captures mode, model, and boolean picks as first-turn overrides', async () => {
+  it('captures mode, model, and boolean picks as new-session controls', async () => {
     const onPreset = vi.fn();
     renderForm('claude_code', onPreset);
     const user = userEvent.setup();
@@ -214,6 +214,68 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         configOverrides: {
           model: 'opus',
           fast: 'true',
+        },
+      })
+    );
+  });
+
+  it('submits one Codex mode override and keeps string-valued Fast configuration', async () => {
+    capabilityCatalog.mockResolvedValue({
+      modes: [
+        { id: 'read-only', label: 'Read-only', description: null },
+        { id: 'agent', label: 'Agent', description: null },
+        {
+          id: 'agent-full-access',
+          label: 'Agent (full access)',
+          description: null,
+        },
+      ],
+      current_mode: 'agent',
+      config_options: [
+        {
+          key: 'mode',
+          label: 'Mode',
+          description: null,
+          category: 'mode',
+          value: 'agent',
+          choices: [
+            { value: 'read-only', label: 'Read-only', description: null },
+            { value: 'agent', label: 'Agent', description: null },
+            {
+              value: 'agent-full-access',
+              label: 'Agent (full access)',
+              description: null,
+            },
+          ],
+        },
+        CONTROLS.config_options[0],
+        {
+          key: 'fast-mode',
+          label: 'Fast mode',
+          description: null,
+          category: 'model_config',
+          value: 'off',
+          choices: [
+            { value: 'off', label: 'Off', description: null },
+            { value: 'on', label: 'On', description: null },
+          ],
+        },
+      ],
+    });
+    const onPreset = vi.fn();
+    renderForm('codex', onPreset, 'new_workspace');
+    const user = userEvent.setup();
+
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('Fast mode'));
+
+    await waitFor(() =>
+      expect(onPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'agent-full-access',
+        configOverrides: {
+          model: 'sonnet',
+          'fast-mode': 'on',
         },
       })
     );

@@ -300,6 +300,14 @@ function formatClickedMarkdown(
 
   // HTML preview (source code of the clicked element)
   const htmlPreview = payload.clickedElement?.dataset?.['preview'];
+  const redlineComment = payload.clickedElement?.dataset?.['redlineComment'];
+  const redlineSelector = payload.clickedElement?.dataset?.['redlineSelector'];
+  const redlineComputedCss =
+    payload.clickedElement?.dataset?.['redlineComputedCss'];
+  const sourceLabel =
+    payload.trigger === 'tauri-inspector'
+      ? 'From Tauri App selection:'
+      : 'From preview click:';
 
   // Use first component in effective chain as the "selected start"
   const first = effectiveChain[0];
@@ -327,10 +335,15 @@ function formatClickedMarkdown(
   });
 
   return [
-    `From preview click:`,
+    sourceLabel,
     `- DOM: ${dom}`,
+    redlineSelector ? `- Selector: \`${redlineSelector}\`` : '',
+    redlineComment ? `- Requested change: ${redlineComment}` : '',
     `- Selected start: ${first.name} (${loc ? `\`${loc}\`` : 'no source'})`,
     htmlPreview ? `- Element source:\n\`\`\`html\n${htmlPreview}\n\`\`\`` : '',
+    redlineComputedCss
+      ? `- Computed CSS:\n\`\`\`json\n${redlineComputedCss}\n\`\`\``
+      : '',
     effectiveChain.length > 1
       ? ['- Component hierarchy:', ...items].join('\n')
       : '',

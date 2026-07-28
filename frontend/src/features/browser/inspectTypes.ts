@@ -32,7 +32,7 @@ export interface Coordinates {
 export interface OpenInEditorPayload {
   selected: SelectedComponent;
   components: ComponentInfo[];
-  trigger: 'alt-click' | 'context-menu';
+  trigger: 'alt-click' | 'context-menu' | 'tauri-inspector';
   coords?: Coordinates;
   clickedElement?: ClickedElement;
 }

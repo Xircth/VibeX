@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   configOptionDisplayState,
+  presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   visibleSessionConfigOptions,
   type DisplayChoice,
@@ -75,14 +76,11 @@ export function SessionControlsFields({
     activeModeId
   );
   const showModeField = presentableModes.length > 0;
-  // Same dedupe rule as the composer's ActionBar: when the dedicated mode
-  // field is shown, drop the overlapping `mode`-category config option.
   const visibleConfigOptions = visibleSessionConfigOptions(configOptions);
-  const dedupedOptions = showModeField
-    ? visibleConfigOptions.filter(
-        (option) => (option.category ?? option.key) !== 'mode'
-      )
-    : visibleConfigOptions;
+  const dedupedOptions = presentableSessionConfigOptions(
+    configOptions,
+    showModeField ? modes : []
+  );
 
   const presentedModeId = presentedActiveModeId(modes, activeModeId);
   const activeMode =

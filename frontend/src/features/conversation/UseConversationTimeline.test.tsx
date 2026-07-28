@@ -263,6 +263,81 @@ describe('useConversationTimeline', () => {
     );
   });
 
+  it('hydrates controls for a newly created non-Codex conversation before its first turn', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        agent_type: 'claude_code',
+        message_count: 0n,
+      },
+    });
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [
+        { id: 'default', label: 'Default', description: null },
+        { id: 'plan', label: 'Plan', description: null },
+      ],
+      current_mode: 'plan',
+      config_options: [],
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
+    );
+    await waitFor(() =>
+      expect(result.current.sessionModes).toEqual({
+        current: 'plan',
+        modes: [
+          { id: 'default', label: 'Default', description: null },
+          { id: 'plan', label: 'Plan', description: null },
+        ],
+      })
+    );
+  });
+
+  it('reconciles a zero-message conversation with its authoritative live controls', async () => {
+    const projectedFastOption = {
+      key: 'fast-mode',
+      label: 'Fast mode',
+      category: 'model_config',
+      value: 'off',
+      choices: [
+        { value: 'off', label: 'Off' },
+        { value: 'on', label: 'On' },
+      ],
+    };
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        message_count: 0n,
+      },
+      session_config_options: [projectedFastOption],
+    });
+    ensureSessionControlsMock.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [{ ...projectedFastOption, value: 'on' }],
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() =>
+      expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID)
+    );
+    await waitFor(() =>
+      expect(result.current.sessionConfigOptions).toEqual([
+        expect.objectContaining({ key: 'fast-mode', value: 'on' }),
+      ])
+    );
+  });
+
   it('backfills changed rows on subscribe', async () => {
     detailMock.mockResolvedValue(detail());
     eventsSinceMock.mockResolvedValue(

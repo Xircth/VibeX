@@ -35,6 +35,7 @@ import {
   type SessionControlsPreset,
   type SessionCreationMode,
 } from '@/components/sessions/SessionCreationForm';
+import { initializeSessionControls } from '@/features/conversation/initializeSessionControls';
 import {
   ScratchType,
   type ExecutorProfileId,
@@ -388,8 +389,8 @@ export function RightPanelContent() {
         repoBranchConfigs.length > 0 &&
         repoBranchConfigs.every((repoConfig) => !!repoConfig.targetBranch));
 
-  // Latest ACP control preset picked in the create form; consumed when the
-  // created session's draft is written (ref: no re-render needed on pick).
+  // Latest ACP control preset picked in the create form; materialized onto the
+  // created conversation before navigation (ref: no re-render needed on pick).
   const sessionControlsPresetRef = useRef<SessionControlsPreset | null>(null);
 
   const createSessionMutation = useMutation({
@@ -416,6 +417,19 @@ export function RightPanelContent() {
     },
     onSuccess: async (newSession) => {
       if (selectedExecutorProfile?.executor) {
+        let controlsInitialized = false;
+        try {
+          await initializeSessionControls(
+            newSession.id,
+            sessionControlsPresetRef.current
+          );
+          controlsInitialized = true;
+        } catch (error) {
+          console.warn(
+            'Failed to initialize created session controls; preserving first-turn fallback',
+            error
+          );
+        }
         try {
           await scratchApi.update(ScratchType.DRAFT_FOLLOW_UP, newSession.id, {
             payload: {
@@ -425,10 +439,13 @@ export function RightPanelContent() {
                 images: [],
                 executor_config: selectedExecutorProfile,
                 queued: false,
-                mode_override:
-                  sessionControlsPresetRef.current?.modeOverride ?? undefined,
-                config_overrides:
-                  sessionControlsPresetRef.current?.configOverrides ?? {},
+                mode_override: controlsInitialized
+                  ? undefined
+                  : (sessionControlsPresetRef.current?.modeOverride ??
+                    undefined),
+                config_overrides: controlsInitialized
+                  ? {}
+                  : (sessionControlsPresetRef.current?.configOverrides ?? {}),
               },
             },
           });
@@ -527,7 +544,7 @@ export function RightPanelContent() {
       <div className="h-full flex overflow-hidden bg-transparent">
         <div className="relative flex-1 min-w-0 flex flex-col overflow-hidden">
           <BranchInfoHeader />
-          <div className="relative flex-1 min-h-0 overflow-hidden">
+          <div className="right-panel-conversation-region relative flex-1 min-h-0 overflow-hidden">
             {isWorkspaceRoute && workspaceId ? (
               <div className="h-full min-h-0 overflow-hidden">
                 <KanbanSessionConversationView

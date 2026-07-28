@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
@@ -8,6 +8,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import LiquidGlass from 'liquid-glass-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -29,6 +30,9 @@ import { ChangeTargetBranchDialog } from '@/components/dialogs/tasks/ChangeTarge
 import { GitConflictResolutionDialog } from '@/components/dialogs/tasks/GitConflictResolutionDialog';
 import { GitActionsDialog } from '@/components/dialogs/tasks/GitActionsDialog';
 import { RebaseDialog } from '@/components/dialogs/tasks/RebaseDialog';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+
+const STATIC_GLASS_POINTER = { x: 0, y: 0 };
 
 async function showConflictResolutionDialog(
   worktreeId: string,
@@ -60,6 +64,10 @@ function getRebaseOldBaseBranch(
 }
 
 export function BranchInfoHeader() {
+  const glassStageRef = useRef<HTMLDivElement | null>(null);
+  const prefersReducedMotion = useMediaQuery(
+    '(prefers-reduced-motion: reduce)'
+  );
   const { activeWorktreeId } = useWorktree();
   const { visibleRightSession } = useKanbanSessionContext();
   const effectiveWorktreeId =
@@ -86,50 +94,90 @@ export function BranchInfoHeader() {
     : undefined;
 
   return (
-    <div className="workspace-divider-bottom shrink-0 bg-muted/30 px-3 py-1.5">
-      <div className="flex min-w-0 items-center gap-2 text-xs">
-        <span className="shrink-0 text-muted-foreground">Base</span>
-        <TargetBranchDropdown
-          repo={repo}
-          worktreeId={effectiveWorktreeId}
-          useWorktree={Boolean(workspace?.use_worktree)}
-        />
-        <span className="shrink-0 text-muted-foreground">&rarr;</span>
-        <span className="truncate font-mono text-foreground">HEAD</span>
-        {(repo.commits_ahead ?? 0) > 0 && (
-          <span className="flex shrink-0 items-center gap-0.5 text-[hsl(var(--success))]">
-            <ArrowUp className="h-2.5 w-2.5" />
-            {repo.commits_ahead}
-          </span>
-        )}
-        {(repo.commits_behind ?? 0) > 0 && (
-          <span className="flex shrink-0 items-center gap-0.5 text-[hsl(var(--warning))]">
-            <ArrowDown className="h-2.5 w-2.5" />
-            {repo.commits_behind}
-          </span>
-        )}
-        {repo.is_rebase_in_progress && (
-          <span className="flex shrink-0 items-center gap-0.5 text-destructive">
-            <AlertTriangle className="h-2.5 w-2.5" />
-            Rebase in progress
-          </span>
-        )}
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <GitActionsButton
-            worktreeId={effectiveWorktreeId}
-            task={gitActionsTask}
-          />
-          <RebaseButton
-            worktreeId={effectiveWorktreeId}
-            repo={repo}
-            useWorktree={Boolean(workspace?.use_worktree)}
-          />
-          <RebaseBackButton
-            worktreeId={effectiveWorktreeId}
-            repo={repo}
-            useWorktree={Boolean(workspace?.use_worktree)}
-          />
-        </div>
+    <div className="branch-info-header-host">
+      <div ref={glassStageRef} className="branch-info-glass-stage">
+        <LiquidGlass
+          className="branch-info-liquid-glass"
+          padding="0"
+          cornerRadius={12}
+          displacementScale={72}
+          blurAmount={0.04}
+          saturation={140}
+          aberrationIntensity={2}
+          elasticity={prefersReducedMotion ? 0 : 0.12}
+          mouseContainer={glassStageRef}
+          globalMousePos={
+            prefersReducedMotion ? STATIC_GLASS_POINTER : undefined
+          }
+          mouseOffset={prefersReducedMotion ? STATIC_GLASS_POINTER : undefined}
+          mode="prominent"
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            width: '100%',
+            height: '100%',
+          }}
+        >
+          <div
+            className="branch-info-toolbar"
+            role="toolbar"
+            aria-label="Git workspace controls"
+          >
+            <div className="branch-info-summary">
+              <span className="branch-info-context-label">目标</span>
+              <TargetBranchDropdown
+                repo={repo}
+                worktreeId={effectiveWorktreeId}
+                useWorktree={Boolean(workspace?.use_worktree)}
+              />
+              <span className="branch-info-direction" aria-hidden="true">
+                &rarr;
+              </span>
+              <span className="branch-info-context-label">当前</span>
+              <span
+                className="branch-info-current-branch"
+                title={workspace?.branch}
+              >
+                {workspace?.branch ?? 'HEAD'}
+              </span>
+              {(repo.commits_ahead ?? 0) > 0 && (
+                <span className="branch-info-ahead">
+                  <ArrowUp className="h-3 w-3" aria-hidden="true" />
+                  {repo.commits_ahead}
+                </span>
+              )}
+              {(repo.commits_behind ?? 0) > 0 && (
+                <span className="branch-info-behind">
+                  <ArrowDown className="h-3 w-3" aria-hidden="true" />
+                  {repo.commits_behind}
+                </span>
+              )}
+              {repo.is_rebase_in_progress && (
+                <span className="branch-info-rebase-status">
+                  <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                  Rebase in progress
+                </span>
+              )}
+            </div>
+            <div className="branch-info-actions">
+              <GitActionsButton
+                worktreeId={effectiveWorktreeId}
+                task={gitActionsTask}
+              />
+              <RebaseButton
+                worktreeId={effectiveWorktreeId}
+                repo={repo}
+                useWorktree={Boolean(workspace?.use_worktree)}
+              />
+              <RebaseBackButton
+                worktreeId={effectiveWorktreeId}
+                repo={repo}
+                useWorktree={Boolean(workspace?.use_worktree)}
+              />
+            </div>
+          </div>
+        </LiquidGlass>
       </div>
     </div>
   );
@@ -144,9 +192,9 @@ function GitActionsButton({
 }) {
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       size="sm"
-      className="h-5 px-1.5 text-[10px]"
+      className="branch-info-action branch-info-action-primary"
       onClick={() => {
         if (!task) return;
         GitActionsDialog.show({
@@ -239,13 +287,13 @@ function TargetBranchDropdown({
   }, [branches, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="branch-info-control-stack">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1 font-mono text-foreground transition-colors hover:text-primary">
-            <GitBranch className="h-3 w-3" />
-            <span className="max-w-24 truncate">{repo.target_branch_name}</span>
-            <ChevronDown className="h-2.5 w-2.5" />
+          <button className="branch-info-branch-button">
+            <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="max-w-28 truncate">{repo.target_branch_name}</span>
+            <ChevronDown className="h-3 w-3" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
@@ -260,7 +308,11 @@ function TargetBranchDropdown({
           <DropdownMenuItem onSelect={handleRebase}>Rebase</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {error && <span className="text-[9px] text-destructive">{error}</span>}
+      {error && (
+        <span className="branch-info-error" role="status">
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -327,17 +379,21 @@ function RebaseButton({
   }, [branches, loading, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="branch-info-control-stack">
       <Button
-        variant="outline"
+        variant="ghost"
         size="sm"
-        className="h-5 px-1.5 text-[10px]"
+        className="branch-info-action"
         onClick={handleRebase}
         disabled={loading}
       >
         Rebase
       </Button>
-      {error && <span className="text-[9px] text-destructive">{error}</span>}
+      {error && (
+        <span className="branch-info-error" role="status">
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -458,17 +514,21 @@ function RebaseBackButton({
   }, [branches, loading, queryClient, repo, t, useWorktree, worktreeId]);
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="branch-info-control-stack">
       <Button
-        variant="outline"
+        variant="ghost"
         size="sm"
-        className="h-5 px-1.5 text-[10px]"
+        className="branch-info-action"
         onClick={handleRebaseBack}
         disabled={loading}
       >
         Rebase Back
       </Button>
-      {error && <span className="text-[9px] text-destructive">{error}</span>}
+      {error && (
+        <span className="branch-info-error" role="status">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

@@ -117,8 +117,8 @@ export const conversationApi = {
   detail: (sessionId: string): Promise<DbConversationDetail | null> =>
     tauriInvoke('conversation_detail', { sessionId }),
 
-  // Lazily reconnect an existing Codex session and return its authoritative
-  // ACP controls. This never sends a prompt.
+  // Materialize or reconnect an Agent session and return its authoritative ACP
+  // controls. This never sends a prompt.
   ensureSessionControls: (
     conversationId: string
   ): Promise<AgentSessionControlsSnapshot> =>

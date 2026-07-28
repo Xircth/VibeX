@@ -38,7 +38,37 @@ function truncateSessionName(name: string, length = 7) {
   return chars.slice(0, length).join('');
 }
 
-function buildDefaultSessionName(
+const SESSION_PLACEHOLDERS = new Set([
+  'Session',
+  '会话',
+  'New session',
+  'New Session',
+  '新会话',
+]);
+
+function isSessionPlaceholder(value: string) {
+  return (
+    SESSION_PLACEHOLDERS.has(value) ||
+    /^新会话_[a-z0-9]+$/i.test(value) ||
+    /^new session_[a-z0-9]+$/i.test(value) ||
+    /^新会话[a-z0-9]+$/i.test(value) ||
+    /^new session[a-z0-9]+$/i.test(value)
+  );
+}
+
+function fallbackSessionName(summary: SessionSummary, label: string) {
+  const displayName = summary.display_name?.trim();
+  if (
+    displayName &&
+    (/^新会话\d+$/u.test(displayName) || /^new session\d+$/iu.test(displayName))
+  ) {
+    return displayName;
+  }
+
+  return `${label}1`;
+}
+
+export function buildDefaultSessionName(
   summary: SessionSummary,
   t: TFunction<['app', 'common']>
 ) {
@@ -55,20 +85,18 @@ function buildDefaultSessionName(
   const displayName = summary.display_name?.replace(/\s+/g, ' ').trim();
   const promptName =
     firstPrompt ||
-    (displayName && displayName !== 'Session' && displayName !== '会话'
-      ? displayName
-      : '');
+    (displayName && !isSessionPlaceholder(displayName) ? displayName : '');
 
   if (promptName.length > 0) {
     return {
-      name: Array.from(promptName).slice(0, 6).join(''),
+      name: Array.from(promptName).slice(0, 8).join(''),
       source: 'prompt' as const,
       prompt: promptName,
     };
   }
 
   return {
-    name: t('kanbanSessions.sessionFallback'),
+    name: fallbackSessionName(summary, t('kanbanSessions.sessionFallback')),
     source: 'fallback' as const,
     prompt: null,
   };
@@ -211,11 +239,25 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
 
     const usedNamesByBaseName = new Map<string, Set<string>>();
     const occurrenceByBaseName = new Map<string, number>();
+    const fallbackOccurrences = new Map<string, number>();
 
     return baseSessions.map((session) => {
       const baseName = session.fullName;
       const duplicateKey = getDuplicateKey(session);
       const total = totalsByBaseName.get(duplicateKey) ?? 1;
+      const meta = nameMetaById.get(session.id);
+
+      if (meta?.source === 'fallback') {
+        const statusKey = session.status === 'archived' ? 'archived' : 'active';
+        const occurrence = (fallbackOccurrences.get(statusKey) ?? 0) + 1;
+        fallbackOccurrences.set(statusKey, occurrence);
+        const resolvedName = `${t('kanbanSessions.sessionFallback')}${occurrence}`;
+        return {
+          ...session,
+          fullName: resolvedName,
+          shortName: truncateSessionName(resolvedName),
+        };
+      }
 
       if (total <= 1) {
         return session;
@@ -226,11 +268,10 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
       usedNamesByBaseName.set(duplicateKey, usedNames);
 
       let resolvedName = baseName;
-      const meta = nameMetaById.get(session.id);
       if (meta?.source === 'prompt' && meta.prompt) {
         const chars = Array.from(meta.prompt);
         const upperBound = Math.min(32, chars.length);
-        for (let length = 6; length <= upperBound; length += 1) {
+        for (let length = 8; length <= upperBound; length += 1) {
           const candidate = chars.slice(0, length).join('');
           if (!usedNames.has(candidate)) {
             resolvedName = candidate;

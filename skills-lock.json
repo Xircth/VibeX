@@ -7,6 +7,12 @@
       "skillPath": ".agents/skills/impeccable/SKILL.md",
       "computedHash": "e07098370ad7fd4605b67d305d8c06623a5c7d7737d2364e30932294ef880ff6"
     },
+    "understand": {
+      "source": "lum1104/understand-anything",
+      "sourceType": "github",
+      "skillPath": "understand-anything-plugin/skills/understand/SKILL.md",
+      "computedHash": "94eda49aaabefb6334bcf009b5060d4e7b484a3e67bd96df751dd5e87c72c1a0"
+    },
     "understand-dashboard": {
       "source": "lum1104/understand-anything",
       "sourceType": "github",

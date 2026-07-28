@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentSessionConfigOption } from 'shared/types';
 import {
   configOptionDisplayState,
+  presentableSessionConfigOptions,
   resolvedConfigOptionChoices,
   sanitizeDependentConfigValues,
   selectConfigOptionValue,
@@ -86,6 +87,36 @@ describe('model-dependent session config options', () => {
 });
 
 describe('Agent-advertised choice presentation', () => {
+  it('deduplicates only a config mode whose choices match the session modes', () => {
+    const modeOption: AgentSessionConfigOption = {
+      key: 'mode',
+      label: 'Mode',
+      category: 'mode',
+      value: 'agent',
+      choices: [
+        { value: 'read-only', label: 'Read-only' },
+        { value: 'agent', label: 'Agent' },
+      ],
+    };
+    const matchingModes = [
+      { id: 'read-only', label: 'Read-only' },
+      { id: 'agent', label: 'Agent' },
+    ];
+
+    expect(
+      presentableSessionConfigOptions([modeOption], matchingModes)
+    ).toEqual([]);
+    expect(
+      presentableSessionConfigOptions(
+        [modeOption],
+        [
+          ...matchingModes,
+          { id: 'agent-full-access', label: 'Agent (full access)' },
+        ]
+      )
+    ).toEqual([modeOption]);
+  });
+
   it('shortens the Codex Agent full access choice without changing its value', () => {
     const option: AgentSessionConfigOption = {
       key: 'mode',

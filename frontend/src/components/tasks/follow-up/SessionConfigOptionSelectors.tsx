@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   AgentSessionConfigDependency,
   AgentSessionConfigOption,
+  AgentSessionMode,
   JsonValue,
 } from 'shared/types';
 import {
@@ -40,6 +41,32 @@ function normalizedConfigOptionKey(key: string): string {
   return key.trim().toLowerCase().replaceAll('-', '_');
 }
 
+function isModeConfigOption(option: AgentSessionConfigOption): boolean {
+  return (
+    normalizedConfigOptionKey(option.category ?? '') === 'mode' ||
+    normalizedConfigOptionKey(option.key) === 'mode' ||
+    option.label.trim().toLowerCase() === 'mode'
+  );
+}
+
+function configModeMatchesSessionModes(
+  option: AgentSessionConfigOption,
+  sessionModes: AgentSessionMode[]
+): boolean {
+  if (!isModeConfigOption(option) || !option.choices?.length) return false;
+
+  const configModeIds = new Set(
+    option.choices
+      .map((choice) => jsonValueToString(choice.value))
+      .filter(Boolean)
+  );
+  const sessionModeIds = new Set(sessionModes.map((mode) => mode.id));
+  return (
+    configModeIds.size === sessionModeIds.size &&
+    [...configModeIds].every((id) => sessionModeIds.has(id))
+  );
+}
+
 /**
  * Codex advertises collaboration mode as a session option, but VibeX keeps it
  * at the runtime default. Hiding it at this shared presentation boundary keeps
@@ -54,6 +81,24 @@ export function visibleSessionConfigOptions(
         normalizedConfigOptionKey(option.key)
       )
   );
+}
+
+/**
+ * Removes config options already represented by the dedicated ACP session-mode
+ * control. Some adapters (currently Codex and Claude) advertise the same mode
+ * choices through both protocol surfaces; showing or submitting both would
+ * duplicate one user decision.
+ */
+export function presentableSessionConfigOptions(
+  options: AgentSessionConfigOption[],
+  sessionModes: AgentSessionMode[]
+): AgentSessionConfigOption[] {
+  const visibleOptions = visibleSessionConfigOptions(options);
+  return sessionModes.length > 0
+    ? visibleOptions.filter(
+        (option) => !configModeMatchesSessionModes(option, sessionModes)
+      )
+    : visibleOptions;
 }
 
 function configOptionDependency(

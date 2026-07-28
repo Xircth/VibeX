@@ -29,6 +29,7 @@ import {
   type LayoutArrangement,
   type LayoutZone,
 } from '@/lib/layoutArrangement';
+import { DEFAULT_SESSION_PANEL_WIDTH } from '@/utils/dockviewStartupSizing';
 
 interface SerializedLeaf {
   type: 'leaf';
@@ -66,7 +67,10 @@ const ZONE_DEFAULT_SIZES: Record<
 > = {
   dock: { width: 200, height: 220 },
   workspace: { width: 560, height: 320 },
-  session: { width: 620, height: 320 },
+  // Used only when neither serialized geometry nor a live-grid fallback is
+  // available. Reuse the shared default instead of reviving the retired
+  // 620px value during legacy-layout synthesis.
+  session: { width: DEFAULT_SESSION_PANEL_WIDTH, height: 320 },
   terminal: { width: 360, height: 200 },
 };
 

@@ -32,7 +32,58 @@ const OPTIONS: AgentSessionConfigOption[] = [
   },
 ];
 
+const CODEX_FAST_OPTION: AgentSessionConfigOption = {
+  key: 'fast-mode',
+  label: 'Fast mode',
+  category: 'model_config',
+  value: 'off',
+  choices: [
+    { value: 'off', label: 'Off' },
+    { value: 'on', label: 'On' },
+  ],
+};
+
 describe('SessionSettingsSummary', () => {
+  it('shows one mode control when Codex advertises equivalent session and config modes', async () => {
+    const user = userEvent.setup();
+    render(
+      <SessionSettingsSummary
+        sessionModes={{
+          current: 'agent',
+          modes: [
+            { id: 'read-only', label: 'Read-only' },
+            { id: 'agent', label: 'Agent' },
+            { id: 'agent-full-access', label: '完全访问' },
+          ],
+        }}
+        options={[
+          {
+            key: 'mode',
+            label: 'Mode',
+            category: 'mode',
+            value: 'agent',
+            choices: [
+              { value: 'read-only', label: 'Read-only' },
+              { value: 'agent', label: 'Agent' },
+              { value: 'agent-full-access', label: '完全访问' },
+            ],
+          },
+        ]}
+        pending={{}}
+        onSelectMode={vi.fn()}
+        onSelectConfigOption={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: '本次会话: Agent' })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    expect(screen.getByText('会话模式')).toBeInTheDocument();
+    expect(screen.queryByText('Mode')).not.toBeInTheDocument();
+  });
+
   it('puts the selected session values into one readable trigger', () => {
     render(
       <SessionSettingsSummary
@@ -54,11 +105,12 @@ describe('SessionSettingsSummary', () => {
     ).toBeInTheDocument();
   });
 
-  it('moves the Fast indicator onto the model name without widening the summary', () => {
+  it('moves the Fast indicator onto the model name without widening the summary', async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <SessionSettingsSummary
-        options={OPTIONS}
-        pending={{ fast_mode: 'true' }}
+        options={[OPTIONS[0], CODEX_FAST_OPTION, OPTIONS[2]]}
+        pending={{ 'fast-mode': 'on' }}
         onSelectConfigOption={vi.fn()}
       />
     );
@@ -75,6 +127,9 @@ describe('SessionSettingsSummary', () => {
       '5.6 Terra · 高'
     );
     expect(container.querySelector('.lucide-zap')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('session-settings-summary'));
+    expect(screen.getByText('开启')).toHaveClass('text-primary');
   });
 
   it('opens an option row into its choices and toggles Fast in place', async () => {
@@ -96,6 +151,23 @@ describe('SessionSettingsSummary', () => {
     await user.click(screen.getByRole('button', { name: /本次会话/ }));
     await user.click(screen.getByText('Fast'));
     expect(onSelectConfigOption).toHaveBeenCalledWith('fast_mode', 'true');
+  });
+
+  it('toggles Codex string-valued Fast mode in place', async () => {
+    const user = userEvent.setup();
+    const onSelectConfigOption = vi.fn();
+    render(
+      <SessionSettingsSummary
+        options={[OPTIONS[0], CODEX_FAST_OPTION]}
+        pending={{}}
+        onSelectConfigOption={onSelectConfigOption}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /本次会话/ }));
+    await user.click(screen.getByText('Fast mode'));
+
+    expect(onSelectConfigOption).toHaveBeenCalledWith('fast-mode', 'on');
   });
 
   it('hides Codex collaboration mode and leaves it at the runtime default', () => {

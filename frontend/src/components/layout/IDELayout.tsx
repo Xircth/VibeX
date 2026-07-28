@@ -89,10 +89,9 @@ import {
 } from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
-  // Default zone widths are fractions of the full grid width: A (dock) 10%,
-  // while C (session) is calculated by defaultSessionPanelWidth. Users can
-  // resize either column above its usable minimum; that choice persists and
-  // nothing snaps it back to the defaults.
+  // A (dock) defaults to 10% of the full grid; C (session) uses the shared
+  // fixed default calculated by defaultSessionPanelWidth. Users can resize
+  // either column above its usable minimum; that choice persists verbatim.
   LEFT_PANEL_DEFAULT_RATIO: 0.1,
   LEFT_PANEL_MIN_WIDTH: MIN_LEFT_PANEL_WIDTH,
   // Frame budget for the width-stability wait in applyDefaultSizes. Window

@@ -1,10 +1,11 @@
 #[cfg(windows)]
 use std::path::Path;
-#[cfg(any(windows, target_os = "macos"))]
 use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=icons");
+
+    prepare_cef_bundle_root();
 
     #[cfg(target_os = "macos")]
     prepare_macos_cef_bundle_inputs();
@@ -28,6 +29,14 @@ fn main() {
     // so CVTRES sees no duplicate VERSION resource.
     #[cfg(windows)]
     neutralize_codex_sandbox_resource();
+}
+
+fn prepare_cef_bundle_root() {
+    let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let bundle_root = manifest_dir
+        .join("../target/cef-runtime")
+        .join(std::env::consts::OS);
+    std::fs::create_dir_all(bundle_root).expect("failed to prepare CEF bundle root");
 }
 
 #[cfg(target_os = "macos")]

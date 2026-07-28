@@ -16,7 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_root = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| workspace.join("target"));
-    let target_path = target_root.join(&profile);
+    let target_path = env::var_os("VIBEX_BUILD_TARGET")
+        .or_else(|| env::var_os("TAURI_ENV_TARGET_TRIPLE"))
+        .map(|target| target_root.join(target).join(&profile))
+        .unwrap_or_else(|| target_root.join(&profile));
     let stage_root = target_root.join("cef-runtime").join(env::consts::OS);
     fs::create_dir_all(&stage_root)?;
 

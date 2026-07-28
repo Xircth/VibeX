@@ -25,6 +25,19 @@ function hasBundleArg(args) {
   );
 }
 
+function getTarget(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--target') {
+      return args[index + 1] || null;
+    }
+    if (arg.startsWith('--target=')) {
+      return arg.slice('--target='.length) || null;
+    }
+  }
+  return null;
+}
+
 function getDefaultBundles(platform) {
   switch (platform) {
     case 'win32':
@@ -38,11 +51,12 @@ function getDefaultBundles(platform) {
   }
 }
 
-function withTauriBuildEnv(env) {
+function withTauriBuildEnv(env, target) {
   return {
     ...withNativeBuildEnv(env),
     SQLX_OFFLINE: env.SQLX_OFFLINE || 'true',
     SQLX_OFFLINE_DIR: env.SQLX_OFFLINE_DIR || sqlxOfflineDir,
+    ...(target ? { VIBEX_BUILD_TARGET: target } : {}),
   };
 }
 
@@ -50,6 +64,7 @@ const userArgs = process.argv
   .slice(2)
   .filter((arg, index) => !(index === 0 && arg === '--'));
 const defaultBundles = getDefaultBundles(process.platform);
+const target = getTarget(userArgs);
 const bundleArgs =
   defaultBundles && !hasBundleArg(userArgs)
     ? ['--bundles', defaultBundles]
@@ -64,7 +79,7 @@ const child = runCommand(
   'pnpm',
   buildArgs,
   {
-    env: withTauriBuildEnv(process.env),
+    env: withTauriBuildEnv(process.env, target),
     stdio: 'inherit',
   }
 );

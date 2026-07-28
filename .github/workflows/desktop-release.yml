@@ -33,11 +33,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists."
           else
             gh release create "$RELEASE_TAG" \
+              --repo "$RELEASE_REPOSITORY" \
               --title "$RELEASE_TAG" \
               --notes "Desktop installers for $RELEASE_TAG."
           fi

@@ -37,6 +37,7 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
                 models::agent_management::conversation_migration::LegacyConversationAgentMigration::run(pool)
                     .await
                     .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                models::plugin_v2::PluginV1Migration::migrate_all(pool).await?;
                 return Ok(());
             }
             Err(MigrateError::VersionMismatch(version)) => {
@@ -84,13 +85,58 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::auto_fix_migration_checksum_mismatch_enabled;
+    use std::str::FromStr;
+
+    use chrono::Utc;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use uuid::Uuid;
+
+    use super::{auto_fix_migration_checksum_mismatch_enabled, run_migrations};
 
     #[test]
     fn strict_migrations_env_disables_auto_fix() {
         assert!(!auto_fix_migration_checksum_mismatch_enabled(Some(
             "1".into()
         )));
+    }
+
+    #[tokio::test]
+    async fn startup_migrations_capture_legacy_plugin_evidence() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("initial migrations");
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO plugins \
+             (id,name,skill_name,console_command,hook_message,install_command,install_status, \
+              enabled,builtin,created_at,updated_at) \
+             VALUES (?,?,?,?,?,?,'pending',1,0,?,?)",
+        )
+        .bind(Uuid::new_v4())
+        .bind("Legacy")
+        .bind("legacy-skill")
+        .bind("legacy console")
+        .bind("legacy hook")
+        .bind("touch must-not-run")
+        .bind(now)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .expect("insert legacy row");
+
+        run_migrations(&pool).await.expect("application restart");
+
+        let evidence_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM plugin_legacy_evidence")
+            .fetch_one(&pool)
+            .await
+            .expect("evidence count");
+        assert_eq!(evidence_count, 1);
     }
 }
 

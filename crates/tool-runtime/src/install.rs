@@ -57,6 +57,12 @@ impl ToolRuntime {
         request.validate()?;
         let install_lock = self.install_lock(&request.tool_id);
         let _guard = install_lock.lock().await;
+        let _persistent_guard = self
+            .lock_store
+            .acquire_install_lock(&request.tool_id)
+            .await
+            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        self.reconcile_staging(&request.tool_id).await?;
         if let Some(current) = self
             .lock_store
             .load_current(&request.tool_id)
@@ -65,6 +71,32 @@ impl ToolRuntime {
             && current.version == request.version
             && current.sha256.eq_ignore_ascii_case(&request.sha256)
         {
+            let expected_version_dir = self
+                .config
+                .managed_root
+                .join(&request.tool_id)
+                .join("versions")
+                .join(&request.version);
+            if !current.executable_path.is_absolute()
+                || !current.executable_path.starts_with(expected_version_dir)
+            {
+                return Err(ToolRuntimeError::invalid_request(
+                    "current tool lock points outside its managed version directory",
+                ));
+            }
+            let current_bytes = self
+                .filesystem
+                .read_file(&current.executable_path)
+                .await
+                .map_err(|error| ToolRuntimeError::port("read current tool", error))?;
+            let actual_sha256 = sha256(&current_bytes);
+            if !actual_sha256.eq_ignore_ascii_case(&request.sha256) {
+                return Err(ToolRuntimeError::digest_mismatch(
+                    &request.tool_id,
+                    &request.sha256,
+                    &actual_sha256,
+                ));
+            }
             return Ok(self.acquire_lease(&current));
         }
 
@@ -79,7 +111,20 @@ impl ToolRuntime {
         request.validate()?;
         let install_lock = self.install_lock(&request.tool_id);
         let _guard = install_lock.lock().await;
+        let _persistent_guard = self
+            .lock_store
+            .acquire_install_lock(&request.tool_id)
+            .await
+            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        self.reconcile_staging(&request.tool_id).await?;
         self.install(request, cancellation).await
+    }
+
+    async fn reconcile_staging(&self, tool_id: &str) -> Result<(), ToolRuntimeError> {
+        self.filesystem
+            .remove_dir_all(&self.config.managed_root.join(tool_id).join("staging"))
+            .await
+            .map_err(|error| ToolRuntimeError::port("reconcile abandoned staging", error))
     }
 
     fn install_lock(&self, tool_id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -222,6 +267,16 @@ impl ToolRuntime {
             .create_dir_all(&staging_dir)
             .await
             .map_err(|error| ToolRuntimeError::port("create staging directory", error))?;
+        let attempt_json = serde_json::to_vec_pretty(&attempt).map_err(|error| {
+            ToolRuntimeError::invalid_request(format!("serialize installation attempt: {error}"))
+        })?;
+        self.filesystem
+            .write_file(
+                &staging_dir.join("installation-attempt.json"),
+                &attempt_json,
+            )
+            .await
+            .map_err(|error| ToolRuntimeError::port("persist installation attempt", error))?;
 
         let result = self
             .install_from_staging(request, cancellation, &attempt, &staging_executable)
@@ -239,11 +294,18 @@ impl ToolRuntime {
         attempt: &InstallationAttempt,
         staging_executable: &std::path::Path,
     ) -> Result<ToolLease, ToolRuntimeError> {
-        let bytes = self
-            .downloader
-            .fetch(&request.url)
-            .await
-            .map_err(|error| ToolRuntimeError::port("download tool", error))?;
+        let bytes = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                return Err(ToolRuntimeError::cancelled(
+                    &request.tool_id,
+                    &request.version,
+                ));
+            }
+            result = self.downloader.fetch(&request.url) => {
+                result.map_err(|error| ToolRuntimeError::port("download tool", error))?
+            }
+        };
         if cancellation.is_cancelled() {
             return Err(ToolRuntimeError::cancelled(
                 &request.tool_id,
@@ -259,7 +321,7 @@ impl ToolRuntime {
             .await
             .map_err(|error| ToolRuntimeError::port("mark staged tool executable", error))?;
 
-        let actual_sha256 = format!("{:x}", Sha256::digest(&bytes));
+        let actual_sha256 = sha256(&bytes);
         if !actual_sha256.eq_ignore_ascii_case(&request.sha256) {
             return Err(ToolRuntimeError::digest_mismatch(
                 &request.tool_id,
@@ -322,6 +384,13 @@ impl ToolRuntime {
             .rename(&attempt.staging_dir, &version_dir)
             .await
             .map_err(|error| ToolRuntimeError::port("commit tool version", error))?;
+        if cancellation.is_cancelled() {
+            let _ = self.filesystem.remove_dir_all(&version_dir).await;
+            return Err(ToolRuntimeError::cancelled(
+                &request.tool_id,
+                &request.version,
+            ));
+        }
         let lock = ToolInstallationLock {
             schema_version: 1,
             tool_id: request.tool_id.clone(),
@@ -332,10 +401,10 @@ impl ToolRuntime {
             executable_path: version_dir.join(&request.executable_name),
             installed_at_unix_ms: unix_time_ms(),
         };
-        self.lock_store
-            .commit_current(&lock)
-            .await
-            .map_err(|error| ToolRuntimeError::port("commit current installation", error))?;
+        if let Err(error) = self.lock_store.commit_current(&lock).await {
+            let _ = self.filesystem.remove_dir_all(&version_dir).await;
+            return Err(ToolRuntimeError::port("commit current installation", error));
+        }
         Ok(self.acquire_lease(&lock))
     }
 }
@@ -347,4 +416,8 @@ fn unix_time_ms() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }

@@ -6,8 +6,9 @@ use std::{
 use crate::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, ManifestSource, Platform,
     PluginActivation, PluginError, PluginManifest, PluginReadiness, PluginSnapshot, ProviderState,
-    ReadinessIssue, SkillSource, SkillState, ToolDependencyResolver, ToolRuntimePort,
-    manifest::ManifestV2, ports::UnavailableToolRuntime,
+    ReadinessIssue, SkillAvailabilityPort, SkillState, ToolDependencyResolver, ToolRuntimePort,
+    manifest::ManifestV2,
+    ports::{UnavailableSkillAvailability, UnavailableToolRuntime},
 };
 
 struct PluginRecord {
@@ -21,6 +22,8 @@ struct PluginRecord {
 pub struct PluginService {
     resolver: ToolDependencyResolver,
     runtime: Arc<dyn ToolRuntimePort>,
+    skill_availability: Arc<dyn SkillAvailabilityPort>,
+    known_providers: BTreeSet<String>,
     plugins: RwLock<BTreeMap<String, PluginRecord>>,
 }
 
@@ -36,9 +39,25 @@ impl PluginService {
     }
 
     pub fn with_runtime(platform: Platform, runtime: Arc<dyn ToolRuntimePort>) -> Self {
+        Self::with_runtime_and_capabilities(
+            platform,
+            runtime,
+            Arc::new(UnavailableSkillAvailability),
+            ["officecli"],
+        )
+    }
+
+    pub fn with_runtime_and_capabilities(
+        platform: Platform,
+        runtime: Arc<dyn ToolRuntimePort>,
+        skill_availability: Arc<dyn SkillAvailabilityPort>,
+        known_providers: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
         Self {
             resolver: ToolDependencyResolver::new(platform),
             runtime,
+            skill_availability,
+            known_providers: known_providers.into_iter().map(Into::into).collect(),
             plugins: RwLock::new(BTreeMap::new()),
         }
     }
@@ -49,6 +68,14 @@ impl PluginService {
         source: ManifestSource,
     ) -> Result<PluginManifest, PluginError> {
         let manifest = ManifestV2::parse(json, source)?;
+        for provider in provider_ids(&manifest) {
+            if !self.known_providers.contains(&provider) {
+                return Err(PluginError::unknown_provider(
+                    manifest.id.as_str(),
+                    &provider,
+                ));
+            }
+        }
         let record = PluginRecord {
             dependencies: manifest
                 .dependencies
@@ -84,14 +111,6 @@ impl PluginService {
             for state in record.dependencies.values_mut() {
                 *state = DependencyState::Installing;
             }
-            for skill in &record.manifest.skills {
-                record.skills.insert(
-                    skill.id.as_str().to_owned(),
-                    match skill.source {
-                        SkillSource::Bundled => SkillState::Ready,
-                    },
-                );
-            }
             record.manifest.clone()
         };
         let operation = EnableOperation {
@@ -106,6 +125,24 @@ impl PluginService {
                 .map(|dependency| dependency.id.as_str().to_owned())
                 .collect(),
         };
+
+        for skill in &manifest.skills {
+            let state = match self.skill_availability.check_skill(skill).await {
+                Ok(()) => SkillState::Ready,
+                Err(error) if error.code() == "skill_missing" => SkillState::Missing,
+                Err(error) => SkillState::Failed {
+                    code: error.code().to_owned(),
+                    message: error.message().to_owned(),
+                },
+            };
+            self.plugins
+                .write()
+                .expect("plugin registry poisoned")
+                .get_mut(plugin_id)
+                .expect("plugin cannot disappear during enable")
+                .skills
+                .insert(skill.id.as_str().to_owned(), state);
+        }
 
         for dependency in &manifest.dependencies {
             let state = match self.resolver.resolve(dependency) {
@@ -133,18 +170,45 @@ impl PluginService {
                 .insert(dependency.id.as_str().to_owned(), state);
         }
 
-        {
-            let mut plugins = self.plugins.write().expect("plugin registry poisoned");
-            let record = plugins
+        for provider in provider_ids(&manifest) {
+            let managed_tool = {
+                let plugins = self.plugins.read().expect("plugin registry poisoned");
+                match plugins
+                    .get(plugin_id)
+                    .expect("plugin cannot disappear during enable")
+                    .dependencies
+                    .get(&provider)
+                {
+                    Some(DependencyState::Ready {
+                        version,
+                        executable_path,
+                    }) => Some(crate::ManagedTool {
+                        version: version.clone(),
+                        executable_path: executable_path.clone(),
+                    }),
+                    _ => None,
+                }
+            };
+            let state = match managed_tool {
+                Some(tool) => match self.runtime.check_provider(&provider, &tool).await {
+                    Ok(()) => ProviderState::Ready,
+                    Err(error) if error.code() == "provider_unavailable" => {
+                        ProviderState::Unavailable
+                    }
+                    Err(error) => ProviderState::Degraded {
+                        code: error.code().to_owned(),
+                        message: error.message().to_owned(),
+                    },
+                },
+                None => ProviderState::Unavailable,
+            };
+            self.plugins
+                .write()
+                .expect("plugin registry poisoned")
                 .get_mut(plugin_id)
-                .expect("plugin cannot disappear during enable");
-            for provider in provider_ids(&record.manifest) {
-                let state = match record.dependencies.get(&provider) {
-                    Some(DependencyState::Ready { .. }) => ProviderState::Ready,
-                    _ => ProviderState::Unavailable,
-                };
-                record.providers.insert(provider, state);
-            }
+                .expect("plugin cannot disappear during enable")
+                .providers
+                .insert(provider, state);
         }
 
         Ok(EnableResult {
@@ -166,7 +230,12 @@ fn provider_ids(manifest: &PluginManifest) -> BTreeSet<String> {
     manifest
         .actions
         .iter()
-        .map(|action| action.artifact_intent.provider.clone())
+        .filter_map(|action| {
+            action
+                .artifact_intent
+                .as_ref()
+                .map(|intent| intent.provider.clone())
+        })
         .collect()
 }
 

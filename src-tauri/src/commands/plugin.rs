@@ -149,6 +149,7 @@ pub async fn ensure_builtin_plugins(pool: &sqlx::SqlitePool) -> Result<(), AppEr
             tracing::info!("seeded builtin plugin {}", input.name);
         }
     }
+    PluginV1Migration::migrate_all(pool).await?;
     Ok(())
 }
 
@@ -426,6 +427,14 @@ mod tests {
             assert!(!plugin.enabled, "{} must start disabled", plugin.name);
             assert_eq!(plugin.author.as_deref(), Some(BUILTIN_AUTHOR));
         }
+        let mapped_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM plugin_legacy_evidence \
+             WHERE migration_status = 'mapped_builtin'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("mapped builtin evidence count");
+        assert_eq!(mapped_count, BUILTIN_PLUGINS.len() as i64);
     }
 
     /// The bundled example manifests must always deserialize into the real

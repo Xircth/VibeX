@@ -66,14 +66,30 @@ fn imports_optional_metadata_and_console_binding() {
 
 #[test]
 fn rejects_unknown_provider_binding() {
-    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json").replace(
-        "\"provider\": \"officecli\"",
-        "\"provider\": \"unknown-provider\"",
-    );
+    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json")
+        .replace("officecli", "unknown-provider");
 
     let error = PluginService::new()
         .import_manifest(&manifest, ManifestSource::Bundled)
-        .expect_err("provider bindings must resolve to a declared managed tool");
+        .expect_err("declaring a same-name tool does not register a provider type");
 
     assert_eq!(error.code(), "plugin_provider_unknown");
+}
+
+#[test]
+fn imports_action_without_artifact_provider_binding() {
+    let mut manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/office-presentation.vibex-plugin.json"
+    ))
+    .expect("fixture JSON");
+    manifest["actions"][0]
+        .as_object_mut()
+        .expect("action object")
+        .remove("artifactIntent");
+
+    let imported = PluginService::new()
+        .import_manifest(&manifest.to_string(), ManifestSource::Bundled)
+        .expect("artifact provider binding is optional");
+
+    assert!(imported.actions[0].artifact_intent.is_none());
 }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+fs2 = "0.4"
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

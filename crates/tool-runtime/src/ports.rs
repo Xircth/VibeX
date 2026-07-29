@@ -13,6 +13,7 @@ pub trait Downloader: Send + Sync {
 pub trait ToolFilesystem: Send + Sync {
     async fn create_dir_all(&self, path: &Path) -> Result<(), PortError>;
     async fn write_file(&self, path: &Path, bytes: &[u8]) -> Result<(), PortError>;
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>, PortError>;
     async fn set_executable(&self, _path: &Path) -> Result<(), PortError> {
         Ok(())
     }
@@ -26,8 +27,20 @@ pub trait ProcessProbe: Send + Sync {
     async fn probe(&self, executable: &Path, args: &[String]) -> Result<(), PortError>;
 }
 
+pub trait InstallationLockGuard: Send {}
+
+struct NoopInstallationLockGuard;
+impl InstallationLockGuard for NoopInstallationLockGuard {}
+
 #[async_trait]
 pub trait InstallationLockStore: Send + Sync {
+    async fn acquire_install_lock(
+        &self,
+        _tool_id: &str,
+    ) -> Result<Box<dyn InstallationLockGuard>, PortError> {
+        Ok(Box::new(NoopInstallationLockGuard))
+    }
+
     async fn load_current(&self, tool_id: &str) -> Result<Option<ToolInstallationLock>, PortError>;
 
     async fn commit_current(&self, lock: &ToolInstallationLock) -> Result<(), PortError>;

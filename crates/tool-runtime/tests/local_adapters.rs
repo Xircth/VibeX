@@ -1,6 +1,10 @@
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -16,6 +20,20 @@ struct StaticDownloader(Vec<u8>);
 impl Downloader for StaticDownloader {
     async fn fetch(&self, _url: &str) -> Result<Vec<u8>, PortError> {
         Ok(self.0.clone())
+    }
+}
+
+struct CountingDownloader {
+    calls: AtomicUsize,
+    bytes: Vec<u8>,
+}
+
+#[async_trait]
+impl Downloader for CountingDownloader {
+    async fn fetch(&self, _url: &str) -> Result<Vec<u8>, PortError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        Ok(self.bytes.clone())
     }
 }
 
@@ -87,4 +105,89 @@ async fn persists_versioned_installation_lock() {
             .expect("probe called")
             .is_absolute()
     );
+}
+
+#[tokio::test]
+async fn rejects_tampered_current_before_returning_lease() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let managed_root = temporary.path().join("managed-tools");
+    let lock_store = Arc::new(FileInstallationLockStore::new(managed_root.clone()));
+    let bytes = b"verified tool".to_vec();
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(managed_root),
+        Arc::new(StaticDownloader(bytes.clone())),
+        Arc::new(LocalToolFilesystem),
+        Arc::new(RecordingProbe::default()),
+        lock_store,
+    )
+    .expect("absolute managed root");
+    let request = ToolRequest {
+        tool_id: "officecli".to_string(),
+        version: "0.8.0".to_string(),
+        target: "aarch64-apple-darwin".to_string(),
+        url: "fixture://officecli".to_string(),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        executable_name: "officecli".to_string(),
+        probe_args: vec!["--version".to_string()],
+    };
+    let lease = runtime
+        .ensure(&request, &CancellationToken::new())
+        .await
+        .expect("initial verified install");
+    tokio::fs::write(&lease.executable_path, b"tampered")
+        .await
+        .expect("replace installed binary");
+
+    let error = runtime
+        .ensure(&request, &CancellationToken::new())
+        .await
+        .expect_err("a replaced current binary must not receive a lease");
+
+    assert_eq!(error.code(), "tool_digest_mismatch");
+}
+
+#[tokio::test]
+async fn concurrent_runtimes_share_persistent_install_lock() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let managed_root = temporary.path().join("managed-tools");
+    let bytes = b"verified tool".to_vec();
+    let downloader = Arc::new(CountingDownloader {
+        calls: AtomicUsize::new(0),
+        bytes: bytes.clone(),
+    });
+    let first = ToolRuntime::new(
+        ToolRuntimeConfig::new(managed_root.clone()),
+        downloader.clone(),
+        Arc::new(LocalToolFilesystem),
+        Arc::new(RecordingProbe::default()),
+        Arc::new(FileInstallationLockStore::new(managed_root.clone())),
+    )
+    .expect("first runtime");
+    let second = ToolRuntime::new(
+        ToolRuntimeConfig::new(managed_root.clone()),
+        downloader.clone(),
+        Arc::new(LocalToolFilesystem),
+        Arc::new(RecordingProbe::default()),
+        Arc::new(FileInstallationLockStore::new(managed_root)),
+    )
+    .expect("second runtime");
+    let request = ToolRequest {
+        tool_id: "officecli".to_string(),
+        version: "0.8.0".to_string(),
+        target: "aarch64-apple-darwin".to_string(),
+        url: "fixture://officecli".to_string(),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        executable_name: "officecli".to_string(),
+        probe_args: vec!["--version".to_string()],
+    };
+    let cancellation = CancellationToken::new();
+
+    let (first_result, second_result) = tokio::join!(
+        first.ensure(&request, &cancellation),
+        second.ensure(&request, &cancellation)
+    );
+
+    first_result.expect("first ensure");
+    second_result.expect("second ensure");
+    assert_eq!(downloader.calls.load(Ordering::SeqCst), 1);
 }

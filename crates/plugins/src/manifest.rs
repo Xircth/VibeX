@@ -124,10 +124,12 @@ impl ManifestV2 {
             .map(|dependency| dependency.id.as_str())
             .collect::<BTreeSet<_>>();
         for action in &manifest.actions {
-            if !declared_tools.contains(action.artifact_intent.provider.as_str()) {
+            if let Some(artifact_intent) = &action.artifact_intent
+                && !declared_tools.contains(artifact_intent.provider.as_str())
+            {
                 return Err(PluginError::unknown_provider(
                     manifest.id.as_str(),
-                    &action.artifact_intent.provider,
+                    &artifact_intent.provider,
                 ));
             }
         }
@@ -188,7 +190,8 @@ pub struct PluginAction {
     pub required_skills: Vec<SkillId>,
     pub required_tools: Vec<ToolId>,
     pub prompt_blocks: Vec<PromptBlock>,
-    pub artifact_intent: ArtifactIntent,
+    #[serde(default)]
+    pub artifact_intent: Option<ArtifactIntent>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

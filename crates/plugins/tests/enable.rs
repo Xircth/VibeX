@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use plugins::{
     Architecture, DependencyState, EnableOperationKind, ManagedTool, ManifestSource,
     OperatingSystem, Platform, PluginActivation, PluginReadiness, PluginRuntimeError,
-    PluginService, ProviderState, SkillState, ToolRuntimePort,
+    PluginService, ProviderState, SkillAvailabilityPort, SkillState, ToolRuntimePort,
 };
 
 struct FakeToolRuntime {
@@ -19,6 +19,40 @@ impl ToolRuntimePort for FakeToolRuntime {
     ) -> Result<ManagedTool, PluginRuntimeError> {
         self.result.clone()
     }
+
+    async fn check_provider(
+        &self,
+        _provider_id: &str,
+        _tool: &ManagedTool,
+    ) -> Result<(), PluginRuntimeError> {
+        Ok(())
+    }
+}
+
+struct ToolOnlyRuntime;
+struct AvailableSkills;
+
+#[async_trait]
+impl SkillAvailabilityPort for AvailableSkills {
+    async fn check_skill(
+        &self,
+        _skill: &plugins::SkillDeclaration,
+    ) -> Result<(), PluginRuntimeError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ToolRuntimePort for ToolOnlyRuntime {
+    async fn ensure(
+        &self,
+        _tool: &plugins::ResolvedToolDistribution,
+    ) -> Result<ManagedTool, PluginRuntimeError> {
+        Ok(ManagedTool {
+            version: "0.8.0".to_string(),
+            executable_path: PathBuf::from("/managed-tools/officecli/versions/0.8.0/officecli"),
+        })
+    }
 }
 
 fn platform() -> Platform {
@@ -28,7 +62,7 @@ fn platform() -> Platform {
 #[tokio::test]
 async fn enabling_builtin_resolves_dependencies() {
     let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json");
-    let service = PluginService::with_runtime(
+    let service = PluginService::with_runtime_and_capabilities(
         platform(),
         Arc::new(FakeToolRuntime {
             result: Ok(ManagedTool {
@@ -36,6 +70,8 @@ async fn enabling_builtin_resolves_dependencies() {
                 executable_path: PathBuf::from("/managed-tools/officecli/versions/0.8.0/officecli"),
             }),
         }),
+        Arc::new(AvailableSkills),
+        ["officecli"],
     );
     service
         .import_manifest(manifest, ManifestSource::Bundled)
@@ -56,7 +92,7 @@ async fn enabling_builtin_resolves_dependencies() {
     assert_eq!(enabled.plugin.providers["officecli"], ProviderState::Ready);
     assert_eq!(enabled.plugin.readiness, PluginReadiness::Ready);
 
-    let failed_service = PluginService::with_runtime(
+    let failed_service = PluginService::with_runtime_and_capabilities(
         platform(),
         Arc::new(FakeToolRuntime {
             result: Err(PluginRuntimeError::new(
@@ -64,6 +100,8 @@ async fn enabling_builtin_resolves_dependencies() {
                 "OfficeCLI hash mismatch",
             )),
         }),
+        Arc::new(AvailableSkills),
+        ["officecli"],
     );
     failed_service
         .import_manifest(manifest, ManifestSource::Bundled)
@@ -86,4 +124,51 @@ async fn enabling_builtin_resolves_dependencies() {
         failed.plugin.readiness,
         PluginReadiness::NotReady { .. }
     ));
+}
+
+#[tokio::test]
+async fn installed_tool_does_not_imply_provider_health() {
+    let service = PluginService::with_runtime(platform(), Arc::new(ToolOnlyRuntime));
+    service
+        .import_manifest(
+            include_str!("fixtures/office-presentation.vibex-plugin.json"),
+            ManifestSource::Bundled,
+        )
+        .expect("import Office plugin");
+
+    let enabled = service
+        .enable("vibex.office.presentation")
+        .await
+        .expect("enable Office plugin");
+
+    assert!(matches!(
+        enabled.plugin.dependencies["officecli"],
+        DependencyState::Ready { .. }
+    ));
+    assert_eq!(
+        enabled.plugin.providers["officecli"],
+        ProviderState::Unavailable
+    );
+    assert!(matches!(
+        enabled.plugin.readiness,
+        PluginReadiness::NotReady { .. }
+    ));
+}
+
+#[tokio::test]
+async fn declared_bundled_skill_does_not_imply_availability() {
+    let service = PluginService::with_runtime(platform(), Arc::new(ToolOnlyRuntime));
+    service
+        .import_manifest(
+            include_str!("fixtures/office-presentation.vibex-plugin.json"),
+            ManifestSource::Bundled,
+        )
+        .expect("import Office plugin");
+
+    let enabled = service
+        .enable("vibex.office.presentation")
+        .await
+        .expect("enable Office plugin");
+
+    assert_eq!(enabled.plugin.skills["office-pptx"], SkillState::Missing);
 }

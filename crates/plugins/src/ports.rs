@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::ResolvedToolDistribution;
+use crate::{ResolvedToolDistribution, SkillDeclaration};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManagedTool {
@@ -41,6 +41,22 @@ pub trait ToolRuntimePort: Send + Sync {
         &self,
         tool: &ResolvedToolDistribution,
     ) -> Result<ManagedTool, PluginRuntimeError>;
+
+    async fn check_provider(
+        &self,
+        provider_id: &str,
+        _tool: &ManagedTool,
+    ) -> Result<(), PluginRuntimeError> {
+        Err(PluginRuntimeError::new(
+            "provider_unavailable",
+            format!("provider `{provider_id}` has no registered health adapter"),
+        ))
+    }
+}
+
+#[async_trait]
+pub trait SkillAvailabilityPort: Send + Sync {
+    async fn check_skill(&self, skill: &SkillDeclaration) -> Result<(), PluginRuntimeError>;
 }
 
 pub struct ToolRuntimeAdapter {
@@ -106,6 +122,7 @@ impl ToolRuntimePort for ToolRuntimeAdapter {
 }
 
 pub(crate) struct UnavailableToolRuntime;
+pub(crate) struct UnavailableSkillAvailability;
 
 #[async_trait]
 impl ToolRuntimePort for UnavailableToolRuntime {
@@ -116,6 +133,16 @@ impl ToolRuntimePort for UnavailableToolRuntime {
         Err(PluginRuntimeError::new(
             "tool_runtime_unavailable",
             format!("tool runtime is not configured for `{}`", tool.id.as_str()),
+        ))
+    }
+}
+
+#[async_trait]
+impl SkillAvailabilityPort for UnavailableSkillAvailability {
+    async fn check_skill(&self, skill: &SkillDeclaration) -> Result<(), PluginRuntimeError> {
+        Err(PluginRuntimeError::new(
+            "skill_missing",
+            format!("skill `{}` has no availability adapter", skill.id.as_str()),
         ))
     }
 }

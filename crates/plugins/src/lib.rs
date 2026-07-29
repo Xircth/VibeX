@@ -13,7 +13,9 @@ pub use manifest::{
     PluginManifest, PluginMembership, PromptBlock, SkillDeclaration, SkillId, SkillSource,
     ToolDependency, ToolId, ToolKind,
 };
-pub use ports::{ManagedTool, PluginRuntimeError, ToolRuntimeAdapter, ToolRuntimePort};
+pub use ports::{
+    ManagedTool, PluginRuntimeError, SkillAvailabilityPort, ToolRuntimeAdapter, ToolRuntimePort,
+};
 pub use readiness::{
     DependencyState, EnableOperation, EnableOperationKind, EnableResult, PluginActivation,
     PluginReadiness, PluginSnapshot, ProviderState, ReadinessIssue, SkillState,

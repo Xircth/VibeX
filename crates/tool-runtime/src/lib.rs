@@ -11,7 +11,9 @@ pub use adapters::{
 };
 pub use error::{PortError, ToolRuntimeError};
 pub use install::ToolRuntime;
-pub use ports::{Downloader, InstallationLockStore, ProcessProbe, ToolFilesystem};
+pub use ports::{
+    Downloader, InstallationLockGuard, InstallationLockStore, ProcessProbe, ToolFilesystem,
+};
 pub use types::{
     CancellationToken, InstallationAttempt, ToolInstallationLock, ToolLease, ToolRequest,
     ToolRuntimeConfig,

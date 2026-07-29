@@ -21,7 +21,8 @@ input but were not copied into this branch.
 - `PluginService::enable(plugin_id)`
 - `PluginService::snapshot(plugin_id)`
 - `ToolDependencyResolver::resolve(dependency)`
-- `ToolRuntimePort` and the production `ToolRuntimeAdapter`
+- `ToolRuntimePort`, `SkillAvailabilityPort`, and the production
+  `ToolRuntimeAdapter`
 
 `tool-runtime` owns verified tool installation and leases:
 
@@ -54,16 +55,29 @@ Stable error codes used by these seams include:
   deterministic target-triple lookup.
 - Downloads enter a unique staging attempt, are SHA-256 verified, and only then
   reach an absolute-path probe. No shell or `PATH` lookup is used.
+- Tool ids, versions, and executable names must be safe single managed-path
+  components; traversal is rejected before any download.
 - A successful install is moved into
   `{managed_root}/{tool}/versions/{version}` before the per-version lock and
   atomic `current.json` pointer are committed.
 - Cancellation and failures remove staging only. Upgrade does not alter the
   previous current pointer until the new version has passed verification and
   probe.
-- Installs for the same tool are serialized. Current, one rollback version, and
-  versions with active leases are retained.
+- Installs for the same tool are serialized both in-process and with a
+  managed-root file lock shared by runtime instances/processes. Current, one
+  rollback version, and versions with active leases are retained.
+- Reusing current re-reads and hashes the installed binary. A lock whose path
+  escapes its version directory or whose bytes no longer match never receives
+  a lease.
+- Cancellation interrupts a pending download and is rechecked after the
+  staging-to-version rename; that window removes the new version without
+  switching current.
+- Installation attempts are persisted as evidence. The next locked operation
+  reconciles abandoned staging left by a crash.
 - Membership, activation, dependency, skill, and provider states are separate.
   Readiness is derived and is never persisted as another source of truth.
+- A declaration alone never makes a skill or provider ready. Skill availability
+  and provider health have separate ports; unknown provider types fail closed.
 
 ## v1 migration
 
@@ -76,6 +90,10 @@ including `install_command`, into evidence. The adapter deliberately has no
 process/executor dependency. Ordinary and unknown rows become
 `migration_required`. Only the three fixed VibeX builtin UUIDs have explicit
 stable-id mappings, and those mappings are inserted disabled.
+
+Evidence capture runs after database migrations on every application startup.
+Freshly seeded legacy builtins are captured in the same seeding operation, so a
+user does not need to click the removed install endpoint to trigger migration.
 
 The legacy Tauri `plugin_install_skill` endpoint now captures migration evidence
 and returns a failed `plugin_migration_required` state. It never interprets or
@@ -93,6 +111,7 @@ executes `install_command`.
 | T1.6 | `plugin_v1_migration_never_executes_command`: migration API missing (exit 101) | evidence retained, marker command never runs, and only known builtins map disabled |
 | PLG-001/002 | optional metadata fields missing; unknown provider import succeeded | optional metadata/console imports and unknown provider fails closed |
 | PLG-004 | lock source/time fields missing | persistent version lock records URL and installation time |
+| Review hardening | traversal escaped managed root; tampered current received a lease; pending download/rename cancellation did not preempt; two runtime instances raced; declarations implied skill/provider readiness; startup left v1 evidence uncaptured | path components reject before download; current is rehashed; both cancellation windows clean up; persistent file lock serializes runtimes; readiness uses availability/health ports; startup migration captures evidence |
 
 No Codeg source was copied or adapted, so the Codeg adoption/Apache-2.0
 attribution inventory does not require an update.

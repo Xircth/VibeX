@@ -8,8 +8,8 @@ use tokio::{fs, process::Command};
 use uuid::Uuid;
 
 use crate::{
-    Downloader, InstallationLockStore, PortError, ProcessProbe, ToolFilesystem,
-    ToolInstallationLock,
+    Downloader, InstallationLockGuard, InstallationLockStore, PortError, ProcessProbe,
+    ToolFilesystem, ToolInstallationLock,
 };
 
 #[derive(Clone)]
@@ -53,6 +53,10 @@ impl ToolFilesystem for LocalToolFilesystem {
 
     async fn write_file(&self, path: &Path, bytes: &[u8]) -> Result<(), PortError> {
         fs::write(path, bytes).await.map_err(port_error)
+    }
+
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>, PortError> {
+        fs::read(path).await.map_err(port_error)
     }
 
     async fn set_executable(&self, path: &Path) -> Result<(), PortError> {
@@ -136,6 +140,29 @@ impl FileInstallationLockStore {
 
 #[async_trait]
 impl InstallationLockStore for FileInstallationLockStore {
+    async fn acquire_install_lock(
+        &self,
+        tool_id: &str,
+    ) -> Result<Box<dyn InstallationLockGuard>, PortError> {
+        let lock_dir = self.managed_root.join(tool_id);
+        fs::create_dir_all(&lock_dir).await.map_err(port_error)?;
+        let lock_path = lock_dir.join("install.lock");
+        let file = tokio::task::spawn_blocking(move || {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(false)
+                .open(lock_path)?;
+            fs2::FileExt::lock_exclusive(&file)?;
+            Ok::<_, std::io::Error>(file)
+        })
+        .await
+        .map_err(port_error)?
+        .map_err(port_error)?;
+        Ok(Box::new(FileInstallGuard(file)))
+    }
+
     async fn load_current(&self, tool_id: &str) -> Result<Option<ToolInstallationLock>, PortError> {
         let path = self.current_path(tool_id);
         let bytes = match fs::read(&path).await {
@@ -150,6 +177,16 @@ impl InstallationLockStore for FileInstallationLockStore {
         let bytes = serde_json::to_vec_pretty(lock).map_err(port_error)?;
         atomic_write(&self.version_lock_path(lock), &bytes).await?;
         atomic_write(&self.current_path(&lock.tool_id), &bytes).await
+    }
+}
+
+struct FileInstallGuard(std::fs::File);
+
+impl InstallationLockGuard for FileInstallGuard {}
+
+impl Drop for FileInstallGuard {
+    fn drop(&mut self) {
+        let _ = fs2::FileExt::unlock(&self.0);
     }
 }
 

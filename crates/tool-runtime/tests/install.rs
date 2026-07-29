@@ -5,6 +5,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -28,6 +29,7 @@ impl Downloader for FakeDownloader {
 #[derive(Default)]
 struct FakeFilesystem {
     files: Mutex<HashMap<PathBuf, Vec<u8>>>,
+    cancel_on_rename: Mutex<Option<CancellationToken>>,
 }
 
 impl FakeFilesystem {
@@ -37,6 +39,17 @@ impl FakeFilesystem {
             .expect("filesystem lock")
             .keys()
             .any(|candidate| candidate.starts_with(path))
+    }
+
+    fn cancel_during_next_rename(&self, cancellation: CancellationToken) {
+        *self.cancel_on_rename.lock().expect("rename cancellation") = Some(cancellation);
+    }
+
+    fn seed_file(&self, path: impl Into<PathBuf>, bytes: &[u8]) {
+        self.files
+            .lock()
+            .expect("filesystem lock")
+            .insert(path.into(), bytes.to_vec());
     }
 }
 
@@ -52,6 +65,15 @@ impl ToolFilesystem for FakeFilesystem {
             .expect("filesystem lock")
             .insert(path.to_owned(), bytes.to_vec());
         Ok(())
+    }
+
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>, PortError> {
+        self.files
+            .lock()
+            .expect("filesystem lock")
+            .get(path)
+            .cloned()
+            .ok_or_else(|| PortError::new("missing file"))
     }
 
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf, PortError> {
@@ -82,6 +104,14 @@ impl ToolFilesystem for FakeFilesystem {
             .collect::<Vec<_>>();
         files.retain(|path, _| !path.starts_with(from));
         files.extend(entries);
+        if let Some(cancellation) = self
+            .cancel_on_rename
+            .lock()
+            .expect("rename cancellation")
+            .take()
+        {
+            cancellation.cancel();
+        }
         Ok(())
     }
 
@@ -383,4 +413,149 @@ async fn release_delays_cleanup_for_active_lease() {
     assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")));
     assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/2.0.0")));
     assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/3.0.0")));
+}
+
+#[tokio::test]
+async fn rejects_managed_path_escape_before_download() {
+    let downloader = Arc::new(CountingDownloader {
+        calls: AtomicUsize::new(0),
+        bytes: b"v1".to_vec(),
+    });
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        downloader.clone(),
+        Arc::new(FakeFilesystem::default()),
+        Arc::new(SelectiveProbe),
+        Arc::new(FakeLockStore::default()),
+    )
+    .expect("absolute managed root");
+    let mut request = request("1.0.0", b"v1", &["--version"]);
+    request.tool_id = "../outside-managed-root".to_string();
+
+    let error = runtime
+        .ensure(&request, &CancellationToken::new())
+        .await
+        .expect_err("tool ids must not escape the managed root");
+
+    assert_eq!(error.code(), "tool_request_invalid");
+    assert_eq!(downloader.calls.load(Ordering::SeqCst), 0);
+}
+
+struct BlockingDownloader {
+    started: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl Downloader for BlockingDownloader {
+    async fn fetch(&self, _url: &str) -> Result<Vec<u8>, PortError> {
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn cancellation_interrupts_download_and_cleans_staging() {
+    let downloader = Arc::new(BlockingDownloader {
+        started: tokio::sync::Notify::new(),
+    });
+    let filesystem = Arc::new(FakeFilesystem::default());
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        downloader.clone(),
+        filesystem.clone(),
+        Arc::new(SelectiveProbe),
+        Arc::new(FakeLockStore::default()),
+    )
+    .expect("absolute managed root");
+    let cancellation = CancellationToken::new();
+    let request = request("1.0.0", b"never-returned", &["--version"]);
+    let install = runtime.ensure(&request, &cancellation);
+    tokio::pin!(install);
+
+    tokio::select! {
+        () = downloader.started.notified() => {}
+        result = &mut install => panic!("download unexpectedly completed: {result:?}"),
+    }
+    cancellation.cancel();
+    let error = tokio::time::timeout(Duration::from_millis(100), &mut install)
+        .await
+        .expect("cancellation should interrupt a pending download")
+        .expect_err("cancelled install");
+
+    assert_eq!(error.code(), "tool_install_cancelled");
+    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
+}
+
+#[tokio::test]
+async fn cancellation_during_rename_does_not_switch_current() {
+    let filesystem = Arc::new(FakeFilesystem::default());
+    let lock_store = Arc::new(FakeLockStore::default());
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        Arc::new(CatalogDownloader {
+            artifacts: HashMap::from([
+                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
+                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+            ]),
+        }),
+        filesystem.clone(),
+        Arc::new(SelectiveProbe),
+        lock_store.clone(),
+    )
+    .expect("absolute managed root");
+    runtime
+        .ensure(
+            &request("1.0.0", b"v1", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("v1 install");
+    let cancellation = CancellationToken::new();
+    filesystem.cancel_during_next_rename(cancellation.clone());
+
+    let error = runtime
+        .upgrade(&request("2.0.0", b"v2", &["--version"]), &cancellation)
+        .await
+        .expect_err("rename-window cancellation");
+
+    assert_eq!(error.code(), "tool_install_cancelled");
+    assert_eq!(
+        lock_store
+            .load_current("officecli")
+            .await
+            .expect("current lookup")
+            .expect("v1 remains current")
+            .version,
+        "1.0.0"
+    );
+    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/2.0.0")));
+}
+
+#[tokio::test]
+async fn next_install_reconciles_abandoned_staging_attempt() {
+    let filesystem = Arc::new(FakeFilesystem::default());
+    filesystem.seed_file(
+        "/managed-tools/officecli/staging/abandoned/installation-attempt.json",
+        b"abandoned",
+    );
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        Arc::new(CatalogDownloader {
+            artifacts: HashMap::from([("fixture://officecli/1.0.0".to_string(), b"v1".to_vec())]),
+        }),
+        filesystem.clone(),
+        Arc::new(SelectiveProbe),
+        Arc::new(FakeLockStore::default()),
+    )
+    .expect("absolute managed root");
+
+    runtime
+        .ensure(
+            &request("1.0.0", b"v1", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("fresh install after reconciliation");
+
+    assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/staging")));
 }

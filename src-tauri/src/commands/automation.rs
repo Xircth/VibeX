@@ -27,6 +27,45 @@ use crate::{
 
 const POLL_INTERVAL_SECS: u64 = 30;
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredPluginAction {
+    plugin_id: String,
+    action_id: String,
+}
+
+fn parse_stored_plugin_action(
+    plugin_action_json: Option<&str>,
+) -> Result<Option<StoredPluginAction>, AppError> {
+    plugin_action_json
+        .map(|json| {
+            serde_json::from_str(json)
+                .map_err(|error| AppError::BadRequest(format!("invalid PluginAction: {error}")))
+        })
+        .transpose()
+}
+
+fn validate_stored_plugin_action(
+    state: &AppState,
+    plugin_action_json: Option<&str>,
+) -> Result<Option<StoredPluginAction>, AppError> {
+    let Some(action) = parse_stored_plugin_action(plugin_action_json)? else {
+        return Ok(None);
+    };
+    let manifest = state.office_runtime.bundled_plugin();
+    if action.plugin_id != manifest.id.as_str()
+        || !manifest
+            .actions
+            .iter()
+            .any(|candidate| candidate.id.as_str() == action.action_id)
+    {
+        return Err(AppError::BadRequest(
+            "automation references an unavailable PluginAction".into(),
+        ));
+    }
+    Ok(Some(action))
+}
+
 /// Next fire time strictly after now, in local time, as UTC for storage.
 ///
 /// DST-robust: `earliest()` resolves an ambiguous fall-back hour to the first
@@ -90,6 +129,7 @@ pub async fn automation_create(
     input: AutomationInput,
 ) -> Result<Automation, AppError> {
     validate_cron(&input.trigger_kind, input.cron.as_deref())?;
+    validate_stored_plugin_action(&state, input.plugin_action_json.as_deref())?;
     let next = compute_next_run(&input);
     Automation::create(&state.deployment.db().pool, Uuid::new_v4(), &input, next)
         .await
@@ -103,6 +143,7 @@ pub async fn automation_update(
     input: AutomationInput,
 ) -> Result<Automation, AppError> {
     validate_cron(&input.trigger_kind, input.cron.as_deref())?;
+    validate_stored_plugin_action(&state, input.plugin_action_json.as_deref())?;
     let next = compute_next_run(&input);
     Automation::update(&state.deployment.db().pool, id, &input, next)
         .await
@@ -120,6 +161,7 @@ pub async fn automation_set_enabled(
         return Err(AppError::NotFound(format!("automation {id} not found")));
     };
     if enabled {
+        validate_stored_plugin_action(&state, automation.plugin_action_json.as_deref())?;
         // Re-enabling a cron automation with an (older, pre-validation) broken
         // expression must fail loudly, not arm a schedule that never fires.
         validate_cron(&automation.trigger_kind, automation.cron.as_deref())?;
@@ -228,6 +270,23 @@ async fn fire(state: &AppState, automation: &Automation) -> Uuid {
 async fn launch(state: &AppState, automation: &Automation) -> Result<Uuid, AppError> {
     let pool = &state.deployment.db().pool;
 
+    if let Some(action) =
+        validate_stored_plugin_action(state, automation.plugin_action_json.as_deref())?
+    {
+        state
+            .office_runtime
+            .set_bundled_enabled(
+                true,
+                &format!("automation-{}-{}", automation.id, Uuid::new_v4()),
+            )
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        state
+            .office_runtime
+            .resolve_bundled_action(&action.action_id)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+    }
+
     // v1 supports in-place isolation (the project's root workspace).
     let workspace = resolve_project_workspace(state, automation.project_id, None).await?;
     state
@@ -326,6 +385,7 @@ mod tests {
             project_id: Uuid::new_v4(),
             executor: Some("CLAUDE_CODE".into()),
             prompt: "run tests".into(),
+            plugin_action_json: None,
             isolation: "in_place".into(),
             trigger_kind: "cron".into(),
             cron: Some("0 3 * * *".into()),
@@ -354,6 +414,7 @@ mod tests {
             project_id: Uuid::new_v4(),
             executor: None,
             prompt: "x".into(),
+            plugin_action_json: None,
             isolation: "in_place".into(),
             trigger_kind: "manual".into(),
             cron: None,
@@ -364,5 +425,12 @@ mod tests {
         input.cron = Some("0 3 * * *".into());
         input.enabled = false;
         assert!(compute_next_run(&input).is_none());
+    }
+
+    #[test]
+    fn malformed_plugin_action_is_rejected_before_persistence() {
+        let error = parse_stored_plugin_action(Some(r#"{"pluginId":"vibex.office"}"#))
+            .expect_err("missing actionId must be rejected");
+        assert!(error.to_string().contains("invalid PluginAction"));
     }
 }

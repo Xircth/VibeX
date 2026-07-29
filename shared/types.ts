@@ -998,7 +998,7 @@ response?: ConversationFeedbackResponse | null, } | { "kind": "terminal_summary"
  * Turn that produced this diff summary (checkpoint diff), so the
  * timeline can anchor the card at the end of its own turn.
  */
-turn_id?: string | null, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
+turn_id?: string | null, } | { "kind": "artifact_revision", artifact: ConversationArtifactReference, } | { "kind": "turn_error", error: ConversationErrorView, } | { "kind": "session_notice", notice: ConversationSessionNotice, };
 
 export type ConversationToolCallPatch = { tool_call_id: string, title?: string | null, kind?: string | null, status?: string | null, raw_input?: JsonValue | null, raw_output?: JsonValue | null, raw_output_append?: string | null, content?: JsonValue | null, locations?: Array<ConversationFileLocation> | null, metadata?: JsonValue | null, images: Array<ImageData>, };
 
@@ -1063,7 +1063,7 @@ export type ConversationSearchHit = { conversation_id: string, workspace_id: str
  */
 snippet: string, };
 
-export type Automation = { id: string, name: string, project_id: string, executor: string | null, prompt: string,
+export type Automation = { id: string, name: string, project_id: string, executor: string | null, prompt: string, plugin_action_json: string | null,
 /**
  * `in_place` | `new_worktree`.
  */
@@ -1077,7 +1077,7 @@ trigger_kind: string,
  */
 cron: string | null, enabled: boolean, next_run_at: string | null, created_at: string, updated_at: string, };
 
-export type AutomationInput = { name: string, project_id: string, executor: string | null, prompt: string, isolation: string, trigger_kind: string, cron: string | null, enabled: boolean, };
+export type AutomationInput = { name: string, project_id: string, executor: string | null, prompt: string, plugin_action_json: string | null, isolation: string, trigger_kind: string, cron: string | null, enabled: boolean, };
 
 export type AutomationRun = { id: string, automation_id: string,
 /**
@@ -1199,6 +1199,22 @@ export type AgentSource = "built_in_profile" | "official_registry" | "retired_le
 export type ConversationArtifactPreviewReference = { artifact_id: string, provider_id: string, lease_id: string, };
 
 export type ConversationArtifactReference = { artifact_id: string, workspace_id: string | null, relative_path: string, media_type: string, content_hash: string, revision: bigint, plugin_id: string, plugin_version: string, provider_id: string, tool_lock_id: string, };
+
+export type ArtifactPreviewLeaseDto = { leaseId: string, artifactId: string, providerId: string, loopbackPort: number, capabilityToken: string, expiresAtUnixMs: bigint, docxFallbackSupported: boolean, };
+
+export type OfficeArtifactIntent = { mediaTypes: Array<string>, provider: string, };
+
+export type OfficeComponentReadiness = { id: string, status: string, version: string | null, error: string | null, };
+
+export type OfficePluginAction = { pluginId: string, actionId: string, label: string, requiredSkills: Array<string>, requiredTools: Array<string>, promptBlocks: Array<OfficePromptBlock>, artifactIntent: OfficeArtifactIntent | null, };
+
+export type OfficePluginCatalog = { plugin: OfficePluginIdentity, actions: Array<OfficePluginAction>, readiness: OfficePluginReadiness, };
+
+export type OfficePluginIdentity = { id: string, name: string, version: string, membership: string, };
+
+export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeComponentReadiness, skills: Array<OfficeComponentReadiness>, providers: Array<OfficeComponentReadiness>, overall: string, };
+
+export type OfficePromptBlock = { type: string, text: string, };
 
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "qa_mock";
 

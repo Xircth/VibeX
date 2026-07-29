@@ -40,6 +40,7 @@ import {
   selectConfigOptionValue,
 } from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
+import { ComposerPluginActions } from './follow-up/ComposerPluginActions';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
@@ -97,6 +98,7 @@ import {
   codexGoalEntriesFromConversation,
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
+import { tauriBackendTransport } from '@/lib/backendTransport';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -244,6 +246,7 @@ export function TaskFollowUpSection({
     attachedImagePaths,
     executorProfileRef,
   } = useSessionComposerLocalState();
+  const [isPluginActionReady, setIsPluginActionReady] = useState(true);
   const {
     createdSessionProfiles,
     handleSelectSession,
@@ -558,6 +561,7 @@ export function TaskFollowUpSection({
 
   const canSendFollowUp = useMemo(
     () =>
+      isPluginActionReady &&
       getCanSendFollowUp({
         canType: canTypeFollowUp,
         hasExecutor: !!effectiveExecutorProfile?.executor,
@@ -577,6 +581,7 @@ export function TaskFollowUpSection({
       conflictResolutionInstructions,
       reviewMarkdown,
       attachedImages.length,
+      isPluginActionReady,
     ]
   );
   const canEnhancePrompt = useMemo(
@@ -786,6 +791,13 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
+          <ComposerPluginActions
+            key={sessionId ?? workspaceId}
+            transport={tauriBackendTransport}
+            message={localMessage}
+            onMessageChange={handleEditorChange}
+            onReadyChange={setIsPluginActionReady}
+          />
           <SessionComposerInput
             value={localMessage}
             onChange={handleEditorChange}
@@ -801,7 +813,11 @@ export function TaskFollowUpSection({
               sessionId,
             }}
             images={attachedImages}
-            onSubmit={handleSubmitShortcut}
+            onSubmit={() => {
+              if (isPluginActionReady) {
+                handleSubmitShortcut();
+              }
+            }}
             onAttachImages={handleAttachImages}
             onRemoveImage={handleRemoveImage}
           />

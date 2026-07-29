@@ -58,6 +58,36 @@ pub async fn plugin_list(state: tauri::State<'_, AppState>) -> Result<Vec<Plugin
         .map_err(AppError::from)
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyPluginMigrationSummary {
+    pub legacy_plugin_id: Uuid,
+    pub name: String,
+    pub status: db::models::plugin::LegacyMigrationStatus,
+    pub mapped_plugin_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn plugin_legacy_migration_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<LegacyPluginMigrationSummary>, AppError> {
+    let evidence = PluginV1Migration::migrate_all(&state.deployment.db().pool).await?;
+    Ok(evidence
+        .into_iter()
+        .map(|item| LegacyPluginMigrationSummary {
+            legacy_plugin_id: item.legacy_plugin_id,
+            name: item
+                .original_manifest
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Legacy plugin")
+                .to_owned(),
+            status: item.status,
+            mapped_plugin_id: item.mapped_plugin_id,
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub async fn plugin_create(
     state: tauri::State<'_, AppState>,
@@ -342,6 +372,20 @@ mod tests {
             LEGACY_MIGRATION_REQUIRED,
             "plugin_migration_required: legacy install_command is evidence only"
         );
+    }
+
+    #[test]
+    fn migration_summary_never_serializes_legacy_commands() {
+        let value = serde_json::to_value(LegacyPluginMigrationSummary {
+            legacy_plugin_id: Uuid::new_v4(),
+            name: "Legacy plugin".into(),
+            status: db::models::plugin::LegacyMigrationStatus::MigrationRequired,
+            mapped_plugin_id: None,
+        })
+        .expect("serialize migration summary");
+        assert_eq!(value["status"], "migration_required");
+        assert!(value.get("installCommand").is_none());
+        assert!(value.get("originalManifest").is_none());
     }
 
     #[test]

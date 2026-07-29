@@ -1,7 +1,11 @@
 //! Thin Tauri adapter for the managed Office Artifact provider.
 
+use plugins::{
+    DependencyState, PluginActivation, PluginMembership, PluginReadiness, ProviderState, SkillState,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+use ts_rs::TS;
 
 use crate::{error::AppError, state::AppState};
 
@@ -14,6 +18,19 @@ pub struct OfficecliInfo {
     pub version: Option<String>,
     pub path: Option<String>,
     pub runtime_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ArtifactPreviewLeaseDto {
+    pub lease_id: uuid::Uuid,
+    pub artifact_id: uuid::Uuid,
+    pub provider_id: String,
+    pub loopback_port: u16,
+    pub capability_token: String,
+    pub expires_at_unix_ms: u64,
+    pub docx_fallback_supported: bool,
 }
 
 impl OfficecliInfo {
@@ -32,6 +49,255 @@ struct OfficecliInstallEvent {
     task_id: String,
     kind: &'static str,
     payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OfficePluginCatalog {
+    plugin: OfficePluginIdentity,
+    actions: Vec<OfficePluginAction>,
+    readiness: OfficePluginReadiness,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficePluginIdentity {
+    id: String,
+    name: String,
+    version: String,
+    membership: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficePluginAction {
+    plugin_id: String,
+    action_id: String,
+    label: String,
+    required_skills: Vec<String>,
+    required_tools: Vec<String>,
+    prompt_blocks: Vec<OfficePromptBlock>,
+    artifact_intent: Option<OfficeArtifactIntent>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficePromptBlock {
+    #[serde(rename = "type")]
+    #[ts(rename = "type")]
+    kind: &'static str,
+    text: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeArtifactIntent {
+    media_types: Vec<String>,
+    provider: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficePluginReadiness {
+    enabled: bool,
+    dependency: OfficeComponentReadiness,
+    skills: Vec<OfficeComponentReadiness>,
+    providers: Vec<OfficeComponentReadiness>,
+    overall: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeComponentReadiness {
+    id: String,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn dependency_readiness(id: String, state: &DependencyState) -> OfficeComponentReadiness {
+    match state {
+        DependencyState::Missing => OfficeComponentReadiness {
+            id,
+            status: "missing",
+            version: None,
+            error: None,
+        },
+        DependencyState::Installing => OfficeComponentReadiness {
+            id,
+            status: "installing",
+            version: None,
+            error: None,
+        },
+        DependencyState::Ready { version, .. } => OfficeComponentReadiness {
+            id,
+            status: "ready",
+            version: Some(version.clone()),
+            error: None,
+        },
+        DependencyState::Failed { message, .. } => OfficeComponentReadiness {
+            id,
+            status: "failed",
+            version: None,
+            error: Some(message.clone()),
+        },
+        DependencyState::Incompatible { message, .. } => OfficeComponentReadiness {
+            id,
+            status: "incompatible",
+            version: None,
+            error: Some(message.clone()),
+        },
+    }
+}
+
+fn skill_readiness(id: String, state: &SkillState) -> OfficeComponentReadiness {
+    match state {
+        SkillState::Missing => OfficeComponentReadiness {
+            id,
+            status: "missing",
+            version: None,
+            error: None,
+        },
+        SkillState::Ready => OfficeComponentReadiness {
+            id,
+            status: "ready",
+            version: None,
+            error: None,
+        },
+        SkillState::Failed { message, .. } => OfficeComponentReadiness {
+            id,
+            status: "failed",
+            version: None,
+            error: Some(message.clone()),
+        },
+    }
+}
+
+fn provider_readiness(id: String, state: &ProviderState) -> OfficeComponentReadiness {
+    match state {
+        ProviderState::Unavailable => OfficeComponentReadiness {
+            id,
+            status: "unavailable",
+            version: None,
+            error: None,
+        },
+        ProviderState::Ready => OfficeComponentReadiness {
+            id,
+            status: "ready",
+            version: None,
+            error: None,
+        },
+        ProviderState::Degraded { message, .. } => OfficeComponentReadiness {
+            id,
+            status: "degraded",
+            version: None,
+            error: Some(message.clone()),
+        },
+    }
+}
+
+fn office_plugin_catalog(state: &AppState) -> Result<OfficePluginCatalog, AppError> {
+    let manifest = state.office_runtime.bundled_plugin();
+    let snapshot = state
+        .office_runtime
+        .bundled_plugin_snapshot()
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let dependency = snapshot
+        .dependencies
+        .iter()
+        .next()
+        .map(|(id, state)| dependency_readiness(id.clone(), state))
+        .ok_or_else(|| AppError::Internal("Office plugin dependency is missing".into()))?;
+
+    Ok(OfficePluginCatalog {
+        plugin: OfficePluginIdentity {
+            id: manifest.id.as_str().to_owned(),
+            name: manifest.name.clone(),
+            version: manifest.version.clone(),
+            membership: match snapshot.membership {
+                PluginMembership::Builtin => "builtin",
+                PluginMembership::Added => "added",
+            },
+        },
+        actions: manifest
+            .actions
+            .iter()
+            .map(|action| OfficePluginAction {
+                plugin_id: manifest.id.as_str().to_owned(),
+                action_id: action.id.as_str().to_owned(),
+                label: action.label.clone(),
+                required_skills: action
+                    .required_skills
+                    .iter()
+                    .map(|id| id.as_str().to_owned())
+                    .collect(),
+                required_tools: action
+                    .required_tools
+                    .iter()
+                    .map(|id| id.as_str().to_owned())
+                    .collect(),
+                prompt_blocks: action
+                    .prompt_blocks
+                    .iter()
+                    .map(|block| match block {
+                        plugins::PromptBlock::Text { text } => OfficePromptBlock {
+                            kind: "text",
+                            text: text.clone(),
+                        },
+                    })
+                    .collect(),
+                artifact_intent: action.artifact_intent.as_ref().map(|intent| {
+                    OfficeArtifactIntent {
+                        media_types: intent.media_types.clone(),
+                        provider: intent.provider.clone(),
+                    }
+                }),
+            })
+            .collect(),
+        readiness: OfficePluginReadiness {
+            enabled: snapshot.activation == PluginActivation::Enabled,
+            dependency,
+            skills: snapshot
+                .skills
+                .iter()
+                .map(|(id, state)| skill_readiness(id.clone(), state))
+                .collect(),
+            providers: snapshot
+                .providers
+                .iter()
+                .map(|(id, state)| provider_readiness(id.clone(), state))
+                .collect(),
+            overall: match snapshot.readiness {
+                PluginReadiness::Ready => "ready",
+                PluginReadiness::NotReady { .. } => "not_ready",
+            },
+        },
+    })
+}
+
+#[tauri::command]
+pub fn plugin_action_catalog(state: State<'_, AppState>) -> Result<OfficePluginCatalog, AppError> {
+    office_plugin_catalog(&state)
+}
+
+#[tauri::command]
+pub async fn office_plugin_set_enabled(
+    state: State<'_, AppState>,
+    enabled: bool,
+    task_id: String,
+) -> Result<OfficePluginCatalog, AppError> {
+    if task_id.trim().is_empty() {
+        return Err(AppError::BadRequest("taskId must not be empty".into()));
+    }
+    state
+        .office_runtime
+        .set_bundled_enabled(enabled, &task_id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    office_plugin_catalog(&state)
 }
 
 fn emit_install(app: &AppHandle, task_id: &str, kind: &'static str, payload: impl Into<String>) {
@@ -114,6 +380,41 @@ pub async fn officecli_cancel_install(
 }
 
 #[tauri::command]
+pub async fn artifact_open_preview(
+    state: State<'_, AppState>,
+    artifact_id: uuid::Uuid,
+) -> Result<ArtifactPreviewLeaseDto, AppError> {
+    let lease = state
+        .office_runtime
+        .artifact_service()
+        .open_preview(artifacts::OpenPreview { artifact_id })
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(ArtifactPreviewLeaseDto {
+        lease_id: lease.id,
+        artifact_id: lease.artifact_id,
+        provider_id: lease.provider_id,
+        loopback_port: lease.loopback_port,
+        capability_token: lease.capability_token,
+        expires_at_unix_ms: lease.expires_at_unix_ms,
+        docx_fallback_supported: lease.docx_fallback_supported,
+    })
+}
+
+#[tauri::command]
+pub async fn artifact_close_preview(
+    state: State<'_, AppState>,
+    lease_id: uuid::Uuid,
+) -> Result<(), AppError> {
+    state
+        .office_runtime
+        .artifact_service()
+        .close_preview(lease_id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
 pub async fn officecli_uninstall(state: State<'_, AppState>) -> Result<OfficecliInfo, AppError> {
     state
         .office_runtime
@@ -171,7 +472,7 @@ pub async fn stop_office_watch(
 
 #[cfg(test)]
 mod tests {
-    use super::OfficecliInfo;
+    use super::{OfficeComponentReadiness, OfficecliInfo};
 
     #[test]
     fn missing_info_preserves_frontend_contract() {
@@ -180,5 +481,20 @@ mod tests {
         assert!(value["version"].is_null());
         assert!(value["path"].is_null());
         assert!(value["runtimeError"].is_null());
+    }
+
+    #[test]
+    fn readiness_component_serializes_without_legacy_install_semantics() {
+        let value = serde_json::to_value(OfficeComponentReadiness {
+            id: "officecli".into(),
+            status: "ready",
+            version: Some("1.0.140".into()),
+            error: None,
+        })
+        .unwrap();
+        assert_eq!(value["id"], "officecli");
+        assert_eq!(value["status"], "ready");
+        assert_eq!(value["version"], "1.0.140");
+        assert!(value.get("installCommand").is_none());
     }
 }

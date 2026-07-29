@@ -15,6 +15,7 @@ pub struct Automation {
     pub project_id: Uuid,
     pub executor: Option<String>,
     pub prompt: String,
+    pub plugin_action_json: Option<String>,
     /// `in_place` | `new_worktree`.
     pub isolation: String,
     /// `manual` | `cron`.
@@ -34,6 +35,7 @@ pub struct AutomationInput {
     pub project_id: Uuid,
     pub executor: Option<String>,
     pub prompt: String,
+    pub plugin_action_json: Option<String>,
     pub isolation: String,
     pub trigger_kind: String,
     pub cron: Option<String>,
@@ -55,7 +57,7 @@ pub struct AutomationRun {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
-const AUTOMATION_COLS: &str = "id, name, project_id, executor, prompt, isolation, \
+const AUTOMATION_COLS: &str = "id, name, project_id, executor, prompt, plugin_action_json, isolation, \
     trigger_kind, cron, enabled, next_run_at, created_at, updated_at";
 
 impl Automation {
@@ -68,15 +70,16 @@ impl Automation {
         let now = Utc::now();
         sqlx::query(
             "INSERT INTO automations \
-             (id, name, project_id, executor, prompt, isolation, trigger_kind, cron, \
+             (id, name, project_id, executor, prompt, plugin_action_json, isolation, trigger_kind, cron, \
               enabled, next_run_at, created_at, updated_at) \
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(id)
         .bind(&input.name)
         .bind(input.project_id)
         .bind(&input.executor)
         .bind(&input.prompt)
+        .bind(&input.plugin_action_json)
         .bind(&input.isolation)
         .bind(&input.trigger_kind)
         .bind(&input.cron)
@@ -128,13 +131,14 @@ impl Automation {
         next_run_at: Option<DateTime<Utc>>,
     ) -> Result<Self, sqlx::Error> {
         sqlx::query(
-            "UPDATE automations SET name=?, project_id=?, executor=?, prompt=?, isolation=?, \
+            "UPDATE automations SET name=?, project_id=?, executor=?, prompt=?, plugin_action_json=?, isolation=?, \
              trigger_kind=?, cron=?, enabled=?, next_run_at=?, updated_at=? WHERE id=?",
         )
         .bind(&input.name)
         .bind(input.project_id)
         .bind(&input.executor)
         .bind(&input.prompt)
+        .bind(&input.plugin_action_json)
         .bind(&input.isolation)
         .bind(&input.trigger_kind)
         .bind(&input.cron)
@@ -329,6 +333,7 @@ mod tests {
             project_id: Uuid::new_v4(),
             executor: Some("CLAUDE_CODE".to_string()),
             prompt: "run tests".to_string(),
+            plugin_action_json: None,
             isolation: "in_place".to_string(),
             trigger_kind: trigger_kind.to_string(),
             cron: cron.map(ToOwned::to_owned),
@@ -388,6 +393,24 @@ mod tests {
             .await
             .expect("set next run");
         assert!(Automation::due(&pool, now).await.expect("due").is_empty());
+    }
+
+    #[tokio::test]
+    async fn structured_plugin_action_round_trips_with_the_automation() {
+        let pool = setup_pool().await;
+        let mut input = input("office", "manual", None, true);
+        input.plugin_action_json =
+            Some(r#"{"pluginId":"vibex.office","actionId":"create-presentation"}"#.into());
+        let automation = Automation::create(&pool, Uuid::new_v4(), &input, None)
+            .await
+            .expect("create automation");
+        assert_eq!(automation.plugin_action_json, input.plugin_action_json);
+
+        let loaded = Automation::find_by_id(&pool, automation.id)
+            .await
+            .expect("load automation")
+            .expect("automation exists");
+        assert_eq!(loaded.plugin_action_json, input.plugin_action_json);
     }
 
     #[tokio::test]

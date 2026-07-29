@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v2: timeline rows carry `row_id` + `revision` (incremental row-op protocol,
-// 消灭双投影); the snapshot's `side_rows` shape changed, so v1 snapshots are
-// discarded and rebuilt by the projection-version check in `load_fold_from_snapshot`.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 2;
+// v3: Artifact revisions now project into timeline side rows. v2 snapshots may
+// already have advanced past Artifact events while ignoring them, so they must
+// be discarded and rebuilt by `load_fold_from_snapshot`.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 3;
 
 pub struct ConversationEventAppender;
 
@@ -1067,6 +1067,12 @@ impl ProjectionFold {
                     },
                 ));
             }
+            ConversationEvent::ArtifactRevisionRecorded { artifact } => {
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::ArtifactRevision { artifact },
+                ));
+            }
             ConversationEvent::TurnFailed { error } => {
                 side_rows.push(side_row(
                     record.sequence,
@@ -1291,6 +1297,9 @@ fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
             format!("del:{}", delegation.delegation_id)
         }
         ConversationTimelineRow::FileChangeSummary { .. } => format!("fc:{sequence}"),
+        ConversationTimelineRow::ArtifactRevision { artifact } => {
+            format!("artifact:{}:{}", artifact.artifact_id, artifact.revision)
+        }
         ConversationTimelineRow::TurnError { error } => match error.turn_id {
             Some(turn_id) => format!("err:{turn_id}:{sequence}"),
             None => format!("err:{sequence}"),
@@ -1541,6 +1550,118 @@ mod tests {
             .await
             .expect("project artifact event");
         assert_eq!(timeline.last_sequence, record.sequence);
+        let artifact_row = timeline
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                )
+            })
+            .expect("artifact revision row");
+        assert_eq!(artifact_row.row_id, format!("artifact:{artifact_id}:1"));
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/quarter.xlsx".into(),
+                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        .into(),
+                    content_hash: "b".repeat(64),
+                    revision: 2,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-revision-2"),
+        )
+        .await;
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project both artifact revisions");
+        assert_eq!(
+            timeline
+                .rows
+                .iter()
+                .filter(|row| matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                ))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn artifact_projection_rebuilds_a_v2_snapshot_that_skipped_artifacts() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let artifact_id = Uuid::new_v4();
+        let record = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/history.pptx".into(),
+                    media_type:
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                            .into(),
+                    content_hash: "b".repeat(64),
+                    revision: 1,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-v2-snapshot"),
+        )
+        .await;
+
+        let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
+            turns: Vec::new(),
+            side_rows: Vec::new(),
+            last_sequence: record.sequence,
+        })
+        .expect("serialize v2 snapshot");
+        ConversationProjectionSnapshotRecord::upsert(
+            &pool,
+            conversation_id,
+            2,
+            record.sequence,
+            &skipped_artifact_snapshot,
+        )
+        .await
+        .expect("seed stale v2 snapshot");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("rebuild artifact projection");
+        assert!(
+            timeline.rows.iter().any(|row| {
+                matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                )
+            }),
+            "a v2 snapshot that skipped Artifact events must be rebuilt"
+        );
     }
 
     #[tokio::test]

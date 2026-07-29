@@ -1,6 +1,6 @@
 {
   "name": "file-change",
-  "projectionVersion": 2,
+  "projectionVersion": 3,
   "conversation": {
     "id": "00000000-0000-0000-0000-000000000006",
     "title": "File change",

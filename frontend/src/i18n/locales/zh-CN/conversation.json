@@ -1,4 +1,12 @@
 {
+  "artifact": {
+    "openPreview": "打开预览",
+    "openPreviewAria": "打开 {{name}} 预览",
+    "closePreviewAria": "关闭 {{name}} 预览",
+    "previewTitle": "{{name}} 预览",
+    "revision": "修订 {{revision}}",
+    "invalidPreviewLease": "Artifact Provider 返回了无效的预览租约"
+  },
   "loadingCard": {
     "thinking": "AI 正在思考...",
     "copy": "复制"

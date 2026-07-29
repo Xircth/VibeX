@@ -60,10 +60,23 @@ impl AppState {
         // record (批次D). The first-generation `agent_*` shadow tables are retired, so
         // the runtime uses the no-op sink instead of the old SQLite mirror.
         let agent_runtime = Arc::new(AgentRuntime::default());
-        let office_runtime = Arc::new(crate::office_runtime::OfficeRuntime::new(
-            pool.clone(),
-            utils::assets::asset_dir().join("managed-tools"),
-        )?);
+        let office_runtime = Arc::new(
+            crate::office_runtime::OfficeRuntime::new(
+                pool.clone(),
+                utils::assets::asset_dir().join("managed-tools"),
+            )
+            .await?,
+        );
+        if office_runtime.should_restore_enabled_on_startup() {
+            let runtime = office_runtime.clone();
+            tokio::spawn(async move {
+                if let Err(error) = runtime.restore_enabled_on_startup().await {
+                    tracing::warn!(
+                        "managed Office plugin startup restore remains not-ready: {error}"
+                    );
+                }
+            });
+        }
         // Build the delegation broker over the runtime + DB and start its
         // listener + resolver. Live from startup; ClaudeCode MCP injection (so
         // the agent auto-calls it) lands in a follow-up.

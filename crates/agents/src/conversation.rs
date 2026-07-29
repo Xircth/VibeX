@@ -807,6 +807,9 @@ pub enum ConversationTimelineRow {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<Uuid>,
     },
+    ArtifactRevision {
+        artifact: ConversationArtifactReference,
+    },
     TurnError {
         error: ConversationErrorView,
     },

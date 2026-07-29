@@ -68,6 +68,11 @@ use vibex::{
         attention::{AttentionInbox, AttentionItem, AttentionItemKind},
         conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
         crash_reports::{CrashReportMeta, CrashReportsInfo},
+        office_tools::{
+            ArtifactPreviewLeaseDto, OfficeArtifactIntent, OfficeComponentReadiness,
+            OfficePluginAction, OfficePluginCatalog, OfficePluginIdentity, OfficePluginReadiness,
+            OfficePromptBlock,
+        },
         plugin::PluginActivation,
         sessions::{SessionContinuityMode, SessionSummary},
     },
@@ -318,6 +323,14 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Plugin>(&mut decls);
     insert_declaration::<PluginInput>(&mut decls);
     insert_declaration::<PluginActivation>(&mut decls);
+    insert_declaration::<OfficePromptBlock>(&mut decls);
+    insert_declaration::<OfficeArtifactIntent>(&mut decls);
+    insert_declaration::<OfficePluginAction>(&mut decls);
+    insert_declaration::<OfficePluginIdentity>(&mut decls);
+    insert_declaration::<OfficeComponentReadiness>(&mut decls);
+    insert_declaration::<OfficePluginReadiness>(&mut decls);
+    insert_declaration::<OfficePluginCatalog>(&mut decls);
+    insert_declaration::<ArtifactPreviewLeaseDto>(&mut decls);
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);

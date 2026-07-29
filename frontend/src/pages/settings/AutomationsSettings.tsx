@@ -18,6 +18,15 @@ import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 import { useProjects } from '@/hooks/useProjects';
 import { automationApi } from '@/lib/api/automations';
 import type { Automation, AutomationInput, AutomationRun } from 'shared/types';
+import {
+  isPluginActionDraft,
+  PluginActionEditor,
+  type PluginActionDraft,
+} from '@/components/plugins/PluginActionEditor';
+import {
+  tauriBackendTransport,
+  type BackendTransport,
+} from '@/lib/backendTransport';
 
 const EXECUTORS = ['CLAUDE_CODE', 'CODEX', 'OPENCODE'] as const;
 
@@ -27,6 +36,7 @@ function emptyInput(projectId: string): AutomationInput {
     project_id: projectId,
     executor: 'CLAUDE_CODE',
     prompt: '',
+    plugin_action_json: null,
     isolation: 'in_place',
     trigger_kind: 'manual',
     cron: null,
@@ -40,6 +50,7 @@ function inputFromAutomation(automation: Automation): AutomationInput {
     project_id: automation.project_id,
     executor: automation.executor,
     prompt: automation.prompt,
+    plugin_action_json: automation.plugin_action_json,
     isolation: automation.isolation,
     trigger_kind: automation.trigger_kind,
     cron: automation.cron,
@@ -55,7 +66,11 @@ function formatLocalTime(value: string | null | undefined): string | null {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
-export function AutomationsSettings() {
+export function AutomationsSettings({
+  transport = tauriBackendTransport,
+}: {
+  transport?: BackendTransport;
+}) {
   const { t } = useTranslation(['settings', 'common']);
   const { projects } = useProjects();
   const [automations, setAutomations] = useState<Automation[]>([]);
@@ -66,6 +81,10 @@ export function AutomationsSettings() {
     Record<string, AutomationRun[]>
   >({});
   const [busy, setBusy] = useState(false);
+  const [pluginAction, setPluginAction] = useState<PluginActionDraft | null>(
+    null
+  );
+  const [isPluginActionReady, setIsPluginActionReady] = useState(true);
 
   const reload = useCallback(async () => {
     try {
@@ -83,16 +102,36 @@ export function AutomationsSettings() {
     const projectId = projects[0]?.id ?? '';
     setEditingId(null);
     setDraft(emptyInput(projectId));
+    setPluginAction(null);
+    setIsPluginActionReady(true);
   };
 
   const startEdit = (automation: Automation) => {
+    const input = inputFromAutomation(automation);
     setEditingId(automation.id);
-    setDraft(inputFromAutomation(automation));
+    setDraft(input);
+    try {
+      const parsed = automation.plugin_action_json
+        ? (JSON.parse(automation.plugin_action_json) as unknown)
+        : null;
+      if (parsed !== null && !isPluginActionDraft(parsed)) {
+        throw new Error('invalid PluginAction shape');
+      }
+      setPluginAction(parsed);
+      setIsPluginActionReady(automation.plugin_action_json === null);
+    } catch {
+      setPluginAction(null);
+      setDraft({ ...input, plugin_action_json: null });
+      setIsPluginActionReady(true);
+      toast.error(t('automations.invalidPluginAction'));
+    }
   };
 
   const closeDraft = () => {
     setDraft(null);
     setEditingId(null);
+    setPluginAction(null);
+    setIsPluginActionReady(true);
   };
 
   const save = async () => {
@@ -227,9 +266,54 @@ export function AutomationsSettings() {
               <label className="text-xs font-medium">
                 {t('automations.prompt')}
               </label>
+              <PluginActionEditor
+                transport={transport}
+                value={pluginAction}
+                showPromptEditor={false}
+                onReadyChange={setIsPluginActionReady}
+                onChange={(action) => {
+                  const actionPrompt = action.promptBlocks
+                    .map((block) => block.text)
+                    .join('\n');
+                  const combinedPrompt = [draft.prompt.trimEnd(), actionPrompt]
+                    .filter(Boolean)
+                    .join('\n\n');
+                  setPluginAction({
+                    ...action,
+                    promptBlocks: [{ type: 'text', text: combinedPrompt }],
+                  });
+                  patchDraft({
+                    prompt: combinedPrompt,
+                    plugin_action_json: JSON.stringify({
+                      ...action,
+                      promptBlocks: [{ type: 'text', text: combinedPrompt }],
+                    }),
+                  });
+                }}
+              />
               <Textarea
+                aria-label={t('automations.prompt')}
                 value={draft.prompt}
-                onChange={(e) => patchDraft({ prompt: e.target.value })}
+                onChange={(e) => {
+                  const prompt = e.target.value;
+                  patchDraft({ prompt });
+                  setPluginAction((current) =>
+                    current
+                      ? {
+                          ...current,
+                          promptBlocks: [{ type: 'text', text: prompt }],
+                        }
+                      : current
+                  );
+                  if (pluginAction) {
+                    patchDraft({
+                      plugin_action_json: JSON.stringify({
+                        ...pluginAction,
+                        promptBlocks: [{ type: 'text', text: prompt }],
+                      }),
+                    });
+                  }
+                }}
                 placeholder={t('automations.promptPlaceholder')}
                 rows={3}
               />
@@ -303,7 +387,11 @@ export function AutomationsSettings() {
                 <Button size="sm" variant="ghost" onClick={closeDraft}>
                   {t('common:cancel')}
                 </Button>
-                <Button size="sm" onClick={() => void save()} disabled={busy}>
+                <Button
+                  size="sm"
+                  onClick={() => void save()}
+                  disabled={busy || !isPluginActionReady}
+                >
                   {t('common:save')}
                 </Button>
               </div>

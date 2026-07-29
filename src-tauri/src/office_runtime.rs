@@ -104,6 +104,7 @@ impl SkillAvailabilityPort for EmbeddedOfficeSkills {
 }
 
 pub struct OfficeRuntime {
+    pool: SqlitePool,
     artifacts: ArtifactService,
     compatibility_artifacts: ArtifactService,
     provider: Arc<OfficeCliProvider>,
@@ -116,6 +117,7 @@ pub struct OfficeRuntime {
     managed_root: PathBuf,
     plugins: PluginService,
     office_manifest: PluginManifest,
+    restore_enabled_on_startup: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -139,7 +141,7 @@ impl OfficeRuntimeError {
 }
 
 impl OfficeRuntime {
-    pub fn new(pool: SqlitePool, managed_root: PathBuf) -> anyhow::Result<Self> {
+    pub async fn new(pool: SqlitePool, managed_root: PathBuf) -> anyhow::Result<Self> {
         let locks = Arc::new(FileInstallationLockStore::new(managed_root.clone()));
         let tools = Arc::new(ToolRuntime::new(
             ToolRuntimeConfig::new(managed_root.clone()),
@@ -164,6 +166,34 @@ impl OfficeRuntime {
         );
         let office_manifest =
             plugin_service.import_manifest(OFFICE_MANIFEST, ManifestSource::Bundled)?;
+        sqlx::query(
+            "INSERT INTO plugin_v2_registry \
+             (plugin_id, schema_version, name, normalized_manifest_json, source, membership, \
+              legacy_plugin_id, created_at, updated_at) \
+             VALUES (?,2,?,?,'bundled','builtin',NULL,datetime('now','subsec'),datetime('now','subsec')) \
+             ON CONFLICT(plugin_id) DO UPDATE SET \
+              name=excluded.name, normalized_manifest_json=excluded.normalized_manifest_json, \
+              updated_at=datetime('now','subsec')",
+        )
+        .bind(office_manifest.id.as_str())
+        .bind(&office_manifest.name)
+        .bind(OFFICE_MANIFEST)
+        .execute(&pool)
+        .await?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO plugin_v2_activation \
+             (plugin_id, enabled, updated_at) VALUES (?,0,datetime('now','subsec'))",
+        )
+        .bind(office_manifest.id.as_str())
+        .execute(&pool)
+        .await?;
+        let restore_enabled: bool = sqlx::query_scalar::<_, i64>(
+            "SELECT enabled FROM plugin_v2_activation WHERE plugin_id = ?",
+        )
+        .bind(office_manifest.id.as_str())
+        .fetch_one(&pool)
+        .await?
+            != 0;
         for skill in &office_manifest.skills {
             if !OFFICE_SKILLS.iter().any(|(id, _)| *id == skill.id.as_str()) {
                 anyhow::bail!(
@@ -184,7 +214,7 @@ impl OfficeRuntime {
         ));
         let artifacts = ArtifactService::new(
             Arc::new(SqliteArtifactRepository::new(pool.clone())),
-            Arc::new(ConversationArtifactEventSink { pool }),
+            Arc::new(ConversationArtifactEventSink { pool: pool.clone() }),
             Arc::new(LocalArtifactFilesystem),
         )
         .with_previews(
@@ -202,7 +232,8 @@ impl OfficeRuntime {
                 .map_err(|error| anyhow::anyhow!(error.to_string()))?,
             tools_resolver,
         );
-        Ok(Self {
+        let runtime = Self {
+            pool,
             artifacts,
             compatibility_artifacts,
             provider,
@@ -215,7 +246,9 @@ impl OfficeRuntime {
             managed_root,
             plugins: plugin_service,
             office_manifest,
-        })
+            restore_enabled_on_startup: restore_enabled,
+        };
+        Ok(runtime)
     }
 
     pub async fn detect(&self) -> Result<Option<ToolInstallationLock>, OfficeRuntimeError> {
@@ -324,6 +357,7 @@ impl OfficeRuntime {
                 "bundled Office plugin did not reach ready state",
             ));
         }
+        self.persist_enabled(true).await?;
         Ok(lock)
     }
 
@@ -548,6 +582,17 @@ impl OfficeRuntime {
         &self.office_manifest
     }
 
+    pub fn should_restore_enabled_on_startup(&self) -> bool {
+        self.restore_enabled_on_startup
+    }
+
+    pub async fn restore_enabled_on_startup(&self) -> Result<(), OfficeRuntimeError> {
+        if self.restore_enabled_on_startup {
+            self.install("startup-restore-office-plugin").await?;
+        }
+        Ok(())
+    }
+
     pub fn bundled_plugin_snapshot(&self) -> Result<plugins::PluginSnapshot, plugins::PluginError> {
         self.plugins.snapshot(self.office_manifest.id.as_str())
     }
@@ -587,12 +632,31 @@ impl OfficeRuntime {
             })
     }
 
+    pub async fn set_bundled_enabled(
+        &self,
+        enabled: bool,
+        operation_id: &str,
+    ) -> Result<(), OfficeRuntimeError> {
+        if enabled {
+            self.install(operation_id).await?;
+            return Ok(());
+        }
+
+        let _mutation = self.tool_mutation.lock().await;
+        self.shutdown().await?;
+        self.plugins
+            .disable(self.office_manifest.id.as_str())
+            .map_err(|error| OfficeRuntimeError::new("DISABLE_FAILED", error.to_string()))?;
+        self.persist_enabled(false).await
+    }
+
     pub async fn uninstall(&self) -> Result<(), OfficeRuntimeError> {
         let _mutation = self.tool_mutation.lock().await;
         self.shutdown().await?;
         self.plugins
             .disable(self.office_manifest.id.as_str())
             .map_err(|error| OfficeRuntimeError::new("UNINSTALL_FAILED", error.to_string()))?;
+        self.persist_enabled(false).await?;
         self.plugin_runtime
             .release_all()
             .await
@@ -601,6 +665,19 @@ impl OfficeRuntime {
             .uninstall("officecli")
             .await
             .map_err(|error| OfficeRuntimeError::new("UNINSTALL_FAILED", error.to_string()))
+    }
+
+    async fn persist_enabled(&self, enabled: bool) -> Result<(), OfficeRuntimeError> {
+        sqlx::query(
+            "UPDATE plugin_v2_activation \
+             SET enabled = ?, updated_at = datetime('now','subsec') WHERE plugin_id = ?",
+        )
+        .bind(enabled)
+        .bind(self.office_manifest.id.as_str())
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(|error| OfficeRuntimeError::new("PERSIST_FAILED", error.to_string()))
     }
 }
 
@@ -896,5 +973,81 @@ impl ProcessProbe for OfficeCliProbe {
                 "OfficeCLI probe exited with {status}"
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OfficeRuntime;
+
+    #[tokio::test]
+    async fn uninstall_persists_disabled_in_the_v2_registry() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        let managed = tempfile::tempdir().expect("managed root");
+        let runtime = OfficeRuntime::new(pool.clone(), managed.path().to_path_buf())
+            .await
+            .expect("create Office runtime");
+
+        runtime
+            .persist_enabled(true)
+            .await
+            .expect("persist enabled");
+        let enabled: i64 =
+            sqlx::query_scalar("SELECT enabled FROM plugin_v2_activation WHERE plugin_id = ?")
+                .bind(runtime.office_manifest.id.as_str())
+                .fetch_one(&pool)
+                .await
+                .expect("load activation");
+        assert_eq!(enabled, 1);
+
+        runtime.uninstall().await.expect("uninstall");
+        let enabled: i64 =
+            sqlx::query_scalar("SELECT enabled FROM plugin_v2_activation WHERE plugin_id = ?")
+                .bind(runtime.office_manifest.id.as_str())
+                .fetch_one(&pool)
+                .await
+                .expect("reload activation");
+        assert_eq!(enabled, 0);
+    }
+
+    #[tokio::test]
+    async fn enabled_startup_restore_is_deferred_and_cannot_block_construction() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("connect sqlite");
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        let managed = tempfile::tempdir().expect("managed root");
+        let first = OfficeRuntime::new(pool.clone(), managed.path().to_path_buf())
+            .await
+            .expect("create first runtime");
+        first.persist_enabled(true).await.expect("persist enabled");
+        drop(first);
+
+        let restored = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            OfficeRuntime::new(pool, managed.path().to_path_buf()),
+        )
+        .await
+        .expect("runtime construction must not perform network installation")
+        .expect("create restored runtime");
+        assert!(restored.should_restore_enabled_on_startup());
+        assert_eq!(
+            restored
+                .bundled_plugin_snapshot()
+                .expect("plugin snapshot")
+                .activation,
+            plugins::PluginActivation::Disabled
+        );
     }
 }

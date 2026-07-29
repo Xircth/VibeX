@@ -16,7 +16,7 @@ mod delegation;
 mod error;
 mod events;
 mod logging;
-mod office_watch;
+mod office_runtime;
 mod prompt_enhancement;
 mod state;
 mod tray;
@@ -307,12 +307,27 @@ pub fn run(cef_bootstrap: CefBootstrap) {
                 });
             }
 
-            // Office preview: reap crashed/orphaned `officecli watch` servers.
-            if let Some(idle_timeout) = office_watch::idle_timeout_from_env() {
-                tauri::async_runtime::spawn(office_watch::office_watch_idle_sweep_task(
-                    idle_timeout,
-                    std::time::Duration::from_secs(office_watch::SWEEP_INTERVAL_SECS),
-                ));
+            // Artifact providers own their child-process lifecycle. Reap expired
+            // preview leases, crashed children, and idle watches periodically.
+            {
+                let office = app.state::<state::AppState>().office_runtime.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
+                        let reaped = office.reap_idle().await;
+                        if reaped > 0 {
+                            tracing::info!("[office-provider] reaped {reaped} preview process(es)");
+                        }
+                        let delivered = office.flush_artifact_events().await;
+                        if delivered > 0 {
+                            tracing::info!(
+                                "[artifact-service] delivered {delivered} pending event(s)"
+                            );
+                        }
+                    }
+                });
             }
 
             if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
@@ -723,6 +738,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             // Office preview (OfficeCLI) commands
             commands::office_tools::officecli_detect,
             commands::office_tools::officecli_install,
+            commands::office_tools::officecli_cancel_install,
             commands::office_tools::officecli_uninstall,
             commands::office_tools::start_office_watch,
             commands::office_tools::stop_office_watch,
@@ -749,9 +765,20 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             // Flush the non-blocking log writer on exit before the process leaves.
             if let tauri::RunEvent::Exit = event {
                 shutdown_cef_session();
-                let reaped = office_watch::stop_all_office_watches();
-                if reaped > 0 {
-                    tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
+                let shutdown = tauri::async_runtime::block_on(
+                    _app_handle
+                        .state::<state::AppState>()
+                        .office_runtime
+                        .shutdown(),
+                );
+                match shutdown {
+                    Ok(reaped) if reaped > 0 => {
+                        tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::error!("[office-watch] shutdown failed: {error}");
+                    }
                 }
                 log_guard.take();
             }

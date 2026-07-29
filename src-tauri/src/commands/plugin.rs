@@ -1,31 +1,24 @@
 //! Plugins: "Skill + Web console" integrations (dashi-ppt, vibe-motion, …).
 //!
-//! A plugin is a manifest: an agent-skill install command, a web-console
-//! start command, and a hook message the frontend prefills into the session
-//! composer. The unified activation contract is agent-driven: VibeX never
-//! starts the console itself. `plugin_activate` allocates a port and renders
-//! the command/URL templates so the hook can hand the agent an exact port and
-//! address; the agent starts the console, and the frontend polls
-//! `plugin_probe_console` until the agreed URL is reachable, then opens it in
-//! the Web Preview.
+//! This module exposes the read-only compatibility surface for v1 plugin
+//! rows. Legacy command strings are retained as migration evidence but are
+//! never executed. New installation behavior belongs to Plugin v2 and the
+//! managed Tool Runtime.
 
 use chrono::Utc;
-use db::models::plugin::{Plugin, PluginInput};
+use db::models::plugin::{Plugin, PluginInput, PluginV1Migration};
 use serde::Serialize;
 use ts_rs::TS;
-use utils::shell::{get_shell_command, resolve_executable_path};
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
-
-/// Skill installs run headless; a hung interactive prompt must not wedge the
-/// command forever.
-const INSTALL_TIMEOUT_SECS: u64 = 300;
 
 /// One reachability probe must stay well under the frontend's poll interval.
 const PROBE_TIMEOUT_MS: u64 = 1_500;
 
 const PORT_PLACEHOLDER: &str = "{{port}}";
+const LEGACY_MIGRATION_REQUIRED: &str =
+    "plugin_migration_required: legacy install_command is evidence only";
 
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
@@ -225,66 +218,21 @@ pub async fn plugin_download_dev_kit(target_dir: String) -> Result<String, AppEr
 
 // ── Skill installation ─────────────────────────────────────────────────────
 
-/// `skills add` prompts for confirmation; force non-interactive runs. Other
-/// installers (e.g. `npx dashi-ppt-skill@latest`) already run unattended and
-/// may not accept `-y`, so leave them untouched.
-fn with_auto_yes(command: &str) -> String {
-    let has_yes = command
-        .split_whitespace()
-        .any(|token| token == "-y" || token == "--yes");
-    if command.contains("skills add") && !has_yes {
-        format!("{command} -y")
-    } else {
-        command.to_string()
-    }
-}
-
-async fn run_skill_install(install_command: &str) -> Result<(), String> {
-    for tool in ["node", "npx"] {
-        if resolve_executable_path(tool).await.is_none() {
-            return Err(format!("`{tool}` was not found on PATH"));
-        }
-    }
-
-    let command = with_auto_yes(install_command);
-    let (shell_cmd, shell_arg) = get_shell_command();
-    let mut install = utils::process::new_hidden_tokio_command(&shell_cmd, [shell_arg, &command]);
-    install.stdin(std::process::Stdio::null());
-
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(INSTALL_TIMEOUT_SECS),
-        install.output(),
-    )
-    .await
-    .map_err(|_| format!("install command timed out after {INSTALL_TIMEOUT_SECS}s"))?
-    .map_err(|error| format!("failed to run install command: {error}"))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-    Err(utils::process::command_output_detail(&output)
-        .unwrap_or_else(|| format!("install command exited with status {}", output.status)))
-}
-
-/// Check node/npx and run the plugin's skill install command globally.
-/// The outcome is persisted on the plugin row and returned; an install
-/// failure is data, not an error (the frontend toasts it).
+/// Preserve the v1 row as evidence and refuse its arbitrary install command.
+/// The outcome remains data so older frontends receive a stable failed state
+/// instead of accidentally invoking the removed execution path.
 #[tauri::command]
 pub async fn plugin_install_skill(
     state: tauri::State<'_, AppState>,
     id: Uuid,
 ) -> Result<Plugin, AppError> {
     let pool = &state.deployment.db().pool;
-    let plugin = Plugin::find_by_id(pool, id)
+    Plugin::find_by_id(pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("plugin {id} not found")))?;
 
-    Plugin::set_install_status(pool, id, "installing", None).await?;
-    let result = run_skill_install(&plugin.install_command).await;
-    match &result {
-        Ok(()) => Plugin::set_install_status(pool, id, "installed", None).await?,
-        Err(error) => Plugin::set_install_status(pool, id, "failed", Some(error)).await?,
-    }
+    PluginV1Migration::migrate_all(pool).await?;
+    Plugin::set_install_status(pool, id, "failed", Some(LEGACY_MIGRATION_REQUIRED)).await?;
 
     Plugin::find_by_id(pool, id)
         .await?
@@ -388,24 +336,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auto_yes_only_touches_skills_add() {
+    fn legacy_install_command_is_evidence_only() {
         assert_eq!(
-            with_auto_yes("npx skills add vibe-motion/skills"),
-            "npx skills add vibe-motion/skills -y"
-        );
-        // Already non-interactive: left alone.
-        assert_eq!(
-            with_auto_yes("npx skills add foo/bar -y"),
-            "npx skills add foo/bar -y"
-        );
-        assert_eq!(
-            with_auto_yes("npx skills add foo/bar --yes"),
-            "npx skills add foo/bar --yes"
-        );
-        // Not the skills CLI: never mutated.
-        assert_eq!(
-            with_auto_yes("npx dashi-ppt-skill@latest"),
-            "npx dashi-ppt-skill@latest"
+            LEGACY_MIGRATION_REQUIRED,
+            "plugin_migration_required: legacy install_command is evidence only"
         );
     }
 

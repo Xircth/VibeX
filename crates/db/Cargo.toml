@@ -22,4 +22,5 @@ strum_macros = { workspace = true }
 sha2 = "0.10"
 
 [dev-dependencies]
+tempfile = { workspace = true }
 tokio = { workspace = true }

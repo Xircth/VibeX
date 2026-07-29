@@ -1,0 +1,48 @@
+{
+  "$schema": "vibex-plugin/v2",
+  "id": "vibex.office.presentation",
+  "version": "1.0.0",
+  "name": "Office Presentation",
+  "builtin": true,
+  "dependencies": [
+    {
+      "id": "officecli",
+      "kind": "binary",
+      "version": "0.8.0",
+      "distributions": {
+        "aarch64-apple-darwin": {
+          "url": "https://downloads.vibex.dev/officecli/0.8.0/aarch64-apple-darwin/officecli",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        }
+      },
+      "probe": ["--version"]
+    }
+  ],
+  "skills": [
+    {
+      "id": "office-pptx",
+      "source": "bundled",
+      "path": "skills/office-pptx"
+    }
+  ],
+  "actions": [
+    {
+      "id": "create-presentation",
+      "label": "创建 PPT",
+      "requiredSkills": ["office-pptx"],
+      "requiredTools": ["officecli"],
+      "promptBlocks": [
+        {
+          "type": "text",
+          "text": "请先澄清目标受众和演示目标，然后创建 PPTX。"
+        }
+      ],
+      "artifactIntent": {
+        "mediaTypes": [
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        ],
+        "provider": "officecli"
+      }
+    }
+  ]
+}

@@ -17,6 +17,8 @@ members = [
     "crates/local-deployment",
     "crates/deployment",
     "crates/review",
+    "crates/plugins",
+    "crates/tool-runtime",
     "src-tauri",
 ]
 

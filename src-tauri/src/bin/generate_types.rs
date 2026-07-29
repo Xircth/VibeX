@@ -16,7 +16,8 @@ use agents::{
     ImportedAgentMessageRole, ImportedAgentSession, RuntimeSnapshot,
     conversation::{
         AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
-        ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
+        ConversationAgentConnectionStatus, ConversationArtifactPreviewReference,
+        ConversationArtifactReference, ConversationBundleChecksum, ConversationBundleManifest,
         ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
         ConversationDelegationView, ConversationDetail, ConversationError, ConversationErrorView,
         ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
@@ -409,6 +410,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationDelegation>(&mut decls);
     insert_declaration::<ConversationDelegationResult>(&mut decls);
     insert_declaration::<ConversationDelegationView>(&mut decls);
+    insert_declaration::<ConversationArtifactReference>(&mut decls);
+    insert_declaration::<ConversationArtifactPreviewReference>(&mut decls);
     insert_declaration::<ConversationEvent>(&mut decls);
     insert_declaration::<ConversationEventEnvelope>(&mut decls);
     insert_declaration::<ConversationPermissionView>(&mut decls);

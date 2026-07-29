@@ -91,6 +91,13 @@ async fn enabling_builtin_resolves_dependencies() {
     assert_eq!(enabled.plugin.skills["office-pptx"], SkillState::Ready);
     assert_eq!(enabled.plugin.providers["officecli"], ProviderState::Ready);
     assert_eq!(enabled.plugin.readiness, PluginReadiness::Ready);
+    let disabled = service
+        .disable("vibex.office.presentation")
+        .expect("disable Office plugin");
+    assert_eq!(disabled.activation, PluginActivation::Disabled);
+    assert_eq!(disabled.dependencies["officecli"], DependencyState::Missing);
+    assert_eq!(disabled.skills["office-pptx"], SkillState::Missing);
+    assert_eq!(disabled.providers["officecli"], ProviderState::Unavailable);
 
     let failed_service = PluginService::with_runtime_and_capabilities(
         platform(),

@@ -130,10 +130,14 @@ impl FileInstallationLockStore {
     }
 
     fn version_lock_path(&self, lock: &ToolInstallationLock) -> PathBuf {
+        self.version_path(&lock.tool_id, &lock.version)
+    }
+
+    fn version_path(&self, tool_id: &str, version: &str) -> PathBuf {
         self.managed_root
-            .join(&lock.tool_id)
+            .join(tool_id)
             .join("versions")
-            .join(&lock.version)
+            .join(version)
             .join("installation-lock.json")
     }
 }
@@ -165,6 +169,20 @@ impl InstallationLockStore for FileInstallationLockStore {
 
     async fn load_current(&self, tool_id: &str) -> Result<Option<ToolInstallationLock>, PortError> {
         let path = self.current_path(tool_id);
+        let bytes = match fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(port_error(error)),
+        };
+        serde_json::from_slice(&bytes).map(Some).map_err(port_error)
+    }
+
+    async fn load_version(
+        &self,
+        tool_id: &str,
+        version: &str,
+    ) -> Result<Option<ToolInstallationLock>, PortError> {
+        let path = self.version_path(tool_id, version);
         let bytes = match fs::read(&path).await {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),

@@ -30,6 +30,13 @@ impl Downloader for FakeDownloader {
 struct FakeFilesystem {
     files: Mutex<HashMap<PathBuf, Vec<u8>>>,
     cancel_on_rename: Mutex<Option<CancellationToken>>,
+    block_next_remove: Mutex<Option<Arc<RemoveBarrier>>>,
+}
+
+#[derive(Default)]
+struct RemoveBarrier {
+    started: tokio::sync::Notify,
+    proceed: tokio::sync::Notify,
 }
 
 impl FakeFilesystem {
@@ -50,6 +57,12 @@ impl FakeFilesystem {
             .lock()
             .expect("filesystem lock")
             .insert(path.into(), bytes.to_vec());
+    }
+
+    fn block_next_remove(&self) -> Arc<RemoveBarrier> {
+        let barrier = Arc::new(RemoveBarrier::default());
+        *self.block_next_remove.lock().expect("remove barrier") = Some(barrier.clone());
+        barrier
     }
 }
 
@@ -116,6 +129,15 @@ impl ToolFilesystem for FakeFilesystem {
     }
 
     async fn remove_dir_all(&self, path: &Path) -> Result<(), PortError> {
+        let barrier = self
+            .block_next_remove
+            .lock()
+            .expect("remove barrier")
+            .take();
+        if let Some(barrier) = barrier {
+            barrier.started.notify_one();
+            barrier.proceed.notified().await;
+        }
         self.files
             .lock()
             .expect("filesystem lock")
@@ -543,6 +565,155 @@ async fn release_delays_cleanup_for_active_lease() {
     assert!(!filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")));
     assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/2.0.0")));
     assert!(filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/3.0.0")));
+}
+
+#[tokio::test]
+async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
+    let filesystem = Arc::new(FakeFilesystem::default());
+    let runtime = Arc::new(
+        ToolRuntime::new(
+            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            Arc::new(CatalogDownloader {
+                artifacts: HashMap::from([
+                    ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
+                    ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+                    ("fixture://officecli/3.0.0".to_string(), b"v3".to_vec()),
+                ]),
+            }),
+            filesystem.clone(),
+            Arc::new(SelectiveProbe),
+            Arc::new(FakeLockStore::default()),
+        )
+        .expect("absolute managed root"),
+    );
+    let v1_lease = runtime
+        .ensure(
+            &request("1.0.0", b"v1", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("v1 install");
+    runtime
+        .upgrade(
+            &request("2.0.0", b"v2", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("v2 upgrade");
+    runtime
+        .upgrade(
+            &request("3.0.0", b"v3", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("v3 upgrade");
+    let v1_lock = ToolInstallationLock {
+        schema_version: 1,
+        tool_id: "officecli".into(),
+        version: "1.0.0".into(),
+        target: "aarch64-apple-darwin".into(),
+        source_url: "fixture://officecli/1.0.0".into(),
+        sha256: format!("{:x}", Sha256::digest(b"v1")),
+        executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
+        installed_at_unix_ms: 1,
+    };
+    let barrier = filesystem.block_next_remove();
+    let releasing_runtime = runtime.clone();
+    let release = tokio::spawn(async move { releasing_runtime.release(v1_lease).await });
+    barrier.started.notified().await;
+
+    let error = runtime
+        .lease_installed(&v1_lock)
+        .expect_err("deletion must exclude new installation leases");
+    assert!(error.message().contains("being modified"));
+
+    release.abort();
+    assert!(
+        release
+            .await
+            .expect_err("release is aborted")
+            .is_cancelled()
+    );
+    assert!(
+        runtime.lease_installed(&v1_lock).is_err(),
+        "aborting the caller must not release the deletion gate"
+    );
+    barrier.proceed.notify_one();
+    while filesystem.has_files_under(Path::new("/managed-tools/officecli/versions/1.0.0")) {
+        tokio::task::yield_now().await;
+    }
+    let v3_lock = ToolInstallationLock {
+        version: "3.0.0".into(),
+        source_url: "fixture://officecli/3.0.0".into(),
+        sha256: format!("{:x}", Sha256::digest(b"v3")),
+        executable_path: PathBuf::from("/managed-tools/officecli/versions/3.0.0/officecli"),
+        ..v1_lock
+    };
+    runtime
+        .lease_installed(&v3_lock)
+        .expect("the gate clears after supervised release deletion finishes");
+}
+
+#[tokio::test]
+async fn lease_acquisition_is_rejected_while_uninstall_deletes_the_tool() {
+    let filesystem = Arc::new(FakeFilesystem::default());
+    let runtime = Arc::new(
+        ToolRuntime::new(
+            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            Arc::new(CatalogDownloader {
+                artifacts: HashMap::from([(
+                    "fixture://officecli/1.0.0".to_string(),
+                    b"v1".to_vec(),
+                )]),
+            }),
+            filesystem.clone(),
+            Arc::new(SelectiveProbe),
+            Arc::new(FakeLockStore::default()),
+        )
+        .expect("absolute managed root"),
+    );
+    let install_lease = runtime
+        .ensure(
+            &request("1.0.0", b"v1", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("install");
+    runtime
+        .release(install_lease)
+        .await
+        .expect("release install lease");
+    let lock = ToolInstallationLock {
+        schema_version: 1,
+        tool_id: "officecli".into(),
+        version: "1.0.0".into(),
+        target: "aarch64-apple-darwin".into(),
+        source_url: "fixture://officecli/1.0.0".into(),
+        sha256: format!("{:x}", Sha256::digest(b"v1")),
+        executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
+        installed_at_unix_ms: 1,
+    };
+    let barrier = filesystem.block_next_remove();
+    let uninstalling_runtime = runtime.clone();
+    let uninstall = tokio::spawn(async move { uninstalling_runtime.uninstall("officecli").await });
+    barrier.started.notified().await;
+
+    let error = runtime
+        .lease_installed(&lock)
+        .expect_err("uninstall must exclude new installation leases");
+    assert!(error.message().contains("being modified"));
+
+    uninstall.abort();
+    uninstall.await.expect_err("uninstall is aborted");
+    assert!(
+        runtime.lease_installed(&lock).is_err(),
+        "aborting the caller must not release the uninstall gate"
+    );
+    barrier.proceed.notify_one();
+    runtime
+        .uninstall("officecli")
+        .await
+        .expect("a later mutation waits for supervised deletion and then recovers");
 }
 
 #[tokio::test]

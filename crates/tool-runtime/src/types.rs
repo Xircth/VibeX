@@ -55,7 +55,7 @@ impl ToolRequest {
     }
 }
 
-fn validate_managed_component(
+pub(crate) fn validate_managed_component(
     label: &str,
     value: &str,
     allow_plus: bool,
@@ -98,7 +98,7 @@ pub struct InstallationAttempt {
     pub started_at_unix_ms: u64,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolLease {
     pub tool_id: String,
     pub version: String,

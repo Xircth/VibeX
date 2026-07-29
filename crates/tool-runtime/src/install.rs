@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     CancellationToken, Downloader, InstallationAttempt, InstallationLockStore, ProcessProbe,
     ToolFilesystem, ToolInstallationLock, ToolLease, ToolRequest, ToolRuntimeConfig,
-    ToolRuntimeError,
+    ToolRuntimeError, types::validate_managed_component,
 };
 
 pub struct ToolRuntime {
@@ -20,13 +20,29 @@ pub struct ToolRuntime {
     probe: Arc<dyn ProcessProbe>,
     lock_store: Arc<dyn InstallationLockStore>,
     install_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    lifecycle: Mutex<Lifecycle>,
+    lifecycle: Arc<Mutex<Lifecycle>>,
 }
 
 #[derive(Default)]
 struct Lifecycle {
     versions: HashMap<String, Vec<String>>,
     leases: HashMap<Uuid, (String, String)>,
+    deleting_tools: HashSet<String>,
+}
+
+struct DeletionGuard {
+    lifecycle: Arc<Mutex<Lifecycle>>,
+    tool_id: String,
+}
+
+impl Drop for DeletionGuard {
+    fn drop(&mut self) {
+        self.lifecycle
+            .lock()
+            .expect("tool lifecycle registry poisoned")
+            .deleting_tools
+            .remove(&self.tool_id);
+    }
 }
 
 impl ToolRuntime {
@@ -45,7 +61,7 @@ impl ToolRuntime {
             probe,
             lock_store,
             install_locks: Mutex::new(HashMap::new()),
-            lifecycle: Mutex::new(Lifecycle::default()),
+            lifecycle: Arc::new(Mutex::new(Lifecycle::default())),
         })
     }
 
@@ -115,7 +131,7 @@ impl ToolRuntime {
                     &actual_sha256,
                 ));
             }
-            return Ok(self.acquire_lease(&current));
+            return self.acquire_lease(&current);
         }
 
         self.install(request, cancellation).await
@@ -167,14 +183,35 @@ impl ToolRuntime {
     }
 
     pub async fn release(&self, lease: ToolLease) -> Result<(), ToolRuntimeError> {
+        let tool_id = lease.tool_id.clone();
+        let install_lock = self.install_lock(&tool_id);
+        let install_guard = install_lock.lock_owned().await;
+        let persistent_guard = self
+            .lock_store
+            .acquire_install_lock(&tool_id)
+            .await
+            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        let deletion = self.begin_deletion(&tool_id)?;
+        self.release_locked(lease, install_guard, persistent_guard, deletion)
+            .await
+    }
+
+    async fn release_locked(
+        &self,
+        lease: ToolLease,
+        install_guard: tokio::sync::OwnedMutexGuard<()>,
+        persistent_guard: Box<dyn crate::InstallationLockGuard>,
+        deletion: DeletionGuard,
+    ) -> Result<(), ToolRuntimeError> {
         let (tool_id, version) = {
-            let mut lifecycle = self
+            let lifecycle = self
                 .lifecycle
                 .lock()
                 .expect("tool lifecycle registry poisoned");
             lifecycle
                 .leases
-                .remove(&lease.lease_id)
+                .get(&lease.lease_id)
+                .cloned()
                 .ok_or_else(ToolRuntimeError::invalid_lease)?
         };
         if tool_id != lease.tool_id || version != lease.version {
@@ -208,47 +245,157 @@ impl ToolRuntime {
                     let candidate = candidate.as_str();
                     Some(candidate) != current_version
                         && Some(candidate) != rollback
-                        && !lifecycle
-                            .leases
-                            .values()
-                            .any(|(leased_tool, leased_version)| {
-                                leased_tool == &tool_id && leased_version == candidate
-                            })
+                        && !lifecycle.leases.iter().any(
+                            |(lease_id, (leased_tool, leased_version))| {
+                                *lease_id != lease.lease_id
+                                    && leased_tool == &tool_id
+                                    && leased_version == candidate
+                            },
+                        )
                 })
                 .cloned()
                 .collect::<Vec<_>>()
         };
 
-        for removable_version in &removable {
-            let version_dir = self
-                .config
-                .managed_root
-                .join(&tool_id)
-                .join("versions")
-                .join(removable_version);
-            self.filesystem
-                .remove_dir_all(&version_dir)
-                .await
-                .map_err(|error| ToolRuntimeError::port("remove unleased tool version", error))?;
-        }
-        if !removable.is_empty() {
-            let mut lifecycle = self
-                .lifecycle
-                .lock()
-                .expect("tool lifecycle registry poisoned");
-            if let Some(versions) = lifecycle.versions.get_mut(&tool_id) {
+        let filesystem = self.filesystem.clone();
+        let managed_root = self.config.managed_root.clone();
+        let lifecycle = self.lifecycle.clone();
+        let cleanup = tokio::spawn(async move {
+            let _install_guard = install_guard;
+            let _persistent_guard = persistent_guard;
+            let _deletion = deletion;
+            for removable_version in &removable {
+                let version_dir = managed_root
+                    .join(&tool_id)
+                    .join("versions")
+                    .join(removable_version);
+                filesystem
+                    .remove_dir_all(&version_dir)
+                    .await
+                    .map_err(|error| {
+                        ToolRuntimeError::port("remove unleased tool version", error)
+                    })?;
+            }
+            let mut lifecycle = lifecycle.lock().expect("tool lifecycle registry poisoned");
+            if !removable.is_empty()
+                && let Some(versions) = lifecycle.versions.get_mut(&tool_id)
+            {
                 versions.retain(|version| !removable.contains(version));
             }
-        }
-        Ok(())
+            lifecycle.leases.remove(&lease.lease_id);
+            Ok(())
+        });
+        cleanup.await.map_err(supervised_deletion_join)?
     }
 
-    fn acquire_lease(&self, lock: &ToolInstallationLock) -> ToolLease {
+    /// Pins an already verified, versioned installation for a consumer such
+    /// as a long-running artifact preview.
+    pub fn lease_installed(
+        &self,
+        lock: &ToolInstallationLock,
+    ) -> Result<ToolLease, ToolRuntimeError> {
+        validate_managed_component("tool id", &lock.tool_id, false)?;
+        validate_managed_component("tool version", &lock.version, true)?;
+        let expected_version_dir = self
+            .config
+            .managed_root
+            .join(&lock.tool_id)
+            .join("versions")
+            .join(&lock.version);
+        if lock.schema_version != 1
+            || !lock.executable_path.is_absolute()
+            || lock.executable_path.parent() != Some(expected_version_dir.as_path())
+        {
+            return Err(ToolRuntimeError::invalid_request(
+                "installed tool lock is outside its exact managed version directory",
+            ));
+        }
+        self.acquire_lease(lock)
+    }
+
+    pub async fn uninstall(&self, tool_id: &str) -> Result<(), ToolRuntimeError> {
+        validate_managed_component("tool id", tool_id, false)?;
+        let install_lock = self.install_lock(tool_id);
+        let install_guard = install_lock.lock_owned().await;
+        let persistent_guard = self
+            .lock_store
+            .acquire_install_lock(tool_id)
+            .await
+            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        let deletion = self.begin_deletion(tool_id)?;
+        self.uninstall_locked(tool_id, install_guard, persistent_guard, deletion)
+            .await
+    }
+
+    async fn uninstall_locked(
+        &self,
+        tool_id: &str,
+        install_guard: tokio::sync::OwnedMutexGuard<()>,
+        persistent_guard: Box<dyn crate::InstallationLockGuard>,
+        deletion: DeletionGuard,
+    ) -> Result<(), ToolRuntimeError> {
+        let has_active_lease = self
+            .lifecycle
+            .lock()
+            .expect("tool lifecycle registry poisoned")
+            .leases
+            .values()
+            .any(|(leased_tool, _)| leased_tool == tool_id);
+        if has_active_lease {
+            return Err(ToolRuntimeError::invalid_request(format!(
+                "tool `{tool_id}` still has active leases"
+            )));
+        }
+        let filesystem = self.filesystem.clone();
+        let tool_dir = self.config.managed_root.join(tool_id);
+        let lifecycle = self.lifecycle.clone();
+        let tool_id = tool_id.to_owned();
+        let cleanup = tokio::spawn(async move {
+            let _install_guard = install_guard;
+            let _persistent_guard = persistent_guard;
+            let _deletion = deletion;
+            filesystem
+                .remove_dir_all(&tool_dir)
+                .await
+                .map_err(|error| ToolRuntimeError::port("remove managed tool", error))?;
+            lifecycle
+                .lock()
+                .expect("tool lifecycle registry poisoned")
+                .versions
+                .remove(&tool_id);
+            Ok(())
+        });
+        cleanup.await.map_err(supervised_deletion_join)?
+    }
+
+    fn begin_deletion(&self, tool_id: &str) -> Result<DeletionGuard, ToolRuntimeError> {
+        let mut lifecycle = self
+            .lifecycle
+            .lock()
+            .expect("tool lifecycle registry poisoned");
+        if !lifecycle.deleting_tools.insert(tool_id.to_owned()) {
+            return Err(ToolRuntimeError::invalid_request(format!(
+                "tool `{tool_id}` is already being modified"
+            )));
+        }
+        Ok(DeletionGuard {
+            lifecycle: self.lifecycle.clone(),
+            tool_id: tool_id.to_owned(),
+        })
+    }
+
+    fn acquire_lease(&self, lock: &ToolInstallationLock) -> Result<ToolLease, ToolRuntimeError> {
         let lease_id = Uuid::new_v4();
         let mut lifecycle = self
             .lifecycle
             .lock()
             .expect("tool lifecycle registry poisoned");
+        if lifecycle.deleting_tools.contains(&lock.tool_id) {
+            return Err(ToolRuntimeError::invalid_request(format!(
+                "tool `{}` is being modified",
+                lock.tool_id
+            )));
+        }
         let versions = lifecycle.versions.entry(lock.tool_id.clone()).or_default();
         if !versions.contains(&lock.version) {
             versions.push(lock.version.clone());
@@ -256,12 +403,12 @@ impl ToolRuntime {
         lifecycle
             .leases
             .insert(lease_id, (lock.tool_id.clone(), lock.version.clone()));
-        ToolLease {
+        Ok(ToolLease {
             tool_id: lock.tool_id.clone(),
             version: lock.version.clone(),
             executable_path: PathBuf::from(&lock.executable_path),
             lease_id,
-        }
+        })
     }
 
     async fn install(
@@ -441,7 +588,7 @@ impl ToolRuntime {
             }
             return Err(ToolRuntimeError::port("commit current installation", error));
         }
-        Ok(self.acquire_lease(&lock))
+        self.acquire_lease(&lock)
     }
 }
 
@@ -452,6 +599,13 @@ fn unix_time_ms() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+fn supervised_deletion_join(error: tokio::task::JoinError) -> ToolRuntimeError {
+    ToolRuntimeError::port(
+        "join supervised tool deletion",
+        crate::PortError::new(error.to_string()),
+    )
 }
 
 fn sha256(bytes: &[u8]) -> String {

@@ -249,6 +249,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "artifacts"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tool-runtime",
+ "uuid",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8264,6 +8280,7 @@ dependencies = [
  "anyhow",
  "api-types",
  "argon2",
+ "artifacts",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -8283,6 +8300,7 @@ dependencies = [
  "ignore",
  "local-deployment",
  "os_info",
+ "plugins",
  "prost",
  "rand 0.8.6",
  "raw-window-handle",
@@ -8311,6 +8329,7 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "toml 0.8.2",
+ "tool-runtime",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

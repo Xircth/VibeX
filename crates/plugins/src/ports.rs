@@ -77,11 +77,21 @@ impl ToolRuntimeAdapter {
             let mut leases = self.leases.lock().await;
             std::mem::take(&mut *leases)
         };
+        let mut failed = Vec::new();
+        let mut first_error = None;
         for lease in leases {
-            self.runtime
-                .release(lease)
-                .await
-                .map_err(map_runtime_error)?;
+            if let Err(error) = self.runtime.release(lease.clone()).await {
+                if first_error.is_none() {
+                    first_error = Some(map_runtime_error(error));
+                }
+                failed.push(lease);
+            }
+        }
+        if !failed.is_empty() {
+            self.leases.lock().await.extend(failed);
+        }
+        if let Some(error) = first_error {
+            return Err(error);
         }
         Ok(())
     }

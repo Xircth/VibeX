@@ -11,7 +11,8 @@ use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use tool_runtime::{
     CancellationToken, Downloader, FileInstallationLockStore, InstallationLockStore,
-    LocalToolFilesystem, PortError, ProcessProbe, ToolRequest, ToolRuntime, ToolRuntimeConfig,
+    LocalToolFilesystem, PortError, ProcessProbe, ToolInstallationLock, ToolRequest, ToolRuntime,
+    ToolRuntimeConfig,
 };
 
 struct StaticDownloader(Vec<u8>);
@@ -21,6 +22,38 @@ impl Downloader for StaticDownloader {
     async fn fetch(&self, _url: &str) -> Result<Vec<u8>, PortError> {
         Ok(self.0.clone())
     }
+}
+
+#[tokio::test]
+async fn refuses_to_lease_an_installation_outside_its_version_directory() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let managed_root = temporary.path().join("managed-tools");
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(managed_root),
+        Arc::new(StaticDownloader(Vec::new())),
+        Arc::new(LocalToolFilesystem),
+        Arc::new(RecordingProbe::default()),
+        Arc::new(FileInstallationLockStore::new(
+            temporary.path().join("locks"),
+        )),
+    )
+    .expect("runtime");
+    let lock = ToolInstallationLock {
+        schema_version: 1,
+        tool_id: "officecli".into(),
+        version: "0.8.0".into(),
+        target: "aarch64-apple-darwin".into(),
+        source_url: "fixture://officecli".into(),
+        sha256: "a".repeat(64),
+        executable_path: temporary.path().join("attacker-controlled"),
+        installed_at_unix_ms: 1,
+    };
+
+    let error = runtime
+        .lease_installed(&lock)
+        .expect_err("unmanaged executable must not be pinned");
+
+    assert_eq!(error.code(), "tool_request_invalid");
 }
 
 struct CountingDownloader {
@@ -105,6 +138,20 @@ async fn persists_versioned_installation_lock() {
             .expect("probe called")
             .is_absolute()
     );
+    assert!(
+        runtime
+            .uninstall("officecli")
+            .await
+            .expect_err("active lease blocks uninstall")
+            .message()
+            .contains("active leases")
+    );
+    runtime.release(lease).await.expect("release install lease");
+    runtime
+        .uninstall("officecli")
+        .await
+        .expect("uninstall released tool");
+    assert!(!managed_root.join("officecli").exists());
 }
 
 #[tokio::test]

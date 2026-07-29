@@ -19,6 +19,7 @@ members = [
     "crates/review",
     "crates/plugins",
     "crates/tool-runtime",
+    "crates/artifacts",
     "src-tauri",
 ]
 

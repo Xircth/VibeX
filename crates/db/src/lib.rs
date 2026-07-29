@@ -138,6 +138,73 @@ mod tests {
             .expect("evidence count");
         assert_eq!(evidence_count, 1);
     }
+
+    #[tokio::test]
+    async fn artifact_revision_migration_preserves_file_reference_evidence() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("initial migrations");
+
+        let columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('artifact_revisions') ORDER BY cid",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("artifact columns");
+        for required in [
+            "conversation_id",
+            "turn_id",
+            "workspace_id",
+            "relative_path",
+            "content_hash",
+            "revision",
+            "plugin_id",
+            "plugin_version",
+            "provider_id",
+            "tool_lock_id",
+            "tool_executable_path",
+        ] {
+            assert!(columns.iter().any(|column| column == required));
+        }
+        assert!(!columns.iter().any(|column| column == "content_bytes"));
+
+        let outbox_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('artifact_event_outbox') ORDER BY cid",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("artifact outbox columns");
+        assert_eq!(
+            outbox_columns,
+            ["artifact_id", "revision", "event_json", "delivered"]
+        );
+        let preview_outbox_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('artifact_preview_event_outbox') ORDER BY cid",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("artifact preview outbox columns");
+        assert_eq!(
+            preview_outbox_columns,
+            ["event_key", "conversation_id", "event_json", "delivered"]
+        );
+        let preview_foreign_keys: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT \"table\", \"from\", on_delete \
+             FROM pragma_foreign_key_list('artifact_preview_event_outbox')",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("artifact preview outbox foreign keys");
+        assert!(preview_foreign_keys.iter().any(|(table, from, on_delete)| {
+            table == "sessions" && from == "conversation_id" && on_delete == "CASCADE"
+        }));
+    }
 }
 
 #[derive(Clone)]

@@ -43,6 +43,17 @@ pub trait InstallationLockStore: Send + Sync {
 
     async fn load_current(&self, tool_id: &str) -> Result<Option<ToolInstallationLock>, PortError>;
 
+    async fn load_version(
+        &self,
+        tool_id: &str,
+        version: &str,
+    ) -> Result<Option<ToolInstallationLock>, PortError> {
+        Ok(self
+            .load_current(tool_id)
+            .await?
+            .filter(|lock| lock.version == version))
+    }
+
     /// Commits the current pointer at a cancellation-aware linearization
     /// boundary. Once this returns `Ok`, a later cancellation is considered
     /// too late to roll the committed version back.

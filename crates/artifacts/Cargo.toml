@@ -1,0 +1,18 @@
+[package]
+name = "artifacts"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tool-runtime = { path = "../tool-runtime" }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

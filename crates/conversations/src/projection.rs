@@ -1406,12 +1406,12 @@ mod tests {
         AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
         AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
-            ConversationDelegation, ConversationDelegationResult, ConversationError,
-            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
-            ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionRequest,
-            ConversationPermissionResponse, ConversationQuestionRequest,
-            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
-            ConversationUsage,
+            ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
+            ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
+            ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
+            ConversationPermissionRequest, ConversationPermissionResponse,
+            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
+            ConversationToolCallPatch, ConversationUsage,
         },
     };
     use db::models::{
@@ -1502,6 +1502,45 @@ mod tests {
         )
         .await
         .expect("append event")
+    }
+
+    #[tokio::test]
+    async fn artifact_revision_event_projects_reference_without_file_bytes() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let artifact_id = Uuid::new_v4();
+
+        let record = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/quarter.xlsx".into(),
+                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        .into(),
+                    content_hash: "a".repeat(64),
+                    revision: 1,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-revision-1"),
+        )
+        .await;
+
+        assert_eq!(record.event_kind, "artifact_revision_recorded");
+        assert!(record.normalized_json.contains(&artifact_id.to_string()));
+        assert!(!record.normalized_json.contains("\"bytes\""));
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project artifact event");
+        assert_eq!(timeline.last_sequence, record.sequence);
     }
 
     #[tokio::test]

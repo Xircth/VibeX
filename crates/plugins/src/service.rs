@@ -224,6 +224,27 @@ impl PluginService {
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
         Ok(snapshot(record))
     }
+
+    pub fn disable(&self, plugin_id: &str) -> Result<PluginSnapshot, PluginError> {
+        let mut plugins = self.plugins.write().expect("plugin registry poisoned");
+        let record = plugins
+            .get_mut(plugin_id)
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        record.activation = PluginActivation::Disabled;
+        record
+            .dependencies
+            .values_mut()
+            .for_each(|state| *state = DependencyState::Missing);
+        record
+            .skills
+            .values_mut()
+            .for_each(|state| *state = SkillState::Missing);
+        record
+            .providers
+            .values_mut()
+            .for_each(|state| *state = ProviderState::Unavailable);
+        Ok(snapshot(record))
+    }
 }
 
 fn provider_ids(manifest: &PluginManifest) -> BTreeSet<String> {

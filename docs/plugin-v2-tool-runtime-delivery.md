@@ -66,12 +66,17 @@ Stable error codes used by these seams include:
 - Installs for the same tool are serialized both in-process and with a
   managed-root file lock shared by runtime instances/processes. Current, one
   rollback version, and versions with active leases are retained.
-- Reusing current re-reads and hashes the installed binary. A lock whose path
-  escapes its version directory or whose bytes no longer match never receives
-  a lease.
+- Reusing current requires the lock schema, tool id, version, target, source
+  URL, exact executable path, install timestamp, and digest to match the
+  request. The installed binary is re-read and re-hashed before a lease is
+  returned.
 - Cancellation interrupts a pending download and is rechecked after the
   staging-to-version rename; that window removes the new version without
   switching current.
+- Waiting for either the in-process or persistent installation lock is
+  cancellable. The lock-store commit has an explicit cancellation-aware
+  linearization boundary: cancellation before it leaves the prior current
+  pointer intact; cancellation after a successful commit is late.
 - Installation attempts are persisted as evidence. The next locked operation
   reconciles abandoned staging left by a crash.
 - Membership, activation, dependency, skill, and provider states are separate.
@@ -99,6 +104,10 @@ The legacy Tauri `plugin_install_skill` endpoint now captures migration evidence
 and returns a failed `plugin_migration_required` state. It never interprets or
 executes `install_command`.
 
+The Plugin v2 domain service and DB migration/adapter are delivered here.
+Application command/page cutover is part of the later T1.11 slice and is not
+implemented in this T1.1–T1.6 backend branch.
+
 ## RED/GREEN record
 
 | Task | RED evidence | GREEN verification |
@@ -111,7 +120,7 @@ executes `install_command`.
 | T1.6 | `plugin_v1_migration_never_executes_command`: migration API missing (exit 101) | evidence retained, marker command never runs, and only known builtins map disabled |
 | PLG-001/002 | optional metadata fields missing; unknown provider import succeeded | optional metadata/console imports and unknown provider fails closed |
 | PLG-004 | lock source/time fields missing | persistent version lock records URL and installation time |
-| Review hardening | traversal escaped managed root; tampered current received a lease; pending download/rename cancellation did not preempt; two runtime instances raced; declarations implied skill/provider readiness; startup left v1 evidence uncaptured | path components reject before download; current is rehashed; both cancellation windows clean up; persistent file lock serializes runtimes; readiness uses availability/health ports; startup migration captures evidence |
+| Review hardening | traversal escaped managed root; tampered current/lock identity received a lease; pending download/rename/lock-wait/current-commit cancellation did not preempt; two runtime instances raced; declarations implied skill/provider readiness; startup left v1 evidence uncaptured | path components reject before download; current lock identity and bytes are verified; all pre-commit cancellation windows preserve current; persistent file lock serializes runtimes; readiness uses availability/health ports; startup migration captures evidence |
 
 No Codeg source was copied or adapted, so the Codeg adoption/Apache-2.0
 attribution inventory does not require an update.

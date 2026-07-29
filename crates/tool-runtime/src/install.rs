@@ -56,12 +56,24 @@ impl ToolRuntime {
     ) -> Result<ToolLease, ToolRuntimeError> {
         request.validate()?;
         let install_lock = self.install_lock(&request.tool_id);
-        let _guard = install_lock.lock().await;
-        let _persistent_guard = self
-            .lock_store
-            .acquire_install_lock(&request.tool_id)
-            .await
-            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        let _guard = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                return Err(ToolRuntimeError::cancelled(&request.tool_id, &request.version));
+            }
+            guard = install_lock.lock() => guard,
+        };
+        let _persistent_guard = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                return Err(ToolRuntimeError::cancelled(&request.tool_id, &request.version));
+            }
+            result = self.lock_store.acquire_install_lock(&request.tool_id) => {
+                result.map_err(|error| {
+                    ToolRuntimeError::port("acquire persistent install lock", error)
+                })?
+            }
+        };
         self.reconcile_staging(&request.tool_id).await?;
         if let Some(current) = self
             .lock_store
@@ -71,17 +83,23 @@ impl ToolRuntime {
             && current.version == request.version
             && current.sha256.eq_ignore_ascii_case(&request.sha256)
         {
-            let expected_version_dir = self
+            let expected_executable = self
                 .config
                 .managed_root
                 .join(&request.tool_id)
                 .join("versions")
-                .join(&request.version);
-            if !current.executable_path.is_absolute()
-                || !current.executable_path.starts_with(expected_version_dir)
+                .join(&request.version)
+                .join(&request.executable_name);
+            if current.schema_version != 1
+                || current.tool_id != request.tool_id
+                || current.target != request.target
+                || current.source_url != request.url
+                || current.installed_at_unix_ms == 0
+                || !current.executable_path.is_absolute()
+                || current.executable_path != expected_executable
             {
                 return Err(ToolRuntimeError::invalid_request(
-                    "current tool lock points outside its managed version directory",
+                    "current tool lock identity does not match the requested distribution",
                 ));
             }
             let current_bytes = self
@@ -110,12 +128,24 @@ impl ToolRuntime {
     ) -> Result<ToolLease, ToolRuntimeError> {
         request.validate()?;
         let install_lock = self.install_lock(&request.tool_id);
-        let _guard = install_lock.lock().await;
-        let _persistent_guard = self
-            .lock_store
-            .acquire_install_lock(&request.tool_id)
-            .await
-            .map_err(|error| ToolRuntimeError::port("acquire persistent install lock", error))?;
+        let _guard = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                return Err(ToolRuntimeError::cancelled(&request.tool_id, &request.version));
+            }
+            guard = install_lock.lock() => guard,
+        };
+        let _persistent_guard = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => {
+                return Err(ToolRuntimeError::cancelled(&request.tool_id, &request.version));
+            }
+            result = self.lock_store.acquire_install_lock(&request.tool_id) => {
+                result.map_err(|error| {
+                    ToolRuntimeError::port("acquire persistent install lock", error)
+                })?
+            }
+        };
         self.reconcile_staging(&request.tool_id).await?;
         self.install(request, cancellation).await
     }
@@ -401,8 +431,14 @@ impl ToolRuntime {
             executable_path: version_dir.join(&request.executable_name),
             installed_at_unix_ms: unix_time_ms(),
         };
-        if let Err(error) = self.lock_store.commit_current(&lock).await {
+        if let Err(error) = self.lock_store.commit_current(&lock, cancellation).await {
             let _ = self.filesystem.remove_dir_all(&version_dir).await;
+            if cancellation.is_cancelled() {
+                return Err(ToolRuntimeError::cancelled(
+                    &request.tool_id,
+                    &request.version,
+                ));
+            }
             return Err(ToolRuntimeError::port("commit current installation", error));
         }
         Ok(self.acquire_lease(&lock))

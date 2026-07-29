@@ -8,8 +8,8 @@ use tokio::{fs, process::Command};
 use uuid::Uuid;
 
 use crate::{
-    Downloader, InstallationLockGuard, InstallationLockStore, PortError, ProcessProbe,
-    ToolFilesystem, ToolInstallationLock,
+    CancellationToken, Downloader, InstallationLockGuard, InstallationLockStore, PortError,
+    ProcessProbe, ToolFilesystem, ToolInstallationLock,
 };
 
 #[derive(Clone)]
@@ -173,9 +173,23 @@ impl InstallationLockStore for FileInstallationLockStore {
         serde_json::from_slice(&bytes).map(Some).map_err(port_error)
     }
 
-    async fn commit_current(&self, lock: &ToolInstallationLock) -> Result<(), PortError> {
+    async fn commit_current(
+        &self,
+        lock: &ToolInstallationLock,
+        cancellation: &CancellationToken,
+    ) -> Result<(), PortError> {
+        if cancellation.is_cancelled() {
+            return Err(PortError::new(
+                "installation cancelled before current pointer commit",
+            ));
+        }
         let bytes = serde_json::to_vec_pretty(lock).map_err(port_error)?;
         atomic_write(&self.version_lock_path(lock), &bytes).await?;
+        if cancellation.is_cancelled() {
+            return Err(PortError::new(
+                "installation cancelled before current pointer commit",
+            ));
+        }
         atomic_write(&self.current_path(&lock.tool_id), &bytes).await
     }
 }

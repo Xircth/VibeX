@@ -147,6 +147,54 @@ async fn rejects_tampered_current_before_returning_lease() {
 }
 
 #[tokio::test]
+async fn rejects_current_lock_with_mismatched_identity() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let managed_root = temporary.path().join("managed-tools");
+    let lock_store = Arc::new(FileInstallationLockStore::new(managed_root.clone()));
+    let bytes = b"verified tool".to_vec();
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(managed_root.clone()),
+        Arc::new(StaticDownloader(bytes.clone())),
+        Arc::new(LocalToolFilesystem),
+        Arc::new(RecordingProbe::default()),
+        lock_store.clone(),
+    )
+    .expect("absolute managed root");
+    let request = ToolRequest {
+        tool_id: "officecli".to_string(),
+        version: "0.8.0".to_string(),
+        target: "aarch64-apple-darwin".to_string(),
+        url: "fixture://officecli".to_string(),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        executable_name: "officecli".to_string(),
+        probe_args: vec!["--version".to_string()],
+    };
+    runtime
+        .ensure(&request, &CancellationToken::new())
+        .await
+        .expect("initial verified install");
+    let mut current = lock_store
+        .load_current("officecli")
+        .await
+        .expect("load current")
+        .expect("current lock");
+    current.tool_id = "another-tool".to_string();
+    tokio::fs::write(
+        managed_root.join("officecli/current.json"),
+        serde_json::to_vec_pretty(&current).expect("serialize tampered lock"),
+    )
+    .await
+    .expect("tamper current identity");
+
+    let error = runtime
+        .ensure(&request, &CancellationToken::new())
+        .await
+        .expect_err("a mismatched current identity must not receive a lease");
+
+    assert_eq!(error.code(), "tool_request_invalid");
+}
+
+#[tokio::test]
 async fn concurrent_runtimes_share_persistent_install_lock() {
     let temporary = tempfile::tempdir().expect("temporary directory");
     let managed_root = temporary.path().join("managed-tools");

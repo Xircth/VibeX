@@ -140,7 +140,16 @@ impl ProcessProbe for FakeProbe {
 #[derive(Default)]
 struct FakeLockStore {
     current: Mutex<HashMap<String, ToolInstallationLock>>,
+    cancel_on_commit: Mutex<Option<CancellationToken>>,
 }
+
+impl FakeLockStore {
+    fn cancel_during_next_commit(&self, cancellation: CancellationToken) {
+        *self.cancel_on_commit.lock().expect("commit cancellation") = Some(cancellation);
+    }
+}
+
+struct BlockingLockStore;
 
 #[async_trait]
 impl InstallationLockStore for FakeLockStore {
@@ -153,11 +162,53 @@ impl InstallationLockStore for FakeLockStore {
             .cloned())
     }
 
-    async fn commit_current(&self, lock: &ToolInstallationLock) -> Result<(), PortError> {
+    async fn commit_current(
+        &self,
+        lock: &ToolInstallationLock,
+        cancellation: &CancellationToken,
+    ) -> Result<(), PortError> {
+        if let Some(cancellation) = self
+            .cancel_on_commit
+            .lock()
+            .expect("commit cancellation")
+            .take()
+        {
+            cancellation.cancel();
+        }
+        if cancellation.is_cancelled() {
+            return Err(PortError::new(
+                "installation cancelled before current pointer commit",
+            ));
+        }
         self.current
             .lock()
             .expect("lock store")
             .insert(lock.tool_id.clone(), lock.clone());
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl InstallationLockStore for BlockingLockStore {
+    async fn acquire_install_lock(
+        &self,
+        _tool_id: &str,
+    ) -> Result<Box<dyn tool_runtime::InstallationLockGuard>, PortError> {
+        std::future::pending().await
+    }
+
+    async fn load_current(
+        &self,
+        _tool_id: &str,
+    ) -> Result<Option<ToolInstallationLock>, PortError> {
+        Ok(None)
+    }
+
+    async fn commit_current(
+        &self,
+        _lock: &ToolInstallationLock,
+        _cancellation: &CancellationToken,
+    ) -> Result<(), PortError> {
         Ok(())
     }
 }
@@ -365,6 +416,85 @@ async fn concurrent_ensure_uses_single_install_attempt() {
     first.expect("first ensure");
     second.expect("second ensure");
     assert_eq!(downloader.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn cancellation_interrupts_waiting_for_install_lock() {
+    let runtime = Arc::new(
+        ToolRuntime::new(
+            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            Arc::new(FakeDownloader {
+                bytes: b"v1".to_vec(),
+            }),
+            Arc::new(FakeFilesystem::default()),
+            Arc::new(SelectiveProbe),
+            Arc::new(BlockingLockStore),
+        )
+        .expect("absolute managed root"),
+    );
+    let cancellation = CancellationToken::new();
+    let task = {
+        let runtime = runtime.clone();
+        let cancellation = cancellation.clone();
+        tokio::spawn(async move {
+            runtime
+                .ensure(&request("1.0.0", b"v1", &["--version"]), &cancellation)
+                .await
+        })
+    };
+    tokio::task::yield_now().await;
+    cancellation.cancel();
+
+    let error = tokio::time::timeout(Duration::from_millis(100), task)
+        .await
+        .expect("lock wait must be cancellable")
+        .expect("ensure task")
+        .expect_err("cancelled lock wait");
+
+    assert_eq!(error.code(), "tool_install_cancelled");
+}
+
+#[tokio::test]
+async fn cancellation_at_current_commit_keeps_previous_version() {
+    let lock_store = Arc::new(FakeLockStore::default());
+    let runtime = ToolRuntime::new(
+        ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+        Arc::new(CatalogDownloader {
+            artifacts: HashMap::from([
+                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
+                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+            ]),
+        }),
+        Arc::new(FakeFilesystem::default()),
+        Arc::new(SelectiveProbe),
+        lock_store.clone(),
+    )
+    .expect("absolute managed root");
+    runtime
+        .ensure(
+            &request("1.0.0", b"v1", &["--version"]),
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("v1 install");
+    let cancellation = CancellationToken::new();
+    lock_store.cancel_during_next_commit(cancellation.clone());
+
+    let error = runtime
+        .upgrade(&request("2.0.0", b"v2", &["--version"]), &cancellation)
+        .await
+        .expect_err("cancellation at the commit boundary must reject v2");
+
+    assert_eq!(error.code(), "tool_install_cancelled");
+    assert_eq!(
+        lock_store
+            .load_current("officecli")
+            .await
+            .expect("current after cancellation")
+            .expect("v1 remains current")
+            .version,
+        "1.0.0"
+    );
 }
 
 #[tokio::test]

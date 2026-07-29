@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 
-use crate::{PortError, ToolInstallationLock};
+use crate::{CancellationToken, PortError, ToolInstallationLock};
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
@@ -43,5 +43,12 @@ pub trait InstallationLockStore: Send + Sync {
 
     async fn load_current(&self, tool_id: &str) -> Result<Option<ToolInstallationLock>, PortError>;
 
-    async fn commit_current(&self, lock: &ToolInstallationLock) -> Result<(), PortError>;
+    /// Commits the current pointer at a cancellation-aware linearization
+    /// boundary. Once this returns `Ok`, a later cancellation is considered
+    /// too late to roll the committed version back.
+    async fn commit_current(
+        &self,
+        lock: &ToolInstallationLock,
+        cancellation: &CancellationToken,
+    ) -> Result<(), PortError>;
 }

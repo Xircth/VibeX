@@ -37,7 +37,7 @@ Conversation projection seam.
 | Ask cancellation | Dropping the requester left its question occupying the parent scope | `cargo test -p delegation canceled_ask_releases_the_scope_for_a_later_question --lib` |
 | Ask socket cancellation | MCP cancellation closed the socket but the listener kept the Ask future alive | `cargo test -p delegation ask_socket_disconnect_releases_the_pending_question --lib` |
 | Resolver release | Explicit cancellation disconnected the child without releasing resolver correlation | `cargo test -p delegation cancel_running_task_marks_canceled_and_tears_down --lib` |
-| Parent setup authority | A slow spawn could outlive bounded closed-parent history and register a child | `cargo test -p delegation parent_close_lease_survives_closed_history_eviction --lib` |
+| Parent setup authority | A slow depth lookup or spawn could outlive bounded closed-parent history and register a child | `cargo test -p delegation parent_close_lease_starts_before_async_depth_lookup --lib`; `parent_close_lease_survives_closed_history_eviction` |
 | Long transcript stream | A single assistant message over 10,000 deltas lost its first chunks | `cargo test -p vibex compact_transcript_does_not_cut_a_long_streamed_message --lib` |
 
 Fixed-point review added regression coverage for:

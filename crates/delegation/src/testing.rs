@@ -154,6 +154,8 @@ impl ConnectionSpawner for MockSpawner {
 #[derive(Default)]
 pub struct MockDepthLookup {
     pub parents: HashMap<Uuid, Uuid>,
+    pub reached_gate: Option<Arc<Notify>>,
+    pub release_gate: Option<Arc<Notify>>,
 }
 
 impl MockDepthLookup {
@@ -163,13 +165,23 @@ impl MockDepthLookup {
         for pair in ids.windows(2) {
             parents.insert(pair[1], pair[0]);
         }
-        Self { parents }
+        Self {
+            parents,
+            reached_gate: None,
+            release_gate: None,
+        }
     }
 }
 
 #[async_trait]
 impl DepthLookup for MockDepthLookup {
     async fn parent_session_id(&self, session_id: Uuid) -> Result<Option<Uuid>, DelegationError> {
+        if let Some(reached) = &self.reached_gate {
+            reached.notify_one();
+        }
+        if let Some(release) = &self.release_gate {
+            release.notified().await;
+        }
         Ok(self.parents.get(&session_id).copied())
     }
 }

@@ -252,30 +252,9 @@ impl DelegationBroker {
             return failed_setup_report("canceled", "delegation is disabled");
         }
 
-        // Depth pre-check: walk the parent chain. Reject if the child would sit
-        // strictly past the configured limit (root delegates at depth 1).
-        let depth_lookup = self.depth_lookup.clone();
-        let parent_depth = match compute_depth(
-            req.parent_session_id,
-            move |id| {
-                let lookup = depth_lookup.clone();
-                async move { lookup.parent_session_id(id).await }
-            },
-            config.depth_limit + 1,
-        )
-        .await
-        {
-            Ok(depth) => depth,
-            Err(err) => return failed_setup_report("subagent_error", &err.to_string()),
-        };
-        if parent_depth + 1 > config.depth_limit {
-            let err = DelegationError::DepthLimitExceeded {
-                current_depth: parent_depth + 1,
-                limit: config.depth_limit,
-            };
-            return failed_setup_report("depth_limit", &err.to_string());
-        }
-
+        // Acquire parent authority before the first await. Teardown can revoke
+        // this lease even if its bounded historical tombstone is evicted while
+        // depth lookup or child spawn is suspended.
         let scope = DelegationScope {
             parent_connection_id: req.parent_connection_id.clone(),
             parent_conversation_id: req.parent_session_id,
@@ -299,12 +278,34 @@ impl DelegationBroker {
             }
         };
         if self.take_pre_canceled_handle(&scope, req.external_handle.as_deref()) {
-            remove_parent_setup_lease(
-                &mut self.pending.lock().unwrap(),
-                &req.parent_connection_id,
-                &parent_setup_lease.revoked,
-            );
             return failed_setup_report("canceled", "canceled by MCP client");
+        }
+
+        // Depth pre-check: walk the parent chain. Reject if the child would sit
+        // strictly past the configured limit (root delegates at depth 1).
+        let depth_lookup = self.depth_lookup.clone();
+        let parent_depth = match compute_depth(
+            req.parent_session_id,
+            move |id| {
+                let lookup = depth_lookup.clone();
+                async move { lookup.parent_session_id(id).await }
+            },
+            config.depth_limit + 1,
+        )
+        .await
+        {
+            Ok(depth) => depth,
+            Err(err) => return failed_setup_report("subagent_error", &err.to_string()),
+        };
+        if parent_depth + 1 > config.depth_limit {
+            let err = DelegationError::DepthLimitExceeded {
+                current_depth: parent_depth + 1,
+                limit: config.depth_limit,
+            };
+            return failed_setup_report("depth_limit", &err.to_string());
+        }
+        if parent_setup_lease.revoked.load(Ordering::Acquire) {
+            return failed_setup_report("canceled", "parent connection is closed");
         }
 
         let call_id = Uuid::new_v4().to_string();
@@ -2120,5 +2121,33 @@ mod tests {
         assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
         assert!(spawner.calls.lock().unwrap().prompts.is_empty());
         assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn parent_close_lease_starts_before_async_depth_lookup() {
+        let reached = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let depth = MockDepthLookup {
+            parents: HashMap::new(),
+            reached_gate: Some(reached.clone()),
+            release_gate: Some(release.clone()),
+        };
+        let h = Arc::new(harness(depth, DelegationConfig::default()));
+        let start = tokio::spawn({
+            let h = h.clone();
+            async move { h.broker.start_delegation(request(Uuid::nil())).await }
+        });
+        reached.notified().await;
+
+        h.broker.parent_closed("parent-conn").await;
+        for index in 0..TOMBSTONE_CAP {
+            h.broker
+                .parent_closed(&format!("newer-depth-parent-{index}"))
+                .await;
+        }
+        release.notify_one();
+
+        assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
+        assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
     }
 }

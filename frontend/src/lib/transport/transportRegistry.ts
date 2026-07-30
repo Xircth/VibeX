@@ -2,26 +2,30 @@ import type { BackendTransport } from './backendTransport';
 import { tauriBackendTransport } from './tauriTransport';
 
 let configuredTransport = tauriBackendTransport;
-const mountedTransports: Array<{
-  token: symbol;
-  transport: BackendTransport;
-}> = [];
+let mountedTransport:
+  | {
+      token: symbol;
+      transport: BackendTransport;
+    }
+  | undefined;
 
 export function configureBackendTransport(transport: BackendTransport): void {
   configuredTransport = transport;
 }
 
 export function getBackendTransport(): BackendTransport {
-  return mountedTransports.at(-1)?.transport ?? configuredTransport;
+  return mountedTransport?.transport ?? configuredTransport;
 }
 
 export function mountBackendTransport(transport: BackendTransport): () => void {
+  if (mountedTransport) {
+    throw new Error('Only one BackendTransportProvider may be mounted');
+  }
   const token = Symbol('backend-transport-provider');
-  mountedTransports.push({ token, transport });
+  mountedTransport = { token, transport };
   return () => {
-    const index = mountedTransports.findIndex((entry) => entry.token === token);
-    if (index >= 0) {
-      mountedTransports.splice(index, 1);
+    if (mountedTransport?.token === token) {
+      mountedTransport = undefined;
     }
   };
 }

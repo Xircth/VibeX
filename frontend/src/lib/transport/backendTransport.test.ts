@@ -17,6 +17,7 @@ import {
 import type { BackendTransport } from './backendTransport';
 import { BackendTransportProvider } from './BackendTransportProvider';
 import { tauriBackendTransport } from './tauriTransport';
+import { mountBackendTransport } from './transportRegistry';
 
 vi.mock('@tauri-apps/api/core', () => {
   throw new Error('feature tests must not import @tauri-apps/api');
@@ -117,5 +118,24 @@ describe('BackendTransport conversation tracer', () => {
       ['automation_templates', undefined],
       ['plugin_action_catalog', undefined],
     ]);
+  });
+
+  it('rejects multiple process-wide providers instead of splitting facade and context semantics', () => {
+    const first: BackendTransport = {
+      environment: 'web',
+      call: vi.fn(),
+    };
+    const second: BackendTransport = {
+      environment: 'remote-desktop',
+      call: vi.fn(),
+    };
+    const release = mountBackendTransport(first);
+    try {
+      expect(() => mountBackendTransport(second)).toThrow(
+        'Only one BackendTransportProvider may be mounted'
+      );
+    } finally {
+      release();
+    }
   });
 });

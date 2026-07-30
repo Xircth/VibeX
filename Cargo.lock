@@ -6259,6 +6259,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "axum",
+ "db",
+ "dirs 5.0.1",
+ "remote-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "services"
 version = "0.1.8"
 dependencies = [

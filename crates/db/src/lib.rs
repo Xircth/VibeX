@@ -304,9 +304,18 @@ pub struct DBService {
 
 impl DBService {
     pub async fn new() -> Result<DBService, Error> {
+        Self::new_at(asset_dir()).await
+    }
+
+    /// Open the canonical VibeX database beneath an explicit data directory.
+    ///
+    /// Headless and desktop composition roots use this same initializer so
+    /// migrations and SQLite concurrency settings cannot drift by host.
+    pub async fn new_at(data_dir: impl AsRef<std::path::Path>) -> Result<DBService, Error> {
+        std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
         let database_url = format!(
             "sqlite://{}",
-            asset_dir().join("db.sqlite").to_string_lossy()
+            data_dir.as_ref().join("db.sqlite").to_string_lossy()
         );
         // WAL lets readers (git-status polls, conversation detail) run concurrently
         // with the writer (the ACP event persistence sink, which writes rapidly

@@ -23,6 +23,7 @@ members = [
     "crates/automation",
     "crates/remote-protocol",
     "crates/application",
+    "crates/server",
     "src-tauri",
 ]
 

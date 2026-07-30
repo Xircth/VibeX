@@ -42,6 +42,14 @@ async fn main() -> ExitCode {
     if let Some(static_root) = std::env::var_os("VIBEX_STATIC_ROOT") {
         server = server.with_static_root(PathBuf::from(static_root));
     }
+    if let Ok(origins) = std::env::var("VIBEX_SERVER_ALLOWED_ORIGINS") {
+        server = server.with_allowed_origins(
+            origins
+                .split(',')
+                .map(str::trim)
+                .filter(|origin| !origin.is_empty()),
+        );
+    }
     let supplied_token = std::env::var("VIBEX_SERVER_TOKEN")
         .ok()
         .filter(|token| !token.trim().is_empty())

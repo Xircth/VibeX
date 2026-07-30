@@ -10,8 +10,11 @@ const ADOPTED_REMOTE_FILES = [
   'src/lib/transport/remote-desktop-transport.ts',
   'src/lib/transport/web-event-stream.ts',
   'src/lib/transport/web-transport.ts',
+  'src-tauri/src/bin/codeg_server.rs',
+  'src-tauri/src/web/auth.rs',
   'src-tauri/src/web/router.rs',
   'src-tauri/src/web/event_bridge.rs',
+  'src-tauri/src/web/ws.rs',
 ];
 
 function validateCodegAdoption({ adoption, notices, license }) {

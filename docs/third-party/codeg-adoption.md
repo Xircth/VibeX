@@ -91,8 +91,11 @@ The Agent I slice reviewed these additional files at the same pinned commit:
 - `src/lib/transport/remote-desktop-transport.ts`
 - `src/lib/transport/web-event-stream.ts`
 - `src/lib/transport/web-transport.ts`
+- `src-tauri/src/bin/codeg_server.rs`
+- `src-tauri/src/web/auth.rs`
 - `src-tauri/src/web/router.rs`
 - `src-tauri/src/web/event_bridge.rs`
+- `src-tauri/src/web/ws.rs`
 
 VibeX adopted the observable transport separation and attach lifecycle:
 transport-neutral calls and subscriptions, capability discovery, snapshot or
@@ -101,9 +104,14 @@ delivery. VibeX-specific changes replace Codeg's arbitrary string dispatch
 with a typed command registry and replace the in-memory ACP ring buffer as the
 recovery authority with persisted Conversation event sequences.
 
-No Codeg Web router or Axum server implementation was ported. The Application
-Core is independent of Tauri and Axum, and the local Tauri command is only an
-adapter over the same use case used by future remote transports.
+No Codeg Web router or Axum server file was copied byte-for-byte. VibeX adapted
+the observable authenticated headless-server boundary, one WebSocket carrying
+multiple durable subscriptions, and static SPA hosting. VibeX-specific changes
+use a hashed bearer-token store, stable `remote-protocol` envelopes, a closed
+Application command registry, persisted Conversation sequence replay, explicit
+CORS allowlists, and one Automation owner lock per data directory. The
+Application Core remains independent of Tauri and Axum; both local and remote
+adapters invoke the same use cases.
 
 ## Verification
 

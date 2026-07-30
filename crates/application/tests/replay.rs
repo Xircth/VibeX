@@ -1,10 +1,27 @@
 use std::str::FromStr;
 
-use application::{ApplicationCore, Principal, SqliteConversationRepository};
+use application::{
+    ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
+    SqliteConversationRepository,
+};
+use async_trait::async_trait;
 use db::models::conversation_event::{AppendConversationEvent, ConversationEventRecord};
 use remote_protocol::{ConversationId, EventCursor, SubscriptionId};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use uuid::Uuid;
+
+struct ReadySubscriptions;
+
+#[async_trait]
+impl ConversationSubscriptionRegistrar for ReadySubscriptions {
+    async fn register(
+        &self,
+        _subscription_id: SubscriptionId,
+        _conversation_id: ConversationId,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+}
 
 #[tokio::test]
 async fn replay_uses_durable_sequence_and_preserves_unknown_events() {
@@ -56,6 +73,7 @@ async fn replay_uses_durable_sequence_and_preserves_unknown_events() {
             SubscriptionId::new(),
             ConversationId::from_uuid(conversation_id),
             0,
+            &ReadySubscriptions,
         )
         .await
         .expect("snapshot attach");
@@ -72,6 +90,7 @@ async fn replay_uses_durable_sequence_and_preserves_unknown_events() {
             SubscriptionId::new(),
             ConversationId::from_uuid(conversation_id),
             1,
+            &ReadySubscriptions,
         )
         .await
         .expect("incremental attach");
@@ -81,4 +100,77 @@ async fn replay_uses_durable_sequence_and_preserves_unknown_events() {
     let mut cursor = EventCursor::after(1);
     assert!(cursor.accept(&incremental.replay[0]));
     assert!(!cursor.accept(&incremental.replay[0]));
+}
+
+struct AppendDuringRegistration {
+    pool: sqlx::SqlitePool,
+}
+
+#[async_trait]
+impl ConversationSubscriptionRegistrar for AppendDuringRegistration {
+    async fn register(
+        &self,
+        _subscription_id: SubscriptionId,
+        conversation_id: ConversationId,
+    ) -> Result<(), ApplicationError> {
+        ConversationEventRecord::append(
+            &self.pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: conversation_id.as_uuid(),
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "host",
+                event_kind: "turn_started",
+                normalized_json: r#"{"kind":"turn_started"}"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn attach_registers_live_delivery_before_capturing_the_high_water_mark() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("disable foreign keys for focused fixture");
+    let conversation_id = Uuid::new_v4();
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool.clone()));
+
+    let bootstrap = core
+        .attach_conversation(
+            &Principal::local_desktop(),
+            SubscriptionId::new(),
+            ConversationId::from_uuid(conversation_id),
+            0,
+            &AppendDuringRegistration { pool },
+        )
+        .await
+        .expect("attach");
+
+    assert!(bootstrap.ready);
+    assert_eq!(bootstrap.high_water_mark, 1);
+    assert_eq!(
+        bootstrap.snapshot.expect("snapshot").payload["events"][0]["kind"],
+        "turn_started"
+    );
 }

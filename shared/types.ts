@@ -1262,7 +1262,7 @@ export type ConversationId = string;
 
 export type ErrorCode = "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "capability_unavailable" | "internal";
 
-export type ErrorEnvelope = { code: ErrorCode, message: string, retryable: boolean, operation_id: OperationId, details?: JsonValue | null, };
+export type ErrorEnvelope = { code: ErrorCode, message: string, retryable: boolean, operation_id: OperationId, details: JsonValue | null, };
 
 export type OperationId = string;
 

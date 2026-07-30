@@ -25,7 +25,7 @@ pub struct ErrorEnvelope {
     pub message: String,
     pub retryable: bool,
     pub operation_id: OperationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub details: Option<serde_json::Value>,
 }
 

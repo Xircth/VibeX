@@ -31,3 +31,24 @@ fn command_error_fixture_has_a_stable_envelope() {
         })
     );
 }
+
+#[test]
+fn error_details_field_is_stable_when_no_details_are_available() {
+    let error = ErrorEnvelope::new(
+        ErrorCode::Internal,
+        "unexpected failure",
+        true,
+        OperationId::new(),
+    );
+
+    assert_eq!(
+        serde_json::to_value(&error).expect("serialize error"),
+        json!({
+            "code": "internal",
+            "message": "unexpected failure",
+            "retryable": true,
+            "operation_id": error.operation_id,
+            "details": null
+        })
+    );
+}

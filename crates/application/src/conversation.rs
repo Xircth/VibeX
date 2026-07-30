@@ -32,6 +32,18 @@ pub trait ConversationRepository: Send + Sync {
     ) -> Result<SubscriptionBootstrap, ApplicationError>;
 }
 
+/// Adapter-owned live stream registration. Implementations must make future
+/// events observable before returning, so the durable snapshot taken
+/// afterwards closes the attach race without depending on a UI runtime.
+#[async_trait]
+pub trait ConversationSubscriptionRegistrar: Send + Sync {
+    async fn register(
+        &self,
+        subscription_id: SubscriptionId,
+        conversation_id: ConversationId,
+    ) -> Result<(), ApplicationError>;
+}
+
 #[derive(Clone)]
 pub struct SqliteConversationRepository {
     pool: SqlitePool,
@@ -79,7 +91,7 @@ impl ConversationRepository for SqliteConversationRepository {
             &mut *transaction,
             conversation_uuid,
             after_sequence,
-            10_000,
+            i64::MAX,
         )
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
@@ -111,7 +123,7 @@ impl ConversationRepository for SqliteConversationRepository {
         };
         Ok(SubscriptionBootstrap {
             subscription_id,
-            ready: true,
+            ready: false,
             snapshot,
             replay,
             high_water_mark,
@@ -146,20 +158,30 @@ where
             .await
     }
 
-    pub async fn attach_conversation(
+    pub async fn attach_conversation<S>(
         &self,
         principal: &Principal,
         subscription_id: SubscriptionId,
         conversation_id: ConversationId,
         after_sequence: i64,
-    ) -> Result<SubscriptionBootstrap, ApplicationError> {
+        subscriptions: &S,
+    ) -> Result<SubscriptionBootstrap, ApplicationError>
+    where
+        S: ConversationSubscriptionRegistrar + ?Sized,
+    {
         if !principal.allows(READ_CONVERSATIONS_SCOPE) {
             return Err(ApplicationError::forbidden(
                 "principal lacks conversation.read",
             ));
         }
-        self.conversations
+        subscriptions
+            .register(subscription_id, conversation_id)
+            .await?;
+        let mut bootstrap = self
+            .conversations
             .attach(subscription_id, conversation_id, after_sequence)
-            .await
+            .await?;
+        bootstrap.ready = true;
+        Ok(bootstrap)
     }
 }

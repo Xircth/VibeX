@@ -345,13 +345,49 @@ pub async fn conversation_list(
     .map_err(application::ApplicationError::into_envelope)
 }
 
+/// Closed application command adapter. Only names present in
+/// `application::CommandRegistry` can cross this boundary.
+#[tauri::command]
+pub async fn application_call(
+    state: tauri::State<'_, AppState>,
+    command: String,
+    operation_id: remote_protocol::OperationId,
+    args: serde_json::Value,
+) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
+    use application::{ApplicationCore, CommandRegistry, Principal, SqliteConversationRepository};
+
+    CommandRegistry::new(ApplicationCore::new(SqliteConversationRepository::new(
+        state.deployment.db().pool.clone(),
+    )))
+    .execute_name(&Principal::local_desktop(), &command, operation_id, args)
+    .await
+}
+
 #[tauri::command]
 pub async fn conversation_attach(
     state: tauri::State<'_, AppState>,
     request: remote_protocol::SubscriptionRequest,
 ) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
-    use application::{ApplicationCore, Principal, SqliteConversationRepository};
+    use application::{
+        ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
+        SqliteConversationRepository,
+    };
     use remote_protocol::SubscriptionResource;
+
+    struct TauriConversationSubscriptions;
+
+    #[async_trait::async_trait]
+    impl ConversationSubscriptionRegistrar for TauriConversationSubscriptions {
+        async fn register(
+            &self,
+            _subscription_id: remote_protocol::SubscriptionId,
+            _conversation_id: remote_protocol::ConversationId,
+        ) -> Result<(), ApplicationError> {
+            // Tauri's process-wide event channel is already active; the desktop
+            // transport installs its listener before invoking this command.
+            Ok(())
+        }
+    }
 
     let SubscriptionResource::Conversation {
         conversation_id,
@@ -365,6 +401,7 @@ pub async fn conversation_attach(
         request.subscription_id,
         conversation_id,
         after_sequence,
+        &TauriConversationSubscriptions,
     )
     .await
     .map_err(application::ApplicationError::into_envelope)

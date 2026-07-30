@@ -89,7 +89,8 @@
     "duration": "Took {{duration}}",
     "running": "Running",
     "completed": "Completed",
-    "failed": "Failed"
+    "failed": "Failed",
+    "canceled": "Canceled"
   },
   "commandTool": {
     "commandLabel": "Command",

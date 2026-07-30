@@ -1027,6 +1027,14 @@ impl ProjectionFold {
                 // than a second, context-less "completed" row.
                 let status = match &result {
                     ConversationDelegationResult::Ok { .. } => "completed",
+                    ConversationDelegationResult::Err { error }
+                        if matches!(
+                            error.code.as_deref(),
+                            Some("canceled" | "cancelled" | "request_cancelled")
+                        ) =>
+                    {
+                        "canceled"
+                    }
                     ConversationDelegationResult::Err { .. } => "failed",
                 };
                 let mut merged = false;
@@ -2724,6 +2732,66 @@ mod tests {
             .expect("child exists");
         assert_eq!(child.parent_session_id, Some(parent_conversation_id));
         assert_eq!(child.parent_tool_use_id.as_deref(), Some("tool-1"));
+    }
+
+    #[tokio::test]
+    async fn canceled_delegation_remains_canceled_after_projection_rebuild() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let delegation_id = "delegation-canceled-1";
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation {
+                    delegation_id: delegation_id.into(),
+                    parent_tool_call_id: "tool-canceled-1".into(),
+                    child_conversation_id: Uuid::new_v4(),
+                    agent_id: AgentId::parse("codex").unwrap(),
+                    task_preview: "Review cancellation behavior".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationCompleted {
+                delegation_id: delegation_id.into(),
+                result: ConversationDelegationResult::Err {
+                    error: ConversationError {
+                        message: "canceled by request".into(),
+                        code: Some("canceled".into()),
+                        raw: None,
+                    },
+                },
+            },
+            None,
+        )
+        .await;
+
+        ConversationProjector::rebuild_projection(&pool, conversation_id)
+            .await
+            .expect("rebuild projection");
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project rebuilt timeline");
+        let delegation = timeline
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::Delegation { delegation } => Some(delegation),
+                _ => None,
+            })
+            .expect("delegation row");
+
+        assert_eq!(delegation.status, "canceled");
+        assert!(delegation.child_conversation_id.is_some());
     }
 
     #[tokio::test]

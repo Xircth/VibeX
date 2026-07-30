@@ -1035,6 +1035,7 @@ fn default_conversation_capabilities() -> AcpCapabilitySnapshot {
         load_session: true,
         close_session: true,
         terminal: true,
+        mcp_servers: true,
         ..Default::default()
     }
 }

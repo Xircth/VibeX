@@ -941,6 +941,8 @@ impl ConversationSessionService {
         let acp_session_id = known_acp_session_id
             .clone()
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
+        let session_capabilities_json = serde_json::to_string(&default_capabilities())
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
 
         // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
         // process ended (host restart, or the conversation was closed), the runtime has
@@ -974,7 +976,7 @@ impl ConversationSessionService {
                 terminal_supported: true,
                 additional_directories_supported: false,
                 prompt_capabilities_json: r#"{"text":true,"image":true,"resource":false}"#,
-                session_capabilities_json: "{}",
+                session_capabilities_json: &session_capabilities_json,
                 client_capabilities_json: "{}",
                 mcp_servers_json: "[]",
                 modes_json: "[]",
@@ -1755,6 +1757,7 @@ fn default_capabilities() -> AcpCapabilitySnapshot {
         load_session: true,
         close_session: true,
         terminal: true,
+        mcp_servers: true,
         ..Default::default()
     }
 }
@@ -2143,6 +2146,7 @@ mod tests {
         assert!(capabilities.load_session);
         assert!(capabilities.close_session);
         assert!(capabilities.terminal);
+        assert!(capabilities.mcp_servers);
     }
 
     #[test]

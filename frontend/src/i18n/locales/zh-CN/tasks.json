@@ -1,4 +1,12 @@
 {
+  "composer": {
+    "inputLabel": "消息"
+  },
+  "agentMention": {
+    "companionUnsupported": "当前父 Agent 不支持 VibeX companion，Mention 不会启动委派。",
+    "loading": "正在加载 Agent...",
+    "noMatches": "没有匹配的 Agent。"
+  },
   "sessionConversationView": {
     "backToBottom": "回到消息底部",
     "loadingSession": "正在加载会话..."

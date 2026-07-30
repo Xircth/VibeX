@@ -165,4 +165,36 @@ describe('useFollowUpSend', () => {
 
     expect(queryClient.getQueryState(summariesKey)?.isInvalidated).toBe(true);
   });
+
+  it('sends stable agent mention URIs unchanged to the parent agent', async () => {
+    sendTurnMock.mockResolvedValue({});
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const message =
+      'Compare [&Codex](vibex://agent/codex) and [&Claude Code](vibex://agent/claude_code)';
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message,
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ text: message })
+    );
+  });
 });

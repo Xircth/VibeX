@@ -1,4 +1,12 @@
 {
+  "composer": {
+    "inputLabel": "Message"
+  },
+  "agentMention": {
+    "companionUnsupported": "The current parent agent does not support the VibeX companion, so this mention will not start a delegation.",
+    "loading": "Loading agents...",
+    "noMatches": "No matching agents found."
+  },
   "sessionConversationView": {
     "backToBottom": "Back to bottom",
     "loadingSession": "Loading session..."

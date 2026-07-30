@@ -13,7 +13,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Image, Loader2, X } from 'lucide-react';
+import { Image, Loader2, TriangleAlert, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { TypeaheadMenu } from '@/components/ui/wysiwyg/plugins/typeahead-menu-components';
@@ -53,6 +54,7 @@ import {
 } from './sessionComposerTypeahead';
 import {
   dollarCommandsToTypeaheadOptions,
+  agentMentionsToTypeaheadOptions,
   referenceResultsToTypeaheadOptions,
   rootEntriesToFileReferenceOptions,
   slashCommandsToTypeaheadOptions,
@@ -68,6 +70,7 @@ import {
   getSessionComposerTokenChipClassName,
   getSessionComposerTokenChipTitle,
 } from './SessionComposerStructuredText';
+import { useAgentMentions } from './AgentMention';
 
 export type SessionComposerImage = {
   id: string;
@@ -534,6 +537,7 @@ export function SessionComposerInput({
   onAttachImages,
   onRemoveImage,
 }: SessionComposerInputProps) {
+  const { t } = useTranslation('tasks');
   const {
     sendShortcut = 'Enter',
     taskAttemptId,
@@ -546,6 +550,7 @@ export function SessionComposerInput({
     availableCommands = [],
   } = context ?? {};
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const renderedEditorHtmlRef = useRef<string | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
   const blurTimerRef = useRef<number | null>(null);
   const selectionRef = useRef<ComposerSelection>({
@@ -560,16 +565,36 @@ export function SessionComposerInput({
   const typeaheadTrigger = typeaheadState?.trigger ?? null;
   const typeaheadQuery = typeaheadState?.match.matchingString ?? '';
   const executor = executorProfile?.executor ?? null;
+  const agentMentions = useAgentMentions();
   const effectiveRepoIds = useMemo(() => {
     const ids = repoIds?.filter(Boolean) ?? [];
     if (ids.length > 0) return ids;
     return repoId ? [repoId] : [];
   }, [repoId, repoIds]);
   const primaryRepoId = effectiveRepoIds[0] ?? null;
-  const structuredSegments = useMemo(
-    () => getSessionComposerStructuredTokenSegments(value),
-    [value]
-  );
+  const structuredSegments = useMemo(() => {
+    const segments = getSessionComposerStructuredTokenSegments(value);
+    if (agentMentions.candidates.length === 0) return segments;
+
+    return segments.map((segment) => {
+      if (segment.kind !== 'token' || segment.token.kind !== 'agent_mention') {
+        return segment;
+      }
+      const candidate = agentMentions.candidates.find(
+        (entry) => entry.agent_kind === segment.token.key
+      );
+      if (!candidate) return segment;
+
+      return {
+        ...segment,
+        token: {
+          ...segment.token,
+          label: `&${candidate.display_name}`,
+          title: candidate.agent_kind,
+        },
+      };
+    });
+  }, [agentMentions.candidates, value]);
 
   const slashCommandsQuery = useSlashCommands(executorProfile, {
     workspaceId,
@@ -658,6 +683,13 @@ export function SessionComposerInput({
       );
     }
 
+    if (typeaheadState.trigger === '&') {
+      return agentMentionsToTypeaheadOptions(
+        agentMentions.candidates,
+        typeaheadQuery
+      );
+    }
+
     if (typeaheadState.trigger === '@' && typeaheadQuery.trim() === '') {
       if (!initialRootEntries) return [];
       return rootEntriesToFileReferenceOptions(initialRootEntries);
@@ -674,6 +706,7 @@ export function SessionComposerInput({
   }, [
     allDollarCommands,
     allSlashCommands,
+    agentMentions.candidates,
     executor,
     initialRootEntries,
     referenceResults,
@@ -689,7 +722,8 @@ export function SessionComposerInput({
       !!primaryRepoId &&
       isInitialRootEntriesLoading) ||
     ((typeaheadTrigger === '@' || typeaheadTrigger === '#') &&
-      isSearchingReferences);
+      isSearchingReferences) ||
+    (typeaheadTrigger === '&' && agentMentions.loading);
   const shouldShowTypeahead =
     !!typeaheadState &&
     (typeaheadOptions.length > 0 ||
@@ -697,18 +731,21 @@ export function SessionComposerInput({
       typeaheadTrigger === '$' ||
       typeaheadTrigger === '@' ||
       typeaheadTrigger === '#' ||
+      typeaheadTrigger === '&' ||
       (typeaheadTrigger === '/' && !!executor));
   const typeaheadEmptyText = useMemo(() => {
     if (isTypeaheadLoading) {
       if (typeaheadTrigger === '@') return 'Searching files...';
       if (typeaheadTrigger === '#') return 'Searching tags...';
+      if (typeaheadTrigger === '&') return t('agentMention.loading');
       return 'Loading commands...';
     }
 
     if (typeaheadTrigger === '@') return 'No matching files found.';
     if (typeaheadTrigger === '#') return 'No matching tags found.';
+    if (typeaheadTrigger === '&') return t('agentMention.noMatches');
     return 'No matching commands found.';
-  }, [isTypeaheadLoading, typeaheadTrigger]);
+  }, [isTypeaheadLoading, t, typeaheadTrigger]);
 
   useEffect(() => {
     return () => {
@@ -853,9 +890,13 @@ export function SessionComposerInput({
     const editor = editorRef.current;
     if (!editor) return;
 
-    const didSyncDom = readEditorValue(editor) !== value;
+    const didPresentationChange =
+      renderedEditorHtmlRef.current !== renderedEditorHtml;
+    const didSyncDom =
+      readEditorValue(editor) !== value || didPresentationChange;
     if (didSyncDom) {
       editor.innerHTML = renderedEditorHtml;
+      renderedEditorHtmlRef.current = renderedEditorHtml;
     }
     if (!isInputFocused) return;
     if (!didSyncDom && pendingSelectionRef.current === null) return;
@@ -960,6 +1001,28 @@ export function SessionComposerInput({
         });
     },
     [closeTypeahead, onAttachImages, onChange, value]
+  );
+
+  const handleCopy = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      const selection = getEditorSelection(event.currentTarget);
+      if (!selection || selection.start === selection.end) return;
+
+      const containsStructuredToken = structuredSegments.some(
+        (segment) =>
+          segment.kind === 'token' &&
+          segment.end > selection.start &&
+          segment.start < selection.end
+      );
+      if (!containsStructuredToken) return;
+
+      event.preventDefault();
+      event.clipboardData.setData(
+        'text/plain',
+        value.slice(selection.start, selection.end)
+      );
+    },
+    [structuredSegments, value]
   );
 
   const handleDrop = useCallback(
@@ -1174,6 +1237,7 @@ export function SessionComposerInput({
         <div
           ref={editorRef}
           role="textbox"
+          aria-label={t('composer.inputLabel')}
           aria-multiline="true"
           contentEditable={!disabled}
           suppressContentEditableWarning
@@ -1218,6 +1282,7 @@ export function SessionComposerInput({
             }, 120);
           }}
           onPaste={handlePaste}
+          onCopy={handleCopy}
           onDrop={handleDrop}
           onDragOver={(event) => {
             if (hasFileReferenceDrag(event.dataTransfer)) {
@@ -1235,6 +1300,19 @@ export function SessionComposerInput({
       {shouldShowTypeahead && editorRef.current
         ? createPortal(
             <TypeaheadMenu anchorEl={editorRef.current}>
+              {typeaheadTrigger === '&' &&
+              agentMentions.capability === 'unsupported' ? (
+                <TypeaheadMenu.Header>
+                  <span
+                    role="status"
+                    aria-label={t('agentMention.companionUnsupported')}
+                    className="flex items-start gap-1.5 text-[hsl(var(--warning))]"
+                  >
+                    <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>{t('agentMention.companionUnsupported')}</span>
+                  </span>
+                </TypeaheadMenu.Header>
+              ) : null}
               {typeaheadOptions.length > 0 ? (
                 <TypeaheadMenu.ScrollArea>
                   {typeaheadOptions.map((option, index) => (

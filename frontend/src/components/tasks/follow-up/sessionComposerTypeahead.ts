@@ -6,8 +6,9 @@ import {
   type TypeaheadTriggerMatch,
 } from '@/components/ui/wysiwyg/plugins/typeahead-triggers';
 import type { SessionComposerStructuredTokenSegment } from './sessionComposerStructuredTokens';
+import { matchAgentMentionTrigger } from './AgentMention';
 
-export type TextareaTypeaheadTrigger = '/' | '$' | '@' | '#';
+export type TextareaTypeaheadTrigger = '/' | '$' | '@' | '#' | '&';
 
 export type TextareaTypeaheadState = {
   trigger: TextareaTypeaheadTrigger;
@@ -22,6 +23,7 @@ const MATCHERS: Record<
   $: matchDollarCommandTrigger,
   '@': matchFileReferenceTrigger,
   '#': matchTagReferenceTrigger,
+  '&': matchAgentMentionTrigger,
 };
 
 export function getTextareaTypeaheadState(
@@ -63,7 +65,7 @@ function getMatchState(
   textBeforeCaret: string,
   rawStartOffset: number
 ): TextareaTypeaheadState | null {
-  for (const trigger of ['/', '$', '@', '#'] as const) {
+  for (const trigger of ['/', '$', '@', '#', '&'] as const) {
     const match = MATCHERS[trigger](textBeforeCaret);
     if (match) {
       return {

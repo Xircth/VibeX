@@ -1,4 +1,11 @@
-import { ArrowUpRight, GitBranch, Loader2 } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Ban,
+  CheckCircle2,
+  GitBranch,
+  Loader2,
+  XCircle,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationDelegationView } from 'shared/types';
 import { Button } from '@/components/ui/button';
@@ -21,45 +28,54 @@ export function DelegationCard({
   const status = normalizeStatus(delegation.status);
   const childId = delegation.child_conversation_id ?? null;
   const result = delegation.result ?? null;
-  const errorMessage =
-    result?.kind === 'err' ? result.error.message : null;
+  const errorMessage = result?.kind === 'err' ? result.error.message : null;
   const okPreview =
     result?.kind === 'ok' ? (result.text_preview ?? null) : null;
   const durationMs =
     result?.kind === 'ok' ? (result.duration_ms ?? null) : null;
+  const cardLabel = delegation.agent_id
+    ? t('delegationCard.delegatedTo', {
+        agent: agentLabel(delegation.agent_id),
+      })
+    : t('delegationCard.subAgentDelegation');
 
   return (
-    <div className="conv-entry-item rounded-lg border border-indigo-300/50 bg-indigo-50/70 px-3 py-2.5 text-sm dark:border-indigo-500/30 dark:bg-indigo-950/25">
+    <div
+      role="group"
+      aria-label={cardLabel}
+      className="conv-entry-item rounded-[10px] border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
+    >
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 rounded-md border border-indigo-300/60 bg-indigo-100/70 p-1 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-900/40 dark:text-indigo-200">
+        <span className="mt-0.5 shrink-0 rounded-md border border-border bg-muted p-1 text-muted-foreground">
           <GitBranch className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-indigo-900 dark:text-indigo-100">
-              {delegation.agent_id
-                ? t('delegationCard.delegatedTo', {
-                    agent: agentLabel(delegation.agent_id),
-                  })
-                : t('delegationCard.subAgentDelegation')}
-            </span>
+            <span className="font-medium text-foreground">{cardLabel}</span>
             <StatusPill status={status} />
           </div>
 
           {delegation.task_preview ? (
-            <div className="mt-1.5 whitespace-pre-wrap break-words text-indigo-900/80 dark:text-indigo-100/75">
+            <div className="mt-1.5 whitespace-pre-wrap break-words text-foreground">
               {delegation.task_preview}
             </div>
           ) : null}
 
           {okPreview ? (
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md border border-indigo-300/40 bg-indigo-100/40 px-2.5 py-1.5 font-mono text-xs text-indigo-950 dark:border-indigo-500/25 dark:bg-indigo-900/25 dark:text-indigo-100">
+            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md bg-muted/60 px-2.5 py-1.5 font-mono text-xs text-foreground">
               {okPreview}
             </pre>
           ) : null}
 
           {errorMessage ? (
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md border border-red-300/45 bg-red-50/70 px-2.5 py-1.5 font-mono text-xs text-red-900 dark:border-red-500/25 dark:bg-red-950/25 dark:text-red-100">
+            <pre
+              className={cn(
+                'mt-2 overflow-x-auto whitespace-pre-wrap rounded-md px-2.5 py-1.5 font-mono text-xs',
+                status === 'canceled'
+                  ? 'bg-muted/60 text-foreground'
+                  : 'bg-destructive/10 text-destructive'
+              )}
+            >
               {errorMessage}
             </pre>
           ) : null}
@@ -78,7 +94,7 @@ export function DelegationCard({
                 </Button>
               ) : null}
               {durationMs != null ? (
-                <span className="text-xs text-indigo-700/70 dark:text-indigo-200/60">
+                <span className="text-xs text-foreground">
                   {t('delegationCard.duration', {
                     duration: formatDuration(durationMs),
                   })}
@@ -92,10 +108,13 @@ export function DelegationCard({
   );
 }
 
-type Status = 'running' | 'completed' | 'failed';
+type Status = 'running' | 'completed' | 'failed' | 'canceled';
 
 function normalizeStatus(raw: string): Status {
-  if (raw === 'completed' || raw === 'failed') return raw;
+  if (raw === 'completed' || raw === 'failed' || raw === 'canceled') {
+    return raw;
+  }
+  if (raw === 'cancelled') return 'canceled';
   return 'running';
 }
 
@@ -103,24 +122,31 @@ function StatusPill({ status }: { status: Status }) {
   const { t } = useTranslation(['conversation', 'common']);
   if (status === 'running') {
     return (
-      <span className="conv-count-badge inline-flex shrink-0 items-center gap-1 text-indigo-700 dark:text-indigo-200">
-        <Loader2 className="h-3 w-3 animate-spin" />
+      <span className="conv-count-badge inline-flex shrink-0 items-center gap-1 text-primary">
+        <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
         {t('delegationCard.running')}
       </span>
     );
   }
+  const Icon =
+    status === 'completed' ? CheckCircle2 : status === 'failed' ? XCircle : Ban;
   return (
     <span
       className={cn(
-        'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium',
+        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
         status === 'completed'
-          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
-          : 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200'
+          ? 'bg-[hsl(var(--success)/0.14)] text-foreground'
+          : status === 'failed'
+            ? 'bg-destructive/10 text-destructive'
+            : 'bg-muted text-foreground'
       )}
     >
+      <Icon className="h-3 w-3" />
       {status === 'completed'
         ? t('delegationCard.completed')
-        : t('delegationCard.failed')}
+        : status === 'failed'
+          ? t('delegationCard.failed')
+          : t('delegationCard.canceled')}
     </span>
   );
 }

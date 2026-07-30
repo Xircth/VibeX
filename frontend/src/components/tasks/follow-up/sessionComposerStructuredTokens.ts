@@ -1,11 +1,14 @@
-export type SessionComposerCommandType = '@' | '/' | '$' | '#';
+import { isAgentMentionCodeContext } from './AgentMention';
+
+export type SessionComposerCommandType = '@' | '/' | '$' | '#' | '&';
 
 export type SessionComposerStructuredTokenKind =
   | 'slash'
   | 'dollar'
   | 'file'
   | 'tag'
-  | 'element';
+  | 'element'
+  | 'agent_mention';
 
 export type SessionComposerStructuredToken = {
   kind: SessionComposerStructuredTokenKind;
@@ -45,6 +48,44 @@ const LEGACY_PREVIEW_ELEMENT_PREFIX = 'element:';
 const LEGACY_PREVIEW_ELEMENT_STORAGE_PREFIX =
   'vibex:session-composer-preview-element:';
 const COMMAND_TYPES = new Set<SessionComposerCommandType>(['@', '/', '$', '#']);
+
+function parseAgentMentionAt(
+  source: string,
+  start: number
+): { token: SessionComposerStructuredToken; end: number } | null {
+  if (source.slice(start, start + 2) !== '[&') return null;
+  const namePart = readEscapedPart(source, start + 2, ']');
+  if (
+    !namePart ||
+    source.slice(namePart.end + 1, namePart.end + 16) !== '(vibex://agent/'
+  ) {
+    return null;
+  }
+
+  const kindStart = namePart.end + 16;
+  const kindEnd = source.indexOf(')', kindStart);
+  if (kindEnd < 0 || kindEnd === kindStart) return null;
+
+  let agentKind: string;
+  try {
+    agentKind = decodeURIComponent(source.slice(kindStart, kindEnd));
+  } catch {
+    return null;
+  }
+  const raw = source.slice(start, kindEnd + 1);
+  return {
+    token: {
+      kind: 'agent_mention',
+      type: '&',
+      key: agentKind,
+      label: `&${namePart.value}`,
+      value: agentKind,
+      raw,
+      title: agentKind,
+    },
+    end: kindEnd + 1,
+  };
+}
 
 function getFileName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -289,13 +330,7 @@ function parseLegacyTokenAt(
   }
 
   const blockedChars =
-    type === '/'
-      ? '/'
-      : type === '$'
-        ? '$'
-        : type === '@'
-          ? '#@'
-          : '#@';
+    type === '/' ? '/' : type === '$' ? '$' : type === '@' ? '#@' : '#@';
   const end = readLegacyTokenValue(source, start + 1, blockedChars);
   if (end <= start + 1) {
     return null;
@@ -365,6 +400,24 @@ export function getSessionComposerStructuredTokenSegments(
   let scan = 0;
 
   while (scan < value.length) {
+    const mention = isAgentMentionCodeContext(value, scan)
+      ? null
+      : parseAgentMentionAt(value, scan);
+    if (mention) {
+      if (scan > cursor) {
+        segments.push({ kind: 'text', text: value.slice(cursor, scan) });
+      }
+      segments.push({
+        kind: 'token',
+        token: mention.token,
+        start: scan,
+        end: mention.end,
+      });
+      cursor = mention.end;
+      scan = mention.end;
+      continue;
+    }
+
     const explicit = parseExplicitCommandAt(value, scan);
     if (explicit) {
       if (scan > cursor) {
@@ -549,7 +602,11 @@ export function deleteSessionComposerStructuredToken({
 export function serializeSessionComposerBackendMessage(value: string): string {
   return getSessionComposerStructuredTokenSegments(value)
     .map((segment) =>
-      segment.kind === 'text' ? segment.text : segment.token.value
+      segment.kind === 'text'
+        ? segment.text
+        : segment.token.kind === 'agent_mention'
+          ? segment.token.raw
+          : segment.token.value
     )
     .join('');
 }

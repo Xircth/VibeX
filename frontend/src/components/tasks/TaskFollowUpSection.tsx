@@ -41,6 +41,7 @@ import {
 } from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
 import { ComposerPluginActions } from './follow-up/ComposerPluginActions';
+import { AgentMentionProvider } from './follow-up/AgentMention';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
@@ -798,29 +799,34 @@ export function TaskFollowUpSection({
             onMessageChange={handleEditorChange}
             onReadyChange={setIsPluginActionReady}
           />
-          <SessionComposerInput
-            value={localMessage}
-            onChange={handleEditorChange}
-            disabled={!isEditable}
-            context={{
-              sendShortcut: config?.send_message_shortcut ?? 'Enter',
-              taskAttemptId: workspaceId,
-              taskId: taskId ?? undefined,
-              workspaceId: workspaceIdValue,
-              repoId: summaryRepoId ?? undefined,
-              repoIds: repos.map((repo) => repo.id),
-              executorProfile: effectiveExecutorProfile,
-              sessionId,
-            }}
-            images={attachedImages}
-            onSubmit={() => {
-              if (isPluginActionReady) {
-                handleSubmitShortcut();
-              }
-            }}
-            onAttachImages={handleAttachImages}
-            onRemoveImage={handleRemoveImage}
-          />
+          <AgentMentionProvider
+            transport={tauriBackendTransport}
+            conversationId={sessionId}
+          >
+            <SessionComposerInput
+              value={localMessage}
+              onChange={handleEditorChange}
+              disabled={!isEditable}
+              context={{
+                sendShortcut: config?.send_message_shortcut ?? 'Enter',
+                taskAttemptId: workspaceId,
+                taskId: taskId ?? undefined,
+                workspaceId: workspaceIdValue,
+                repoId: summaryRepoId ?? undefined,
+                repoIds: repos.map((repo) => repo.id),
+                executorProfile: effectiveExecutorProfile,
+                sessionId,
+              }}
+              images={attachedImages}
+              onSubmit={() => {
+                if (isPluginActionReady) {
+                  handleSubmitShortcut();
+                }
+              }}
+              onAttachImages={handleAttachImages}
+              onRemoveImage={handleRemoveImage}
+            />
+          </AgentMentionProvider>
 
           <ActionBar
             profiles={profiles}

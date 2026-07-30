@@ -63,6 +63,27 @@ describe('DelegationCard', () => {
     expect(screen.getByText('sub-agent crashed')).toBeInTheDocument();
   });
 
+  it('renders a canceled delegation as canceled instead of failed', () => {
+    render(
+      <DelegationCard
+        delegation={running({
+          status: 'canceled',
+          result: {
+            kind: 'err',
+            error: {
+              message: 'canceled by request',
+              code: 'canceled',
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText('已取消')).toBeInTheDocument();
+    expect(screen.queryByText('失败')).toBeNull();
+    expect(screen.getByText('canceled by request')).toBeInTheDocument();
+  });
+
   it('opens the child transcript with the real child conversation id', () => {
     const onOpenChild = vi.fn();
     render(<DelegationCard delegation={running()} onOpenChild={onOpenChild} />);

@@ -38,6 +38,7 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
                     .await
                     .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
                 models::plugin_v2::PluginV1Migration::migrate_all(pool).await?;
+                resolve_legacy_automation_timezones(pool).await?;
                 return Ok(());
             }
             Err(MigrateError::VersionMismatch(version)) => {
@@ -83,6 +84,39 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
     }
 }
 
+async fn resolve_legacy_automation_timezones(pool: &Pool<Sqlite>) -> Result<(), Error> {
+    let timezone = iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".to_string());
+    let mut transaction = pool.begin().await?;
+    sqlx::query(
+        "UPDATE automations
+         SET timezone = ?
+         WHERE id IN (
+             SELECT automation_id
+             FROM automation_legacy_evidence
+             WHERE json_extract(evidence_json, '$.timezone_resolution')
+                   = 'legacy_local_pending'
+         )",
+    )
+    .bind(&timezone)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE automation_legacy_evidence
+         SET evidence_json = json_set(
+             evidence_json,
+             '$.timezone_resolution', 'resolved',
+             '$.resolved_timezone', ?
+         )
+         WHERE json_extract(evidence_json, '$.timezone_resolution')
+               = 'legacy_local_pending'",
+    )
+    .bind(&timezone)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -91,7 +125,10 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::{auto_fix_migration_checksum_mismatch_enabled, run_migrations};
+    use super::{
+        auto_fix_migration_checksum_mismatch_enabled, resolve_legacy_automation_timezones,
+        run_migrations,
+    };
 
     #[test]
     fn strict_migrations_env_disables_auto_fix() {
@@ -137,6 +174,59 @@ mod tests {
             .await
             .expect("evidence count");
         assert_eq!(evidence_count, 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_automation_timezone_is_resolved_exactly_once() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("initial migrations");
+        let store = crate::models::automation_v2::SqliteAutomationStore::new(pool.clone());
+        let draft = automation::BuiltinTemplateCatalog::all().remove(0).draft;
+        let record = store.create(draft, Utc::now()).await.expect("automation");
+        sqlx::query(
+            "INSERT INTO automation_legacy_evidence
+             (automation_id,evidence_json,captured_at)
+             VALUES (?,json_object('timezone_resolution','legacy_local_pending'),?)",
+        )
+        .bind(record.id)
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("pending evidence");
+
+        resolve_legacy_automation_timezones(&pool)
+            .await
+            .expect("first resolution");
+        let evidence: String = sqlx::query_scalar(
+            "SELECT evidence_json FROM automation_legacy_evidence WHERE automation_id = ?",
+        )
+        .bind(record.id)
+        .fetch_one(&pool)
+        .await
+        .expect("resolved evidence");
+        assert!(evidence.contains(r#""timezone_resolution":"resolved""#));
+
+        sqlx::query("UPDATE automations SET timezone = 'Etc/GMT+1' WHERE id = ?")
+            .bind(record.id)
+            .execute(&pool)
+            .await
+            .expect("simulate moved data directory");
+        resolve_legacy_automation_timezones(&pool)
+            .await
+            .expect("second startup");
+        let timezone: String = sqlx::query_scalar("SELECT timezone FROM automations WHERE id = ?")
+            .bind(record.id)
+            .fetch_one(&pool)
+            .await
+            .expect("timezone");
+        assert_eq!(timezone, "Etc/GMT+1");
     }
 
     #[tokio::test]

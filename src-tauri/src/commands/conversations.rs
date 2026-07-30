@@ -15,6 +15,10 @@ use agents::{
         ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
 };
+use automation::{
+    AgentSelectionIntent, ComposerCanonicalInput, IsolationSpec, TurnLaunchSpec,
+    TurnLaunchSpecInput, WorkspaceTarget,
+};
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
 };
@@ -26,8 +30,10 @@ use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
+    workspace::Workspace,
 };
 use executors::profile::ExecutorProfileId;
+use plugins::PromptBlock;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
@@ -438,6 +444,36 @@ pub async fn conversation_start_turn(
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
+    let workspace = Workspace::find_by_id(&pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace {workspace_id} not found")))?;
+    if !request.text.trim().is_empty() {
+        TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
+            prompt_blocks: vec![PromptBlock::Text {
+                text: request.text.clone(),
+            }],
+            display_text: request.text.clone(),
+            agent: AgentSelectionIntent {
+                agent_id: request.agent_id.clone(),
+                executor_profile_id: request.executor_profile_id.clone(),
+            },
+            mode_id: request.mode_override.clone(),
+            config_values: request.config_overrides.clone(),
+            plugin_actions: Vec::new(),
+            skills: Vec::new(),
+            workspace: WorkspaceTarget {
+                project_id: workspace.project_id,
+                root_folder: workspace
+                    .container_ref
+                    .clone()
+                    .unwrap_or_else(|| workspace.id.to_string()),
+                branch: Some(workspace.branch),
+                isolation: IsolationSpec::SharedInRoot,
+            },
+            label_snapshot: None,
+        }))
+        .map_err(|error| AppError::BadRequest(format!("{}: {error}", error.code())))?;
+    }
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
     let service = ConversationSessionService::new(state.conversation_context());
     let result = service

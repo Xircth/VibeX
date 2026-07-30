@@ -273,22 +273,9 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             );
             commands::chat_channel::start_inbound_manager(app.handle().clone());
 
-            // Automations (P0-3): recover orphaned runs, then start the cron poller.
-            {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let pool = handle
-                        .state::<state::AppState>()
-                        .deployment
-                        .db()
-                        .pool
-                        .clone();
-                    if let Err(error) = commands::automation::recover_automation_runs(&pool).await {
-                        tracing::warn!("automation run recovery failed: {error}");
-                    }
-                });
-                commands::automation::start_automation_scheduler(app.handle().clone());
-            }
+            // One durable Automation v2 Engine owns this data directory. Startup
+            // reconciliation and catch-up happen behind the owner lease.
+            commands::automation::start_automation_engine(app.handle().clone());
 
             // Plugins: seed the built-in presets (disabled until the user
             // enables them in Settings → Plugins). Best-effort.
@@ -507,6 +494,8 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::automation::automation_set_enabled,
             commands::automation::automation_delete,
             commands::automation::automation_run_now,
+            commands::automation::automation_cancel_run,
+            commands::automation::automation_preview_next_runs,
             commands::automation::automation_runs,
             commands::automation::automation_unseen_failures,
             commands::automation::automation_mark_seen,

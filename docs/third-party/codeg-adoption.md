@@ -59,6 +59,29 @@ No Codeg source file was copied byte-for-byte. This record and the project
 notice preserve attribution for the adapted design, schema language, and
 behavioral tests.
 
+## Automation v2 parity
+
+The Agent F slice reviewed these additional files at the same pinned commit:
+
+- `src-tauri/src/models/automation.rs`
+- `src-tauri/src/automation/engine.rs`
+- `src-tauri/src/db/automation.rs`
+
+VibeX reimplemented the observable scheduling behavior in the
+transport-neutral `automation` crate and a SQLite adapter. Adopted behavior
+includes manual and cron triggers, next-run advancement before execution,
+run history, isolated workspaces, startup recovery, and ordinary built-in
+templates. VibeX-specific changes include a versioned canonical
+`TurnLaunchSpec`, explicit IANA timezones and deterministic DST handling, a
+single data-directory owner lease, transactional due claims, durable
+Conversation/Turn correlation, four terminal states, cancellation
+checkpoints, resolved Agent/Plugin/Tool lock evidence, and safe migration of
+legacy in-place rows to disabled shared-root drafts.
+
+No Codeg Automation source file was copied byte-for-byte. The model, engine,
+ports, migrations, and tests were rewritten around VibeX's event-sourced
+Conversation authority and local-first SQLite schema.
+
 ## Verification
 
 - `cargo test -p artifacts`
@@ -69,6 +92,9 @@ behavioral tests.
 - `cargo test -p delegation`
 - `cargo test -p vibex-mcp`
 - `cargo test -p conversations delegation_events_rebuild_child_binding`
+- `cargo test -p automation`
+- `cargo test -p db automation`
+- `cargo test -p conversations`
 
 ## Apache-2.0 obligations
 

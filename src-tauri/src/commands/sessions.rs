@@ -211,12 +211,13 @@ pub(crate) async fn resolve_project_workspace(
     ensure_project_root_workspace(state, project_id, desired_branch.as_deref()).await
 }
 
-async fn create_worktree_workspace_for_project_session(
+pub(crate) async fn create_worktree_workspace_for_project_session(
     state: &AppState,
     project_id: Uuid,
     name: Option<&str>,
     initial_prompt: Option<&str>,
     repos: &[ProjectSessionRepoInput],
+    branch_override: Option<&str>,
 ) -> Result<Workspace, AppError> {
     if repos.is_empty() {
         return Err(AppError::BadRequest(
@@ -264,11 +265,16 @@ async fn create_worktree_workspace_for_project_session(
     };
 
     let workspace_id = Uuid::new_v4();
-    let branch = state
-        .deployment
-        .container()
-        .git_branch_from_workspace(&workspace_id, &workspace_title)
-        .await;
+    let branch = match branch_override {
+        Some(branch) => branch.to_string(),
+        None => {
+            state
+                .deployment
+                .container()
+                .git_branch_from_workspace(&workspace_id, &workspace_title)
+                .await
+        }
+    };
 
     let workspace = Workspace::create(
         pool,
@@ -633,6 +639,7 @@ pub async fn create_project_session(
             payload.name.as_deref(),
             payload.initial_prompt.as_deref(),
             payload.repos.as_deref().unwrap_or(&[]),
+            None,
         )
         .await?
     } else if let Some(workspace_id) = payload.workspace_id {

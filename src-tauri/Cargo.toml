@@ -61,6 +61,7 @@ url = "2"
 browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
 browser-runtime = { path = "../crates/browser-runtime" }
 artifacts = { path = "../crates/artifacts" }
+automation = { path = "../crates/automation" }
 plugins = { path = "../crates/plugins" }
 tool-runtime = { path = "../crates/tool-runtime" }
 db = { path = "../crates/db" }
@@ -73,6 +74,7 @@ git2 = { workspace = true }
 local-deployment = { path = "../crates/local-deployment" }
 api-types = { path = "../crates/api-types" }
 agents = { path = "../crates/agents" }
+iana-time-zone = "0.1"
 delegation = { path = "../crates/delegation" }
 utils = { path = "../crates/utils" }
 deployment = { path = "../crates/deployment" }

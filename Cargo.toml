@@ -20,6 +20,7 @@ members = [
     "crates/plugins",
     "crates/tool-runtime",
     "crates/artifacts",
+    "crates/automation",
     "src-tauri",
 ]
 

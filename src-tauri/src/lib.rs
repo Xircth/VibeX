@@ -471,6 +471,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::conversations::conversation_detail,
             commands::conversations::conversation_ensure_session_controls,
             commands::conversations::conversation_list,
+            commands::conversations::conversation_attach,
             commands::conversations::conversation_start_turn,
             commands::conversations::conversation_events_since,
             commands::conversations::conversation_timeline_page,

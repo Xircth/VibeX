@@ -235,6 +235,7 @@ dependencies = [
  "db",
  "remote-protocol",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -5513,6 +5514,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ts-rs",
  "uuid",
 ]
 

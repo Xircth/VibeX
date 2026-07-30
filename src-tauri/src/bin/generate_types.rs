@@ -61,6 +61,11 @@ use executors::{
     profile::ExecutorProfileId,
 };
 use git::{GitBranch, StashEntry};
+use remote_protocol::{
+    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, RemoteEvent,
+    ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
+    SubscriptionResource, SubscriptionSnapshot,
+};
 use services::services::config::{Config, LinkOpenBehavior};
 use ts_rs::TS;
 use vibex::{
@@ -451,6 +456,18 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationCurrentTurn>(&mut decls);
     insert_declaration::<DbConversationDetail>(&mut decls);
     insert_declaration::<ConversationTurnSnapshot>(&mut decls);
+    insert_declaration::<OperationId>(&mut decls);
+    insert_declaration::<SubscriptionId>(&mut decls);
+    insert_declaration::<ConversationId>(&mut decls);
+    insert_declaration::<ErrorCode>(&mut decls);
+    insert_declaration::<ErrorEnvelope>(&mut decls);
+    insert_declaration::<CapabilityId>(&mut decls);
+    insert_declaration::<ServerCapabilities>(&mut decls);
+    insert_declaration::<SubscriptionRequest>(&mut decls);
+    insert_declaration::<SubscriptionResource>(&mut decls);
+    insert_declaration::<RemoteEvent>(&mut decls);
+    insert_declaration::<SubscriptionSnapshot>(&mut decls);
+    insert_declaration::<SubscriptionBootstrap>(&mut decls);
     decls
 }
 

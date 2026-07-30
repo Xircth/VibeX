@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Open capability identifier. Unknown values are intentionally preserved so
 /// older clients can safely negotiate with newer servers.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, TS)]
 #[serde(transparent)]
 pub struct CapabilityId(String);
 
@@ -17,7 +18,7 @@ impl CapabilityId {
 }
 
 /// Response payload for protocol and feature negotiation.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 pub struct ServerCapabilities {
     pub server_version: String,
     pub protocol_version: String,

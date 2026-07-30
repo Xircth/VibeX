@@ -1,9 +1,11 @@
 //! Transport-neutral VibeX application use cases.
 
+mod command;
 mod conversation;
 mod error;
 mod principal;
 
+pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
     ApplicationCore, ConversationRepository, ListConversations, SqliteConversationRepository,
 };

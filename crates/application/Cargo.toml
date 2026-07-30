@@ -8,6 +8,7 @@ async-trait = { workspace = true }
 db = { path = "../db" }
 remote-protocol = { path = "../remote-protocol" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 thiserror = { workspace = true }
 uuid = { workspace = true }

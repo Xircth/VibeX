@@ -345,6 +345,31 @@ pub async fn conversation_list(
     .map_err(application::ApplicationError::into_envelope)
 }
 
+#[tauri::command]
+pub async fn conversation_attach(
+    state: tauri::State<'_, AppState>,
+    request: remote_protocol::SubscriptionRequest,
+) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
+    use application::{ApplicationCore, Principal, SqliteConversationRepository};
+    use remote_protocol::SubscriptionResource;
+
+    let SubscriptionResource::Conversation {
+        conversation_id,
+        after_sequence,
+    } = request.resource;
+    let core = ApplicationCore::new(SqliteConversationRepository::new(
+        state.deployment.db().pool.clone(),
+    ));
+    core.attach_conversation(
+        &Principal::local_desktop(),
+        request.subscription_id,
+        conversation_id,
+        after_sequence,
+    )
+    .await
+    .map_err(application::ApplicationError::into_envelope)
+}
+
 pub async fn conversation_events_since_core(
     pool: &SqlitePool,
     conversation_id: Uuid,

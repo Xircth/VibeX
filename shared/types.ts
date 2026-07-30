@@ -1255,3 +1255,27 @@ export type AgentNativeConfigOptionView = { value: string, label: string, };
 export type AgentNativeConfigFileView = { path: string, format: AgentNativeConfigFormat, content: string, sensitive: boolean, exists: boolean, };
 
 export type AgentNativeConfigFormat = "json" | "toml";
+
+export type CapabilityId = string;
+
+export type ConversationId = string;
+
+export type ErrorCode = "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "capability_unavailable" | "internal";
+
+export type ErrorEnvelope = { code: ErrorCode, message: string, retryable: boolean, operation_id: OperationId, details?: JsonValue | null, };
+
+export type OperationId = string;
+
+export type RemoteEvent = { sequence: bigint, kind: string, payload: JsonValue, };
+
+export type ServerCapabilities = { server_version: string, protocol_version: string, minimum_client_version: string, capabilities: Array<CapabilityId>, };
+
+export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: boolean, snapshot?: SubscriptionSnapshot | null, replay: Array<RemoteEvent>, high_water_mark: bigint, };
+
+export type SubscriptionId = string;
+
+export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, });
+
+export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, };
+
+export type SubscriptionSnapshot = { through_sequence: bigint, payload: JsonValue, };

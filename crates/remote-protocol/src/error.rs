@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::OperationId;
 
 /// Stable machine-readable error classes shared by every transport adapter.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorCode {
@@ -18,7 +19,7 @@ pub enum ErrorCode {
 
 /// Transport-stable error shape. Adapter-specific errors must be normalized
 /// into this envelope before crossing the application boundary.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
 pub struct ErrorEnvelope {
     pub code: ErrorCode,
     pub message: String,

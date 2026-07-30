@@ -11,6 +11,24 @@ describe('conversationApi', () => {
     call.mockReset();
   });
 
+  it('creates conversations through the transport-neutral command', async () => {
+    call.mockResolvedValue({ id: 'conversation-1' });
+
+    await conversationApi.create({
+      workspaceId: 'workspace-1',
+      agentId: 'codex',
+      title: 'Remote work',
+      initialPrompt: 'Draft the plan',
+    });
+
+    expect(call).toHaveBeenCalledWith('conversation_create', {
+      workspaceId: 'workspace-1',
+      agentId: 'codex',
+      title: 'Remote work',
+      initialPrompt: 'Draft the plan',
+    });
+  });
+
   it('starts turns through conversation_start_turn', async () => {
     call.mockResolvedValue({
       conversationId: 'conversation-1',

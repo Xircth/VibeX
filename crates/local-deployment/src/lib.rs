@@ -24,7 +24,7 @@ use services::services::{
 use tokio::sync::RwLock;
 #[cfg(target_os = "windows")]
 use utils::process::new_hidden_std_command;
-use utils::{assets::config_path, msg_store::MsgStore};
+use utils::{assets::asset_dir, msg_store::MsgStore};
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod command;
@@ -54,7 +54,13 @@ impl LocalDeployment {
     // Inherent constructor: `new` is intentionally not on the `Deployment` trait (it
     // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
     pub async fn new() -> Result<Self, DeploymentError> {
-        let mut raw_config = load_config_from_file(&config_path()).await;
+        Self::new_at(asset_dir()).await
+    }
+
+    pub async fn new_at(data_dir: impl AsRef<std::path::Path>) -> Result<Self, DeploymentError> {
+        std::fs::create_dir_all(data_dir.as_ref())?;
+        let config_file = data_dir.as_ref().join("config.json");
+        let mut raw_config = load_config_from_file(&config_file).await;
 
         // Check if app version has changed and set release notes flag
         {
@@ -69,7 +75,7 @@ impl LocalDeployment {
         }
 
         // Always save config (may have been migrated or version updated)
-        save_config_to_file(&raw_config, &config_path()).await?;
+        save_config_to_file(&raw_config, &config_file).await?;
 
         let workspace_dir_override = raw_config
             .workspace_dir
@@ -94,9 +100,9 @@ impl LocalDeployment {
             let hook = EventService::create_hook(
                 events_msg_store.clone(),
                 events_entry_count.clone(),
-                DBService::new().await?, // Temporary DB service for the hook
+                DBService::new_at(data_dir.as_ref()).await?, // Temporary DB service for the hook
             );
-            DBService::new_with_after_connect(hook).await?
+            DBService::new_at_with_after_connect(data_dir.as_ref(), hook).await?
         };
 
         let image = ImageService::new(db.clone().pool)?;

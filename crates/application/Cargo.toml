@@ -5,7 +5,10 @@ edition = "2024"
 
 [dependencies]
 async-trait = { workspace = true }
+agents = { path = "../agents" }
+conversations = { path = "../conversations" }
 db = { path = "../db" }
+executors = { path = "../executors" }
 remote-protocol = { path = "../remote-protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }

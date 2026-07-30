@@ -9,6 +9,7 @@ edition = "2024"
 [dependencies]
 db = { path = "../db" }
 agents = { path = "../agents" }
+base64 = "0.22"
 deployment = { path = "../deployment" }
 executors = { path = "../executors" }
 git = { path = "../git" }

@@ -13,6 +13,35 @@ impl ApplicationError {
         }
     }
 
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            envelope: ErrorEnvelope::new(ErrorCode::NotFound, message, false, OperationId::new()),
+        }
+    }
+
+    pub fn capability_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            envelope: ErrorEnvelope::new(
+                ErrorCode::CapabilityUnavailable,
+                message,
+                false,
+                OperationId::new(),
+            ),
+        }
+    }
+
+    pub fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            envelope: ErrorEnvelope::new(ErrorCode::BadRequest, message, false, OperationId::new()),
+        }
+    }
+
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            envelope: ErrorEnvelope::new(ErrorCode::Conflict, message, false, OperationId::new()),
+        }
+    }
+
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             envelope: ErrorEnvelope::new(ErrorCode::Internal, message, true, OperationId::new()),

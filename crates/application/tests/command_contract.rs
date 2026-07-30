@@ -17,6 +17,13 @@ impl ConversationRepository for EmptyConversations {
         Ok(Vec::new())
     }
 
+    async fn create(
+        &self,
+        _request: application::CreateConversation,
+    ) -> Result<application::ConversationSummary, application::ApplicationError> {
+        unreachable!("command contract does not create conversations")
+    }
+
     async fn attach(
         &self,
         _subscription_id: remote_protocol::SubscriptionId,

@@ -33,6 +33,13 @@ export type ConversationStartTurnRequest = {
   configOverrides?: AgentSessionConfigOverride[];
 };
 
+export type ConversationCreateRequest = {
+  workspaceId: string;
+  agentId: AgentId;
+  title?: string | null;
+  initialPrompt?: string | null;
+};
+
 export type ConversationEventsSinceRequest = {
   conversationId: string;
   afterSequence: bigint | number;
@@ -126,6 +133,10 @@ export function createConversationApi(transport: BackendTransport) {
   return {
     list: (workspaceId: string): Promise<DbConversationSummary[]> =>
       callApplicationCommand(transport, 'conversation_list', { workspaceId }),
+    create: (
+      request: ConversationCreateRequest
+    ): Promise<DbConversationSummary> =>
+      callApplicationCommand(transport, 'conversation_create', request),
     // Conversation detail (metadata + projected timeline) from the durable event log.
     detail: (sessionId: string): Promise<DbConversationDetail | null> =>
       call('conversation_detail', { sessionId }),

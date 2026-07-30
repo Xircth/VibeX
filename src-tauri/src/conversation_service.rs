@@ -17,27 +17,13 @@ pub use conversations::{
     finalize_checkpoint_file_changes,
 };
 use db::models::{repo::Repo, workspace::Workspace};
-use deployment::Deployment;
 use sqlx::SqlitePool;
-
-use crate::error::AppError;
-
-/// Map the shell's `AppError` back to the orchestration core's error, preserving the
-/// variant so the command boundary reconstructs the same `AppError` kind.
-fn app_err_to_service(error: AppError) -> ConversationServiceError {
-    match error {
-        AppError::NotFound(message) => ConversationServiceError::NotFound(message),
-        AppError::BadRequest(message) => ConversationServiceError::BadRequest(message),
-        AppError::Conflict(message) => ConversationServiceError::Conflict(message),
-        AppError::Internal(message) => ConversationServiceError::Internal(message),
-    }
-}
 
 /// src-tauri-coupled host operations for the conversation turn lifecycle. Implements
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
 /// `AppState` and the command layer.
 pub struct AppConversationHost {
-    pub deployment: Arc<dyn Deployment>,
+    pub deployment: Arc<dyn deployment::Deployment>,
 }
 
 #[async_trait::async_trait]
@@ -48,7 +34,7 @@ impl conversations::ConversationHost for AppConversationHost {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String> {
-        crate::workspace_paths::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+        conversations::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
     }
 
     async fn build_prompt_blocks(
@@ -57,9 +43,7 @@ impl conversations::ConversationHost for AppConversationHost {
         text: String,
         images: &[String],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        crate::commands::agents::workspace_prompt_blocks(working_dir, text, images)
-            .await
-            .map_err(app_err_to_service)
+        conversations::workspace_prompt_blocks(working_dir, text, images).await
     }
 
     async fn launch_settings(
@@ -67,8 +51,6 @@ impl conversations::ConversationHost for AppConversationHost {
         pool: &SqlitePool,
         agent_id: &agents::AgentId,
     ) -> Result<conversations::AgentRuntimeLaunchSettings, ConversationServiceError> {
-        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_id)
-            .await
-            .map_err(app_err_to_service)
+        conversations::resolve_agent_runtime_launch_settings(pool, agent_id).await
     }
 }

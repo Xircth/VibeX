@@ -6,11 +6,16 @@
 //! this crate owns the folding of the event log into timeline projections.
 
 pub mod export;
+pub mod host;
 pub mod projection;
 pub mod search;
 pub mod service;
 
 pub use export::{render_html, render_markdown};
+pub use host::{
+    DefaultConversationHost, resolve_agent_runtime_launch_settings,
+    resolve_workspace_agent_working_dir, workspace_prompt_blocks,
+};
 pub use projection::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
     ConversationStateApplier, IncrementalRowProjector,

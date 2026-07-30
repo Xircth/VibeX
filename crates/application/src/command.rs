@@ -3,17 +3,28 @@ use std::{str::FromStr, sync::Arc};
 use remote_protocol::{CommandResponse, ErrorCode, ErrorEnvelope, OperationId};
 use serde::Deserialize;
 
-use crate::{ApplicationCore, ConversationRepository, ListConversations, Principal};
+use crate::{
+    ApplicationCore, CancelConversationTurn, ConversationRepository, CreateConversation,
+    ListConversations, Principal, RespondConversationPermission, StartConversationTurn,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegisteredCommand {
     ConversationList,
+    ConversationCreate,
+    ConversationStartTurn,
+    ConversationRespondPermission,
+    ConversationCancelTurn,
 }
 
 impl RegisteredCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ConversationList => "conversation_list",
+            Self::ConversationCreate => "conversation_create",
+            Self::ConversationStartTurn => "conversation_start_turn",
+            Self::ConversationRespondPermission => "conversation_respond_permission",
+            Self::ConversationCancelTurn => "conversation_cancel_turn",
         }
     }
 }
@@ -24,6 +35,10 @@ impl FromStr for RegisteredCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "conversation_list" => Ok(Self::ConversationList),
+            "conversation_create" => Ok(Self::ConversationCreate),
+            "conversation_start_turn" => Ok(Self::ConversationStartTurn),
+            "conversation_respond_permission" => Ok(Self::ConversationRespondPermission),
+            "conversation_cancel_turn" => Ok(Self::ConversationCancelTurn),
             _ => Err(()),
         }
     }
@@ -33,6 +48,30 @@ impl FromStr for RegisteredCommand {
 #[serde(rename_all = "camelCase")]
 struct ConversationListArgs {
     workspace_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationCreateArgs {
+    workspace_id: uuid::Uuid,
+    agent_id: String,
+    title: Option<String>,
+    initial_prompt: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ConversationStartTurnArgs {
+    request: StartConversationTurn,
+}
+
+#[derive(Deserialize)]
+struct ConversationRespondPermissionArgs {
+    request: RespondConversationPermission,
+}
+
+#[derive(Deserialize)]
+struct ConversationCancelTurnArgs {
+    request: CancelConversationTurn,
 }
 
 pub struct CommandRegistry<R> {
@@ -111,6 +150,111 @@ where
                         operation_id,
                     )
                 })?
+            }
+            RegisteredCommand::ConversationCreate => {
+                let args =
+                    serde_json::from_value::<ConversationCreateArgs>(args).map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                let result = self
+                    .core
+                    .create_conversation(
+                        principal,
+                        CreateConversation {
+                            workspace_id: args.workspace_id,
+                            agent_id: args.agent_id,
+                            title: args.title,
+                            initial_prompt: args.initial_prompt,
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationStartTurn => {
+                let args =
+                    serde_json::from_value::<ConversationStartTurnArgs>(args).map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                let result = self
+                    .core
+                    .start_conversation_turn(principal, args.request)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationRespondPermission => {
+                let args = serde_json::from_value::<ConversationRespondPermissionArgs>(args)
+                    .map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                self.core
+                    .respond_conversation_permission(principal, args.request)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::Value::Null
+            }
+            RegisteredCommand::ConversationCancelTurn => {
+                let args = serde_json::from_value::<ConversationCancelTurnArgs>(args).map_err(
+                    |error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    },
+                )?;
+                self.core
+                    .cancel_conversation_turn(principal, args.request)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::Value::Null
             }
         };
 

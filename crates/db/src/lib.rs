@@ -348,11 +348,32 @@ impl DBService {
             + Sync
             + 'static,
     {
-        let pool = Self::create_pool(Some(Arc::new(after_connect))).await?;
+        let pool = Self::create_pool(asset_dir(), Some(Arc::new(after_connect))).await?;
         Ok(DBService { pool })
     }
 
-    async fn create_pool<F>(after_connect: Option<Arc<F>>) -> Result<Pool<Sqlite>, Error>
+    pub async fn new_at_with_after_connect<F>(
+        data_dir: impl AsRef<std::path::Path>,
+        after_connect: F,
+    ) -> Result<DBService, Error>
+    where
+        F: for<'a> Fn(
+                &'a mut SqliteConnection,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>,
+            > + Send
+            + Sync
+            + 'static,
+    {
+        std::fs::create_dir_all(data_dir.as_ref()).map_err(Error::Io)?;
+        let pool = Self::create_pool(data_dir.as_ref(), Some(Arc::new(after_connect))).await?;
+        Ok(DBService { pool })
+    }
+
+    async fn create_pool<F>(
+        data_dir: impl AsRef<std::path::Path>,
+        after_connect: Option<Arc<F>>,
+    ) -> Result<Pool<Sqlite>, Error>
     where
         F: for<'a> Fn(
                 &'a mut SqliteConnection,
@@ -364,7 +385,7 @@ impl DBService {
     {
         let database_url = format!(
             "sqlite://{}",
-            asset_dir().join("db.sqlite").to_string_lossy()
+            data_dir.as_ref().join("db.sqlite").to_string_lossy()
         );
         // WAL lets readers (git-status polls, conversation detail) run concurrently
         // with the writer (the ACP event persistence sink, which writes rapidly

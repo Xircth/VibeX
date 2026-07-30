@@ -231,8 +231,11 @@ dependencies = [
 name = "application"
 version = "0.1.0"
 dependencies = [
+ "agents",
  "async-trait",
+ "conversations",
  "db",
+ "executors",
  "remote-protocol",
  "serde",
  "serde_json",
@@ -1167,6 +1170,7 @@ version = "0.1.8"
 dependencies = [
  "agents",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "db",
  "deployment",
@@ -6262,19 +6266,27 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "agents",
  "application",
+ "artifacts",
  "async-trait",
+ "automation",
  "axum",
  "base64 0.22.1",
+ "conversations",
  "db",
+ "deployment",
  "dirs 5.0.1",
  "futures",
+ "local-deployment",
+ "plugins",
  "remote-protocol",
  "serde",
  "serde_json",
  "sha2",
  "sqlx",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite 0.29.0",
  "tower",

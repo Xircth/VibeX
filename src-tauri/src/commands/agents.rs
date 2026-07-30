@@ -1,19 +1,14 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    path::{Component, Path, PathBuf},
-};
+use std::path::PathBuf;
 
 use agents::{
-    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot,
-    AgentContentBlock, AgentManagementSnapshot, AgentPermissionId, AgentPermissionResponse,
-    AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot, AgentSessionControlsSnapshot,
-    AgentSessionId, AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot,
-    CancelAgentPromptInput, ConnectAgentInput, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, SessionGate, SessionGateInput,
+    AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
+    AgentPermissionId, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
+    AgentPromptSnapshot, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
+    AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput, ConnectAgentInput,
+    RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput,
     SessionLaunchLock, terminal::agent_terminal_registry,
 };
-use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use api_types::AgentId;
 use db::models::{
     agent_capability_catalog::AgentCapabilityCatalogRecord, workspace::Workspace,
     workspace_repo::WorkspaceRepo,
@@ -21,7 +16,6 @@ use db::models::{
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -381,159 +375,22 @@ pub(crate) async fn agent_runtime_launch_settings_from_pool(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
-    #[derive(Deserialize, Default)]
-    struct LockedLaunchPayload {
-        absolute_acp_program: Option<PathBuf>,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default)]
-        env: BTreeMap<String, String>,
-        runtime_version: Option<String>,
-        acp_version: Option<String>,
-    }
-
-    let row = sqlx::query(
-        r#"SELECT membership.enabled,
-                  membership.retired,
-                  COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
-                  COALESCE(probe.authentication, 'not_logged_in') AS authentication,
-                  lock.resolved_json,
-                  lock.id
-           FROM agent_membership membership
-           LEFT JOIN agent_installation installation
-             ON installation.agent_id = membership.agent_id
-           LEFT JOIN agent_install_lock lock
-             ON lock.id = installation.current_lock_id
-           LEFT JOIN agent_probe probe
-             ON probe.agent_id = membership.agent_id
-           WHERE membership.agent_id = ?"#,
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Agent `{agent_id}` has not been added")))?;
-
-    let lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
-    let authentication =
-        parse_management_authentication(row.try_get::<String, _>("authentication")?.as_str());
-    let snapshot = AgentManagementSnapshot {
-        agent_id: agent_id.clone(),
-        enabled: row.try_get("enabled")?,
-        lifecycle,
-        authentication,
-        required_components: Vec::new(),
-    };
-    let resolved_json = row
-        .try_get::<Option<String>, _>("resolved_json")?
-        .ok_or_else(|| {
-            AppError::BadRequest("Agent has no current Installation lock".to_string())
-        })?;
-    let payload: LockedLaunchPayload = serde_json::from_str(&resolved_json).map_err(|error| {
-        AppError::Internal(format!("invalid current Installation lock: {error}"))
-    })?;
-    let lock_id = row.try_get::<Option<String>, _>("id")?.ok_or_else(|| {
-        AppError::BadRequest("Agent has no current Installation lock".to_string())
-    })?;
-    let acp_component = sqlx::query(
-        r#"SELECT absolute_path, version
-           FROM agent_install_component
-           WHERE lock_id = ?
-             AND component_kind IN ('acp', 'acp_adapter', 'combined_runtime')
-           ORDER BY CASE component_kind
-             WHEN 'acp' THEN 0 WHEN 'acp_adapter' THEN 1 ELSE 2 END
-           LIMIT 1"#,
-    )
-    .bind(&lock_id)
-    .fetch_optional(pool)
-    .await?;
-    let runtime_component = sqlx::query(
-        r#"SELECT version
-           FROM agent_install_component
-           WHERE lock_id = ?
-             AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
-           ORDER BY CASE component_kind
-             WHEN 'runtime' THEN 0 WHEN 'agent_runtime' THEN 1 ELSE 2 END
-           LIMIT 1"#,
-    )
-    .bind(&lock_id)
-    .fetch_optional(pool)
-    .await?;
-    let absolute_acp_program = match acp_component.as_ref() {
-        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
-        None => payload.absolute_acp_program.ok_or_else(|| {
-            AppError::Internal("Installation lock has no ACP component path".to_string())
-        })?,
-    };
-    let acp_version = match acp_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.acp_version.ok_or_else(|| {
-            AppError::Internal("Installation lock has no ACP version".to_string())
-        })?,
-    };
-    let runtime_version = match runtime_component.as_ref() {
-        Some(component) => component.try_get::<String, _>("version")?,
-        None => payload.runtime_version.ok_or_else(|| {
-            AppError::Internal("Installation lock has no local Runtime version".to_string())
-        })?,
-    };
-    let current_lock = SessionLaunchLock {
-        agent_id: agent_id.clone(),
-        absolute_acp_program,
-        args: payload.args,
-        env: payload.env,
-        runtime_version,
-        acp_version,
-    };
-    let authorization = SessionGate
-        .authorize(SessionGateInput {
-            snapshot,
-            current_lock: Some(current_lock),
-            requested_defaults: BTreeMap::new(),
-            advertised_option_ids: Vec::new(),
-            existing_binding: None,
-            explicit_rebind: false,
+    conversations::resolve_agent_runtime_launch_settings(pool, agent_id)
+        .await
+        .map_err(|error| match error {
+            conversations::ConversationServiceError::NotFound(message) => {
+                AppError::NotFound(message)
+            }
+            conversations::ConversationServiceError::BadRequest(message) => {
+                AppError::BadRequest(message)
+            }
+            conversations::ConversationServiceError::Conflict(message) => {
+                AppError::Conflict(message)
+            }
+            conversations::ConversationServiceError::Internal(message) => {
+                AppError::Internal(message)
+            }
         })
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
-
-    let launch_lock = SessionLaunchLock {
-        agent_id: authorization.agent_id,
-        absolute_acp_program: authorization.absolute_acp_program,
-        args: authorization.args,
-        env: authorization.env,
-        runtime_version: authorization.runtime_version,
-        acp_version: authorization.acp_version,
-    };
-    Ok(conversations::AgentRuntimeLaunchSettings {
-        auto_approve_mode: AgentAutoApproveMode::Off,
-        env: HashMap::new(),
-        launch_lock,
-    })
-}
-
-fn parse_management_lifecycle(value: &str) -> AgentLifecycleState {
-    match value {
-        "retired" => AgentLifecycleState::Retired,
-        "platform_unsupported" => AgentLifecycleState::PlatformUnsupported,
-        "queued" => AgentLifecycleState::Queued,
-        "installing" => AgentLifecycleState::Installing,
-        "updating" => AgentLifecycleState::Updating,
-        "repairing" => AgentLifecycleState::Repairing,
-        "needs_auth" => AgentLifecycleState::NeedsAuth,
-        "needs_config" => AgentLifecycleState::NeedsConfig,
-        "ready" => AgentLifecycleState::Ready,
-        "uninstalled" => AgentLifecycleState::Uninstalled,
-        _ => AgentLifecycleState::NeedsRepair,
-    }
-}
-
-fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
-    match value {
-        "account" => AgentAuthenticationStatus::Account,
-        "api_key" => AgentAuthenticationStatus::ApiKey,
-        "multiple_unknown" => AgentAuthenticationStatus::MultipleUnknown,
-        "not_required" => AgentAuthenticationStatus::NotRequired,
-        _ => AgentAuthenticationStatus::NotLoggedIn,
-    }
 }
 
 #[tauri::command]
@@ -796,96 +653,6 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
         Vec::new()
     } else {
         vec![AgentContentBlock::Text { text }]
-    }
-}
-
-pub(crate) async fn workspace_prompt_blocks(
-    working_dir: &str,
-    text: String,
-    images: &[String],
-) -> Result<Vec<AgentContentBlock>, AppError> {
-    let mut blocks = text_prompt_blocks(text);
-    for image in images {
-        blocks.push(read_workspace_image_block(working_dir, image).await?);
-    }
-    if blocks.is_empty() {
-        return Err(AppError::BadRequest(
-            "Prompt must include text or an image".to_string(),
-        ));
-    }
-    Ok(blocks)
-}
-
-async fn read_workspace_image_block(
-    working_dir: &str,
-    relative_path: &str,
-) -> Result<AgentContentBlock, AppError> {
-    let relative = relative_agent_asset_path(relative_path)?;
-    let file_path = Path::new(working_dir).join(&relative);
-    if !file_path.is_file() {
-        return Err(AppError::NotFound(format!(
-            "Image not found: {relative_path}"
-        )));
-    }
-
-    let bytes = tokio::fs::read(&file_path).await.map_err(|err| {
-        AppError::Internal(format!("Failed to read image {relative_path}: {err}"))
-    })?;
-
-    Ok(AgentContentBlock::Image {
-        data: BASE64.encode(bytes),
-        mime_type: mime_type_for_agent_asset(&file_path).to_string(),
-        uri: Some(relative.to_string_lossy().replace('\\', "/")),
-    })
-}
-
-fn relative_agent_asset_path(path: &str) -> Result<PathBuf, AppError> {
-    let candidate = Path::new(path);
-    if candidate.is_absolute() {
-        return Err(AppError::BadRequest(format!(
-            "Image path must be workspace-relative: {path}"
-        )));
-    }
-
-    let mut relative = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            Component::Normal(segment) => relative.push(segment),
-            Component::CurDir => {}
-            _ => {
-                return Err(AppError::BadRequest(format!(
-                    "Image path must stay inside the workspace: {path}"
-                )));
-            }
-        }
-    }
-
-    if relative.as_os_str().is_empty() {
-        return Err(AppError::BadRequest(
-            "Image path cannot be empty".to_string(),
-        ));
-    }
-
-    Ok(relative)
-}
-
-fn mime_type_for_agent_asset(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("bmp") => "image/bmp",
-        Some("svg") => "image/svg+xml",
-        Some("avif") => "image/avif",
-        Some("heic") => "image/heic",
-        Some("heif") => "image/heif",
-        _ => "application/octet-stream",
     }
 }
 

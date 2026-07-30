@@ -1,10 +1,15 @@
 export type BackendEnvironment = 'desktop' | 'web' | 'remote-desktop';
 import type {
+  AgentId,
+  AgentPermissionResponse,
+  AgentSessionConfigOverride,
   CapabilityId,
   DbConversationSummary,
+  ExecutorProfileId,
   RemoteEvent,
   ServerCapabilities,
   SubscriptionRequest,
+  ConversationTurnSnapshot,
 } from 'shared/types';
 
 export type {
@@ -18,6 +23,46 @@ export interface ApplicationCommandMap {
   conversation_list: {
     args: { workspaceId: string };
     result: DbConversationSummary[];
+  };
+  conversation_create: {
+    args: {
+      workspaceId: string;
+      agentId: AgentId;
+      title?: string | null;
+      initialPrompt?: string | null;
+    };
+    result: DbConversationSummary;
+  };
+  conversation_start_turn: {
+    args: {
+      request: {
+        agentId: AgentId;
+        workspaceId: string;
+        conversationId: string;
+        executorProfileId?: ExecutorProfileId | null;
+        text: string;
+        images: string[];
+        modeOverride?: string | null;
+        configOverrides?: AgentSessionConfigOverride[];
+      };
+    };
+    result: ConversationTurnSnapshot;
+  };
+  conversation_respond_permission: {
+    args: {
+      request: {
+        conversationId: string;
+        permissionId: string;
+        response: AgentPermissionResponse;
+      };
+    };
+    result: void;
+  };
+  conversation_cancel_turn: {
+    args: {
+      request: { conversationId: string; reason?: string | null };
+    };
+    result: void;
   };
 }
 

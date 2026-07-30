@@ -53,7 +53,15 @@ async fn main() -> ExitCode {
     let supplied_token = std::env::var("VIBEX_SERVER_TOKEN")
         .ok()
         .filter(|token| !token.trim().is_empty())
-        .map(ServerToken::new);
+        .map(ServerToken::try_new)
+        .transpose();
+    let supplied_token = match supplied_token {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("invalid VIBEX_SERVER_TOKEN: {error}");
+            return ExitCode::from(2);
+        }
+    };
     let mut bootstrap = ServerBootstrapConfig::new(data_dir);
     bootstrap.server = server;
     bootstrap.token = supplied_token;

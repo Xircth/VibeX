@@ -8,9 +8,21 @@ use sha2::{Digest, Sha256};
 /// never stores the plaintext in router state.
 pub struct ServerToken(String);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("server token must contain at least 32 bytes")]
+pub struct ServerTokenError;
+
 impl ServerToken {
     pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+        Self::try_new(value).expect("server token must contain at least 32 bytes")
+    }
+
+    pub fn try_new(value: impl Into<String>) -> Result<Self, ServerTokenError> {
+        let value = value.into();
+        if value.len() < 32 {
+            return Err(ServerTokenError);
+        }
+        Ok(Self(value))
     }
 
     pub(crate) fn digest(&self) -> TokenDigest {

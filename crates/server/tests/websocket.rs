@@ -102,7 +102,7 @@ async fn websocket_attach_ready_replay_and_reconnect() {
     let core = ApplicationCore::new(SqliteConversationRepository::new(pool.clone()));
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("websocket-secret"),
+        ServerToken::new("websocket-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -113,7 +113,7 @@ async fn websocket_attach_ready_replay_and_reconnect() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await });
 
     let subscription_id = SubscriptionId::new();
-    let mut socket = connect(address, "websocket-secret").await;
+    let mut socket = connect(address, "websocket-secret-with-at-least-32-bytes").await;
     socket
         .send(Message::Text(
             serde_json::to_string(&SubscriptionClientMessage::Attach {
@@ -166,7 +166,7 @@ async fn websocket_attach_ready_replay_and_reconnect() {
     append(&pool, conversation_id, "turn_completed").await;
 
     let reconnect_id = SubscriptionId::new();
-    let mut socket = connect(address, "websocket-secret").await;
+    let mut socket = connect(address, "websocket-secret-with-at-least-32-bytes").await;
     socket
         .send(Message::Text(
             serde_json::to_string(&SubscriptionClientMessage::Attach {

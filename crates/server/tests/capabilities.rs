@@ -29,7 +29,7 @@ async fn test_runtime(token: &str) -> ServerRuntime<SqliteConversationRepository
 
 #[tokio::test]
 async fn capabilities_require_auth() {
-    let runtime = test_runtime("correct horse battery staple").await;
+    let runtime = test_runtime("correct horse battery staple plus entropy").await;
     let app = runtime.router();
 
     let missing = app
@@ -68,7 +68,10 @@ async fn capabilities_require_auth() {
         .oneshot(
             Request::builder()
                 .uri("/api/v1/capabilities")
-                .header("authorization", "Bearer correct horse battery staple")
+                .header(
+                    "authorization",
+                    "Bearer correct horse battery staple plus entropy",
+                )
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -97,12 +100,17 @@ async fn capabilities_require_auth() {
 
 #[tokio::test]
 async fn incompatible_protocol_major_uses_the_stable_error_envelope() {
-    let app = test_runtime("correct horse battery staple").await.router();
+    let app = test_runtime("correct horse battery staple plus entropy")
+        .await
+        .router();
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/v1/capabilities")
-                .header("authorization", "Bearer correct horse battery staple")
+                .header(
+                    "authorization",
+                    "Bearer correct horse battery staple plus entropy",
+                )
                 .header("x-vibex-protocol-version", "2.0")
                 .body(Body::empty())
                 .expect("request"),
@@ -126,14 +134,17 @@ async fn incompatible_protocol_major_uses_the_stable_error_envelope() {
 
 #[tokio::test]
 async fn cors_accepts_only_same_origin_or_the_explicit_allowlist() {
-    let runtime = test_runtime("correct horse battery staple").await;
+    let runtime = test_runtime("correct horse battery staple plus entropy").await;
     let rejected = runtime
         .router()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/capabilities")
                 .header("origin", "https://attacker.invalid")
-                .header("authorization", "Bearer correct horse battery staple")
+                .header(
+                    "authorization",
+                    "Bearer correct horse battery staple plus entropy",
+                )
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -156,7 +167,7 @@ async fn cors_accepts_only_same_origin_or_the_explicit_allowlist() {
     let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
     let runtime = ServerRuntime::new(
         ServerConfig::default().with_allowed_origins(["https://console.example"]),
-        ServerToken::new("allowlisted"),
+        ServerToken::new("allowlisted-token-with-32-bytes-minimum"),
         core,
     );
     let accepted = runtime
@@ -165,7 +176,10 @@ async fn cors_accepts_only_same_origin_or_the_explicit_allowlist() {
             Request::builder()
                 .uri("/api/v1/capabilities")
                 .header("origin", "https://console.example")
-                .header("authorization", "Bearer allowlisted")
+                .header(
+                    "authorization",
+                    "Bearer allowlisted-token-with-32-bytes-minimum",
+                )
                 .body(Body::empty())
                 .expect("request"),
         )

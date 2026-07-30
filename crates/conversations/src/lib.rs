@@ -8,6 +8,7 @@
 pub mod export;
 pub mod host;
 pub mod projection;
+pub mod runtime_events;
 pub mod search;
 pub mod service;
 
@@ -19,6 +20,9 @@ pub use host::{
 pub use projection::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
     ConversationStateApplier, IncrementalRowProjector,
+};
+pub use runtime_events::{
+    ConversationAgentEventRecorder, RuntimeEventRecordError, start_agent_event_persistence,
 };
 pub use search::{
     ConversationSearchHit, backfill_missing, reindex_from_projection, search_conversations,

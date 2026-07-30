@@ -79,7 +79,7 @@ async fn authenticated_call_responds_to_a_permission_through_the_execution_port(
         ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("call-secret"),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -90,7 +90,7 @@ async fn authenticated_call_responds_to_a_permission_through_the_execution_port(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/call/conversation_respond_permission")
-                .header("authorization", "Bearer call-secret")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
@@ -134,7 +134,7 @@ async fn authenticated_call_cancels_a_turn_through_the_execution_port() {
         ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("call-secret"),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -145,7 +145,7 @@ async fn authenticated_call_cancels_a_turn_through_the_execution_port() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/call/conversation_cancel_turn")
-                .header("authorization", "Bearer call-secret")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
@@ -208,7 +208,7 @@ async fn authenticated_call_uses_the_application_command_registry() {
     let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("call-secret"),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -217,7 +217,7 @@ async fn authenticated_call_uses_the_application_command_registry() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/call/conversation_list")
-                .header("authorization", "Bearer call-secret")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
@@ -263,7 +263,7 @@ async fn authenticated_call_creates_a_conversation_through_application_core() {
     let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("call-secret"),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -273,7 +273,7 @@ async fn authenticated_call_creates_a_conversation_through_application_core() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/call/conversation_create")
-                .header("authorization", "Bearer call-secret")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({
@@ -317,7 +317,7 @@ async fn authenticated_call_starts_a_turn_through_the_execution_port() {
         ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
     let app = ServerRuntime::new(
         ServerConfig::default(),
-        ServerToken::new("call-secret"),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
         core,
     )
     .router();
@@ -329,7 +329,7 @@ async fn authenticated_call_starts_a_turn_through_the_execution_port() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/call/conversation_start_turn")
-                .header("authorization", "Bearer call-secret")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({

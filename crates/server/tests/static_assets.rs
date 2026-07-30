@@ -26,7 +26,7 @@ async fn runtime(root: &std::path::Path) -> ServerRuntime<SqliteConversationRepo
         .expect("migrations");
     ServerRuntime::new(
         ServerConfig::default().with_static_root(root),
-        ServerToken::new("static-test"),
+        ServerToken::new("static-test-token-with-at-least-32-bytes"),
         ApplicationCore::new(SqliteConversationRepository::new(pool)),
     )
 }

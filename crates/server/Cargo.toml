@@ -11,8 +11,10 @@ async-trait = { workspace = true }
 automation = { path = "../automation" }
 axum = { workspace = true }
 base64 = "0.22"
+chrono = { workspace = true }
 conversations = { path = "../conversations" }
 db = { path = "../db" }
+delegation = { path = "../delegation" }
 deployment = { path = "../deployment" }
 dirs = { workspace = true }
 futures = { workspace = true }
@@ -27,6 +29,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
+tool-runtime = { path = "../tool-runtime" }
 uuid = { workspace = true }
 
 [dev-dependencies]

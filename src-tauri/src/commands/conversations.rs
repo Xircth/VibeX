@@ -354,11 +354,17 @@ pub async fn application_call(
     operation_id: remote_protocol::OperationId,
     args: serde_json::Value,
 ) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
-    use application::{ApplicationCore, CommandRegistry, Principal, SqliteConversationRepository};
+    use application::{
+        ApplicationCore, CommandRegistry, ConversationSessionExecutionPort, Principal,
+        SqliteConversationRepository,
+    };
 
-    CommandRegistry::new(ApplicationCore::new(SqliteConversationRepository::new(
-        state.deployment.db().pool.clone(),
-    )))
+    CommandRegistry::new(ApplicationCore::with_execution(
+        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
+        std::sync::Arc::new(ConversationSessionExecutionPort::new(
+            state.conversation_context(),
+        )),
+    ))
     .execute_name(&Principal::local_desktop(), &command, operation_id, args)
     .await
 }

@@ -214,7 +214,24 @@ async fn read_workspace_image_block(
     relative_path: &str,
 ) -> Result<AgentContentBlock, ConversationServiceError> {
     let relative = relative_agent_asset_path(relative_path)?;
-    let file_path = Path::new(working_dir).join(&relative);
+    let canonical_root = tokio::fs::canonicalize(working_dir)
+        .await
+        .map_err(|error| {
+            ConversationServiceError::NotFound(format!(
+                "Workspace directory is unavailable: {error}"
+            ))
+        })?;
+    let requested_path = canonical_root.join(&relative);
+    let file_path = tokio::fs::canonicalize(&requested_path)
+        .await
+        .map_err(|_| {
+            ConversationServiceError::NotFound(format!("Image not found: {relative_path}"))
+        })?;
+    if !file_path.starts_with(&canonical_root) {
+        return Err(ConversationServiceError::BadRequest(format!(
+            "Image path must stay inside the workspace: {relative_path}"
+        )));
+    }
     if !file_path.is_file() {
         return Err(ConversationServiceError::NotFound(format!(
             "Image not found: {relative_path}"
@@ -401,5 +418,32 @@ fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
         "multiple_unknown" => AgentAuthenticationStatus::MultipleUnknown,
         "not_required" => AgentAuthenticationStatus::NotRequired,
         _ => AgentAuthenticationStatus::NotLoggedIn,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::symlink;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn prompt_blocks_reject_a_symlink_that_escapes_the_workspace() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let outside = tempfile::tempdir().expect("outside");
+        let secret = outside.path().join("secret.png");
+        std::fs::write(&secret, b"not for the workspace").expect("secret");
+        symlink(&secret, workspace.path().join("linked.png")).expect("symlink");
+
+        let error = DefaultConversationHost
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                String::new(),
+                &["linked.png".to_string()],
+            )
+            .await
+            .expect_err("symlink escape must fail");
+
+        assert!(matches!(error, ConversationServiceError::BadRequest(_)));
     }
 }

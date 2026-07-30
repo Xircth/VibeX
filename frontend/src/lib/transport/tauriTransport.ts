@@ -24,6 +24,14 @@ type WireSubscriptionBootstrap = Omit<
   high_water_mark: number;
 };
 
+const APPLICATION_COMMANDS = new Set([
+  'conversation_list',
+  'conversation_create',
+  'conversation_start_turn',
+  'conversation_respond_permission',
+  'conversation_cancel_turn',
+]);
+
 function sequenceToWire(sequence: bigint): number {
   if (
     sequence < BigInt(Number.MIN_SAFE_INTEGER) ||
@@ -49,7 +57,7 @@ export class TauriTransport implements BackendTransport {
     args?: Record<string, unknown>
   ): Promise<unknown> {
     const { tauriInvoke } = await import('@/lib/tauriApi');
-    if (command === 'conversation_list') {
+    if (APPLICATION_COMMANDS.has(command)) {
       const response = await tauriInvoke<ApplicationCommandResponse>(
         'application_call',
         {
@@ -70,7 +78,10 @@ export class TauriTransport implements BackendTransport {
       minimum_client_version: '0.1.0',
       capabilities: [
         'conversation.read',
+        'conversation.write',
         'conversation.attach',
+        'conversation.permission',
+        'conversation.cancel',
         'desktop.tauri',
       ],
     };

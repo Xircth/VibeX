@@ -9,6 +9,12 @@ use server::{ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use tower::ServiceExt;
 
+#[test]
+fn caller_supplied_token_must_meet_the_minimum_strength_boundary() {
+    assert!(ServerToken::try_new("too-short").is_err());
+    assert!(ServerToken::try_new("caller-supplied-token-with-at-least-32-bytes").is_ok());
+}
+
 #[tokio::test]
 async fn token_store_persists_only_a_hash() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")

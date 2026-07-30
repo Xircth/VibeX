@@ -19,10 +19,14 @@ deployment = { path = "../deployment" }
 dirs = { workspace = true }
 futures = { workspace = true }
 local-deployment = { path = "../local-deployment" }
+office-runtime = { path = "../office-runtime" }
 plugins = { path = "../plugins" }
 remote-protocol = { path = "../remote-protocol" }
+reqwest = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+services = { path = "../services" }
 sha2 = "0.10"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 tokio = { workspace = true }

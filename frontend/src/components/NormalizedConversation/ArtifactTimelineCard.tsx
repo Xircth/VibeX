@@ -1,23 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileOutput, Loader2, SquareArrowOutUpRight, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationArtifactReference } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
 import {
-  tauriBackendTransport,
-  type BackendTransport,
-} from '@/lib/backendTransport';
-
-type ArtifactPreviewLease = {
-  leaseId: string;
-  artifactId: string;
-  providerId: string;
-  loopbackPort: number;
-  capabilityToken: string;
-  expiresAtUnixMs: number;
-  docxFallbackSupported: boolean;
-};
+  createArtifactApi,
+  type ArtifactPreviewLease,
+} from '@/lib/api/artifacts';
+import { type BackendTransport } from '@/lib/backendTransport';
+import { useBackendTransport } from '@/lib/transport';
 
 function isPreviewLease(value: unknown): value is ArtifactPreviewLease {
   return (
@@ -43,11 +35,14 @@ function mediaLabel(mediaType: string): string {
 
 export function ArtifactTimelineCard({
   artifact,
-  transport = tauriBackendTransport,
+  transport: transportOverride,
 }: {
   artifact: ConversationArtifactReference;
   transport?: BackendTransport;
 }) {
+  const contextTransport = useBackendTransport();
+  const transport = transportOverride ?? contextTransport;
+  const api = useMemo(() => createArtifactApi(transport), [transport]);
   const { t } = useTranslation('conversation');
   const [lease, setLease] = useState<ArtifactPreviewLease | null>(null);
   const [isOpening, setIsOpening] = useState(false);
@@ -55,6 +50,10 @@ export function ArtifactTimelineCard({
   const leaseRef = useRef<ArtifactPreviewLease | null>(null);
   const lifecycleGenerationRef = useRef(0);
   const name = fileName(artifact.relative_path);
+  const previewUrl = lease
+    ? (transport.artifactPreviewUrl?.(lease) ??
+      `http://127.0.0.1:${lease.loopbackPort}/`)
+    : null;
 
   useEffect(() => {
     const generation = lifecycleGenerationRef.current + 1;
@@ -66,12 +65,10 @@ export function ArtifactTimelineCard({
       const current = leaseRef.current;
       if (current) {
         leaseRef.current = null;
-        void transport
-          .call('artifact_close_preview', { leaseId: current.leaseId })
-          .catch(() => {});
+        void api.closePreview(current.leaseId).catch(() => {});
       }
     };
-  }, [transport]);
+  }, [api]);
 
   const openPreview = async () => {
     if (isOpening || leaseRef.current) return;
@@ -79,16 +76,12 @@ export function ArtifactTimelineCard({
     setIsOpening(true);
     setError(null);
     try {
-      const result = await transport.call('artifact_open_preview', {
-        artifactId: artifact.artifact_id,
-      });
+      const result = await api.openPreview(artifact.artifact_id);
       if (!isPreviewLease(result)) {
         throw new Error(t('artifact.invalidPreviewLease'));
       }
       if (generation !== lifecycleGenerationRef.current) {
-        await transport.call('artifact_close_preview', {
-          leaseId: result.leaseId,
-        });
+        await api.closePreview(result.leaseId);
         return;
       }
       leaseRef.current = result;
@@ -108,9 +101,7 @@ export function ArtifactTimelineCard({
     const current = leaseRef.current;
     if (!current) return;
     try {
-      await transport.call('artifact_close_preview', {
-        leaseId: current.leaseId,
-      });
+      await api.closePreview(current.leaseId);
       leaseRef.current = null;
       setLease(null);
     } catch (error) {
@@ -168,8 +159,12 @@ export function ArtifactTimelineCard({
           </div>
           <iframe
             title={t('artifact.previewTitle', { name })}
-            src={`http://127.0.0.1:${lease.loopbackPort}/`}
-            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+            src={previewUrl ?? undefined}
+            sandbox={
+              transport.environment === 'desktop'
+                ? 'allow-scripts allow-same-origin allow-popups allow-forms'
+                : 'allow-scripts allow-popups allow-forms'
+            }
             referrerPolicy="no-referrer"
             className="aspect-video w-full border-0 bg-white"
           />

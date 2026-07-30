@@ -4515,6 +4515,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "office-runtime"
+version = "0.1.0"
+dependencies = [
+ "agents",
+ "anyhow",
+ "artifacts",
+ "async-trait",
+ "conversations",
+ "db",
+ "plugins",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tool-runtime",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6281,10 +6305,14 @@ dependencies = [
  "dirs 5.0.1",
  "futures",
  "local-deployment",
+ "office-runtime",
  "plugins",
  "remote-protocol",
+ "reqwest 0.12.28",
+ "rustls",
  "serde",
  "serde_json",
+ "services",
  "sha2",
  "sqlx",
  "tempfile",
@@ -8418,6 +8446,7 @@ dependencies = [
  "iana-time-zone",
  "ignore",
  "local-deployment",
+ "office-runtime",
  "os_info",
  "plugins",
  "prost",

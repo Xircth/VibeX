@@ -24,6 +24,10 @@ export { tasksApi } from './tasks';
 // Sessions
 export { sessionsApi } from './sessions';
 
+// Artifacts
+export { artifactApi, createArtifactApi } from './artifacts';
+export type { ArtifactPreviewLease, ArtifactRecordView } from './artifacts';
+
 // Attempts / Workspaces
 export { attemptsApi } from './attempts';
 

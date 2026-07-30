@@ -9,7 +9,6 @@ use agents::AgentRuntime;
 use application::{
     ApplicationCore, ConversationSessionExecutionPort, SqliteConversationRepository,
 };
-use artifacts::{ArtifactService, LocalArtifactFilesystem, SqliteArtifactRepository};
 use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
@@ -21,17 +20,16 @@ use conversations::{
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
-use plugins::{ManifestSource, PluginService};
+use office_runtime::OfficeRuntime;
+use plugins::PluginService;
 use sqlx::SqlitePool;
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    ServerArtifactEventSink, ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore,
+    PreviewProxyRegistry, ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore,
     automation_runtime::HeadlessAutomationRuntime, delegation_runtime::HeadlessDelegationRuntime,
+    domains::ServerApplicationDomains,
 };
-
-const OFFICE_MANIFEST: &str =
-    include_str!("../../../assets/plugins/office/manifest.vibex-plugin.json");
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerBootstrapError {
@@ -70,12 +68,9 @@ pub struct HeadlessServer {
     pool: SqlitePool,
     runtime: ServerRuntime<SqliteConversationRepository>,
     issued_token: Option<ServerToken>,
-    deployment: Arc<LocalDeployment>,
     _agent_runtime: Arc<AgentRuntime>,
-    conversation_context: ConversationContext,
-    managed_tools_root: PathBuf,
-    plugin_service: Arc<PluginService>,
-    artifact_service: ArtifactService,
+    office_runtime: Arc<OfficeRuntime>,
+    automation_runtime: HeadlessAutomationRuntime,
     automation_owner: Option<AutomationEngine<File>>,
     automation_recovery: Option<StartupRecoveryReport>,
     agent_event_task: Option<JoinHandle<()>>,
@@ -101,52 +96,17 @@ impl HeadlessServer {
             )),
             host: Arc::new(DefaultConversationHost),
         };
-        let execution = Arc::new(ConversationSessionExecutionPort::new(
-            conversation_context.clone(),
-        ));
-        let repository = SqliteConversationRepository::new(pool.clone());
-        let core = ApplicationCore::with_execution(repository, execution);
-        let runtime = ServerRuntime::from_credentials(config.server, provisioned.credentials, core);
         let agent_event_task =
             start_agent_event_persistence(pool.clone(), deployment.clone(), agent_runtime.clone());
         let delegation_runtime =
             HeadlessDelegationRuntime::start(agent_runtime.clone(), pool.clone());
 
-        let plugin_service = Arc::new(PluginService::new());
-        let office_manifest = plugin_service
-            .import_manifest(OFFICE_MANIFEST, ManifestSource::Bundled)
-            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
-        sqlx::query(
-            "INSERT INTO plugin_v2_registry
-             (plugin_id, schema_version, name, normalized_manifest_json, source, membership,
-              legacy_plugin_id, created_at, updated_at)
-             VALUES (?,2,?,?,'bundled','builtin',NULL,datetime('now','subsec'),
-                     datetime('now','subsec'))
-             ON CONFLICT(plugin_id) DO UPDATE SET
-              name=excluded.name, normalized_manifest_json=excluded.normalized_manifest_json,
-              updated_at=datetime('now','subsec')",
-        )
-        .bind(office_manifest.id.as_str())
-        .bind(&office_manifest.name)
-        .bind(OFFICE_MANIFEST)
-        .execute(&pool)
-        .await?;
-        sqlx::query(
-            "INSERT OR IGNORE INTO plugin_v2_activation
-             (plugin_id, enabled, updated_at)
-             VALUES (?,0,datetime('now','subsec'))",
-        )
-        .bind(office_manifest.id.as_str())
-        .execute(&pool)
-        .await?;
-        let artifact_repository = Arc::new(SqliteArtifactRepository::new(pool.clone()));
-        let artifact_service = ArtifactService::new(
-            artifact_repository,
-            Arc::new(ServerArtifactEventSink::new(pool.clone())),
-            Arc::new(LocalArtifactFilesystem),
-        );
-
         let managed_tools_root = config.data_dir.join("managed-tools");
+        let office_runtime = Arc::new(
+            OfficeRuntime::new(pool.clone(), managed_tools_root.clone())
+                .await
+                .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?,
+        );
         let data_dir_key = config.data_dir.to_string_lossy().into_owned();
         let automation_owner =
             AutomationEngine::acquire(&data_dir_key, FileOwnerLock::default()).await?;
@@ -159,17 +119,40 @@ impl HeadlessServer {
         } else {
             None
         };
+        let automation_runtime = HeadlessAutomationRuntime::new(
+            deployment.clone(),
+            conversation_context.clone(),
+            managed_tools_root,
+        );
+        let preview_proxy = PreviewProxyRegistry::default();
+        let domains = Arc::new(ServerApplicationDomains::new(
+            pool.clone(),
+            office_runtime.clone(),
+            preview_proxy.clone(),
+            automation_runtime.clone(),
+            automation_owner.is_some(),
+            conversation_context.clone(),
+            deployment.clone(),
+        ));
+        let execution = Arc::new(ConversationSessionExecutionPort::new(
+            conversation_context.clone(),
+        ));
+        let repository = SqliteConversationRepository::new(pool.clone());
+        let core = ApplicationCore::with_ports(repository, execution, domains);
+        let runtime = ServerRuntime::from_credentials_with_preview_proxy(
+            config.server,
+            provisioned.credentials,
+            core,
+            preview_proxy,
+        );
 
         Ok(Self {
             pool,
             runtime,
             issued_token: provisioned.issued_token,
-            deployment,
             _agent_runtime: agent_runtime,
-            conversation_context,
-            managed_tools_root,
-            plugin_service,
-            artifact_service,
+            office_runtime,
+            automation_runtime,
             automation_owner,
             automation_recovery,
             agent_event_task: Some(agent_event_task),
@@ -196,11 +179,11 @@ impl HeadlessServer {
     }
 
     pub fn plugin_service(&self) -> &PluginService {
-        &self.plugin_service
+        self.office_runtime.plugin_service()
     }
 
-    pub const fn artifact_service(&self) -> &ArtifactService {
-        &self.artifact_service
+    pub fn artifact_service(&self) -> &artifacts::ArtifactService {
+        self.office_runtime.artifact_service_ref()
     }
 
     pub const fn owns_automation_engine(&self) -> bool {
@@ -222,11 +205,7 @@ impl HeadlessServer {
         let listen_addr = self.runtime.config().listen_addr;
         let listener = tokio::net::TcpListener::bind(listen_addr).await?;
         let automation_task = self.automation_owner.take().map(|engine| {
-            let runtime = HeadlessAutomationRuntime::new(
-                self.deployment.clone(),
-                self.conversation_context.clone(),
-                self.managed_tools_root.clone(),
-            );
+            let runtime = self.automation_runtime.clone();
             let recovery = self.automation_recovery.take();
             tokio::spawn(runtime.run(engine, recovery))
         });

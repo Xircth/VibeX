@@ -46,10 +46,8 @@ import {
   type AutomationRunView,
   type AutomationView,
 } from '@/lib/api/automations';
-import {
-  tauriBackendTransport,
-  type BackendTransport,
-} from '@/lib/backendTransport';
+import { type BackendTransport } from '@/lib/backendTransport';
+import { useBackendTransport } from '@/lib/transport';
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
 type ProjectOption = {
@@ -148,12 +146,14 @@ function isAgentOption(value: unknown): value is AgentOption {
 }
 
 export function AutomationsSettings({
-  transport = tauriBackendTransport,
+  transport: transportOverride,
   pollIntervalMs = 1_000,
 }: {
   transport?: BackendTransport;
   pollIntervalMs?: number;
 }) {
+  const contextTransport = useBackendTransport();
+  const transport = transportOverride ?? contextTransport;
   const { t } = useTranslation(['settings', 'common']);
   const api = useMemo(() => createAutomationApi(transport), [transport]);
   const [automations, setAutomations] = useState<AutomationView[]>([]);

@@ -88,6 +88,9 @@
     "openChildSession": "Open child session",
     "duration": "Took {{duration}}",
     "running": "Running",
+    "cancel": "Cancel delegation",
+    "canceling": "Canceling…",
+    "cancelFailed": "Could not cancel: {{error}}",
     "completed": "Completed",
     "failed": "Failed",
     "canceled": "Canceled"

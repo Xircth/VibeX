@@ -17,6 +17,25 @@ type CommandResponse = {
   data: unknown;
 };
 
+type ErrorEnvelope = {
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  operation_id?: string;
+};
+
+export class WebTransportError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly retryable: boolean,
+    readonly operationId?: string
+  ) {
+    super(message);
+    this.name = 'WebTransportError';
+  }
+}
+
 type WireRemoteEvent = Omit<RemoteEvent, 'sequence'> & { sequence: number };
 
 type WireServerMessage =
@@ -122,6 +141,15 @@ export class WebTransport implements BackendTransport {
     return response.json() as Promise<ServerCapabilities>;
   }
 
+  artifactPreviewUrl(lease: {
+    leaseId: string;
+    capabilityToken: string;
+  }): string {
+    return `${this.baseUrl}/api/v1/previews/${encodeURIComponent(
+      lease.leaseId
+    )}/c/${encodeURIComponent(lease.capabilityToken)}/`;
+  }
+
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
     const subscription: ActiveSubscription = {
       request,
@@ -184,7 +212,18 @@ export class WebTransport implements BackendTransport {
       },
     });
     if (!response.ok) {
-      throw await response.json();
+      let envelope: ErrorEnvelope = {};
+      try {
+        envelope = (await response.json()) as ErrorEnvelope;
+      } catch {
+        // Preserve a stable local error even if an intermediary returned HTML.
+      }
+      throw new WebTransportError(
+        envelope.message ?? `VibeX Server returned HTTP ${response.status}`,
+        envelope.code ?? 'remote_http_error',
+        envelope.retryable ?? false,
+        envelope.operation_id
+      );
     }
     return response;
   }

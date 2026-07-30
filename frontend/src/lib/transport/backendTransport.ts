@@ -79,6 +79,11 @@ export interface BackendTransport {
   capabilities?(): Promise<ServerCapabilities>;
   listen?<T>(event: string, handler: (payload: T) => void): Promise<() => void>;
   emit?(event: string, payload?: unknown): Promise<void>;
+  artifactPreviewUrl?(lease: {
+    leaseId: string;
+    capabilityToken: string;
+    loopbackPort: number;
+  }): string;
 }
 
 export function callApplicationCommand<C extends ApplicationCommandName>(

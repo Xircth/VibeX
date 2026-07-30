@@ -33,9 +33,7 @@ export async function backendListen<T>(
 ): Promise<() => void> {
   const transport = getBackendTransport();
   if (!transport.listen) {
-    throw new Error(
-      `Backend transport ${transport.environment} does not support event channels`
-    );
+    return () => undefined;
   }
   return transport.listen(event, handler);
 }
@@ -46,9 +44,7 @@ export async function backendEmit(
 ): Promise<void> {
   const transport = getBackendTransport();
   if (!transport.emit) {
-    throw new Error(
-      `Backend transport ${transport.environment} does not support event emission`
-    );
+    return;
   }
   await transport.emit(event, payload);
 }

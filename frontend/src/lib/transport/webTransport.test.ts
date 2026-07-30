@@ -90,6 +90,34 @@ describe('WebTransport', () => {
     expect(body.args).toEqual({ workspaceId: 'workspace-1' });
   });
 
+  it('preserves the stable remote error envelope as an actionable Error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          code: 'conflict',
+          message: 'Automation Engine is owned by another host',
+          retryable: true,
+          operation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+        }),
+      })
+    );
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:3080',
+      token: 'remote-secret',
+    });
+
+    await expect(transport.call('automation_run_now')).rejects.toMatchObject({
+      name: 'WebTransportError',
+      code: 'conflict',
+      message: 'Automation Engine is owned by another host',
+      retryable: true,
+      operationId: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+    });
+  });
+
   it('multiplexes subscriptions and reconnects from each durable cursor', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', MockWebSocket);

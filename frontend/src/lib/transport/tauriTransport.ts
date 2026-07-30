@@ -82,6 +82,13 @@ export class TauriTransport implements BackendTransport {
         'conversation.attach',
         'conversation.permission',
         'conversation.cancel',
+        'plugin.read',
+        'plugin.write',
+        'artifact.read',
+        'artifact.preview',
+        'automation.read',
+        'automation.write',
+        'delegation.read',
         'desktop.tauri',
       ],
     };

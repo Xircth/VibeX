@@ -26,6 +26,8 @@ pub(crate) struct ServerState<R> {
     pub(crate) core: Arc<ApplicationCore<R>>,
     pub(crate) commands: CommandRegistry<R>,
     pub(crate) config: ServerConfig,
+    pub(crate) preview_proxy: crate::PreviewProxyRegistry,
+    pub(crate) preview_client: reqwest::Client,
 }
 
 pub struct ServerRuntime<R> {
@@ -46,6 +48,21 @@ where
         credentials: ServerCredentials,
         core: ApplicationCore<R>,
     ) -> Self {
+        Self::from_credentials_with_preview_proxy(
+            config,
+            credentials,
+            core,
+            crate::PreviewProxyRegistry::default(),
+        )
+    }
+
+    pub fn from_credentials_with_preview_proxy(
+        config: ServerConfig,
+        credentials: ServerCredentials,
+        core: ApplicationCore<R>,
+        preview_proxy: crate::PreviewProxyRegistry,
+    ) -> Self {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let capabilities = ServerCapabilities {
             server_version: config.server_version.clone(),
             protocol_version: remote_protocol::PROTOCOL_VERSION.to_string(),
@@ -57,6 +74,15 @@ where
                 CapabilityId::new("conversation.permission"),
                 CapabilityId::new("conversation.cancel"),
                 CapabilityId::new("application.call"),
+                CapabilityId::new("plugin.read"),
+                CapabilityId::new("plugin.write"),
+                CapabilityId::new("artifact.read"),
+                CapabilityId::new("artifact.preview"),
+                CapabilityId::new("preview.proxy"),
+                CapabilityId::new("automation.read"),
+                CapabilityId::new("automation.write"),
+                CapabilityId::new("delegation.read"),
+                CapabilityId::new("delegation.cancel"),
             ],
         };
         let core = Arc::new(core);
@@ -68,6 +94,8 @@ where
                 commands: CommandRegistry::from_core(Arc::clone(&core)),
                 core,
                 config,
+                preview_proxy,
+                preview_client: reqwest::Client::new(),
             }),
         }
     }
@@ -87,6 +115,14 @@ where
             ));
         Router::new()
             .route("/health", get(health))
+            .route(
+                "/api/v1/previews/{lease_id}",
+                get(crate::preview_proxy::proxy_root::<R>),
+            )
+            .route(
+                "/api/v1/previews/{lease_id}/{*path}",
+                get(crate::preview_proxy::proxy_path::<R>),
+            )
             .nest("/api/v1", protected)
             .fallback(get(static_asset::<R>))
             .with_state(Arc::clone(&self.state))
@@ -94,6 +130,10 @@ where
                 Arc::clone(&self.state),
                 enforce_origin::<R>,
             ))
+    }
+
+    pub fn preview_proxy_registry(&self) -> crate::PreviewProxyRegistry {
+        self.state.preview_proxy.clone()
     }
 }
 
@@ -233,6 +273,15 @@ where
         [
             "conversation.read".to_string(),
             "conversation.write".to_string(),
+            "application.call".to_string(),
+            "plugin.read".to_string(),
+            "plugin.write".to_string(),
+            "artifact.read".to_string(),
+            "artifact.preview".to_string(),
+            "automation.read".to_string(),
+            "automation.write".to_string(),
+            "delegation.read".to_string(),
+            "delegation.cancel".to_string(),
         ],
     );
     match state

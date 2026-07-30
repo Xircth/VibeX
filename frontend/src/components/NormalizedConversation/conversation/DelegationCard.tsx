@@ -6,9 +6,11 @@ import {
   Loader2,
   XCircle,
 } from 'lucide-react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationDelegationView } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { cn } from '@/lib/utils';
 
 /**
@@ -25,6 +27,10 @@ export function DelegationCard({
   onOpenChild?: (childConversationId: string) => void;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
+  const transport = useBackendTransport();
+  const { supports } = useBackendCapabilities();
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const status = normalizeStatus(delegation.status);
   const childId = delegation.child_conversation_id ?? null;
   const result = delegation.result ?? null;
@@ -38,6 +44,23 @@ export function DelegationCard({
         agent: agentLabel(delegation.agent_id),
       })
     : t('delegationCard.subAgentDelegation');
+  const canCancel =
+    status === 'running' && childId !== null && supports('delegation.cancel');
+
+  const cancel = async () => {
+    if (!childId || isCanceling) return;
+    setIsCanceling(true);
+    setCancelError(null);
+    try {
+      await transport.call('delegation_cancel', {
+        childConversationId: childId,
+      });
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCanceling(false);
+    }
+  };
 
   return (
     <div
@@ -80,7 +103,7 @@ export function DelegationCard({
             </pre>
           ) : null}
 
-          {(childId && onOpenChild) || durationMs != null ? (
+          {(childId && onOpenChild) || canCancel || durationMs != null ? (
             <div className="mt-2 flex items-center gap-3">
               {childId && onOpenChild ? (
                 <Button
@@ -93,6 +116,24 @@ export function DelegationCard({
                   {t('delegationCard.openChildSession')}
                 </Button>
               ) : null}
+              {canCancel ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isCanceling}
+                  onClick={() => void cancel()}
+                >
+                  {isCanceling ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                  ) : (
+                    <Ban className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {isCanceling
+                    ? t('delegationCard.canceling')
+                    : t('delegationCard.cancel')}
+                </Button>
+              ) : null}
               {durationMs != null ? (
                 <span className="text-xs text-foreground">
                   {t('delegationCard.duration', {
@@ -101,6 +142,11 @@ export function DelegationCard({
                 </span>
               ) : null}
             </div>
+          ) : null}
+          {cancelError ? (
+            <p role="alert" className="mt-2 text-xs text-destructive">
+              {t('delegationCard.cancelFailed', { error: cancelError })}
+            </p>
           ) : null}
         </div>
       </div>

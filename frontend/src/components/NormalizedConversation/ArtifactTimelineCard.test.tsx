@@ -140,4 +140,55 @@ describe('ArtifactTimelineCard', () => {
       })
     );
   });
+
+  it('uses a capability proxy in an opaque-origin iframe on Web', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'web',
+      call: vi.fn(async (command: string) => {
+        if (command === 'artifact_open_preview') {
+          return {
+            leaseId: 'lease-web',
+            artifactId: 'artifact-1',
+            providerId: 'officecli',
+            loopbackPort: 43123,
+            capabilityToken: 'capability-web',
+            expiresAtUnixMs: Date.now() + 60_000,
+            docxFallbackSupported: true,
+          };
+        }
+        return undefined;
+      }),
+      artifactPreviewUrl: (lease) =>
+        `https://server.example/api/v1/previews/${lease.leaseId}/c/${lease.capabilityToken}/`,
+    };
+    render(
+      <ArtifactTimelineCard
+        transport={transport}
+        artifact={{
+          artifact_id: 'artifact-1',
+          workspace_id: 'workspace-1',
+          relative_path: 'deliverables/Q3-plan.pptx',
+          media_type:
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          content_hash: 'sha256-a',
+          revision: 1n,
+          plugin_id: 'vibex.office',
+          plugin_version: '2.0.0',
+          provider_id: 'officecli',
+          tool_lock_id: 'officecli@1.0.140',
+        }}
+      />
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: '打开 Q3-plan.pptx 预览' })
+    );
+    const frame = await screen.findByTitle('Q3-plan.pptx 预览');
+    expect(frame).toHaveAttribute(
+      'src',
+      'https://server.example/api/v1/previews/lease-web/c/capability-web/'
+    );
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+  });
 });

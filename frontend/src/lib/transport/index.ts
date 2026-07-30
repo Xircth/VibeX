@@ -15,8 +15,13 @@ export {
   BackendTransportProvider,
   useBackendTransport,
 } from './BackendTransportProvider';
+export { useBackendCapabilities } from './useBackendCapabilities';
 export { TauriTransport, tauriBackendTransport } from './tauriTransport';
 export { WebTransport, type WebTransportOptions } from './webTransport';
+export {
+  RemoteDesktopTransport,
+  type RemoteDesktopProfile,
+} from './remoteDesktopTransport';
 export {
   configureBackendTransport,
   configuredBackendTransport,

@@ -88,6 +88,9 @@
     "openChildSession": "打开子会话",
     "duration": "耗时 {{duration}}",
     "running": "运行中",
+    "cancel": "取消委派",
+    "canceling": "正在取消…",
+    "cancelFailed": "无法取消：{{error}}",
     "completed": "已完成",
     "failed": "失败",
     "canceled": "已取消"

@@ -18,6 +18,7 @@ mod events;
 mod logging;
 mod office_runtime;
 mod prompt_enhancement;
+mod remote_desktop;
 mod state;
 mod tray;
 mod workspace_paths;
@@ -502,6 +503,10 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::automation::automation_runs,
             commands::automation::automation_unseen_failures,
             commands::automation::automation_mark_seen,
+            commands::remote_desktop::remote_desktop_connect,
+            commands::remote_desktop::remote_desktop_disconnect,
+            commands::remote_desktop::remote_desktop_call,
+            commands::remote_desktop::remote_desktop_capabilities,
             commands::plugin::plugin_list,
             commands::plugin::plugin_legacy_migration_list,
             commands::plugin::plugin_create,
@@ -759,6 +764,21 @@ pub fn run(cef_bootstrap: CefBootstrap) {
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
             pump_cef_session();
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                let remote_desktop = _app_handle
+                    .state::<state::AppState>()
+                    .remote_desktop
+                    .clone();
+                let label = label.clone();
+                tauri::async_runtime::spawn(async move {
+                    remote_desktop.disconnect_window(&label).await;
+                });
+            }
             // Flush the non-blocking log writer on exit before the process leaves.
             if let tauri::RunEvent::Exit = event {
                 shutdown_cef_session();

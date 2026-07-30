@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import type { BackendTransport } from '@/lib/backendTransport';
-import { tauriBackendTransport } from '@/lib/backendTransport';
 import {
   createPluginApi,
   type LegacyPluginMigrationSummary,
@@ -13,6 +12,7 @@ import {
   type PluginComponentStatus,
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
+import { useBackendTransport } from '@/lib/transport';
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
 function StatusMark({ status }: { status: PluginComponentStatus }) {
@@ -62,10 +62,12 @@ function statusLabel(
 }
 
 export function PluginsSettings({
-  transport = tauriBackendTransport,
+  transport: transportOverride,
 }: {
   transport?: BackendTransport;
 }) {
+  const contextTransport = useBackendTransport();
+  const transport = transportOverride ?? contextTransport;
   const { t } = useTranslation(['settings', 'common']);
   const api = useMemo(() => createPluginApi(transport), [transport]);
   const [catalog, setCatalog] = useState<PluginActionCatalog | null>(null);

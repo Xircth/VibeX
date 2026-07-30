@@ -77,7 +77,7 @@ impl HeadlessAutomationRuntime {
         }
     }
 
-    async fn execute_claimed(&self, claimed: ClaimedRun) {
+    pub(crate) async fn execute_claimed(&self, claimed: ClaimedRun) {
         let automation = match self.store.find(claimed.automation_id).await {
             Ok(Some(automation)) => automation,
             Ok(None) => {
@@ -123,7 +123,7 @@ impl HeadlessAutomationRuntime {
         }
     }
 
-    async fn reconcile_running_turns(&self) -> Result<(), String> {
+    pub(crate) async fn reconcile_running_turns(&self) -> Result<(), String> {
         for run in self
             .store
             .running_runs()

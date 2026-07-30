@@ -91,7 +91,9 @@ impl SqliteTokenHashStore {
         )
         .bind(Uuid::new_v4())
         .bind(credentials.token_digest.as_bytes().as_slice())
-        .bind(r#"["conversation.read","conversation.write"]"#)
+        .bind(
+            r#"["conversation.read","conversation.write","application.call","plugin.read","plugin.write","artifact.read","artifact.preview","automation.read","automation.write","delegation.read","delegation.cancel"]"#,
+        )
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await

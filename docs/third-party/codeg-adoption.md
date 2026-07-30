@@ -23,15 +23,22 @@
 - `crates/artifacts/src/service.rs`: added Artifact revision records,
   provider selection, preview leases, per-lease capabilities, and Conversation
   event references.
-- `src-tauri/src/office_runtime.rs` and
+- `crates/office-runtime/src/lib.rs`,
+  `src-tauri/src/office_runtime.rs`, and
   `src-tauri/src/commands/office_tools.rs`: replaced the legacy global watch
-  map and remote shell installer with a thin adapter over Artifact Service and
-  Agent A's managed Tool Runtime.
+  map and remote shell installer with a shared, transport-neutral composition
+  over Artifact Service and Agent A's managed Tool Runtime. Desktop and
+  headless Server now use the same runtime.
 
-The Codeg web proxy was studied for its security invariants. No Axum route was
-ported in this slice. VibeX exposes only the lease data needed by a future web
-proxy: Artifact id, provider id, watch key, loopback port, high-entropy
-capability token, expiry, and reference count.
+The Codeg web proxy was studied for its security invariants. Agent J
+reimplemented the public preview capability seam in
+`crates/server/src/preview_proxy.rs`. VibeX accepts only Artifact Service
+leases registered in the Server process, stores only the SHA-256 digest of
+the short-lived capability, pins the upstream to its registered loopback
+port, rejects traversal and host input, and never forwards bearer,
+capability, cookie, or origin headers. HTML base/SSE references are rewritten
+to the capability path; the production UI embeds the result in an opaque
+origin iframe without `allow-same-origin`.
 
 The resulting Rust is substantially reorganized for VibeX's ports-and-adapters
 architecture and TDD seams. It is not a byte-identical vendor copy.
@@ -113,6 +120,17 @@ CORS allowlists, and one Automation owner lock per data directory. The
 Application Core remains independent of Tauri and Axum; both local and remote
 adapters invoke the same use cases.
 
+Agent J extended this adaptation through the production React application.
+`WebTransport` now drives the same Plugin, Artifact, Automation, and Delegation
+facades through the closed registry. The Web bootstrap keeps its token only in
+memory and authenticates before mounting the product UI. Capability-gated
+settings omit desktop-only CEF/CDP and Tauri surfaces. The desktop-side
+`RemoteDesktopTransport` sends credentials across IPC once, retains them only
+in a redacted Rust registry keyed by window and Server profile, and performs
+remote HTTP calls outside the WebView. Production Playwright tests boot the
+actual `vibex-server`, serve the built static tree, authenticate, exercise SPA
+navigation, and retain a video and screenshot.
+
 ## Verification
 
 - `node --test scripts/check-third-party-adoption.test.js`
@@ -127,6 +145,13 @@ adapters invoke the same use cases.
 - `cargo test -p automation`
 - `cargo test -p db automation`
 - `cargo test -p conversations`
+- `cargo test -p server --test web_domains`
+- `cargo test -p server --test preview_proxy`
+- `cargo test -p server --test static_assets`
+- `cargo test -p vibex remote_desktop`
+- `cd frontend && pnpm test -- src/lib/transport/remoteDesktopTransport.test.ts`
+- `pnpm run frontend:build`
+- `pnpm run test:web:e2e`
 
 ## Apache-2.0 obligations
 

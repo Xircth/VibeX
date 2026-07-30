@@ -5,7 +5,7 @@ import type {
 
 import type { PluginActionDefinition } from '@/components/plugins/PluginActionEditor';
 import {
-  tauriBackendTransport,
+  configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
 
@@ -157,4 +157,4 @@ export function createAutomationApi(transport: BackendTransport) {
   };
 }
 
-export const automationApi = createAutomationApi(tauriBackendTransport);
+export const automationApi = createAutomationApi(configuredBackendTransport);

@@ -4,7 +4,7 @@ import {
   OFFICECLI_INSTALL_EVENT,
   type OfficecliInstallEvent,
 } from '@/lib/api';
-import { tauriListen } from '@/lib/tauriApi';
+import { backendListen } from '@/lib/backendTransport';
 
 export type OfficecliInstallStatus =
   | 'idle'
@@ -37,7 +37,7 @@ export function useOfficecliInstall() {
     setLogs([]);
     setError(null);
 
-    const unlisten = await tauriListen<OfficecliInstallEvent>(
+    const unlisten = await backendListen<OfficecliInstallEvent>(
       OFFICECLI_INSTALL_EVENT,
       (event) => {
         if (event.task_id !== taskId) {

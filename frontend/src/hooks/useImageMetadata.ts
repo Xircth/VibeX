@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { ImageMetadata } from 'shared/types';
 import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 
 export function useImageMetadata(
   taskAttemptId: string | undefined,
@@ -43,7 +43,7 @@ export function useImageMetadata(
     queryKey: ['imageMetadata', taskAttemptId, taskId, src],
     queryFn: async (): Promise<ImageMetadata | null> => {
       if (taskAttemptId) {
-        const data = await tauriInvoke<ImageMetadata>(
+        const data = await backendCall<ImageMetadata>(
           'get_workspace_image_metadata',
           {
             workspaceId: taskAttemptId,
@@ -55,7 +55,7 @@ export function useImageMetadata(
           : data;
       }
       if (taskId) {
-        const data = await tauriInvoke<ImageMetadata>(
+        const data = await backendCall<ImageMetadata>(
           'get_task_image_metadata',
           {
             taskId,

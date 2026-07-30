@@ -1,6 +1,6 @@
 import { backendCall } from '@/lib/backendTransport';
 import {
-  tauriBackendTransport,
+  configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
 import type {
@@ -38,7 +38,7 @@ export function createPluginApi(transport: BackendTransport) {
   };
 }
 
-export const pluginV2Api = createPluginApi(tauriBackendTransport);
+export const pluginV2Api = createPluginApi(configuredBackendTransport);
 
 export const pluginApi = {
   list: (): Promise<Plugin[]> => backendCall('plugin_list'),

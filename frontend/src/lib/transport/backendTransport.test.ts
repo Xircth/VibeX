@@ -2,7 +2,12 @@ import { createElement, useEffect } from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createConversationApi } from '@/features/conversation/conversationApi';
+import {
+  conversationApi,
+  createConversationApi,
+} from '@/features/conversation/conversationApi';
+import { automationApi } from '@/lib/api/automations';
+import { pluginV2Api } from '@/lib/api/plugins';
 import {
   backendCall,
   backendEmit,
@@ -94,5 +99,23 @@ describe('BackendTransport conversation tracer', () => {
       expect(call).toHaveBeenCalledWith('conversation_list', undefined)
     );
     view.unmount();
+  });
+
+  it('keeps exported domain facades bound to the provider selected at runtime', async () => {
+    const call = vi.fn().mockResolvedValue([]);
+    configureBackendTransport({
+      environment: 'web',
+      call,
+    });
+
+    await conversationApi.list('workspace-1');
+    await automationApi.templates();
+    await pluginV2Api.catalog();
+
+    expect(call.mock.calls).toEqual([
+      ['conversation_list', { workspaceId: 'workspace-1' }],
+      ['automation_templates', undefined],
+      ['plugin_action_catalog', undefined],
+    ]);
   });
 });

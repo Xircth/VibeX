@@ -17,7 +17,7 @@ import {
 } from '@/lib/api';
 import { showDesktopToast } from '@/lib/desktopToast';
 import { paths } from '@/lib/paths';
-import { tauriListen } from '@/lib/tauriApi';
+import { backendListen } from '@/lib/backendTransport';
 import { desktopApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
@@ -189,13 +189,16 @@ function ProjectActivityTracker({
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
-    tauriListen<ProjectSessionTarget>('desktop-toast-activated', (payload) => {
-      if (payload.projectId !== projectId) {
-        return;
-      }
+    backendListen<ProjectSessionTarget>(
+      'desktop-toast-activated',
+      (payload) => {
+        if (payload.projectId !== projectId) {
+          return;
+        }
 
-      openProjectSession(payload);
-    }).then((dispose) => {
+        openProjectSession(payload);
+      }
+    ).then((dispose) => {
       unlisten = dispose;
     });
 

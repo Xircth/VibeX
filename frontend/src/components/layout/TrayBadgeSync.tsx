@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 
 /**
@@ -15,7 +15,7 @@ export function TrayBadgeSync() {
   );
 
   useEffect(() => {
-    void tauriInvoke('update_tray_badge', { count: unread }).catch(() => {});
+    void backendCall('update_tray_badge', { count: unread }).catch(() => {});
   }, [unread]);
 
   return null;

@@ -24,11 +24,8 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import {
-  configApi,
-  type LocalToolStatus,
-} from '@/lib/api';
-import { tauriListen } from '@/lib/tauriApi';
+import { configApi, type LocalToolStatus } from '@/lib/api';
+import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import {
   getLocalDependencyUpdatePromptTools,
@@ -69,7 +66,7 @@ function MainWindowCloseToastBridge() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
-    tauriListen<void>('main-window-close-requested', () => {
+    backendListen<void>('main-window-close-requested', () => {
       const savedBehavior = getSavedMainWindowCloseBehavior();
       if (savedBehavior) {
         void performMainWindowCloseBehavior(savedBehavior);

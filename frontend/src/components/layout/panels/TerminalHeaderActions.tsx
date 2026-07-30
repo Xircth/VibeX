@@ -18,7 +18,7 @@ import {
   isExternalTerminalShell,
   type TerminalShellValue,
 } from '@/lib/terminalPreferences';
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 
 /**
  * Renders shell selector + "new terminal" button in the dockview group
@@ -57,7 +57,7 @@ function TerminalHeaderActionsInner() {
     if (!workspaceKey) return;
     if (isExternalTerminalShell(selectedShell)) {
       try {
-        await tauriInvoke<void>('open_external_terminal', {
+        await backendCall<void>('open_external_terminal', {
           workspaceId: workspaceKey,
           terminal: selectedShell,
         });

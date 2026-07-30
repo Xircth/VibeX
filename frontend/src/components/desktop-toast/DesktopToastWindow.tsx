@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { AgentId, Session } from 'shared/types';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import { sessionsApi } from '@/lib/api';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { agentTypeFromExecutor } from '@/features/agents/sendAgentRuntimeTurn';
@@ -159,7 +159,7 @@ export function DesktopToastWindow() {
 
     (async () => {
       try {
-        unlisten = await tauriListen<DesktopToastPayload>(
+        unlisten = await backendListen<DesktopToastPayload>(
           'desktop-toast',
           (payload) => {
             if (cancelled) {
@@ -174,7 +174,7 @@ export function DesktopToastWindow() {
           return;
         }
 
-        const pendingToasts = await tauriInvoke<DesktopToastPayload[]>(
+        const pendingToasts = await backendCall<DesktopToastPayload[]>(
           'desktop_toast_window_ready'
         );
 
@@ -227,7 +227,7 @@ export function DesktopToastWindow() {
   const handleActivate = useCallback(
     async (toast: DesktopToastItem) => {
       removeToast(toast.id);
-      await tauriInvoke('activate_desktop_toast', {
+      await backendCall('activate_desktop_toast', {
         payload: {
           projectId: toast.projectId,
           workspaceId: toast.workspaceId,

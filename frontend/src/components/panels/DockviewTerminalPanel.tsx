@@ -17,7 +17,7 @@ import { useLogStream } from '@/hooks/useLogStream';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
@@ -160,7 +160,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
       const session = sessions.find((item) => item.tabId === tabId);
       if (session?.type === 'pty' && session.sessionId && !session.readOnly) {
         try {
-          await tauriInvoke('close_terminal', { sessionId: session.sessionId });
+          await backendCall('close_terminal', { sessionId: session.sessionId });
         } catch (error) {
           console.error('Failed to close terminal session:', error);
         }
@@ -183,7 +183,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
     if (!workspaceId) return;
     if (isExternalTerminalShell(selectedShell)) {
       try {
-        await tauriInvoke<void>('open_external_terminal', {
+        await backendCall<void>('open_external_terminal', {
           workspaceId,
           terminal: selectedShell,
         });

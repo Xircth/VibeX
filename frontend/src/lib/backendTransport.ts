@@ -1,5 +1,17 @@
-export type { BackendTransport, BackendEnvironment } from './transport';
-export { TauriTransport, tauriBackendTransport } from './transport';
+export type {
+  ApplicationCommandArgs,
+  ApplicationCommandMap,
+  ApplicationCommandName,
+  ApplicationCommandResult,
+  BackendTransport,
+  BackendEnvironment,
+} from './transport';
+export {
+  configuredBackendTransport,
+  TauriTransport,
+  tauriBackendTransport,
+} from './transport';
+export { callApplicationCommand } from './transport';
 
 import {
   configureBackendTransport,

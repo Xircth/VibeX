@@ -7,10 +7,7 @@ import {
 
 import type { BackendTransport } from './backendTransport';
 import { tauriBackendTransport } from './tauriTransport';
-import {
-  configureBackendTransport,
-  getBackendTransport,
-} from './transportRegistry';
+import { mountBackendTransport } from './transportRegistry';
 
 const BackendTransportContext = createContext<BackendTransport>(
   tauriBackendTransport
@@ -21,9 +18,7 @@ export function BackendTransportProvider({
   children,
 }: PropsWithChildren<{ transport: BackendTransport }>) {
   useLayoutEffect(() => {
-    const previousTransport = getBackendTransport();
-    configureBackendTransport(transport);
-    return () => configureBackendTransport(previousTransport);
+    return mountBackendTransport(transport);
   }, [transport]);
 
   return (

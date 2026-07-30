@@ -1,4 +1,8 @@
 export type {
+  ApplicationCommandArgs,
+  ApplicationCommandMap,
+  ApplicationCommandName,
+  ApplicationCommandResult,
   BackendEnvironment,
   BackendTransport,
   CapabilityId,
@@ -6,6 +10,7 @@ export type {
   ServerCapabilities,
   SubscriptionRequest,
 } from './backendTransport';
+export { callApplicationCommand } from './backendTransport';
 export {
   BackendTransportProvider,
   useBackendTransport,
@@ -13,5 +18,7 @@ export {
 export { TauriTransport, tauriBackendTransport } from './tauriTransport';
 export {
   configureBackendTransport,
+  configuredBackendTransport,
   getBackendTransport,
+  mountBackendTransport,
 } from './transportRegistry';

@@ -22,8 +22,11 @@ Base SHA: `391e0138ac23d410ae45affa91ed123ae6108fd6`
   string commands return a stable `not_found` envelope without dispatch.
 - Frontend feature facades depend on `BackendTransport`, `backendCall`, or
   `backendListen`/`backendEmit`. `BackendTransportProvider` replaces the
-  configured adapter before descendant effects run. Only the desktop
-  `TauriTransport` adapter loads
+  configured adapter before descendant effects run; exported Conversation,
+  Automation, and Plugin facade singletons resolve that adapter at call time.
+  Registered application commands additionally use
+  `ApplicationCommandMap`/`callApplicationCommand` for typed arguments and
+  results. Only the desktop `TauriTransport` adapter loads
   `@tauri-apps/api`, and it does so lazily.
 
 ## Migration notes
@@ -66,7 +69,8 @@ gap.
 8. RED: generated protocol sequence types drifted from handwritten frontend
    copies and provider-selected transports did not reach legacy facades.
    GREEN: generated DTO reuse, checked bigint/number wire conversion, and a
-   replaceable transport registry exercised through public calls/listeners.
+   replaceable transport registry exercised through public calls/listeners and
+   the exported Conversation/Automation/Plugin facades.
 
 ## Focused verification
 
@@ -76,3 +80,5 @@ gap.
 - `pnpm run generate-types:check`
 - Transport and affected feature Vitest suites
 - Frontend typecheck and lint
+- `rg` gate: no direct `tauriInvoke`/`tauriListen`/`tauriEmit` imports outside
+  `tauriApi.ts` and `TauriTransport`

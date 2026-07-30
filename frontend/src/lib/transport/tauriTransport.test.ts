@@ -2,18 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TauriTransport } from './tauriTransport';
 
-const { tauriInvoke } = vi.hoisted(() => ({
+const { tauriInvoke, tauriListen } = vi.hoisted(() => ({
   tauriInvoke: vi.fn(),
+  tauriListen: vi.fn(),
 }));
 
 vi.mock('@/lib/tauriApi', () => ({
   tauriInvoke,
-  tauriListen: vi.fn(),
+  tauriListen,
 }));
 
 describe('TauriTransport application command adapter', () => {
   beforeEach(() => {
     tauriInvoke.mockReset();
+    tauriListen.mockReset();
+    tauriListen.mockResolvedValue(vi.fn());
   });
 
   it('routes the conversation tracer through the closed command registry', async () => {
@@ -42,5 +45,38 @@ describe('TauriTransport application command adapter', () => {
 
     await expect(new TauriTransport().call('health_check')).resolves.toBe('ok');
     expect(tauriInvoke).toHaveBeenCalledWith('health_check', undefined);
+  });
+
+  it('rejects an outbound cursor that cannot round-trip through JSON safely', async () => {
+    const events = new TauriTransport().subscribe({
+      subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      resource: 'conversation',
+      conversation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f56',
+      after_sequence: BigInt(Number.MAX_SAFE_INTEGER) + 1n,
+    });
+
+    await expect(events[Symbol.asyncIterator]().next()).rejects.toThrow(
+      'Conversation sequence exceeds JSON-safe integer range'
+    );
+    expect(tauriInvoke).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsafe sequence returned by the desktop wire', async () => {
+    tauriInvoke.mockResolvedValue({
+      subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      ready: true,
+      replay: [],
+      high_water_mark: Number.MAX_SAFE_INTEGER + 1,
+    });
+    const events = new TauriTransport().subscribe({
+      subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+      resource: 'conversation',
+      conversation_id: '0195d6f4-8c37-7b28-a982-6a9e60142f56',
+      after_sequence: 0n,
+    });
+
+    await expect(events[Symbol.asyncIterator]().next()).rejects.toThrow(
+      'Backend returned a non-JSON-safe conversation sequence'
+    );
   });
 });

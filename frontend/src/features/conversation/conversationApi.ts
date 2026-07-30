@@ -1,5 +1,6 @@
 import {
-  tauriBackendTransport,
+  callApplicationCommand,
+  configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
 import type {
@@ -124,7 +125,7 @@ export function createConversationApi(transport: BackendTransport) {
 
   return {
     list: (workspaceId: string): Promise<DbConversationSummary[]> =>
-      call('conversation_list', { workspaceId }),
+      callApplicationCommand(transport, 'conversation_list', { workspaceId }),
     // Conversation detail (metadata + projected timeline) from the durable event log.
     detail: (sessionId: string): Promise<DbConversationDetail | null> =>
       call('conversation_detail', { sessionId }),
@@ -231,4 +232,6 @@ export function createConversationApi(transport: BackendTransport) {
   };
 }
 
-export const conversationApi = createConversationApi(tauriBackendTransport);
+export const conversationApi = createConversationApi(
+  configuredBackendTransport
+);

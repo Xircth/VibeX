@@ -24,6 +24,23 @@ type WireSubscriptionBootstrap = Omit<
   high_water_mark: number;
 };
 
+function sequenceToWire(sequence: bigint): number {
+  if (
+    sequence < BigInt(Number.MIN_SAFE_INTEGER) ||
+    sequence > BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new Error('Conversation sequence exceeds JSON-safe integer range');
+  }
+  return Number(sequence);
+}
+
+function sequenceFromWire(sequence: number): bigint {
+  if (!Number.isSafeInteger(sequence)) {
+    throw new Error('Backend returned a non-JSON-safe conversation sequence');
+  }
+  return BigInt(sequence);
+}
+
 export class TauriTransport implements BackendTransport {
   readonly environment = 'desktop' as const;
 
@@ -93,7 +110,7 @@ export class TauriTransport implements BackendTransport {
         const bootstrap = (await this.call('conversation_attach', {
           request: {
             ...request,
-            after_sequence: Number(afterSequence),
+            after_sequence: sequenceToWire(afterSequence),
           },
         })) as WireSubscriptionBootstrap;
         if (!bootstrap.ready) {
@@ -101,19 +118,19 @@ export class TauriTransport implements BackendTransport {
         }
         if (bootstrap.snapshot) {
           yield {
-            sequence: BigInt(bootstrap.snapshot.through_sequence),
+            sequence: sequenceFromWire(bootstrap.snapshot.through_sequence),
             kind: 'subscription_snapshot',
             payload: bootstrap.snapshot.payload,
           };
         }
         for (const event of bootstrap.replay) {
-          const sequence = BigInt(event.sequence);
+          const sequence = sequenceFromWire(event.sequence);
           if (sequence > afterSequence) {
             afterSequence = sequence;
             yield { ...event, sequence };
           }
         }
-        const highWaterMark = BigInt(bootstrap.high_water_mark);
+        const highWaterMark = sequenceFromWire(bootstrap.high_water_mark);
         if (highWaterMark > afterSequence) {
           afterSequence = highWaterMark;
         }

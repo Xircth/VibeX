@@ -44,6 +44,8 @@ pub struct MockSpawner {
     pub send_error_after_link: Option<String>,
     pub calls: Mutex<MockSpawnerCalls>,
     pub captured_call_id: Arc<Mutex<Option<String>>>,
+    pub spawn_reached_gate: Arc<Notify>,
+    pub spawn_release_gate: Option<Arc<Notify>>,
     pub send_reached_gate: Arc<Notify>,
     pub release_gate: Option<Arc<Notify>>,
 }
@@ -58,6 +60,8 @@ impl MockSpawner {
             send_error_after_link: None,
             calls: Mutex::new(MockSpawnerCalls::default()),
             captured_call_id: Arc::new(Mutex::new(None)),
+            spawn_reached_gate: Arc::new(Notify::new()),
+            spawn_release_gate: None,
             send_reached_gate: Arc::new(Notify::new()),
             release_gate: None,
         }
@@ -78,6 +82,10 @@ impl ConnectionSpawner for MockSpawner {
         agent_type: AgentId,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
+        self.spawn_reached_gate.notify_one();
+        if let Some(gate) = &self.spawn_release_gate {
+            gate.notified().await;
+        }
         if let Some(message) = &self.spawn_error {
             return Err(SpawnerError::Spawn(message.clone()));
         }

@@ -14,7 +14,10 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -91,6 +94,22 @@ struct SetupReservation {
     child_connection_id: String,
 }
 
+struct ParentSetupLease {
+    pending: Arc<Mutex<PendingInner>>,
+    parent_connection_id: String,
+    revoked: Arc<AtomicBool>,
+}
+
+impl Drop for ParentSetupLease {
+    fn drop(&mut self) {
+        remove_parent_setup_lease(
+            &mut self.pending.lock().unwrap(),
+            &self.parent_connection_id,
+            &self.revoked,
+        );
+    }
+}
+
 #[derive(Default)]
 struct PendingInner {
     running: HashMap<String, RunningTask>,
@@ -113,6 +132,10 @@ struct PendingInner {
     /// per launch, so any later setup for one must fail closed.
     closed_parents: HashSet<String>,
     closed_parent_order: VecDeque<String>,
+    /// Revocable leases for starts currently suspended before setup
+    /// reservation. Parent teardown marks these even if its bounded historical
+    /// tombstone is later evicted.
+    parent_setup_leases: HashMap<String, Vec<Weak<AtomicBool>>>,
 }
 
 /// Everything `finalize` needs to resolve a task to a terminal report,
@@ -257,16 +280,30 @@ impl DelegationBroker {
             parent_connection_id: req.parent_connection_id.clone(),
             parent_conversation_id: req.parent_session_id,
         };
-        if self
-            .pending
-            .lock()
-            .unwrap()
-            .closed_parents
-            .contains(&req.parent_connection_id)
-        {
-            return failed_setup_report("canceled", "parent connection is closed");
-        }
+        let parent_setup_lease = {
+            let mut pending = self.pending.lock().unwrap();
+            if pending.closed_parents.contains(&req.parent_connection_id) {
+                return failed_setup_report("canceled", "parent connection is closed");
+            }
+            let lease = Arc::new(AtomicBool::new(false));
+            let leases = pending
+                .parent_setup_leases
+                .entry(req.parent_connection_id.clone())
+                .or_default();
+            leases.retain(|lease| lease.strong_count() > 0);
+            leases.push(Arc::downgrade(&lease));
+            ParentSetupLease {
+                pending: self.pending.clone(),
+                parent_connection_id: req.parent_connection_id.clone(),
+                revoked: lease,
+            }
+        };
         if self.take_pre_canceled_handle(&scope, req.external_handle.as_deref()) {
+            remove_parent_setup_lease(
+                &mut self.pending.lock().unwrap(),
+                &req.parent_connection_id,
+                &parent_setup_lease.revoked,
+            );
             return failed_setup_report("canceled", "canceled by MCP client");
         }
 
@@ -293,16 +330,29 @@ impl DelegationBroker {
             .await
         {
             Ok(id) => id,
-            Err(err) => return failed_setup_report("spawn_failed", &err.to_string()),
+            Err(err) => {
+                remove_parent_setup_lease(
+                    &mut self.pending.lock().unwrap(),
+                    &req.parent_connection_id,
+                    &parent_setup_lease.revoked,
+                );
+                return failed_setup_report("spawn_failed", &err.to_string());
+            }
         };
         // Reserve the call id BEFORE sending so a child that finishes during the
         // send window buffers its terminal outcome instead of having it dropped.
         let canceled_before_reservation = {
             let mut pending = self.pending.lock().unwrap();
-            let canceled = pending.closed_parents.contains(&req.parent_connection_id)
+            let canceled = parent_setup_lease.revoked.load(Ordering::Acquire)
+                || pending.closed_parents.contains(&req.parent_connection_id)
                 || req.external_handle.as_ref().is_some_and(|handle| {
                     remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
                 });
+            remove_parent_setup_lease(
+                &mut pending,
+                &req.parent_connection_id,
+                &parent_setup_lease.revoked,
+            );
             if !canceled {
                 pending.setups.insert(
                     call_id.clone(),
@@ -785,6 +835,7 @@ impl DelegationBroker {
         }
 
         let _ = self.spawner.cancel(&task.child_connection_id).await;
+        let _ = self.spawner.release_child(task.child_session_id).await;
         let _ = self.spawner.disconnect(&task.child_connection_id).await;
         if task.has_real_tool_call {
             self.meta_writer
@@ -832,6 +883,11 @@ impl DelegationBroker {
                     break;
                 };
                 pending.closed_parents.remove(&oldest);
+            }
+            if let Some(leases) = pending.parent_setup_leases.remove(&parent_connection_id) {
+                for lease in leases.into_iter().filter_map(|lease| lease.upgrade()) {
+                    lease.store(true, Ordering::Release);
+                }
             }
             let mut tasks = pending
                 .running
@@ -993,6 +1049,27 @@ fn remove_pre_canceled(pending: &mut PendingInner, tombstone: &(DelegationScope,
             .retain(|queued| queued != tombstone);
     }
     removed
+}
+
+fn remove_parent_setup_lease(
+    pending: &mut PendingInner,
+    parent_connection_id: &str,
+    lease: &Arc<AtomicBool>,
+) {
+    let remove_entry =
+        if let Some(leases) = pending.parent_setup_leases.get_mut(parent_connection_id) {
+            leases.retain(|candidate| {
+                candidate
+                    .upgrade()
+                    .is_some_and(|candidate| !Arc::ptr_eq(&candidate, lease))
+            });
+            leases.is_empty()
+        } else {
+            false
+        };
+    if remove_entry {
+        pending.parent_setup_leases.remove(parent_connection_id);
+    }
 }
 
 fn setup_matches(scope: &DelegationScope, setup: &SetupReservation) -> bool {
@@ -1537,6 +1614,7 @@ mod tests {
         assert_eq!(h.broker.running_count(), 0);
         let calls = h.spawner.calls.lock().unwrap();
         assert_eq!(calls.canceled.len(), 1);
+        assert_eq!(calls.released, vec![h.spawner.child_session_id]);
         assert_eq!(calls.disconnected.len(), 1);
     }
 
@@ -2011,5 +2089,36 @@ mod tests {
             !spawner.calls.lock().unwrap().disconnected.is_empty(),
             "setup teardown is idempotent"
         );
+    }
+
+    #[tokio::test]
+    async fn parent_close_lease_survives_closed_history_eviction() {
+        let mut spawner = MockSpawner::new();
+        let release = Arc::new(tokio::sync::Notify::new());
+        spawner.spawn_release_gate = Some(release.clone());
+        let reached = spawner.spawn_reached_gate.clone();
+        let spawner = Arc::new(spawner);
+        let broker = DelegationBroker::new(
+            spawner.clone(),
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(MockStatusLookup::default()),
+            Arc::new(RecordingMetaWriter::default()),
+            Arc::new(RecordingEventEmitter::default()),
+            DelegationConfig::default(),
+        );
+        let start_broker = broker.clone();
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        reached.notified().await;
+
+        broker.parent_closed("parent-conn").await;
+        for index in 0..TOMBSTONE_CAP {
+            broker.parent_closed(&format!("newer-parent-{index}")).await;
+        }
+        release.notify_one();
+
+        assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
+        assert!(spawner.calls.lock().unwrap().prompts.is_empty());
+        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
     }
 }

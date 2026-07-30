@@ -14,7 +14,7 @@ use delegation_proto::{
     DelegationTaskReport as WireDelegationTaskReport, read_frame, write_frame,
 };
 use serde_json::{Value, json};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::{
     broker::{DelegationBroker, StatusWait, failed_setup_report, unknown_report},
@@ -119,7 +119,13 @@ impl DelegationListener {
             }
             BrokerMessage::Ask(req) => BrokerResponse::Payload(
                 match self.authorized_entry(&req.token, TokenFeature::Ask).await {
-                    Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
+                    Some(entry) => {
+                        let scope = scope_for(&entry);
+                        tokio::select! {
+                            outcome = self.features.ask(&scope, req.questions) => outcome,
+                            _ = wait_for_peer_close(conn) => return Ok(()),
+                        }
+                    }
                     None => json!({ "declined": true, "answers": [] }),
                 },
             ),
@@ -298,6 +304,17 @@ impl DelegationListener {
             });
         }
     }
+}
+
+/// Companion calls use one request per connection. Reading again therefore
+/// waits only for EOF (MCP cancellation drops the client socket); any extra
+/// bytes are a protocol violation and also cancel the blocked request.
+async fn wait_for_peer_close<R>(reader: &mut R)
+where
+    R: AsyncRead + Unpin,
+{
+    let mut unexpected = [0_u8; 1];
+    let _ = reader.read(&mut unexpected).await;
 }
 
 /// Default per-process socket path. Unix: a `.sock` under the temp dir; Windows:
@@ -907,6 +924,66 @@ mod tests {
 
         assert_eq!(response["declined"], false);
         assert_eq!(response["answers"][0]["selected"][0], "A");
+    }
+
+    #[tokio::test]
+    async fn ask_socket_disconnect_releases_the_pending_question() {
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let (listener, tokens) = listener_with_features(Some(Uuid::nil()), features.clone());
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: Uuid::nil(),
+                working_root: std::env::temp_dir(),
+            },
+        );
+        let scope = DelegationScope {
+            parent_connection_id: "conn-1".to_string(),
+            parent_conversation_id: Uuid::nil(),
+        };
+        let request = BrokerMessage::Ask(delegation_proto::BrokerAskRequest {
+            token: "tok".to_string(),
+            questions: json!([{ "question": "First?" }]),
+        });
+        let (mut client, mut server) = tokio::io::duplex(64 * 1024);
+        write_frame(&mut client, &request).await.unwrap();
+        let serving = tokio::spawn({
+            let listener = listener.clone();
+            async move { listener.serve_one(&mut server).await }
+        });
+        features.next_question(&scope).await;
+
+        drop(client);
+        tokio::time::timeout(std::time::Duration::from_millis(50), serving)
+            .await
+            .expect("socket EOF must cancel the blocked ask")
+            .unwrap()
+            .unwrap();
+
+        let second = tokio::spawn({
+            let listener = listener.clone();
+            async move {
+                round_trip(
+                    &listener,
+                    BrokerMessage::Ask(delegation_proto::BrokerAskRequest {
+                        token: "tok".to_string(),
+                        questions: json!([{ "question": "Second?" }]),
+                    }),
+                )
+                .await
+            }
+        });
+        let pending = features.next_question(&scope).await;
+        features
+            .answer_question(
+                &pending.id,
+                scope.parent_conversation_id,
+                json!([{ "selected": ["yes"] }]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.await.unwrap()["declined"], false);
     }
 
     #[tokio::test]

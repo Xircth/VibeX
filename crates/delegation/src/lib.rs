@@ -34,7 +34,7 @@ pub use meta_writer::DelegationMetaWriter;
 pub use spawner::{ConnectionSpawner, SpawnerError};
 pub use steering::{
     CompanionFeaturePort, FeedbackNote, InMemoryCompanionFeatures, NoopCompanionFeatures,
-    PendingQuestion, SharedCompanionFeatures,
+    PendingQuestion, PendingQuestionWait, SharedCompanionFeatures,
 };
 pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
 pub use token_registry::{TokenEntry, TokenFeature, TokenPermissions, TokenRegistry};

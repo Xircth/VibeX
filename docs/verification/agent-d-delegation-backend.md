@@ -35,6 +35,9 @@ Conversation projection seam.
 | Pre-cancel reuse | A stale FIFO entry could evict a newly reused cancellation handle | `cargo test -p delegation consumed_pre_cancel_does_not_evict_a_reused_handle --lib` |
 | Linked send failure | A durable child whose first prompt failed had no Started/Completed lifecycle | `cargo test -p delegation linked_send_failure_emits_a_durable_terminal_lifecycle --lib` |
 | Ask cancellation | Dropping the requester left its question occupying the parent scope | `cargo test -p delegation canceled_ask_releases_the_scope_for_a_later_question --lib` |
+| Ask socket cancellation | MCP cancellation closed the socket but the listener kept the Ask future alive | `cargo test -p delegation ask_socket_disconnect_releases_the_pending_question --lib` |
+| Resolver release | Explicit cancellation disconnected the child without releasing resolver correlation | `cargo test -p delegation cancel_running_task_marks_canceled_and_tears_down --lib` |
+| Parent setup authority | A slow spawn could outlive bounded closed-parent history and register a child | `cargo test -p delegation parent_close_lease_survives_closed_history_eviction --lib` |
 | Long transcript stream | A single assistant message over 10,000 deltas lost its first chunks | `cargo test -p vibex compact_transcript_does_not_cut_a_long_streamed_message --lib` |
 
 Fixed-point review added regression coverage for:
@@ -59,6 +62,11 @@ Fixed-point review added regression coverage for:
   prompt send fails, including resolver-correlation release;
 - backward-paged transcript folding that completes a streamed message before
   applying `max_messages`.
+- socket-EOF cancellation for blocked Ask calls, with a wait handle that owns
+  cleanup from the instant the question is inserted;
+- unconditional resolver release for explicit/teardown cancellation;
+- revocable in-flight parent setup leases that remain authoritative after the
+  bounded closed-parent history evicts an old connection id.
 
 Pre-existing behaviors were retained with named regression coverage:
 `identical_parallel_tasks_keep_independent_task_ids`,

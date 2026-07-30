@@ -38,7 +38,7 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
     }
 
     async fn ask(&self, scope: &DelegationScope, questions: Value) -> Value {
-        let Ok((pending, answer_rx)) = self
+        let Ok(wait) = self
             .memory
             .begin_question(scope.clone(), questions.clone())
             .await
@@ -49,6 +49,7 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
                 "error": "question already pending for parent conversation",
             });
         };
+        let pending = wait.question().clone();
         if let (Ok(connection_id), Ok(question_id)) = (
             Uuid::parse_str(&scope.parent_connection_id),
             Uuid::parse_str(&pending.id),
@@ -78,7 +79,7 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
                 )
                 .await;
         }
-        match self.memory.wait_for_answer(&pending.id, answer_rx).await {
+        match wait.wait().await {
             Ok(answer) if answer["__declined"] == true => json!({
                 "question_id": pending.id,
                 "declined": true,

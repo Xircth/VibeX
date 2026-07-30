@@ -74,6 +74,25 @@ struct QuestionWaitGuard {
     question_id: String,
 }
 
+/// Owns a pending question from insertion until answer/cancellation. Dropping
+/// this handle removes the question synchronously, including while callers are
+/// between async setup steps.
+pub struct PendingQuestionWait {
+    question: PendingQuestion,
+    answer_rx: oneshot::Receiver<Value>,
+    _guard: QuestionWaitGuard,
+}
+
+impl PendingQuestionWait {
+    pub fn question(&self) -> &PendingQuestion {
+        &self.question
+    }
+
+    pub async fn wait(self) -> Result<Value, oneshot::error::RecvError> {
+        self.answer_rx.await
+    }
+}
+
 impl Drop for QuestionWaitGuard {
     fn drop(&mut self) {
         self.questions.lock().unwrap().remove(&self.question_id);
@@ -120,7 +139,7 @@ impl InMemoryCompanionFeatures {
         &self,
         scope: DelegationScope,
         questions: Value,
-    ) -> Result<(PendingQuestion, oneshot::Receiver<Value>), &'static str> {
+    ) -> Result<PendingQuestionWait, &'static str> {
         let id = Uuid::new_v4().to_string();
         let question = PendingQuestion {
             id: id.clone(),
@@ -136,7 +155,7 @@ impl InMemoryCompanionFeatures {
             return Err("question already pending for parent conversation");
         }
         pending_questions.insert(
-            id,
+            id.clone(),
             PendingQuestionState {
                 question: question.clone(),
                 answer_tx,
@@ -144,22 +163,14 @@ impl InMemoryCompanionFeatures {
         );
         drop(pending_questions);
         self.question_notify.notify_waiters();
-        Ok((question, answer_rx))
-    }
-
-    /// Await an answer while owning cleanup for the pending question. If the
-    /// caller future is canceled (for example because its socket closes), the
-    /// guard removes the question synchronously and releases the scope.
-    pub async fn wait_for_answer(
-        &self,
-        question_id: &str,
-        answer_rx: oneshot::Receiver<Value>,
-    ) -> Result<Value, oneshot::error::RecvError> {
-        let _guard = QuestionWaitGuard {
-            questions: self.questions.clone(),
-            question_id: question_id.to_string(),
-        };
-        answer_rx.await
+        Ok(PendingQuestionWait {
+            question,
+            answer_rx,
+            _guard: QuestionWaitGuard {
+                questions: self.questions.clone(),
+                question_id: id,
+            },
+        })
     }
 
     pub async fn answer_question(
@@ -237,14 +248,15 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
     }
 
     async fn ask(&self, scope: &DelegationScope, questions: Value) -> Value {
-        let Ok((question, answer_rx)) = self.begin_question(scope.clone(), questions).await else {
+        let Ok(wait) = self.begin_question(scope.clone(), questions).await else {
             return json!({
                 "declined": true,
                 "answers": [],
                 "error": "question already pending for parent conversation",
             });
         };
-        match self.wait_for_answer(&question.id, answer_rx).await {
+        let question = wait.question().clone();
+        match wait.wait().await {
             Ok(answers) => json!({
                 "question_id": question.id,
                 "declined": false,
@@ -289,7 +301,7 @@ mod tests {
         let features = InMemoryCompanionFeatures::new();
         let parent = Uuid::new_v4();
         let other = Uuid::new_v4();
-        let (question, answer_rx) = features
+        let wait = features
             .begin_question(
                 DelegationScope {
                     parent_connection_id: "parent".to_string(),
@@ -299,6 +311,7 @@ mod tests {
             )
             .await
             .unwrap();
+        let question = wait.question().clone();
 
         assert!(
             features
@@ -310,7 +323,7 @@ mod tests {
             .answer_question(&question.id, parent, json!({ "answer": "yes" }))
             .await
             .unwrap();
-        assert_eq!(answer_rx.await.unwrap()["answer"], "yes");
+        assert_eq!(wait.wait().await.unwrap()["answer"], "yes");
     }
 
     #[tokio::test]
@@ -320,7 +333,7 @@ mod tests {
             parent_connection_id: "parent".to_string(),
             parent_conversation_id: Uuid::new_v4(),
         };
-        let (_, first_answer) = features
+        let first_wait = features
             .begin_question(scope.clone(), json!([{ "question": "First?" }]))
             .await
             .unwrap();
@@ -332,7 +345,10 @@ mod tests {
                 .is_err()
         );
         features.close_parent_connection("parent").await;
-        assert!(first_answer.await.is_err(), "teardown drops answer sender");
+        assert!(
+            first_wait.wait().await.is_err(),
+            "teardown drops answer sender"
+        );
     }
 
     #[tokio::test]

@@ -82,8 +82,32 @@ No Codeg Automation source file was copied byte-for-byte. The model, engine,
 ports, migrations, and tests were rewritten around VibeX's event-sourced
 Conversation authority and local-first SQLite schema.
 
+## Application and transport contracts
+
+The Agent I slice reviewed these additional files at the same pinned commit:
+
+- `src/lib/transport/types.ts`
+- `src/lib/transport/tauri-transport.ts`
+- `src/lib/transport/remote-desktop-transport.ts`
+- `src/lib/transport/web-event-stream.ts`
+- `src/lib/transport/web-transport.ts`
+- `src-tauri/src/web/router.rs`
+- `src-tauri/src/web/event_bridge.rs`
+
+VibeX adopted the observable transport separation and attach lifecycle:
+transport-neutral calls and subscriptions, capability discovery, snapshot or
+replay catch-up, a high-water mark, and an explicit ready boundary before live
+delivery. VibeX-specific changes replace Codeg's arbitrary string dispatch
+with a typed command registry and replace the in-memory ACP ring buffer as the
+recovery authority with persisted Conversation event sequences.
+
+No Codeg Web router or Axum server implementation was ported. The Application
+Core is independent of Tauri and Axum, and the local Tauri command is only an
+adapter over the same use case used by future remote transports.
+
 ## Verification
 
+- `node --test scripts/check-codeg-adoption.test.js`
 - `cargo test -p artifacts`
 - `cargo test -p artifacts --test local_adapters`
 - `cargo test -p conversations artifact_revision_event_projects_reference_without_file_bytes`

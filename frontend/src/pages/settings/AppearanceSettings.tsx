@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { tauriEmit } from '@/lib/tauriApi';
+import { backendEmit } from '@/lib/backendTransport';
 import { toPrettyCase } from '@/utils/string';
 
 import {
@@ -116,7 +116,7 @@ export function AppearanceSettings() {
       const saved = await updateAndSaveConfig(draft);
       if (saved) {
         setTheme(draft.theme);
-        tauriEmit('theme-changed', { theme: draft.theme });
+        backendEmit('theme-changed', { theme: draft.theme });
       }
     } finally {
       setSaving(false);

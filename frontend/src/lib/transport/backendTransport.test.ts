@@ -1,13 +1,27 @@
-import { describe, expect, it, vi } from 'vitest';
+import { createElement, useEffect } from 'react';
+import { render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createConversationApi } from '@/features/conversation/conversationApi';
+import {
+  backendCall,
+  backendEmit,
+  backendListen,
+  configureBackendTransport,
+} from '@/lib/backendTransport';
 import type { BackendTransport } from './backendTransport';
+import { BackendTransportProvider } from './BackendTransportProvider';
+import { tauriBackendTransport } from './tauriTransport';
 
 vi.mock('@tauri-apps/api/core', () => {
   throw new Error('feature tests must not import @tauri-apps/api');
 });
 
 describe('BackendTransport conversation tracer', () => {
+  afterEach(() => {
+    configureBackendTransport(tauriBackendTransport);
+  });
+
   it('lists conversations through an injected transport without importing Tauri', async () => {
     const call = vi.fn().mockResolvedValue([
       {
@@ -28,5 +42,57 @@ describe('BackendTransport conversation tracer', () => {
     expect(call).toHaveBeenCalledWith('conversation_list', {
       workspaceId: 'workspace-1',
     });
+  });
+
+  it('routes migrated calls and event listeners through the configured transport', async () => {
+    const unlisten = vi.fn();
+    const call = vi.fn().mockResolvedValue({ ok: true });
+    const listen = vi.fn().mockResolvedValue(unlisten);
+    const emit = vi.fn().mockResolvedValue(undefined);
+    configureBackendTransport({
+      environment: 'web',
+      call,
+      listen,
+      emit,
+    });
+    const handler = vi.fn();
+
+    await expect(backendCall('health_check')).resolves.toEqual({ ok: true });
+    await expect(backendListen('conversation-events', handler)).resolves.toBe(
+      unlisten
+    );
+    await expect(backendEmit('theme-changed', { theme: 'dark' })).resolves.toBe(
+      undefined
+    );
+    expect(call).toHaveBeenCalledWith('health_check', undefined);
+    expect(listen).toHaveBeenCalledWith('conversation-events', handler);
+    expect(emit).toHaveBeenCalledWith('theme-changed', { theme: 'dark' });
+  });
+
+  it('makes a provider transport available before descendant effects run', async () => {
+    const call = vi.fn().mockResolvedValue(undefined);
+    const transport: BackendTransport = {
+      environment: 'web',
+      call,
+    };
+    function CallOnMount() {
+      useEffect(() => {
+        void backendCall('conversation_list');
+      }, []);
+      return null;
+    }
+
+    const view = render(
+      createElement(
+        BackendTransportProvider,
+        { transport },
+        createElement(CallOnMount)
+      )
+    );
+
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('conversation_list', undefined)
+    );
+    view.unmount();
   });
 });

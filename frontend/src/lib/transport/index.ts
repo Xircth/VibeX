@@ -11,3 +11,7 @@ export {
   useBackendTransport,
 } from './BackendTransportProvider';
 export { TauriTransport, tauriBackendTransport } from './tauriTransport';
+export {
+  configureBackendTransport,
+  getBackendTransport,
+} from './transportRegistry';

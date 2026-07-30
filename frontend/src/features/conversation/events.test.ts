@@ -4,25 +4,25 @@ import {
   listenToConversationEvents,
 } from './events';
 
-const { tauriListenMock } = vi.hoisted(() => ({
-  tauriListenMock: vi.fn(),
+const { backendListenMock } = vi.hoisted(() => ({
+  backendListenMock: vi.fn(),
 }));
 
 vi.mock('@/lib/backendTransport', () => ({
-  backendListen: tauriListenMock,
+  backendListen: backendListenMock,
 }));
 
 describe('listenToConversationEvents', () => {
   it('subscribes to the canonical conversation event channel', async () => {
     const unsubscribe = vi.fn();
-    tauriListenMock.mockResolvedValue(unsubscribe);
+    backendListenMock.mockResolvedValue(unsubscribe);
     const handler = vi.fn();
 
     await expect(listenToConversationEvents(handler)).resolves.toBe(
       unsubscribe
     );
 
-    expect(tauriListenMock).toHaveBeenCalledWith(
+    expect(backendListenMock).toHaveBeenCalledWith(
       CONVERSATION_EVENTS_CHANNEL,
       handler
     );

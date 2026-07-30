@@ -4,12 +4,23 @@ import type {
   ServerCapabilities,
   SubscriptionRequest,
 } from './backendTransport';
+import type { SubscriptionBootstrap } from 'shared/types';
 
-type SubscriptionBootstrap = {
-  subscription_id: string;
+type ApplicationCommandResponse = {
+  operation_id: string;
+  data: unknown;
+};
+
+type WireRemoteEvent = Omit<RemoteEvent, 'sequence'> & {
+  sequence: number;
+};
+type WireSubscriptionBootstrap = Omit<
+  SubscriptionBootstrap,
+  'snapshot' | 'replay' | 'high_water_mark'
+> & {
   ready: boolean;
-  snapshot?: { through_sequence: number; payload: unknown };
-  replay: RemoteEvent[];
+  snapshot?: { through_sequence: number; payload: RemoteEvent['payload'] };
+  replay: WireRemoteEvent[];
   high_water_mark: number;
 };
 
@@ -21,6 +32,17 @@ export class TauriTransport implements BackendTransport {
     args?: Record<string, unknown>
   ): Promise<unknown> {
     const { tauriInvoke } = await import('@/lib/tauriApi');
+    if (command === 'conversation_list') {
+      const response = await tauriInvoke<ApplicationCommandResponse>(
+        'application_call',
+        {
+          command,
+          operationId: globalThis.crypto.randomUUID(),
+          args: args ?? {},
+        }
+      );
+      return response.data;
+    }
     return tauriInvoke(command, args);
   }
 
@@ -37,13 +59,23 @@ export class TauriTransport implements BackendTransport {
     };
   }
 
-  async *subscribe(
-    request: SubscriptionRequest
-  ): AsyncIterable<RemoteEvent> {
+  async listen<T>(
+    event: string,
+    handler: (payload: T) => void
+  ): Promise<() => void> {
     const { tauriListen } = await import('@/lib/tauriApi');
+    return tauriListen(event, handler);
+  }
+
+  async emit(event: string, payload?: unknown): Promise<void> {
+    const { tauriEmit } = await import('@/lib/tauriApi');
+    await tauriEmit(event, payload);
+  }
+
+  async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
     let dirty = true;
     let wake: (() => void) | undefined;
-    const unlisten = await tauriListen('conversation-events', () => {
+    const unlisten = await this.listen('conversation-events', () => {
       dirty = true;
       wake?.();
       wake = undefined;
@@ -59,25 +91,32 @@ export class TauriTransport implements BackendTransport {
         }
         dirty = false;
         const bootstrap = (await this.call('conversation_attach', {
-          request: { ...request, after_sequence: afterSequence },
-        })) as SubscriptionBootstrap;
+          request: {
+            ...request,
+            after_sequence: Number(afterSequence),
+          },
+        })) as WireSubscriptionBootstrap;
         if (!bootstrap.ready) {
           throw new Error('conversation subscription was not ready');
         }
         if (bootstrap.snapshot) {
           yield {
-            sequence: bootstrap.snapshot.through_sequence,
+            sequence: BigInt(bootstrap.snapshot.through_sequence),
             kind: 'subscription_snapshot',
             payload: bootstrap.snapshot.payload,
           };
         }
         for (const event of bootstrap.replay) {
-          if (event.sequence > afterSequence) {
-            afterSequence = event.sequence;
-            yield event;
+          const sequence = BigInt(event.sequence);
+          if (sequence > afterSequence) {
+            afterSequence = sequence;
+            yield { ...event, sequence };
           }
         }
-        afterSequence = Math.max(afterSequence, bootstrap.high_water_mark);
+        const highWaterMark = BigInt(bootstrap.high_water_mark);
+        if (highWaterMark > afterSequence) {
+          afterSequence = highWaterMark;
+        }
       }
     } finally {
       unlisten();

@@ -5,7 +5,8 @@ use serde::Deserialize;
 
 use crate::{
     ApplicationCore, CancelConversationTurn, ConversationRepository, CreateConversation,
-    ListConversations, Principal, RespondConversationPermission, StartConversationTurn,
+    DomainCommand, ListConversations, Principal, RespondConversationPermission,
+    StartConversationTurn,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,6 +16,7 @@ pub enum RegisteredCommand {
     ConversationStartTurn,
     ConversationRespondPermission,
     ConversationCancelTurn,
+    Domain(DomainCommand),
 }
 
 impl RegisteredCommand {
@@ -25,6 +27,7 @@ impl RegisteredCommand {
             Self::ConversationStartTurn => "conversation_start_turn",
             Self::ConversationRespondPermission => "conversation_respond_permission",
             Self::ConversationCancelTurn => "conversation_cancel_turn",
+            Self::Domain(command) => command.as_str(),
         }
     }
 }
@@ -39,7 +42,7 @@ impl FromStr for RegisteredCommand {
             "conversation_start_turn" => Ok(Self::ConversationStartTurn),
             "conversation_respond_permission" => Ok(Self::ConversationRespondPermission),
             "conversation_cancel_turn" => Ok(Self::ConversationCancelTurn),
-            _ => Err(()),
+            _ => DomainCommand::from_str(value).map(Self::Domain),
         }
     }
 }
@@ -256,6 +259,15 @@ where
                     })?;
                 serde_json::Value::Null
             }
+            RegisteredCommand::Domain(command) => self
+                .core
+                .execute_domain(principal, command, args)
+                .await
+                .map_err(|error| {
+                    let mut envelope = error.into_envelope();
+                    envelope.operation_id = operation_id;
+                    envelope
+                })?,
         };
 
         Ok(CommandResponse::new(operation_id, data))

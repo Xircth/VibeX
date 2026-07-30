@@ -3,6 +3,7 @@
 mod command;
 mod conversation;
 mod conversation_execution;
+mod domain;
 mod error;
 mod principal;
 
@@ -15,5 +16,6 @@ pub use conversation::{
 pub use conversation_execution::ConversationSessionExecutionPort;
 pub use conversations::ConversationTurnSnapshot;
 pub use db::models::conversation::DbConversationSummary as ConversationSummary;
+pub use domain::{ApplicationDomainPort, DomainCommand};
 pub use error::ApplicationError;
 pub use principal::Principal;

@@ -12,7 +12,9 @@ use remote_protocol::{
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::{ApplicationError, Principal};
+use crate::{
+    ApplicationDomainPort, ApplicationError, DomainCommand, Principal, domain::unavailable_domains,
+};
 
 const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
 const WRITE_CONVERSATIONS_SCOPE: &str = "conversation.write";
@@ -271,6 +273,7 @@ impl ConversationRepository for SqliteConversationRepository {
 pub struct ApplicationCore<R> {
     conversations: R,
     execution: Arc<dyn ConversationExecutionPort>,
+    domains: Arc<dyn ApplicationDomainPort>,
 }
 
 impl<R> ApplicationCore<R>
@@ -281,6 +284,7 @@ where
         Self {
             conversations,
             execution: Arc::new(UnavailableConversationExecution),
+            domains: unavailable_domains(),
         }
     }
 
@@ -291,6 +295,30 @@ where
         Self {
             conversations,
             execution,
+            domains: unavailable_domains(),
+        }
+    }
+
+    pub fn with_domains<D>(conversations: R, domains: Arc<D>) -> Self
+    where
+        D: ApplicationDomainPort + 'static,
+    {
+        Self {
+            conversations,
+            execution: Arc::new(UnavailableConversationExecution),
+            domains,
+        }
+    }
+
+    pub fn with_ports<E, D>(conversations: R, execution: Arc<E>, domains: Arc<D>) -> Self
+    where
+        E: ConversationExecutionPort + 'static,
+        D: ApplicationDomainPort + 'static,
+    {
+        Self {
+            conversations,
+            execution,
+            domains,
         }
     }
 
@@ -359,6 +387,21 @@ where
             ));
         }
         self.execution.cancel_turn(request).await
+    }
+
+    pub async fn execute_domain(
+        &self,
+        principal: &Principal,
+        command: DomainCommand,
+        args: serde_json::Value,
+    ) -> Result<serde_json::Value, ApplicationError> {
+        if !principal.allows(command.required_scope()) {
+            return Err(ApplicationError::forbidden(format!(
+                "principal lacks {}",
+                command.required_scope()
+            )));
+        }
+        self.domains.execute(principal, command, args).await
     }
 
     pub async fn attach_conversation<S>(

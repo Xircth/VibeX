@@ -228,6 +228,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "application"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "db",
+ "remote-protocol",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8339,6 +8353,7 @@ dependencies = [
  "agents",
  "anyhow",
  "api-types",
+ "application",
  "argon2",
  "artifacts",
  "async-trait",
@@ -8367,6 +8382,7 @@ dependencies = [
  "rand 0.8.6",
  "raw-window-handle",
  "regex",
+ "remote-protocol",
  "reqwest 0.12.28",
  "rustls",
  "serde",

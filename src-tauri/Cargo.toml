@@ -62,6 +62,8 @@ browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
 browser-runtime = { path = "../crates/browser-runtime" }
 artifacts = { path = "../crates/artifacts" }
 automation = { path = "../crates/automation" }
+application = { path = "../crates/application" }
+remote-protocol = { path = "../crates/remote-protocol" }
 plugins = { path = "../crates/plugins" }
 tool-runtime = { path = "../crates/tool-runtime" }
 db = { path = "../crates/db" }

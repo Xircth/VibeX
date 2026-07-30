@@ -320,12 +320,29 @@ pub async fn conversation_ensure_session_controls(
 pub async fn conversation_list(
     state: tauri::State<'_, AppState>,
     workspace_id: String,
-) -> Result<Vec<DbConversationSummary>, AppError> {
-    let workspace_id = Uuid::parse_str(&workspace_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
-    DbConversationSummary::list_for_workspace(&state.deployment.db().pool, workspace_id)
-        .await
-        .map_err(Into::into)
+) -> Result<Vec<DbConversationSummary>, remote_protocol::ErrorEnvelope> {
+    use application::{
+        ApplicationCore, ListConversations, Principal, SqliteConversationRepository,
+    };
+    use remote_protocol::{ErrorCode, ErrorEnvelope, OperationId};
+
+    let workspace_id = Uuid::parse_str(&workspace_id).map_err(|error| {
+        ErrorEnvelope::new(
+            ErrorCode::BadRequest,
+            format!("invalid workspace id: {error}"),
+            false,
+            OperationId::new(),
+        )
+    })?;
+    let core = ApplicationCore::new(SqliteConversationRepository::new(
+        state.deployment.db().pool.clone(),
+    ));
+    core.list_conversations(
+        &Principal::local_desktop(),
+        ListConversations { workspace_id },
+    )
+    .await
+    .map_err(application::ApplicationError::into_envelope)
 }
 
 pub async fn conversation_events_since_core(

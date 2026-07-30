@@ -52,13 +52,7 @@ renderable from VibeX-owned data:
   <https://agentclientprotocol.com/rfds/v2/tool-call-updates> and
   <https://agentclientprotocol.com/rfds/message-id>
 
-## Local Implementation Reference
-
-Codeg remains the implementation reference for ACP runtime hardening, not for
-conversation history ownership. The comparison decision is documented in
-`codeg-comparison-adoption.md`.
-
-Adopt from Codeg:
+## Runtime Requirements
 
 - ACP event coverage for tool updates, questions, feedback, delegation,
   capabilities, config-stale state, session load failure, and visible errors;
@@ -69,7 +63,7 @@ Adopt from Codeg:
 - renderer coverage for tool, plan, permission, question, feedback, delegation,
   usage, and error states.
 
-Reject from Codeg:
+Conversation history must not use:
 
 - Agent transcript files as completed-history truth;
 - `external_id + agent_type` as the product history key;
@@ -144,7 +138,6 @@ docs/specs/acp-native-agent-platform/06-event-sourced-conversation-core/
   requirements.md
   design.md
   tasks.md
-  codeg-comparison-adoption.md
 ```
 
 ## Code Style
@@ -292,7 +285,7 @@ export function renderConversationRow(row: ConversationTimelineRow) {
 - The app can report event gap, projection failure, lost connection, and ACP
   session recovery state.
 
-### R11. Codeg-Hardened ACP Runtime
+### R11. Hardened ACP Runtime
 
 - The active ACP connection has a backend-owned runtime snapshot containing the
   active conversation, binding, ACP session, active turn, live assistant message,
@@ -312,7 +305,7 @@ export function renderConversationRow(row: ConversationTimelineRow) {
 - Realtime transport uses a snapshot plus bounded recent-event replay buffer,
   then falls back to durable `conversation_events_since` or
   `conversation_detail` for old cursors and process restarts.
-- The normalized event contract covers Codeg-equivalent cases for content,
+- The normalized event contract covers content,
   thinking, tool update, permission, question, feedback, plan, usage, mode,
   config, prompt capability, fork support, command, delegation, config-stale,
   session-load-failed, and error events.

@@ -4,11 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentAvailabilityInfo, AgentKind, agent_availability};
 use async_trait::async_trait;
 use db::DBService;
 use deployment::{Deployment, DeploymentError};
-use executors::profile::{ExecutorConfigs, ExecutorProfileId};
 use git::GitService;
 use services::services::{
     approvals::Approvals,
@@ -35,32 +33,6 @@ mod copy;
 mod process_completion;
 pub mod pty;
 
-fn availability_rank(info: &AgentAvailabilityInfo) -> (u8, i64) {
-    match info {
-        AgentAvailabilityInfo::LoginDetected {
-            last_auth_timestamp,
-        } => (0, -*last_auth_timestamp),
-        AgentAvailabilityInfo::InstallationFound => (1, 0),
-        AgentAvailabilityInfo::NotFound => (2, 0),
-    }
-}
-
-fn recommended_executor_profile(profiles: &ExecutorConfigs) -> Option<ExecutorProfileId> {
-    profiles
-        .executors
-        .keys()
-        .filter_map(|executor| {
-            let agent_type = AgentKind::from_lenient(&executor.to_string())?;
-            let availability = agent_availability(agent_type);
-            if !availability.is_available() {
-                return None;
-            }
-            Some((*executor, availability))
-        })
-        .min_by_key(|(_, availability)| availability_rank(availability))
-        .map(|(executor, _)| ExecutorProfileId::new(executor))
-}
-
 #[derive(Clone)]
 pub struct LocalDeployment {
     config: Arc<RwLock<Config>>,
@@ -83,13 +55,6 @@ impl LocalDeployment {
     // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
     pub async fn new() -> Result<Self, DeploymentError> {
         let mut raw_config = load_config_from_file(&config_path()).await;
-
-        let profiles = ExecutorConfigs::get_cached();
-        if !raw_config.onboarding_acknowledged
-            && let Some(recommended_executor) = recommended_executor_profile(&profiles)
-        {
-            raw_config.executor_profile = recommended_executor;
-        }
 
         // Check if app version has changed and set release notes flag
         {

@@ -966,8 +966,8 @@ fn apply_codex_provider_to_config(
 
 /// Keep auth.json in sync with the provider: write the key when present, and
 /// REMOVE a stale `OPENAI_API_KEY` when switching to oauth so an API key can't
-/// collide with the ChatGPT login (codex rejects mixed credentials). Mirrors
-/// codeg-main. Unrelated fields (the oauth `tokens` object) are preserved.
+/// collide with the ChatGPT login (codex rejects mixed credentials). Unrelated
+/// fields (the oauth `tokens` object) are preserved.
 fn apply_codex_api_key_to_auth(auth: &mut Value, api_key: Option<&str>) {
     match api_key {
         Some(key) => {

@@ -1,4 +1,5 @@
 import type {
+  AgentId,
   AgentKind,
   AskForApproval,
   ClaudeCode,
@@ -232,13 +233,13 @@ export function getSortedExecutorVariantKeys(
 }
 
 export function isClaudeCodeExecutor(
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): boolean {
   return executor === CLAUDE_CODE_EXECUTOR;
 }
 
 export function getDefaultVariantForExecutor(
-  executor: AgentKind | null | undefined,
+  executor: string | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): string | null {
   const variants = getVariantOptions(executor, profiles);
@@ -249,7 +250,7 @@ export function getDefaultVariantForExecutor(
 }
 
 export function getDefaultProfileForExecutor(
-  executor: AgentKind | null | undefined,
+  executor: AgentId | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): ExecutorProfileId | null {
   if (!executor) return null;
@@ -265,7 +266,7 @@ export function getFirstAvailableProfile(
 ): ExecutorProfileId | null {
   if (!profiles) return null;
 
-  const executors = Object.keys(profiles).sort() as AgentKind[];
+  const executors = Object.keys(profiles).sort() as AgentId[];
   const firstExecutor = executors[0];
   if (!firstExecutor) return null;
 
@@ -304,11 +305,11 @@ export function areProfilesEqual(
  * Returns variants sorted: DEFAULT first, then alphabetically.
  */
 export function getVariantOptions(
-  executor: AgentKind | null | undefined,
+  executor: string | null | undefined,
   profiles: ExecutorConfigs['executors'] | null | undefined
 ): string[] {
   if (!executor || !profiles) return [];
-  const executorConfig = profiles[executor];
+  const executorConfig = (profiles as Record<string, unknown>)[executor];
   if (!executorConfig) return [];
 
   return getSortedExecutorVariantKeys(

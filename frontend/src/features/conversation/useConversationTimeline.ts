@@ -18,7 +18,6 @@ import {
   type ConversationSessionModesState,
   type ConversationTimelineTurn,
 } from './conversationStore';
-import { isKnownAgent } from '@/constants/agents';
 
 // Stable empty references so consumers don't re-render on identity churn.
 const EMPTY_SESSION_MODES: ConversationSessionModesState = {
@@ -88,8 +87,7 @@ export function useConversationTimeline(
         const needsAuthoritativeZeroTurnControls =
           detail.summary.message_count === 0n;
         if (
-          detail.summary.agent_type &&
-          isKnownAgent(detail.summary.agent_type) &&
+          detail.summary.agent_id &&
           (controlsMissing || needsAuthoritativeZeroTurnControls)
         ) {
           return conversationApi

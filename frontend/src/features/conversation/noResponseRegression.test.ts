@@ -21,7 +21,7 @@ function detail(): DbConversationDetail {
       title: 'No response regression',
       title_locked: false,
       status: 'inprogress',
-      agent_type: 'codex' as const,
+      agent_id: 'codex' as const,
       model: null,
       external_session_id: null,
       message_count: 0n,

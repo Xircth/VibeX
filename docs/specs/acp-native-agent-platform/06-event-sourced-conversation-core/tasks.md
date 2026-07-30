@@ -6,11 +6,8 @@
 - After each task, review the task acceptance criteria before moving on.
 - Do not preserve the old transcript-reparse path as a live compatibility
   feature.
-- Adopt Codeg runtime hardening patterns only where they support the
-  event-sourced architecture. Do not adopt Codeg's transcript-as-history model.
-- Keep `codeg-comparison-adoption.md` as the reference checklist for runtime
-  event coverage, prompt locking, spawn locking, session load/new behavior, and
-  live replay transport.
+- Apply runtime hardening only where it supports the event-sourced architecture.
+  Do not introduce a transcript-as-history model.
 - Do not change more than roughly five source files in one task. If a task grows,
   split it before implementation.
 - Regenerate SQLx and TypeScript types after schema or exported DTO changes.
@@ -38,11 +35,10 @@
   - Files: `docs/specs/acp-native-agent-platform/06-event-sourced-conversation-core/projection-fixtures.md`
 
 - [x] Task 0.4: Phase 0 completeness review
-  - Acceptance: Review confirms no implementation has started, all breaking
-    assumptions are visible, and the Codeg adoption decision is linked as a
-    runtime reference only.
+  - Acceptance: Review confirms no implementation has started and all breaking
+    assumptions are visible.
   - Verify: Review document links to `requirements.md`, `design.md`, and
-    `tasks.md`, plus `codeg-comparison-adoption.md`.
+    `tasks.md`.
   - Files: `docs/specs/acp-native-agent-platform/06-event-sourced-conversation-core/phase0-review.md`
 
 ## Phase 1: Database Foundation
@@ -122,8 +118,8 @@
   - Verify: `pnpm run generate-types:check`
   - Files: `crates/agents/src/conversation.rs`, `src-tauri/src/bin/generate_types.rs`, `shared/types.ts`
 
-- [x] Task 2.5: Map Codeg ACP event coverage to `ConversationEvent`
-  - Acceptance: Normalized DTOs cover Codeg-equivalent content, thinking, tool
+- [x] Task 2.5: Map ACP event coverage to `ConversationEvent`
+  - Acceptance: Normalized DTOs cover content, thinking, tool
     update, permission, question, feedback, plan, usage, mode, config, prompt
     capability, fork support, command, delegation, config-stale,
     session-load-failed, and error cases.
@@ -132,8 +128,8 @@
 
 - [x] Task 2.6: Phase 2 completeness review
   - Acceptance: Review confirms frontend can import all conversation DTOs from
-    generated shared types without hand-written duplicates, and event coverage
-    matches `codeg-comparison-adoption.md`.
+    generated shared types without hand-written duplicates and required event
+    coverage is complete.
   - Verify: `rg -n "ConversationEvent|ConversationTimeline|ConversationBundle" shared/types.ts frontend/src`
   - Files: `docs/specs/acp-native-agent-platform/06-event-sourced-conversation-core/phase2-review.md`
 
@@ -187,7 +183,7 @@
 - [x] Task 4.1: Add conversation service boundary
   - Acceptance: `ConversationSessionService` owns start-turn, ensure-binding,
     append-runtime-event, cancel-turn, respond-permission, recovery methods, and
-    a Codeg-style live runtime snapshot for active conversation state.
+    a live runtime snapshot for active conversation state.
   - Verify: `cargo check`
   - Files: `src-tauri/src/conversation_service.rs`, `src-tauri/src/lib.rs`
 

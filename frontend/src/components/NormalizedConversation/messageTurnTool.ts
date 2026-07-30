@@ -8,7 +8,7 @@ import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
 import i18n from '@/i18n';
 
 /**
- * Adapts a unified-timeline tool block (the codeg-aligned `ContentBlock`
+ * Adapts a unified-timeline tool block (the normalized `ContentBlock`
  * tool_use + paired tool_result) into a `NormalizedEntry` adapter, so the
  * timeline can reuse VibeX's existing rich tool cards (file/search/command/
  * generic) via `DisplayConversationEntry`.

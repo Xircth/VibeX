@@ -7,12 +7,15 @@
  *
  * Installing shells out to the `skills` CLI and then mirrors the skill into the
  * chosen targets — via symlink or file copy (configurable below the list).
- * "全局" hosting records the skill in ~/.vibex/skills and mirrors it into all
- * seven agents.
+ * "全局" hosting records the skill in ~/.vibex/skills and mirrors it into each
+ * locally supported Agent adapter.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AGENT_OPTIONS } from '@/constants/agents';
+import {
+  type ManagedAgentOption,
+  useManagedAgentOptions,
+} from '@/features/agent-management';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
@@ -42,7 +45,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
-import type { AgentType } from '@/features/agents/types';
 import {
   skillsMarketApi,
   type LocalSkill,
@@ -62,24 +64,29 @@ type Selection =
   | null;
 
 
-const AGENT_LABELS: Record<string, string> = Object.fromEntries(
-  AGENT_OPTIONS.map((item) => [item.value, item.label])
-);
-
 type AgentsDraft = Record<string, boolean>;
 
-function emptyAgents(value = false): AgentsDraft {
-  return Object.fromEntries(AGENT_OPTIONS.map((a) => [a.value, value]));
+function emptyAgents(
+  options: ManagedAgentOption[],
+  value = false
+): AgentsDraft {
+  return Object.fromEntries(options.map((a) => [a.value, value]));
 }
 
-function agentsToDraft(apps: string[]): AgentsDraft {
-  const draft = emptyAgents(false);
+function agentsToDraft(
+  options: ManagedAgentOption[],
+  apps: string[]
+): AgentsDraft {
+  const draft = emptyAgents(options, false);
   for (const app of apps) if (app in draft) draft[app] = true;
   return draft;
 }
 
-function selectedAgents(draft: AgentsDraft): string[] {
-  return AGENT_OPTIONS.filter((a) => draft[a.value]).map((a) => a.value);
+function selectedAgents(
+  options: ManagedAgentOption[],
+  draft: AgentsDraft
+): string[] {
+  return options.filter((a) => draft[a.value]).map((a) => a.value);
 }
 
 function splitFrontmatter(content: string): {
@@ -109,11 +116,13 @@ function errorMessage(err: unknown): string {
 function SkillTargetSelector({
   global,
   agents,
+  options,
   onGlobalChange,
   onToggleAgent,
 }: {
   global: boolean;
   agents: AgentsDraft;
+  options: ManagedAgentOption[];
   onGlobalChange: (next: boolean) => void;
   onToggleAgent: (agent: string, next: boolean) => void;
 }) {
@@ -136,7 +145,7 @@ function SkillTargetSelector({
           global && 'pointer-events-none opacity-50'
         )}
       >
-        {AGENT_OPTIONS.map((agent) => (
+        {options.map((agent) => (
           <label
             key={agent.value}
             className="flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
@@ -149,10 +158,7 @@ function SkillTargetSelector({
                 onToggleAgent(agent.value, event.target.checked)
               }
             />
-            <AgentTypeIcon
-              agentType={agent.value as AgentType}
-              className="h-4 w-4"
-            />
+            <AgentTypeIcon agentType={agent.value} className="h-4 w-4" />
             <span>{agent.label}</span>
           </label>
         ))}
@@ -165,6 +171,14 @@ function SkillTargetSelector({
 
 export function SkillsSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const agentOptions = useManagedAgentOptions();
+  const agentLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        agentOptions.map((item) => [item.value, item.label])
+      ),
+    [agentOptions]
+  );
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
@@ -194,7 +208,7 @@ export function SkillsSettings() {
   const [content, setContent] = useState<string>('');
   const [contentLoading, setContentLoading] = useState(false);
   const [localGlobal, setLocalGlobal] = useState(false);
-  const [localAgents, setLocalAgents] = useState<AgentsDraft>(emptyAgents());
+  const [localAgents, setLocalAgents] = useState<AgentsDraft>({});
 
   // Market
   const [marketQuery, setMarketQuery] = useState('');
@@ -204,9 +218,7 @@ export function SkillsSettings() {
   // Install dialog
   const [installOpen, setInstallOpen] = useState(false);
   const [installGlobal, setInstallGlobal] = useState(true);
-  const [installAgents, setInstallAgents] = useState<AgentsDraft>(
-    emptyAgents(true)
-  );
+  const [installAgents, setInstallAgents] = useState<AgentsDraft>({});
 
   const link = hostMode === 'symlink';
 
@@ -261,7 +273,7 @@ export function SkillsSettings() {
   useEffect(() => {
     if (!selectedSkill) return;
     setLocalGlobal(selectedSkill.global);
-    setLocalAgents(agentsToDraft(selectedSkill.apps));
+    setLocalAgents(agentsToDraft(agentOptions, selectedSkill.apps));
     setContent('');
     setContentLoading(true);
     let alive = true;
@@ -279,7 +291,7 @@ export function SkillsSettings() {
     return () => {
       alive = false;
     };
-  }, [selectedSkill]);
+  }, [agentOptions, selectedSkill]);
 
   const preview = useMemo(() => splitFrontmatter(content), [content]);
 
@@ -345,13 +357,15 @@ export function SkillsSettings() {
 
   const openInstall = useCallback(() => {
     setInstallGlobal(true);
-    setInstallAgents(emptyAgents(true));
+    setInstallAgents(emptyAgents(agentOptions, true));
     setInstallOpen(true);
-  }, []);
+  }, [agentOptions]);
 
   const confirmInstall = useCallback(async () => {
     if (!selectedMarket) return;
-    const apps = installGlobal ? [] : selectedAgents(installAgents);
+    const apps = installGlobal
+      ? []
+      : selectedAgents(agentOptions, installAgents);
     if (!installGlobal && apps.length === 0) {
       setError(t('skills.selectAgentError'));
       return;
@@ -376,13 +390,21 @@ export function SkillsSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedMarket, installGlobal, installAgents, link, triggerSuccess, t]);
+  }, [
+    selectedMarket,
+    installGlobal,
+    installAgents,
+    agentOptions,
+    link,
+    triggerSuccess,
+    t,
+  ]);
 
   /* ── local hosting / uninstall ────────────────────────── */
 
   const applyHosting = useCallback(async () => {
     if (!selectedSkill) return;
-    const apps = localGlobal ? [] : selectedAgents(localAgents);
+    const apps = localGlobal ? [] : selectedAgents(agentOptions, localAgents);
     if (!localGlobal && apps.length === 0) {
       setError(t('skills.selectAgentError'));
       return;
@@ -403,7 +425,15 @@ export function SkillsSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedSkill, localGlobal, localAgents, link, triggerSuccess, t]);
+  }, [
+    selectedSkill,
+    localGlobal,
+    localAgents,
+    agentOptions,
+    link,
+    triggerSuccess,
+    t,
+  ]);
 
   const uninstall = useCallback(
     async (skillId: string) => {
@@ -507,6 +537,8 @@ export function SkillsSettings() {
               body={preview.body}
               global={localGlobal}
               agents={localAgents}
+              options={agentOptions}
+              agentLabels={agentLabels}
               onGlobalChange={setLocalGlobal}
               onToggleAgent={(agent, next) =>
                 setLocalAgents((prev) => ({ ...prev, [agent]: next }))
@@ -552,6 +584,7 @@ export function SkillsSettings() {
               <SkillTargetSelector
                 global={installGlobal}
                 agents={installAgents}
+                options={agentOptions}
                 onGlobalChange={setInstallGlobal}
                 onToggleAgent={(agent, next) =>
                   setInstallAgents((prev) => ({ ...prev, [agent]: next }))
@@ -927,6 +960,8 @@ function LocalDetail({
   body,
   global,
   agents,
+  options,
+  agentLabels,
   onGlobalChange,
   onToggleAgent,
   hostMode,
@@ -941,6 +976,8 @@ function LocalDetail({
   body: string;
   global: boolean;
   agents: AgentsDraft;
+  options: ManagedAgentOption[];
+  agentLabels: Record<string, string>;
   onGlobalChange: (next: boolean) => void;
   onToggleAgent: (agent: string, next: boolean) => void;
   hostMode: HostMode;
@@ -987,8 +1024,8 @@ function LocalDetail({
               variant="outline"
               className="h-5 gap-1 px-1.5 text-[9px]"
             >
-              <AgentTypeIcon agentType={app as AgentType} className="h-3 w-3" />
-              {AGENT_LABELS[app] ?? app}
+              <AgentTypeIcon agentType={app} className="h-3 w-3" />
+              {agentLabels[app] ?? app}
             </Badge>
           ))}
         </div>
@@ -1019,6 +1056,7 @@ function LocalDetail({
         <SkillTargetSelector
           global={global}
           agents={agents}
+          options={options}
           onGlobalChange={onGlobalChange}
           onToggleAgent={onToggleAgent}
         />

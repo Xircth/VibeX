@@ -1,24 +1,19 @@
 use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
 
 use agents::{
-    AgentAutoApproveMode, AgentAvailabilityInfo, AgentAvailableCommand, AgentCapability,
-    AgentConfigStrategy, AgentConfigSurface, AgentConnectionId, AgentConnectionSnapshot,
-    AgentConnectionStatus, AgentContentBlock, AgentDistribution, AgentElicitationId,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentCapability, AgentConnectionId,
+    AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock, AgentElicitationId,
     AgentElicitationRequest, AgentElicitationResponse, AgentErrorEvent, AgentEvent,
-    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentInstallPlan,
-    AgentInstallStatus, AgentMcpConfig, AgentMcpStrategy, AgentMcpSurface, AgentPermissionId,
+    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentPermissionId,
     AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
-    AgentPermissionResponse, AgentPlan, AgentPlanUsage, AgentPreflight, AgentPreflightIssue,
-    AgentPreflightSeverity, AgentPreparedSessionSnapshot, AgentPromptFinished, AgentPromptId,
-    AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentSessionConfigChoice,
+    AgentPermissionResponse, AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished,
+    AgentPromptId, AgentPromptSnapshot, AgentPromptStatus, AgentSessionConfigChoice,
     AgentSessionConfigDependency, AgentSessionConfigOption, AgentSessionConfigOverride,
     AgentSessionControlsSnapshot, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
-    AgentSessionStatus, AgentSkillsStrategy, AgentSkillsSurface, AgentTerminalCreateRequest,
-    AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
-    AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
-    AgentUsage, CommandParts, DelegationResultSummary, ImportedAgentMessage,
-    ImportedAgentMessageRole, ImportedAgentSession, PathTemplate, PlanCredits, PlanUsageResult,
-    PlanUsageUnavailableReason, PlanUsageWindow, PlatformBinary, RuntimeSnapshot, SystemCommand,
+    AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
+    AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
+    AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary, ImportedAgentMessage,
+    ImportedAgentMessageRole, ImportedAgentSession, RuntimeSnapshot,
     conversation::{
         AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
         ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
@@ -38,8 +33,13 @@ use agents::{
     },
 };
 use api_types::{
-    AgentKind, AgentRuntimeComponentInfo, AgentSettingInfo, LocalAgentRuntimeInfo,
-    ReorderAgentsRequest, UpdateAgentPreferences,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentId, AgentKind, AgentLifecycleState,
+    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementIdentity,
+    AgentManagementView, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
+    AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
+    AgentNativeConfigPatchRequest, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
+    AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightView,
+    AgentRegistryView, AgentRegistryViewRow, AgentSource,
 };
 use conversations::ConversationSearchHit;
 use db::models::{
@@ -199,9 +199,9 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
         std::sync::OnceLock::new();
     REMOVED.get_or_init(|| {
         std::collections::BTreeSet::from([
-            // 批次D2: AgentKind + AgentKind unified into AgentKind (ADR-0002).
-            "AgentKind",
-            "AgentKind",
+            // AgentKind remains a generated compatibility declaration while
+            // live session identity migrates to AgentId. A declaration cannot
+            // be both replaced and tombstoned without breaking idempotence.
             "CapabilitySource",
             "CapabilityState",
             "CapabilityStatus",
@@ -218,6 +218,35 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "ProviderTurnRequest",
             "AgentPromptQueue",
             "QueueTransition",
+            "AgentConfigStrategy",
+            "AgentConfigSurface",
+            "PathTemplate",
+            "AgentMcpStrategy",
+            "AgentMcpSurface",
+            "AgentMcpConfig",
+            "AgentSkillsStrategy",
+            "AgentSkillsSurface",
+            "AgentDistribution",
+            "PlatformBinary",
+            "SystemCommand",
+            "CommandParts",
+            "AgentRegistryEntry",
+            "AgentInstallPlan",
+            "AgentInstallStatus",
+            "AgentPreflight",
+            "AgentPreflightIssue",
+            "AgentPreflightSeverity",
+            "PlanUsageWindow",
+            "PlanCredits",
+            "AgentPlanUsage",
+            "PlanUsageUnavailableReason",
+            "PlanUsageResult",
+            "AgentRuntimeComponentInfo",
+            "AgentAvailabilityInfo",
+            "LocalAgentRuntimeInfo",
+            "AgentSettingInfo",
+            "UpdateAgentPreferences",
+            "ReorderAgentsRequest",
             // Plugins: agent-driven console contract replaced the
             // VibeX-spawned console process (PluginConsoleStart → PluginActivation).
             "PluginConsoleStart",
@@ -239,16 +268,33 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ExecutorProfileId>(&mut decls);
     insert_declaration::<ActionType>(&mut decls);
     insert_declaration::<CommandCategory>(&mut decls);
-    // Single agent-identity enum (ADR-0002). Replaces the former AgentKind +
-    // AgentKind TS declarations (tombstoned in `removed_declarations`).
+    // Temporary compatibility enum while live session identity migrates to the
+    // open AgentId contract.
     insert_declaration::<AgentKind>(&mut decls);
-    // Agent settings DTOs share the typed AgentKind identity so registry↔setting
-    // joins cannot diverge on spelling (issue #1).
-    insert_declaration::<AgentRuntimeComponentInfo>(&mut decls);
-    insert_declaration::<LocalAgentRuntimeInfo>(&mut decls);
-    insert_declaration::<AgentSettingInfo>(&mut decls);
-    insert_declaration::<UpdateAgentPreferences>(&mut decls);
-    insert_declaration::<ReorderAgentsRequest>(&mut decls);
+    insert_declaration::<AgentId>(&mut decls);
+    insert_declaration::<AgentSource>(&mut decls);
+    insert_declaration::<AgentLifecycleState>(&mut decls);
+    insert_declaration::<AgentAuthenticationStatus>(&mut decls);
+    insert_declaration::<AgentManagementIdentity>(&mut decls);
+    insert_declaration::<AgentOperationKind>(&mut decls);
+    insert_declaration::<AgentOperationStatus>(&mut decls);
+    insert_declaration::<AgentManagementView>(&mut decls);
+    insert_declaration::<AgentRegistryViewRow>(&mut decls);
+    insert_declaration::<AgentRegistryView>(&mut decls);
+    insert_declaration::<AgentOperationEvent>(&mut decls);
+    insert_declaration::<AgentManagementErrorCode>(&mut decls);
+    insert_declaration::<AgentManagementErrorView>(&mut decls);
+    insert_declaration::<AgentPreflightItemView>(&mut decls);
+    insert_declaration::<AgentPreflightView>(&mut decls);
+    insert_declaration::<AgentNativeConfigOptionView>(&mut decls);
+    insert_declaration::<AgentNativeConfigFieldKind>(&mut decls);
+    insert_declaration::<AgentNativeConfigFieldView>(&mut decls);
+    insert_declaration::<AgentNativeConfigFormat>(&mut decls);
+    insert_declaration::<AgentNativeConfigFileView>(&mut decls);
+    insert_declaration::<AgentNativeConfigView>(&mut decls);
+    insert_declaration::<AgentNativeConfigPatchRequest>(&mut decls);
+    insert_declaration::<AgentDiagnosticView>(&mut decls);
+    insert_declaration::<AgentOperationReceipt>(&mut decls);
     insert_declaration::<SlashCommandKind>(&mut decls);
     insert_declaration::<SlashCommandDescription>(&mut decls);
     insert_declaration::<TaskStatus>(&mut decls);
@@ -274,30 +320,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
-    insert_declaration::<AgentAvailabilityInfo>(&mut decls);
-    insert_declaration::<PlanUsageWindow>(&mut decls);
-    insert_declaration::<PlanCredits>(&mut decls);
-    insert_declaration::<AgentPlanUsage>(&mut decls);
-    insert_declaration::<PlanUsageUnavailableReason>(&mut decls);
-    insert_declaration::<PlanUsageResult>(&mut decls);
     insert_declaration::<CrashReportMeta>(&mut decls);
     insert_declaration::<CrashReportsInfo>(&mut decls);
     insert_declaration::<AttentionItemKind>(&mut decls);
     insert_declaration::<AttentionItem>(&mut decls);
     insert_declaration::<AttentionInbox>(&mut decls);
-    insert_declaration::<AgentRegistryEntry>(&mut decls);
-    insert_declaration::<AgentDistribution>(&mut decls);
-    insert_declaration::<PlatformBinary>(&mut decls);
-    insert_declaration::<SystemCommand>(&mut decls);
-    insert_declaration::<CommandParts>(&mut decls);
-    insert_declaration::<AgentConfigSurface>(&mut decls);
-    insert_declaration::<AgentConfigStrategy>(&mut decls);
-    insert_declaration::<PathTemplate>(&mut decls);
-    insert_declaration::<AgentMcpSurface>(&mut decls);
-    insert_declaration::<AgentMcpStrategy>(&mut decls);
-    insert_declaration::<AgentMcpConfig>(&mut decls);
-    insert_declaration::<AgentSkillsSurface>(&mut decls);
-    insert_declaration::<AgentSkillsStrategy>(&mut decls);
     insert_declaration::<AgentConnectionId>(&mut decls);
     insert_declaration::<AgentSessionId>(&mut decls);
     insert_declaration::<AgentPromptId>(&mut decls);
@@ -346,11 +373,6 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ImportedAgentMessageRole>(&mut decls);
     insert_declaration::<ImportedAgentMessage>(&mut decls);
     insert_declaration::<ImportedAgentSession>(&mut decls);
-    insert_declaration::<AgentInstallPlan>(&mut decls);
-    insert_declaration::<AgentInstallStatus>(&mut decls);
-    insert_declaration::<AgentPreflight>(&mut decls);
-    insert_declaration::<AgentPreflightIssue>(&mut decls);
-    insert_declaration::<AgentPreflightSeverity>(&mut decls);
     insert_declaration::<RuntimeSnapshot>(&mut decls);
     insert_declaration::<TurnRole>(&mut decls);
     insert_declaration::<TurnUsage>(&mut decls);
@@ -478,4 +500,42 @@ fn declaration_name(line: &str) -> Option<&str> {
 
 fn normalize_newlines(text: &str) -> String {
     text.replace("\r\n", "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_types_include_open_agent_identity_contract() {
+        let declarations = replacement_declarations();
+
+        for name in [
+            "AgentId",
+            "AgentSource",
+            "AgentLifecycleState",
+            "AgentAuthenticationStatus",
+            "AgentManagementIdentity",
+            "AgentManagementView",
+            "AgentRegistryView",
+            "AgentOperationEvent",
+            "AgentManagementErrorView",
+        ] {
+            assert!(
+                declarations.contains_key(name),
+                "missing generated declaration {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn adding_open_agent_types_is_idempotent_in_one_generation() {
+        let existing =
+            format!("{HEADER}\n\nexport type AgentKind = \"claude_code\" | \"codex\";\n");
+
+        let once = render_merged_types(&existing);
+        let twice = render_merged_types(&once);
+
+        assert_eq!(once, twice);
+    }
 }

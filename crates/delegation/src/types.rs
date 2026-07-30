@@ -4,7 +4,7 @@
 //! wire-stable `code` / `status` strings ship to LLM context and the frontend —
 //! do not rename them.
 
-use agents::registry::AgentKind;
+use agents::AgentId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,7 +22,7 @@ pub struct DelegationRequest {
     pub parent_connection_id: String,
     pub parent_session_id: Uuid,
     pub parent_tool_use_id: String,
-    pub agent_type: AgentKind,
+    pub agent_type: AgentId,
     pub task: String,
     pub working_dir: Option<String>,
     pub requested_working_dir: Option<String>,
@@ -39,7 +39,7 @@ pub struct TokenUsage {
 pub struct DelegationSuccess {
     pub text: String,
     pub child_session_id: Uuid,
-    pub child_agent_type: AgentKind,
+    pub child_agent_type: AgentId,
     pub turn_count: u32,
     pub duration_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,7 +150,7 @@ pub struct DelegationTaskReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child_session_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_type: Option<AgentKind>,
+    pub agent_type: Option<AgentId>,
     /// Completed result text (capped; open the child session for the full output).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -168,7 +168,7 @@ pub struct DelegationTaskReport {
 /// LLM's explicit value), not the defaulted one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DelegationMatchKey {
-    pub agent_type: AgentKind,
+    pub agent_type: AgentId,
     pub task: String,
     pub working_dir: Option<String>,
 }
@@ -183,7 +183,7 @@ pub struct DelegationLink {
     pub parent_session_id: Uuid,
     pub parent_tool_use_id: String,
     pub delegation_call_id: String,
-    pub agent_type: AgentKind,
+    pub agent_type: AgentId,
 }
 
 /// Runtime-tunable delegation knobs.
@@ -247,7 +247,7 @@ mod tests {
             task_id: Some("call-1".to_string()),
             status: TaskStatus::Running,
             child_session_id: None,
-            agent_type: Some(AgentKind::ClaudeCode),
+            agent_type: Some(AgentId::parse("claude_code").unwrap()),
             text: None,
             error_code: None,
             message: Some("running in background".to_string()),

@@ -1009,7 +1009,7 @@ impl ProjectionFold {
                             delegation_id: delegation.delegation_id,
                             parent_tool_call_id: Some(delegation.parent_tool_call_id),
                             child_conversation_id: Some(delegation.child_conversation_id),
-                            agent_type: Some(delegation.agent_type),
+                            agent_id: Some(delegation.agent_id),
                             task_preview: Some(delegation.task_preview),
                             status: "running".into(),
                             result: None,
@@ -1049,7 +1049,7 @@ impl ProjectionFold {
                                 delegation_id,
                                 parent_tool_call_id: None,
                                 child_conversation_id: None,
-                                agent_type: None,
+                                agent_id: None,
                                 task_preview: None,
                                 status: status.into(),
                                 result: Some(result),
@@ -1403,7 +1403,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentKind, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
+        AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
         AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
             ConversationDelegation, ConversationDelegationResult, ConversationError,
@@ -2371,7 +2371,7 @@ mod tests {
                     delegation_id: "delegation-1".into(),
                     parent_tool_call_id: "tool-1".into(),
                     child_conversation_id: Uuid::new_v4(),
-                    agent_type: AgentKind::Codex,
+                    agent_id: AgentId::parse("codex").unwrap(),
                     task_preview: "Review diff".into(),
                 },
             },

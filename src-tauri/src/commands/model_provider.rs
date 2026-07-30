@@ -46,17 +46,16 @@ pub async fn delete_agent_provider(
 
 #[tauri::command]
 pub async fn apply_agent_provider(
+    state: tauri::State<'_, crate::state::AppState>,
     agent_type: String,
     provider_id: String,
 ) -> Result<AgentProvidersView, AppError> {
-    // A provider file can change the models advertised by a running/warming
-    // agent. Advance the capability-probe epoch before the atomic config
-    // write, so an in-flight probe of the previous provider configuration can
-    // never be persisted under the new file revision.
-    if let Some(agent_kind) = agents::AgentKind::from_lenient(&agent_type) {
-        crate::commands::agents::invalidate_capability_probe(agent_kind);
-    }
-    Ok(provider_config::apply_agent_provider(agent_type, provider_id).await?)
+    let view = provider_config::apply_agent_provider(agent_type.clone(), provider_id).await?;
+    sqlx::query("DELETE FROM agent_capability_catalog WHERE agent_type = ?")
+        .bind(&agent_type)
+        .execute(&state.deployment.db().pool)
+        .await?;
+    Ok(view)
 }
 
 #[tauri::command]

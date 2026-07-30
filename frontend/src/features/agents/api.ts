@@ -2,28 +2,19 @@ import { tauriInvoke } from '@/lib/tauriApi';
 import type {
   AgentPreparedSessionSnapshot,
   AgentSessionControlsSnapshot,
-  PlanUsageResult,
 } from 'shared/types';
 import type {
   AgentAvailableCommand,
-  AgentConfigSurface,
   AgentConnectionSnapshot,
-  AgentHistorySource,
-  AgentInstallPlan,
-  AgentMcpSurface,
   AgentPermissionResponse,
   AgentPromptSnapshot,
-  AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
-  AgentSkillsSurface,
   AgentTerminalOutputSnapshot,
-  AgentType,
-  ImportedAgentSession,
 } from './types';
 
 export type AgentConnectRequest = {
-  agentType: AgentType;
+  agentId: string;
   workspaceId: string;
   workingDir: string;
 };
@@ -34,7 +25,7 @@ export type AgentNewSessionRequest = {
 };
 
 export type AgentPrepareSessionRequest = {
-  agentType: AgentType;
+  agentId: string;
   workspaceId: string;
   sessionId: string;
 };
@@ -65,13 +56,8 @@ export type AgentSessionRequest = {
   sessionId: string;
 };
 
-export type AgentSetAutoApproveRequest = {
-  agentType: AgentType;
-  autoApproveMode: 'off' | 'allow_always' | 'yolo';
-};
-
 export type AgentResumeSessionRequest = {
-  agentType: AgentType;
+  agentId: string;
   workspaceId: string;
   workingDir: string;
   sessionId: string;
@@ -82,51 +68,15 @@ export type AgentTerminalSnapshotRequest = {
   terminalId: string;
 };
 
-export type AgentTypeRequest = {
-  agentType: AgentType;
-};
-
-export type AgentHistoryImportRequest = {
-  agentType: AgentType;
-  path?: string | null;
-  workspaceId?: string | null;
-};
-
-export type AgentConfigFile = {
-  path: string;
-  content: string;
-};
-
-export type AgentMcpConfigFile = {
-  path: string;
-  config: unknown;
-  surface: unknown;
-};
-
 export const agentsApi = {
-  listRegistry: (): Promise<AgentRegistryEntry[]> =>
-    tauriInvoke('agent_registry_list'),
-
   /** Matching persisted capability catalog; this is a side-effect-free read. */
   capabilityCatalog: (
-    agentType: AgentType
+    agentId: string
   ): Promise<AgentSessionControlsSnapshot | null> =>
-    tauriInvoke('agent_capability_catalog', { agentType }),
+    tauriInvoke('agent_capability_catalog', { agentId }),
 
-  refreshCapabilityCatalog: (agentType: AgentType): Promise<boolean> =>
-    tauriInvoke('agent_refresh_capability_catalog', { agentType }),
-
-  listConfigSurfaces: (): Promise<AgentConfigSurface[]> =>
-    tauriInvoke('agent_config_surfaces'),
-
-  listMcpSurfaces: (): Promise<AgentMcpSurface[]> =>
-    tauriInvoke('agent_mcp_surfaces'),
-
-  listSkillsSurfaces: (): Promise<AgentSkillsSurface[]> =>
-    tauriInvoke('agent_skills_surfaces'),
-
-  listInstallPlans: (): Promise<AgentInstallPlan[]> =>
-    tauriInvoke('agent_install_plans'),
+  refreshCapabilityCatalog: (agentId: string): Promise<boolean> =>
+    tauriInvoke('agent_refresh_capability_catalog', { agentId }),
 
   snapshot: (): Promise<AgentRuntimeSnapshot> =>
     tauriInvoke('agent_runtime_snapshot'),
@@ -143,9 +93,6 @@ export const agentsApi = {
     request: AgentSessionRequest
   ): Promise<AgentAvailableCommand[]> =>
     tauriInvoke('agent_list_session_commands', { request }),
-
-  setAutoApprove: (request: AgentSetAutoApproveRequest): Promise<void> =>
-    tauriInvoke('agent_set_auto_approve', { request }),
 
   connect: (request: AgentConnectRequest): Promise<AgentConnectionSnapshot> =>
     tauriInvoke('agent_connect', { request }),
@@ -205,30 +152,6 @@ export const agentsApi = {
     request: AgentTerminalSnapshotRequest
   ): Promise<AgentTerminalOutputSnapshot | null> =>
     tauriInvoke('agent_terminal_snapshot', { request }),
-
-  historySources: (request: AgentTypeRequest): Promise<AgentHistorySource[]> =>
-    tauriInvoke('agent_history_sources', { request }),
-
-  importHistory: (
-    request: AgentHistoryImportRequest
-  ): Promise<ImportedAgentSession[]> =>
-    tauriInvoke('agent_history_import', { request }),
-
-  readConfig: (request: AgentTypeRequest): Promise<AgentConfigFile | null> =>
-    tauriInvoke('agent_config_read', { request }),
-
-  writeConfig: (
-    request: AgentTypeRequest & { content: string }
-  ): Promise<void> => tauriInvoke('agent_config_write', { request }),
-
-  readMcp: (request: AgentTypeRequest): Promise<AgentMcpConfigFile | null> =>
-    tauriInvoke('agent_mcp_list', { request }),
-
-  planUsage: (request: AgentTypeRequest): Promise<PlanUsageResult> =>
-    tauriInvoke('agent_plan_usage', { request }),
-
-  writeMcp: (request: AgentTypeRequest & { config: unknown }): Promise<void> =>
-    tauriInvoke('agent_mcp_write', { request }),
 
   // Restore the workspace to the checkpoint recorded before the Nth user message
   // (ordinal). Destructive when performGitReset; the ACP transcript is not

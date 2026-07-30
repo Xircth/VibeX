@@ -4,7 +4,7 @@
 
 - [x] Remove old Tahoe design worktree.
 - [x] Create new worktree from local `master`.
-- [x] Scan VibeX settings architecture and `codeg-main` reference implementation.
+- [x] Scan the VibeX settings architecture and existing service boundaries.
 - [x] Implement feature slices below after spec approval.
 
 ## T0. Worktree Setup

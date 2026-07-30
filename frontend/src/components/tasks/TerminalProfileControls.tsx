@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Brain, ChevronDown, Cpu, Shield, Workflow } from 'lucide-react';
 import type {
-  AgentKind,
+  AgentId,
   ExecutorConfigs,
   ExecutorProfileId,
 } from 'shared/types';
@@ -294,7 +294,7 @@ export function TerminalProfileControls({
     return null;
   }
 
-  const handleExecutorChange = (nextExecutor: AgentKind) => {
+  const handleExecutorChange = (nextExecutor: AgentId) => {
     const nextProfile = getDefaultProfileForExecutor(
       nextExecutor,
       profiles

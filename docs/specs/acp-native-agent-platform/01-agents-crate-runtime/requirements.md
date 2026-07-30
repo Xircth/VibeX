@@ -3,8 +3,8 @@
 ## Objective
 
 Create `crates/agents`, the sole backend runtime for live coding agents. It
-provides a Codeg-style ACP connection manager and exposes a product-facing Rust
-API for Tauri commands.
+provides an ACP connection manager and exposes a product-facing Rust API for
+Tauri commands.
 
 ## Acceptance Criteria
 
@@ -80,4 +80,3 @@ Avoid JSON-shaped state unless the ACP schema itself requires raw passthrough.
 - Unit tests for queue serialization and cleanup guards.
 - Unit tests for request handling without starting real terminals.
 - Windows command construction tests for `.cmd` and hidden process behavior.
-

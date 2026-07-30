@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use agents::{
-    AgentContentBlock, AgentKind, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
+    AgentContentBlock, AgentSessionId, EnsureAgentSessionInput, SendAgentPromptInput,
     events::{AgentEvent, AgentEventEnvelope, AgentSessionConfigOverride},
     permissions::AgentAutoApproveMode,
     runtime::AgentRuntime,
@@ -48,9 +48,10 @@ pub async fn enhance_prompt(
     // use the same verified local OpenCode Runtime/ACP path as every other
     // session. Otherwise this hidden session could fall back to a bundled or
     // different PATH runtime.
+    let agent_id = agents::AgentId::parse("opencode").unwrap();
     let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
         &state.deployment.db().pool,
-        AgentKind::Opencode,
+        &agent_id,
     )
     .await?;
 
@@ -59,7 +60,8 @@ pub async fn enhance_prompt(
 
     let session = runtime
         .ensure_session(EnsureAgentSessionInput {
-            agent_type: AgentKind::Opencode,
+            agent_id,
+            launch_lock: launch.launch_lock,
             workspace_id: ENHANCEMENT_WORKSPACE_ID,
             working_dir: std::env::temp_dir(),
             session_id: AgentSessionId::new(),

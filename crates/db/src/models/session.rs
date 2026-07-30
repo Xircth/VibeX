@@ -1,4 +1,4 @@
-use api_types::AgentKind;
+use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool, Type};
@@ -42,14 +42,11 @@ pub struct Session {
     pub name: Option<String>,
     pub initial_prompt: Option<String>,
     pub status: SessionStatus,
-    /// Legacy executor key (架构报告 A-6), superseded by `agent_type`. Retained
-    /// read-mostly for the executor↔agent_type cutover; new ACP sessions are identified
-    /// by `agent_type`. Prefer `agent_type` for agent identity, bridging legacy values
-    /// through `AgentKind::from_lenient` when needed.
+    /// Legacy execution-profile key. It is not an Agent identity.
     pub executor: Option<String>,
     pub external_session_id: Option<String>,
-    /// Canonical ACP agent identity (the executor↔agent_type successor to `executor`).
-    pub agent_type: Option<String>,
+    /// Stable open Agent identity used by new sessions and history.
+    pub agent_id: Option<AgentId>,
     /// Multi-agent delegation linkage. All NULL for a regular (non-delegated)
     /// session: `parent_session_id` points at the parent that delegated this
     /// child, `parent_tool_use_id` is the parent's `delegate_to_agent` tool-call
@@ -64,6 +61,7 @@ pub struct Session {
 #[derive(Debug, Deserialize, TS)]
 pub struct CreateSession {
     pub executor: Option<String>,
+    pub agent_id: Option<AgentId>,
     pub task_id: Option<Uuid>,
     pub name: Option<String>,
     pub initial_prompt: Option<String>,
@@ -81,7 +79,7 @@ impl Session {
                       status,
                       executor,
                       external_session_id,
-                      agent_type,
+                      agent_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -108,7 +106,7 @@ impl Session {
                       status,
                       executor,
                       external_session_id,
-                      agent_type,
+                      agent_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -137,7 +135,7 @@ impl Session {
                       s.status,
                       s.executor,
                       s.external_session_id,
-                      s.agent_type,
+                      s.agent_id,
                       s.parent_session_id,
                       s.parent_tool_use_id,
                       s.delegation_call_id,
@@ -166,7 +164,7 @@ impl Session {
                       s.status,
                       s.executor,
                       s.external_session_id,
-                      s.agent_type,
+                      s.agent_id,
                       s.parent_session_id,
                       s.parent_tool_use_id,
                       s.delegation_call_id,
@@ -189,14 +187,9 @@ impl Session {
         id: Uuid,
         workspace_id: Uuid,
     ) -> Result<Self, SessionError> {
-        let agent_type = data
-            .executor
-            .as_deref()
-            .and_then(AgentKind::from_lenient)
-            .map(|agent| agent.as_str().to_string());
         sqlx::query_as::<_, Session>(
             r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
-                                     agent_type)
+                                     agent_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
@@ -206,7 +199,7 @@ impl Session {
                          status,
                          executor,
                          external_session_id,
-                         agent_type,
+                         agent_id,
                          parent_session_id,
                          parent_tool_use_id,
                          delegation_call_id,
@@ -224,7 +217,7 @@ impl Session {
         )
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
-        .bind(agent_type)
+        .bind(data.agent_id.as_ref().map(AgentId::as_str))
         .fetch_one(pool)
         .await
         .map_err(SessionError::from)
@@ -233,7 +226,7 @@ impl Session {
     /// Create a child session produced by a `delegate_to_agent` call, linked
     /// back to the parent session, the parent's tool-call id, and the broker's
     /// delegation task id. Mirrors [`Session::create`] but also persists the
-    /// three delegation columns; `agent_type` is set later via
+    /// three delegation columns; `agent_id` is set later via
     /// [`Session::update_agent_metadata`] once the child ACP session attaches.
     #[allow(clippy::too_many_arguments)]
     pub async fn create_with_delegation(
@@ -257,7 +250,7 @@ impl Session {
                          status,
                          executor,
                          external_session_id,
-                         agent_type,
+                         agent_id,
                          parent_session_id,
                          parent_tool_use_id,
                          delegation_call_id,
@@ -299,7 +292,7 @@ impl Session {
                       status,
                       executor,
                       external_session_id,
-                      agent_type,
+                      agent_id,
                       parent_session_id,
                       parent_tool_use_id,
                       delegation_call_id,
@@ -334,17 +327,17 @@ impl Session {
         pool: &SqlitePool,
         id: Uuid,
         external_session_id: Option<&str>,
-        agent_type: Option<&str>,
+        agent_id: Option<&AgentId>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE sessions
                SET external_session_id = ?,
-                   agent_type = ?,
+                   agent_id = ?,
                    updated_at = datetime('now', 'subsec')
                WHERE id = ?"#,
         )
         .bind(external_session_id.filter(|value| !value.trim().is_empty()))
-        .bind(agent_type.filter(|value| !value.trim().is_empty()))
+        .bind(agent_id.map(AgentId::as_str))
         .bind(id)
         .execute(pool)
         .await?;
@@ -432,6 +425,10 @@ mod tests {
     fn sample(executor: &str) -> CreateSession {
         CreateSession {
             executor: Some(executor.to_string()),
+            agent_id: Some(
+                AgentId::parse(executor.to_ascii_lowercase())
+                    .expect("test executor has a valid AgentId"),
+            ),
             task_id: None,
             name: None,
             initial_prompt: None,
@@ -463,7 +460,10 @@ mod tests {
             .await
             .expect("create session");
 
-        assert_eq!(session.agent_type.as_deref(), Some("codex"));
+        assert_eq!(
+            session.agent_id.as_ref().map(AgentId::as_str),
+            Some("codex")
+        );
     }
 
     #[tokio::test]

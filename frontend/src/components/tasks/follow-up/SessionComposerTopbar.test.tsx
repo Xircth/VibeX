@@ -18,7 +18,7 @@ function sessionSummary(
     status: 'todo',
     executor: null,
     external_session_id: null,
-    agent_type: null,
+    agent_id: null,
     parent_session_id: null,
     parent_tool_use_id: null,
     delegation_call_id: null,

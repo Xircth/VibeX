@@ -1,4 +1,4 @@
-import { AgentKind, type SlashCommandDescription } from 'shared/types';
+import type { SlashCommandDescription } from 'shared/types';
 
 export type AgentSlashCommandIconKey =
   | 'compact'
@@ -53,7 +53,7 @@ const OPENCODE_COMMANDS: AgentCommandDefinition[] = [
 }));
 
 export function agentSlashCommandCatalog(
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): AgentCommandDefinition[] {
   switch (executor) {
     case 'claude_code':
@@ -69,7 +69,7 @@ export function agentSlashCommandCatalog(
 
 export function isAgentSlashCommandVisible(
   command: SlashCommandDescription,
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): boolean {
   if (command.kind === 'SKILL') return true;
   return agentSlashCommandCatalog(executor).some(

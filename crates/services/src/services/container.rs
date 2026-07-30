@@ -247,7 +247,7 @@ pub trait ContainerService: Send + Sync {
         _workspace_id: Option<Uuid>,
         _repo_id: Option<Uuid>,
     ) -> Result<Option<BoxStream<'static, Patch>>, ContainerError> {
-        let commands = AgentKind::from_lenient(&executor_profile_id.executor.to_string())
+        let commands = AgentKind::from_lenient(executor_profile_id.executor.as_ref())
             .map(acp_slash_command_catalog)
             .unwrap_or_default();
         let patch = executors::logs::utils::patch::slash_commands(commands, false, None);
@@ -520,6 +520,7 @@ pub trait ContainerService: Send + Sync {
                     pool,
                     &CreateSession {
                         executor: None,
+                        agent_id: None,
                         task_id: None,
                         name: None,
                         initial_prompt: None,

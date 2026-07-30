@@ -1,7 +1,4 @@
-import type {
-  AgentKind,
-  SlashCommandDescription,
-} from 'shared/types';
+import type { SlashCommandDescription } from 'shared/types';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
@@ -21,7 +18,7 @@ export const MAX_REFERENCE_OPTIONS = 10;
 export function filterSlashCommands(
   all: SlashCommandDescription[],
   query: string,
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): SlashCommandDescription[] {
   const q = query.trim().toLowerCase();
   if (!q) return all;
@@ -55,7 +52,7 @@ export function filterSlashCommands(
 export function slashCommandsToTypeaheadOptions(
   all: SlashCommandDescription[],
   query: string,
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): ComposerTypeaheadOption[] {
   if (!executor) return [];
 

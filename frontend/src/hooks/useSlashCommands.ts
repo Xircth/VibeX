@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import {
-  AgentKind,
-  type ExecutorProfileId,
-  type SlashCommandDescription,
+import type {
+  ExecutorProfileId,
+  SlashCommandDescription,
 } from 'shared/types';
 import { useTauriPatchStream } from '@/hooks/useTauriPatchStream';
 import {
@@ -18,7 +17,7 @@ type SlashCommandsStreamState = {
 };
 
 function mergeSlashCommands(
-  executor: AgentKind | null | undefined,
+  executor: string | null | undefined,
   fallbackCommands: SlashCommandDescription[],
   streamedCommands: SlashCommandDescription[]
 ): SlashCommandDescription[] {

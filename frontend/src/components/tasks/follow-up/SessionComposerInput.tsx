@@ -1180,7 +1180,7 @@ export function SessionComposerInput({
           spellCheck={false}
           data-testid="session-composer-editor"
           className={cn(
-            'max-h-[100px] min-h-[32px] w-full overflow-y-auto whitespace-pre-wrap break-words px-0.5 py-1 text-[13px] leading-5 tracking-[0.005em] text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground disabled:cursor-not-allowed',
+            'max-h-[100px] min-h-[32px] w-full overflow-y-auto whitespace-pre-wrap break-words px-0.5 py-1 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em] text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground disabled:cursor-not-allowed',
             disabled && 'cursor-not-allowed opacity-60',
             className
           )}

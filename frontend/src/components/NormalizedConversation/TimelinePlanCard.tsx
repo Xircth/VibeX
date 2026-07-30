@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * Renders a unified-timeline `Plan` block (parsed from TodoWrite / update_plan)
- * as a checklist, consuming the codeg-aligned
+ * as a checklist, consuming the normalized
  * `PlanEntry[]` directly instead of a NormalizedEntry. VibeX-authored.
  */
 

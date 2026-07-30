@@ -6,10 +6,11 @@ use std::{
 
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentElicitationId,
-    AgentElicitationResponse, AgentKind, AgentPermissionId, AgentPermissionResponse, AgentPromptId,
-    AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
-    AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput, RespondAgentElicitationInput,
-    RespondAgentPermissionInput, ResumeAgentSessionInput, SendAgentPromptInput,
+    AgentElicitationResponse, AgentId, AgentKind, AgentPermissionId, AgentPermissionResponse,
+    AgentPromptId, AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput,
+    RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
+    SendAgentPromptInput, SessionLaunchLock,
     conversation::{
         AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
@@ -32,10 +33,7 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
-use executors::{
-    executors::CodingAgent,
-    profile::{ExecutorConfigs, ExecutorProfileId, canonical_variant_key},
-};
+use executors::profile::ExecutorProfileId;
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -47,10 +45,11 @@ use crate::{ConversationEventAppender, ConversationProjector};
 
 /// Agent launch settings (auto-approve + env), resolved from persisted AgentSetting.
 /// Moved here so both the orchestration core and the host impl share one type.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AgentRuntimeLaunchSettings {
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
+    pub launch_lock: SessionLaunchLock,
 }
 
 /// Orchestration error. Mirrors the shell's `AppError` variants; mapped back to `AppError`
@@ -108,7 +107,7 @@ pub trait ConversationHost: Send + Sync {
     async fn launch_settings(
         &self,
         pool: &SqlitePool,
-        agent_type: AgentKind,
+        agent_id: &agents::AgentId,
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError>;
 }
 
@@ -161,7 +160,7 @@ pub struct ConversationTurnSnapshot {
 }
 
 pub struct ConversationStartTurnInput {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: Uuid,
     pub conversation_id: Uuid,
     pub executor_profile_id: Option<ExecutorProfileId>,
@@ -512,11 +511,16 @@ impl ConversationSessionService {
                     "Conversation session {conversation_id} was not found"
                 ))
             })?;
-        let agent_type = persisted_session
-            .agent_type
-            .as_deref()
-            .or(persisted_session.executor.as_deref())
-            .and_then(AgentKind::from_lenient)
+        let agent_id = persisted_session
+            .agent_id
+            .clone()
+            .or_else(|| {
+                persisted_session
+                    .executor
+                    .as_deref()
+                    .and_then(AgentKind::from_lenient)
+                    .and_then(|kind| agents::AgentId::parse(kind.as_str()).ok())
+            })
             .ok_or_else(|| {
                 ConversationServiceError::BadRequest(format!(
                     "Conversation {conversation_id} has no supported coding agent"
@@ -542,21 +546,19 @@ impl ConversationSessionService {
             .host
             .resolve_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
-        let launch_settings = self.ctx.host.launch_settings(pool, agent_type).await?;
+        let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
-        let external_session_id = known_acp_session_id(
-            latest_binding.as_ref(),
-            Some(&persisted_session),
-            agent_type,
-        )
-        .filter(|id| !id.starts_with("vibex-new-session-"));
+        let external_session_id =
+            known_acp_session_id(latest_binding.as_ref(), Some(&persisted_session), &agent_id)
+                .filter(|id| !id.starts_with("vibex-new-session-"));
 
         let runtime_snapshot = if let Some(external_session_id) = external_session_id {
             self.ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
-                    agent_type,
+                    agent_id: agent_id.clone(),
+                    launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: workspace.id,
                     working_dir: PathBuf::from(&working_dir),
                     session_id: runtime_session_id,
@@ -570,7 +572,8 @@ impl ConversationSessionService {
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
-                    agent_type,
+                    agent_id: agent_id.clone(),
+                    launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: workspace.id,
                     working_dir: PathBuf::from(&working_dir),
                     session_id: runtime_session_id,
@@ -583,7 +586,7 @@ impl ConversationSessionService {
                 pool,
                 conversation_id,
                 Some(&prepared.session.acp_session_id),
-                Some(agent_type.as_str()),
+                Some(&agent_id),
             )
             .await?;
             prepared.session
@@ -879,11 +882,8 @@ impl ConversationSessionService {
         turn_id: Uuid,
     ) -> Result<AgentPromptSnapshot, ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
-        let launch_settings = self
-            .ctx
-            .host
-            .launch_settings(pool, input.agent_type)
-            .await?;
+        let agent_id = input.agent_id.clone();
+        let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, input.conversation_id)
                 .await?;
@@ -891,7 +891,7 @@ impl ConversationSessionService {
         let known_acp_session_id = known_acp_session_id(
             latest_binding.as_ref(),
             persisted_session.as_ref(),
-            input.agent_type,
+            &input.agent_id,
         );
         let acp_session_id = known_acp_session_id
             .clone()
@@ -917,10 +917,12 @@ impl ConversationSessionService {
             Uuid::new_v4(),
             CreateConversationAgentBinding {
                 conversation_id: input.conversation_id,
-                agent_type: input.agent_type.as_str(),
+                agent_id: &agent_id,
                 working_dir,
                 acp_session_id: Some(&acp_session_id),
                 acp_protocol_version: None,
+                runtime_version: Some(&launch_settings.launch_lock.runtime_version),
+                acp_version: Some(&launch_settings.launch_lock.acp_version),
                 load_supported: true,
                 resume_supported: resume_external_session_id.is_some(),
                 close_supported: true,
@@ -942,7 +944,7 @@ impl ConversationSessionService {
             Some(turn_id),
             "runtime",
             ConversationEvent::AgentBindingStarted {
-                agent_type: input.agent_type,
+                agent_id: agent_id.clone(),
                 working_dir: working_dir.to_string(),
             },
             Some(format!("binding:{}:started", binding.id)),
@@ -953,7 +955,8 @@ impl ConversationSessionService {
             self.ctx
                 .agent_runtime
                 .resume_session(ResumeAgentSessionInput {
-                    agent_type: input.agent_type,
+                    agent_id: agent_id.clone(),
+                    launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
                     session_id: AgentSessionId(input.conversation_id),
@@ -966,7 +969,8 @@ impl ConversationSessionService {
             self.ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
-                    agent_type: input.agent_type,
+                    agent_id,
+                    launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
                     session_id: AgentSessionId(input.conversation_id),
@@ -1024,7 +1028,7 @@ impl ConversationSessionService {
         }
 
         let mut prompt_overrides = agent_prompt_overrides_from_profile(
-            input.agent_type,
+            &input.agent_id,
             input.executor_profile_id.as_ref(),
         );
         // The composer's explicit mode/config selection wins over profile/slash
@@ -1736,178 +1740,25 @@ fn merge_user_prompt_overrides(
     }
 }
 
-/// Local ACP runtimes expose their actual session controls through the verified
-/// capability catalog. Executor profiles may still identify a user's historical
-/// preference, but must never synthesize model/permission/reasoning/Fast values
-/// for a new ACP session: doing so would reintroduce a stale second truth source.
-fn profile_session_controls_are_catalog_managed(agent_type: AgentKind) -> bool {
-    agents::local_agent_runtime_spec(agent_type).is_some()
-}
-
 fn agent_prompt_overrides_from_profile(
-    agent_type: AgentKind,
+    agent_id: &AgentId,
     profile: Option<&ExecutorProfileId>,
 ) -> AgentPromptOverrides {
     let Some(profile) = profile else {
         return AgentPromptOverrides::default();
     };
 
-    if AgentKind::from_lenient(&profile.executor.to_string()) != Some(agent_type) {
+    if profile.executor != *agent_id {
         tracing::warn!(
-            requested_agent = ?agent_type,
+            requested_agent = %agent_id,
             profile_executor = %profile.executor,
             "Ignoring executor profile overrides for mismatched ACP agent"
         );
-        return AgentPromptOverrides::default();
     }
 
-    if profile_session_controls_are_catalog_managed(agent_type) {
-        return AgentPromptOverrides::default();
-    }
-
-    let configs = ExecutorConfigs::get_cached();
-    let variant_key = profile
-        .variant
-        .as_deref()
-        .map(canonical_variant_key)
-        .unwrap_or_else(|| "DEFAULT".to_string());
-    let config = configs
-        .executors
-        .get(&profile.executor)
-        .and_then(|executor_profile| {
-            executor_profile
-                .configurations
-                .get(&variant_key)
-                .or_else(|| executor_profile.configurations.get("DEFAULT"))
-        });
-
-    let mut overrides = AgentPromptOverrides::default();
-
-    match (profile.executor, config) {
-        (AgentKind::ClaudeCode, Some(CodingAgent::ClaudeCode(config))) => {
-            push_config_override(
-                &mut overrides.config_overrides,
-                "model",
-                profile.model.clone().or_else(|| config.model.clone()),
-            );
-            let permission = if config.plan.unwrap_or(false) {
-                overrides.mode_override = Some("plan".to_string());
-                "plan"
-            } else if config.approvals.unwrap_or(false) {
-                "ask"
-            } else {
-                "auto"
-            };
-            push_config_override(
-                &mut overrides.config_overrides,
-                "permission_mode",
-                Some(permission.to_string()),
-            );
-        }
-        (AgentKind::Codex, Some(CodingAgent::Codex(config))) => {
-            push_config_override(
-                &mut overrides.config_overrides,
-                "model",
-                profile.model.clone().or_else(|| config.model.clone()),
-            );
-            push_config_override(
-                &mut overrides.config_overrides,
-                "sandbox",
-                config
-                    .sandbox
-                    .as_ref()
-                    .map(|value| value.as_ref().to_string()),
-            );
-            if let Some(approval) = &config.ask_for_approval {
-                let value = approval.as_ref().to_string();
-                let permission_mode = if value == "never" { "auto" } else { "ask" };
-                push_config_override(
-                    &mut overrides.config_overrides,
-                    "approval_policy",
-                    Some(value),
-                );
-                push_config_override(
-                    &mut overrides.config_overrides,
-                    "permission_mode",
-                    Some(permission_mode.to_string()),
-                );
-            }
-            push_config_override(
-                &mut overrides.config_overrides,
-                "reasoning_effort",
-                profile.reasoning_effort.clone().or_else(|| {
-                    config
-                        .model_reasoning_effort
-                        .as_ref()
-                        .map(|value| value.as_ref().to_string())
-                }),
-            );
-        }
-        (AgentKind::Opencode, Some(CodingAgent::Opencode(config))) => {
-            push_config_override(
-                &mut overrides.config_overrides,
-                "model",
-                profile.model.clone().or_else(|| config.model.clone()),
-            );
-            if let Some(agent_mode) = &config.agent {
-                overrides.mode_override = Some(agent_mode.clone());
-                push_config_override(
-                    &mut overrides.config_overrides,
-                    "mode",
-                    Some(agent_mode.clone()),
-                );
-            }
-            push_config_override(
-                &mut overrides.config_overrides,
-                "permission_mode",
-                Some(if config.auto_approve { "auto" } else { "ask" }.to_string()),
-            );
-        }
-        _ => {
-            push_config_override(
-                &mut overrides.config_overrides,
-                "model",
-                profile.model.clone(),
-            );
-            push_config_override(
-                &mut overrides.config_overrides,
-                "reasoning_effort",
-                profile.reasoning_effort.clone(),
-            );
-        }
-    }
-
-    if let Some(fast_mode) = profile.fast_mode {
-        push_config_override(
-            &mut overrides.config_overrides,
-            "fast_mode",
-            Some(fast_mode.to_string()),
-        );
-    }
-
-    overrides
-}
-
-fn push_config_override(
-    overrides: &mut Vec<AgentSessionConfigOverride>,
-    key: &'static str,
-    value: Option<String>,
-) {
-    let Some(value) = value.map(|value| value.trim().to_string()) else {
-        return;
-    };
-    if value.is_empty() {
-        return;
-    }
-
-    if let Some(existing) = overrides.iter_mut().find(|item| item.key == key) {
-        existing.value = value;
-    } else {
-        overrides.push(AgentSessionConfigOverride {
-            key: key.to_string(),
-            value,
-        });
-    }
+    // Every managed Agent is ACP-driven. Only explicit options selected from
+    // the Agent's advertised session controls may be sent to a live session.
+    AgentPromptOverrides::default()
 }
 
 fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
@@ -1917,19 +1768,18 @@ fn parse_agent_connection_id(value: &str) -> Option<AgentConnectionId> {
 fn known_acp_session_id(
     latest_binding: Option<&ConversationAgentBindingRecord>,
     persisted_session: Option<&Session>,
-    agent_type: AgentKind,
+    agent_id: &AgentId,
 ) -> Option<String> {
     latest_binding
-        .filter(|binding| AgentKind::from_lenient(&binding.agent_type) == Some(agent_type))
+        .filter(|binding| binding.agent_id == *agent_id)
         .and_then(|binding| binding.acp_session_id.clone())
         .or_else(|| {
             persisted_session
                 .filter(|session| {
                     session
-                        .agent_type
-                        .as_deref()
-                        .and_then(AgentKind::from_lenient)
-                        == Some(agent_type)
+                        .agent_id
+                        .as_ref()
+                        .is_some_and(|persisted_id| persisted_id == agent_id)
                 })
                 .and_then(|session| session.external_session_id.clone())
         })
@@ -1944,7 +1794,7 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentContentBlock, AgentKind, AgentSessionConfigOverride,
+        AgentContentBlock, AgentId, AgentSessionConfigOverride,
         conversation::ConversationFileChange,
     };
     use db::models::{
@@ -2044,11 +1894,12 @@ mod tests {
         )
         .await
         .unwrap();
+        let codex = AgentId::parse("codex").unwrap();
         Session::update_agent_metadata(
             &pool,
             conversation.id,
             Some("external-prepared-1"),
-            Some("codex"),
+            Some(&codex),
         )
         .await
         .unwrap();
@@ -2058,11 +1909,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            known_acp_session_id(None, Some(&persisted), AgentKind::Codex).as_deref(),
+            known_acp_session_id(None, Some(&persisted), &AgentId::parse("codex").unwrap())
+                .as_deref(),
             Some("external-prepared-1")
         );
         assert_eq!(
-            known_acp_session_id(None, Some(&persisted), AgentKind::ClaudeCode),
+            known_acp_session_id(
+                None,
+                Some(&persisted),
+                &AgentId::parse("claude_code").unwrap()
+            ),
             None
         );
     }
@@ -2134,32 +1990,33 @@ mod tests {
 
     #[test]
     fn local_acp_runtime_profiles_do_not_inject_session_controls() {
-        for agent_type in [
-            AgentKind::Codex,
-            AgentKind::ClaudeCode,
-            AgentKind::Opencode,
-            AgentKind::Gemini,
-            AgentKind::Openclaw,
-            AgentKind::Cline,
-            AgentKind::Hermes,
+        for agent_id in [
+            "codex",
+            "claude_code",
+            "opencode",
+            "gemini",
+            "openclaw",
+            "cline",
+            "hermes",
+            "registry_generic",
         ] {
             let profile = ExecutorProfileId {
-                executor: agent_type,
+                executor: AgentId::parse(agent_id).unwrap(),
                 variant: Some("PLAN".to_string()),
                 model: Some("stale-profile-model".to_string()),
                 fast_mode: Some(true),
                 reasoning_effort: Some("high".to_string()),
             };
 
-            let overrides = agent_prompt_overrides_from_profile(agent_type, Some(&profile));
+            let overrides = agent_prompt_overrides_from_profile(&profile.executor, Some(&profile));
 
             assert_eq!(
                 overrides.mode_override, None,
-                "{agent_type} profile must not write an unverified mode"
+                "{agent_id} profile must not write an unverified mode"
             );
             assert!(
                 overrides.config_overrides.is_empty(),
-                "{agent_type} profile must not write unverified session controls"
+                "{agent_id} profile must not write unverified session controls"
             );
         }
     }
@@ -2167,13 +2024,13 @@ mod tests {
     #[test]
     fn catalog_managed_agent_explicit_session_controls_survive_profile_suppression() {
         let profile = ExecutorProfileId {
-            executor: AgentKind::Codex,
+            executor: AgentId::parse("codex").unwrap(),
             variant: Some("GPT_5_5".to_string()),
             model: Some("stale-profile-model".to_string()),
             fast_mode: Some(true),
             reasoning_effort: Some("high".to_string()),
         };
-        let mut overrides = agent_prompt_overrides_from_profile(AgentKind::Codex, Some(&profile));
+        let mut overrides = agent_prompt_overrides_from_profile(&profile.executor, Some(&profile));
 
         // These are the controls the user picked from the verified persisted catalog
         // (or the live ACP selector) when creating the first session.
@@ -2217,35 +2074,19 @@ mod tests {
     }
 
     #[test]
-    fn non_catalog_managed_profiles_keep_legacy_explicit_overrides() {
+    fn generic_acp_profiles_do_not_inject_unadvertised_overrides() {
         let profile = ExecutorProfileId {
-            executor: AgentKind::QaMock,
+            executor: AgentId::parse("qa_mock").unwrap(),
             variant: None,
             model: Some("qa-model".to_string()),
             fast_mode: Some(true),
             reasoning_effort: Some("high".to_string()),
         };
 
-        let overrides = agent_prompt_overrides_from_profile(AgentKind::QaMock, Some(&profile));
+        let overrides = agent_prompt_overrides_from_profile(&profile.executor, Some(&profile));
 
         assert_eq!(overrides.mode_override, None);
-        assert_eq!(
-            overrides.config_overrides,
-            vec![
-                AgentSessionConfigOverride {
-                    key: "model".to_string(),
-                    value: "qa-model".to_string(),
-                },
-                AgentSessionConfigOverride {
-                    key: "reasoning_effort".to_string(),
-                    value: "high".to_string(),
-                },
-                AgentSessionConfigOverride {
-                    key: "fast_mode".to_string(),
-                    value: "true".to_string(),
-                },
-            ]
-        );
+        assert!(overrides.config_overrides.is_empty());
     }
 
     #[test]

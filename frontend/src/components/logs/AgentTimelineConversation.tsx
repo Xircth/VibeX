@@ -440,7 +440,7 @@ const AgentTimelineConversation = forwardRef<
   useEffect(() => {
     setSessionConfigOptions?.(conversationSessionConfigOptions);
   }, [setSessionConfigOptions, conversationSessionConfigOptions]);
-  const sessionAgentType = (attempt.session?.agent_type ??
+  const sessionAgentType = (attempt.session?.agent_id ??
     attempt.session?.executor) as AgentKind | null;
   useEffect(() => {
     if (

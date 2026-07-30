@@ -7,7 +7,6 @@ use browser_cef::{
 use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
-pub mod bridge;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
@@ -238,20 +237,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
 
             let state = tauri::async_runtime::block_on(AppState::new())
                 .expect("Failed to initialize app state");
-            // Inventory and automatic ACP bridge installation run after the
-            // window is interactive. This also persists the verified runtime
-            // identity required by the on-demand session-controls catalog.
-            let agent_startup_pool = state.deployment.db().pool.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) =
-                    commands::agent_settings::agent_bootstrap_installation_for_startup(
-                        &agent_startup_pool,
-                    )
-                    .await
-                {
-                    tracing::warn!(%error, "startup agent runtime reconciliation failed");
-                }
-            });
             // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
             // process lifecycle before the UI connects. Best-effort — a failure here
             // must not block app launch; the worst case is a stale in-flight turn.
@@ -588,19 +573,14 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::config::get_user_system_info,
             commands::config::update_config,
             commands::config::clear_local_app_data,
-            commands::config::get_mcp_servers,
-            commands::config::update_mcp_servers,
             commands::config::get_profiles,
             commands::config::update_profiles,
             commands::config::check_editor_availability,
-            commands::config::check_agent_availability,
             commands::config::play_notification_sound,
             commands::config::enhance_prompt,
             commands::config::list_opencode_models,
             commands::config::get_claude_settings,
             commands::config::update_claude_settings,
-            commands::config::read_agent_native_files,
-            commands::config::write_agent_native_files,
             commands::config::mcp_scan_local,
             commands::config::mcp_list_marketplaces,
             commands::config::mcp_search_marketplace,
@@ -612,15 +592,25 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::desktop_toast::is_main_window_focused,
             commands::desktop_toast::activate_desktop_toast,
             commands::desktop_toast::desktop_toast_window_ready,
-            // Agent settings commands
-            commands::agent_settings::list_agents,
-            commands::agent_settings::update_agent_preferences,
-            commands::agent_settings::reorder_agents,
-            commands::agent_settings::agent_preflight,
-            commands::agent_settings::agent_bootstrap_installation,
-            commands::agent_settings::detect_agent_local_version,
-            commands::agent_settings::run_agent_fix,
-            commands::agent_settings::open_agent_login_terminal,
+            // Open Agent management and official ACP Registry
+            commands::agent_management::agent_management_bar,
+            commands::agent_management::agent_management_detail,
+            commands::agent_management::agent_registry_view,
+            commands::agent_management::agent_registry_refresh,
+            commands::agent_management::agent_registry_add_and_install,
+            commands::agent_management::agent_management_set_enabled,
+            commands::agent_management::agent_management_reorder,
+            commands::agent_management::agent_management_preflight,
+            commands::agent_management::agent_management_repair,
+            commands::agent_management::agent_management_update,
+            commands::agent_management::agent_management_rollback,
+            commands::agent_management::agent_management_cancel_operation,
+            commands::agent_management::agent_management_uninstall,
+            commands::agent_management::agent_management_remove,
+            commands::agent_management::agent_management_config_read,
+            commands::agent_management::agent_management_config_write,
+            commands::agent_management::agent_management_diagnostics,
+            commands::agent_management::agent_management_clear_diagnostics,
             commands::version_control::get_version_control_settings,
             commands::version_control::update_version_control_settings,
             commands::version_control::detect_git_version,
@@ -685,18 +675,12 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             // Approval commands
             commands::approvals::respond_to_approval,
             // ACP-native agent platform commands
-            commands::agents::agent_registry_list,
             commands::agents::agent_capability_catalog,
             commands::agents::agent_refresh_capability_catalog,
-            commands::agents::agent_config_surfaces,
-            commands::agents::agent_mcp_surfaces,
-            commands::agents::agent_skills_surfaces,
-            commands::agents::agent_install_plans,
             commands::agents::agent_runtime_snapshot,
             commands::agents::agent_connection_snapshot,
             commands::agents::agent_load_session,
             commands::agents::agent_list_session_commands,
-            commands::agents::agent_set_auto_approve,
             commands::agents::agent_connect,
             commands::agents::agent_prepare_session,
             commands::agents::agent_set_prepared_session_mode,
@@ -710,13 +694,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::agents::agent_disconnect,
             commands::agents::agent_respond_permission,
             commands::agents::agent_terminal_snapshot,
-            commands::agents::agent_history_sources,
-            commands::agents::agent_history_import,
-            commands::agents::agent_config_read,
-            commands::agents::agent_config_write,
-            commands::agents::agent_mcp_list,
-            commands::agents::agent_mcp_write,
-            commands::agents::agent_plan_usage,
             // Attention inbox
             commands::attention::attention_inbox_list,
             // Crash report commands

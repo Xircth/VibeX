@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use agents::{AgentContentBlock, AgentKind};
+use agents::AgentContentBlock;
 pub use conversations::{
     ConversationContext, ConversationRuntimeState, ConversationServiceError,
     ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
@@ -65,9 +65,9 @@ impl conversations::ConversationHost for AppConversationHost {
     async fn launch_settings(
         &self,
         pool: &SqlitePool,
-        agent_type: AgentKind,
+        agent_id: &agents::AgentId,
     ) -> Result<conversations::AgentRuntimeLaunchSettings, ConversationServiceError> {
-        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_type)
+        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_id)
             .await
             .map_err(app_err_to_service)
     }

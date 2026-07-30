@@ -6,6 +6,7 @@
 //! identifiers may remain on `sessions` for compatibility and import repair, but
 //! they are not the product history source.
 
+use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
@@ -26,7 +27,7 @@ pub struct DbConversationSummary {
     /// When set, parsed titles must not overwrite the user-set title.
     pub title_locked: bool,
     pub status: SessionStatus,
-    pub agent_type: Option<String>,
+    pub agent_id: Option<AgentId>,
     pub model: Option<String>,
     pub external_session_id: Option<String>,
     pub message_count: i64,
@@ -44,7 +45,7 @@ const SUMMARY_COLUMNS: &str = r#"id,
     name AS title,
     title_locked,
     status,
-    agent_type,
+    agent_id,
     model,
     external_session_id,
     message_count,
@@ -90,15 +91,15 @@ impl DbConversationSummary {
     pub async fn find_by_external_id(
         pool: &SqlitePool,
         external_session_id: &str,
-        agent_type: &str,
+        agent_id: &AgentId,
     ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"SELECT {SUMMARY_COLUMNS}
                FROM sessions
-               WHERE external_session_id = ? AND agent_type = ? AND deleted_at IS NULL"#
+               WHERE external_session_id = ? AND agent_id = ? AND deleted_at IS NULL"#
         ))
         .bind(external_session_id)
-        .bind(agent_type)
+        .bind(agent_id.as_str())
         .fetch_optional(pool)
         .await
     }
@@ -171,20 +172,20 @@ impl DbConversationSummary {
         Ok(())
     }
 
-    /// Bind the agent session id + type for legacy runtime compatibility.
+    /// Bind the external ACP session to the stable open Agent identity.
     pub async fn bind_external_id(
         pool: &SqlitePool,
         id: Uuid,
         external_session_id: &str,
-        agent_type: &str,
+        agent_id: &AgentId,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE sessions
-               SET external_session_id = ?, agent_type = ?, updated_at = datetime('now', 'subsec')
+               SET external_session_id = ?, agent_id = ?, updated_at = datetime('now', 'subsec')
                WHERE id = ?"#,
         )
         .bind(external_session_id)
-        .bind(agent_type)
+        .bind(agent_id.as_str())
         .bind(id)
         .execute(pool)
         .await?;
@@ -360,10 +361,12 @@ impl ConversationRecord {
 pub struct ConversationAgentBindingRecord {
     pub id: Uuid,
     pub conversation_id: Uuid,
-    pub agent_type: String,
+    pub agent_id: AgentId,
     pub working_dir: String,
     pub acp_session_id: Option<String>,
     pub acp_protocol_version: Option<String>,
+    pub runtime_version: Option<String>,
+    pub acp_version: Option<String>,
     pub load_supported: bool,
     pub resume_supported: bool,
     pub close_supported: bool,
@@ -384,10 +387,12 @@ pub struct ConversationAgentBindingRecord {
 #[derive(Debug, Clone)]
 pub struct CreateConversationAgentBinding<'a> {
     pub conversation_id: Uuid,
-    pub agent_type: &'a str,
+    pub agent_id: &'a AgentId,
     pub working_dir: &'a str,
     pub acp_session_id: Option<&'a str>,
     pub acp_protocol_version: Option<&'a str>,
+    pub runtime_version: Option<&'a str>,
+    pub acp_version: Option<&'a str>,
     pub load_supported: bool,
     pub resume_supported: bool,
     pub close_supported: bool,
@@ -405,10 +410,12 @@ pub struct CreateConversationAgentBinding<'a> {
 
 const BINDING_COLUMNS: &str = r#"id,
     conversation_id,
-    agent_type,
+    agent_id,
     working_dir,
     acp_session_id,
     acp_protocol_version,
+    runtime_version,
+    acp_version,
     load_supported,
     resume_supported,
     close_supported,
@@ -433,23 +440,27 @@ impl ConversationAgentBindingRecord {
     ) -> Result<Self, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
             r#"INSERT INTO conversation_agent_bindings (
-                   id, conversation_id, agent_type, working_dir, acp_session_id,
-                   acp_protocol_version, load_supported, resume_supported,
+                   id, conversation_id, agent_type, agent_id, working_dir, acp_session_id,
+                   acp_protocol_version, runtime_version, acp_version,
+                   load_supported, resume_supported,
                    close_supported, terminal_supported,
                    additional_directories_supported, prompt_capabilities_json,
                    session_capabilities_json, client_capabilities_json,
                    mcp_servers_json, modes_json, config_options_json,
                    current_mode, status
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING {BINDING_COLUMNS}"#
         ))
         .bind(id)
         .bind(input.conversation_id)
-        .bind(input.agent_type)
+        .bind(input.agent_id.as_str())
+        .bind(input.agent_id.as_str())
         .bind(input.working_dir)
         .bind(input.acp_session_id)
         .bind(input.acp_protocol_version)
+        .bind(input.runtime_version)
+        .bind(input.acp_version)
         .bind(input.load_supported)
         .bind(input.resume_supported)
         .bind(input.close_supported)
@@ -568,6 +579,7 @@ mod tests {
             &pool,
             &CreateSession {
                 executor: None,
+                agent_id: None,
                 task_id: None,
                 name: None,
                 initial_prompt: None,
@@ -579,7 +591,8 @@ mod tests {
         .await
         .expect("create session");
 
-        DbConversationSummary::bind_external_id(&pool, id, "rollout-abc", "claude_code")
+        let claude = AgentId::parse("claude_code").unwrap();
+        DbConversationSummary::bind_external_id(&pool, id, "rollout-abc", &claude)
             .await
             .expect("bind external id");
 
@@ -588,13 +601,15 @@ mod tests {
             .expect("query by id")
             .expect("conversation present");
         assert_eq!(by_id.external_session_id.as_deref(), Some("rollout-abc"));
-        assert_eq!(by_id.agent_type.as_deref(), Some("claude_code"));
+        assert_eq!(
+            by_id.agent_id.as_ref().map(AgentId::as_str),
+            Some("claude_code")
+        );
 
-        let by_external =
-            DbConversationSummary::find_by_external_id(&pool, "rollout-abc", "claude_code")
-                .await
-                .expect("query by external id")
-                .expect("conversation present");
+        let by_external = DbConversationSummary::find_by_external_id(&pool, "rollout-abc", &claude)
+            .await
+            .expect("query by external id")
+            .expect("conversation present");
         assert_eq!(by_external.id, id);
     }
 
@@ -636,15 +651,18 @@ mod tests {
         assert_eq!(found.status, SessionStatus::InProgress);
 
         let binding_id = Uuid::new_v4();
+        let codex = AgentId::parse("codex").unwrap();
         let binding = ConversationAgentBindingRecord::create(
             &pool,
             binding_id,
             CreateConversationAgentBinding {
                 conversation_id: id,
-                agent_type: "codex",
+                agent_id: &codex,
                 working_dir: "C:/work",
                 acp_session_id: None,
                 acp_protocol_version: None,
+                runtime_version: Some("0.130.0"),
+                acp_version: Some("1.1.4"),
                 load_supported: true,
                 resume_supported: false,
                 close_supported: true,

@@ -22,8 +22,7 @@ use super::{
     PrCommentsResult, PrError,
 };
 use crate::{
-    bridge::agent_type_from_executor, error::AppError, state::AppState,
-    workspace_paths::resolve_workspace_agent_working_dir,
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
 };
 
 #[tauri::command]
@@ -247,6 +246,7 @@ async fn trigger_pr_description_continuation(
                 pool,
                 &CreateSession {
                     executor: None,
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -277,14 +277,15 @@ async fn trigger_pr_description_continuation(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     let working_dir = resolve_workspace_agent_working_dir(workspace, &container_ref, &repos)
         .unwrap_or_else(|| container_ref.clone());
-    let agent_type = agent_type_from_executor(executor_profile_id.executor)?;
+    let agent_id = executor_profile_id.executor;
     let launch =
-        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_type).await?;
+        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, &agent_id).await?;
     let agent_session_id = AgentSessionId(session.id);
     let agent_session = state
         .agent_runtime
         .ensure_session(EnsureAgentSessionInput {
-            agent_type,
+            agent_id,
+            launch_lock: launch.launch_lock,
             workspace_id: workspace.id,
             working_dir: PathBuf::from(working_dir),
             session_id: agent_session_id,

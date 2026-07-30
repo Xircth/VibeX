@@ -4,8 +4,8 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
+    AgentId,
     ids::{AgentConnectionId, AgentPromptId, AgentSessionId},
-    registry::AgentKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -52,7 +52,7 @@ pub enum AgentPromptStatus {
 #[ts(export)]
 pub struct AgentConnectionSnapshot {
     pub id: AgentConnectionId,
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: Uuid,
     pub status: AgentConnectionStatus,
     pub working_dir: String,

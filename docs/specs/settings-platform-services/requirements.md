@@ -3,7 +3,7 @@
 ## Assumptions
 
 1. Work happens in `C:\Users\Administrator\Documents\Projects\VibeX-settings-platform-services` on branch `feature/settings-platform-services`, based on local `master`.
-2. `C:\Users\Administrator\Documents\Projects\codeg-main` is the primary implementation reference for settings IA, backup/restore, network proxy, web service, chat channels, model providers, and version-control settings.
+2. Existing VibeX architecture and `DESIGN.md` are the implementation references for settings IA, backup/restore, network proxy, web service, chat channels, model providers, and version-control settings.
 3. `farion1231/cc-switch` is the behavioral reference for model-provider management: multi-agent provider presets, one-click switching, provider endpoint/API-key editing, OpenAI-compatible model fetching, and preserving custom provider configuration.
 4. VibeX remains a Tauri desktop app first. Web-service settings should expose a local service and credentials, but the implementation must fit VibeX's existing React Router + Tauri command architecture.
 5. Existing `#tag` prompt insertion must keep working while the setting is renamed and expanded into "指令".
@@ -82,7 +82,7 @@ Success means the settings navigation, pages, APIs, and storage surfaces are coh
 ### R5. Message Channels
 
 - Add independent `设置 / 消息渠道` page.
-- User can configure IM bot channels, initially aligned with the `codeg-main` channel model:
+- User can configure IM bot channels using the shared VibeX channel model:
   - Telegram,
   - Lark/Feishu,
   - Weixin/WeChat if portable enough,
@@ -178,13 +178,12 @@ Success means the settings navigation, pages, APIs, and storage surfaces are coh
 
 ## Non-Goals
 
-- Do not migrate VibeX to Next.js or codeg-main's app router.
+- Do not migrate VibeX away from its existing React Router architecture.
 - Do not replace VibeX's ACP-native agent settings model.
-- Do not copy codeg-main UI verbatim if it violates VibeX Tahoe design tokens.
+- Do not introduce UI that violates VibeX Tahoe design tokens.
 - Do not store raw secrets inside plain JSON config when an alternative is available.
 
 ## References
 
-- Local reference: `C:\Users\Administrator\Documents\Projects\codeg-main`
 - CC Switch repository: https://github.com/farion1231/cc-switch
 - CC Switch provider docs: https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/en/2-providers/2.1-add.md

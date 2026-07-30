@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AGENT_OPTIONS } from '@/constants/agents';
+import {
+  type ManagedAgentOption,
+  useManagedAgentOptions,
+} from '@/features/agent-management';
 import {
   ChevronDown,
   Loader2,
@@ -27,7 +30,6 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import type { AgentType } from '@/features/agents/types';
 import { cn } from '@/lib/utils';
 import { instructionsApi, type Instruction } from '@/lib/api';
 
@@ -45,23 +47,24 @@ interface InstructionDraft {
 }
 
 
-const ALL_AGENT_TYPES = AGENT_OPTIONS.map((agent) => agent.value);
-
-function emptyDraft(): InstructionDraft {
+function emptyDraft(allAgentTypes: string[] = []): InstructionDraft {
   return {
     name: '',
     content: '',
-    agentTypes: [...ALL_AGENT_TYPES],
+    agentTypes: [...allAgentTypes],
   };
 }
 
-function draftFromInstruction(instruction: Instruction): InstructionDraft {
+function draftFromInstruction(
+  instruction: Instruction,
+  allAgentTypes: string[]
+): InstructionDraft {
   return {
     name: instruction.name,
     content: instruction.content,
     agentTypes: instruction.agent_types.length
       ? instruction.agent_types
-      : [...ALL_AGENT_TYPES],
+      : [...allAgentTypes],
   };
 }
 
@@ -81,12 +84,16 @@ function validateDraft(draft: InstructionDraft): string | null {
 function AgentMultiSelect({
   value,
   onChange,
+  options,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
+  options: ManagedAgentOption[];
 }) {
   const { t } = useTranslation(['settings', 'common']);
-  const allSelected = value.length === AGENT_OPTIONS.length;
+  const allAgentTypes = options.map((agent) => agent.value);
+  const allSelected =
+    options.length > 0 && value.length === options.length;
   const label = allSelected
     ? t('instructions.allAgents')
     : t('instructions.agentCount', { count: value.length });
@@ -113,11 +120,11 @@ function AgentMultiSelect({
             role="button"
             tabIndex={0}
             className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-            onClick={() => onChange([...ALL_AGENT_TYPES])}
+            onClick={() => onChange([...allAgentTypes])}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                onChange([...ALL_AGENT_TYPES]);
+                onChange([...allAgentTypes]);
               }
             }}
           >
@@ -127,7 +134,7 @@ function AgentMultiSelect({
 
           <div className="h-px bg-border" />
 
-          {AGENT_OPTIONS.map((agent) => {
+          {options.map((agent) => {
             const checked = value.includes(agent.value);
             return (
               <div
@@ -144,10 +151,7 @@ function AgentMultiSelect({
                 }}
               >
                 <Checkbox checked={checked} className="pointer-events-none" />
-                <AgentTypeIcon
-                  agentType={agent.value as AgentType}
-                  className="h-4 w-4"
-                />
+                <AgentTypeIcon agentType={agent.value} className="h-4 w-4" />
                 <span>{agent.label}</span>
               </div>
             );
@@ -160,6 +164,11 @@ function AgentMultiSelect({
 
 export function InstructionsSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const agentOptions = useManagedAgentOptions();
+  const allAgentTypes = useMemo(
+    () => agentOptions.map((agent) => agent.value),
+    [agentOptions]
+  );
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [localInstructions, setLocalInstructions] = useState<Instruction[]>([]);
@@ -240,20 +249,20 @@ export function InstructionsSettings() {
 
   const selectLocal = (instruction: Instruction) => {
     setSelection({ kind: 'local', id: instruction.id });
-    setDraft(draftFromInstruction(instruction));
+    setDraft(draftFromInstruction(instruction, allAgentTypes));
     setDirty(false);
   };
 
   const selectMarket = (instruction: Instruction) => {
     setSelection({ kind: 'market', id: instruction.id });
-    setDraft(draftFromInstruction(instruction));
+    setDraft(draftFromInstruction(instruction, allAgentTypes));
     setDirty(false);
   };
 
   const startNew = () => {
     setLeftTab('local');
     setSelection({ kind: 'new' });
-    setDraft(emptyDraft());
+    setDraft(emptyDraft(allAgentTypes));
     setDirty(true);
   };
 
@@ -289,7 +298,7 @@ export function InstructionsSettings() {
       const list = await refreshLocal();
       setSelection({ kind: 'local', id: saved.id });
       setLocalInstructions(list);
-      setDraft(draftFromInstruction(saved));
+      setDraft(draftFromInstruction(saved, allAgentTypes));
       setDirty(false);
       toast.success(t('instructions.saved'));
     } catch (error) {
@@ -319,7 +328,7 @@ export function InstructionsSettings() {
       await refreshLocal();
       setLeftTab('local');
       setSelection({ kind: 'local', id: saved.id });
-      setDraft(draftFromInstruction(saved));
+      setDraft(draftFromInstruction(saved, allAgentTypes));
       setDirty(false);
       toast.success(t('instructions.installedToLocal'));
     } catch (error) {
@@ -347,7 +356,7 @@ export function InstructionsSettings() {
       await instructionsApi.delete(selectedLocal.id);
       await refreshLocal();
       setSelection(null);
-      setDraft(emptyDraft());
+      setDraft(emptyDraft(allAgentTypes));
       setDirty(false);
       toast.success(t('instructions.deleted'));
     } catch (error) {
@@ -596,6 +605,7 @@ export function InstructionsSettings() {
                   <AgentMultiSelect
                     value={draft.agentTypes}
                     onChange={(agentTypes) => updateDraft({ agentTypes })}
+                    options={agentOptions}
                   />
                 </div>
 

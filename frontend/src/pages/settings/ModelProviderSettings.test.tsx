@@ -24,6 +24,15 @@ vi.mock('@/features/agents/api', () => ({
   agentsApi: agentsApiMock,
 }));
 
+vi.mock('@/features/agent-management', () => ({
+  useManagedAgentOptions: () => [
+    { value: 'claude_code', label: 'Claude Code' },
+    { value: 'codex', label: 'Codex' },
+    { value: 'opencode', label: 'OpenCode' },
+    { value: 'pi', label: 'Pi Agent' },
+  ],
+}));
+
 vi.mock('@/lib/api', () => ({
   modelProviderApi: modelProviderApiMock,
 }));

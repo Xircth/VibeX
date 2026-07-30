@@ -1,6 +1,6 @@
 import { ArrowUpRight, GitBranch, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { AgentKind, ConversationDelegationView } from 'shared/types';
+import type { ConversationDelegationView } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -37,9 +37,9 @@ export function DelegationCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-medium text-indigo-900 dark:text-indigo-100">
-              {delegation.agent_type
+              {delegation.agent_id
                 ? t('delegationCard.delegatedTo', {
-                    agent: agentLabel(delegation.agent_type),
+                    agent: agentLabel(delegation.agent_id),
                   })
                 : t('delegationCard.subAgentDelegation')}
             </span>
@@ -125,7 +125,7 @@ function StatusPill({ status }: { status: Status }) {
   );
 }
 
-const AGENT_LABELS: Record<AgentKind, string> = {
+const AGENT_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
   opencode: 'OpenCode',
@@ -136,7 +136,7 @@ const AGENT_LABELS: Record<AgentKind, string> = {
   qa_mock: 'QA Mock',
 };
 
-function agentLabel(agentType: AgentKind): string {
+function agentLabel(agentType: string): string {
   return AGENT_LABELS[agentType] ?? agentType;
 }
 

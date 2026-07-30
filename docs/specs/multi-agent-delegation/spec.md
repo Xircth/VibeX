@@ -1,6 +1,6 @@
 # Spec: 多智能体协同 / 委派（Multi-Agent Delegation）
 
-> 状态：**Phase 1 - Specify（待评审）** ｜ 分支：`feature/multi-agent-delegation` ｜ 参考实现：`codeg-main`
+> 状态：**Phase 1 - Specify（待评审）** ｜ 分支：`feature/multi-agent-delegation`
 > 创建：2026-06-14
 
 ## 1. Objective（目标）
@@ -22,19 +22,19 @@
 | 子 agent（可被派发） | 7 个 ACP agent 任意（ClaudeCode/Codex/OpenCode/Gemini/OpenClaw/Cline/Hermes）*（假设，见 §11）* |
 | steering 工具 | **接入** `ask_user_question` + `check_user_feedback` |
 | 前端 | **完整内联委派卡片** + 打开子会话 |
-| MCP 注入方式 | **ACP `session/new` 的 `mcp_servers` 参数**（与 codeg 一致，按会话隔离，见 §4.3）|
+| MCP 注入方式 | **ACP `session/new` 的 `mcp_servers` 参数**（按会话隔离，见 §4.3）|
 | 委派深度上限 | 默认 1（可配置；走 `sessions.parent_session_id` 链计算）|
 
 ### 非目标（v1 不做）
 - 父 agent 扩展到 ClaudeCode 以外（Codex/OpenCode 的 FileToml/FileJson 注入、4 个 AgentCommand 型 agent 的注入留待 v2）。
-- 子 agent 多轮续聊（codeg 提到的 `continue_with_session`/`close_session`）——v1 子任务一次性（首个 turn 完成即定）。
+- 子 agent 多轮续聊（`continue_with_session`/`close_session`）——v1 子任务一次性（首个 turn 完成即定）。
 - 跨工作区委派、远程 agent。
 
 ---
 
 ## 2. 背景与关键约束
 
-**决定性事实**（已核验，影响整体架构）：VibeX 当前**没有任何「app 自实现工具暴露给 agent LLM」的能力**。前端的 `ask_question`/`feedback_check`/`task_create` 卡片只是按工具名**正则识别 agent 原生工具**（见 [transcript.ts](../../../frontend/src/features/agents/transcript.ts)、[ToolCallCard.tsx](../../../frontend/src/components/NormalizedConversation/tools)），后端对 MCP **完全被动**（只读写用户配置文件，spawn 时零注入）。
+**决定性事实**（已核验，影响整体架构）：VibeX 当时**没有任何「app 自实现工具暴露给 agent LLM」的能力**。前端的 `ask_question`/`feedback_check`/`task_create` 卡片只是按工具名识别 agent 原生工具（见 [NormalizedConversation tools](../../../frontend/src/components/NormalizedConversation/tools)），后端对 MCP 完全被动（只读写用户配置文件，spawn 时零注入）。
 
 > 推论：要让父 LLM 能**调用**委派工具，必须从零搭建「companion MCP 二进制 + 进程间传输 + 进程内 broker」整条链路——没有捷径，因为 ACP agent 的 LLM 只能通过 MCP server 拿到 app 提供的工具。这是本特性的主要工作量来源。
 
@@ -97,7 +97,7 @@ crates/delegation/                  # 进程内 broker + traits + 传输 listene
 crates/vibex-mcp/                   # companion 二进制（最小依赖；依赖 delegation 的 transport 模块）
   src/main.rs           # stdio MCP server：initialize/tools.list/tools.call/notifications.cancelled；
                         #   --parent-connection-id --socket-path --token --parent-pid --features
-  tool_schema.json      # 5 个工具的 inputSchema（移植自 codeg）
+  tool_schema.json      # 5 个工具的 inputSchema
 
 src-tauri/src/delegation/           # 把 broker 接到真实 VibeX（trait 具体实现 + 注入 + 命令）
   mod.rs
@@ -112,13 +112,11 @@ crates/db/migrations/<ts>_delegation_columns.sql   # sessions 加列
 frontend/src/features/delegation/   # 前端：context + 卡片 + 状态解析 + 打开子会话
 ```
 
-### 4.3 MCP 注入（**ACP `session/new` 的 mcp_servers 参数，与 codeg 一致**）
+### 4.3 MCP 注入（**ACP `session/new` 的 mcp_servers 参数**）
 
-> **已核验**（2026-06-14）：codeg **不写任何配置文件**。它把 companion 作为一条 `McpServer::Stdio` 塞进 `Vec<McpServer>`，通过 ACP `NewSessionRequest.mcp_servers(...)`（即 `session/new` 的 `mcpServers` 字段）传给 agent —— 见 codeg `connection.rs:889-902` 的 `build_new_session_request` → `req.mcp_servers(mcp_servers)`。这是**按会话隔离、内存内、随会话生灭**的注入，无文件写入、无清理、无并发问题。
+> **已核验**（2026-06-14）：`agent-client-protocol` 0.11.1 的 `NewSessionRequest` 有公开字段 `mcp_servers: Vec<McpServer>`，包含 `McpServer::Stdio` 变体。通过该字段传入 companion 可实现**按会话隔离、内存内、随会话生灭**的注入，无需写配置文件。
 >
-> VibeX 已具备同等能力：`agent-client-protocol` 0.11.1 的 `NewSessionRequest` 有公开字段 `mcp_servers: Vec<McpServer>`（含 `McpServer::Stdio` 变体，见 crate `mcp_server/server.rs:141`）；ClaudeCode adapter 同为 `claude-agent-acp@0.44.0`，认此参数。当前 VibeX 仅在 [manager.rs:951](../../../crates/agents/src/manager.rs#L951) 调 `NewSessionRequest::new(cwd)` **未填** `mcp_servers`。
->
-> **无需 cwd 级 `.mcp.json`**：session/new 的 mcpServers 天然按会话隔离，彻底规避陈旧 token、共享文件并发、teardown 清理等问题。（ClaudeCode CLI 确实支持 project 级 `.mcp.json`，但 codeg 走的是更优的 session/new 参数。）
+> 当前 VibeX 在 [manager.rs:951](../../../crates/agents/src/manager.rs#L951) 调用 `NewSessionRequest::new(cwd)` 时尚未填充 `mcp_servers`。无需 cwd 级 `.mcp.json`；`session/new` 的 `mcpServers` 天然按会话隔离，可规避陈旧 token、共享文件并发和 teardown 清理问题。
 
 spawn ClaudeCode 的 `new_acp_session` 路径（[manager.rs:945-962](../../../crates/agents/src/manager.rs#L945)）增强为：
 
@@ -136,25 +134,25 @@ spawn ClaudeCode 的 `new_acp_session` 路径（[manager.rs:945-962](../../../cr
 4. ClaudeCode 启动后以 stdio 连 companion，companion 用 `--socket-path/--token` 回连主进程 listener。
 5. teardown（父连接断开）：**只需吊销 token**（server 列表随会话消亡，无文件需清理）。
 
-### 4.4 传输与鉴权（移植 codeg）
+### 4.4 传输与鉴权
 
 - 长度前缀（u32 LE）+ JSON body，16MiB 上限；非换行分隔以保留 `task` 内换行。
 - `BrokerMessage` 枚举：`Call`（delegate）/`Status`/`CancelTask`/`Cancel`（MCP notifications/cancelled）/`Feedback`/`CommitFeedback`/`Ask`。每条带 `token`。
 - listener 校验 token + `parent_connection_id` 一致，再解析父会话当前 conversation/session，转交 broker。
 - Windows 命名管道：服务当前连接前先重绑下个实例，避免客户端 `NotFound` 间隙；companion 侧带 200ms 重试预算。
 
-### 4.5 Broker（异步状态机，移植 codeg broker.rs 核心）
+### 4.5 Broker（异步状态机）
 
 - 单 `Mutex<PendingInner>` 串行化全部状态：`running`/`completed`(按 parent FIFO 字节上限驱逐) / `setups`(setup 窗口预留) / `early_completes`/`early_cancels`(竞态缓冲) / 单调 `seq`(到达序号戳)。
 - 任务状态机：`Running → Completed/Failed/Canceled`，`running↔completed` 原子迁移。
 - 并行 fan-out 关联：用确定性键 `DelegationMatchKey{ agent_type, task, working_dir }` 把 ACP 侧 tool_call 与 MCP 侧 call 绑定，而非脆弱的到达顺序。
-- 竞态裁决：setup 窗口内子任务先完成 / 父取消 / MCP cancel 早到，统一用「到达序号戳 + first-terminal-wins」在单锁下裁决（移植 codeg 的处理）。
-- stop_reason 映射：VibeX `PromptFinished.stop_reason: Option<String>`（`"end_turn"`/`"cancelled"`/…）映射到 `DelegationError`（child_refusal/child_max_tokens/child_empty/…）。**注意**：VibeX 的 stop_reason 比 codeg 弱类型，需建立字符串 → 错误码映射表（见 §11）。
-- 缓存常量（沿用 codeg 默认）：每 parent 512MB FIFO；单结果文本截断 256KiB；status 预览 2KiB。
+- 竞态裁决：setup 窗口内子任务先完成 / 父取消 / MCP cancel 早到，统一用「到达序号戳 + first-terminal-wins」在单锁下裁决。
+- stop_reason 映射：VibeX `PromptFinished.stop_reason: Option<String>`（`"end_turn"`/`"cancelled"`/…）映射到 `DelegationError`（child_refusal/child_max_tokens/child_empty/…），需建立字符串 → 错误码映射表（见 §11）。
+- 缓存常量：每 parent 512MB FIFO；单结果文本截断 256KiB；status 预览 2KiB。
 
 ### 4.6 ConnectionSpawner 实现（接 AgentRuntime）
 
-`spawner_impl.rs` 把 codeg 的 `ConnectionSpawner` trait 接到 VibeX：
+`spawner_impl.rs` 把 `ConnectionSpawner` trait 接到 VibeX：
 - `spawn(parent_connection_id, agent_type, working_dir, …) -> child_connection_id`：调 `AgentRuntime.connect(ConnectAgentInput{…})` + `new_session`，继承父的 workspace_id/working_dir。
 - `send_prompt_linked(conn_id, task, link) -> child_session_id(i)`：`AgentRuntime.send_prompt`，并把 `DelegationLink{ parent_session_id, parent_tool_use_id, delegation_call_id }` 持久化到子 session 行。
 - turn 完成：订阅 `AgentEvent::PromptFinished` 过滤本 child_connection_id，回调 broker `complete_call`。
@@ -223,7 +221,7 @@ pnpm tauri dev
 
 ## 7. Code Style
 
-遵循仓库现有风格（自动检测，注释语言与所在文件一致）。Rust 侧示例（trait 解耦 + 文档注释，对齐 codeg/VibeX 既有风格）：
+遵循仓库现有风格（自动检测，注释语言与所在文件一致）。Rust 侧示例：
 
 ```rust
 /// Spawns child ACP sessions on behalf of a `delegate_to_agent` call.
@@ -256,13 +254,13 @@ pub trait ConnectionSpawner: Send + Sync {
 
 | 层级 | 范围 | 位置 |
 |------|------|------|
-| 单元（Rust） | broker 状态机：注册/完成/取消、缓存驱逐、深度计算、并行关联键、setup 窗口竞态（用 mock spawner/lookup，沿用 codeg 测试套路）| `crates/delegation/src/*.rs` `#[cfg(test)]` |
+| 单元（Rust） | broker 状态机：注册/完成/取消、缓存驱逐、深度计算、并行关联键、setup 窗口竞态（使用 mock spawner/lookup）| `crates/delegation/src/*.rs` `#[cfg(test)]` |
 | 单元（Rust） | transport 帧编解码、token 校验、stop_reason→error 映射 | 同上 |
 | 集成（Rust） | spawner_impl 真起子 session（或 fake runtime）、DB 迁移 + `find_by_delegation_call_id` | `crates/delegation/tests/`、`crates/db` |
 | 前端单元 | 状态解析多级回落、卡片渲染（running/ok/err）、context reduce | `frontend/src/features/delegation/*.test.tsx` |
 | 端到端（手动 v1） | ClaudeCode 真派发一个子 agent → 卡片显示 → 打开子会话 → 取消 | `pnpm tauri dev` 手验，记录步骤 |
 
-覆盖期望：broker 核心逻辑（状态迁移、竞态、关联）优先达到高覆盖（与 codeg 对齐）；注入/前端以关键路径为主。
+覆盖期望：broker 核心逻辑（状态迁移、竞态、关联）优先达到高覆盖；注入/前端以关键路径为主。
 
 ---
 
@@ -303,7 +301,7 @@ pub trait ConnectionSpawner: Send + Sync {
 
 1. ~~**Crate 边界**~~ ✅ **已解决**（见 [plan.md](./plan.md) A1）：抽极小的 `crates/delegation-proto` 装线丝类型，companion 与 broker 共享；companion 不依赖 broker/agents。
 2. ~~**stop_reason 映射**~~ ✅ **已解决**（见 plan.md A2）：真实 turn = `format!("{:?}", acp::StopReason)`（PascalCase）+ 少量硬编码 snake 字面量；broker 用大小写/下划线容错归一化映射，`ChildUnknown` 兜底，实现期 pin 一次实际变体集合。
-3. ~~**ClaudeCode 配置隔离**~~ ✅ **已解决**：codeg 走 ACP `session/new` 的 `mcp_servers` 参数（非配置文件），按会话天然隔离；VibeX 的 `agent-client-protocol` 0.11.1 同样支持。无需 cwd 级 `.mcp.json`。见 §4.3。
+3. ~~**ClaudeCode 配置隔离**~~ ✅ **已解决**：ACP `session/new` 的 `mcp_servers` 参数按会话天然隔离，VibeX 的 `agent-client-protocol` 0.11.1 已支持。无需 cwd 级 `.mcp.json`。见 §4.3。
 4. **companion 二进制构建/分发**：新 crate `[[bin]]` + `tauri.conf.json` `externalBin` sidecar；多平台命名（`vibex-mcp-<target-triple>`）与 dev 时 `VIBEX_MCP_BIN` 覆盖路径。
 5. ~~**委派事件**~~ ✅ **已解决**（见 plan.md A3）：新增 `AgentEvent::DelegationStarted/Completed` 显式变体（`AgentEvent` 已是 `kind`+snake_case + ts-rs 导出，加变体地道），前端 reducer 加两个 case。
 6. **steering 输入 UI**：插话输入入口放哪（会话输入框旁的「插话」？）、`ask_user_question` 作答卡片的提交交互——需与现有 UI 约定对齐。

@@ -10,12 +10,11 @@ import {
   X,
 } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { AgentKind, type Session } from 'shared/types';
+import type { AgentId, Session } from 'shared/types';
 import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
 import { sessionsApi } from '@/lib/api';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { agentTypeFromExecutor } from '@/features/agents/sendAgentRuntimeTurn';
-import type { AgentType } from '@/features/agents/types';
 
 type DesktopToastKind = 'success' | 'error';
 
@@ -39,18 +38,18 @@ const DEFAULT_DURATION_MS = 15_000;
 const SENT_DISMISS_MS = 1_600;
 
 /**
- * 解析会话应使用的 ACP 智能体类型：优先用规范字段 `agent_type`，回退到旧的
+ * 解析会话应使用的 ACP 智能体类型：优先用规范字段 `agent_id`，回退到旧的
  * `executor` 键（架构报告 A-6 过渡期）。用于在独立通知窗口里直接发起追问。
  */
 function resolveAgentType(
   session: Session,
   t: TFunction<['panels', 'common']>
-): AgentType {
-  if (session.agent_type) {
-    return session.agent_type as AgentType;
+): AgentId {
+  if (session.agent_id) {
+    return session.agent_id;
   }
   if (session.executor) {
-    return agentTypeFromExecutor(session.executor as AgentKind);
+    return agentTypeFromExecutor(session.executor);
   }
   throw new Error(t('desktopToast.resolveAgentTypeFailed'));
 }
@@ -264,7 +263,7 @@ export function DesktopToastWindow() {
       try {
         const session = await sessionsApi.getById(toast.sessionId);
         await conversationApi.startTurn({
-          agentType: resolveAgentType(session, t),
+          agentId: resolveAgentType(session, t),
           workspaceId: toast.workspaceId,
           conversationId: toast.sessionId,
           text,

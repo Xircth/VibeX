@@ -2,10 +2,6 @@ import type {
   Config,
   EditorType,
   CheckEditorAvailabilityResponse,
-  AgentKind,
-  AgentSettingInfo,
-  McpServerQuery,
-  UpdateMcpServersBody,
   SoundFile,
   Environment,
   ExecutorConfig,
@@ -13,7 +9,6 @@ import type {
   ChatChannelMessageLog,
 } from 'shared/types';
 
-import type { SelectableAgentKind } from '@/constants/agents';
 import { tauriInvoke } from './base';
 
 export interface PromptEnhancementContextMessage {
@@ -78,15 +73,6 @@ export interface LocalToolStatus {
   error: string | null;
 }
 
-export interface AgentInstallationBootstrap {
-  usableAgents: AgentKind[];
-  installedAcpAgents: AgentKind[];
-  failedAcpAgents: AgentKind[];
-  incompatibleAcpAgents: AgentKind[];
-  incompatibleRuntimeAgents: AgentKind[];
-  missingRuntimeAgents: AgentKind[];
-}
-
 export interface SystemMaintenanceStatus {
   app: AppReleaseStatus;
   npm: RuntimeStatus;
@@ -110,24 +96,6 @@ export const AgentCapability = {
   CONTEXT_USAGE: 'CONTEXT_USAGE',
 } as const satisfies Record<AgentCapability, AgentCapability>;
 
-export type AgentAvailabilityInfo =
-  | { type: 'LOGIN_DETECTED'; last_auth_timestamp: bigint }
-  | { type: 'INSTALLATION_FOUND' }
-  | { type: 'NOT_FOUND' };
-
-export type AgentMcpConfig = {
-  servers: Record<string, JsonValue>;
-  servers_path: string[];
-  template: JsonValue;
-  preconfigured: JsonValue;
-  is_toml_config: boolean;
-};
-
-export type GetMcpServerResponse = {
-  mcp_config: AgentMcpConfig;
-  config_path: string;
-};
-
 export type UserSystemInfo = {
   config: Config;
   environment: Environment;
@@ -150,13 +118,6 @@ export const configApi = {
       'check_editor_availability',
       { editorType }
     );
-  },
-  checkAgentAvailability: async (
-    agent: AgentKind
-  ): Promise<AgentAvailabilityInfo> => {
-    return tauriInvoke<AgentAvailabilityInfo>('check_agent_availability', {
-      executor: agent,
-    });
   },
   playNotificationSound: async (soundFile: SoundFile): Promise<void> => {
     return tauriInvoke<void>('play_notification_sound', {
@@ -654,28 +615,10 @@ export const claudeSettingsApi = {
   },
 };
 
-// MCP Servers APIs
-export const mcpServersApi = {
-  load: async (query: McpServerQuery): Promise<GetMcpServerResponse> => {
-    return tauriInvoke<GetMcpServerResponse>('get_mcp_servers', {
-      executor: query.executor,
-    });
-  },
-  save: async (
-    query: McpServerQuery,
-    data: UpdateMcpServersBody
-  ): Promise<void> => {
-    await tauriInvoke<string>('update_mcp_servers', {
-      executor: query.executor,
-      servers: data.servers,
-    });
-  },
-};
-
 // MCP marketplace (Smithery) + global hosting + per-agent sync.
 // One agent identity for MCP surfaces: the shared selectable-agent union
 // (canonical AgentKind keys), not a per-file copy.
-export type McpAppType = SelectableAgentKind;
+export type McpAppType = string;
 
 export interface LocalMcpServer {
   id: string;
@@ -824,112 +767,6 @@ export const profilesApi = {
   },
   save: async (content: string): Promise<string> => {
     return tauriInvoke<string>('update_profiles', { body: content });
-  },
-};
-
-// Agent Settings APIs — DTO types are generated from Rust (shared/types.ts) so
-// the typed AgentKind identity is shared by both sides of the IPC boundary.
-export type { AgentSettingInfo };
-
-export type AgentAutoApproveMode = 'off' | 'allow_always' | 'yolo';
-
-export interface PreflightCheck {
-  check_id: string;
-  label: string;
-  status: 'pass' | 'warn' | 'fail';
-  message: string;
-  fixes: PreflightFix[];
-}
-
-export interface PreflightFix {
-  action: string;
-  label: string;
-}
-
-export interface PreflightResult {
-  checks: PreflightCheck[];
-}
-
-export interface RunAgentFixRequest {
-  agentType: AgentKind;
-  action: string;
-}
-
-/** One editable native config file the agent reads directly. */
-export interface AgentNativeFile {
-  id: string;
-  label: string;
-  path: string;
-  /** Editor language hint: 'json' | 'toml' | 'yaml' | 'env' | 'text'. */
-  format: string;
-  exists: boolean;
-  content: string | null;
-}
-
-export const agentSettingsApi = {
-  list: async (): Promise<AgentSettingInfo[]> => {
-    return tauriInvoke<AgentSettingInfo[]>('list_agents');
-  },
-  updatePreferences: async (params: {
-    agentType: AgentKind;
-    enabled?: boolean;
-    envJson?: string | null;
-    configJson?: string | null;
-    autoApproveMode?: AgentAutoApproveMode;
-  }): Promise<AgentSettingInfo> => {
-    return tauriInvoke<AgentSettingInfo>('update_agent_preferences', {
-      payload: {
-        agent_type: params.agentType,
-        enabled: params.enabled,
-        env_json: params.envJson,
-        config_json: params.configJson,
-        auto_approve_mode: params.autoApproveMode,
-      },
-    });
-  },
-  reorder: async (agentTypes: AgentKind[]): Promise<AgentSettingInfo[]> => {
-    return tauriInvoke<AgentSettingInfo[]>('reorder_agents', {
-      payload: { order: agentTypes },
-    });
-  },
-  preflight: async (agentType: AgentKind): Promise<PreflightResult> => {
-    return tauriInvoke<PreflightResult>('agent_preflight', { agentType });
-  },
-  bootstrapInstallation: async (): Promise<AgentInstallationBootstrap> => {
-    return tauriInvoke<AgentInstallationBootstrap>(
-      'agent_bootstrap_installation'
-    );
-  },
-  runFix: async (payload: RunAgentFixRequest): Promise<void> => {
-    return tauriInvoke<void>('run_agent_fix', {
-      agentType: payload.agentType,
-      action: payload.action,
-    });
-  },
-  detectVersion: async (agentType: AgentKind): Promise<string | null> => {
-    return tauriInvoke<string | null>('detect_agent_local_version', {
-      agentType,
-    });
-  },
-  // Generic native-config-file access for any ACP agent (by agent_type key).
-  // Reads each agent's own config file(s); writes back up to ~/.vibex first.
-  readNativeFiles: async (agentType: string): Promise<AgentNativeFile[]> => {
-    return tauriInvoke<AgentNativeFile[]>('read_agent_native_files', {
-      agentType,
-    });
-  },
-  writeNativeFiles: async (
-    agentType: string,
-    files: { id: string; content: string }[]
-  ): Promise<AgentNativeFile[]> => {
-    return tauriInvoke<AgentNativeFile[]>('write_agent_native_files', {
-      agentType,
-      files,
-    });
-  },
-  // Open the agent CLI's interactive login (e.g. `codex login`) in a terminal.
-  openLoginTerminal: async (agentType: string): Promise<void> => {
-    return tauriInvoke<void>('open_agent_login_terminal', { agentType });
   },
 };
 

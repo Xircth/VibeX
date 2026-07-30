@@ -77,6 +77,18 @@ function insertCharAtCurrentSelection(editor: HTMLDivElement, char: string) {
 }
 
 describe('SessionComposerInput', () => {
+  it('uses the product UI font for typed conversation text', () => {
+    renderComposerInput();
+
+    expect(getEditor()).toHaveClass('font-sans');
+  });
+
+  it('uses native subpixel font rasterization for Codex-like text weight', () => {
+    renderComposerInput();
+
+    expect(getEditor()).toHaveClass('subpixel-antialiased');
+  });
+
   it('reports contenteditable text changes as Text content', () => {
     const onChange = vi.fn();
     renderComposerInput({ onChange });

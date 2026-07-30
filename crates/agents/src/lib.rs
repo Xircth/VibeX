@@ -4,7 +4,6 @@
 //! does not depend on VibeX's legacy executor, provider-runtime, `MsgStore`, or
 //! `ExecutionProcess` systems.
 
-pub mod config;
 pub mod conversation;
 pub mod delegation_inject;
 pub mod distribution;
@@ -15,25 +14,27 @@ pub mod filesystem;
 pub mod history;
 pub mod host;
 pub mod ids;
-pub mod installer;
+pub mod install_planner;
+pub mod lifecycle;
 pub mod local_detection;
+pub mod management_boundary;
+pub mod management_state;
 pub mod manager;
-pub mod mcp;
-pub mod mcp_file;
 pub mod metadata;
+pub mod native_config;
+pub mod operations;
 pub mod parsers;
 pub mod permissions;
-pub mod plan_usage;
-pub mod preflight;
-pub mod probe;
-pub mod registry;
+pub mod profiles;
+pub mod registry_client;
 pub mod runtime;
 pub mod session;
+pub mod session_gate;
 pub mod skills;
 pub mod state;
 pub mod terminal;
 
-pub use config::{AgentConfigStrategy, AgentConfigSurface, PathTemplate, config_surface};
+pub use api_types::{AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState};
 pub use conversation::{
     AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
     ConversationAgentConnectionStatus, ConversationBundleChecksum, ConversationBundleManifest,
@@ -50,10 +51,7 @@ pub use conversation::{
     SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{DelegationInjector, InjectedMcpServer};
-pub use distribution::{
-    AgentDistribution, CommandBuildInput, CommandParts, DistributionError, PlatformBinary,
-    SystemCommand, current_platform,
-};
+pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use error::{AgentError, AgentResult};
 pub use events::{
@@ -73,48 +71,65 @@ pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
     AgentTerminalId,
 };
-pub use installer::{
-    AgentInstallPlan, AgentInstallStatus, AgentPreflight, AgentPreflightIssue,
-    AgentPreflightSeverity,
+pub use install_planner::{
+    ArtifactTrust, ArtifactVerification, InstallCandidateSource, InstallEnvironment,
+    InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
+    PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, TofuFingerprint,
+    VersionEvidence, verify_artifact_bytes, verify_version_evidence,
+};
+pub use lifecycle::{
+    BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
+    LifecycleComponent, LifecycleFacts, LifecyclePlan, LifecycleService,
+};
+pub use management_boundary::{
+    BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,
+    NativeFileSystem, RegistryFetchResponse, RegistryFetcher, SystemClock, TokioNativeFileSystem,
+};
+pub use management_state::{
+    AgentManagementSnapshot, ComponentProbeState, ExternalCandidateObservation, ManagementFacts,
+    ManagementOperationState, ProbeService, RequiredComponentProbe, VerifiedExternalRuntime,
+    reduce_management_snapshot,
 };
 pub use manager::{
     AgentConnectionCommand, AgentConnectionLaunch, AgentConnectionManager,
     AgentConnectionManagerEvent, ManagedAgentConnectionSnapshot,
 };
-pub use mcp::{AgentMcpStrategy, AgentMcpSurface, mcp_surface};
-pub use mcp_file::{
-    AgentMcpConfig, default_mcp_config_path, mcp_file_config, read_agent_mcp_config,
-    write_agent_mcp_config,
-};
 pub use metadata::{
-    AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities,
-    claude_config_path, codex_auth_path, codex_config_path, codex_home, opencode_auth_path,
-    opencode_config_dir, opencode_config_path,
+    AgentCapability, agent_capabilities, claude_config_path, codex_auth_path, codex_config_path,
+    codex_home, opencode_auth_path, opencode_config_dir, opencode_config_path,
 };
+pub use native_config::{
+    ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFileSnapshot,
+    NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError, NativeConfigSaveResult,
+    NativeConfigSnapshot,
+};
+pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{
     AgentAutoApproveMode, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
     AgentPermissionResponse, RemotePermissionIntent, decide_auto_permission_response,
     decide_remote_permission_response,
 };
-pub use plan_usage::{
-    AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
-    probe_plan_usage,
+pub use profiles::{
+    AuthenticationPrecedence, BuiltInProfile, BuiltInProfileCatalog, NativeConfigBinding,
+    NativeConfigField, NativeConfigFieldKind, NativeConfigFormat, ProfileBinaryArtifact,
+    ProfileComponent, ProfileExternalCandidate, ProfileIcon, ProfileInstallSource,
+    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
 };
-pub use preflight::{
-    AgentPreflightCheckItem, AgentPreflightCheckStatus, AgentPreflightFixAction,
-    AgentPreflightProbe, AgentPreflightReport, build_preflight_report,
-};
-pub use registry::{
-    ACP_EXECUTABLE_OVERRIDE_ENV, AgentKind, AgentRegistryEntry, LocalAgentRuntimeSpec,
-    all_agent_types, local_acp_command_parts, local_agent_runtime_spec,
-    local_runtime_launch_acp_executable, minimum_supported_acp_version, registry_entry,
+pub use registry_client::{
+    OfficialRegistryHttpFetcher, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,
+    RegistryCache, RegistryCacheFreshness, RegistryDistributions, RegistryPackageDistribution,
+    RegistrySnapshot, RegistrySnapshotClient, RegistryView, sanitize_registry_svg,
 };
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
-    RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
-    RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
+    NoopEventSink, RespondAgentElicitationInput, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
+pub use session_gate::{
+    SessionBinding, SessionGate, SessionGateError, SessionGateInput, SessionLaunchAuthorization,
+    SessionLaunchLock,
+};
 pub use skills::{AgentSkillsStrategy, AgentSkillsSurface, skills_surface};
 pub use state::{
     AgentConnectionSnapshot, AgentConnectionStatus, AgentPromptSnapshot, AgentPromptStatus,

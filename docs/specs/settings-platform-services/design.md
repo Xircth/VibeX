@@ -13,7 +13,7 @@ This change is implemented as a settings-platform expansion inside the existing 
   - feature-specific settings should use new command modules and either SQLite tables, `app_metadata`-style key/value storage, or VibeX-managed JSON files depending on existing local patterns;
   - secrets use secure token commands when possible.
 
-The implementation should prefer VibeX's current SQLx/db crate patterns over codeg-main's SeaORM services.
+The implementation uses VibeX's current SQLx/db crate patterns.
 
 ## Information Architecture
 
@@ -96,7 +96,7 @@ The left pane is a content surface, not a second sidebar:
 
 ### `commands::backup`
 
-Port the core idea from codeg-main:
+Build the backup service around:
 
 - manifest,
 - archive,
@@ -172,7 +172,7 @@ Expose commands:
 
 ### `commands::chat_channel`
 
-Port codeg-main concepts, but keep the first integration vertical:
+Keep the first chat-channel integration vertical:
 
 - channel metadata CRUD,
 - token store,
@@ -220,7 +220,7 @@ Compatibility:
 
 ### `commands::version_control`
 
-Port codeg-main's version-control settings using VibeX error/style conventions:
+Implement version-control settings using VibeX error/style conventions:
 
 - Git detection and custom path validation,
 - GitHub account metadata,

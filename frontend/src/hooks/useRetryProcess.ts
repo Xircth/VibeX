@@ -7,12 +7,12 @@ import {
 import type {
   RepoBranchStatus,
   ExecutionProcess,
-  AgentKind,
+  AgentId,
 } from 'shared/types';
 
 export interface RetryProcessParams {
   message: string;
-  executor: AgentKind;
+  executor: AgentId;
   variant: string | null;
   executionProcessId: string;
   branchStatus: RepoBranchStatus[] | undefined;

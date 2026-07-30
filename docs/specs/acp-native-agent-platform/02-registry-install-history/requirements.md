@@ -2,9 +2,8 @@
 
 ## Objective
 
-Model agents as plugin-like ACP entries. The registry should not be limited to
-Claude Code, Codex, and OpenCode. It should include the Codeg-supported set at
-minimum: Claude Code, Codex, OpenCode, Gemini, OpenClaw, Cline, and Hermes.
+Model agents as plugin-like ACP entries. The registry should include Claude
+Code, Codex, OpenCode, Gemini, OpenClaw, Cline, and Hermes.
 
 ## Acceptance Criteria
 
@@ -19,8 +18,8 @@ minimum: Claude Code, Codex, OpenCode, Gemini, OpenClaw, Cline, and Hermes.
    agent's documented config surface or explicit registry metadata.
 5. WHEN history is imported THEN VibeX SHALL parse each agent's native history
    store separately from live ACP sessions.
-6. WHEN copied Codeg registry/parser code is used THEN license attribution SHALL
-   be preserved.
+6. WHEN copied third-party registry/parser code is used THEN its license
+   attribution SHALL be preserved.
 
 ## Agent Set
 

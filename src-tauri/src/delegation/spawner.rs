@@ -8,9 +8,9 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
+    AgentId,
     events::AgentContentBlock,
     ids::{AgentConnectionId, AgentSessionId},
-    registry::AgentKind,
     runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
 };
 use async_trait::async_trait;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 /// Shared map `child sessions.id → (delegation call_id, agent_type)` the resolver
 /// consults to route a finished child turn back to the broker.
-pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentKind)>>>;
+pub(crate) type ResolverMap = Arc<Mutex<HashMap<Uuid, (String, AgentId)>>>;
 
 pub(crate) struct RuntimeSpawner {
     pub runtime: Arc<AgentRuntime>,
@@ -35,7 +35,7 @@ impl ConnectionSpawner for RuntimeSpawner {
     async fn spawn(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentKind,
+        agent_type: AgentId,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
         let parent = AgentConnectionId::from(
@@ -52,14 +52,16 @@ impl ConnectionSpawner for RuntimeSpawner {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(&parent_conn.working_dir));
         let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
-            &self.pool, agent_type,
+            &self.pool,
+            &agent_type,
         )
         .await
         .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
         let child = self
             .runtime
             .connect(ConnectAgentInput {
-                agent_type,
+                agent_id: agent_type,
+                launch_lock: launch.launch_lock,
                 workspace_id: parent_conn.workspace_id,
                 working_dir,
                 auto_approve_mode: launch.auto_approve_mode,
@@ -89,6 +91,7 @@ impl ConnectionSpawner for RuntimeSpawner {
             &self.pool,
             &CreateSession {
                 executor: None,
+                agent_id: Some(link.agent_type.clone()),
                 task_id: parent.task_id,
                 name: None,
                 initial_prompt: Some(task.clone()),

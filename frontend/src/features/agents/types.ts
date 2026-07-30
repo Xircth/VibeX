@@ -1,11 +1,11 @@
-import type { AgentKind } from 'shared/types';
+import type { AgentId } from 'shared/types';
 
 /**
  * Canonical agent-identity union. Backend batch D2 unified the agent-identity
  * enums into a single `AgentKind`; this local alias is retained so the many
  * existing `AgentType` references keep compiling.
  */
-export type AgentType = AgentKind;
+export type AgentType = AgentId;
 
 export type AgentConnectionStatus =
   | 'disconnected'
@@ -27,122 +27,6 @@ export type AgentPromptStatus =
   | { kind: 'cancelling' }
   | { kind: 'completed'; stop_reason?: string | null }
   | { kind: 'failed'; message: string };
-
-export type AgentDistribution =
-  | {
-      kind: 'npx';
-      minimum_supported_version: string;
-      package: string;
-      cmd: string;
-      args: string[];
-      node_required?: string | null;
-    }
-  | {
-      kind: 'binary';
-      version: string;
-      cmd: string;
-      args: string[];
-      platforms: { platform: string; url: string }[];
-    }
-  | {
-      kind: 'uvx';
-      version: string;
-      package: string;
-      cmd: string;
-      args: string[];
-      uv_required?: string | null;
-      python_required?: string | null;
-      system_command?: { cmd: string; args: string[] } | null;
-    }
-  | {
-      kind: 'system';
-      cmd: string;
-      args: string[];
-    };
-
-export type AgentConfigStrategy =
-  | 'unsupported'
-  | 'file_json'
-  | 'file_toml'
-  | 'directory'
-  | 'agent_command'
-  | 'acp_extension';
-
-export type AgentMcpStrategy =
-  | 'unsupported'
-  | 'file_json'
-  | 'file_toml'
-  | 'agent_command'
-  | 'acp_extension';
-
-export type AgentSkillsStrategy =
-  | 'unsupported'
-  | 'directory'
-  | 'agent_command'
-  | 'acp_extension';
-
-export type AgentInstallStatus =
-  | 'ready'
-  | 'missing_prerequisite'
-  | 'missing_agent'
-  | 'unsupported_platform'
-  | 'auth_missing'
-  | 'unknown';
-
-export type AgentPreflightSeverity = 'info' | 'warning' | 'error';
-
-export type AgentPathTemplate = {
-  env_var?: string | null;
-  unix: string;
-  windows: string;
-};
-
-export type AgentConfigSurface = {
-  agent_type: AgentType;
-  auth_paths: AgentPathTemplate[];
-  config_paths: AgentPathTemplate[];
-  strategy: AgentConfigStrategy;
-};
-
-export type AgentMcpSurface = {
-  agent_type: AgentType;
-  strategy: AgentMcpStrategy;
-  user_visible: boolean;
-};
-
-export type AgentSkillsSurface = {
-  agent_type: AgentType;
-  strategy: AgentSkillsStrategy;
-  global_supported: boolean;
-  project_supported: boolean;
-};
-
-export type AgentPreflightIssue = {
-  code: string;
-  severity: AgentPreflightSeverity;
-  message: string;
-};
-
-export type AgentPreflight = {
-  agent_type: AgentType;
-  status: AgentInstallStatus;
-  issues: AgentPreflightIssue[];
-};
-
-export type AgentInstallPlan = {
-  agent_type: AgentType;
-  distribution: AgentDistribution;
-  required_tools: string[];
-  user_visible_summary: string;
-};
-
-export type AgentRegistryEntry = {
-  agent_type: AgentType;
-  registry_id: string;
-  name: string;
-  description: string;
-  distribution: AgentDistribution;
-};
 
 export type AgentConnectionSnapshot = {
   id: string;
@@ -177,7 +61,6 @@ export type AgentPromptSnapshot = {
 
 export type AgentRuntimeSnapshot = {
   sequence: number;
-  registry: AgentRegistryEntry[];
   connections: AgentConnectionSnapshot[];
   sessions: AgentSessionSnapshot[];
   prompts: AgentPromptSnapshot[];

@@ -1,9 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { AgentSessionControlsSnapshot } from 'shared/types';
-import type { AgentType } from './types';
-
 export function sessionControlsQueryKey(
-  agentType: AgentType,
+  agentType: string,
   workspaceId: string | null
 ) {
   return ['agent-session-controls-catalog', agentType, workspaceId] as const;
@@ -21,7 +19,7 @@ export function publishLiveSessionControls(
     workspaceId,
     controls,
   }: {
-    agentType: AgentType;
+    agentType: string;
     workspaceId: string;
     controls: AgentSessionControlsSnapshot;
   }

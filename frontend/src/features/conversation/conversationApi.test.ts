@@ -23,7 +23,7 @@ describe('conversationApi', () => {
     });
 
     await conversationApi.startTurn({
-      agentType: 'codex' as const,
+      agentId: 'codex',
       workspaceId: 'workspace-1',
       conversationId: 'conversation-1',
       text: 'hello',
@@ -31,7 +31,7 @@ describe('conversationApi', () => {
 
     expect(tauriInvokeMock).toHaveBeenCalledWith('conversation_start_turn', {
       request: {
-        agentType: 'codex' as const,
+        agentId: 'codex',
         workspaceId: 'workspace-1',
         conversationId: 'conversation-1',
         text: 'hello',

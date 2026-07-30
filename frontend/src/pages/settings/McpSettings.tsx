@@ -47,9 +47,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { AGENT_OPTIONS } from '@/constants/agents';
+import {
+  type ManagedAgentOption,
+  useManagedAgentOptions,
+} from '@/features/agent-management';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
-import type { AgentType } from '@/features/agents/types';
 import type { JsonValue } from 'shared/types';
 import {
   mcpMarketApi,
@@ -72,31 +74,29 @@ type Selection =
   | { kind: 'draft' }
   | null;
 
-// Shared selectable-agent options (single source: constants/agents).
-const APP_OPTIONS: ReadonlyArray<{ value: McpAppType; label: string }> = AGENT_OPTIONS;
-
 type AppsDraft = Record<McpAppType, boolean>;
 
-function emptyApps(value = false): AppsDraft {
-  return {
-    claude_code: value,
-    codex: value,
-    gemini: value,
-    openclaw: value,
-    opencode: value,
-    cline: value,
-    hermes: value,
-  };
+function emptyApps(
+  options: ManagedAgentOption[],
+  value = false
+): AppsDraft {
+  return Object.fromEntries(options.map((option) => [option.value, value]));
 }
 
-function appsToDraft(apps: McpAppType[]): AppsDraft {
-  const draft = emptyApps(false);
+function appsToDraft(
+  options: ManagedAgentOption[],
+  apps: McpAppType[]
+): AppsDraft {
+  const draft = emptyApps(options, false);
   for (const app of apps) draft[app] = true;
   return draft;
 }
 
-function selectedApps(draft: AppsDraft): McpAppType[] {
-  return APP_OPTIONS.filter((item) => draft[item.value]).map(
+function selectedApps(
+  options: ManagedAgentOption[],
+  draft: AppsDraft
+): McpAppType[] {
+  return options.filter((item) => draft[item.value]).map(
     (item) => item.value
   );
 }
@@ -174,11 +174,13 @@ function errorMessage(err: unknown): string {
 function TargetSelector({
   global,
   apps,
+  options,
   onGlobalChange,
   onToggleApp,
 }: {
   global: boolean;
   apps: AppsDraft;
+  options: ManagedAgentOption[];
   onGlobalChange: (next: boolean) => void;
   onToggleApp: (app: McpAppType, next: boolean) => void;
 }) {
@@ -201,7 +203,7 @@ function TargetSelector({
           global && 'pointer-events-none opacity-50'
         )}
       >
-        {APP_OPTIONS.map((app) => (
+        {options.map((app) => (
           <label
             key={app.value}
             className="flex w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs"
@@ -212,10 +214,7 @@ function TargetSelector({
               disabled={global}
               onChange={(event) => onToggleApp(app.value, event.target.checked)}
             />
-            <AgentTypeIcon
-              agentType={app.value as AgentType}
-              className="h-4 w-4"
-            />
+            <AgentTypeIcon agentType={app.value} className="h-4 w-4" />
             <span>{app.label}</span>
           </label>
         ))}
@@ -228,6 +227,7 @@ function TargetSelector({
 
 export function McpSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const agentOptions = useManagedAgentOptions();
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
@@ -244,13 +244,13 @@ export function McpSettings() {
   // Local editor draft (selected local server)
   const [localSpecText, setLocalSpecText] = useState('{}');
   const [localGlobal, setLocalGlobal] = useState(false);
-  const [localApps, setLocalApps] = useState<AppsDraft>(emptyApps());
+  const [localApps, setLocalApps] = useState<AppsDraft>({});
 
   // New-server draft
   const [draftId, setDraftId] = useState('');
   const [draftSpecText, setDraftSpecText] = useState(DRAFT_SPEC_TEMPLATE);
   const [draftGlobal, setDraftGlobal] = useState(true);
-  const [draftApps, setDraftApps] = useState<AppsDraft>(emptyApps(true));
+  const [draftApps, setDraftApps] = useState<AppsDraft>({});
 
   // Marketplace
   const [selectedProvider, setSelectedProvider] = useState('');
@@ -271,7 +271,7 @@ export function McpSettings() {
   // Install dialog
   const [installDialogOpen, setInstallDialogOpen] = useState(false);
   const [installGlobal, setInstallGlobal] = useState(true);
-  const [installApps, setInstallApps] = useState<AppsDraft>(emptyApps(true));
+  const [installApps, setInstallApps] = useState<AppsDraft>({});
   const [installParamDraft, setInstallParamDraft] = useState<
     Record<string, string>
   >({});
@@ -321,9 +321,9 @@ export function McpSettings() {
     if (!selectedLocal) return;
     setLocalSpecText(JSON.stringify(selectedLocal.spec, null, 2));
     setLocalGlobal(selectedLocal.global);
-    setLocalApps(appsToDraft(selectedLocal.apps));
+    setLocalApps(appsToDraft(agentOptions, selectedLocal.apps));
     setError(null);
-  }, [selectedLocal]);
+  }, [agentOptions, selectedLocal]);
 
   const selectedOption = useMemo<McpMarketplaceInstallOption | null>(() => {
     if (!marketDetail) return null;
@@ -412,7 +412,7 @@ export function McpSettings() {
   const openInstallDialog = useCallback(() => {
     if (!selectedOption) return;
     setInstallGlobal(true);
-    setInstallApps(emptyApps(true));
+    setInstallApps(emptyApps(agentOptions, true));
     const params: Record<string, string> = {};
     for (const field of selectedOption.parameters) {
       if (field.default_value != null && field.kind !== 'json') {
@@ -421,11 +421,11 @@ export function McpSettings() {
     }
     setInstallParamDraft(params);
     setInstallDialogOpen(true);
-  }, [selectedOption]);
+  }, [agentOptions, selectedOption]);
 
   const confirmInstall = useCallback(async () => {
     if (!marketDetail) return;
-    const apps = installGlobal ? [] : selectedApps(installApps);
+    const apps = installGlobal ? [] : selectedApps(agentOptions, installApps);
     if (!installGlobal && apps.length === 0) {
       setError(t('mcp.selectTargetOrGlobal'));
       return;
@@ -473,6 +473,7 @@ export function McpSettings() {
     marketDetail,
     installGlobal,
     installApps,
+    agentOptions,
     marketSpecDirty,
     marketSpecText,
     selectedOption,
@@ -488,9 +489,9 @@ export function McpSettings() {
     setDraftId('');
     setDraftSpecText(DRAFT_SPEC_TEMPLATE);
     setDraftGlobal(true);
-    setDraftApps(emptyApps(true));
+    setDraftApps(emptyApps(agentOptions, true));
     setError(null);
-  }, []);
+  }, [agentOptions]);
 
   const saveLocal = useCallback(async () => {
     if (!selectedLocal) return;
@@ -509,7 +510,7 @@ export function McpSettings() {
         serverId: selectedLocal.id,
         spec,
         global: localGlobal,
-        apps: localGlobal ? [] : selectedApps(localApps),
+        apps: localGlobal ? [] : selectedApps(agentOptions, localApps),
       });
       setInstalledServers(list);
       triggerSuccess();
@@ -518,7 +519,15 @@ export function McpSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [selectedLocal, localSpecText, localGlobal, localApps, triggerSuccess, t]);
+  }, [
+    selectedLocal,
+    localSpecText,
+    localGlobal,
+    localApps,
+    agentOptions,
+    triggerSuccess,
+    t,
+  ]);
 
   const createDraft = useCallback(async () => {
     const id = draftId.trim();
@@ -533,7 +542,10 @@ export function McpSettings() {
       setError(errorMessage(err));
       return;
     }
-    if (!draftGlobal && selectedApps(draftApps).length === 0) {
+    if (
+      !draftGlobal &&
+      selectedApps(agentOptions, draftApps).length === 0
+    ) {
       setError(t('mcp.selectTargetOrGlobal'));
       return;
     }
@@ -544,7 +556,7 @@ export function McpSettings() {
         serverId: id,
         spec,
         global: draftGlobal,
-        apps: draftGlobal ? [] : selectedApps(draftApps),
+        apps: draftGlobal ? [] : selectedApps(agentOptions, draftApps),
       });
       setInstalledServers(list);
       triggerSuccess();
@@ -554,7 +566,15 @@ export function McpSettings() {
     } finally {
       setRunningAction(null);
     }
-  }, [draftId, draftSpecText, draftGlobal, draftApps, triggerSuccess, t]);
+  }, [
+    draftId,
+    draftSpecText,
+    draftGlobal,
+    draftApps,
+    agentOptions,
+    triggerSuccess,
+    t,
+  ]);
 
   const uninstall = useCallback(
     async (serverId: string) => {
@@ -655,6 +675,7 @@ export function McpSettings() {
               onSpecChange={setDraftSpecText}
               global={draftGlobal}
               apps={draftApps}
+              options={agentOptions}
               onGlobalChange={setDraftGlobal}
               onToggleApp={(app, next) =>
                 setDraftApps((prev) => ({ ...prev, [app]: next }))
@@ -670,6 +691,7 @@ export function McpSettings() {
               onSpecChange={setLocalSpecText}
               global={localGlobal}
               apps={localApps}
+              options={agentOptions}
               onGlobalChange={setLocalGlobal}
               onToggleApp={(app, next) =>
                 setLocalApps((prev) => ({ ...prev, [app]: next }))
@@ -823,6 +845,7 @@ export function McpSettings() {
               <TargetSelector
                 global={installGlobal}
                 apps={installApps}
+                options={agentOptions}
                 onGlobalChange={setInstallGlobal}
                 onToggleApp={(app, next) =>
                   setInstallApps((prev) => ({ ...prev, [app]: next }))
@@ -1288,6 +1311,7 @@ function LocalEditor({
   onSpecChange,
   global,
   apps,
+  options,
   onGlobalChange,
   onToggleApp,
   saving,
@@ -1300,6 +1324,7 @@ function LocalEditor({
   onSpecChange: (text: string) => void;
   global: boolean;
   apps: AppsDraft;
+  options: ManagedAgentOption[];
   onGlobalChange: (next: boolean) => void;
   onToggleApp: (app: McpAppType, next: boolean) => void;
   saving: boolean;
@@ -1350,6 +1375,7 @@ function LocalEditor({
         <TargetSelector
           global={global}
           apps={apps}
+          options={options}
           onGlobalChange={onGlobalChange}
           onToggleApp={onToggleApp}
         />
@@ -1379,6 +1405,7 @@ function DraftEditor({
   onSpecChange,
   global,
   apps,
+  options,
   onGlobalChange,
   onToggleApp,
   busy,
@@ -1391,6 +1418,7 @@ function DraftEditor({
   onSpecChange: (text: string) => void;
   global: boolean;
   apps: AppsDraft;
+  options: ManagedAgentOption[];
   onGlobalChange: (next: boolean) => void;
   onToggleApp: (app: McpAppType, next: boolean) => void;
   busy: boolean;
@@ -1426,6 +1454,7 @@ function DraftEditor({
         <TargetSelector
           global={global}
           apps={apps}
+          options={options}
           onGlobalChange={onGlobalChange}
           onToggleApp={onToggleApp}
         />

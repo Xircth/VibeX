@@ -18,7 +18,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 
-import { AGENT_OPTIONS } from '@/constants/agents';
+import { useManagedAgentOptions } from '@/features/agent-management';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,7 +39,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import type { AgentType } from '@/features/agents/types';
 import { agentsApi } from '@/features/agents/api';
 import {
   modelProviderApi,
@@ -51,7 +50,7 @@ import {
 
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
 
-function defaultAuthType(agent: AgentType): string {
+function defaultAuthType(agent: string): string {
   return agent === 'claude_code' ? 'anthropic' : 'openai_compatible';
 }
 
@@ -70,7 +69,7 @@ interface ProviderDraft {
   wire_api: string;
 }
 
-function emptyDraft(agent: AgentType): ProviderDraft {
+function emptyDraft(agent: string): ProviderDraft {
   const auth = defaultAuthType(agent);
   return {
     name: '',
@@ -84,7 +83,7 @@ function emptyDraft(agent: AgentType): ProviderDraft {
 
 function draftFromProvider(
   provider: AgentProvider,
-  agent: AgentType
+  agent: string
 ): ProviderDraft {
   return {
     name: provider.name,
@@ -102,6 +101,7 @@ function errorMessage(error: unknown): string {
 
 export function ModelProviderSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const agentOptions = useManagedAgentOptions();
   const queryClient = useQueryClient();
   const AUTH_OPTIONS = useMemo(
     () => [
@@ -113,7 +113,7 @@ export function ModelProviderSettings() {
     ],
     [t]
   );
-  const [selectedAgent, setSelectedAgent] = useState<AgentType>('claude_code');
+  const [selectedAgent, setSelectedAgent] = useState('claude_code');
   const [view, setView] = useState<AgentProvidersView | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -139,7 +139,7 @@ export function ModelProviderSettings() {
   const isCodex = selectedAgent === 'codex';
 
   const load = useCallback(
-    async (agent: AgentType) => {
+    async (agent: string) => {
       setLoading(true);
       try {
         const result = await modelProviderApi.list(agent);
@@ -387,7 +387,7 @@ export function ModelProviderSettings() {
 
   const sectionDescription = useMemo(() => {
     const agentLabel =
-      AGENT_OPTIONS.find((agent) => agent.value === selectedAgent)?.label ??
+      agentOptions.find((agent) => agent.value === selectedAgent)?.label ??
       selectedAgent;
     if (!supportsApply) {
       return t('modelProviders.unmanagedDescription', { agent: agentLabel });
@@ -395,7 +395,7 @@ export function ModelProviderSettings() {
     return configPath
       ? t('modelProviders.applyWritesTo', { path: configPath })
       : t('modelProviders.configureDescription', { agent: agentLabel });
-  }, [configPath, selectedAgent, supportsApply, t]);
+  }, [agentOptions, configPath, selectedAgent, supportsApply, t]);
 
   return (
     <div className="settings-content">
@@ -406,7 +406,7 @@ export function ModelProviderSettings() {
 
       {/* Agent selector — justified across the full width. */}
       <div className="settings-agent-strip mb-4 flex items-center justify-between gap-1 overflow-x-auto rounded-lg border p-1">
-        {AGENT_OPTIONS.map((agent) => {
+        {agentOptions.map((agent) => {
           const active = agent.value === selectedAgent;
           return (
             <button

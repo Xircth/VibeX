@@ -43,7 +43,7 @@ import, where imported messages are converted into `ConversationEvent` rows.
 - R10 Observability: visible `TurnFailed`/notice rows, frontend no-response
   visibility tests, and agents no-response runtime/manager regressions are
   implemented.
-- R11 Codeg-Hardened ACP Runtime: prompt in-flight protection, spawn/session
+- R11 Hardened ACP Runtime: prompt in-flight protection, spawn/session
   identity tests, event coverage mapping, and visible error mapping are
   implemented at the current boundary.
 

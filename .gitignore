@@ -74,6 +74,8 @@ src-tauri/tauri.dev.generated.conf.json
 # ===== Dev tooling =====
 .dev-ports.json
 .omx/
+.ua/
+**/.harn/
 dev_assets
 build-npm-package-codesign.sh
 

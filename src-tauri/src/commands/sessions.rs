@@ -557,6 +557,7 @@ pub async fn create_session(
         pool,
         &CreateSession {
             executor,
+            agent_id: None,
             task_id,
             name,
             initial_prompt,
@@ -586,6 +587,7 @@ pub async fn create_project_root_session(
         pool,
         &CreateSession {
             executor,
+            agent_id: None,
             task_id: Some(workspace.task_id),
             name,
             initial_prompt: None,
@@ -690,7 +692,12 @@ pub async fn create_project_session(
             })?;
         let prepared = state
             .agent_runtime
-            .claim_prepared_session(agents::AgentSessionId(session_id), workspace.id, agent_type)
+            .claim_prepared_session(
+                agents::AgentSessionId(session_id),
+                workspace.id,
+                agents::AgentId::parse(agent_type.as_str())
+                    .expect("session AgentKind values are valid AgentIds"),
+            )
             .await?;
         Some((agent_type, prepared))
     } else {
@@ -700,6 +707,10 @@ pub async fn create_project_session(
         pool,
         &CreateSession {
             executor: payload.executor,
+            agent_id: prepared_identity.as_ref().map(|(agent_type, _)| {
+                agents::AgentId::parse(agent_type.as_str())
+                    .expect("prepared AgentKind values are valid AgentIds")
+            }),
             task_id: Some(workspace.task_id),
             name: payload.name,
             initial_prompt: payload.initial_prompt,
@@ -711,15 +722,17 @@ pub async fn create_project_session(
     .await?;
 
     if let Some((agent_type, prepared)) = prepared_identity {
+        let agent_id = agents::AgentId::parse(agent_type.as_str())
+            .expect("prepared AgentKind values are valid AgentIds");
         Session::update_agent_metadata(
             pool,
             session.id,
             Some(&prepared.acp_session_id),
-            Some(agent_type.as_str()),
+            Some(&agent_id),
         )
         .await?;
         session.external_session_id = Some(prepared.acp_session_id);
-        session.agent_type = Some(agent_type.as_str().to_string());
+        session.agent_id = Some(agent_id);
     }
 
     state

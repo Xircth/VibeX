@@ -36,31 +36,31 @@ materials:
   reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
 typography:
   display:
-    fontFamily: "Noto Sans SC Variable, Source Han Sans SC, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
     fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1.55
     letterSpacing: "-0.01em"
   headline:
-    fontFamily: "Noto Sans SC Variable, Source Han Sans SC, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
     fontSize: "1rem"
     fontWeight: 600
     lineHeight: 1.5
     letterSpacing: "-0.01em"
   title:
-    fontFamily: "Noto Sans SC Variable, Source Han Sans SC, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.43
     letterSpacing: "0"
   body:
-    fontFamily: "Noto Sans SC Variable, Source Han Sans SC, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.43
     letterSpacing: "0"
   label:
-    fontFamily: "Noto Sans SC Variable, Source Han Sans SC, sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, SF Pro, Segoe UI, system-ui, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans SC Variable, sans-serif"
     fontSize: "0.75rem"
     fontWeight: 500
     lineHeight: 1.33
@@ -199,7 +199,12 @@ A restrained, system-adaptive neutral palette with one calm blue accent and smal
 
 ## 4. Typography
 
-Source Han Sans (思源黑体), bundled as Noto Sans SC Variable, is VibeX's UI voice. Its unified Simplified Chinese and Latin coverage keeps bilingual product copy consistent at compact macOS-like metrics. Monospace content remains governed separately by the user-configurable code-font setting.
+VibeX uses the same native system-font strategy as Codex: SF Pro on macOS,
+Segoe UI on Windows, and the platform UI sans elsewhere. Chinese follows the
+native platform face (PingFang SC on macOS and Microsoft YaHei on Windows),
+with bundled Noto Sans SC Variable retained as the offline Linux and missing
+glyph fallback. Monospace content remains governed separately by the
+user-configurable code-font setting.
 
 - **Display** (600 / 1.125rem): app titles, welcome and dense page headers only.
 - **Headline** (600 / 1rem): panel titles, major settings sections, top-level status.

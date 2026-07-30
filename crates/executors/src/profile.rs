@@ -5,6 +5,7 @@ use std::{
     sync::{LazyLock, RwLock},
 };
 
+use api_types::AgentId;
 use convert_case::{Case, Casing};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use thiserror::Error;
@@ -58,10 +59,10 @@ const DEFAULT_PROFILES_JSON: &str = include_str!("../default_profiles.json");
 // Executor-centric profile identifier
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Hash, Eq)]
 pub struct ExecutorProfileId {
-    /// The executor type (e.g., "CLAUDE_CODE", "AMP")
-    #[serde(alias = "profile", deserialize_with = "de_base_coding_agent_kebab")]
-    // Backwards compatibility with ProfileVariantIds, esp stored in DB under ExecutorAction
-    pub executor: AgentKind,
+    /// Open Agent identity. Legacy built-in spellings remain accepted by the
+    /// AgentId grammar; new Registry ids are no longer constrained by an enum.
+    #[serde(alias = "profile", deserialize_with = "de_agent_id_compat")]
+    pub executor: AgentId,
     /// Optional variant name (e.g., "PLAN", "ROUTER")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
@@ -74,6 +75,17 @@ pub struct ExecutorProfileId {
     /// Optional reasoning effort override carried by UI/runtime selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+}
+
+fn de_agent_id_compat<'de, D>(de: D) -> Result<AgentId, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(de)?;
+    let normalized = AgentKind::from_lenient(&raw)
+        .map(|kind| kind.as_str().to_string())
+        .unwrap_or(raw);
+    AgentId::parse(normalized).map_err(D::Error::custom)
 }
 
 // Persisted profile payloads may still contain kebab-case executor ids.
@@ -94,7 +106,8 @@ impl ExecutorProfileId {
     /// Create a new executor profile ID with default variant
     pub fn new(executor: AgentKind) -> Self {
         Self {
-            executor,
+            executor: AgentId::parse(executor.as_str())
+                .expect("built-in AgentKind values are valid AgentIds"),
             variant: None,
             model: None,
             fast_mode: None,
@@ -105,7 +118,8 @@ impl ExecutorProfileId {
     /// Create a new executor profile ID with specific variant
     pub fn with_variant(executor: AgentKind, variant: String) -> Self {
         Self {
-            executor,
+            executor: AgentId::parse(executor.as_str())
+                .expect("built-in AgentKind values are valid AgentIds"),
             variant: Some(variant),
             model: None,
             fast_mode: None,
@@ -173,7 +187,8 @@ impl ExecutorConfig {
     /// Extract the profile identity portion for profile lookup
     pub fn profile_id(&self) -> ExecutorProfileId {
         ExecutorProfileId {
-            executor: self.executor,
+            executor: AgentId::parse(self.executor.as_str())
+                .expect("built-in AgentKind values are valid AgentIds"),
             variant: self.variant.clone(),
             model: self.model_id.clone(),
             fast_mode: None,
@@ -190,16 +205,24 @@ impl ExecutorConfig {
     }
 }
 
-impl From<ExecutorProfileId> for ExecutorConfig {
-    fn from(id: ExecutorProfileId) -> Self {
-        Self {
-            executor: id.executor,
+impl TryFrom<ExecutorProfileId> for ExecutorConfig {
+    type Error = ProfileError;
+
+    fn try_from(id: ExecutorProfileId) -> Result<Self, Self::Error> {
+        let executor = AgentKind::from_lenient(id.executor.as_str()).ok_or_else(|| {
+            ProfileError::Validation(format!(
+                "Agent '{}' has no legacy executor configuration profile",
+                id.executor
+            ))
+        })?;
+        Ok(Self {
+            executor,
             variant: id.variant,
             model_id: id.model,
             agent_id: None,
             reasoning_id: id.reasoning_effort,
             permission_policy: None,
-        }
+        })
     }
 }
 
@@ -511,7 +534,7 @@ impl ExecutorConfigs {
 
 pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
     ExecutorProfileId {
-        executor: id.executor,
+        executor: id.executor.clone(),
         variant: None,
         model: id.model.clone(),
         fast_mode: id.fast_mode,
@@ -539,12 +562,23 @@ mod tests {
     }
 
     #[test]
+    fn executor_profile_id_accepts_an_open_generic_agent_id() {
+        let id: ExecutorProfileId = serde_json::from_value(serde_json::json!({
+            "executor": "vendor.agent",
+            "variant": null
+        }))
+        .expect("generic Registry Agent ids must cross the session profile seam");
+
+        assert_eq!(id.executor.to_string(), "vendor.agent");
+    }
+
+    #[test]
     fn executor_profile_id_deserializes_legacy_kebab_executor() {
         let profile: ExecutorProfileId =
             serde_json::from_str(r#"{"executor":"claude-code","variant":"PLAN"}"#)
                 .expect("legacy kebab executor should deserialize");
 
-        assert_eq!(profile.executor, AgentKind::ClaudeCode);
+        assert_eq!(profile.executor.as_str(), "claude_code");
         assert_eq!(profile.variant.as_deref(), Some("PLAN"));
     }
 
@@ -554,7 +588,7 @@ mod tests {
             serde_json::from_str(r#"{"profile":"opencode","model":"gpt-5.4"}"#)
                 .expect("legacy profile alias should deserialize");
 
-        assert_eq!(profile.executor, AgentKind::Opencode);
+        assert_eq!(profile.executor.as_str(), "opencode");
         assert_eq!(profile.model.as_deref(), Some("gpt-5.4"));
     }
 
@@ -584,7 +618,11 @@ mod tests {
         ] {
             let profile: ExecutorProfileId =
                 serde_json::from_str(raw).expect("legacy SCREAMING executor should deserialize");
-            assert_eq!(profile.executor, expected, "parsing {raw}");
+            assert_eq!(
+                profile.executor.as_str(),
+                expected.as_str(),
+                "parsing {raw}"
+            );
             // Re-serialization converges on the canonical snake_case form.
             let round = serde_json::to_string(&profile).expect("serialize");
             assert!(

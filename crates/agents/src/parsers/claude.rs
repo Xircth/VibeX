@@ -187,8 +187,9 @@ fn parse_usage(value: Option<&Value>) -> Option<TurnUsage> {
 
 #[cfg(test)]
 mod tests {
+    use api_types::AgentKind;
+
     use super::*;
-    use crate::registry::AgentKind;
 
     fn ctx() -> ParseContext {
         ParseContext {

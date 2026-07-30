@@ -85,10 +85,5 @@ resume a session must explicitly create/load an ACP session through the runtime.
 
 ## License Handling
 
-If Codeg files are copied:
-
-- keep file headers where present;
-- add `crates/agents/NOTICE.md` with upstream URL and commit hash;
-- document modified files and local changes;
-- do not mix copied source into unrelated files without attribution.
-
+For copied third-party files, keep upstream headers and record the source,
+revision, license, modified files, and local changes in the appropriate NOTICE.

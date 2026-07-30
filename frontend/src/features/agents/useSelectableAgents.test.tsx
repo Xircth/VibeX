@@ -1,135 +1,79 @@
-import { describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentManagementView } from 'shared/types';
+
 import { useSelectableAgents } from './useSelectableAgents';
 
-const listRegistry = vi.fn();
-const listSettings = vi.fn();
-vi.mock('./api', () => ({
-  agentsApi: {
-    listRegistry: (...args: unknown[]) => listRegistry(...args),
+const bar = vi.fn();
+
+vi.mock('@/features/agent-management', () => ({
+  agentManagementApi: {
+    bar: (...args: unknown[]) => bar(...args),
   },
 }));
-vi.mock('@/lib/api', () => ({
-  agentSettingsApi: { list: (...args: unknown[]) => listSettings(...args) },
-}));
 
-function registryEntry(agentType: string, kind: 'npx' | 'uvx') {
+function managedAgent(
+  agentId: string,
+  overrides: Partial<AgentManagementView> = {}
+): AgentManagementView {
   return {
-    agent_type: agentType,
-    registry_id: agentType,
-    name: agentType,
+    agent_id: agentId,
+    display_name: agentId,
     description: '',
-    distribution:
-      kind === 'npx'
-        ? {
-            kind: 'npx',
-            minimum_supported_version: '1.0.0',
-            package: agentType,
-            cmd: agentType,
-            args: [],
-          }
-        : {
-            kind: 'uvx',
-            version: '1.0.0',
-            package: `${agentType}==1.0.0`,
-            cmd: agentType,
-            args: [],
-          },
-  };
-}
-
-function settingRow(
-  agentType: string,
-  overrides: Partial<{
-    enabled: boolean;
-    installed: boolean;
-    runtime_ok: boolean;
-    installed_version: string | null;
-  }> = {}
-) {
-  return {
-    id: 1,
-    agent_type: agentType,
+    icon_light: null,
+    icon_dark: null,
+    icon_svg: null,
+    source: 'official_registry',
+    built_in: false,
+    retired: false,
     enabled: true,
-    sort_order: 0,
-    installed_version: null,
-    env_json: null,
-    config_json: null,
-    auto_approve_mode: 'off',
-    installed: false,
-    runtime_ok: true,
+    position: 0,
+    lifecycle: 'ready',
+    authentication: 'not_logged_in',
+    runtime_version: '1.0.0',
+    acp_version: '1.0.0',
+    active_operation: null,
+    rollback_available: false,
     ...overrides,
   };
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
-
 describe('useSelectableAgents', () => {
-  it('returns an enabled installed agent without starting a selector-side probe', async () => {
-    listRegistry.mockResolvedValue([registryEntry('codex', 'npx')]);
-    listSettings.mockResolvedValue([settingRow('codex', { installed: true })]);
-
-    const { result } = renderHook(() => useSelectableAgents(), { wrapper });
-    await waitFor(() => expect(result.current).toHaveLength(1));
-    expect(result.current[0]).toMatchObject({
-      agent: 'codex',
-      enabled: true,
-      installed: true,
-    });
+  beforeEach(() => {
+    bar.mockReset();
   });
 
-  it('does not treat an uninstalled npx agent as installed', async () => {
-    // Regression for issue #3: `distribution.kind === 'npx'` used to force
-    // installed=true, so uninstalled gemini/cline/openclaw were selectable.
-    listRegistry.mockResolvedValue([registryEntry('gemini', 'npx')]);
-    listSettings.mockResolvedValue([
-      settingRow('gemini', { installed: false }),
+  it('uses the management projection and includes a ready generic AgentId', async () => {
+    bar.mockResolvedValue([
+      managedAgent('vendor.agent', { display_name: 'Vendor Agent' }),
     ]);
 
-    const { result } = renderHook(() => useSelectableAgents(), { wrapper });
+    const { result } = renderHook(() => useSelectableAgents());
     await waitFor(() => expect(result.current).toHaveLength(1));
 
     expect(result.current[0]).toMatchObject({
-      agent: 'gemini',
+      agentId: 'vendor.agent',
+      displayName: 'Vendor Agent',
       enabled: true,
-      installed: false,
+      runnable: true,
     });
   });
 
-  it('marks a uvx agent installed when the backend verified it', async () => {
-    // Regression for issue #3: hermes (uvx) used to be the only agent gated on
-    // installed_version, misreporting machines where uv+python are ready.
-    listRegistry.mockResolvedValue([registryEntry('hermes', 'uvx')]);
-    listSettings.mockResolvedValue([settingRow('hermes', { installed: true })]);
-
-    const { result } = renderHook(() => useSelectableAgents(), { wrapper });
-    await waitFor(() => expect(result.current).toHaveLength(1));
-
-    expect(result.current[0]).toMatchObject({
-      agent: 'hermes',
-      installed: true,
-    });
-  });
-
-  it('keeps backend-verified installed state for marker-detected agents', async () => {
-    listRegistry.mockResolvedValue([registryEntry('claude_code', 'npx')]);
-    listSettings.mockResolvedValue([
-      settingRow('claude_code', { installed: true }),
+  it('keeps visible non-ready Agents but does not mark them runnable', async () => {
+    bar.mockResolvedValue([
+      managedAgent('codex', {
+        lifecycle: 'needs_repair',
+        active_operation: 'repair',
+      }),
     ]);
 
-    const { result } = renderHook(() => useSelectableAgents(), { wrapper });
+    const { result } = renderHook(() => useSelectableAgents());
     await waitFor(() => expect(result.current).toHaveLength(1));
 
     expect(result.current[0]).toMatchObject({
-      agent: 'claude_code',
-      installed: true,
+      agentId: 'codex',
+      enabled: true,
+      runnable: false,
     });
   });
 });

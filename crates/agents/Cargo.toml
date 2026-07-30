@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 api-types = { path = "../api-types" }
 async-trait = { workspace = true }
+base64 = "0.22"
 agent-client-protocol = { version = "1.2.0", features = [
     "unstable",
     "unstable_session_fork",
@@ -14,8 +15,10 @@ chrono = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["io", "compat", "rt"] }

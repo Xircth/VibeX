@@ -5,7 +5,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use agents::AgentKind;
+use agents::AgentId;
 use delegation_proto::{
     BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest, read_frame, write_frame,
 };
@@ -100,16 +100,10 @@ impl DelegationListener {
         };
 
         let agent_type = match req.input.get("agent_type").and_then(Value::as_str) {
-            // The registry helper accepts the snake_case wire form the tool
-            // schema emits (plus other casings), keeping the accepted set in sync
-            // with the canonical AgentKind mapping.
-            Some(raw) => match AgentKind::from_lenient(raw) {
-                Some(agent_type) => agent_type,
-                None => {
-                    return failed_setup_report(
-                        "invalid_agent_type",
-                        &format!("unknown agent type: {raw}"),
-                    );
+            Some(raw) => match AgentId::parse(raw) {
+                Ok(agent_type) => agent_type,
+                Err(err) => {
+                    return failed_setup_report("invalid_agent_type", &err.to_string());
                 }
             },
             None => return failed_setup_report("invalid_agent_type", "missing agent_type"),
@@ -316,6 +310,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn valid_open_agent_id_starts_delegation() {
+        let (listener, tokens) = listener(Some(Uuid::nil()));
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                working_dir: PathBuf::from("/work"),
+            },
+        );
+        let request = BrokerMessage::Call(BrokerRequest {
+            token: "tok".to_string(),
+            parent_connection_id: "conn-1".to_string(),
+            parent_tool_use_id: "toolu_generic".to_string(),
+            external_handle: None,
+            input: json!({ "agent_type": "vendor.agent-v2", "task": "do it" }),
+        });
+
+        let response = round_trip(&listener, request).await;
+
+        assert_eq!(response.outcome["status"], "running");
+        assert_eq!(response.outcome["agent_type"], "vendor.agent-v2");
+    }
+
+    #[tokio::test]
     async fn invalid_token_is_rejected() {
         let (listener, _tokens) = listener(Some(Uuid::nil()));
         let response = round_trip(&listener, call("bad", "conn-1")).await;
@@ -339,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unknown_agent_type_is_rejected() {
+    async fn syntactically_invalid_agent_id_is_rejected() {
         let (listener, tokens) = listener(Some(Uuid::nil()));
         tokens.register(
             "tok".to_string(),
@@ -353,7 +371,7 @@ mod tests {
             parent_connection_id: "conn-1".to_string(),
             parent_tool_use_id: String::new(),
             external_handle: None,
-            input: json!({ "agent_type": "not_a_real_agent", "task": "x" }),
+            input: json!({ "agent_type": "NOT A VALID ID", "task": "x" }),
         });
         let response = round_trip(&listener, bad).await;
         assert_eq!(response.outcome["error_code"], "invalid_agent_type");

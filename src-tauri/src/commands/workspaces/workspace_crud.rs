@@ -20,8 +20,7 @@ use super::{
     },
 };
 use crate::{
-    bridge::agent_type_from_executor, error::AppError, state::AppState,
-    workspace_paths::resolve_workspace_agent_working_dir,
+    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
 };
 
 #[tauri::command]
@@ -143,6 +142,7 @@ pub async fn create_workspace(
         pool,
         &CreateSession {
             executor: Some(payload.executor_profile_id.executor.to_string()),
+            agent_id: None,
             task_id: Some(task.id),
             name: Some(task.title.clone()),
             initial_prompt: task.description.clone(),
@@ -162,15 +162,16 @@ pub async fn create_workspace(
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
-        let agent_type = agent_type_from_executor(payload.executor_profile_id.executor)?;
+        let agent_id = payload.executor_profile_id.executor.clone();
         let launch =
-            crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_type)
+            crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, &agent_id)
                 .await?;
         let agent_session_id = AgentSessionId(session.id);
         let agent_session = state
             .agent_runtime
             .ensure_session(EnsureAgentSessionInput {
-                agent_type,
+                agent_id,
+                launch_lock: launch.launch_lock,
                 workspace_id: workspace.id,
                 working_dir: PathBuf::from(working_dir),
                 session_id: agent_session_id,

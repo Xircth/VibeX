@@ -1,7 +1,7 @@
 //! Read-only DB lookups the broker needs: parent-chain walking for depth, and
 //! terminal-status recovery after the in-memory result cache evicts a task.
 
-use agents::registry::AgentKind;
+use agents::AgentId;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ pub trait DepthLookup: Send + Sync {
 pub struct ChildStatusRecord {
     pub child_session_id: Uuid,
     pub status: TaskStatus,
-    pub agent_type: Option<AgentKind>,
+    pub agent_type: Option<AgentId>,
 }
 
 /// Looks a delegated child up by the broker task id

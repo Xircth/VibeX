@@ -14,20 +14,18 @@ pub mod gemini;
 pub mod loader;
 pub mod openclaw;
 
+use api_types::AgentKind;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::{
-    conversation::{
-        ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry,
-        SessionStats, TurnRole, TurnUsage,
-    },
-    registry::AgentKind,
+use crate::conversation::{
+    ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, PlanEntry, SessionStats,
+    TurnRole, TurnUsage,
 };
 
 /// True for plan/todo tools whose input should render as a [`ContentBlock::Plan`]
-/// checklist rather than a generic tool card (mirrors codeg's `isPlanLikeToolName`).
+/// checklist rather than a generic tool card.
 pub fn is_plan_tool(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower == "todowrite" || lower == "todo_write" || lower.contains("plan")

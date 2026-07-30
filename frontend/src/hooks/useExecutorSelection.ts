@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
-import type { AgentKind, ExecutorConfig } from 'shared/types';
+import type { AgentId, ExecutorConfig } from 'shared/types';
 import { getVariantOptions } from '@/utils/executor';
 import { useVariant } from './useVariant';
 
 interface ExecutorProfileId {
-  executor: AgentKind;
+  executor: AgentId;
   variant: string | null;
 }
 
@@ -18,11 +18,11 @@ interface UseExecutorSelectionOptions {
 
 interface UseExecutorSelectionResult {
   /** Effective executor: user selection > latest from processes > first available */
-  effectiveExecutor: AgentKind | null;
+  effectiveExecutor: AgentId | null;
   /** Available executor options */
-  executorOptions: AgentKind[];
+  executorOptions: AgentId[];
   /** Handle executor change (resets variant) */
-  handleExecutorChange: (executor: AgentKind) => void;
+  handleExecutorChange: (executor: AgentId) => void;
   /** Currently selected variant */
   selectedVariant: string | null;
   /** Available variant options for current executor */
@@ -43,10 +43,10 @@ export function useExecutorSelection({
   configExecutorProfile,
 }: UseExecutorSelectionOptions): UseExecutorSelectionResult {
   const [selectedExecutor, setSelectedExecutor] =
-    useState<AgentKind | null>(null);
+    useState<AgentId | null>(null);
 
   const executorOptions = useMemo(
-    () => Object.keys(profiles ?? {}) as AgentKind[],
+    () => Object.keys(profiles ?? {}) as AgentId[],
     [profiles]
   );
 
@@ -76,7 +76,7 @@ export function useExecutorSelection({
   });
 
   const handleExecutorChange = useCallback(
-    (executor: AgentKind) => {
+    (executor: AgentId) => {
       setSelectedExecutor(executor);
       // Reset variant to first available for the new executor
       const newVariantOptions = getVariantOptions(executor, profiles);

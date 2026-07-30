@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::Path};
 
-use agents::{AgentAvailabilityInfo, AgentCapability, agent_availability, agent_capabilities};
+use agents::{AgentCapability, agent_capabilities};
 use db::models::execution_process::ExecutionProcess;
-use executors::{executors::AgentKind, profile::ExecutorConfigs};
+use executors::profile::ExecutorConfigs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use services::services::{
@@ -16,15 +16,11 @@ use services::services::{
 use sqlx::Acquire;
 use tauri::Emitter;
 
-use crate::{bridge::agent_type_from_executor, error::AppError, state::AppState};
+use crate::{error::AppError, state::AppState};
 
-mod agent_native;
 mod claude_settings;
-mod mcp_servers;
 
-pub use agent_native::{AgentNativeFile, AgentNativeFileWrite};
 pub use claude_settings::ClaudeSettings;
-pub use mcp_servers::GetMcpServerResponse;
 // MCP marketplace + prompt-enhancement logic now lives in `crates/services`
 // (架构报告 A-1); re-export the frontend-facing types so the command signatures
 // below stay unchanged.
@@ -108,9 +104,7 @@ pub async fn get_user_system_info(
         let mut caps: HashMap<String, Vec<AgentCapability>> = HashMap::new();
         let profs = ExecutorConfigs::get_cached();
         for key in profs.executors.keys() {
-            if let Ok(agent_type) = agent_type_from_executor(*key) {
-                caps.insert(key.to_string(), agent_capabilities(agent_type));
-            }
+            caps.insert(key.to_string(), agent_capabilities());
         }
         caps
     };
@@ -272,23 +266,6 @@ pub async fn clear_local_app_data(
 }
 
 #[tauri::command]
-pub async fn get_mcp_servers(
-    state: tauri::State<'_, AppState>,
-    executor: AgentKind,
-) -> Result<GetMcpServerResponse, AppError> {
-    mcp_servers::get_mcp_servers(state, executor).await
-}
-
-#[tauri::command]
-pub async fn update_mcp_servers(
-    state: tauri::State<'_, AppState>,
-    executor: AgentKind,
-    servers: HashMap<String, serde_json::Value>,
-) -> Result<String, AppError> {
-    mcp_servers::update_mcp_servers(state, executor, servers).await
-}
-
-#[tauri::command]
 pub async fn get_profiles(state: tauri::State<'_, AppState>) -> Result<ProfilesContent, AppError> {
     let _ = state;
     let profiles_path = utils::assets::profiles_path();
@@ -338,16 +315,6 @@ pub async fn check_editor_availability(
     let available = editor_config.check_availability().await;
 
     Ok(CheckEditorAvailabilityResponse { available })
-}
-
-#[tauri::command]
-pub async fn check_agent_availability(
-    state: tauri::State<'_, AppState>,
-    executor: AgentKind,
-) -> Result<AgentAvailabilityInfo, AppError> {
-    let _ = state;
-
-    Ok(agent_availability(agent_type_from_executor(executor)?))
 }
 
 #[tauri::command]
@@ -414,29 +381,6 @@ pub async fn update_claude_settings(
     settings: ClaudeSettings,
 ) -> Result<ClaudeSettings, AppError> {
     claude_settings::update_claude_settings(state, settings).await
-}
-
-#[tauri::command]
-pub async fn read_agent_native_files(
-    state: tauri::State<'_, AppState>,
-    agent_type: String,
-) -> Result<Vec<AgentNativeFile>, AppError> {
-    let _ = state;
-    let agent_type = AgentKind::from_lenient(&agent_type)
-        .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
-    agent_native::agent_native_files_read(agent_type).await
-}
-
-#[tauri::command]
-pub async fn write_agent_native_files(
-    state: tauri::State<'_, AppState>,
-    agent_type: String,
-    files: Vec<AgentNativeFileWrite>,
-) -> Result<Vec<AgentNativeFile>, AppError> {
-    let _ = state;
-    let agent_type = AgentKind::from_lenient(&agent_type)
-        .ok_or_else(|| AppError::BadRequest(format!("Unknown agent type: {agent_type}")))?;
-    agent_native::agent_native_files_write(agent_type, files).await
 }
 
 // ── MCP marketplace + global hosting ───────────────────────────────────────

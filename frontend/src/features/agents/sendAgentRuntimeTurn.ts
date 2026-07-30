@@ -1,10 +1,9 @@
-import type { AgentKind, ExecutorProfileId } from 'shared/types';
+import type { AgentId, ExecutorProfileId } from 'shared/types';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import type {
   AgentSessionConfigOverride,
   ConversationTurnSnapshot,
 } from 'shared/types';
-import type { AgentType } from './types';
 
 export type AgentRuntimeTurnInput = {
   workspaceId: string;
@@ -24,7 +23,7 @@ export type AgentRuntimeTurnInput = {
  * the executor identity and the ACP `AgentKind` are the same union, so this is
  * an identity mapping retained for call-site clarity.
  */
-export function agentTypeFromExecutor(executor: AgentKind): AgentType {
+export function agentTypeFromExecutor(executor: AgentId): AgentId {
   return executor;
 }
 
@@ -39,7 +38,7 @@ export async function sendAgentRuntimeTurn({
   configOverrides,
 }: AgentRuntimeTurnInput): Promise<ConversationTurnSnapshot> {
   return conversationApi.startTurn({
-    agentType: agentTypeFromExecutor(executorProfileId.executor),
+    agentId: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
     conversationId: sessionId,
     executorProfileId,

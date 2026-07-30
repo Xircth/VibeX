@@ -1,12 +1,10 @@
 import { Bot } from 'lucide-react';
 import { ThemeMode } from 'shared/types';
-import type { AgentKind } from 'shared/types';
 import { useTheme } from '@/components/ThemeProvider';
-import { AGENT_DISPLAY_NAMES } from '@/constants/agents';
 import { cn } from '@/lib/utils';
 
 type AgentIconProps = {
-  agent: AgentKind | null | undefined;
+  agent: string | null | undefined;
   className?: string;
 };
 
@@ -14,11 +12,29 @@ type AgentIconProps = {
  * Agents that ship a themed SVG under `public/agents`. Agents missing here fall
  * back to a generic glyph so the picker never renders a broken image.
  */
-const AGENT_ICON_BASENAMES: Partial<Record<AgentKind, string>> = {
-  ['claude_code']: 'claude',
-  ['codex']: 'codex',
-  ['opencode']: 'opencode',
-  ['gemini']: 'gemini',
+const BUILT_IN_ICON_PATHS: Partial<
+  Record<string, { light: string; dark: string }>
+> = {
+  claude_code: {
+    light: '/agents/claude-light.svg',
+    dark: '/agents/claude-dark.svg',
+  },
+  codex: {
+    light: '/agents/codex-light.svg',
+    dark: '/agents/codex-dark.svg',
+  },
+  opencode: {
+    light: '/agents/opencode-light.svg',
+    dark: '/agents/opencode-dark.svg',
+  },
+  pi: { light: '/agents/pi.svg', dark: '/agents/pi.svg' },
+};
+
+const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
+  claude_code: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  pi: 'Pi',
 };
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
@@ -31,10 +47,10 @@ function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
 }
 
 export function getAgentName(
-  agent: AgentKind | null | undefined
+  agent: string | null | undefined
 ): string {
   if (!agent) return 'Agent';
-  return AGENT_DISPLAY_NAMES[agent] ?? agent;
+  return BUILT_IN_DISPLAY_NAMES[agent] ?? agent;
 }
 
 export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
@@ -45,14 +61,14 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
     return null;
   }
 
-  const basename = AGENT_ICON_BASENAMES[agent];
-  if (!basename) {
+  const paths = BUILT_IN_ICON_PATHS[agent];
+  if (!paths) {
     return <Bot className={cn('shrink-0', className)} />;
   }
 
   return (
     <img
-      src={`/agents/${basename}${suffix}.svg`}
+      src={suffix === '-dark' ? paths.dark : paths.light}
       alt={getAgentName(agent)}
       className={cn('block shrink-0 object-contain', className)}
     />

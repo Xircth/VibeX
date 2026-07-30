@@ -18,7 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agents::registry::AgentKind;
+use agents::AgentId;
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ struct RunningTask {
     has_real_tool_call: bool,
     child_connection_id: String,
     child_session_id: Uuid,
-    agent_type: AgentKind,
+    agent_type: AgentId,
     started_at: Instant,
 }
 
@@ -72,7 +72,7 @@ struct CompletedTask {
     parent_connection_id: String,
     status: TaskStatus,
     child_session_id: Option<Uuid>,
-    agent_type: Option<AgentKind>,
+    agent_type: Option<AgentId>,
     text: Option<String>,
     error_code: Option<String>,
     message: Option<String>,
@@ -105,7 +105,7 @@ struct FinalizeCtx {
     has_real_tool_call: bool,
     child_connection_id: String,
     child_session_id: Uuid,
-    agent_type: AgentKind,
+    agent_type: AgentId,
     duration_ms: u64,
 }
 
@@ -247,7 +247,7 @@ impl DelegationBroker {
             .spawner
             .spawn(
                 &req.parent_connection_id,
-                req.agent_type,
+                req.agent_type.clone(),
                 req.working_dir.clone(),
             )
             .await
@@ -267,7 +267,7 @@ impl DelegationBroker {
             parent_session_id: req.parent_session_id,
             parent_tool_use_id: parent_tool_use_id.clone(),
             delegation_call_id: call_id.clone(),
-            agent_type: req.agent_type,
+            agent_type: req.agent_type.clone(),
         };
         let child_session_id = match self
             .spawner
@@ -306,7 +306,7 @@ impl DelegationBroker {
                         has_real_tool_call,
                         child_connection_id: child_connection_id.clone(),
                         child_session_id,
-                        agent_type: req.agent_type,
+                        agent_type: req.agent_type.clone(),
                         started_at: reserved_at,
                     },
                 );
@@ -320,7 +320,7 @@ impl DelegationBroker {
                 parent_connection_id: req.parent_connection_id.clone(),
                 parent_tool_use_id: parent_tool_use_id.clone(),
                 child_session_id,
-                agent_type: req.agent_type,
+                agent_type: req.agent_type.clone(),
                 task_preview: preview(&req.task),
             })
             .await;
@@ -337,7 +337,7 @@ impl DelegationBroker {
                     has_real_tool_call,
                     child_connection_id,
                     child_session_id,
-                    agent_type: req.agent_type,
+                    agent_type: req.agent_type.clone(),
                     duration_ms: reserved_at.elapsed().as_millis() as u64,
                 };
                 self.finalize(ctx, outcome).await
@@ -348,7 +348,7 @@ impl DelegationBroker {
                         .write_meta(
                             &req.parent_connection_id,
                             &parent_tool_use_id,
-                            running_meta(&child_session_id, req.agent_type),
+                            running_meta(&child_session_id, &req.agent_type),
                         )
                         .await;
                 }
@@ -399,7 +399,7 @@ impl DelegationBroker {
             parent_connection_id: ctx.parent_connection_id.clone(),
             status,
             child_session_id: Some(ctx.child_session_id),
-            agent_type: Some(ctx.agent_type),
+            agent_type: Some(ctx.agent_type.clone()),
             text,
             error_code,
             message,
@@ -523,7 +523,7 @@ impl DelegationBroker {
             parent_connection_id: task.parent_connection_id.clone(),
             status: TaskStatus::Canceled,
             child_session_id: Some(task.child_session_id),
-            agent_type: Some(task.agent_type),
+            agent_type: Some(task.agent_type.clone()),
             text: None,
             error_code: Some("canceled".to_string()),
             message: Some("canceled by request".to_string()),
@@ -550,7 +550,7 @@ impl DelegationBroker {
                 parent_connection_id: task.parent_connection_id.clone(),
                 parent_tool_use_id: task.parent_tool_use_id.clone(),
                 child_session_id: task.child_session_id,
-                agent_type: task.agent_type,
+                agent_type: task.agent_type.clone(),
                 outcome: DelegationOutcome::from_err(
                     DelegationError::Canceled {
                         reason: "canceled by request".to_string(),
@@ -589,7 +589,11 @@ impl DelegationBroker {
                         }
                     } else if let Some(task) = pending.running.get(id) {
                         Slot::Ready {
-                            report: running_report(id, task.child_session_id, task.agent_type),
+                            report: running_report(
+                                id,
+                                task.child_session_id,
+                                task.agent_type.clone(),
+                            ),
                             settled: false,
                         }
                     } else {
@@ -686,7 +690,7 @@ fn preview(task: &str) -> String {
 fn running_report(
     call_id: &str,
     child_session_id: Uuid,
-    agent_type: AgentKind,
+    agent_type: AgentId,
 ) -> DelegationTaskReport {
     DelegationTaskReport {
         task_id: Some(call_id.to_string()),
@@ -705,7 +709,7 @@ fn completed_report(call_id: &str, task: &CompletedTask) -> DelegationTaskReport
         task_id: Some(call_id.to_string()),
         status: task.status,
         child_session_id: task.child_session_id,
-        agent_type: task.agent_type,
+        agent_type: task.agent_type.clone(),
         text: task.text.clone(),
         error_code: task.error_code.clone(),
         message: task.message.clone(),
@@ -718,7 +722,7 @@ fn report_from_record(call_id: &str, record: &ChildStatusRecord) -> DelegationTa
         task_id: Some(call_id.to_string()),
         status: record.status,
         child_session_id: Some(record.child_session_id),
-        agent_type: record.agent_type,
+        agent_type: record.agent_type.clone(),
         text: None,
         error_code: None,
         message: Some("result not cached; open the child session for full output".to_string()),
@@ -777,7 +781,7 @@ fn canceling_report(task_id: &str) -> DelegationTaskReport {
     }
 }
 
-fn running_meta(child_session_id: &Uuid, agent_type: AgentKind) -> serde_json::Value {
+fn running_meta(child_session_id: &Uuid, agent_type: &AgentId) -> serde_json::Value {
     serde_json::json!({
         "status": "running",
         "child_session_id": child_session_id,
@@ -819,7 +823,7 @@ mod tests {
             parent_connection_id: "parent-conn".to_string(),
             parent_session_id,
             parent_tool_use_id: "toolu_1".to_string(),
-            agent_type: AgentKind::Codex,
+            agent_type: AgentId::parse("codex").unwrap(),
             task: "do the thing".to_string(),
             working_dir: Some("/work".to_string()),
             requested_working_dir: Some("/work".to_string()),
@@ -868,7 +872,7 @@ mod tests {
         let outcome = DelegationOutcome::Ok(DelegationSuccess {
             text: "all done".to_string(),
             child_session_id: h.spawner.child_session_id,
-            child_agent_type: AgentKind::Codex,
+            child_agent_type: AgentId::parse("codex").unwrap(),
             turn_count: 1,
             duration_ms: 0,
             token_usage: None,
@@ -964,7 +968,7 @@ mod tests {
         DelegationOutcome::Ok(DelegationSuccess {
             text,
             child_session_id: child,
-            child_agent_type: AgentKind::Codex,
+            child_agent_type: AgentId::parse("codex").unwrap(),
             turn_count: 1,
             duration_ms: 0,
             token_usage: None,
@@ -1040,7 +1044,7 @@ mod tests {
             record: Some(ChildStatusRecord {
                 child_session_id: Uuid::from_u128(7),
                 status: TaskStatus::Completed,
-                agent_type: Some(AgentKind::Gemini),
+                agent_type: Some(AgentId::parse("gemini").unwrap()),
             }),
         });
         let broker = DelegationBroker::new(

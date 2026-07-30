@@ -30,7 +30,15 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
 
     loop {
         match migrator.run(pool).await {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                models::agent_management::legacy_migration::LegacyAgentMigration::run(pool)
+                    .await
+                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                models::agent_management::conversation_migration::LegacyConversationAgentMigration::run(pool)
+                    .await
+                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                return Ok(());
+            }
             Err(MigrateError::VersionMismatch(version)) => {
                 if !should_auto_fix_migration_checksum_mismatch() {
                     // Keep strict checksum handling unless Windows local recovery is explicitly enabled.

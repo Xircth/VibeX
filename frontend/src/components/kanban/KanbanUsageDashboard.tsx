@@ -20,7 +20,6 @@ import {
   X,
   Clock,
   Zap,
-  Package,
 } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -30,7 +29,6 @@ import {
   type ProjectUsageStatistics,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { PlanUsageDashboard } from '@/components/kanban/PlanUsageDashboard';
 
 type UsageTab = 'overview' | 'models' | 'sessions' | 'plan';
 type DateRange = '7d' | '30d' | 'all';
@@ -300,12 +298,6 @@ export function KanbanUsageDashboard() {
       icon: List,
       activeColor: 'is-active',
     },
-    {
-      key: 'plan' as UsageTab,
-      label: t('usageDashboard.tabPlan'),
-      icon: Package,
-      activeColor: 'is-active',
-    },
   ];
 
   const selectedProjectName =
@@ -433,8 +425,6 @@ export function KanbanUsageDashboard() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 pl-24">
-          {activeTab === 'plan' ? <PlanUsageDashboard /> : null}
-
           {activeTab !== 'plan' ? (
             <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
               <FolderOpen className="h-4 w-4" />

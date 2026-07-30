@@ -46,21 +46,20 @@ use tokio_util::{
     compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt},
     io::ReaderStream,
 };
-use workspace_utils::{process::new_hidden_tokio_command, shell::refresh_process_path};
+use workspace_utils::process::new_hidden_tokio_command;
 
 use crate::{
-    ACP_EXECUTABLE_OVERRIDE_ENV, AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId,
-    AgentContentBlock, AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse,
-    AgentError, AgentErrorEvent, AgentEvent, AgentKind, AgentPermissionId, AgentPermissionOption,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock,
+    AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse, AgentError,
+    AgentErrorEvent, AgentEvent, AgentId, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
     AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest, AgentTerminalEnvVar,
-    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage, CommandBuildInput,
+    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage, SessionLaunchLock,
     conversation::SessionLoadFailureReason,
-    current_platform, decide_auto_permission_response,
+    decide_auto_permission_response,
     delegation_inject::DelegationInjector,
-    local_acp_command_parts, local_runtime_launch_acp_executable, registry_entry,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -200,7 +199,8 @@ fn acp_error_code_str(error: &acp::Error) -> Option<String> {
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
     pub connection_id: AgentConnectionId,
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
+    pub launch_lock: SessionLaunchLock,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -273,7 +273,8 @@ pub enum AgentConnectionCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedAgentConnectionSnapshot {
     pub connection_id: AgentConnectionId,
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
+    pub launch_lock: SessionLaunchLock,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -351,7 +352,8 @@ impl AgentConnectionManager {
         let (ready_tx, ready_rx) = oneshot::channel::<AgentResult<()>>();
         let snapshot = ManagedAgentConnectionSnapshot {
             connection_id: launch.connection_id,
-            agent_type: launch.agent_type,
+            agent_id: launch.agent_id,
+            launch_lock: launch.launch_lock,
             workspace_id: launch.workspace_id,
             working_dir: launch.working_dir,
             auto_approve_mode: launch.auto_approve_mode,
@@ -1093,25 +1095,19 @@ impl AgentConnectionRunner {
         mut cmd_rx: mpsc::Receiver<AgentConnectionCommand>,
         ready_tx: Arc<Mutex<Option<oneshot::Sender<AgentResult<()>>>>>,
     ) -> AgentResult<()> {
-        // This guard deliberately lives at the final spawn boundary, not only
-        // in VibeX's Tauri command layer. A future caller that constructs an
-        // AgentRuntime directly must fail closed rather than let a Codex or
-        // Claude ACP adapter select its bundled CLI dependency.
-        let verified_acp_program =
-            local_runtime_launch_acp_executable(self.snapshot.agent_type, &self.snapshot.env)?;
-        let _ = refresh_process_path().await;
-        let entry = registry_entry(self.snapshot.agent_type);
-        let command_parts = local_acp_command_parts(self.snapshot.agent_type).unwrap_or(
-            entry.distribution.command_parts(&CommandBuildInput {
-                platform: current_platform(),
-                binary_dir: None,
-                prefer_system_uvx_command: false,
-            })?,
-        );
-
-        let acp_program =
-            verified_acp_program.unwrap_or_else(|| PathBuf::from(command_parts.program));
-        let mut command = new_hidden_tokio_command(acp_program, &command_parts.args);
+        let launch_lock = &self.snapshot.launch_lock;
+        if launch_lock.agent_id != self.snapshot.agent_id {
+            return Err(AgentError::Runtime(
+                "Installation lock belongs to another Agent".to_string(),
+            ));
+        }
+        if !launch_lock.absolute_acp_program.is_absolute() {
+            return Err(AgentError::Runtime(
+                "Installation lock does not contain an absolute ACP program".to_string(),
+            ));
+        }
+        let mut command =
+            new_hidden_tokio_command(&launch_lock.absolute_acp_program, &launch_lock.args);
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -1120,9 +1116,10 @@ impl AgentConnectionRunner {
             .current_dir(&self.snapshot.working_dir);
 
         for (key, value) in merged_agent_env(&self.snapshot.env) {
-            if key != ACP_EXECUTABLE_OVERRIDE_ENV {
-                command.env(key, value);
-            }
+            command.env(key, value);
+        }
+        for (key, value) in &launch_lock.env {
+            command.env(key, value);
         }
         // The child inherits the full parent env. A blank `OPENAI_API_KEY=""`
         // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched VibeX
@@ -1591,7 +1588,7 @@ impl AgentConnectionRunner {
         if let Some(injector) = &self.delegation_injector
             && let Some(server) = injector.companion(
                 &self.snapshot.connection_id.0.to_string(),
-                self.snapshot.agent_type,
+                &self.snapshot.agent_id,
                 working_dir,
             )
         {
@@ -1610,7 +1607,7 @@ impl AgentConnectionRunner {
             None,
             AgentEvent::SessionLinked {
                 acp_session_id: acp_session_id.clone(),
-                agent_type: self.snapshot.agent_type,
+                agent_id: self.snapshot.agent_id.clone(),
             },
         );
         self.emit_session_controls(session_id, response.modes, response.config_options)
@@ -1748,7 +1745,7 @@ impl AgentConnectionRunner {
         // normal caller ordering for every other agent, but make this
         // dependency explicit for OpenCode's first-turn preset.
         for override_item in
-            ordered_session_config_overrides(self.snapshot.agent_type, config_overrides)
+            ordered_session_config_overrides(&self.snapshot.agent_id, config_overrides)
         {
             let Some(key) = non_empty_trimmed(&override_item.key) else {
                 continue;
@@ -2345,7 +2342,7 @@ impl AgentConnectionRunner {
             AgentEvent::ConnectionStatusChanged {
                 snapshot: AgentConnectionSnapshot {
                     id: self.snapshot.connection_id,
-                    agent_type: self.snapshot.agent_type,
+                    agent_id: self.snapshot.agent_id.clone(),
                     workspace_id: self.snapshot.workspace_id,
                     status,
                     working_dir: self.snapshot.working_dir.display().to_string(),
@@ -2902,10 +2899,10 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
 /// expects. `sort_by_key` is stable, so selections unrelated to this
 /// dependency retain their caller-provided order.
 fn ordered_session_config_overrides(
-    agent_type: AgentKind,
+    agent_id: &AgentId,
     mut overrides: Vec<AgentSessionConfigOverride>,
 ) -> Vec<AgentSessionConfigOverride> {
-    if agent_type == AgentKind::Opencode {
+    if agent_id.as_str() == "opencode" {
         overrides.sort_by_key(|override_item| {
             match override_item.key.trim().to_ascii_lowercase().as_str() {
                 "model" => 0,
@@ -3369,6 +3366,17 @@ fn elicitation_response_action(response: AgentElicitationResponse) -> Elicitatio
 mod tests {
     use super::*;
 
+    fn test_launch_lock(agent_id: AgentId) -> SessionLaunchLock {
+        SessionLaunchLock {
+            agent_id,
+            absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+            args: Vec::new(),
+            env: std::collections::BTreeMap::new(),
+            runtime_version: "test-runtime".to_string(),
+            acp_version: "test-acp".to_string(),
+        }
+    }
+
     #[test]
     fn opencode_applies_model_before_model_dependent_effort() {
         let overrides = vec![
@@ -3386,7 +3394,8 @@ mod tests {
             },
         ];
 
-        let ordered = ordered_session_config_overrides(AgentKind::Opencode, overrides);
+        let agent_id = AgentId::parse("opencode").unwrap();
+        let ordered = ordered_session_config_overrides(&agent_id, overrides);
         assert_eq!(
             ordered
                 .iter()
@@ -3409,7 +3418,8 @@ mod tests {
             },
         ];
 
-        let ordered = ordered_session_config_overrides(AgentKind::Codex, overrides);
+        let agent_id = AgentId::parse("codex").unwrap();
+        let ordered = ordered_session_config_overrides(&agent_id, overrides);
         assert_eq!(
             ordered
                 .iter()
@@ -3467,17 +3477,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_manager_refuses_local_agents_without_runtime_overrides() {
-        // The error must arrive before any real executable is looked up or
-        // spawned. This regression test protects the final live-session
-        // boundary against a future caller bypassing the Tauri launch helper.
-        for agent_type in [AgentKind::Codex, AgentKind::ClaudeCode, AgentKind::Opencode] {
+    async fn live_manager_refuses_non_absolute_installation_locks() {
+        for agent_id in ["codex", "claude_code", "opencode"] {
+            let agent_id = AgentId::parse(agent_id).unwrap();
+            let mut launch_lock = test_launch_lock(agent_id.clone());
+            launch_lock.absolute_acp_program = PathBuf::from("relative-acp");
             let (event_tx, _event_rx) = mpsc::unbounded_channel();
             let manager = AgentConnectionManager::new_with_driver(event_tx, true);
             let (_snapshot, ready_rx) = manager
                 .register_connection(AgentConnectionLaunch {
                     connection_id: AgentConnectionId::new(),
-                    agent_type,
+                    agent_id: agent_id.clone(),
+                    launch_lock,
                     workspace_id: uuid::Uuid::new_v4(),
                     working_dir: std::env::temp_dir(),
                     auto_approve_mode: AgentAutoApproveMode::Off,
@@ -3490,8 +3501,8 @@ mod tests {
                 .expect("driver should report its startup error");
             let error = result.expect_err("local runtime override must be required");
             assert!(
-                error.to_string().contains(ACP_EXECUTABLE_OVERRIDE_ENV),
-                "{agent_type:?} unexpectedly accepted a bare ACP command: {error}"
+                error.to_string().contains("absolute ACP program"),
+                "{agent_id} unexpectedly accepted a relative ACP path: {error}"
             );
         }
     }
@@ -3505,7 +3516,8 @@ mod tests {
         manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -3546,7 +3558,8 @@ mod tests {
         let (_snapshot, ready_rx) = manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -3594,7 +3607,8 @@ mod tests {
         manager
             .register_connection(AgentConnectionLaunch {
                 connection_id,
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,

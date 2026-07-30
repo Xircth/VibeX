@@ -36,7 +36,7 @@ describe('sendAgentRuntimeTurn', () => {
     });
 
     expect(startTurnMock).toHaveBeenCalledWith({
-      agentType: 'codex' as const,
+      agentId: 'codex',
       workspaceId: 'workspace-1',
       conversationId: 'session-1',
       executorProfileId: {

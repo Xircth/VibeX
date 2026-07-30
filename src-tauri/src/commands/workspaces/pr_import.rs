@@ -159,6 +159,7 @@ pub async fn create_workspace_from_pr(
                 pool,
                 &CreateSession {
                     executor: None,
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,

@@ -747,7 +747,7 @@ fn map_agent_event_to_conversation_event(
         }
         AgentEvent::SessionLinked {
             acp_session_id,
-            agent_type: _,
+            agent_id: _,
         } => Some(ConversationEvent::AgentBindingReady {
             acp_session_id: acp_session_id.clone(),
             capabilities: default_conversation_capabilities(),
@@ -939,14 +939,14 @@ fn map_agent_event_to_conversation_event(
         AgentEvent::DelegationStarted {
             parent_tool_use_id,
             child_session_id,
-            agent_type,
+            agent_id,
             task_preview,
         } => Some(ConversationEvent::DelegationStarted {
             delegation: ConversationDelegation {
                 delegation_id: format!("delegation-{child_session_id}"),
                 parent_tool_call_id: parent_tool_use_id.clone(),
                 child_conversation_id: *child_session_id,
-                agent_type: *agent_type,
+                agent_id: agent_id.clone(),
                 task_preview: task_preview.clone(),
             },
         }),

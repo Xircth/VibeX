@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -105,29 +106,45 @@ describe('BranchInfoHeader', () => {
     expect(screen.getByRole('button', { name: 'Git Actions' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Rebase' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Rebase Back' })).toBeVisible();
-    expect(screen.getByText('目标')).toBeVisible();
+    expect(screen.queryByText('目标')).not.toBeInTheDocument();
     expect(screen.getByText('main')).toBeVisible();
-    expect(screen.getByText('当前')).toBeVisible();
+    expect(screen.queryByText('当前')).not.toBeInTheDocument();
     expect(screen.getByText('feature/liquid-toolbar')).toBeVisible();
   });
 
-  it('uses compact typography for the context labels only', () => {
-    const contextLabelRule =
-      legacyStyles.match(/\.branch-info-context-label\s*\{[^}]+\}/u)?.[0] ?? '';
+  it('reveals the target label when the target branch is hovered', async () => {
+    const user = userEvent.setup();
 
-    expect(contextLabelRule).not.toBe('');
+    render(<BranchInfoHeader />);
 
-    render(
-      <>
-        <style>{contextLabelRule}</style>
-        <span className="branch-info-context-label" data-testid="context-label">
-          目标
-        </span>
-      </>
+    const targetBranch = screen.getByRole('button', {
+      name: '目标分支：main',
+    });
+
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    await user.hover(targetBranch);
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '目标分支：main'
+    );
+  });
+
+  it('reveals the current label when the current branch is hovered', async () => {
+    const user = userEvent.setup();
+
+    render(<BranchInfoHeader />);
+
+    const currentBranch = screen.getByLabelText(
+      '当前分支：feature/liquid-toolbar'
     );
 
-    expect(getComputedStyle(screen.getByTestId('context-label')).fontSize).toBe(
-      '0.6875rem'
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    await user.hover(currentBranch);
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '当前分支：feature/liquid-toolbar'
     );
   });
 

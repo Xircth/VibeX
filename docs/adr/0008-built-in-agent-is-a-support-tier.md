@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0020
 ---
 
 # 内置 Agent 是产品支持等级，而非捆绑或安装方式

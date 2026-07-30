@@ -39,13 +39,14 @@
  */
 :root {
   /*
-   * Product UI font. Noto Sans SC is Google's distribution of Source Han Sans
-   * (思源黑体) and is bundled above so the interface remains consistent offline.
-   * The local aliases cover hosts that already provide Adobe's family names.
+   * Product UI font. Match Codex's native system stack so macOS uses SF Pro and
+   * Windows uses Segoe UI. Explicit CJK families keep Chinese text native on
+   * each platform; bundled Noto Sans SC remains the offline Linux fallback.
    */
   --font-ui:
-    'Noto Sans SC Variable', 'Source Han Sans SC', 'Source Han Sans CN',
-    'Noto Sans CJK SC', 'Noto Sans SC', '思源黑体', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI',
+    system-ui, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans SC Variable', 'Source Han Sans SC', 'Noto Sans SC', sans-serif;
   --font-mono:
     'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     monospace;

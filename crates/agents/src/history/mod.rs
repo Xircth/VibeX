@@ -3,12 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use api_types::AgentKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
-
-use crate::registry::AgentKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -391,7 +390,15 @@ mod tests {
 
     #[test]
     fn default_sources_cover_every_registry_agent() {
-        for agent_type in crate::registry::all_agent_types() {
+        for agent_type in [
+            AgentKind::ClaudeCode,
+            AgentKind::Codex,
+            AgentKind::Opencode,
+            AgentKind::Gemini,
+            AgentKind::Openclaw,
+            AgentKind::Cline,
+            AgentKind::Hermes,
+        ] {
             assert!(
                 !default_history_sources(agent_type).is_empty(),
                 "missing history source for {agent_type:?}"

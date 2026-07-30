@@ -31,7 +31,7 @@ pub enum BrokerMessage {
     Ask(BrokerAskRequest),
 }
 
-/// `delegate_to_agent` call. `parent_connection_id` is the codeg-internal ACP
+/// `delegate_to_agent` call. `parent_connection_id` is the runtime-internal ACP
 /// connection id of the parent; `parent_tool_use_id` is the parent's
 /// `delegate_to_agent` tool-call id (empty when the MCP client didn't supply
 /// one — the broker then claims it from its tool-call tracker). `external_handle`

@@ -37,7 +37,7 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
                 AgentEvent::DelegationStarted {
                     parent_tool_use_id: event.parent_tool_use_id,
                     child_session_id: event.child_session_id,
-                    agent_type: event.agent_type,
+                    agent_id: event.agent_type,
                     task_preview: event.task_preview,
                 },
             )
@@ -64,7 +64,7 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
                 AgentEvent::DelegationCompleted {
                     parent_tool_use_id: event.parent_tool_use_id,
                     child_session_id: event.child_session_id,
-                    agent_type: event.agent_type,
+                    agent_id: event.agent_type,
                     result,
                 },
             )

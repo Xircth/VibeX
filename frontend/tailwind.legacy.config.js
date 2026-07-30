@@ -125,7 +125,7 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        // All product UI resolves through the bundled Source Han Sans token.
+        // All product UI resolves through the Codex-like native system token.
         sans: ['var(--font-ui)', 'sans-serif'],
         // Route every `font-mono` utility through the --font-mono token so the
         // AppearanceSettings font picker (P3-2) governs all of them at once.

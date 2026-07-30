@@ -1,15 +1,31 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use agents::{
-    AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentKind,
+    AgentAutoApproveMode, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentId,
     AgentPromptId, AgentPromptStatus, AgentRuntime, AgentSessionId, CancelAgentPromptInput,
     ConnectAgentInput, RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeEventSink,
-    SendAgentPromptInput, all_agent_types, registry_entry,
+    SendAgentPromptInput, SessionLaunchLock,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
+
+fn fixture_launch_lock(agent_id: agents::AgentId) -> SessionLaunchLock {
+    SessionLaunchLock {
+        agent_id,
+        absolute_acp_program: PathBuf::from("/tmp/vibex-fixture-acp"),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        runtime_version: "fixture-runtime".to_string(),
+        acp_version: "fixture-acp".to_string(),
+    }
+}
 
 #[derive(Clone)]
 struct TestSink {
@@ -27,21 +43,22 @@ async fn all_registered_agents_pass_fixture_session_gate() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let runtime = AgentRuntime::new_with_driver(Arc::new(TestSink { tx }), false);
 
-    for agent_type in all_agent_types() {
-        run_agent_fixture_gate(&runtime, &mut rx, agent_type).await;
+    for raw_id in ["claude_code", "codex", "opencode", "pi", "vendor.generic"] {
+        run_agent_fixture_gate(&runtime, &mut rx, AgentId::parse(raw_id).unwrap()).await;
     }
 }
 
 async fn run_agent_fixture_gate(
     runtime: &AgentRuntime,
     rx: &mut mpsc::UnboundedReceiver<AgentEventEnvelope>,
-    agent_type: AgentKind,
+    agent_id: AgentId,
 ) {
     let workspace_id = Uuid::new_v4();
-    let working_dir = PathBuf::from(format!("fixture-workspace/{agent_type:?}"));
+    let working_dir = PathBuf::from(format!("fixture-workspace/{agent_id}"));
     let connection = runtime
         .connect(ConnectAgentInput {
-            agent_type,
+            agent_id: agent_id.clone(),
+            launch_lock: fixture_launch_lock(agent_id.clone()),
             workspace_id,
             working_dir: working_dir.clone(),
             auto_approve_mode: AgentAutoApproveMode::Off,
@@ -50,10 +67,7 @@ async fn run_agent_fixture_gate(
         .await
         .unwrap();
     let session = runtime
-        .new_session(
-            connection.id,
-            format!("{}-new-session", registry_entry(agent_type).registry_id),
-        )
+        .new_session(connection.id, format!("{agent_id}-new-session"))
         .await
         .unwrap();
 
@@ -121,34 +135,34 @@ async fn run_agent_fixture_gate(
     )
     .await;
 
-    assert_has(agent_type, &events, "connection ready", |event| {
+    assert_has(&agent_id, &events, "connection ready", |event| {
         matches!(event, AgentEvent::ConnectionStatusChanged { .. })
     });
-    assert_has(agent_type, &events, "session created", |event| {
+    assert_has(&agent_id, &events, "session created", |event| {
         matches!(event, AgentEvent::SessionCreated { .. })
     });
-    assert_has(agent_type, &events, "streaming text", |event| {
+    assert_has(&agent_id, &events, "streaming text", |event| {
         matches!(event, AgentEvent::MessageChunk { .. })
     });
-    assert_has(agent_type, &events, "tool call", |event| {
+    assert_has(&agent_id, &events, "tool call", |event| {
         matches!(event, AgentEvent::ToolCall { .. })
     });
-    assert_has(agent_type, &events, "tool update", |event| {
+    assert_has(&agent_id, &events, "tool update", |event| {
         matches!(event, AgentEvent::ToolCallUpdate { .. })
     });
-    assert_has(agent_type, &events, "available commands", |event| {
+    assert_has(&agent_id, &events, "available commands", |event| {
         matches!(event, AgentEvent::AvailableCommands { .. })
     });
-    assert_has(agent_type, &events, "session modes", |event| {
+    assert_has(&agent_id, &events, "session modes", |event| {
         matches!(event, AgentEvent::SessionModes { .. })
     });
-    assert_has(agent_type, &events, "config options", |event| {
+    assert_has(&agent_id, &events, "config options", |event| {
         matches!(event, AgentEvent::SessionConfigOptions { .. })
     });
-    assert_has(agent_type, &events, "manual permission response", |event| {
+    assert_has(&agent_id, &events, "manual permission response", |event| {
         matches!(event, AgentEvent::PermissionResponded { auto: false, .. })
     });
-    assert_has(agent_type, &events, "turn completed", |event| {
+    assert_has(&agent_id, &events, "turn completed", |event| {
         matches!(
             event,
             AgentEvent::TurnCompleted {
@@ -160,14 +174,12 @@ async fn run_agent_fixture_gate(
     let resumed_session_id = AgentSessionId::new();
     let resumed = runtime
         .resume_session(ResumeAgentSessionInput {
-            agent_type,
+            agent_id: agent_id.clone(),
+            launch_lock: fixture_launch_lock(agent_id.clone()),
             workspace_id,
             working_dir: working_dir.clone(),
             session_id: resumed_session_id,
-            external_session_id: format!(
-                "{}-resume-session",
-                registry_entry(agent_type).registry_id
-            ),
+            external_session_id: format!("{agent_id}-resume-session"),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
         })
@@ -289,13 +301,13 @@ async fn wait_for_event(
 }
 
 fn assert_has(
-    agent_type: AgentKind,
+    agent_id: &AgentId,
     events: &[AgentEvent],
     label: &str,
     predicate: impl Fn(&AgentEvent) -> bool,
 ) {
     assert!(
         events.iter().any(predicate),
-        "{agent_type:?} fixture gate missing {label}; events: {events:?}"
+        "{agent_id} fixture gate missing {label}; events: {events:?}"
     );
 }

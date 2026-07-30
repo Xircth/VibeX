@@ -6,6 +6,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
+    AgentId,
     conversation::SessionLoadFailureReason,
     elicitation::{AgentElicitationRequest, AgentElicitationResponse},
     ids::{
@@ -13,7 +14,6 @@ use crate::{
         AgentTerminalId,
     },
     permissions::{AgentPermissionRequest, AgentPermissionResponse},
-    registry::AgentKind,
     state::{AgentConnectionSnapshot, AgentPromptSnapshot, AgentSessionSnapshot},
 };
 
@@ -229,12 +229,12 @@ pub enum AgentEvent {
     },
     /// The agent assigned its own ACP session id (the on-disk session-file key).
     /// Emitted once when the ACP session is established, so the persistence layer
-    /// can bind `external_session_id` + `agent_type` onto the conversation row for
+    /// can bind `external_session_id` + `agent_id` onto the conversation row for
     /// transcript re-parse. The `session_id` of the originating DB row travels on
     /// the event envelope.
     SessionLinked {
         acp_session_id: String,
-        agent_type: AgentKind,
+        agent_id: AgentId,
     },
     PromptStarted {
         snapshot: AgentPromptSnapshot,
@@ -320,14 +320,14 @@ pub enum AgentEvent {
         parent_tool_use_id: String,
         /// The child's `sessions.id` — the conversation the user can open.
         child_session_id: Uuid,
-        agent_type: AgentKind,
+        agent_id: AgentId,
         task_preview: String,
     },
     /// A delegated child reached a terminal state.
     DelegationCompleted {
         parent_tool_use_id: String,
         child_session_id: Uuid,
-        agent_type: AgentKind,
+        agent_id: AgentId,
         result: DelegationResultSummary,
     },
     Error {

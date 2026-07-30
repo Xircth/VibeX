@@ -1,4 +1,4 @@
-import { AgentKind, type SlashCommandDescription } from 'shared/types';
+import type { SlashCommandDescription } from 'shared/types';
 import {
   agentSlashCommandCatalog,
   isAgentSlashCommandVisible,
@@ -16,7 +16,7 @@ export type SlashCommandPresentation = {
 
 export function isCoreSlashCommand(
   command: SlashCommandDescription,
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): boolean {
   return isAgentSlashCommandVisible(command, executor);
 }
@@ -27,7 +27,7 @@ export function isSlashCommandSkill(command: SlashCommandDescription): boolean {
 
 export function getSlashCommandPresentation(
   command: SlashCommandDescription,
-  executor: AgentKind | null | undefined
+  executor: string | null | undefined
 ): SlashCommandPresentation {
   const providerCommand = agentSlashCommandCatalog(executor).find(
     (item) => item.name === command.name

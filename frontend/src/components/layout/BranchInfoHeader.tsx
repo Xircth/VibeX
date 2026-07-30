@@ -16,6 +16,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
@@ -119,64 +125,72 @@ export function BranchInfoHeader() {
             height: '100%',
           }}
         >
-          <div
-            className="branch-info-toolbar"
-            role="toolbar"
-            aria-label="Git workspace controls"
-          >
-            <div className="branch-info-summary">
-              <span className="branch-info-context-label">目标</span>
-              <TargetBranchDropdown
-                repo={repo}
-                worktreeId={effectiveWorktreeId}
-                useWorktree={Boolean(workspace?.use_worktree)}
-              />
-              <span className="branch-info-direction" aria-hidden="true">
-                &rarr;
-              </span>
-              <span className="branch-info-context-label">当前</span>
-              <span
-                className="branch-info-current-branch"
-                title={workspace?.branch}
-              >
-                {workspace?.branch ?? 'HEAD'}
-              </span>
-              {(repo.commits_ahead ?? 0) > 0 && (
-                <span className="branch-info-ahead">
-                  <ArrowUp className="h-3 w-3" aria-hidden="true" />
-                  {repo.commits_ahead}
+          <TooltipProvider delayDuration={120}>
+            <div
+              className="branch-info-toolbar"
+              role="toolbar"
+              aria-label="Git workspace controls"
+            >
+              <div className="branch-info-summary">
+                <TargetBranchDropdown
+                  repo={repo}
+                  worktreeId={effectiveWorktreeId}
+                  useWorktree={Boolean(workspace?.use_worktree)}
+                />
+                <span className="branch-info-direction" aria-hidden="true">
+                  &rarr;
                 </span>
-              )}
-              {(repo.commits_behind ?? 0) > 0 && (
-                <span className="branch-info-behind">
-                  <ArrowDown className="h-3 w-3" aria-hidden="true" />
-                  {repo.commits_behind}
-                </span>
-              )}
-              {repo.is_rebase_in_progress && (
-                <span className="branch-info-rebase-status">
-                  <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                  Rebase in progress
-                </span>
-              )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="branch-info-current-branch"
+                      tabIndex={0}
+                      aria-label={`当前分支：${workspace?.branch ?? 'HEAD'}`}
+                    >
+                      {workspace?.branch ?? 'HEAD'}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    当前分支：{workspace?.branch ?? 'HEAD'}
+                  </TooltipContent>
+                </Tooltip>
+                {(repo.commits_ahead ?? 0) > 0 && (
+                  <span className="branch-info-ahead">
+                    <ArrowUp className="h-3 w-3" aria-hidden="true" />
+                    {repo.commits_ahead}
+                  </span>
+                )}
+                {(repo.commits_behind ?? 0) > 0 && (
+                  <span className="branch-info-behind">
+                    <ArrowDown className="h-3 w-3" aria-hidden="true" />
+                    {repo.commits_behind}
+                  </span>
+                )}
+                {repo.is_rebase_in_progress && (
+                  <span className="branch-info-rebase-status">
+                    <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                    Rebase in progress
+                  </span>
+                )}
+              </div>
+              <div className="branch-info-actions">
+                <GitActionsButton
+                  worktreeId={effectiveWorktreeId}
+                  task={gitActionsTask}
+                />
+                <RebaseButton
+                  worktreeId={effectiveWorktreeId}
+                  repo={repo}
+                  useWorktree={Boolean(workspace?.use_worktree)}
+                />
+                <RebaseBackButton
+                  worktreeId={effectiveWorktreeId}
+                  repo={repo}
+                  useWorktree={Boolean(workspace?.use_worktree)}
+                />
+              </div>
             </div>
-            <div className="branch-info-actions">
-              <GitActionsButton
-                worktreeId={effectiveWorktreeId}
-                task={gitActionsTask}
-              />
-              <RebaseButton
-                worktreeId={effectiveWorktreeId}
-                repo={repo}
-                useWorktree={Boolean(workspace?.use_worktree)}
-              />
-              <RebaseBackButton
-                worktreeId={effectiveWorktreeId}
-                repo={repo}
-                useWorktree={Boolean(workspace?.use_worktree)}
-              />
-            </div>
-          </div>
+          </TooltipProvider>
         </LiquidGlass>
       </div>
     </div>
@@ -289,13 +303,25 @@ function TargetBranchDropdown({
   return (
     <div className="branch-info-control-stack">
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="branch-info-branch-button">
-            <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
-            <span className="max-w-28 truncate">{repo.target_branch_name}</span>
-            <ChevronDown className="h-3 w-3" aria-hidden="true" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="branch-info-branch-button"
+                aria-label={`目标分支：${repo.target_branch_name}`}
+              >
+                <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="max-w-28 truncate">
+                  {repo.target_branch_name}
+                </span>
+                <ChevronDown className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            目标分支：{repo.target_branch_name}
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenuContent align="start">
           <DropdownMenuItem
             onSelect={handleChangeTarget}

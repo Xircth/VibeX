@@ -30,14 +30,12 @@ export { attemptsApi } from './attempts';
 // Repos
 export { repoApi } from './repos';
 
-// Config, Settings, MCP, Profiles, Agent Settings, Settings Window
+// Config, Settings, MCP, Profiles, Settings Window
 export {
   configApi,
   claudeSettingsApi,
-  mcpServersApi,
   mcpMarketApi,
   profilesApi,
-  agentSettingsApi,
   versionControlApi,
   systemSettingsApi,
   backupApi,
@@ -48,13 +46,6 @@ export {
 } from './config';
 export type {
   ClaudeSettings,
-  AgentSettingInfo,
-  AgentInstallationBootstrap,
-  PreflightCheck,
-  PreflightFix,
-  PreflightResult,
-  RunAgentFixRequest,
-  AgentNativeFile,
   OpencodeModelsResponse,
   AppReleaseStatus,
   RuntimeStatus,
@@ -86,10 +77,7 @@ export type {
   ChatEventFilter,
   ChatCommandPrefix,
   ChatChannelTestResult,
-  AgentAvailabilityInfo,
   AgentCapability,
-  AgentMcpConfig,
-  GetMcpServerResponse,
   McpAppType,
   LocalMcpServer,
   McpMarketplaceProvider,
@@ -172,16 +160,11 @@ export type {
   AgentSendPromptRequest,
 } from '@/features/agents/api';
 export type {
-  AgentConfigSurface,
   AgentConnectionSnapshot,
   AgentEvent,
   AgentEventEnvelope,
-  AgentInstallPlan,
-  AgentMcpSurface,
   AgentPromptSnapshot,
-  AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionSnapshot,
-  AgentSkillsSurface,
   AgentType,
 } from '@/features/agents/types';

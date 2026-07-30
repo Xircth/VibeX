@@ -1,68 +1,56 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { AgentKind } from 'shared/types';
-import { agentSettingsApi } from '@/lib/api';
-import { agentsApi } from './api';
-import { baseCodingAgentFromAgentType } from './agentTypeMapping';
+import { useEffect, useState } from 'react';
+import type { AgentId, AgentManagementView } from 'shared/types';
+
+import { agentManagementApi } from '@/features/agent-management';
 
 export type SelectableAgent = {
-  agent: AgentKind;
-  /** The user has not disabled this agent in settings. */
+  agentId: AgentId;
+  displayName: string;
+  iconLight: string | null;
+  iconDark: string | null;
+  iconSvg: string | null;
   enabled: boolean;
-  /**
-   * Backend-verified local presence (login/config marker, PATH binary, or
-   * global npm package). Never inferred from the distribution kind.
-   */
-  installed: boolean;
-  /** Runtime prerequisites (node/uv) are satisfied, so installing can work. */
-  runtimeOk: boolean;
+  runnable: boolean;
 };
 
+function toSelectableAgent(agent: AgentManagementView): SelectableAgent {
+  return {
+    agentId: agent.agent_id,
+    displayName: agent.display_name,
+    iconLight: agent.icon_light,
+    iconDark: agent.icon_dark,
+    iconSvg: agent.icon_svg,
+    enabled: agent.enabled,
+    runnable:
+      agent.enabled &&
+      agent.lifecycle === 'ready' &&
+      agent.active_operation === null,
+  };
+}
+
 /**
- * Agents the user can pick for a session, sourced from the ACP agent registry
- * (the runtime that actually executes sessions) joined with per-agent settings
- * for enabled/installed state.
- *
- * Disabled agents are still returned so callers can decide how to present them;
- * the picker hides disabled ones and greys out enabled-but-not-installed ones
- * with an install affordance.
+ * The management projection is the sole source for session eligibility.
+ * It already joins membership, enabled state, verified local Runtime, ACP
+ * handshake and active operations, so selectors must not reconstruct those
+ * decisions from the public Registry or a closed built-in list.
  */
 export function useSelectableAgents(): SelectableAgent[] {
-  const { data: registry } = useQuery({
-    queryKey: ['agent-registry'],
-    queryFn: agentsApi.listRegistry,
-    staleTime: 5 * 60 * 1000,
-  });
-  const { data: settings } = useQuery({
-    queryKey: ['agent-settings'],
-    queryFn: agentSettingsApi.list,
-    staleTime: 60 * 1000,
-  });
+  const [agents, setAgents] = useState<SelectableAgent[]>([]);
 
-  const selectableAgents = useMemo(() => {
-    if (!registry) return [];
-    const settingByType = new Map(
-      (settings ?? []).map((setting) => [setting.agent_type, setting])
-    );
-    const seen = new Set<AgentKind>();
-    const result: SelectableAgent[] = [];
-    for (const entry of registry) {
-      const agent = baseCodingAgentFromAgentType(entry.agent_type);
-      if (!agent || seen.has(agent)) continue;
-      seen.add(agent);
-      const setting = settingByType.get(entry.agent_type);
-      result.push({
-        agent,
-        enabled: setting?.enabled ?? true,
-        installed: setting?.installed ?? false,
-        runtimeOk: setting?.runtime_ok ?? false,
+  useEffect(() => {
+    let active = true;
+    void agentManagementApi
+      .bar()
+      .then((rows) => {
+        if (active) setAgents(rows.map(toSelectableAgent));
+      })
+      .catch(() => {
+        if (active) setAgents([]);
       });
-    }
-    return result;
-  }, [registry, settings]);
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  // Catalog warming is deliberately owned by the application-startup and
-  // explicit runtime/config lifecycle paths. Starting it here would make
-  // opening an Agent selector silently spawn ACP on demand again.
-  return selectableAgents;
+  return agents;
 }

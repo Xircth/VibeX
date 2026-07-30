@@ -3,7 +3,7 @@
 //! `AgentEvent::DelegationStarted` / `DelegationCompleted`, which reach the
 //! frontend via the `agent-events` Tauri channel.
 
-use agents::registry::AgentKind;
+use agents::AgentId;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -15,7 +15,7 @@ pub struct DelegationStartedEvent {
     pub parent_connection_id: String,
     pub parent_tool_use_id: String,
     pub child_session_id: Uuid,
-    pub agent_type: AgentKind,
+    pub agent_type: AgentId,
     pub task_preview: String,
 }
 
@@ -25,7 +25,7 @@ pub struct DelegationCompletedEvent {
     pub parent_connection_id: String,
     pub parent_tool_use_id: String,
     pub child_session_id: Uuid,
-    pub agent_type: AgentKind,
+    pub agent_type: AgentId,
     pub outcome: DelegationOutcome,
 }
 

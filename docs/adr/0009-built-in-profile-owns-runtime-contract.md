@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0020
 ---
 
 # 内置 Agent 的兼容契约由 VibeX 档案掌握

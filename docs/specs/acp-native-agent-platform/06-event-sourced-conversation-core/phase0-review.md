@@ -5,7 +5,6 @@
 - `requirements.md`
 - `design.md`
 - `tasks.md`
-- `codeg-comparison-adoption.md`
 - `deletion-map.md`
 - `projection-fixtures.md`
 - `docs/specs/acp-native-agent-platform/README.md`
@@ -18,7 +17,7 @@ The spec now makes the breaking architecture explicit:
 
 - VibeX-owned conversation events are canonical.
 - Agent transcript files are import-only inputs.
-- Codeg is a runtime hardening reference, not the completed-history model.
+- Runtime state hardening remains separate from the completed-history model.
 - Old transcript detail loading, frontend transcript/live merging, legacy event
   folding, and provider runtime conversation adapters have explicit deletion or
   isolation targets.

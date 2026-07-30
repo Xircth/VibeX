@@ -64,7 +64,7 @@
 ## M3 companion（可与 M2 并行，经 proto 解耦）
 
 - [ ] **T3.1 `vibex-mcp` crate（stdio MCP server 骨架）**
-  - Acceptance：新 `[[bin]]` crate；解析 `--parent-connection-id/--socket-path/--token/--parent-pid/--features`；stdin 逐行 dispatch `initialize`/`tools/list`/`tools/call`/`notifications/cancelled`；`tool_schema.json`（移植 codeg 5 工具，agent_type enum 用 VibeX 序列化名）。
+  - Acceptance：新 `[[bin]]` crate；解析 `--parent-connection-id/--socket-path/--token/--parent-pid/--features`；stdin 逐行 dispatch `initialize`/`tools/list`/`tools/call`/`notifications/cancelled`；`tool_schema.json` 定义 5 个工具，agent_type enum 使用 VibeX 序列化名。
   - Verify：CLI 冒烟（管道喂 JSON-RPC：initialize 握手、tools/list 返回 5 工具）+ dispatch 单测。
   - Files：root `Cargo.toml`(member)、`crates/vibex-mcp/{Cargo.toml,src/main.rs,tool_schema.json}`（transport 复用 proto）。
 

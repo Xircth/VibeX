@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use api_types::AgentKind;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -12,9 +13,7 @@ use super::{
     ConversationParser, ParseContext, ParseError, claude::ClaudeParser, cline::ClineParser,
     codex::CodexParser, gemini::GeminiParser, openclaw::OpenClawParser,
 };
-use crate::{
-    conversation::ConversationDetail, history::default_history_sources, registry::AgentKind,
-};
+use crate::{conversation::ConversationDetail, history::default_history_sources};
 
 #[derive(Debug, Error)]
 pub enum LoaderError {

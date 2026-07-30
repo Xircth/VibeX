@@ -31,20 +31,20 @@ ACP process
 Realtime Tauri events and frontend optimistic state are performance features.
 They are not history truth.
 
-## Codeg Comparison Update
+## Runtime and History Boundary
 
-The implementation plan is now explicitly hybrid:
+The implementation separates durable history from live runtime state:
 
 ```text
 VibeX-owned event log and projector
   = canonical history, import/export source, cold-open source
 
-Codeg-style ACP runtime hardening
+ACP runtime hardening
   = live connection state, prompt serialization, event coverage, reconnect
     transport, renderer coverage reference
 ```
 
-Adopt Codeg's runtime mechanisms:
+The live runtime provides:
 
 - backend-owned session snapshot for active live state;
 - ACP event coverage for content, thinking, tools, permissions, questions,
@@ -55,15 +55,12 @@ Adopt Codeg's runtime mechanisms:
 - explicit `session/load` / `session/resume` / `session/new` recovery outcomes;
 - snapshot plus bounded recent-event replay for live subscribers.
 
-Reject Codeg's completed-history model:
+The completed-history model explicitly excludes:
 
 - no `external_id + agent_type` history ownership;
 - no transcript parser call from `conversation_detail`;
 - no frontend transcript/live merge authority;
 - no transcript-only portable export.
-
-See `codeg-comparison-adoption.md` for the reviewed source files and adoption
-matrix.
 
 ## Domain Model
 
@@ -335,7 +332,7 @@ Rules:
 
 - Events are append-only.
 - Tool call updates are keyed by `tool_call_id`.
-- Tool call updates preserve Codeg-equivalent fields: raw input, raw output,
+- Tool call updates preserve raw input, raw output,
   appended raw output, locations, metadata, images, and status.
 - Plan entries are replaced as a snapshot in ACP v1. The internal shape must be
   ready to switch to id-based updates later.
@@ -366,11 +363,10 @@ ConversationSessionService
 `src-tauri` commands call the service. `AgentRuntime` only handles ACP process
 and protocol concerns.
 
-### Codeg-Hardened Runtime Snapshot
+### Runtime Snapshot
 
 The service keeps a backend-owned runtime snapshot for each active conversation
-binding. This is modeled after Codeg's live `SessionState`, but it is not the
-conversation history source.
+binding. It is not the conversation history source.
 
 ```text
 ConversationRuntimeState
@@ -410,7 +406,7 @@ Rules:
 
 ### Prompt Serialization and Spawn Locks
 
-Adopt Codeg's protection around prompt sending:
+Prompt sending uses the following protections:
 
 - use a spawn lock keyed by agent type, working directory, and ACP session or
   conversation identity so concurrent UI actions cannot start duplicate Agent
@@ -580,7 +576,7 @@ pub struct ConversationEventEnvelope {
 }
 ```
 
-Live transport follows the Codeg pattern but with durable fallback:
+Live transport uses a bounded replay buffer with durable fallback:
 
 - each active conversation keeps a bounded recent-event buffer in runtime state;
 - each subscriber attaches by receiving a snapshot plus the current event
@@ -647,11 +643,10 @@ The first screen of a conversation is always a timeline:
 - usage/turn stats;
 - visible turn error.
 
-Use Codeg's renderer coverage as a checklist for edge cases: optimistic user
-turns, active tool calls, tool output append, delegation, permission, question,
-feedback, config stale state, and session load failure. The implementation must
-not reintroduce Codeg's frontend transcript/live merge authority; these cases
-arrive as backend-projected timeline rows.
+Renderer coverage includes optimistic user turns, active tool calls, tool output
+append, delegation, permission, question, feedback, config stale state, and
+session load failure. These cases arrive as backend-projected timeline rows;
+the frontend does not merge transcript history with live events.
 
 The styling follows the Tahoe/macOS design convergence already defined for the
 app: quiet native panels, compact controls, no marketing cards, no nested cards,
@@ -811,7 +806,6 @@ Docs:
 
 - `docs/specs/acp-native-agent-platform/README.md`
 - this phase's `requirements.md`, `design.md`, `tasks.md`
-- this phase's `codeg-comparison-adoption.md`
 - closure review documents after each implementation phase.
 
 ## Risks and Mitigations

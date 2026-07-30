@@ -1,33 +1,27 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Component, Path, PathBuf},
 };
 
 use agents::{
-    AgentAutoApproveMode, AgentAvailableCommand, AgentConfigSurface, AgentConnectionId,
-    AgentConnectionSnapshot, AgentContentBlock, AgentHistorySource, AgentInstallPlan, AgentKind,
-    AgentMcpConfig, AgentMcpSurface, AgentPermissionId, AgentPermissionResponse,
-    AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot, AgentRegistryEntry,
-    AgentRuntime, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
-    AgentSkillsSurface, AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput,
-    ConnectAgentInput, ImportedAgentSession, PlanUsageResult, RespondAgentPermissionInput,
-    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, all_agent_types,
-    claude_config_path, codex_config_path, config_surface, default_history_sources,
-    default_mcp_config_path, import_history_source, mcp_file_config, mcp_surface,
-    opencode_config_path, read_agent_mcp_config, registry_entry, skills_surface,
-    terminal::agent_terminal_registry, write_agent_mcp_config,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot,
+    AgentContentBlock, AgentManagementSnapshot, AgentPermissionId, AgentPermissionResponse,
+    AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot, AgentSessionControlsSnapshot,
+    AgentSessionId, AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot,
+    CancelAgentPromptInput, ConnectAgentInput, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, SessionGate, SessionGateInput,
+    SessionLaunchLock, terminal::agent_terminal_registry,
 };
+use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
-    agent_capability_catalog::AgentCapabilityCatalogRecord,
-    agent_setting::AgentSetting,
-    conversation_bundle::{ConversationImportRecord, InsertConversationImport},
-    workspace::Workspace,
+    agent_capability_catalog::AgentCapabilityCatalogRecord, workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -59,7 +53,7 @@ impl From<agents::AgentError> for AppError {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentConnectRequest {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: String,
     pub working_dir: String,
 }
@@ -74,7 +68,7 @@ pub struct AgentNewSessionRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPrepareSessionRequest {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: String,
     pub session_id: String,
 }
@@ -132,15 +126,8 @@ pub struct AgentSessionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentSetAutoApproveRequest {
-    pub agent_type: AgentKind,
-    pub auto_approve_mode: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentResumeSessionRequest {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: String,
     pub working_dir: String,
     pub session_id: String,
@@ -153,91 +140,62 @@ pub struct AgentTerminalSnapshotRequest {
     pub terminal_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentTypeRequest {
-    pub agent_type: AgentKind,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentHistoryImportRequest {
-    pub agent_type: AgentKind,
-    pub path: Option<String>,
-    pub workspace_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentConfigReadRequest {
-    pub agent_type: AgentKind,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentConfigWriteRequest {
-    pub agent_type: AgentKind,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMcpWriteRequest {
-    pub agent_type: AgentKind,
-    pub config: Value,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentConfigFileDto {
-    pub path: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMcpConfigDto {
-    pub path: String,
-    pub config: Value,
-    pub surface: AgentMcpConfig,
-}
-
-#[tauri::command]
-pub async fn agent_registry_list() -> Result<Vec<AgentRegistryEntry>, AppError> {
-    Ok(AgentRuntime::default().registry())
-}
-
 /// Read the matching persisted capability catalog. This command is deliberately
 /// side-effect free: opening a selector must never start an ACP process.
 #[tauri::command]
 pub async fn agent_capability_catalog(
     state: tauri::State<'_, AppState>,
-    agent_type: AgentKind,
+    agent_id: AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, AppError> {
-    read_matching_capability_catalog_for_pool(&state.deployment.db().pool, agent_type).await
+    let pool = &state.deployment.db().pool;
+    read_matching_open_capability_catalog_for_pool(pool, &agent_id).await
 }
 
-/// Read a catalog only when its persisted runtime/config fingerprint still
-/// matches the local installation. This is shared by every UI surface that
-/// needs session configuration, so no settings screen can accidentally grow a
-/// second, static model source or launch a bare runtime.
-pub(crate) async fn read_matching_capability_catalog_for_pool(
+async fn read_matching_open_capability_catalog_for_pool(
     pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
+    agent_id: &AgentId,
 ) -> Result<Option<AgentSessionControlsSnapshot>, AppError> {
-    let Some(fingerprint) = capability_catalog_fingerprint(pool, agent_type).await? else {
-        // A local executable changed since the catalog's identity was saved.
-        // The startup/preflight verifier will establish a new pair and warm a
-        // fresh row; never expose an older row during that gap.
-        return Ok(None);
+    let launch = match agent_runtime_launch_settings_from_pool(pool, agent_id).await {
+        Ok(launch) => launch,
+        Err(_) => return Ok(None),
     };
+    let fingerprint = open_capability_catalog_fingerprint(&launch.launch_lock)?;
     let Some(record) =
-        AgentCapabilityCatalogRecord::find_matching(pool, agent_type.as_str(), &fingerprint)
-            .await?
+        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint).await?
     else {
         return Ok(None);
     };
     Ok(serde_json::from_str(&record.controls_json).ok())
+}
+
+fn open_capability_catalog_fingerprint(
+    launch_lock: &SessionLaunchLock,
+) -> Result<String, AppError> {
+    let mut digest = Sha256::new();
+    digest.update(b"open-agent-capability-catalog-v1:");
+    digest.update(launch_lock.agent_id.as_str().as_bytes());
+    digest.update(b"\0");
+    digest.update(
+        launch_lock
+            .absolute_acp_program
+            .to_string_lossy()
+            .as_bytes(),
+    );
+    for argument in &launch_lock.args {
+        digest.update(b"\0arg:");
+        digest.update(argument.as_bytes());
+    }
+    for (key, value) in &launch_lock.env {
+        digest.update(b"\0env:");
+        digest.update(key.as_bytes());
+        digest.update(b"=");
+        digest.update(value.as_bytes());
+    }
+    digest.update(b"\0runtime:");
+    digest.update(launch_lock.runtime_version.as_bytes());
+    digest.update(b"\0acp:");
+    digest.update(launch_lock.acp_version.as_bytes());
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// The prompt-enhancement settings use the exact same persisted OpenCode
@@ -247,8 +205,8 @@ pub(crate) async fn read_matching_capability_catalog_for_pool(
 pub(crate) async fn opencode_capability_catalog_models(
     pool: &sqlx::SqlitePool,
 ) -> Result<Vec<String>, AppError> {
-    let Some(snapshot) =
-        read_matching_capability_catalog_for_pool(pool, AgentKind::Opencode).await?
+    let agent_id = AgentId::parse("opencode").expect("the built-in OpenCode id is a valid AgentId");
+    let Some(snapshot) = read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?
     else {
         return Ok(Vec::new());
     };
@@ -283,428 +241,43 @@ fn opencode_models_from_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<
 #[tauri::command]
 pub async fn agent_refresh_capability_catalog(
     state: tauri::State<'_, AppState>,
-    agent_type: AgentKind,
+    agent_id: AgentId,
 ) -> Result<bool, AppError> {
-    // The app window becomes interactive while startup runtime verification is
-    // still running. A create form can therefore request its first catalog
-    // before the verified runtime identity (part of the catalog fingerprint)
-    // has been persisted. Join that same process-wide bootstrap operation
-    // first; its OnceLock/mutex deduplicates the frontend and startup callers.
-    crate::commands::agent_settings::agent_bootstrap_installation_for_startup(
-        &state.deployment.db().pool,
-    )
-    .await?;
-    refresh_capability_catalog_for_pool(&state.deployment.db().pool, agent_type).await
-}
+    let pool = &state.deployment.db().pool;
+    let launch = agent_runtime_launch_settings_from_pool(pool, &agent_id).await?;
+    let fingerprint = open_capability_catalog_fingerprint(&launch.launch_lock)?;
+    let session_id = AgentSessionId(Uuid::new_v4());
+    let working_dir = std::env::temp_dir()
+        .join("vibex-agent-capability-probe")
+        .join(agent_id.as_str())
+        .join(session_id.to_string());
+    std::fs::create_dir_all(&working_dir).map_err(|error| {
+        AppError::Internal(format!(
+            "failed to create capability probe directory: {error}"
+        ))
+    })?;
 
-/// Lifecycle callers (startup reconciliation and in-app installer flows) use
-/// this pool-based variant so catalog work never needs to hold up Tauri setup
-/// or manufacture a `tauri::State` outside a command.
-pub(crate) async fn refresh_capability_catalog_for_pool(
-    pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
-) -> Result<bool, AppError> {
-    // An explicit refresh follows an install/update/config change. Do not let
-    // a prior failed (or obsolete) discovery result survive that lifecycle
-    // boundary for the rest of this app run.
-    invalidate_capability_probe(agent_type);
-    let probe = probed_session_controls(pool, agent_type).await;
-    let Some(snapshot) = probe.snapshot else {
-        return Ok(false);
-    };
-    persist_capability_catalog(pool, agent_type, &snapshot, probe.epoch).await
-}
-
-async fn capability_catalog_fingerprint(
-    pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
-) -> Result<Option<String>, AppError> {
-    let setting = AgentSetting::find_by_type(pool, agent_type.as_str()).await?;
-    // Resolve the persisted identity exactly once. Apart from avoiding a
-    // second manifest hash/PATH scan on every selector read, this prevents a
-    // file replacement between two validations from degrading a stale pair
-    // into a reusable `unverified` fingerprint.
-    let persisted_runtime_identity = setting.as_ref().map(|setting| {
-        crate::commands::agent_settings::persisted_runtime_catalog_identity(agent_type, setting)
-    });
-    if persisted_runtime_identity.as_ref().is_some_and(|identity| {
-        matches!(
-            identity,
-            crate::commands::agent_settings::PersistedRuntimeCatalogIdentity::Stale
-        )
-    }) {
-        // Do not turn a stale identity into a stable "unverified" key. A
-        // previous failed/warmup row under such a key could otherwise be read
-        // again after a later runtime update. The only safe action is to wait
-        // for lifecycle verification to replace the persisted identity.
-        return Ok(None);
-    }
-    let mut digest = Sha256::new();
-    digest.update(agent_type.as_str().as_bytes());
-    // A catalog belongs to the adapter build that produced it. Without this,
-    // a package upgrade can leave an old adapter's model list visible forever
-    // even though the current adapter advertises newer capabilities.
-    let entry = registry_entry(agent_type);
-    digest.update(serde_json::to_vec(&entry.distribution)?);
-    if let Some(setting) = setting.as_ref() {
-        // Hashing invalidates on account/config changes without persisting
-        // sensitive environment/config JSON alongside the catalog.
-        digest.update(
-            setting
-                .installed_version
-                .as_deref()
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-        digest.update(setting.env_json.as_deref().unwrap_or_default().as_bytes());
-        digest.update(
-            setting
-                .config_json
-                .as_deref()
-                .unwrap_or_default()
-                .as_bytes(),
-        );
-        digest.update(setting.auto_approve_mode.as_bytes());
-    }
-    append_local_runtime_identity(
-        &mut digest,
-        agent_type,
-        persisted_runtime_identity
-            .unwrap_or(crate::commands::agent_settings::PersistedRuntimeCatalogIdentity::Missing),
-    );
-    append_native_config_revision(&mut digest, agent_type);
-    Ok(Some(format!("{:x}", digest.finalize())))
-}
-
-/// Capabilities depend on both the ACP bridge and the exact CLI that bridge
-/// delegates to. A previously verified pair is persisted in `agent_setting`,
-/// allowing a fresh process to validate the catalog via SQLite + filesystem
-/// reads only. No selector read can spawn a version probe or ACP process.
-///
-/// If a persisted revision is stale, do *not* fall back to the in-memory
-/// cache: the previous catalog must remain hidden until startup/preflight
-/// verifies the replacement runtime. A cache fallback is allowed only for
-/// legacy rows that have no persisted identity yet, preserving the current
-/// process's startup warmup path during the migration rollout.
-fn append_local_runtime_identity(
-    digest: &mut Sha256,
-    agent_type: AgentKind,
-    persisted_runtime_identity: crate::commands::agent_settings::PersistedRuntimeCatalogIdentity,
-) {
-    use crate::commands::agent_settings::PersistedRuntimeCatalogIdentity;
-
-    digest.update(b"local-runtime-identity-v2:");
-    let identity = match persisted_runtime_identity {
-        PersistedRuntimeCatalogIdentity::Valid(identity) => Some(identity),
-        PersistedRuntimeCatalogIdentity::Stale => {
-            digest.update(b"unverified");
-            return;
-        }
-        PersistedRuntimeCatalogIdentity::Missing => {
-            crate::commands::agent_settings::cached_verified_local_agent_runtime_identity(
-                agent_type,
-            )
-        }
-    };
-
-    match identity {
-        Some(identity) => {
-            digest.update(identity.cli_path.to_string_lossy().as_bytes());
-            digest.update(b"\0");
-            digest.update(identity.cli_version.as_bytes());
-            digest.update(b"\0");
-            digest.update(identity.cli_revision.as_bytes());
-            digest.update(b"\0");
-            digest.update(identity.acp_path.to_string_lossy().as_bytes());
-            digest.update(b"\0");
-            digest.update(identity.acp_version.as_bytes());
-            digest.update(b"\0");
-            digest.update(identity.acp_revision.as_bytes());
-        }
-        None => digest.update(b"unverified"),
-    }
-}
-
-/// Native Agent config can change the controls an adapter advertises without
-/// touching VibeX's `agent_setting` row. In particular, OpenCode's provider
-/// file changes the models returned by `opencode models --verbose`. Fold a
-/// content hash into the catalog key so an external/provider-settings edit can
-/// never keep a free-model-only catalog alive. The file contents are not
-/// persisted or logged; only the enclosing catalog digest is stored.
-fn append_native_config_revision(digest: &mut Sha256, agent_type: AgentKind) {
-    let Some(path) = default_config_path(agent_type) else {
-        return;
-    };
-    digest.update(b"native-config-path:");
-    digest.update(path.to_string_lossy().as_bytes());
-    match std::fs::read(&path) {
-        Ok(contents) => {
-            digest.update(b"native-config-content:");
-            digest.update(contents);
-        }
-        Err(_) => digest.update(b"native-config-missing"),
-    }
-}
-
-async fn persist_capability_catalog(
-    pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
-    snapshot: &AgentSessionControlsSnapshot,
-    probe_epoch: u64,
-) -> Result<bool, AppError> {
-    // A CLI/ACP update may invalidate a probe while its throwaway session is
-    // completing. Never pair that old snapshot with the new runtime's
-    // fingerprint; the lifecycle refresh that advanced the epoch will probe
-    // again instead.
-    if !is_current_probe_epoch(agent_type, probe_epoch) {
-        return Ok(false);
-    }
-    let Some(fingerprint) = capability_catalog_fingerprint(pool, agent_type).await? else {
-        return Ok(false);
-    };
-    if !is_current_probe_epoch(agent_type, probe_epoch) {
-        return Ok(false);
-    }
-    let controls_json = serde_json::to_string(snapshot)?;
-    AgentCapabilityCatalogRecord::replace(pool, agent_type.as_str(), &fingerprint, &controls_json)
+    let prepared = state
+        .agent_runtime
+        .prepare_session(agents::EnsureAgentSessionInput {
+            agent_id: agent_id.clone(),
+            launch_lock: launch.launch_lock,
+            workspace_id: Uuid::new_v4(),
+            working_dir,
+            session_id,
+            acp_session_id: format!("vibex-capability-probe-{}", session_id),
+            auto_approve_mode: launch.auto_approve_mode,
+            env: launch.env,
+        })
         .await?;
-    Ok(is_current_probe_epoch(agent_type, probe_epoch))
-}
-
-/// Once-per-app-run cache of ACP discovery-probe results (success AND
-/// failure), so the create form never re-spawns an agent it already asked.
-/// Plain sync mutex: held only for map reads/writes, never across an await.
-#[derive(Clone)]
-struct CachedProbeResult {
-    epoch: u64,
-    snapshot: Option<AgentSessionControlsSnapshot>,
-}
-
-static PROBED_SESSION_CONTROLS: std::sync::OnceLock<
-    std::sync::Mutex<HashMap<AgentKind, CachedProbeResult>>,
-> = std::sync::OnceLock::new();
-
-/// Invalidation is a generation boundary, not merely cache deletion. A probe
-/// that began with an old local CLI may finish after a Runtime/ACP update; its
-/// result must not be cached or persisted under the new runtime identity.
-static CAPABILITY_PROBE_EPOCHS: std::sync::OnceLock<std::sync::Mutex<HashMap<AgentKind, u64>>> =
-    std::sync::OnceLock::new();
-
-/// Per-agent-type in-flight serialization for the discovery probe (reference
-/// pattern: codeg `probe_locks`). Rapid re-opens of the create form would
-/// otherwise fan out one real CLI process per query; the per-agent mutex
-/// bounds that to one, while different agents still probe in parallel.
-static PROBE_LOCKS: std::sync::OnceLock<
-    tokio::sync::Mutex<HashMap<AgentKind, std::sync::Arc<tokio::sync::Mutex<()>>>>,
-> = std::sync::OnceLock::new();
-
-fn current_probe_epoch(agent_type: AgentKind) -> u64 {
-    CAPABILITY_PROBE_EPOCHS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("probe epoch lock")
-        .get(&agent_type)
-        .copied()
-        .unwrap_or_default()
-}
-
-fn is_current_probe_epoch(agent_type: AgentKind, epoch: u64) -> bool {
-    current_probe_epoch(agent_type) == epoch
-}
-
-fn cached_probe_entry(agent_type: AgentKind) -> Option<CachedProbeResult> {
-    let epoch = current_probe_epoch(agent_type);
-    PROBED_SESSION_CONTROLS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("probe cache lock")
-        .get(&agent_type)
-        .filter(|cached| cached.epoch == epoch)
-        .cloned()
-}
-
-#[cfg(test)]
-fn cached_probe_result(agent_type: AgentKind) -> Option<Option<AgentSessionControlsSnapshot>> {
-    cached_probe_entry(agent_type).map(|cached| cached.snapshot)
-}
-
-/// Atomically publish a probe result only while its lifecycle epoch is still
-/// current. Both this helper and invalidation take the epoch lock before the
-/// cache lock, so an old probe can never reinsert itself after an update has
-/// cleared the cache.
-fn cache_probe_result_if_current(agent_type: AgentKind, result: CachedProbeResult) -> bool {
-    let epochs = CAPABILITY_PROBE_EPOCHS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("probe epoch lock");
-    if epochs.get(&agent_type).copied().unwrap_or_default() != result.epoch {
-        return false;
-    }
-    PROBED_SESSION_CONTROLS
-        .get_or_init(Default::default)
-        .lock()
-        .expect("probe cache lock")
-        .insert(agent_type, result);
-    true
-}
-
-/// Drop the in-memory result only. The persisted catalog is fingerprinted and
-/// deliberately remains available until a successful explicit refresh replaces
-/// it; callers use this after a local Runtime/ACP lifecycle change.
-pub(crate) fn invalidate_capability_probe(agent_type: AgentKind) {
-    {
-        let mut epochs = CAPABILITY_PROBE_EPOCHS
-            .get_or_init(Default::default)
-            .lock()
-            .expect("probe epoch lock");
-        let epoch = epochs.entry(agent_type).or_default();
-        *epoch = epoch.wrapping_add(1);
-    }
-    if let Some(cache) = PROBED_SESSION_CONTROLS.get() {
-        cache.lock().expect("probe cache lock").remove(&agent_type);
-    }
-}
-
-/// The agent's REAL advertised controls, obtained without any user-visible
-/// session: spawn → initialize → throwaway `session/new` in a scratch dir →
-/// capture (incl. follow-up `session/update` pushes) → kill (see
-/// `agents::probe`). Only agents verified locally present are probed — never
-/// triggering an npx download or poking an agent that cannot start
-/// (unauthenticated ones fail fast and are cached as such).
-async fn probed_session_controls(
-    pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
-) -> CachedProbeResult {
-    let entry = registry_entry(agent_type);
-    // The outer locks-map guard MUST drop before awaiting the per-agent lock,
-    // or a queued probe for one agent would block probes for every other.
-    let per_agent_lock = {
-        let mut locks = PROBE_LOCKS.get_or_init(Default::default).lock().await;
-        locks.entry(agent_type).or_default().clone()
-    };
-
-    loop {
-        if let Some(cached) = cached_probe_entry(agent_type) {
-            return cached;
-        }
-
-        // Not-installed is NOT negatively cached: the user can install
-        // mid-run and the presence check is cheap. It is still fenced by the
-        // epoch so a concurrent install retries instead of returning stale
-        // absence.
-        let readiness_epoch = current_probe_epoch(agent_type);
-        if !crate::commands::agent_settings::agent_local_state_for(&entry)
-            .await
-            .installed
-        {
-            if is_current_probe_epoch(agent_type, readiness_epoch) {
-                return CachedProbeResult {
-                    epoch: readiness_epoch,
-                    snapshot: None,
-                };
-            }
-            continue;
-        }
-
-        let _probe_guard = per_agent_lock.clone().lock_owned().await;
-        // Re-check after acquiring: a queued probe finds the winner's result.
-        if let Some(cached) = cached_probe_entry(agent_type) {
-            return cached;
-        }
-        let probe_epoch = current_probe_epoch(agent_type);
-
-        let env = match agent_runtime_launch_settings_from_pool(pool, agent_type).await {
-            Ok(settings) => settings.env,
-            Err(error) => {
-                tracing::info!(?agent_type, %error, "skipping capability probe: local runtime unavailable");
-                if is_current_probe_epoch(agent_type, probe_epoch) {
-                    return CachedProbeResult {
-                        epoch: probe_epoch,
-                        snapshot: None,
-                    };
-                }
-                continue;
-            }
-        };
-        let scratch = std::env::temp_dir()
-            .join("vibex-agent-probe")
-            .join(agent_type.as_str());
-        let _ = std::fs::create_dir_all(&scratch);
-
-        // Generous cap (reference: 60s) — some agents take ~10s just to answer
-        // initialize before session/new can even start.
-        let started_at = std::time::Instant::now();
-        let discovery = if agent_type == AgentKind::Opencode {
-            agents::probe::probe_opencode_session_controls(scratch, env).await
-        } else {
-            agents::probe::probe_session_controls(
-                &entry,
-                scratch,
-                env,
-                std::time::Duration::from_secs(60),
-            )
-            .await
-        };
-        let snapshot = match discovery {
-            Ok(snapshot) => Some(snapshot),
-            Err(error) => {
-                tracing::info!(
-                    ?agent_type,
-                    elapsed_ms = started_at.elapsed().as_millis(),
-                    %error,
-                    "capability catalog refresh failed"
-                );
-                None
-            }
-        };
-        if !is_current_probe_epoch(agent_type, probe_epoch) {
-            // Drop the lock on this loop iteration; the caller that advanced
-            // the epoch will get a fresh probe tied to the updated runtime.
-            continue;
-        }
-        if let Some(snapshot) = snapshot.as_ref() {
-            tracing::info!(
-                ?agent_type,
-                elapsed_ms = started_at.elapsed().as_millis(),
-                modes = snapshot.modes.len(),
-                config_options = snapshot.config_options.len(),
-                "capability catalog refreshed"
-            );
-        }
-        let result = CachedProbeResult {
-            epoch: probe_epoch,
-            snapshot,
-        };
-        if cache_probe_result_if_current(agent_type, result.clone()) {
-            return result;
-        }
-        // An invalidation won the race between the final epoch check and
-        // cache publication. Start again with the new local runtime.
-    }
-}
-
-#[tauri::command]
-pub async fn agent_config_surfaces() -> Result<Vec<AgentConfigSurface>, AppError> {
-    Ok(all_agent_types().into_iter().map(config_surface).collect())
-}
-
-#[tauri::command]
-pub async fn agent_mcp_surfaces() -> Result<Vec<AgentMcpSurface>, AppError> {
-    Ok(all_agent_types().into_iter().map(mcp_surface).collect())
-}
-
-#[tauri::command]
-pub async fn agent_skills_surfaces() -> Result<Vec<AgentSkillsSurface>, AppError> {
-    Ok(all_agent_types().into_iter().map(skills_surface).collect())
-}
-
-#[tauri::command]
-pub async fn agent_install_plans() -> Result<Vec<AgentInstallPlan>, AppError> {
-    Ok(all_agent_types()
-        .into_iter()
-        .map(registry_entry)
-        .map(|entry| AgentInstallPlan::from_registry_entry(&entry))
-        .collect())
+    let controls_json = serde_json::to_string(&prepared.controls)?;
+    AgentCapabilityCatalogRecord::replace(pool, agent_id.as_str(), &fingerprint, &controls_json)
+        .await?;
+    state
+        .agent_runtime
+        .discard_prepared_session(session_id)
+        .await?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -774,42 +347,17 @@ pub async fn agent_list_session_commands(
 }
 
 #[tauri::command]
-pub async fn agent_set_auto_approve(
-    state: tauri::State<'_, AppState>,
-    request: AgentSetAutoApproveRequest,
-) -> Result<(), AppError> {
-    validate_auto_approve_mode(&request.auto_approve_mode)?;
-    AgentSetting::update_preferences(
-        &state.deployment.db().pool,
-        request.agent_type.as_str(),
-        None,
-        None,
-        None,
-        Some(&request.auto_approve_mode),
-    )
-    .await
-    .map_err(|error| match error {
-        db::models::agent_setting::AgentSettingError::NotFound => {
-            AppError::NotFound(format!("Agent setting not found: {}", request.agent_type))
-        }
-        db::models::agent_setting::AgentSettingError::Database(error) => {
-            AppError::Internal(error.to_string())
-        }
-    })?;
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn agent_connect(
     state: tauri::State<'_, AppState>,
     request: AgentConnectRequest,
 ) -> Result<AgentConnectionSnapshot, AppError> {
     let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
-    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
     state
         .agent_runtime
         .connect(ConnectAgentInput {
-            agent_type: request.agent_type,
+            agent_id: request.agent_id,
+            launch_lock: launch_settings.launch_lock,
             workspace_id,
             working_dir: PathBuf::from(request.working_dir),
             auto_approve_mode: launch_settings.auto_approve_mode,
@@ -821,9 +369,9 @@ pub async fn agent_connect(
 
 async fn agent_runtime_launch_settings(
     state: &tauri::State<'_, AppState>,
-    agent_type: AgentKind,
+    agent_id: &AgentId,
 ) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
-    agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, agent_type).await
+    agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, agent_id).await
 }
 
 /// Pool-based variant of [`agent_runtime_launch_settings`] so non-command code
@@ -831,136 +379,160 @@ async fn agent_runtime_launch_settings(
 /// without a `tauri::State`.
 pub(crate) async fn agent_runtime_launch_settings_from_pool(
     pool: &sqlx::SqlitePool,
-    agent_type: AgentKind,
+    agent_id: &AgentId,
 ) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
-    let setting = AgentSetting::find_by_type(pool, agent_type.as_str()).await?;
-    let auto_approve_mode = setting
-        .as_ref()
-        .map(|setting| AgentAutoApproveMode::from_setting(&setting.auto_approve_mode))
-        .unwrap_or_default();
-    let mut env = parse_agent_env_json(
-        setting
-            .as_ref()
-            .and_then(|setting| setting.env_json.as_deref()),
-    )?;
-    if let Some(runtime) = agents::local_agent_runtime_spec(agent_type) {
-        let cli_verification =
-            crate::commands::agent_settings::verify_local_cli_runtime(agent_type).await;
-        if !cli_verification.is_supported() {
-            let path = cli_verification
-                .executable
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| runtime.cli_program.to_string());
-            let version = cli_verification
-                .version
-                .as_deref()
-                .unwrap_or("could not be verified");
-            let minimum = cli_verification
-                .minimum_supported_version
-                .as_deref()
-                .map(|version| format!(" (minimum supported version: {version})"))
-                .unwrap_or_default();
-            let detail = cli_verification
-                .probe_error
-                .as_deref()
-                .map(|error| format!(" {error}"))
-                .unwrap_or_default();
-            return Err(AppError::BadRequest(format!(
-                "local Agent runtime at {path} is unavailable or incompatible (detected: {version}){minimum}.{detail} Update it from Settings → Agent before creating a session."
-            )));
-        }
-        let cli_path = cli_verification
-            .executable
-            .as_ref()
-            .expect("supported local CLI verification has an executable path");
-        let acp_verification =
-            crate::commands::agent_settings::verify_local_acp_runtime(agent_type).await;
-        if !acp_verification.is_supported() {
-            let component = if runtime.cli_program == runtime.acp_program {
-                "local runtime ACP command"
-            } else {
-                "ACP adapter"
-            };
-            let path = acp_verification
-                .executable
-                .as_ref()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| runtime.acp_program.to_string());
-            let version = acp_verification
-                .version
-                .as_deref()
-                .unwrap_or("could not be verified");
-            let minimum = acp_verification
-                .minimum_supported_version
-                .as_deref()
-                .map(|version| format!(" (minimum supported version: {version})"))
-                .unwrap_or_default();
-            let detail = acp_verification
-                .probe_error
-                .as_deref()
-                .map(|error| format!(" {error}"))
-                .unwrap_or_default();
-            return Err(AppError::BadRequest(format!(
-                "{component} at {path} is unavailable or incompatible (detected: {version}){minimum}.{detail} Update it from Settings → Agent before creating a session."
-            )));
-        }
-        let acp_path = acp_verification
-            .executable
-            .as_ref()
-            .expect("supported local ACP verification has an executable path");
-        env.insert(
-            agents::ACP_EXECUTABLE_OVERRIDE_ENV.to_string(),
-            acp_path.display().to_string(),
-        );
-        if let Some(key) = runtime.cli_path_env {
-            env.insert(key.to_string(), cli_path.display().to_string());
-        }
+    #[derive(Deserialize, Default)]
+    struct LockedLaunchPayload {
+        absolute_acp_program: Option<PathBuf>,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: BTreeMap<String, String>,
+        runtime_version: Option<String>,
+        acp_version: Option<String>,
     }
+
+    let row = sqlx::query(
+        r#"SELECT membership.enabled,
+                  membership.retired,
+                  COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
+                  COALESCE(probe.authentication, 'not_logged_in') AS authentication,
+                  lock.resolved_json,
+                  lock.id
+           FROM agent_membership membership
+           LEFT JOIN agent_installation installation
+             ON installation.agent_id = membership.agent_id
+           LEFT JOIN agent_install_lock lock
+             ON lock.id = installation.current_lock_id
+           LEFT JOIN agent_probe probe
+             ON probe.agent_id = membership.agent_id
+           WHERE membership.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Agent `{agent_id}` has not been added")))?;
+
+    let lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
+    let authentication =
+        parse_management_authentication(row.try_get::<String, _>("authentication")?.as_str());
+    let snapshot = AgentManagementSnapshot {
+        agent_id: agent_id.clone(),
+        enabled: row.try_get("enabled")?,
+        lifecycle,
+        authentication,
+        required_components: Vec::new(),
+    };
+    let resolved_json = row
+        .try_get::<Option<String>, _>("resolved_json")?
+        .ok_or_else(|| {
+            AppError::BadRequest("Agent has no current Installation lock".to_string())
+        })?;
+    let payload: LockedLaunchPayload = serde_json::from_str(&resolved_json).map_err(|error| {
+        AppError::Internal(format!("invalid current Installation lock: {error}"))
+    })?;
+    let lock_id = row.try_get::<Option<String>, _>("id")?.ok_or_else(|| {
+        AppError::BadRequest("Agent has no current Installation lock".to_string())
+    })?;
+    let acp_component = sqlx::query(
+        r#"SELECT absolute_path, version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('acp', 'acp_adapter', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'acp' THEN 0 WHEN 'acp_adapter' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(&lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let runtime_component = sqlx::query(
+        r#"SELECT version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'runtime' THEN 0 WHEN 'agent_runtime' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(&lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let absolute_acp_program = match acp_component.as_ref() {
+        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
+        None => payload.absolute_acp_program.ok_or_else(|| {
+            AppError::Internal("Installation lock has no ACP component path".to_string())
+        })?,
+    };
+    let acp_version = match acp_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.acp_version.ok_or_else(|| {
+            AppError::Internal("Installation lock has no ACP version".to_string())
+        })?,
+    };
+    let runtime_version = match runtime_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.runtime_version.ok_or_else(|| {
+            AppError::Internal("Installation lock has no local Runtime version".to_string())
+        })?,
+    };
+    let current_lock = SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program,
+        args: payload.args,
+        env: payload.env,
+        runtime_version,
+        acp_version,
+    };
+    let authorization = SessionGate
+        .authorize(SessionGateInput {
+            snapshot,
+            current_lock: Some(current_lock),
+            requested_defaults: BTreeMap::new(),
+            advertised_option_ids: Vec::new(),
+            existing_binding: None,
+            explicit_rebind: false,
+        })
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+
+    let launch_lock = SessionLaunchLock {
+        agent_id: authorization.agent_id,
+        absolute_acp_program: authorization.absolute_acp_program,
+        args: authorization.args,
+        env: authorization.env,
+        runtime_version: authorization.runtime_version,
+        acp_version: authorization.acp_version,
+    };
     Ok(conversations::AgentRuntimeLaunchSettings {
-        auto_approve_mode,
-        env,
+        auto_approve_mode: AgentAutoApproveMode::Off,
+        env: HashMap::new(),
+        launch_lock,
     })
 }
 
-fn parse_agent_env_json(value: Option<&str>) -> Result<HashMap<String, String>, AppError> {
-    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
-        return Ok(HashMap::new());
-    };
-    let parsed: Value = serde_json::from_str(value)
-        .map_err(|error| AppError::BadRequest(format!("Invalid env JSON: {error}")))?;
-    let Some(object) = parsed.as_object() else {
-        return Err(AppError::BadRequest(
-            "Agent env JSON must be an object".to_string(),
-        ));
-    };
-
-    let mut env = HashMap::new();
-    for (key, value) in object {
-        if value.is_null() {
-            continue;
-        }
-        let Some(value) = value
-            .as_str()
-            .map(str::to_string)
-            .or_else(|| value.as_bool().map(|value| value.to_string()))
-            .or_else(|| value.as_number().map(|value| value.to_string()))
-        else {
-            return Err(AppError::BadRequest(format!(
-                "Agent env value for {key} must be a string, number, boolean, or null"
-            )));
-        };
-        env.insert(key.clone(), value);
+fn parse_management_lifecycle(value: &str) -> AgentLifecycleState {
+    match value {
+        "retired" => AgentLifecycleState::Retired,
+        "platform_unsupported" => AgentLifecycleState::PlatformUnsupported,
+        "queued" => AgentLifecycleState::Queued,
+        "installing" => AgentLifecycleState::Installing,
+        "updating" => AgentLifecycleState::Updating,
+        "repairing" => AgentLifecycleState::Repairing,
+        "needs_auth" => AgentLifecycleState::NeedsAuth,
+        "needs_config" => AgentLifecycleState::NeedsConfig,
+        "ready" => AgentLifecycleState::Ready,
+        "uninstalled" => AgentLifecycleState::Uninstalled,
+        _ => AgentLifecycleState::NeedsRepair,
     }
-    Ok(env)
 }
 
-fn validate_auto_approve_mode(mode: &str) -> Result<(), AppError> {
-    match mode {
-        "off" | "allow_always" | "yolo" => Ok(()),
-        mode => Err(AppError::BadRequest(format!(
-            "Unsupported auto approve mode: {mode}"
-        ))),
+fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
+    match value {
+        "account" => AgentAuthenticationStatus::Account,
+        "api_key" => AgentAuthenticationStatus::ApiKey,
+        "multiple_unknown" => AgentAuthenticationStatus::MultipleUnknown,
+        "not_required" => AgentAuthenticationStatus::NotRequired,
+        _ => AgentAuthenticationStatus::NotLoggedIn,
     }
 }
 
@@ -987,12 +559,13 @@ pub async fn agent_prepare_session(
         &repos,
     )
     .unwrap_or_else(|| container_ref.clone());
-    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
 
     state
         .agent_runtime
         .prepare_session(agents::EnsureAgentSessionInput {
-            agent_type: request.agent_type,
+            agent_id: request.agent_id,
+            launch_lock: launch_settings.launch_lock,
             workspace_id,
             working_dir: PathBuf::from(working_dir),
             session_id,
@@ -1070,11 +643,12 @@ pub async fn agent_resume_session(
     state: tauri::State<'_, AppState>,
     request: AgentResumeSessionRequest,
 ) -> Result<AgentSessionSnapshot, AppError> {
-    let launch_settings = agent_runtime_launch_settings(&state, request.agent_type).await?;
+    let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
     state
         .agent_runtime
         .resume_session(ResumeAgentSessionInput {
-            agent_type: request.agent_type,
+            agent_id: request.agent_id,
+            launch_lock: launch_settings.launch_lock,
             workspace_id: parse_uuid("workspace_id", &request.workspace_id)?,
             working_dir: PathBuf::from(request.working_dir),
             session_id: parse_agent_session_id(&request.session_id)?,
@@ -1091,10 +665,21 @@ pub async fn agent_send_prompt(
     state: tauri::State<'_, AppState>,
     request: AgentSendPromptRequest,
 ) -> Result<AgentPromptSnapshot, AppError> {
+    let connection_id = parse_agent_connection_id(&request.connection_id)?;
+    let connection = state
+        .agent_runtime
+        .snapshot()
+        .await
+        .connections
+        .into_iter()
+        .find(|connection| connection.id == connection_id)
+        .ok_or_else(|| AppError::NotFound(format!("Agent connection {connection_id} not found")))?;
+    agent_runtime_launch_settings_from_pool(&state.deployment.db().pool, &connection.agent_id)
+        .await?;
     state
         .agent_runtime
         .send_prompt(SendAgentPromptInput {
-            connection_id: parse_agent_connection_id(&request.connection_id)?,
+            connection_id,
             session_id: parse_agent_session_id(&request.session_id)?,
             blocks: text_prompt_blocks(request.text),
             mode_override: None,
@@ -1182,137 +767,6 @@ pub async fn agent_terminal_snapshot(
         .await)
 }
 
-#[tauri::command]
-pub async fn agent_history_sources(
-    request: AgentTypeRequest,
-) -> Result<Vec<AgentHistorySource>, AppError> {
-    Ok(default_history_sources(request.agent_type))
-}
-
-#[tauri::command]
-pub async fn agent_history_import(
-    state: tauri::State<'_, AppState>,
-    request: AgentHistoryImportRequest,
-) -> Result<Vec<ImportedAgentSession>, AppError> {
-    let workspace_id = request
-        .workspace_id
-        .as_deref()
-        .map(|id| parse_uuid("workspace_id", id))
-        .transpose()?;
-    let sources = match request.path {
-        Some(path) => vec![AgentHistorySource {
-            agent_type: request.agent_type,
-            path: PathBuf::from(path),
-        }],
-        None => default_history_sources(request.agent_type)
-            .into_iter()
-            .filter(|source| source.path.exists())
-            .collect(),
-    };
-
-    let mut imported = Vec::new();
-    for source in sources {
-        let sessions = import_history_source(&source).map_err(agent_history_error)?;
-        for session in &sessions {
-            persist_history_import(&state, session).await?;
-            if let Some(workspace_id) = workspace_id {
-                crate::commands::conversations::import_agent_session_to_conversation_events(
-                    &state.deployment.db().pool,
-                    workspace_id,
-                    session,
-                )
-                .await?;
-            }
-        }
-        imported.extend(sessions);
-    }
-    Ok(imported)
-}
-
-#[tauri::command]
-pub async fn agent_config_read(
-    request: AgentConfigReadRequest,
-) -> Result<Option<AgentConfigFileDto>, AppError> {
-    let Some(path) = default_config_path(request.agent_type) else {
-        return Ok(None);
-    };
-    let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-    Ok(Some(AgentConfigFileDto {
-        path: path.display().to_string(),
-        content,
-    }))
-}
-
-#[tauri::command]
-pub async fn agent_config_write(request: AgentConfigWriteRequest) -> Result<(), AppError> {
-    let path = default_config_path(request.agent_type).ok_or_else(|| {
-        AppError::NotFound(format!(
-            "No default config file is available for {:?}",
-            request.agent_type
-        ))
-    })?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| AppError::Internal(error.to_string()))?;
-    }
-    tokio::fs::write(path, request.content)
-        .await
-        .map_err(|error| AppError::Internal(error.to_string()))
-}
-
-#[tauri::command]
-pub async fn agent_mcp_list(
-    request: AgentTypeRequest,
-) -> Result<Option<AgentMcpConfigDto>, AppError> {
-    let Some(path) = default_mcp_config_path(request.agent_type) else {
-        return Ok(None);
-    };
-    let Some(surface) = mcp_file_config(request.agent_type) else {
-        return Ok(None);
-    };
-    let config = read_agent_mcp_config(&path, &surface)
-        .await
-        .map_err(AppError::from)?;
-    Ok(Some(AgentMcpConfigDto {
-        path: path.display().to_string(),
-        config,
-        surface,
-    }))
-}
-
-#[tauri::command]
-pub async fn agent_mcp_write(request: AgentMcpWriteRequest) -> Result<(), AppError> {
-    let path = default_mcp_config_path(request.agent_type).ok_or_else(|| {
-        AppError::NotFound(format!(
-            "No default MCP config file is available for {:?}",
-            request.agent_type
-        ))
-    })?;
-    let surface = mcp_file_config(request.agent_type).ok_or_else(|| {
-        AppError::NotFound(format!(
-            "No MCP config adapter is available for {:?}",
-            request.agent_type
-        ))
-    })?;
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|error| AppError::Internal(error.to_string()))?;
-    }
-    write_agent_mcp_config(&path, &surface, &request.config)
-        .await
-        .map_err(AppError::from)
-}
-
-/// Probe subscription plan usage for an agent. Runs outside the ACP runtime:
-/// Codex via a one-shot `codex app-server` call, Claude Code via the OAuth
-/// usage endpoint with locally stored CLI credentials.
-#[tauri::command]
-pub async fn agent_plan_usage(request: AgentTypeRequest) -> Result<PlanUsageResult, AppError> {
-    Ok(agents::plan_usage::probe_plan_usage(request.agent_type).await)
-}
-
 fn parse_uuid(label: &str, value: &str) -> Result<Uuid, AppError> {
     Uuid::parse_str(value).map_err(|_| AppError::BadRequest(format!("Invalid {label}: {value}")))
 }
@@ -1335,70 +789,6 @@ fn parse_agent_permission_id(value: &str) -> Result<AgentPermissionId, AppError>
 
 fn parse_agent_terminal_id(value: &str) -> Result<AgentTerminalId, AppError> {
     parse_uuid("terminal_id", value).map(AgentTerminalId)
-}
-
-async fn persist_history_import(
-    state: &tauri::State<'_, AppState>,
-    session: &ImportedAgentSession,
-) -> Result<(), AppError> {
-    // The `agent_history_imports` shadow table is retired (批次D); history-import
-    // metadata now lives in the canonical `conversation_imports` table. Title /
-    // workspace_path / message_count aren't columns there, but the full session is
-    // preserved in `raw_json`.
-    let raw_json =
-        serde_json::to_string(session).map_err(|error| AppError::Internal(error.to_string()))?;
-    let source_agent = serde_json::to_value(session.source_agent)
-        .map_err(|error| AppError::Internal(error.to_string()))?
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
-    let raw_source_path = session
-        .raw_source_path
-        .as_ref()
-        .and_then(|path| path.to_str())
-        .map(str::to_string);
-    ConversationImportRecord::insert(
-        &state.deployment.db().pool,
-        InsertConversationImport {
-            id: Uuid::new_v4(),
-            source: "agent_transcript",
-            source_agent: Some(&source_agent),
-            external_session_id: Some(&session.external_session_id),
-            bundle_version: None,
-            raw_source_path: raw_source_path.as_deref(),
-            imported_conversation_id: None,
-            raw_json: &raw_json,
-        },
-    )
-    .await?;
-    Ok(())
-}
-
-fn default_config_path(agent_type: AgentKind) -> Option<PathBuf> {
-    match agent_type {
-        AgentKind::ClaudeCode => claude_config_path(),
-        AgentKind::Codex => codex_config_path(),
-        AgentKind::Opencode => opencode_config_path(),
-        AgentKind::Gemini
-        | AgentKind::Openclaw
-        | AgentKind::Cline
-        | AgentKind::Hermes
-        | AgentKind::QaMock => None,
-    }
-}
-
-fn agent_history_error(error: agents::AgentHistoryError) -> AppError {
-    match error {
-        agents::AgentHistoryError::MissingSource(path) => AppError::NotFound(format!(
-            "Agent history source not found: {}",
-            path.display()
-        )),
-        agents::AgentHistoryError::Read { path, error }
-        | agents::AgentHistoryError::Parse { path, error } => AppError::Internal(format!(
-            "Failed to import agent history from {}: {error}",
-            path.display()
-        )),
-    }
 }
 
 fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
@@ -1504,43 +894,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_capability_refresh_can_clear_a_cached_probe_failure() {
-        let agent_type = AgentKind::QaMock;
-        let epoch = current_probe_epoch(agent_type);
-        assert!(cache_probe_result_if_current(
-            agent_type,
-            CachedProbeResult {
-                epoch,
-                snapshot: None,
-            },
-        ));
-
-        assert_eq!(cached_probe_result(agent_type), Some(None));
-        invalidate_capability_probe(agent_type);
-        assert_eq!(cached_probe_result(agent_type), None);
-        assert!(!is_current_probe_epoch(agent_type, epoch));
-    }
-
-    #[test]
-    fn stale_probe_cannot_repopulate_cache_after_runtime_invalidation() {
-        let agent_type = AgentKind::Gemini;
-        let stale_epoch = current_probe_epoch(agent_type);
-        invalidate_capability_probe(agent_type);
-
-        assert!(
-            !cache_probe_result_if_current(
-                agent_type,
-                CachedProbeResult {
-                    epoch: stale_epoch,
-                    snapshot: None,
-                },
-            ),
-            "a result from the old CLI/ACP epoch must be discarded"
-        );
-        assert_eq!(cached_probe_result(agent_type), None);
-    }
-
-    #[test]
     fn opencode_model_choices_come_only_from_the_persisted_catalog() {
         let snapshot = AgentSessionControlsSnapshot {
             modes: Vec::new(),
@@ -1610,40 +963,5 @@ mod tests {
         };
 
         assert!(opencode_models_from_catalog(&snapshot).is_empty());
-    }
-
-    #[test]
-    fn parse_agent_env_json_accepts_scalar_object_values() {
-        let env = parse_agent_env_json(Some(
-            r#"{
-                "STRING_VALUE": "value",
-                "NUMBER_VALUE": 42,
-                "BOOL_VALUE": true,
-                "NULL_VALUE": null
-            }"#,
-        ))
-        .unwrap();
-
-        assert_eq!(env.get("STRING_VALUE").map(String::as_str), Some("value"));
-        assert_eq!(env.get("NUMBER_VALUE").map(String::as_str), Some("42"));
-        assert_eq!(env.get("BOOL_VALUE").map(String::as_str), Some("true"));
-        assert!(!env.contains_key("NULL_VALUE"));
-    }
-
-    #[test]
-    fn parse_agent_env_json_rejects_non_object_root() {
-        let err = parse_agent_env_json(Some(r#"["HTTP_PROXY"]"#)).unwrap_err();
-
-        assert!(
-            matches!(err, AppError::BadRequest(message) if message == "Agent env JSON must be an object")
-        );
-    }
-
-    #[test]
-    fn parse_agent_env_json_rejects_nested_values() {
-        let err =
-            parse_agent_env_json(Some(r#"{"HTTP_PROXY": {"url": "http://proxy"}}"#)).unwrap_err();
-
-        assert!(matches!(err, AppError::BadRequest(message) if message.contains("HTTP_PROXY")));
     }
 }

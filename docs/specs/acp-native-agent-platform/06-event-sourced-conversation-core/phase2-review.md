@@ -14,7 +14,7 @@ Phase 2 is complete.
 The shared DTO layer now includes:
 
 - `ConversationEvent` and `ConversationEventEnvelope`;
-- Codeg-hardened event coverage for question, feedback, delegation,
+- Hardened event coverage for question, feedback, delegation,
   config-stale, prompt capability, fork support, session load failure, and
   visible errors;
 - `AcpCapabilitySnapshot` and `AgentPromptCapabilities`;
@@ -32,7 +32,7 @@ the new event/timeline DTOs in later phases.
 pnpm run generate-types
 pnpm run generate-types:check
 cargo test -p agents capability_snapshot
-cargo test -p agents conversation_event_round_trips_codeg_coverage_cases
+cargo test -p agents conversation_event_round_trips_coverage_cases
 rg -n "QuestionRequested|FeedbackRequested|DelegationStarted|SessionConfigStale|PromptCapabilitiesUpdated|ForkSupportUpdated|AgentBindingLoadFailed" crates/agents src-tauri shared/types.ts
 rg -n "ConversationEvent|ConversationTimeline|ConversationBundle" shared/types.ts frontend/src
 ```

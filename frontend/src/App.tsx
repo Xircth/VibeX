@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Minimize2, Power, X } from 'lucide-react';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
@@ -26,12 +25,9 @@ import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import {
-  agentSettingsApi,
   configApi,
-  type AgentInstallationBootstrap,
   type LocalToolStatus,
 } from '@/lib/api';
-import { AGENT_DISPLAY_NAMES } from '@/constants/agents';
 import { tauriListen } from '@/lib/tauriApi';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import {
@@ -170,12 +166,8 @@ function MainAppContent() {
   const { config, updateAndSaveConfig } = useUserSystem();
   const navigate = useNavigate();
   const location = useLocation();
-  const queryClient = useQueryClient();
   const maintenanceStartedRef = useRef(false);
   const crashPromptShownRef = useRef(false);
-  const agentBootstrapPromiseRef =
-    useRef<Promise<AgentInstallationBootstrap> | null>(null);
-  const agentBootstrapResultHandledRef = useRef(false);
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -184,73 +176,6 @@ function MainAppContent() {
   useUiPreferencesScratch();
 
   useLegacyDesignBodyClass();
-
-  // Reconcile local agent dependencies once per app session. The backend may
-  // install a missing ACP adapter only when its corresponding CLI is already
-  // present; missing CLIs always remain an explicit user decision in Settings.
-  useEffect(() => {
-    if (
-      getStartupPromptStep({ config, pathname: location.pathname }) !== 'none'
-    ) {
-      return;
-    }
-    let cancelled = false;
-
-    // Keep the actual backend operation shared across effect replays. In
-    // development StrictMode, React runs setup -> cleanup -> setup; a boolean
-    // "started" guard would otherwise cancel the only request and prevent the
-    // second setup from consuming its result.
-    if (!agentBootstrapPromiseRef.current) {
-      agentBootstrapPromiseRef.current = Promise.resolve().then(() =>
-        agentSettingsApi.bootstrapInstallation()
-      );
-    }
-    const bootstrapPromise = agentBootstrapPromiseRef.current;
-
-    void (async () => {
-      try {
-        const result = await bootstrapPromise;
-        if (cancelled || agentBootstrapResultHandledRef.current) return;
-        agentBootstrapResultHandledRef.current = true;
-        if (result.installedAcpAgents.length > 0) {
-          // Availability changes immediately after adapter verification.
-          // Session controls are discovered lazily by the first creation form
-          // and then reused from the fingerprinted catalog.
-          void queryClient.invalidateQueries({ queryKey: ['agent-settings'] });
-        }
-        // Optional *missing* Agents are not a startup error: a Codex user
-        // should not be prompted about every Runtime they chose not to
-        // install. However, a detected CLI whose ACP repair failed (or either
-        // installed component is incompatible) is actionable and must remain
-        // visible even when another Agent is usable.
-        const repairAgents = [
-          ...result.failedAcpAgents,
-          ...(result.incompatibleAcpAgents ?? []),
-          ...(result.incompatibleRuntimeAgents ?? []),
-        ];
-        const agents =
-          (result.usableAgents ?? []).length === 0
-            ? [...repairAgents, ...result.missingRuntimeAgents]
-            : repairAgents;
-        if (agents.length === 0) return;
-        const names = Array.from(
-          new Set(agents.map((agent) => AGENT_DISPLAY_NAMES[agent]))
-        ).join('、');
-        toast.warning(t('shell.agentRuntimeSetupRequired', { agents: names }), {
-          action: {
-            label: t('shell.openAgentSettings'),
-            onClick: () => navigate('/settings/agents'),
-          },
-        });
-      } catch (error) {
-        console.warn('agent runtime startup reconciliation failed:', error);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [config, location.pathname, navigate, queryClient, t]);
 
   useEffect(() => {
     const startupPromptStep = getStartupPromptStep({

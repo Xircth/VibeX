@@ -37,8 +37,8 @@ Each connection has:
 - event sink
 - cleanup guard
 
-This mirrors Codeg's approach: connection state is inserted before the async run
-task starts, and a cleanup guard removes the map entry on normal exit or panic.
+Connection state is inserted before the async run task starts, and a cleanup
+guard removes the map entry on normal exit or panic.
 
 ## Event Model
 
@@ -104,4 +104,3 @@ crates/agents must not depend on src-tauri
 ```
 
 The ACP protocol dependency belongs in `crates/agents`, not `crates/executors`.
-

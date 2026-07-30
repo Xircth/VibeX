@@ -19,7 +19,7 @@ use std::{
 };
 
 use agents::{
-    AgentEventEnvelope, AgentKind, AgentPermissionOption, RemotePermissionIntent,
+    AgentEventEnvelope, AgentPermissionOption, RemotePermissionIntent,
     conversation::{ConversationEvent, ConversationEventEnvelope},
     decide_remote_permission_response,
 };
@@ -1774,10 +1774,10 @@ async fn send_task(
         Ok(target) => target,
         Err(message) => return message,
     };
-    let Some(agent_type) = target
+    let Some(agent_id) = target
         .agent_type
         .as_deref()
-        .and_then(AgentKind::from_lenient)
+        .and_then(|value| agents::AgentId::parse(value).ok())
     else {
         return "该对话没有可用的 Agent 绑定。请先在桌面端对这个对话发送一次消息。".to_string();
     };
@@ -1790,7 +1790,7 @@ async fn send_task(
 
     let result = ConversationSessionService::new(state.conversation_context())
         .start_turn(ConversationStartTurnInput {
-            agent_type,
+            agent_id,
             workspace_id: target.workspace_id,
             conversation_id: target.id,
             executor_profile_id: None,

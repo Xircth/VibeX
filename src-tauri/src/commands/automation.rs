@@ -9,7 +9,6 @@
 
 use std::time::Duration;
 
-use agents::AgentKind;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use db::models::{
     automation::{Automation, AutomationInput, AutomationRun},
@@ -238,7 +237,7 @@ async fn launch(state: &AppState, automation: &Automation) -> Result<Uuid, AppEr
         .await?;
 
     let executor = automation.executor.clone().unwrap_or_default();
-    let agent_type = AgentKind::from_lenient(&executor).ok_or_else(|| {
+    let agent_id = agents::AgentId::parse(&executor).map_err(|_| {
         AppError::BadRequest(format!("automation has no valid executor: {executor:?}"))
     })?;
 
@@ -246,6 +245,7 @@ async fn launch(state: &AppState, automation: &Automation) -> Result<Uuid, AppEr
         pool,
         &CreateSession {
             executor: automation.executor.clone(),
+            agent_id: None,
             task_id: Some(workspace.task_id),
             name: Some(automation.name.clone()),
             initial_prompt: Some(automation.prompt.clone()),
@@ -258,7 +258,7 @@ async fn launch(state: &AppState, automation: &Automation) -> Result<Uuid, AppEr
 
     ConversationSessionService::new(state.conversation_context())
         .start_turn(ConversationStartTurnInput {
-            agent_type,
+            agent_id,
             workspace_id: workspace.id,
             conversation_id: session.id,
             executor_profile_id: None,

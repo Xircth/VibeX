@@ -56,7 +56,7 @@ function detail(): DbConversationDetail {
       title: 'Conversation',
       title_locked: false,
       status: 'inprogress',
-      agent_type: 'codex' as const,
+      agent_id: 'codex' as const,
       model: null,
       external_session_id: null,
       message_count: 0n,
@@ -268,7 +268,7 @@ describe('useConversationTimeline', () => {
       ...detail(),
       summary: {
         ...detail().summary,
-        agent_type: 'claude_code',
+        agent_id: 'claude_code',
         message_count: 0n,
       },
     });

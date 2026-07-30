@@ -5,18 +5,19 @@
 //! frontend renderer never has to branch on whether a turn is live. A turn is
 //! the atomic, role-homogeneous unit; its ordered `blocks` carry the content.
 //!
-//! Aligned to the codeg reference architecture (Apache-2.0); the Rust types
-//! here are VibeX-authored.
+//! The Rust types in this module are VibeX-authored for the event-sourced
+//! conversation architecture.
 
+use api_types::AgentKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
+    AgentId,
     events::{AgentAvailableCommand, AgentSessionConfigOption, AgentSessionMode},
     permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse},
-    registry::AgentKind,
 };
 
 /// Role of a conversation turn.
@@ -506,7 +507,7 @@ pub struct ConversationDelegation {
     pub delegation_id: String,
     pub parent_tool_call_id: String,
     pub child_conversation_id: Uuid,
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub task_preview: String,
 }
 
@@ -534,7 +535,7 @@ pub enum ConversationEvent {
         title: Option<String>,
     },
     AgentBindingStarted {
-        agent_type: AgentKind,
+        agent_id: AgentId,
         working_dir: String,
     },
     AgentBindingReady {
@@ -721,7 +722,7 @@ pub struct ConversationDelegationView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child_conversation_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_type: Option<AgentKind>,
+    pub agent_id: Option<AgentId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_preview: Option<String>,
     pub status: String,
@@ -935,7 +936,7 @@ mod event_sourced_tests {
     }
 
     #[test]
-    fn conversation_event_round_trips_codeg_coverage_cases() {
+    fn conversation_event_round_trips_coverage_cases() {
         let events = vec![
             ConversationEvent::QuestionRequested {
                 request: ConversationQuestionRequest {
@@ -956,7 +957,7 @@ mod event_sourced_tests {
                     delegation_id: "d1".to_string(),
                     parent_tool_call_id: "tool1".to_string(),
                     child_conversation_id: Uuid::new_v4(),
-                    agent_type: AgentKind::Codex,
+                    agent_id: AgentId::parse("codex").unwrap(),
                     task_preview: "child work".to_string(),
                 },
             },

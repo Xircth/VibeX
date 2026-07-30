@@ -25,7 +25,7 @@ src-tauri/src/delegation/  ← trait 具体实现（over AgentRuntime/db/Tauri�
 | `crates/delegation` | `DelegationBroker`、`listener`、5 个 trait（`ConnectionSpawner`/`DepthLookup`/`ChildStatusLookup`/`MetaWriter`/`EventEmitter`）、`DelegationRequest/Outcome/Error`、`depth` | delegation-proto, agents(仅 `AgentType`), tokio, uuid, thiserror, async-trait | db, tauri, src-tauri |
 | `crates/vibex-mcp` | companion stdio MCP server（`[[bin]]`）+ transport client | delegation-proto, tokio, serde_json, IPC(命名管道/UDS) | delegation, agents, db |
 
-> 理由：broker 纯逻辑、全 trait 解耦 → `cargo test -p delegation` 可脱离真实连接/DB 跑（沿用 codeg 测试套路）。companion 依赖最小 → sidecar 体积小、启动快、不被业务 crate 牵连。
+> 理由：broker 纯逻辑、全 trait 解耦 → `cargo test -p delegation` 可脱离真实连接/DB 跑。companion 依赖最小 → sidecar 体积小、启动快、不被业务 crate 牵连。
 
 ### A2（=Q2）stop_reason 映射：**容错归一化**
 - 来源：真实 turn = `format!("{:?}", acp::StopReason)`（PascalCase：`EndTurn`/`MaxTokens`/`MaxTurnRequests`/`Refusal`/`Cancelled`）；另有硬编码 `"end_turn"`/`"cancelled"`（[manager.rs](../../../crates/agents/src/manager.rs) 多处）。
@@ -57,7 +57,7 @@ DelegationCompleted{ parent_tool_use_id: String, child_session_id: AgentSessionI
 ## B. 组件清单（落地物）
 
 **新增**
-- crates：`delegation-proto`、`delegation`、`vibex-mcp`（含 `tool_schema.json`，移植 codeg 5 工具）。
+- crates：`delegation-proto`、`delegation`、`vibex-mcp`（含 5 个工具定义的 `tool_schema.json`）。
 - DB 迁移：`crates/db/migrations/<ts>_delegation_columns.sql`（sessions 加 `parent_session_id`/`parent_tool_use_id`/`delegation_call_id` + 索引）+ `session.rs` 模型/查询。
 - src-tauri：`src/delegation/{mod,spawner_impl,lookups,meta_emitter_impl,injection,commands}.rs`。
 - 前端：`frontend/src/features/delegation/`（context + 卡片 `DelegateToAgentToolCard` + 状态解析 + steering 作答/插话 UI）。
@@ -104,9 +104,9 @@ DelegationCompleted{ parent_tool_use_id: String, child_session_id: AgentSessionI
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | ACP `StopReason` 实际变体与假设不符 | 映射错误 → 委派结果误判 | M2 先写容错归一化 + `ChildUnknown` 兜底；M4 写 spawner 时 pin 一次实际变体 |
-| companion 与父进程生命周期 | 父崩溃留孤儿 companion | 移植 codeg `--parent-pid` 看门狗 + stdin EOF 退出 |
-| Windows 命名管道并发/重绑 | 连接间隙 `NotFound` | 移植 codeg「服务前先重绑下个实例」+ 客户端 200ms 重试 |
-| 并行关联键串卡 | 多委派 UI 错位 | 移植 `DelegationMatchKey(agent_type,task,working_dir)` + 单测覆盖 |
+| companion 与父进程生命周期 | 父崩溃留孤儿 companion | `--parent-pid` 看门狗 + stdin EOF 退出 |
+| Windows 命名管道并发/重绑 | 连接间隙 `NotFound` | 服务前先重绑下个实例 + 客户端 200ms 重试 |
+| 并行关联键串卡 | 多委派 UI 错位 | 使用 `DelegationMatchKey(agent_type,task,working_dir)` + 单测覆盖 |
 | 子 agent 长时间运行阻塞父 turn | 异步语义下父需轮询 | 工具 schema 已明确异步语义；`get_delegation_status` wait_ms 封顶 60s |
 | `session/new` 注入对非 ClaudeCode adapter 行为未知 | 越界报错 | v1 严格仅 ClaudeCode 注入；其它 agent 跳过 |
 | ts-rs bindings 生成链 | 类型不同步前端 | M1 起每次改 Rust 类型即跑 `generate_types`，纳入验证步骤 |

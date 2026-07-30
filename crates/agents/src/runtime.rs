@@ -13,11 +13,11 @@ use uuid::Uuid;
 use crate::{
     AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
     AgentConnectionManagerEvent, AgentContentBlock, AgentElicitationId, AgentElicitationResponse,
-    AgentError, AgentEvent, AgentEventEnvelope, AgentKind, AgentPermissionId,
-    AgentPermissionRequest, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
-    AgentPromptQueue, AgentPromptSnapshot, AgentPromptStatus, AgentRegistryEntry, AgentResult,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
-    AgentSessionStatus, QueueTransition, registry_entry,
+    AgentError, AgentEvent, AgentEventEnvelope, AgentId, AgentPermissionId, AgentPermissionRequest,
+    AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptQueue,
+    AgentPromptSnapshot, AgentPromptStatus, AgentResult, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot, AgentSessionStatus,
+    QueueTransition, SessionLaunchLock,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
 };
 
@@ -34,7 +34,8 @@ impl RuntimeEventSink for NoopEventSink {
 
 #[derive(Debug, Clone)]
 pub struct ConnectAgentInput {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
+    pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -73,7 +74,8 @@ pub struct RespondAgentElicitationInput {
 
 #[derive(Debug, Clone)]
 pub struct EnsureAgentSessionInput {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
+    pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
     pub session_id: AgentSessionId,
@@ -84,7 +86,8 @@ pub struct EnsureAgentSessionInput {
 
 #[derive(Debug, Clone)]
 pub struct ResumeAgentSessionInput {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
+    pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
     pub session_id: AgentSessionId,
@@ -97,7 +100,6 @@ pub struct ResumeAgentSessionInput {
 #[ts(export)]
 pub struct RuntimeSnapshot {
     pub sequence: i64,
-    pub registry: Vec<AgentRegistryEntry>,
     pub connections: Vec<AgentConnectionSnapshot>,
     pub sessions: Vec<AgentSessionSnapshot>,
     pub prompts: Vec<AgentPromptSnapshot>,
@@ -155,7 +157,7 @@ pub struct AgentRuntime {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct EnsureSessionKey {
-    agent_type: AgentKind,
+    agent_id: AgentId,
     working_dir: PathBuf,
     session_id: AgentSessionId,
 }
@@ -330,18 +332,10 @@ impl AgentRuntime {
             .install_delegation_injector(injector);
     }
 
-    pub fn registry(&self) -> Vec<AgentRegistryEntry> {
-        crate::registry::all_agent_types()
-            .into_iter()
-            .map(registry_entry)
-            .collect()
-    }
-
     pub async fn snapshot(&self) -> RuntimeSnapshot {
         let state = self.state.read().await;
         RuntimeSnapshot {
             sequence: state.sequence,
-            registry: self.registry(),
             connections: state
                 .connections
                 .values()
@@ -362,7 +356,7 @@ impl AgentRuntime {
         let now = Utc::now();
         let snapshot = AgentConnectionSnapshot {
             id: AgentConnectionId::new(),
-            agent_type: input.agent_type,
+            agent_id: input.agent_id,
             workspace_id: input.workspace_id,
             status: AgentConnectionStatus::Connecting,
             working_dir: input.working_dir.display().to_string(),
@@ -393,7 +387,8 @@ impl AgentRuntime {
             .connection_manager
             .register_connection(AgentConnectionLaunch {
                 connection_id: snapshot.id,
-                agent_type: snapshot.agent_type,
+                agent_id: snapshot.agent_id.clone(),
+                launch_lock: input.launch_lock,
                 workspace_id: snapshot.workspace_id,
                 working_dir: input.working_dir,
                 auto_approve_mode: input.auto_approve_mode,
@@ -521,7 +516,7 @@ impl AgentRuntime {
     ) -> AgentResult<AgentSessionSnapshot> {
         let session_lock = {
             let key = EnsureSessionKey {
-                agent_type: input.agent_type,
+                agent_id: input.agent_id.clone(),
                 working_dir: input.working_dir.clone(),
                 session_id: input.session_id,
             };
@@ -547,7 +542,7 @@ impl AgentRuntime {
                     .map(|connection| connection.snapshot.clone())
             };
             if let Some(connection) = connection
-                && connection.agent_type == input.agent_type
+                && connection.agent_id == input.agent_id
                 && connection.workspace_id == input.workspace_id
                 && connection.working_dir == input.working_dir.display().to_string()
                 && connection.status == AgentConnectionStatus::Ready
@@ -567,7 +562,7 @@ impl AgentRuntime {
                 .values()
                 .filter(|connection| {
                     connection.snapshot.status == AgentConnectionStatus::Ready
-                        && connection.snapshot.agent_type == input.agent_type
+                        && connection.snapshot.agent_id == input.agent_id
                         && connection.snapshot.workspace_id == input.workspace_id
                         && connection.snapshot.working_dir
                             == input.working_dir.display().to_string()
@@ -590,7 +585,8 @@ impl AgentRuntime {
             Some(connection_id) => connection_id,
             None => {
                 self.connect(ConnectAgentInput {
-                    agent_type: input.agent_type,
+                    agent_id: input.agent_id,
+                    launch_lock: input.launch_lock,
                     workspace_id: input.workspace_id,
                     working_dir: input.working_dir,
                     auto_approve_mode: input.auto_approve_mode,
@@ -741,7 +737,7 @@ impl AgentRuntime {
         &self,
         session_id: AgentSessionId,
         workspace_id: Uuid,
-        agent_type: AgentKind,
+        agent_id: AgentId,
     ) -> AgentResult<AgentSessionSnapshot> {
         let mut state = self.state.write().await;
         let session = state
@@ -763,7 +759,7 @@ impl AgentRuntime {
                 AgentError::ConnectionNotFound(session.snapshot.connection_id.to_string())
             })?;
         if connection.snapshot.workspace_id != workspace_id
-            || connection.snapshot.agent_type != agent_type
+            || connection.snapshot.agent_id != agent_id
         {
             return Err(AgentError::Runtime(format!(
                 "prepared session {session_id} does not match the selected Workspace and Agent"
@@ -800,7 +796,8 @@ impl AgentRuntime {
     ) -> AgentResult<AgentSessionSnapshot> {
         let session = self
             .ensure_session(EnsureAgentSessionInput {
-                agent_type: input.agent_type,
+                agent_id: input.agent_id,
+                launch_lock: input.launch_lock,
                 workspace_id: input.workspace_id,
                 working_dir: input.working_dir,
                 session_id: input.session_id,
@@ -1427,7 +1424,7 @@ fn is_connection_loss_during_session_preparation(error: &AgentError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Mutex, time::Duration};
+    use std::{collections::BTreeMap, sync::Mutex, time::Duration};
 
     use super::*;
     use crate::{
@@ -1445,17 +1442,28 @@ mod tests {
         }
     }
 
+    fn test_launch_lock() -> SessionLaunchLock {
+        SessionLaunchLock {
+            agent_id: AgentId::parse("codex").unwrap(),
+            absolute_acp_program: PathBuf::from("/tmp/vibex-test-acp"),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            runtime_version: "test-runtime".to_string(),
+            acp_version: "test-acp".to_string(),
+        }
+    }
+
     #[tokio::test]
-    async fn runtime_lists_registry_and_creates_connection_session_prompt() {
+    async fn runtime_creates_connection_session_prompt() {
         let sink = Arc::new(RecordingSink {
             events: Mutex::new(Vec::new()),
         });
         let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
 
-        assert_eq!(runtime.registry().len(), 7);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -1493,7 +1501,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -1559,7 +1568,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -1595,7 +1605,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -1780,7 +1791,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -1892,7 +1904,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2035,7 +2048,8 @@ mod tests {
         let working_dir = PathBuf::from("C:/work");
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: working_dir.clone(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2051,7 +2065,8 @@ mod tests {
         runtime.disconnect(connection.id).await.unwrap();
         let rebound = runtime
             .ensure_session(EnsureAgentSessionInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir,
                 session_id: session.id,
@@ -2085,7 +2100,8 @@ mod tests {
         let working_dir = PathBuf::from("C:/prepared-work");
 
         let prepare = |session_id| EnsureAgentSessionInput {
-            agent_type: AgentKind::Codex,
+            agent_id: AgentId::parse("codex").unwrap(),
+            launch_lock: test_launch_lock(),
             workspace_id,
             working_dir: working_dir.clone(),
             session_id,
@@ -2119,7 +2135,7 @@ mod tests {
             .await
             .unwrap();
         runtime
-            .claim_prepared_session(committed_id, workspace_id, AgentKind::Codex)
+            .claim_prepared_session(committed_id, workspace_id, AgentId::parse("codex").unwrap())
             .await
             .unwrap();
         runtime
@@ -2144,11 +2160,11 @@ mod tests {
         let raced_id = AgentSessionId::new();
         runtime.prepare_session(prepare(raced_id)).await.unwrap();
         runtime
-            .claim_prepared_session(raced_id, workspace_id, AgentKind::Codex)
+            .claim_prepared_session(raced_id, workspace_id, AgentId::parse("codex").unwrap())
             .await
             .unwrap();
         runtime
-            .claim_prepared_session(raced_id, workspace_id, AgentKind::Codex)
+            .claim_prepared_session(raced_id, workspace_id, AgentId::parse("codex").unwrap())
             .await
             .unwrap();
         runtime.discard_prepared_session(raced_id).await.unwrap();
@@ -2169,7 +2185,8 @@ mod tests {
         let workspace_id = Uuid::new_v4();
         let session_id = AgentSessionId::new();
         let input = EnsureAgentSessionInput {
-            agent_type: AgentKind::Codex,
+            agent_id: AgentId::parse("codex").unwrap(),
+            launch_lock: test_launch_lock(),
             workspace_id,
             working_dir: PathBuf::from("C:/prepared-reconnect"),
             session_id,
@@ -2225,7 +2242,8 @@ mod tests {
         let session_id = AgentSessionId::new();
         runtime
             .prepare_session(EnsureAgentSessionInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/prepared-controls"),
                 session_id,
@@ -2265,7 +2283,7 @@ mod tests {
             .controls
             .config_options = expected_options.clone();
         runtime
-            .claim_prepared_session(session_id, workspace_id, AgentKind::Codex)
+            .claim_prepared_session(session_id, workspace_id, AgentId::parse("codex").unwrap())
             .await
             .unwrap();
 
@@ -2313,7 +2331,8 @@ mod tests {
                 barrier.wait().await;
                 runtime
                     .ensure_session(EnsureAgentSessionInput {
-                        agent_type: AgentKind::Codex,
+                        agent_id: AgentId::parse("codex").unwrap(),
+                        launch_lock: test_launch_lock(),
                         workspace_id,
                         working_dir: PathBuf::from("C:/work"),
                         session_id,
@@ -2348,7 +2367,8 @@ mod tests {
 
         let resumed = runtime
             .resume_session(ResumeAgentSessionInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/work"),
                 session_id,
@@ -2383,7 +2403,8 @@ mod tests {
 
         let session = runtime
             .ensure_session(EnsureAgentSessionInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/work"),
                 session_id: local_session_id,
@@ -2404,7 +2425,8 @@ mod tests {
         let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2477,7 +2499,8 @@ mod tests {
     ) {
         let connection = runtime
             .connect(ConnectAgentInput {
-                agent_type: AgentKind::Codex,
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
                 auto_approve_mode: AgentAutoApproveMode::Off,

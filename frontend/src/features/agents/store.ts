@@ -4,7 +4,6 @@ import type {
   AgentEventEnvelope,
   AgentPermissionRequest,
   AgentPromptSnapshot,
-  AgentRegistryEntry,
   AgentRuntimeSnapshot,
   AgentSessionConfigOption,
   AgentSessionMode,
@@ -18,7 +17,6 @@ export type AgentSessionModesState = {
 };
 
 export type AgentWorkbenchState = {
-  registry: Record<string, AgentRegistryEntry>;
   connections: Record<string, AgentConnectionSnapshot>;
   sessions: Record<string, AgentSessionSnapshot>;
   prompts: Record<string, AgentPromptSnapshot>;
@@ -35,7 +33,6 @@ export type AgentWorkbenchState = {
 
 export function emptyAgentWorkbenchState(): AgentWorkbenchState {
   return {
-    registry: {},
     connections: {},
     sessions: {},
     prompts: {},
@@ -55,9 +52,6 @@ export function stateFromAgentSnapshot(
   snapshot: AgentRuntimeSnapshot
 ): AgentWorkbenchState {
   const snapshotEntities = {
-    registry: Object.fromEntries(
-      snapshot.registry.map((entry) => [entry.registry_id, entry])
-    ),
     connections: Object.fromEntries(
       snapshot.connections.map((connection) => [connection.id, connection])
     ),
@@ -110,7 +104,6 @@ export function reduceAgentEvent(
   }
 
   const next: AgentWorkbenchState = {
-    registry: state.registry,
     connections: state.connections,
     sessions: state.sessions,
     prompts: state.prompts,

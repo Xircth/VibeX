@@ -1,11 +1,10 @@
 import { memo, useId, type FunctionComponent } from 'react';
 import { Bot } from 'lucide-react';
 
-import type { AgentType } from '@/features/agents/types';
 import { cn } from '@/lib/utils';
 
 interface AgentTypeIconProps {
-  agentType: AgentType;
+  agentType: string;
   className?: string;
 }
 
@@ -48,6 +47,26 @@ const OpenCodeMonoIcon = memo(function OpenCodeMonoIcon({
     >
       <title>OpenCode</title>
       <path d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
+    </svg>
+  );
+});
+
+const PiMonoIcon = memo(function PiMonoIcon({ size = '1em' }: IconProps) {
+  return (
+    <svg
+      fill="none"
+      height={size}
+      style={baseSvgStyle}
+      viewBox="0 0 16 16"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <title>Pi</title>
+      <path
+        d="M1 1h10.769v7H8.18v3.5H4.59V15H1V1Zm3.59 3.5V8h3.59V4.5H4.59Z"
+        fill="currentColor"
+      />
+      <path d="M11.769 7.462H15V15h-3.231V7.462Z" fill="currentColor" />
     </svg>
   );
 });
@@ -261,15 +280,16 @@ const HermesMonoIcon = memo(function HermesMonoIcon({
 
 type AnyIcon = FunctionComponent<IconProps>;
 
-const COLOR_ICONS: Partial<Record<AgentType, AnyIcon>> = {
+const COLOR_ICONS: Partial<Record<string, AnyIcon>> = {
   claude_code: ClaudeCodeColorIcon,
   codex: CodexColorIcon,
   gemini: GeminiCliColorIcon,
   openclaw: OpenClawColorIcon,
 };
 
-const MONO_ICONS: Partial<Record<AgentType, AnyIcon>> = {
+const MONO_ICONS: Partial<Record<string, AnyIcon>> = {
   opencode: OpenCodeMonoIcon,
+  pi: PiMonoIcon,
   cline: ClineMonoIcon,
   hermes: HermesMonoIcon,
 };

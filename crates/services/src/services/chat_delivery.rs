@@ -136,7 +136,7 @@ pub fn build_rich(event: &AgentEvent, include_prompt_text: bool) -> RichMessage 
             .level(MsgLevel::Error),
         AgentEvent::ConnectionStatusChanged { snapshot } => RichMessage::info(format!(
             "{:?} 连接状态变更为 {:?}",
-            snapshot.agent_type, snapshot.status
+            snapshot.agent_id, snapshot.status
         ))
         .with_title("🔌 连接状态"),
         AgentEvent::SessionCreated { snapshot } => RichMessage::info("新的会话已创建。")

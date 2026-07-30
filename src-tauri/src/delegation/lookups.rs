@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use agents::{AgentKind, ids::AgentConnectionId, runtime::AgentRuntime};
+use agents::{ids::AgentConnectionId, runtime::AgentRuntime};
 use async_trait::async_trait;
 use db::models::session::{Session, SessionStatus};
 use delegation::{
@@ -43,10 +43,7 @@ impl ChildStatusLookup for DbChildStatusLookup {
         Some(ChildStatusRecord {
             child_session_id: session.id,
             status: map_status(&session.status),
-            agent_type: session
-                .agent_type
-                .as_deref()
-                .and_then(AgentKind::from_lenient),
+            agent_type: session.agent_id,
         })
     }
 }

@@ -1,7 +1,7 @@
 //! The broker's gateway to the agent runtime. Implemented in `src-tauri` over
 //! `AgentRuntime` + the DB; mocked in broker unit tests.
 
-use agents::registry::AgentKind;
+use agents::AgentId;
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -28,7 +28,7 @@ pub trait ConnectionSpawner: Send + Sync {
     async fn spawn(
         &self,
         parent_connection_id: &str,
-        agent_type: AgentKind,
+        agent_type: AgentId,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError>;
 
@@ -58,7 +58,11 @@ mod tests {
     async fn mock_spawner_records_spawn_and_returns_handle() {
         let spawner = MockSpawner::new();
         let handle = spawner
-            .spawn("parent-conn", AgentKind::Codex, Some("/tmp".to_string()))
+            .spawn(
+                "parent-conn",
+                AgentId::parse("codex").unwrap(),
+                Some("/tmp".to_string()),
+            )
             .await
             .expect("spawn");
         assert_eq!(handle, "child-conn");
@@ -66,7 +70,7 @@ mod tests {
         let calls = spawner.calls.lock().unwrap();
         assert_eq!(calls.spawned.len(), 1);
         assert_eq!(calls.spawned[0].0, "parent-conn");
-        assert_eq!(calls.spawned[0].1, AgentKind::Codex);
+        assert_eq!(calls.spawned[0].1, AgentId::parse("codex").unwrap());
         assert_eq!(calls.spawned[0].2.as_deref(), Some("/tmp"));
     }
 
@@ -75,7 +79,7 @@ mod tests {
         let mut spawner = MockSpawner::new();
         spawner.spawn_error = Some("boom".to_string());
         let err = spawner
-            .spawn("parent-conn", AgentKind::ClaudeCode, None)
+            .spawn("parent-conn", AgentId::parse("claude_code").unwrap(), None)
             .await
             .expect_err("should fail");
         assert!(matches!(err, SpawnerError::Spawn(_)));

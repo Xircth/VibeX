@@ -4,7 +4,7 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentElicitationResponse, AgentKind, AgentPermissionResponse, AgentSessionConfigOption,
+    AgentElicitationResponse, AgentId, AgentPermissionResponse, AgentSessionConfigOption,
     AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
     ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
@@ -100,7 +100,7 @@ pub struct ConversationCurrentTurn {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationStartTurnRequest {
-    pub agent_type: AgentKind,
+    pub agent_id: AgentId,
     pub workspace_id: String,
     pub conversation_id: String,
     #[serde(default)]
@@ -442,7 +442,7 @@ pub async fn conversation_start_turn(
     let service = ConversationSessionService::new(state.conversation_context());
     let result = service
         .start_turn(ConversationStartTurnInput {
-            agent_type: request.agent_type,
+            agent_id: request.agent_id,
             workspace_id,
             conversation_id,
             executor_profile_id: request.executor_profile_id,
@@ -755,7 +755,7 @@ pub async fn conversation_import(
 /// continuing the fork keeps the pre-fork context. If ACP fork is unavailable,
 /// the fork is a context-free copy that cold-starts on the next turn.
 ///
-/// Forks from the CURRENT state (like codeg's real fork), not a past turn:
+/// Forks from the CURRENT state, not a past turn:
 /// truncating the copy would desync the visible history from the agent context.
 #[tauri::command]
 pub async fn conversation_fork(
@@ -783,7 +783,7 @@ pub async fn conversation_fork(
     let _ = DbConversationSummary::set_title(pool, new_id, &format!("{base}（分叉）")).await;
 
     // Best-effort ACP fork: branch the agent's live context into the new session.
-    if let Some(agent_type) = summary.agent_type.as_deref() {
+    if let Some(agent_id) = summary.agent_id.as_ref() {
         match state
             .agent_runtime
             .fork_session(AgentSessionId(source_id))
@@ -794,7 +794,7 @@ pub async fn conversation_fork(
                     pool,
                     new_id,
                     &forked_external_id,
-                    agent_type,
+                    agent_id,
                 )
                 .await
                 {
@@ -819,10 +819,12 @@ pub async fn conversation_fork(
                     Uuid::new_v4(),
                     CreateConversationAgentBinding {
                         conversation_id: new_id,
-                        agent_type,
+                        agent_id,
                         working_dir: &working_dir,
                         acp_session_id: Some(&forked_external_id),
                         acp_protocol_version: None,
+                        runtime_version: None,
+                        acp_version: None,
                         load_supported: true,
                         resume_supported: true,
                         close_supported: true,
@@ -949,7 +951,7 @@ async fn active_binding_for_conversation(
 
     Ok(Some(ConversationActiveBinding {
         id: binding.id,
-        agent_type: binding.agent_type,
+        agent_type: binding.agent_id.into_string(),
         working_dir: binding.working_dir,
         acp_session_id: binding.acp_session_id,
         status: binding.status,
@@ -1029,12 +1031,13 @@ pub async fn import_agent_session_to_conversation_events(
     )
     .await?;
 
-    let agent_key = session.source_agent.as_str();
+    let agent_id = agents::AgentId::parse(session.source_agent.as_str())
+        .expect("imported AgentKind values are valid AgentIds");
     DbConversationSummary::bind_external_id(
         pool,
         conversation_id,
         &session.external_session_id,
-        agent_key,
+        &agent_id,
     )
     .await?;
     DbConversationSummary::update_cached_agent_metadata(
@@ -1055,10 +1058,12 @@ pub async fn import_agent_session_to_conversation_events(
         Uuid::new_v4(),
         CreateConversationAgentBinding {
             conversation_id,
-            agent_type: agent_key,
+            agent_id: &agent_id,
             working_dir: &working_dir,
             acp_session_id: Some(&session.external_session_id),
             acp_protocol_version: None,
+            runtime_version: None,
+            acp_version: None,
             load_supported: false,
             resume_supported: false,
             close_supported: false,
@@ -1095,7 +1100,8 @@ pub async fn import_agent_session_to_conversation_events(
         None,
         Some(binding.id),
         ConversationEvent::AgentBindingStarted {
-            agent_type: session.source_agent,
+            agent_id: agents::AgentId::parse(session.source_agent.as_str())
+                .expect("imported AgentKind values are valid AgentIds"),
             working_dir: working_dir.clone(),
         },
         session,

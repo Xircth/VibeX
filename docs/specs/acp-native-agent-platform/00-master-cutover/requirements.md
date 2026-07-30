@@ -15,9 +15,8 @@ native-provider code.
 ## Assumptions
 
 1. ACP is the only live protocol for coding agents in the new architecture.
-2. Codeg is the reference implementation for registry shape, distribution
-   variants, connection lifecycle, and history parser separation.
-3. VibeX may reuse Codeg source where license obligations are preserved.
+2. Registry shape, distribution variants, connection lifecycle, and history
+   parser separation follow the contracts defined in this spec set.
 4. Existing VibeX workspace, Git, file tree, preview, project rail, and settings
    shell remain product infrastructure, but no longer own coding-agent runtime
    state.
@@ -84,7 +83,7 @@ native-provider code.
 ## Boundaries
 
 - Always: treat ACP session state as the live agent source of truth.
-- Always: preserve upstream license notices for copied Codeg code.
+- Always: preserve upstream license notices for copied third-party code.
 - Always: make deletion of old runtime paths part of the same architectural
   change.
 - Always: keep non-agent infrastructure available to the new runtime through
@@ -105,4 +104,3 @@ native-provider code.
 4. Old agent runtime modules are deleted or compile-unreachable.
 5. A full verification pass proves no product command still calls the removed
    runtime.
-

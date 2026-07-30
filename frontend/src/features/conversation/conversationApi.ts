@@ -4,7 +4,7 @@ import type {
   AgentPermissionResponse,
   AgentSessionConfigOverride,
   AgentSessionControlsSnapshot,
-  AgentKind,
+  AgentId,
   ConversationRowPage,
   ConversationBundlePayload,
   ConversationExportResult,
@@ -18,7 +18,7 @@ import type {
 } from 'shared/types';
 
 export type ConversationStartTurnRequest = {
-  agentType: AgentKind;
+  agentId: AgentId;
   workspaceId: string;
   conversationId: string;
   executorProfileId?: ExecutorProfileId | null;

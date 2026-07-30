@@ -2,9 +2,8 @@
 
 ## Intent
 
-Replace VibeX's current agent execution architecture with an ACP-native agent
-platform modeled after Codeg's agent layer. This is a big-bang replacement, not a
-compatibility migration.
+Replace VibeX's current agent execution architecture with a single ACP-native
+agent platform. This is a big-bang replacement, not a compatibility migration.
 
 ## Non-Negotiable Direction
 
@@ -29,7 +28,7 @@ compatibility migration.
   rules.
 - `01-agents-crate-runtime/`: new `crates/agents` runtime, ACP connection model,
   event stream, queue, cancellation, permissions, terminal, filesystem.
-- `02-registry-install-history/`: Codeg-style agent registry, installation,
+- `02-registry-install-history/`: data-driven agent registry, installation,
   config/auth detection, MCP, skills, and history import.
 - `03-tauri-api-storage/`: new Tauri command surface, event transport, database
   ownership, generated types.
@@ -40,26 +39,16 @@ compatibility migration.
 - `06-event-sourced-conversation-core/`: breaking refactor that makes VibeX's
   own conversation event log the canonical history source for ACP sessions,
   replacing Agent transcript re-parse as the live rendering path and adding
-  projection, filesChanged, capability gating, import/export planning, and a
-  Codeg runtime adoption matrix.
+  projection, filesChanged, capability gating, and import/export planning.
+- `07-open-agent-registry-management/`: replaces the closed seven-Agent settings
+  model with the ACP Registry, managed local Runtime installations, Built-in
+  Profiles, evidence-based migration, and the settings Agent bar / Registry UI.
 
-## Source References
+## Architecture Basis
 
-The target design is informed by Codeg's public implementation:
+The registry is data-driven, with distribution variants such as `Npx`, `Binary`,
+and `Uvx`. Runtime connection state is owned by an ACP connection manager with
+command channels, prompt locking, cleanup guards, and typed frontend events.
 
-- Agent registry lists Claude Code, Codex, Gemini, OpenClaw, OpenCode, Cline, and
-  Hermes as ACP agents.
-- Agent metadata uses distribution variants such as `Npx`, `Binary`, and `Uvx`.
-- Runtime connection state is owned by an ACP connection manager with command
-  channels, prompt locking, connection state, cleanup guards, and frontend event
-  emission.
-
-Phase 06 narrows this reference: Codeg's ACP runtime patterns are adopted for
-connection/session hardening, but Codeg's transcript-backed completed-history
-model is rejected. VibeX conversation history must be rebuilt from VibeX-owned
-events. Agent transcript files are import-only inputs, not live conversation
-detail sources.
-
-When copying source, preserve upstream license notices and attribution. If a file
-is substantially copied, include the Codeg origin and license header in the new
-file or crate-level NOTICE.
+VibeX conversation history is rebuilt from VibeX-owned events. Agent transcript
+files are import-only inputs, not live conversation detail sources.

@@ -11,21 +11,6 @@ describe('agent workbench store', () => {
   it('hydrates from runtime snapshot', () => {
     const snapshot: AgentRuntimeSnapshot = {
       sequence: 4,
-      registry: [
-        {
-          agent_type: 'codex' as const,
-          registry_id: 'codex-acp',
-          name: 'Codex CLI',
-          description: 'ACP adapter',
-          distribution: {
-            kind: 'binary',
-            version: '0.16.0',
-            cmd: 'codex-acp',
-            args: [],
-            platforms: [],
-          },
-        },
-      ],
       connections: [],
       sessions: [],
       prompts: [],
@@ -35,7 +20,6 @@ describe('agent workbench store', () => {
 
     const state = stateFromAgentSnapshot(snapshot);
 
-    expect(state.registry['codex-acp']?.name).toBe('Codex CLI');
     expect(state.lastSequence).toBe(4);
   });
 
@@ -46,7 +30,6 @@ describe('agent workbench store', () => {
     };
     const snapshot: AgentRuntimeSnapshot = {
       sequence: 9,
-      registry: [],
       connections: [],
       sessions: [],
       prompts: [],
@@ -192,7 +175,6 @@ describe('agent workbench store', () => {
     };
     const snapshot: AgentRuntimeSnapshot = {
       sequence: 3,
-      registry: [],
       connections: [],
       sessions: [],
       prompts: [],
@@ -211,7 +193,6 @@ describe('agent workbench store', () => {
   it('hydrates pending permissions from runtime snapshot', () => {
     const snapshot: AgentRuntimeSnapshot = {
       sequence: 5,
-      registry: [],
       connections: [],
       sessions: [],
       prompts: [],

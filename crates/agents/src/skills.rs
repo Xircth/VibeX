@@ -567,7 +567,7 @@ pub async fn delete_agent_skill(
 // backed by skills.sh. Installing shells out to the `skills` CLI
 // (`npx skills add`) into a staging dir, then mirrors the skill — via symlink
 // or file copy — into the chosen targets. "全局" hosting records the skill in
-// ~/.vibex/skills and mirrors it into all seven agents.
+// ~/.vibex/skills and mirrors it into every locally supported Agent adapter.
 // ===========================================================================
 
 #[derive(Debug, Clone, Serialize)]
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn skills_surface_is_registry_wide() {
-        let surfaces = crate::all_agent_types()
+        let surfaces = ALL_AGENTS
             .into_iter()
             .map(skills_surface)
             .collect::<Vec<_>>();

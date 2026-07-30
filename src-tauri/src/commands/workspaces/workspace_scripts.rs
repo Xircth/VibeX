@@ -92,6 +92,7 @@ pub async fn start_workspace_dev_server(
                 pool,
                 &CreateSession {
                     executor: Some("dev-server".to_string()),
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -185,6 +186,7 @@ pub async fn gh_cli_setup(
                 pool,
                 &CreateSession {
                     executor: Some("gh-cli".to_string()),
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -316,6 +318,7 @@ pub async fn run_setup_script(
                 pool,
                 &CreateSession {
                     executor: None,
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -399,6 +402,7 @@ pub async fn run_cleanup_script(
                 pool,
                 &CreateSession {
                     executor: None,
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,
@@ -482,6 +486,7 @@ pub async fn run_archive_script(
                 pool,
                 &CreateSession {
                     executor: None,
+                    agent_id: None,
                     task_id: None,
                     name: None,
                     initial_prompt: None,

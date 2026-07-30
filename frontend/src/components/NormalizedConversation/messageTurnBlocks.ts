@@ -1,7 +1,7 @@
 import type { ContentBlock, ImageData, PlanEntry } from 'shared/types';
 
 /**
- * Render planning for a unified-timeline `MessageTurn` (codeg-aligned model).
+ * Render planning for a unified-timeline `MessageTurn`.
  *
  * Turns a turn's `ContentBlock[]` into a flat, render-ready item list: a
  * `tool_use` block is paired with its matching `tool_result` (by `tool_use_id`)

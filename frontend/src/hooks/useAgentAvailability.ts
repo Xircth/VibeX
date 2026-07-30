@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AgentKind } from 'shared/types';
-import { configApi } from '../lib/api';
+import type { AgentId } from 'shared/types';
+
+import { agentManagementApi } from '@/features/agent-management';
 
 export type AgentAvailabilityState =
   | { status: 'checking' }
@@ -11,12 +12,11 @@ export type AgentAvailabilityState =
 
 export interface AgentAvailability {
   availability: AgentAvailabilityState;
-  /** Re-run the availability probe (e.g. after a quick fix was applied). */
   recheck: () => void;
 }
 
 export function useAgentAvailability(
-  agent: AgentKind | null | undefined
+  agent: AgentId | null | undefined
 ): AgentAvailability {
   const [availability, setAvailability] =
     useState<AgentAvailabilityState>(null);
@@ -28,34 +28,34 @@ export function useAgentAvailability(
       return;
     }
 
-    let cancelled = false;
-    const checkAvailability = async () => {
-      setAvailability({ status: 'checking' });
-      try {
-        const info = await configApi.checkAgentAvailability(agent);
-        if (cancelled) return;
-
-        // Map backend enum to frontend state
-        switch (info.type) {
-          case 'LOGIN_DETECTED':
-            setAvailability({ status: 'login_detected' });
-            break;
-          case 'INSTALLATION_FOUND':
-            setAvailability({ status: 'installation_found' });
-            break;
-          case 'NOT_FOUND':
-            setAvailability({ status: 'not_found' });
-            break;
+    let active = true;
+    setAvailability({ status: 'checking' });
+    void agentManagementApi
+      .detail(agent)
+      .then((view) => {
+        if (!active) return;
+        if (view.lifecycle === 'ready') {
+          setAvailability(
+            view.authentication === 'not_logged_in'
+              ? { status: 'installation_found' }
+              : { status: 'login_detected' }
+          );
+        } else if (
+          view.lifecycle === 'needs_auth' ||
+          view.runtime_version ||
+          view.acp_version
+        ) {
+          setAvailability({ status: 'installation_found' });
+        } else {
+          setAvailability({ status: 'not_found' });
         }
-      } catch (error) {
-        console.error('Failed to check agent availability:', error);
-        if (!cancelled) setAvailability(null);
-      }
-    };
+      })
+      .catch(() => {
+        if (active) setAvailability({ status: 'not_found' });
+      });
 
-    void checkAvailability();
     return () => {
-      cancelled = true;
+      active = false;
     };
   }, [agent, probeToken]);
 

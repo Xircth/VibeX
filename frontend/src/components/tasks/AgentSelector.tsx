@@ -9,8 +9,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ExecutorProfileId, AgentKind } from 'shared/types';
-import { AgentIcon, getAgentName } from '@/components/agents/AgentIcon';
+import type { ExecutorProfileId } from 'shared/types';
+import { AgentIcon } from '@/components/agents/AgentIcon';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { settingsWindowApi } from '@/lib/api';
 
@@ -36,22 +36,17 @@ export function AgentSelector({
   const { t } = useTranslation(['tasks', 'common']);
   const selectable = useSelectableAgents();
   const agents = useMemo(() => {
-    // The backend's local-runtime gate is authoritative. Do not temporarily
-    // promote profile-configured agents to "installed" while its query is in
-    // flight: that used to let a user select a runtime that cannot create an
-    // ACP session.
-    const installedByAgent = new Map<AgentKind, boolean>();
-    for (const item of selectable) {
-      if (item.enabled) installedByAgent.set(item.agent, item.installed);
-    }
-    return Array.from(installedByAgent.entries())
-      .map(([agent, installed]) => ({ agent, installed }))
-      .sort((a, b) => a.agent.localeCompare(b.agent));
+    return selectable
+      .filter((agent) => agent.enabled)
+      .sort((left, right) =>
+        left.displayName.localeCompare(right.displayName)
+      );
   }, [selectable]);
   const selectedAgent = selectedExecutorProfile?.executor;
-  const selectedAgentLabel = selectedAgent
-    ? getAgentName(selectedAgent)
-    : 'Agent';
+  const selectedAgentLabel =
+    agents.find((agent) => agent.agentId === selectedAgent)?.displayName ??
+    selectedAgent ??
+    'Agent';
 
   if (!profiles) return null;
 
@@ -98,30 +93,30 @@ export function AgentSelector({
               {t('agentSelector.noAgentsAvailable')}
             </div>
           ) : (
-            agents.map(({ agent, installed }) =>
-              installed ? (
+            agents.map(({ agentId, displayName, runnable }) =>
+              runnable ? (
                 <DropdownMenuItem
-                  key={agent}
+                  key={agentId}
                   onSelect={() => {
-                    onChange({ executor: agent, variant: null });
+                    onChange({ executor: agentId, variant: null });
                   }}
-                  className={selectedAgent === agent ? 'bg-accent' : ''}
+                  className={selectedAgent === agentId ? 'bg-accent' : ''}
                 >
                   <span className="flex items-center gap-2">
-                    <AgentIcon agent={agent} className="h-3.5 w-3.5" />
-                    {getAgentName(agent)}
+                    <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
+                    {displayName}
                   </span>
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem
-                  key={agent}
+                  key={agentId}
                   disabled
                   className="justify-between"
                   title={t('agentSelector.notInstalledHint')}
                 >
                   <span className="flex items-center gap-2">
-                    <AgentIcon agent={agent} className="h-3.5 w-3.5" />
-                    {getAgentName(agent)}
+                    <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
+                    {displayName}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
                     {t('agentSelector.notInstalled')}

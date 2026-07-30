@@ -373,7 +373,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     <div
       className="flex h-full w-full flex-col bg-background"
       data-panel="preview"
-      onMouseDown={handleMouseDown}
+      onMouseDownCapture={handleMouseDown}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border bg-background px-2 py-1 text-xs">
         <div

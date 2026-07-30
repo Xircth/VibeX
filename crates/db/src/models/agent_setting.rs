@@ -1,20 +1,6 @@
-use api_types::AgentKind;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use thiserror::Error;
-
-/// Default per-agent settings rows. Keyed by [`AgentKind`] (not raw strings) so a
-/// non-canonical seed key cannot compile: the registry IPC serializes canonical
-/// keys and settings rows are joined against them by string equality.
-pub const DEFAULT_AGENT_SETTINGS: [(AgentKind, i32); 7] = [
-    (AgentKind::ClaudeCode, 0),
-    (AgentKind::Codex, 1),
-    (AgentKind::Opencode, 2),
-    (AgentKind::Gemini, 3),
-    (AgentKind::Openclaw, 4),
-    (AgentKind::Cline, 5),
-    (AgentKind::Hermes, 6),
-];
 
 #[derive(Debug, Error)]
 pub enum AgentSettingError {
@@ -61,24 +47,8 @@ pub struct PersistedAgentRuntimeIdentity {
 }
 
 impl AgentSetting {
-    pub async fn ensure_defaults(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-        for (agent_type, sort_order) in DEFAULT_AGENT_SETTINGS {
-            sqlx::query(
-                r#"INSERT OR IGNORE INTO agent_setting (agent_type, sort_order)
-                   VALUES ($1, $2)"#,
-            )
-            .bind(agent_type.as_str())
-            .bind(sort_order)
-            .execute(pool)
-            .await?;
-        }
-
-        Ok(())
-    }
-
     /// List all agent settings ordered by sort_order.
     pub async fn list_all(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
-        Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
                       env_json, config_json, auto_approve_mode,
@@ -97,7 +67,6 @@ impl AgentSetting {
         pool: &SqlitePool,
         agent_type: &str,
     ) -> Result<Option<Self>, sqlx::Error> {
-        Self::ensure_defaults(pool).await?;
         sqlx::query_as::<_, AgentSetting>(
             r#"SELECT id, agent_type, enabled, sort_order, installed_version,
                       env_json, config_json, auto_approve_mode,
@@ -184,7 +153,6 @@ impl AgentSetting {
         agent_type: &str,
         version: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        Self::ensure_defaults(pool).await?;
         sqlx::query(
             r#"UPDATE agent_setting
                SET installed_version = $1, updated_at = datetime('now')
@@ -206,7 +174,6 @@ impl AgentSetting {
         agent_type: &str,
         identity: Option<&PersistedAgentRuntimeIdentity>,
     ) -> Result<(), sqlx::Error> {
-        Self::ensure_defaults(pool).await?;
         sqlx::query(
             r#"UPDATE agent_setting
                SET runtime_cli_path = $1,
@@ -282,6 +249,25 @@ mod tests {
         .execute(&pool)
         .await
         .expect("create table");
+        for (position, agent_id) in [
+            "claude_code",
+            "codex",
+            "opencode",
+            "gemini",
+            "openclaw",
+            "cline",
+            "hermes",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sqlx::query("INSERT INTO agent_setting (agent_type, sort_order) VALUES (?, ?)")
+                .bind(agent_id)
+                .bind(position as i64)
+                .execute(&pool)
+                .await
+                .expect("insert explicit legacy fixture row");
+        }
         pool
     }
 
@@ -299,79 +285,6 @@ mod tests {
             .await
             .expect("run migrations");
         pool
-    }
-
-    #[tokio::test]
-    async fn list_all_backfills_missing_default_agent_rows() {
-        let pool = setup_pool().await;
-
-        let rows = AgentSetting::list_all(&pool).await.expect("list rows");
-        let agent_types = rows
-            .iter()
-            .map(|row| row.agent_type.as_str())
-            .collect::<Vec<_>>();
-        let sort_orders = rows.iter().map(|row| row.sort_order).collect::<Vec<_>>();
-
-        assert_eq!(
-            agent_types,
-            vec![
-                "claude_code",
-                "codex",
-                "opencode",
-                "gemini",
-                "openclaw",
-                "cline",
-                "hermes"
-            ]
-        );
-        assert_eq!(sort_orders, vec![0, 1, 2, 3, 4, 5, 6]);
-    }
-
-    #[tokio::test]
-    async fn seeded_rows_join_agent_kind_canonical_keys() {
-        // The registry IPC serializes `AgentKind` canonical keys; settings rows are
-        // joined against them by string equality in the frontend. Every seeded key
-        // must therefore BE a canonical key — a lenient-parse round-trip is not
-        // enough (`open_code` parses fine but never joins).
-        let pool = setup_pool().await;
-
-        let rows = AgentSetting::list_all(&pool).await.expect("list rows");
-        for row in rows {
-            let kind = api_types::AgentKind::from_lenient(&row.agent_type)
-                .unwrap_or_else(|| panic!("seed key {:?} must parse", row.agent_type));
-            assert_eq!(
-                kind.as_str(),
-                row.agent_type,
-                "seed key {:?} must be the canonical AgentKind key so registry↔setting joins hold",
-                row.agent_type
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn find_by_type_backfills_defaults_before_lookup() {
-        let pool = setup_pool().await;
-
-        let row = AgentSetting::find_by_type(&pool, "codex")
-            .await
-            .expect("lookup")
-            .expect("codex row");
-
-        assert_eq!(row.agent_type, "codex");
-    }
-
-    #[tokio::test]
-    async fn find_by_type_backfills_new_acp_agent_rows() {
-        let pool = setup_pool().await;
-
-        for agent_type in ["gemini", "openclaw", "cline", "hermes"] {
-            let row = AgentSetting::find_by_type(&pool, agent_type)
-                .await
-                .expect("lookup")
-                .expect("default row");
-
-            assert_eq!(row.agent_type, agent_type);
-        }
     }
 
     #[tokio::test]

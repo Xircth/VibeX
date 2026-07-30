@@ -10,14 +10,16 @@ use serde::{Deserialize, Deserializer};
 // 批次D2 / ADR-0002: the issue-tracker / notification / pull-request / user /
 // project-status modules were the "junk drawer" dead code in this leaf crate — zero
 // references anywhere in the workspace. Removed alongside introducing `AgentKind`.
+pub mod agent_id;
 pub mod agent_kind;
-pub mod agent_setting;
+pub mod agent_management;
 pub mod project;
 pub mod tag;
 pub mod workspace;
 
+pub use agent_id::*;
 pub use agent_kind::*;
-pub use agent_setting::*;
+pub use agent_management::*;
 pub use project::*;
 pub use tag::*;
 pub use workspace::*;

@@ -2,7 +2,7 @@
 
 Fork 产生一个**完全独立**的新 Conversation：把父会话的事件日志复制到分叉点（写入新会话自己的 sequence 空间与幂等键域），亲子关系只作为展示元数据保留（`forked_from_conversation_id` + `fork_point_turn`），不参与任何读写路径。父会话存在在途 turn 时拒绝 fork（不复制半成品 turn）。agent 侧上下文按 Session resume 语义接入：支持 `session/load` 的 agent 恢复到分叉点上下文，不支持者以导入语义冷启动并向用户明示。
 
-决定于 2026-07-04 的对抗性审查会（codeg-vs-vibex 差距计划，P1-4）。
+决定于 2026-07-04 的会话能力对抗性审查。
 
 ## 2026-07-06 更新：ACP `session/fork` 实为可用，应作为首选
 
@@ -10,10 +10,10 @@ Fork 产生一个**完全独立**的新 Conversation：把父会话的事件日�
 `agent-client-protocol` v0.11.1 **提供** `session/fork`（`ForkSessionRequest`/
 `ForkSessionResponse`，`impl_jsonrpc_request!(... "session/fork")`），只是被 crate
 feature `unstable_session_fork` 门控（当前只启用了 `unstable`）；且 `AgentCapabilities.fork:
-Option<SessionForkCapabilities>` 允许**从 initialize 响应动态探测**某 agent 是否支持——
-这正是 codeg 的做法（`session_capabilities.fork.is_some()` 门控真实 fork）。
+Option<SessionForkCapabilities>` 允许**从 initialize 响应动态探测**某 agent 是否支持，
+可通过 `session_capabilities.fork.is_some()` 门控真实 fork。
 
-因此**首选方案修正为**（与 codeg 对齐）：当 agent 广告了 fork 能力时，发 `ForkSessionRequest`
+因此**首选方案修正为**：当 agent 广告了 fork 能力时，发 `ForkSessionRequest`
 让 agent **在服务端真正分叉出保留上下文的新会话 S2**，VibeX 侧再建兄弟 Conversation
 （其可见历史仍按下述"复制事件到分叉点"填充，并绑定到 S2 的 external_session_id）。
 这样 fork 后**继续对话时 agent 保有分叉前上下文**，克服了本 ADR 原方案"agent 冷启动、

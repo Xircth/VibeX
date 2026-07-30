@@ -62,6 +62,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
   - **Cancelled（取消）** — 用户主动请求停止。
   - **Interrupted（中断）** — 宿主进程在 turn 运行期间死亡（崩溃/强杀/重启），生成过程无法恢复。与 Failed 不同：不是 agent 的错误；与 Cancelled 不同：不是用户的意图。中断的 turn 只能由用户手动重试，绝不自动重发（agent 崩溃前可能已产生副作用）。
 - **Session resume（会话恢复）** — 将会话的上下文重载进一个新拉起的 agent 进程。恢复的是**上下文**，永远不是在途 turn 的生成过程。是否可恢复取决于 agent 的能力位。
+- **Session rebind（会话重绑定）** — 旧 Agent session 无法继续加载时，经用户确认后为既有 Conversation 建立新的冷启动 Agent session；VibeX 历史保持不变，Agent 侧隐藏上下文不连续，后续交接内容由用户明确控制。
 - **Recovery（启动恢复）** — 宿主启动时对上一次进程生命周期遗留状态的协调：将孤立的在途 turn 判定为 Interrupted，使会话回到可发起新 turn 的状态。
 - **Event log（事件日志）** — 会话的权威、仅追加的历史记录。会话的一切状态都是事件的推论。
 - **Projection（投影）** — 从事件日志折叠出的派生读模型。投影永远可以从事件重建，本身不是权威。
@@ -83,24 +84,43 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Agent domain
 
-- **Agent kind（agent 身份）** — agent 的稳定身份标识（claude_code、codex、opencode…），全系统唯一的身份枚举。回答"这是哪个 agent"。
-- **Built-in agent（内置 agent）** — 由 VibeX 主动选定、验证并承担兼容性责任的一级支持 agent。它可以直接展示并拥有增强能力，但仍按需安装本地 runtime 与 ACP，不表示其可执行文件随 VibeX 捆绑；当前成员为 Codex、Claude Code、OpenCode 与 Pi。
-- **Built-in agent profile（内置 agent 档案）** — VibeX 为一个内置 agent 维护的兼容性契约，定义其本地 agent runtime、ACP 适配器及经验证的组合；它是内置 agent 安装与启动的权威，官方注册表只提供可供评估的分发更新。
+- **Agent kind（agent 身份）** — Agent 的全系统唯一、稳定身份标识（如 `claude_code` 或 `codex`），回答“这是哪个 Agent”；普通 Agent 的初始标识可以由 Registry id 派生，但此后不随 Registry 条目改名或换 id 自动改变，也不是只允许固定成员的封闭枚举。
+- **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；当前只允许 VibeX Built-in Agent Profile 与 ACP 官方 Registry，不包含用户自定义清单或自动发现。
+- **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
+- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Codex、Claude Code、OpenCode 与 Pi，它们与其他 Agent 使用同一管线，可由档案声明本地管理补缺，但不保证彼此拥有相同的管理能力。
+- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、验证组合与本地管理补缺，但不能改变统一 Agent 管线的语义。
+- **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态与订阅可见性等管理能力；它不包含启动账号登录、注销、ACP 持久配置写入或会话内的模型、模式与推理配置。
+- **Local management fallback（本地管理补缺）** — 当 ACP 未提供某项状态管理能力时，Built-in Agent Profile 可以提供的等价本地状态探测；同一状态能力由 ACP 优先。持久配置始终通过已适配的 Agent 原生配置文件编辑，不属于补缺切换。
+- **Subscription visibility（订阅可见性）** — 对 Agent 账户套餐、额度、用量与重置时间的只读呈现；购买、升级、降级和取消订阅不属于 VibeX 的 Agent 管理能力。
+- **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的只读判断：已通过账号登录、已通过 API Key 登录或暂未登录；账号登录与注销始终由官方 Agent 在 VibeX 外部完成。
+- **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有，并界定 VibeX 只能编辑其明确认识的 API Key 配置字段，不能登录、注销或删除外部环境凭据。
+- **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 VibeX 当前唯一允许编辑的持久配置来源。
+- **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
 - **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物。
 - **External agent installation（外部 Agent 安装）** — 由用户或系统所有、经 VibeX 校验后接入的本地 Agent runtime；VibeX 可以使用和重新校验它，但不能擅自升级、修改或卸载它。
+- **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
 - **Installation lock（安装锁）** — 一次 Agent 安装实际采用的 Agent Runtime、ACP 适配器与基础运行环境的精确版本和来源记录；它使当前安装可以被验证、复现和安全回退。
+- **Verified binary（已验证 Binary）** — 其内容与 VibeX 预先维护的预期 SHA-256 一致的 Binary；只有此类产物可以宣称经过 VibeX 完整性验证。
+- **TOFU binary（首次信任 Binary）** — 官方 Registry 未提供预期校验和时，首次取得并记录内容指纹、此后严格检查该指纹的普通 Registry Binary；它不等同于已验证 Binary。
 - **Installed agent（已安装 Agent）** — 所需本地运行组件已经存在且通过兼容性验证的 Agent；是否已经完成认证不影响其安装状态。
 - **Ready agent（就绪 Agent）** — 已安装且满足必需认证与配置条件、可以创建新会话的 Agent。
 - **Needs-auth agent（待认证 Agent）** — 已安装但尚未满足必需认证条件的 Agent；它保留在 Agent 设置中，但不能用于创建新会话。
+- **Management-degraded agent（管理能力降级 Agent）** — 核心运行与必需认证能力正常、但一项或多项可选管理能力探测失败的就绪 Agent；能力降级不等同于不支持，也不等同于安装损坏。
+- **Platform-unsupported agent（平台不支持 Agent）** — 已知 Agent 在当前操作系统或 CPU 架构上没有可用分发契约的状态；它不等同于安装损坏，也不会撤销已有的 Agent 身份或纳入关系。
+- **Agent probe（Agent 探测）** — 对某个 Agent 的本地组件、ACP 能力、认证与管理状态进行的一次性观察；探测结果有时间属性，不代表持续监控。
 - **Registry entry（注册表条目）** — 某个 agent 身份的元数据（展示名、描述、分发方式、registry id）。registry id（如 claude-acp）是条目的标识，不是身份本身。
+- **Registry binding（注册表绑定）** — VibeX 明确维护的 Agent kind 与 Registry entry 对应关系；它用于合并同一 Agent 的受控信息来源，不通过名称相似性自动推断。
 - **Added agent（已添加 Agent）** — 已经被纳入 VibeX Agent 集合的 Agent；内置 Agent 默认属于此集合，其他 Agent 在用户确认添加时立即进入，是否安装完成不影响此关系。
 - **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 VibeX Agent 集合的 Agent。
+- **Agent activation（Agent 启用状态）** — 用户是否允许某个已添加 Agent 接受后续执行的独立开关；禁用不改变其纳入、安装、认证、配置或历史状态。
+- **Retired agent（退役 Agent）** — 已停止提供新增、安装和新会话能力，但为保持历史可解释性而继续保留稳定身份的旧 Agent。
 - **Uninstall agent（卸载 Agent）** — 删除 VibeX 为 Agent 托管的运行组件，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。
 - **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并清除 VibeX 拥有的 Agent 专属设置与产物；它不删除历史会话，也不触碰外部安装。
 - **Agent bar（Agent 导航带）** — “设置 → Agent”中的统一横向 Agent 选择器；所有已添加 Agent 共用同一列表，不按支持等级或安装状态分区，末位固定为打开 Registry 的添加入口。
 - **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
+- **Registry snapshot（注册表快照）** — VibeX 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。
 - **History import（历史导入）** — 把外部工具（Claude Code、Codex 等）的本地会话历史接管进 VibeX 会话体系的行为。
 - **Session fork（会话分叉）** — 从**当前状态**分出一个新 Conversation：新会话是原会话完整历史的独立副本（非破坏性，原会话不受影响），此后独立演化。当 agent 广告了 ACP `session/fork` 且有活会话时，agent 侧上下文也随之分叉（继续对话保有分叉前上下文）；否则新会话为无上下文副本，下次发送冷启动。从当前分叉（非历史某点），以保持可见历史与 agent 上下文一致。与 reset-to-here（在原会话上截断重来，破坏性）互为补充。语义决策见 ADR-0005（2026-07-06 更新）。
 

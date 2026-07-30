@@ -19,7 +19,7 @@ use crate::{
     broker::{DelegationBroker, StatusWait, failed_setup_report, unknown_report},
     lookups::ParentSessionLookup,
     steering::{NoopCompanionFeatures, SharedCompanionFeatures},
-    token_registry::TokenRegistry,
+    token_registry::{TokenFeature, TokenRegistry},
     types::{DelegationRequest, DelegationScope, DelegationTaskReport},
 };
 
@@ -75,7 +75,9 @@ impl DelegationListener {
             }
             BrokerMessage::Status(req) => self.process_status(req).await,
             BrokerMessage::CancelTask(req) => {
-                let report = if let Some(entry) = self.tokens.lookup(&req.token) {
+                let report = if let Some(entry) =
+                    self.tokens.authorize(&req.token, TokenFeature::Delegation)
+                {
                     self.broker
                         .cancel_delegation(&scope_for(&entry), &req.task_id)
                         .await
@@ -86,20 +88,24 @@ impl DelegationListener {
                     outcome: to_value(&report),
                 }
             }
-            // External-handle cancel (MCP notifications/cancelled). The
-            // handle→task mapping rides on the deferred ACP correlation work
-            // (M5); ack with null for now.
-            BrokerMessage::Cancel(_) => BrokerResponse {
-                outcome: Value::Null,
-            },
+            BrokerMessage::Cancel(req) => {
+                if let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Delegation) {
+                    self.broker
+                        .cancel_external(&scope_for(&entry), &req.external_handle)
+                        .await;
+                }
+                BrokerResponse {
+                    outcome: Value::Null,
+                }
+            }
             BrokerMessage::Feedback(req) => BrokerResponse {
-                outcome: match self.tokens.lookup(&req.token) {
+                outcome: match self.tokens.authorize(&req.token, TokenFeature::Feedback) {
                     Some(entry) => self.features.feedback(&scope_for(&entry)).await,
                     None => json!({ "count": 0, "feedback": [] }),
                 },
             },
             BrokerMessage::CommitFeedback(req) => {
-                if let Some(entry) = self.tokens.lookup(&req.token) {
+                if let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Feedback) {
                     self.features
                         .commit_feedback(&scope_for(&entry), &req.ids)
                         .await;
@@ -109,13 +115,13 @@ impl DelegationListener {
                 }
             }
             BrokerMessage::Ask(req) => BrokerResponse {
-                outcome: match self.tokens.lookup(&req.token) {
+                outcome: match self.tokens.authorize(&req.token, TokenFeature::Ask) {
                     Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
                     None => json!({ "declined": true, "answers": [] }),
                 },
             },
             BrokerMessage::SessionInfo(req) => BrokerResponse {
-                outcome: match self.tokens.lookup(&req.token) {
+                outcome: match self.tokens.authorize(&req.token, TokenFeature::SessionInfo) {
                     Some(entry) => {
                         self.features
                             .session_info(
@@ -136,24 +142,21 @@ impl DelegationListener {
     }
 
     async fn process_call(&self, req: BrokerRequest) -> DelegationTaskReport {
-        let entry = match self.tokens.lookup(&req.token) {
+        let entry = match self.tokens.authorize(&req.token, TokenFeature::Delegation) {
             Some(entry) => entry,
             None => return failed_setup_report("canceled", "invalid token"),
         };
         if entry.parent_connection_id != req.parent_connection_id {
             return failed_setup_report("canceled", "token does not match parent connection");
         }
-        let parent_session_id = match self
+        if !self
             .parent_lookup
-            .current_session_id(&entry.parent_connection_id)
+            .contains_session(&entry.parent_connection_id, entry.parent_conversation_id)
             .await
         {
-            Some(id) => id,
-            None => return failed_setup_report("canceled", "parent has no active session"),
-        };
-        if parent_session_id != entry.parent_conversation_id {
             return failed_setup_report("canceled", "token does not match parent conversation");
         }
+        let parent_session_id = entry.parent_conversation_id;
 
         let agent_type = match req.input.get("agent_type").and_then(Value::as_str) {
             Some(raw) => match AgentId::parse(raw) {
@@ -199,7 +202,7 @@ impl DelegationListener {
     }
 
     async fn process_status(&self, req: BrokerStatusRequest) -> BrokerResponse {
-        let Some(entry) = self.tokens.lookup(&req.token) else {
+        let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Delegation) else {
             return BrokerResponse {
                 outcome: json!({ "tasks": [] }),
             };
@@ -300,16 +303,20 @@ fn scope_for(entry: &crate::token_registry::TokenEntry) -> DelegationScope {
 }
 
 fn resolve_working_dir(root: &Path, requested: Option<&str>) -> Result<PathBuf, String> {
-    let root = normalize_absolute(root)
+    let lexical_root = normalize_absolute(root)
         .ok_or_else(|| "token working root must be absolute".to_string())?;
+    let root = std::fs::canonicalize(&lexical_root)
+        .map_err(|_| "token working root is unavailable".to_string())?;
     let requested = requested.map(Path::new);
     let candidate = match requested {
         Some(path) if path.is_absolute() => path.to_path_buf(),
-        Some(path) => root.join(path),
-        None => root.clone(),
+        Some(path) => lexical_root.join(path),
+        None => lexical_root,
     };
     let candidate = normalize_absolute(&candidate)
         .ok_or_else(|| "working directory escapes token root".to_string())?;
+    let candidate = std::fs::canonicalize(&candidate)
+        .map_err(|_| "working directory is unavailable".to_string())?;
     if !candidate.starts_with(&root) {
         return Err("working directory escapes token root".to_string());
     }
@@ -339,8 +346,6 @@ fn normalize_absolute(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use async_trait::async_trait;
     use delegation_proto::{BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMessage};
     use uuid::Uuid;
@@ -360,8 +365,12 @@ mod tests {
 
     #[async_trait]
     impl ParentSessionLookup for FixedParent {
-        async fn current_session_id(&self, _parent_connection_id: &str) -> Option<Uuid> {
-            self.0
+        async fn contains_session(
+            &self,
+            _parent_connection_id: &str,
+            conversation_id: Uuid,
+        ) -> bool {
+            self.0 == Some(conversation_id)
         }
     }
 
@@ -416,7 +425,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
 
@@ -433,7 +442,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let request = BrokerMessage::Call(BrokerRequest {
@@ -466,7 +475,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         // Token belongs to conn-1 but the request claims conn-2.
@@ -483,7 +492,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: token_conversation_id,
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
 
@@ -501,7 +510,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let request = BrokerMessage::Call(BrokerRequest {
@@ -522,6 +531,44 @@ mod tests {
         assert_eq!(response.outcome["error_code"], "invalid_working_dir");
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn working_dir_symlink_cannot_escape_token_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("escape")).unwrap();
+        let (listener, tokens) = listener(Some(Uuid::nil()));
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: Uuid::nil(),
+                working_root: root,
+            },
+        );
+        let request = BrokerMessage::Call(BrokerRequest {
+            token: "tok".to_string(),
+            parent_connection_id: "conn-1".to_string(),
+            parent_tool_use_id: "toolu_symlink_escape".to_string(),
+            external_handle: None,
+            input: json!({
+                "agent_type": "codex",
+                "task": "do it",
+                "working_dir": "escape"
+            }),
+        });
+
+        let response = round_trip(&listener, request).await;
+
+        assert_eq!(response.outcome["status"], "failed");
+        assert_eq!(response.outcome["error_code"], "invalid_working_dir");
+    }
+
     #[tokio::test]
     async fn syntactically_invalid_agent_id_is_rejected() {
         let (listener, tokens) = listener(Some(Uuid::nil()));
@@ -530,7 +577,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let bad = BrokerMessage::Call(BrokerRequest {
@@ -552,7 +599,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let status = BrokerMessage::Status(BrokerStatusRequest {
@@ -567,6 +614,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_cancel_message_stops_the_inflight_delegation() {
+        let (listener, tokens) = listener(Some(Uuid::nil()));
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: Uuid::nil(),
+                working_root: std::env::temp_dir(),
+            },
+        );
+        let mut request = match call("tok", "conn-1") {
+            BrokerMessage::Call(request) => request,
+            _ => unreachable!(),
+        };
+        request.external_handle = Some("mcp-handle-1".to_string());
+        let started = round_trip(&listener, BrokerMessage::Call(request)).await;
+        let task_id = started.outcome["task_id"].as_str().unwrap().to_string();
+
+        round_trip(
+            &listener,
+            BrokerMessage::Cancel(delegation_proto::BrokerCancelRequest {
+                token: "tok".to_string(),
+                external_handle: "mcp-handle-1".to_string(),
+                reason: Some("test cancellation".to_string()),
+            }),
+        )
+        .await;
+        let status = round_trip(
+            &listener,
+            BrokerMessage::Status(BrokerStatusRequest {
+                token: "tok".to_string(),
+                task_ids: vec![task_id],
+                wait_ms: None,
+            }),
+        )
+        .await;
+
+        assert_eq!(status.outcome["tasks"][0]["status"], "canceled");
+    }
+
+    #[tokio::test]
     async fn token_cannot_read_another_parents_task() {
         let (listener, tokens) = listener(Some(Uuid::nil()));
         for (token, parent) in [("token-a", "conn-a"), ("token-b", "conn-b")] {
@@ -575,7 +663,7 @@ mod tests {
                 TokenEntry {
                     parent_connection_id: parent.to_string(),
                     parent_conversation_id: Uuid::nil(),
-                    working_root: PathBuf::from("/work"),
+                    working_root: std::env::temp_dir(),
                 },
             );
         }
@@ -604,7 +692,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let scope = DelegationScope {
@@ -640,6 +728,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn token_feature_permissions_are_enforced_by_listener() {
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let (listener, tokens) = listener_with_features(Some(Uuid::nil()), features.clone());
+        let entry = TokenEntry {
+            parent_connection_id: "conn-1".to_string(),
+            parent_conversation_id: Uuid::nil(),
+            working_root: std::env::temp_dir(),
+        };
+        tokens.register_with_permissions(
+            "delegation-only".to_string(),
+            entry,
+            crate::TokenPermissions {
+                delegation: true,
+                feedback: false,
+                ask: false,
+                session_info: false,
+            },
+        );
+        let scope = DelegationScope {
+            parent_connection_id: "conn-1".to_string(),
+            parent_conversation_id: Uuid::nil(),
+        };
+        features.push_feedback(scope, "must stay hidden").await;
+
+        let feedback = round_trip(
+            &listener,
+            BrokerMessage::Feedback(BrokerFeedbackRequest {
+                token: "delegation-only".to_string(),
+            }),
+        )
+        .await;
+        let session = round_trip(
+            &listener,
+            BrokerMessage::SessionInfo(delegation_proto::BrokerSessionRequest {
+                token: "delegation-only".to_string(),
+                conversation_id: Uuid::new_v4().to_string(),
+                max_messages: 0,
+            }),
+        )
+        .await;
+
+        assert_eq!(feedback.outcome["feedback"], json!([]));
+        assert_eq!(session.outcome["found"], false);
+    }
+
+    #[tokio::test]
     async fn ask_blocks_until_a_structured_answer_arrives() {
         let features = Arc::new(InMemoryCompanionFeatures::new());
         let (listener, tokens) = listener_with_features(Some(Uuid::nil()), features.clone());
@@ -648,7 +782,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let scope = DelegationScope {
@@ -674,7 +808,7 @@ mod tests {
 
         let pending = features.next_question(&scope).await;
         features
-            .answer_question(&pending.id, json!([{ "selected": ["A"] }]))
+            .answer_question(&pending.id, Uuid::nil(), json!([{ "selected": ["A"] }]))
             .await
             .unwrap();
         let response = call.await.unwrap();
@@ -692,7 +826,7 @@ mod tests {
             TokenEntry {
                 parent_connection_id: "conn-1".to_string(),
                 parent_conversation_id: Uuid::nil(),
-                working_root: PathBuf::from("/work"),
+                working_root: std::env::temp_dir(),
             },
         );
         let scope = DelegationScope {

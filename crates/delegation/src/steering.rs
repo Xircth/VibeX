@@ -128,14 +128,16 @@ impl InMemoryCompanionFeatures {
     pub async fn answer_question(
         &self,
         question_id: &str,
+        parent_conversation_id: Uuid,
         answers: Value,
     ) -> Result<PendingQuestion, &'static str> {
-        let pending = self
-            .questions
-            .lock()
-            .await
-            .remove(question_id)
-            .ok_or("question not found")?;
+        let mut questions = self.questions.lock().await;
+        let pending = questions.get(question_id).ok_or("question not found")?;
+        if pending.question.scope.parent_conversation_id != parent_conversation_id {
+            return Err("question does not belong to conversation");
+        }
+        let pending = questions.remove(question_id).expect("checked above");
+        drop(questions);
         let question = pending.question;
         pending
             .answer_tx
@@ -218,3 +220,36 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
 }
 
 pub type SharedCompanionFeatures = Arc<dyn CompanionFeaturePort>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn question_answer_is_bound_to_parent_conversation() {
+        let features = InMemoryCompanionFeatures::new();
+        let parent = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let (question, answer_rx) = features
+            .begin_question(
+                DelegationScope {
+                    parent_connection_id: "parent".to_string(),
+                    parent_conversation_id: parent,
+                },
+                json!([{ "question": "Continue?" }]),
+            )
+            .await;
+
+        assert!(
+            features
+                .answer_question(&question.id, other, json!({ "answer": "wrong" }))
+                .await
+                .is_err()
+        );
+        features
+            .answer_question(&question.id, parent, json!({ "answer": "yes" }))
+            .await
+            .unwrap();
+        assert_eq!(answer_rx.await.unwrap()["answer"], "yes");
+    }
+}

@@ -8,7 +8,7 @@ use std::{path::PathBuf, sync::Arc};
 use agents::{
     CompanionInjection, CompanionInjectionContext, DelegationInjector, InjectedMcpServer,
 };
-use delegation::{TokenEntry, TokenRegistry};
+use delegation::{TokenEntry, TokenPermissions, TokenRegistry};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -49,12 +49,18 @@ impl DelegationInjector for VibexDelegationInjector {
             };
         }
         let token = Uuid::new_v4().to_string();
-        self.tokens.register(
+        self.tokens.register_with_permissions(
             token.clone(),
             TokenEntry {
                 parent_connection_id: context.parent_connection_id.to_string(),
                 parent_conversation_id: context.parent_conversation_id,
                 working_root: context.working_root.to_path_buf(),
+            },
+            TokenPermissions {
+                delegation: self.features.delegation,
+                feedback: self.features.feedback,
+                ask: self.features.ask,
+                session_info: self.features.session_info,
             },
         );
         CompanionInjection::Injected(InjectedMcpServer {

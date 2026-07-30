@@ -562,7 +562,7 @@ pub async fn conversation_respond_question(
     if let Ok(pending) = state
         .delegation
         .features
-        .answer_question(&request.question_id, companion_answer)
+        .answer_question(&request.question_id, conversation_id, companion_answer)
         .await
     {
         let connection_id = Uuid::parse_str(&pending.scope.parent_connection_id)

@@ -13,7 +13,7 @@
 //! suspension point.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -65,6 +65,7 @@ struct RunningTask {
     child_session_id: Uuid,
     agent_type: AgentId,
     started_at: Instant,
+    external_handle: Option<String>,
 }
 
 /// A delegation that has reached a terminal state, cached for status polls.
@@ -85,6 +86,7 @@ struct SetupReservation {
     parent_connection_id: String,
     parent_conversation_id: Uuid,
     started_at: Instant,
+    external_handle: Option<String>,
 }
 
 #[derive(Default)]
@@ -92,9 +94,9 @@ struct PendingInner {
     running: HashMap<String, RunningTask>,
     completed: HashMap<String, CompletedTask>,
     /// Per-parent FIFO of completed call ids, oldest first (for eviction).
-    completed_order: HashMap<String, VecDeque<String>>,
+    completed_order: HashMap<DelegationScope, VecDeque<String>>,
     /// Per-parent cached result text byte count, driving eviction.
-    completed_bytes: HashMap<String, usize>,
+    completed_bytes: HashMap<DelegationScope, usize>,
     /// Call ids reserved during the spawn→send setup window (value = reserve
     /// instant). Lets a child that finishes mid-setup buffer its terminal
     /// outcome rather than have it dropped.
@@ -102,6 +104,11 @@ struct PendingInner {
     /// Terminal outcomes that arrived before the task was registered as running;
     /// drained by `start_delegation` at registration.
     early_completes: HashMap<String, DelegationOutcome>,
+    /// Scoped MCP handles canceled before the corresponding `Call` arrived.
+    pre_canceled_handles: HashSet<(DelegationScope, String)>,
+    /// Parent connection ids that reached teardown. Connection ids are unique
+    /// per launch, so any later setup for one must fail closed.
+    closed_parents: HashSet<String>,
 }
 
 /// Everything `finalize` needs to resolve a task to a terminal report,
@@ -133,7 +140,10 @@ enum Resolution {
 /// over the byte cap. The just-inserted (newest) result is never evicted.
 /// `cap == 0` disables eviction.
 fn insert_completed(inner: &mut PendingInner, call_id: String, task: CompletedTask, cap: usize) {
-    let parent = task.parent_connection_id.clone();
+    let parent = DelegationScope {
+        parent_connection_id: task.parent_connection_id.clone(),
+        parent_conversation_id: task.parent_conversation_id,
+    };
     let bytes = task.text.as_ref().map(String::len).unwrap_or(0);
     inner.completed.insert(call_id.clone(), task);
     inner
@@ -239,6 +249,23 @@ impl DelegationBroker {
             return failed_setup_report("depth_limit", &err.to_string());
         }
 
+        let scope = DelegationScope {
+            parent_connection_id: req.parent_connection_id.clone(),
+            parent_conversation_id: req.parent_session_id,
+        };
+        if self
+            .pending
+            .lock()
+            .unwrap()
+            .closed_parents
+            .contains(&req.parent_connection_id)
+        {
+            return failed_setup_report("canceled", "parent connection is closed");
+        }
+        if self.take_pre_canceled_handle(&scope, req.external_handle.as_deref()) {
+            return failed_setup_report("canceled", "canceled by MCP client");
+        }
+
         let call_id = Uuid::new_v4().to_string();
         // Fall back to a synthetic tool-use id when the MCP client didn't supply
         // one (full ACP tool_call correlation is deferred to M5). `has_real_tool_call`
@@ -264,19 +291,32 @@ impl DelegationBroker {
             Ok(id) => id,
             Err(err) => return failed_setup_report("spawn_failed", &err.to_string()),
         };
-
         // Reserve the call id BEFORE sending so a child that finishes during the
         // send window buffers its terminal outcome instead of having it dropped.
-        {
+        let canceled_before_reservation = {
             let mut pending = self.pending.lock().unwrap();
-            pending.setups.insert(
-                call_id.clone(),
-                SetupReservation {
-                    parent_connection_id: req.parent_connection_id.clone(),
-                    parent_conversation_id: req.parent_session_id,
-                    started_at: Instant::now(),
-                },
-            );
+            let canceled = pending.closed_parents.contains(&req.parent_connection_id)
+                || req.external_handle.as_ref().is_some_and(|handle| {
+                    pending
+                        .pre_canceled_handles
+                        .remove(&(scope.clone(), handle.clone()))
+                });
+            if !canceled {
+                pending.setups.insert(
+                    call_id.clone(),
+                    SetupReservation {
+                        parent_connection_id: req.parent_connection_id.clone(),
+                        parent_conversation_id: req.parent_session_id,
+                        started_at: Instant::now(),
+                        external_handle: req.external_handle.clone(),
+                    },
+                );
+            }
+            canceled
+        };
+        if canceled_before_reservation {
+            let _ = self.spawner.disconnect(&child_connection_id).await;
+            return failed_setup_report("canceled", "canceled by MCP client");
         }
 
         let link = DelegationLink {
@@ -292,15 +332,47 @@ impl DelegationBroker {
         {
             Ok(id) => id,
             Err(err) => {
-                // Clean up both reservation maps so a terminal that raced into
-                // `early_completes` during this failed send isn't orphaned.
-                {
+                // Preserve whichever terminal arrived first. A cancellation
+                // buffered during setup must not be overwritten by a later send
+                // error.
+                let early_outcome = {
                     let mut pending = self.pending.lock().unwrap();
                     pending.setups.remove(&call_id);
-                    pending.early_completes.remove(&call_id);
-                }
+                    pending.early_completes.remove(&call_id)
+                };
                 let _ = self.spawner.disconnect(&child_connection_id).await;
-                return failed_setup_report("spawn_failed", &err.to_string());
+                return match early_outcome {
+                    Some(outcome) => {
+                        let child_session_id = match &outcome {
+                            DelegationOutcome::Ok(success) => Some(success.child_session_id),
+                            DelegationOutcome::Err {
+                                child_session_id, ..
+                            } => *child_session_id,
+                        };
+                        let (status, text, error_code, message) = terminal_fields(&outcome);
+                        let completed = CompletedTask {
+                            parent_connection_id: req.parent_connection_id.clone(),
+                            parent_conversation_id: req.parent_session_id,
+                            status,
+                            child_session_id,
+                            agent_type: Some(req.agent_type.clone()),
+                            text,
+                            error_code,
+                            message,
+                            duration_ms: None,
+                        };
+                        let cap = self.config_snapshot().completed_cache_cap_bytes;
+                        insert_completed(
+                            &mut self.pending.lock().unwrap(),
+                            call_id.clone(),
+                            completed.clone(),
+                            cap,
+                        );
+                        self.result_notify.notify_waiters();
+                        completed_report(&call_id, &completed)
+                    }
+                    None => failed_setup_report("spawn_failed", &err.to_string()),
+                };
             }
         };
 
@@ -329,6 +401,7 @@ impl DelegationBroker {
                         child_session_id,
                         agent_type: req.agent_type.clone(),
                         started_at: reserved_at,
+                        external_handle: req.external_handle.clone(),
                     },
                 );
                 Resolution::Registered
@@ -378,6 +451,62 @@ impl DelegationBroker {
                 }
                 running_report(&call_id, child_session_id, req.agent_type)
             }
+        }
+    }
+
+    fn take_pre_canceled_handle(
+        &self,
+        scope: &DelegationScope,
+        external_handle: Option<&str>,
+    ) -> bool {
+        let Some(external_handle) = external_handle else {
+            return false;
+        };
+        self.pending
+            .lock()
+            .unwrap()
+            .pre_canceled_handles
+            .remove(&(scope.clone(), external_handle.to_string()))
+    }
+
+    /// Cancel by the companion's request handle. Cancellation may arrive on a
+    /// separate socket before the matching call; in that case the scoped handle
+    /// is retained and the later call is rejected before it can remain running.
+    pub async fn cancel_external(
+        &self,
+        scope: &DelegationScope,
+        external_handle: &str,
+    ) -> Option<DelegationTaskReport> {
+        let task_id = {
+            let mut pending = self.pending.lock().unwrap();
+            let task_id = pending
+                .running
+                .iter()
+                .find(|(_, task)| {
+                    running_matches(scope, task)
+                        && task.external_handle.as_deref() == Some(external_handle)
+                })
+                .map(|(task_id, _)| task_id.clone())
+                .or_else(|| {
+                    pending
+                        .setups
+                        .iter()
+                        .find(|(_, setup)| {
+                            setup_matches(scope, setup)
+                                && setup.external_handle.as_deref() == Some(external_handle)
+                        })
+                        .map(|(task_id, _)| task_id.clone())
+                });
+            if task_id.is_none() {
+                pending
+                    .pre_canceled_handles
+                    .insert((scope.clone(), external_handle.to_string()));
+            }
+            task_id
+        };
+        match task_id {
+            Some(task_id) => Some(self.cancel_delegation(scope, &task_id).await),
+            None => None,
         }
     }
 
@@ -628,7 +757,10 @@ impl DelegationBroker {
     /// authoritative because explicit cancellation is already first-terminal.
     pub async fn parent_closed(&self, parent_connection_id: &str) -> Vec<DelegationTaskReport> {
         let tasks = {
-            let pending = self.pending.lock().unwrap();
+            let mut pending = self.pending.lock().unwrap();
+            pending
+                .closed_parents
+                .insert(parent_connection_id.to_string());
             let mut tasks = pending
                 .running
                 .iter()
@@ -1572,6 +1704,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn external_handle_cancel_stops_the_correlated_task() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        let mut req = request(Uuid::nil());
+        req.external_handle = Some("mcp-request-1".to_string());
+        let started = h.broker.start_delegation(req).await;
+
+        let canceled = h
+            .broker
+            .cancel_external(&scope(Uuid::nil()), "mcp-request-1")
+            .await
+            .expect("running handle resolves to a task");
+
+        assert_eq!(canceled.task_id, started.task_id);
+        assert_eq!(canceled.status, TaskStatus::Canceled);
+        assert_eq!(h.spawner.calls.lock().unwrap().canceled.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn external_cancel_before_call_prevents_spawn() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        assert!(
+            h.broker
+                .cancel_external(&scope(Uuid::nil()), "mcp-request-early")
+                .await
+                .is_none()
+        );
+        let mut req = request(Uuid::nil());
+        req.external_handle = Some("mcp-request-early".to_string());
+
+        let report = h.broker.start_delegation(req).await;
+
+        assert_eq!(report.status, TaskStatus::Canceled);
+        assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
+    }
+
+    #[tokio::test]
+    async fn setup_cancel_remains_terminal_when_send_later_fails() {
+        let mut spawner = MockSpawner::new();
+        spawner.send_error = Some("late send failure".to_string());
+        let release = Arc::new(tokio::sync::Notify::new());
+        spawner.release_gate = Some(release.clone());
+        let reached = spawner.send_reached_gate.clone();
+        let captured = spawner.captured_call_id.clone();
+        let spawner = Arc::new(spawner);
+        let broker = DelegationBroker::new(
+            spawner,
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(MockStatusLookup::default()),
+            Arc::new(RecordingMetaWriter::default()),
+            Arc::new(RecordingEventEmitter::default()),
+            DelegationConfig::default(),
+        );
+        let start_broker = broker.clone();
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        reached.notified().await;
+        let call_id = captured.lock().unwrap().clone().expect("captured call id");
+        let canceled = broker
+            .cancel_delegation(&scope(Uuid::nil()), &call_id)
+            .await;
+        assert_eq!(canceled.status, TaskStatus::Canceled);
+        release.notify_one();
+
+        let report = start.await.unwrap();
+        assert_eq!(report.status, TaskStatus::Canceled);
+        assert_eq!(report.error_code.as_deref(), Some("canceled"));
+        let status = broker
+            .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Immediate)
+            .await;
+        assert_eq!(status[0].status, TaskStatus::Canceled);
+    }
+
+    #[tokio::test]
     async fn parent_closed_cascades_only_its_running_children() {
         let h = harness(MockDepthLookup::default(), DelegationConfig::default());
         let first = h
@@ -1618,6 +1823,17 @@ mod tests {
         assert_eq!(status[0].status, TaskStatus::Canceled);
         assert_eq!(status[1].status, TaskStatus::Canceled);
         assert_eq!(unaffected_status[0].status, TaskStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn parent_closed_before_call_prevents_child_spawn() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+
+        h.broker.parent_closed("parent-conn").await;
+        let report = h.broker.start_delegation(request(Uuid::nil())).await;
+
+        assert_eq!(report.status, TaskStatus::Canceled);
+        assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
     }
 
     #[tokio::test]

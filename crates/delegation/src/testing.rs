@@ -92,9 +92,6 @@ impl ConnectionSpawner for MockSpawner {
         task: String,
         link: DelegationLink,
     ) -> Result<Uuid, SpawnerError> {
-        if let Some(message) = &self.send_error {
-            return Err(SpawnerError::SendPrompt(message.clone()));
-        }
         *self.captured_call_id.lock().unwrap() = Some(link.delegation_call_id.clone());
         self.calls
             .lock()
@@ -104,6 +101,9 @@ impl ConnectionSpawner for MockSpawner {
         self.send_reached_gate.notify_one();
         if let Some(gate) = &self.release_gate {
             gate.notified().await;
+        }
+        if let Some(message) = &self.send_error {
+            return Err(SpawnerError::SendPrompt(message.clone()));
         }
         Ok(self.child_session_id)
     }

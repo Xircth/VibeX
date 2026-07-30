@@ -413,7 +413,11 @@ impl Companion {
             external_handle: handle,
             reason: Some("client cancelled".to_string()),
         });
-        let _ = client::call_broker(&self.socket_path, &message).await;
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            client::call_broker(&self.socket_path, &message),
+        )
+        .await;
     }
 }
 

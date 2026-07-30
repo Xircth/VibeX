@@ -31,6 +31,16 @@ Conversation projection seam.
 | Ask | In-memory feature service had no pending-question/answer seam | `cargo test -p delegation ask_blocks_until_a_structured_answer_arrives --lib` |
 | Session info | `sessions` exposed no tool and listener had no resolver | `cargo test -p vibex-mcp session_info_feature_is_independent`; `cargo test -p delegation session_info_resolves_only_with_its_feature_service --lib` |
 
+Fixed-point review added regression coverage for:
+
+- scoped MCP external-handle cancellation, including cancel-before-call and a
+  later setup send failure;
+- canonical working-root validation that rejects symlink escape;
+- listener-side token feature authorization and Conversation-bound ask answers;
+- event-authoritative DB fallback instead of legacy `sessions.status`;
+- teardown reconciliation after a lagged runtime event subscriber;
+- `get_session_info.max_messages`, including metadata-only (`0`) behavior.
+
 Pre-existing behaviors were retained with named regression coverage:
 `identical_parallel_tasks_keep_independent_task_ids`,
 `completed_result_is_capped_at_256_kib`,

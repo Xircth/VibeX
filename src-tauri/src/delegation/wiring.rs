@@ -1,7 +1,11 @@
 //! Constructs the broker over the runtime + DB, starts the resolver + listener,
 //! and returns the handles `AppState` holds.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use agents::{AgentConnectionStatus, AgentEvent, runtime::AgentRuntime};
 use delegation::{
@@ -108,7 +112,10 @@ fn spawn_parent_teardown(
         loop {
             let envelope = match events.recv().await {
                 Ok(envelope) => envelope,
-                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Lagged(_)) => {
+                    reconcile_parent_teardown(&broker, &tokens, &runtime).await;
+                    continue;
+                }
                 Err(RecvError::Closed) => break,
             };
             let AgentEvent::ConnectionStatusChanged { snapshot } = envelope.event else {
@@ -121,8 +128,76 @@ fn spawn_parent_teardown(
                 continue;
             }
             let parent_connection_id = snapshot.id.to_string();
-            tokens.revoke_by_parent(&parent_connection_id);
-            broker.parent_closed(&parent_connection_id).await;
+            teardown_parent(&broker, &tokens, &parent_connection_id).await;
         }
     });
+}
+
+async fn teardown_parent(
+    broker: &DelegationBroker,
+    tokens: &TokenRegistry,
+    parent_connection_id: &str,
+) {
+    tokens.revoke_by_parent(parent_connection_id);
+    broker.parent_closed(parent_connection_id).await;
+}
+
+async fn reconcile_parent_teardown(
+    broker: &DelegationBroker,
+    tokens: &TokenRegistry,
+    runtime: &AgentRuntime,
+) {
+    let snapshot = runtime.snapshot().await;
+    let live = snapshot
+        .connections
+        .iter()
+        .filter(|connection| {
+            !matches!(
+                connection.status,
+                AgentConnectionStatus::Disconnected | AgentConnectionStatus::Failed
+            )
+        })
+        .map(|connection| connection.id.to_string())
+        .collect::<HashSet<_>>();
+    for parent_connection_id in stale_parent_ids(tokens, &live) {
+        teardown_parent(broker, tokens, &parent_connection_id).await;
+    }
+}
+
+fn stale_parent_ids(tokens: &TokenRegistry, live: &HashSet<String>) -> Vec<String> {
+    tokens
+        .parent_connection_ids()
+        .into_iter()
+        .filter(|parent_connection_id| !live.contains(parent_connection_id))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use delegation::{TokenEntry, TokenPermissions};
+    use uuid::Uuid;
+
+    use super::*;
+
+    #[test]
+    fn lag_reconciliation_finds_token_parents_missing_from_runtime() {
+        let tokens = TokenRegistry::new();
+        for parent in ["live", "stale"] {
+            tokens.register_with_permissions(
+                format!("token-{parent}"),
+                TokenEntry {
+                    parent_connection_id: parent.to_string(),
+                    parent_conversation_id: Uuid::new_v4(),
+                    working_root: std::env::temp_dir(),
+                },
+                TokenPermissions {
+                    delegation: true,
+                    ..TokenPermissions::default()
+                },
+            );
+        }
+        let live = HashSet::from(["live".to_string()]);
+
+        assert_eq!(stale_parent_ids(&tokens, &live), vec!["stale"]);
+    }
 }

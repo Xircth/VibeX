@@ -32,13 +32,16 @@ async fn main() -> ExitCode {
         },
         Err(_) => ServerConfig::default().listen_addr,
     };
-    let server = match ServerConfig::default().with_listen_addr(listen_addr, allow_lan) {
+    let mut server = match ServerConfig::default().with_listen_addr(listen_addr, allow_lan) {
         Ok(server) => server,
         Err(error) => {
             eprintln!("{error}; set VIBEX_SERVER_ALLOW_LAN=1 to acknowledge LAN exposure");
             return ExitCode::from(2);
         }
     };
+    if let Some(static_root) = std::env::var_os("VIBEX_STATIC_ROOT") {
+        server = server.with_static_root(PathBuf::from(static_root));
+    }
     let supplied_token = std::env::var("VIBEX_SERVER_TOKEN")
         .ok()
         .filter(|token| !token.trim().is_empty())

@@ -1,10 +1,14 @@
-use std::sync::Arc;
+use std::{
+    path::{Component, Path as FsPath},
+    sync::Arc,
+};
 
 use application::{ApplicationCore, CommandRegistry, ConversationRepository, Principal};
 use axum::{
     Json, Router,
-    extract::{Path, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    body::Body,
+    extract::{OriginalUri, Path, Request, State},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -21,6 +25,7 @@ pub(crate) struct ServerState<R> {
     pub(crate) capabilities: ServerCapabilities,
     pub(crate) core: Arc<ApplicationCore<R>>,
     pub(crate) commands: CommandRegistry<R>,
+    pub(crate) config: ServerConfig,
 }
 
 pub struct ServerRuntime<R> {
@@ -47,18 +52,22 @@ where
             minimum_client_version: config.minimum_client_version.clone(),
             capabilities: vec![
                 CapabilityId::new("conversation.read"),
+                CapabilityId::new("conversation.write"),
                 CapabilityId::new("conversation.attach"),
+                CapabilityId::new("conversation.permission"),
+                CapabilityId::new("conversation.cancel"),
                 CapabilityId::new("application.call"),
             ],
         };
         let core = Arc::new(core);
         Self {
-            config,
+            config: config.clone(),
             state: Arc::new(ServerState {
                 token_digest: credentials.token_digest,
                 capabilities,
                 commands: CommandRegistry::from_core(Arc::clone(&core)),
                 core,
+                config,
             }),
         }
     }
@@ -79,8 +88,136 @@ where
         Router::new()
             .route("/health", get(health))
             .nest("/api/v1", protected)
+            .fallback(get(static_asset::<R>))
             .with_state(Arc::clone(&self.state))
+            .layer(middleware::from_fn_with_state(
+                Arc::clone(&self.state),
+                enforce_origin::<R>,
+            ))
     }
+}
+
+async fn static_asset<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    OriginalUri(uri): OriginalUri,
+) -> Response {
+    let Some(root) = state.config.static_root.as_ref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let path = uri.path().trim_start_matches('/');
+    if path == "api" || path.starts_with("api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let relative = if path.is_empty() { "index.html" } else { path };
+    let relative_path = FsPath::new(relative);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_) | Component::CurDir))
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let root = match tokio::fs::canonicalize(root).await {
+        Ok(root) => root,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let requested = root.join(relative_path);
+    let selected = match tokio::fs::canonicalize(&requested).await {
+        Ok(path) if path.starts_with(&root) && path.is_file() => path,
+        _ => root.join("index.html"),
+    };
+    if !selected.starts_with(&root) || !selected.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let bytes = match tokio::fs::read(&selected).await {
+        Ok(bytes) => bytes,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+    let content_type = match selected
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+    {
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
+    };
+    (
+        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+        Body::from(bytes),
+    )
+        .into_response()
+}
+
+async fn enforce_origin<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(origin) = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned)
+    else {
+        return next.run(request).await;
+    };
+    if !origin_allowed(&state.config, &origin) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ErrorEnvelope::new(
+                ErrorCode::Forbidden,
+                "request origin is not allowed",
+                false,
+                OperationId::new(),
+            )),
+        )
+            .into_response();
+    }
+    if request.method() == Method::OPTIONS {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        apply_cors_headers(response.headers_mut(), &origin);
+        return response;
+    }
+    let mut response = next.run(request).await;
+    apply_cors_headers(response.headers_mut(), &origin);
+    response
+}
+
+fn origin_allowed(config: &ServerConfig, origin: &str) -> bool {
+    if config.allowed_origins.contains(origin) {
+        return true;
+    }
+    origin
+        .parse::<axum::http::Uri>()
+        .ok()
+        .and_then(|uri| {
+            uri.authority()
+                .map(|authority| authority.as_str().to_owned())
+        })
+        .is_some_and(|authority| authority == config.listen_addr.to_string())
+}
+
+fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
+    if let Ok(origin) = HeaderValue::from_str(origin) {
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    }
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("authorization, content-type, x-vibex-protocol-version"),
+    );
+    headers.insert(header::VARY, HeaderValue::from_static("Origin"));
 }
 
 async fn application_call<R>(

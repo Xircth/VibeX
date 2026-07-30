@@ -14,29 +14,67 @@ const ADOPTED_REMOTE_FILES = [
   'src-tauri/src/web/event_bridge.rs',
 ];
 
-test('Codeg adoption record identifies the pinned remote transport sources', async () => {
-  const adoption = await readFile(
-    resolve(__dirname, '../docs/third-party/codeg-adoption.md'),
-    'utf8'
-  );
-
-  assert.match(adoption, new RegExp(PINNED_CODEG_COMMIT));
-  for (const source of ADOPTED_REMOTE_FILES) {
-    assert.match(adoption, new RegExp(source.replaceAll('.', '\\.')));
+function validateCodegAdoption({ adoption, notices, license }) {
+  const missing = [];
+  if (!adoption.includes(PINNED_CODEG_COMMIT)) {
+    missing.push('pinned commit');
   }
-});
+  for (const source of ADOPTED_REMOTE_FILES) {
+    if (!adoption.includes(source)) {
+      missing.push(`source ${source}`);
+    }
+  }
+  if (!/Codeg/.test(notices) || !/Apache License 2\.0/.test(notices)) {
+    missing.push('Codeg Apache-2.0 notice');
+  }
+  if (!notices.includes(PINNED_CODEG_COMMIT)) {
+    missing.push('notice pinned commit');
+  }
+  if (!/Apache License\s+Version 2\.0/.test(license)) {
+    missing.push('Apache-2.0 license text');
+  }
+  assert.deepEqual(missing, []);
+}
 
-test('Apache-2.0 notice and license remain present for Codeg adaptations', async () => {
-  const [notices, license] = await Promise.all([
+async function readAdoptionEvidence() {
+  const [adoption, notices, license] = await Promise.all([
+    readFile(
+      resolve(__dirname, '../docs/third-party/codeg-adoption.md'),
+      'utf8'
+    ),
     readFile(resolve(__dirname, '../THIRD_PARTY_NOTICES.md'), 'utf8'),
     readFile(
       resolve(__dirname, '../docs/third-party/licenses/Apache-2.0.txt'),
       'utf8'
     ),
   ]);
+  return { adoption, notices, license };
+}
 
-  assert.match(notices, /Codeg/);
-  assert.match(notices, /Apache License 2\.0/);
-  assert.match(notices, new RegExp(PINNED_CODEG_COMMIT));
-  assert.match(license, /Apache License\s+Version 2\.0/);
+test('Codeg adoption record identifies the pinned remote transport sources', async () => {
+  const evidence = await readAdoptionEvidence();
+
+  validateCodegAdoption(evidence);
+});
+
+test('missing commit, source, notice, or license evidence fails the gate', async (t) => {
+  const evidence = await readAdoptionEvidence();
+  const cases = [
+    ['commit', { ...evidence, adoption: evidence.adoption.replaceAll(PINNED_CODEG_COMMIT, '') }],
+    [
+      'source',
+      {
+        ...evidence,
+        adoption: evidence.adoption.replace(ADOPTED_REMOTE_FILES[0], ''),
+      },
+    ],
+    ['notice', { ...evidence, notices: '' }],
+    ['license', { ...evidence, license: '' }],
+  ];
+
+  for (const [name, invalidEvidence] of cases) {
+    await t.test(name, () => {
+      assert.throws(() => validateCodegAdoption(invalidEvidence));
+    });
+  }
 });

@@ -107,7 +107,7 @@ adapter over the same use case used by future remote transports.
 
 ## Verification
 
-- `node --test scripts/check-codeg-adoption.test.js`
+- `node --test scripts/check-third-party-adoption.test.js`
 - `cargo test -p artifacts`
 - `cargo test -p artifacts --test local_adapters`
 - `cargo test -p conversations artifact_revision_event_projects_reference_without_file_bytes`

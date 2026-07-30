@@ -21,6 +21,7 @@ members = [
     "crates/tool-runtime",
     "crates/artifacts",
     "crates/automation",
+    "crates/remote-protocol",
     "src-tauri",
 ]
 

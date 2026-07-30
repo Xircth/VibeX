@@ -21,7 +21,14 @@ module.exports = {
   ],
   ignorePatterns: ['dist', '.eslintrc.cjs'],
   parser: '@typescript-eslint/parser',
-  plugins: ['react-refresh', '@typescript-eslint', 'unused-imports', 'eslint-comments', 'check-file', 'deprecation'],
+  plugins: [
+    'react-refresh',
+    '@typescript-eslint',
+    'unused-imports',
+    'eslint-comments',
+    'check-file',
+    'deprecation',
+  ],
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
@@ -80,8 +87,7 @@ module.exports = {
       },
       {
         selector: 'CallExpression[callee.name="showModal"]',
-        message:
-          'Do not use showModal(). Use DialogName.show(props) instead.',
+        message: 'Do not use showModal(). Use DialogName.show(props) instead.',
       },
       {
         selector: 'CallExpression[callee.name="hideModal"]',
@@ -113,6 +119,15 @@ module.exports = {
     ],
   },
   overrides: [
+    {
+      files: ['tests-e2e/**/*.ts'],
+      parserOptions: {
+        project: path.join(__dirname, 'tsconfig.e2e.json'),
+      },
+      rules: {
+        'check-file/filename-naming-convention': 'off',
+      },
+    },
     {
       // Entry point exception - main.tsx can stay lowercase
       files: ['src/main.tsx', 'src/vite-env.d.ts'],
@@ -185,7 +200,8 @@ module.exports = {
             paths: [
               {
                 name: 'lucide-react',
-                message: 'Use @phosphor-icons/react instead of lucide-react in ui-new components.',
+                message:
+                  'Use @phosphor-icons/react instead of lucide-react in ui-new components.',
               },
             ],
           },
@@ -194,7 +210,8 @@ module.exports = {
         'no-restricted-syntax': [
           'error',
           {
-            selector: 'JSXAttribute[name.name="size"][value.type="JSXExpressionContainer"]',
+            selector:
+              'JSXAttribute[name.name="size"][value.type="JSXExpressionContainer"]',
             message:
               'Icons should use Tailwind size classes (size-icon-xs, size-icon-sm, size-icon-base, size-icon-lg, size-icon-xl) instead of the size prop. Example: <Icon className="size-icon-base" />',
           },
@@ -221,11 +238,13 @@ module.exports = {
           'error',
           {
             selector: 'ExportNamedDeclaration[source]',
-            message: 'Re-exports are not allowed in ui-new. Export directly from source files.',
+            message:
+              'Re-exports are not allowed in ui-new. Export directly from source files.',
           },
           {
             selector: 'ExportAllDeclaration',
-            message: 'Wildcard re-exports (export *) are not allowed in ui-new.',
+            message:
+              'Wildcard re-exports (export *) are not allowed in ui-new.',
           },
         ],
       },
@@ -252,7 +271,8 @@ module.exports = {
           'error',
           {
             selector: 'JSXElement',
-            message: 'Logic hooks must not contain JSX. Return data and callbacks only.',
+            message:
+              'Logic hooks must not contain JSX. Return data and callbacks only.',
           },
           {
             selector: 'JSXFragment',
@@ -271,12 +291,19 @@ module.exports = {
             paths: [
               {
                 name: '@/lib/api',
-                message: 'Presentational components cannot import API. Pass data via props.',
+                message:
+                  'Presentational components cannot import API. Pass data via props.',
               },
               {
                 name: '@tanstack/react-query',
-                importNames: ['useQuery', 'useMutation', 'useQueryClient', 'useInfiniteQuery'],
-                message: 'Presentational components cannot use data fetching hooks. Pass data via props.',
+                importNames: [
+                  'useQuery',
+                  'useMutation',
+                  'useQueryClient',
+                  'useInfiniteQuery',
+                ],
+                message:
+                  'Presentational components cannot use data fetching hooks. Pass data via props.',
               },
             ],
           },
@@ -285,43 +312,53 @@ module.exports = {
           'error',
           {
             selector: 'CallExpression[callee.name="useState"]',
-            message: 'Presentational components should not manage state. Use controlled props.',
+            message:
+              'Presentational components should not manage state. Use controlled props.',
           },
           {
             selector: 'CallExpression[callee.name="useReducer"]',
-            message: 'Presentational components should not use useReducer. Use container component.',
+            message:
+              'Presentational components should not use useReducer. Use container component.',
           },
           {
             selector: 'CallExpression[callee.name="useContext"]',
-            message: 'Presentational components should not consume context. Pass data via props.',
+            message:
+              'Presentational components should not consume context. Pass data via props.',
           },
           {
             selector: 'CallExpression[callee.name="useQuery"]',
-            message: 'Presentational components should not fetch data. Pass data via props.',
+            message:
+              'Presentational components should not fetch data. Pass data via props.',
           },
           {
             selector: 'CallExpression[callee.name="useMutation"]',
-            message: 'Presentational components should not mutate data. Pass callbacks via props.',
+            message:
+              'Presentational components should not mutate data. Pass callbacks via props.',
           },
           {
             selector: 'CallExpression[callee.name="useInfiniteQuery"]',
-            message: 'Presentational components should not fetch data. Pass data via props.',
+            message:
+              'Presentational components should not fetch data. Pass data via props.',
           },
           {
             selector: 'CallExpression[callee.name="useEffect"]',
-            message: 'Presentational components should avoid side effects. Move to container.',
+            message:
+              'Presentational components should avoid side effects. Move to container.',
           },
           {
             selector: 'CallExpression[callee.name="useLayoutEffect"]',
-            message: 'Presentational components should avoid layout effects. Move to container.',
+            message:
+              'Presentational components should avoid layout effects. Move to container.',
           },
           {
             selector: 'CallExpression[callee.name="useCallback"]',
-            message: 'Presentational components should receive callbacks via props.',
+            message:
+              'Presentational components should receive callbacks via props.',
           },
           {
             selector: 'CallExpression[callee.name="useNavigate"]',
-            message: 'Presentational components should not handle navigation. Pass callbacks via props.',
+            message:
+              'Presentational components should not handle navigation. Pass callbacks via props.',
           },
         ],
       },

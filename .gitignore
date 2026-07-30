@@ -58,6 +58,8 @@ pids
 coverage/
 *.lcov
 .nyc_output
+frontend/playwright-report/
+frontend/test-results/
 
 # ===== Cache =====
 .eslintcache

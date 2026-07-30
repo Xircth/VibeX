@@ -6263,9 +6263,12 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "application",
+ "async-trait",
  "axum",
+ "base64 0.22.1",
  "db",
  "dirs 5.0.1",
+ "futures",
  "remote-protocol",
  "serde",
  "serde_json",
@@ -6273,6 +6276,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.29.0",
  "tower",
  "tracing",
  "tracing-subscriber",

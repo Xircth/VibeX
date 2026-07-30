@@ -1,23 +1,26 @@
 use std::sync::Arc;
 
-use application::{ApplicationCore, ConversationRepository};
+use application::{ApplicationCore, CommandRegistry, ConversationRepository, Principal};
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
-use remote_protocol::{CapabilityId, ErrorCode, ErrorEnvelope, OperationId, ServerCapabilities};
+use remote_protocol::{
+    CapabilityId, CommandRequest, ErrorCode, ErrorEnvelope, OperationId, ServerCapabilities,
+};
 use serde_json::json;
 
 use crate::{ServerConfig, ServerCredentials, ServerToken, auth::TokenDigest};
 
-struct ServerState<R> {
-    token_digest: TokenDigest,
-    capabilities: ServerCapabilities,
-    _core: Arc<ApplicationCore<R>>,
+pub(crate) struct ServerState<R> {
+    pub(crate) token_digest: TokenDigest,
+    pub(crate) capabilities: ServerCapabilities,
+    pub(crate) core: Arc<ApplicationCore<R>>,
+    pub(crate) commands: CommandRegistry<R>,
 }
 
 pub struct ServerRuntime<R> {
@@ -45,14 +48,17 @@ where
             capabilities: vec![
                 CapabilityId::new("conversation.read"),
                 CapabilityId::new("conversation.attach"),
+                CapabilityId::new("application.call"),
             ],
         };
+        let core = Arc::new(core);
         Self {
             config,
             state: Arc::new(ServerState {
                 token_digest: credentials.token_digest,
                 capabilities,
-                _core: Arc::new(core),
+                commands: CommandRegistry::from_core(Arc::clone(&core)),
+                core,
             }),
         }
     }
@@ -64,6 +70,8 @@ where
     pub fn router(&self) -> Router {
         let protected = Router::new()
             .route("/capabilities", get(capabilities::<R>))
+            .route("/ws", get(crate::ws::ws_handler::<R>))
+            .route("/call/{command}", post(application_call::<R>))
             .route_layer(middleware::from_fn_with_state(
                 Arc::clone(&self.state),
                 require_token::<R>,
@@ -72,6 +80,43 @@ where
             .route("/health", get(health))
             .nest("/api/v1", protected)
             .with_state(Arc::clone(&self.state))
+    }
+}
+
+async fn application_call<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Path(command): Path<String>,
+    Json(request): Json<CommandRequest<serde_json::Value>>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    let principal = Principal::remote(
+        "server-token",
+        [
+            "conversation.read".to_string(),
+            "conversation.write".to_string(),
+        ],
+    );
+    match state
+        .commands
+        .execute_name(&principal, &command, request.operation_id, request.args)
+        .await
+    {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => {
+            let status = match error.code {
+                ErrorCode::BadRequest => StatusCode::BAD_REQUEST,
+                ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
+                ErrorCode::Forbidden => StatusCode::FORBIDDEN,
+                ErrorCode::NotFound => StatusCode::NOT_FOUND,
+                ErrorCode::Conflict => StatusCode::CONFLICT,
+                ErrorCode::CapabilityUnavailable => StatusCode::NOT_IMPLEMENTED,
+                ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, Json(error)).into_response()
+        }
     }
 }
 
@@ -122,7 +167,13 @@ async fn require_token<R>(
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|candidate| state.token_digest.verifies(candidate));
+        .is_some_and(|candidate| state.token_digest.verifies(candidate))
+        || request
+            .headers()
+            .get("sec-websocket-protocol")
+            .and_then(|value| value.to_str().ok())
+            .and_then(ws_token_from_protocols)
+            .is_some_and(|candidate| state.token_digest.verifies(&candidate));
     if authorized {
         return next.run(request).await;
     }
@@ -137,4 +188,15 @@ async fn require_token<R>(
         )),
     )
         .into_response()
+}
+
+fn ws_token_from_protocols(protocols: &str) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    protocols
+        .split(',')
+        .map(str::trim)
+        .find_map(|protocol| protocol.strip_prefix("vibex.token."))
+        .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok())
 }

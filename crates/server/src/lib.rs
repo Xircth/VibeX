@@ -5,6 +5,7 @@ mod composition;
 mod config;
 mod runtime;
 mod token_store;
+mod ws;
 
 pub use auth::{ServerCredentials, ServerToken};
 pub use composition::{HeadlessServer, ServerBootstrapConfig};

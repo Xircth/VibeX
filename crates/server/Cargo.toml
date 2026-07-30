@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 application = { path = "../application" }
+async-trait = { workspace = true }
 axum = { workspace = true }
+base64 = "0.22"
 db = { path = "../db" }
 dirs = { workspace = true }
+futures = { workspace = true }
 remote-protocol = { path = "../remote-protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -19,5 +22,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 tempfile = { workspace = true }
+tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }

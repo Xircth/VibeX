@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{ConversationId, SubscriptionId};
+use crate::{ConversationId, ErrorEnvelope, SubscriptionId};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 pub struct SubscriptionRequest {
@@ -17,6 +17,14 @@ pub enum SubscriptionResource {
         conversation_id: ConversationId,
         after_sequence: i64,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SubscriptionClientMessage {
+    Attach { request: SubscriptionRequest },
+    Detach { subscription_id: SubscriptionId },
+    Ping,
 }
 
 /// An open event envelope: `kind` remains a string and `payload` remains JSON so
@@ -46,6 +54,34 @@ pub struct SubscriptionBootstrap {
     #[serde(default)]
     pub replay: Vec<RemoteEvent>,
     pub high_water_mark: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum SubscriptionServerMessage {
+    Ready {
+        subscription_id: SubscriptionId,
+    },
+    Snapshot {
+        subscription_id: SubscriptionId,
+        snapshot: SubscriptionSnapshot,
+    },
+    Event {
+        subscription_id: SubscriptionId,
+        event: RemoteEvent,
+    },
+    Live {
+        subscription_id: SubscriptionId,
+        high_water_mark: i64,
+    },
+    Detached {
+        subscription_id: SubscriptionId,
+        reason: String,
+    },
+    Pong,
+    Error {
+        error: ErrorEnvelope,
+    },
 }
 
 /// Client-side cursor for idempotently applying one ordered resource stream.

@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use remote_protocol::{CommandResponse, ErrorCode, ErrorEnvelope, OperationId};
 use serde::Deserialize;
@@ -36,14 +36,20 @@ struct ConversationListArgs {
 }
 
 pub struct CommandRegistry<R> {
-    core: ApplicationCore<R>,
+    core: Arc<ApplicationCore<R>>,
 }
 
 impl<R> CommandRegistry<R>
 where
     R: ConversationRepository,
 {
-    pub const fn new(core: ApplicationCore<R>) -> Self {
+    pub fn new(core: ApplicationCore<R>) -> Self {
+        Self {
+            core: Arc::new(core),
+        }
+    }
+
+    pub fn from_core(core: Arc<ApplicationCore<R>>) -> Self {
         Self { core }
     }
 

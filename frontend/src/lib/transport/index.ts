@@ -16,6 +16,7 @@ export {
   useBackendTransport,
 } from './BackendTransportProvider';
 export { TauriTransport, tauriBackendTransport } from './tauriTransport';
+export { WebTransport, type WebTransportOptions } from './webTransport';
 export {
   configureBackendTransport,
   configuredBackendTransport,

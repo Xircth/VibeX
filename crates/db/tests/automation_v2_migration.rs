@@ -193,6 +193,47 @@ async fn sqlite_claim_is_transactional_across_concurrent_ticks() {
 }
 
 #[tokio::test]
+async fn automation_record_projects_last_status_and_unseen_failures() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let store = SqliteAutomationStore::new(pool.clone());
+    let automation = store
+        .create(
+            automation::BuiltinTemplateCatalog::all().remove(0).draft,
+            Utc::now(),
+        )
+        .await
+        .expect("create");
+    sqlx::query(
+        "UPDATE automations
+         SET last_run_status = 'interrupted', unseen_failure_count = 2
+         WHERE id = ?",
+    )
+    .bind(automation.id)
+    .execute(&pool)
+    .await
+    .expect("record failure projection");
+
+    let loaded = store
+        .find(automation.id)
+        .await
+        .expect("load")
+        .expect("automation");
+    assert_eq!(loaded.last_run_status.as_deref(), Some("interrupted"));
+    assert_eq!(loaded.unseen_failure_count, 2);
+}
+
+#[tokio::test]
 async fn sqlite_shared_root_lease_excludes_other_runs_until_release() {
     let temp = tempfile::tempdir().expect("temp directory");
     let database = temp.path().join("automation-root-lock.sqlite");

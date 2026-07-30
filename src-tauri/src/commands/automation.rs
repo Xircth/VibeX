@@ -8,24 +8,23 @@ use std::{
 
 use async_trait::async_trait;
 use automation::{
-    AgentRuntimeVersionEvidence, AgentSelectionIntent, AutomationDraft, AutomationDraftInput,
-    AutomationEngine, AutomationRunner, ClaimedRun, ComponentVersionEvidence, ConnectionLaunch,
-    FileOwnerLock, IsolationSpec, PluginActionCatalogPort, PreparedWorkspace,
-    ResolvedVersionEvidence, RunError, RunExecutionRequest, RunStatus, ScheduleService,
-    ScheduleSpec, StartupReconciler, SystemClock, ToolLockVersionEvidence, TurnLaunchSpec,
-    TurnLaunchSpecInput, TurnLauncherPort, WorkspaceError, WorkspacePreparationRequest,
-    WorkspacePreparerPort, WorkspaceTarget,
+    AgentRuntimeVersionEvidence, AutomationDraft, AutomationDraftInput, AutomationEngine,
+    AutomationRunner, ClaimedRun, ComponentVersionEvidence, ConnectionLaunch, FileOwnerLock,
+    IsolationSpec, PluginActionCatalogPort, PreparedWorkspace, ResolvedVersionEvidence, RunError,
+    RunExecutionRequest, RunStatus, ScheduleService, ScheduleSpec, StartupReconciler, SystemClock,
+    ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort, WorkspaceError,
+    WorkspacePreparationRequest, WorkspacePreparerPort,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
-    automation::{Automation, AutomationInput, AutomationRun},
     automation_v2::{AutomationRecord, AutomationRunRecord, SqliteAutomationStore},
     conversation_turn::ConversationTurnRecord,
     project_repo::ProjectRepo,
     session::{CreateSession, Session},
     workspace::Workspace,
 };
-use plugins::{PluginAction, PluginId, PromptBlock};
+use plugins::PromptBlock;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
@@ -42,6 +41,59 @@ use crate::{
 const POLL_INTERVAL_SECS: u64 = 30;
 static OWNED_DATA_DIRS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationDraftRequest {
+    pub name: String,
+    pub enabled: bool,
+    pub trigger: ScheduleSpec,
+    pub launch: AutomationDraftInput,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationView {
+    pub id: Uuid,
+    pub name: String,
+    pub enabled: bool,
+    pub spec_version: u16,
+    pub trigger: ScheduleSpec,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub launch: TurnLaunchSpec,
+    pub migration_required: bool,
+    pub unseen_failure_count: i64,
+    pub last_run_status: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRunView {
+    pub id: Uuid,
+    pub automation_id: Uuid,
+    pub trigger: String,
+    pub scheduled_for: Option<DateTime<Utc>>,
+    pub status: String,
+    pub cancellation_requested: bool,
+    pub conversation_id: Option<Uuid>,
+    pub turn_id: Option<Uuid>,
+    pub workspace_id: Option<Uuid>,
+    pub stop_reason: Option<String>,
+    pub summary: Option<String>,
+    pub error: Option<String>,
+    pub seen: bool,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationTemplateView {
+    pub id: String,
+    pub draft: AutomationDraft,
+}
 
 struct EngineOwnershipMarker {
     data_dir_key: String,
@@ -88,7 +140,7 @@ fn store(state: &AppState) -> SqliteAutomationStore {
 #[tauri::command]
 pub async fn automation_list(
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<Automation>, AppError> {
+) -> Result<Vec<AutomationView>, AppError> {
     store(state.inner())
         .list()
         .await?
@@ -100,8 +152,8 @@ pub async fn automation_list(
 #[tauri::command]
 pub async fn automation_create(
     state: tauri::State<'_, AppState>,
-    input: AutomationInput,
-) -> Result<Automation, AppError> {
+    input: AutomationDraftRequest,
+) -> Result<AutomationView, AppError> {
     let draft = input_to_draft(state.inner(), input).await?;
     record_to_dto(store(state.inner()).create(draft, Utc::now()).await?)
 }
@@ -110,8 +162,8 @@ pub async fn automation_create(
 pub async fn automation_update(
     state: tauri::State<'_, AppState>,
     id: Uuid,
-    input: AutomationInput,
-) -> Result<Automation, AppError> {
+    input: AutomationDraftRequest,
+) -> Result<AutomationView, AppError> {
     let draft = input_to_draft(state.inner(), input).await?;
     record_to_dto(store(state.inner()).update(id, draft, Utc::now()).await?)
 }
@@ -142,7 +194,7 @@ pub async fn automation_runs(
     state: tauri::State<'_, AppState>,
     automation_id: Uuid,
     limit: Option<i64>,
-) -> Result<Vec<AutomationRun>, AppError> {
+) -> Result<Vec<AutomationRunView>, AppError> {
     store(state.inner())
         .runs(automation_id, limit.unwrap_or(20))
         .await?
@@ -182,11 +234,22 @@ pub async fn automation_preview_next_runs(
 }
 
 #[tauri::command]
+pub async fn automation_templates() -> Result<Vec<AutomationTemplateView>, AppError> {
+    Ok(automation::BuiltinTemplateCatalog::all()
+        .into_iter()
+        .map(|template| AutomationTemplateView {
+            id: template.id,
+            draft: template.draft,
+        })
+        .collect())
+}
+
+#[tauri::command]
 pub async fn automation_run_now(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     id: Uuid,
-) -> Result<AutomationRun, AppError> {
+) -> Result<AutomationRunView, AppError> {
     let data_dir_key = app
         .path()
         .app_data_dir()
@@ -793,79 +856,31 @@ impl TurnLauncherPort for TauriTurnLauncher {
 
 async fn input_to_draft(
     state: &AppState,
-    input: AutomationInput,
+    input: AutomationDraftRequest,
 ) -> Result<AutomationDraft, AppError> {
-    let workspace = resolve_project_workspace(state, input.project_id, None).await?;
-    let root_folder = if let Some(path) = workspace.container_ref.clone() {
-        path
-    } else {
-        ProjectRepo::find_repos_for_project(&state.deployment.db().pool, input.project_id)
-            .await?
-            .into_iter()
-            .next()
-            .map(|repo| repo.path.to_string_lossy().to_string())
-            .ok_or_else(|| AppError::BadRequest("project has no repository".to_string()))?
-    };
-    let agent_id = agents::AgentId::parse(
-        input
-            .executor
-            .as_deref()
-            .unwrap_or("codex")
-            .to_ascii_lowercase(),
+    let mut launch = input.launch.0;
+    // Saving a draft must not prepare a Workspace or check out its selected
+    // branch. The frontend only supplies the durable project identity; path
+    // authority remains with the backend project model until execution.
+    launch.workspace.root_folder = ProjectRepo::find_repos_for_project(
+        &state.deployment.db().pool,
+        launch.workspace.project_id,
     )
-    .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    let plugin_actions = input
-        .plugin_action_json
-        .as_deref()
-        .map(parse_plugin_action_ref)
-        .transpose()?
-        .into_iter()
-        .collect();
-    let trigger = if input.trigger_kind == "cron" {
-        let cron = input
-            .cron
-            .clone()
-            .filter(|cron| !cron.trim().is_empty())
-            .ok_or_else(|| {
-                AppError::BadRequest("scheduled automation requires cron".to_string())
-            })?;
-        ScheduleSpec::Schedule {
-            cron,
-            timezone: iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".to_string()),
-        }
-    } else {
-        ScheduleSpec::Manual
-    };
-    let isolation = if input.isolation == "shared_in_root" {
-        IsolationSpec::SharedInRoot
-    } else {
-        IsolationSpec::WorktreePerRun
-    };
+    .await?
+    .into_iter()
+    .next()
+    .map(|repo| repo.path.to_string_lossy().to_string())
+    .ok_or_else(|| AppError::BadRequest("project has no repository".to_string()))?;
+    launch.workspace.branch = launch
+        .workspace
+        .branch
+        .map(|branch| branch.trim().to_string())
+        .filter(|branch| !branch.is_empty());
     let draft = AutomationDraft {
-        name: input.name.clone(),
+        name: input.name,
         enabled: input.enabled,
-        trigger,
-        launch: AutomationDraftInput(TurnLaunchSpecInput {
-            prompt_blocks: vec![PromptBlock::Text {
-                text: input.prompt.clone(),
-            }],
-            display_text: input.prompt,
-            agent: AgentSelectionIntent {
-                agent_id,
-                executor_profile_id: None,
-            },
-            mode_id: None,
-            config_values: Vec::new(),
-            plugin_actions,
-            skills: Vec::new(),
-            workspace: WorkspaceTarget {
-                project_id: input.project_id,
-                root_folder,
-                branch: Some(workspace.branch),
-                isolation,
-            },
-            label_snapshot: Some(input.name),
-        }),
+        trigger: input.trigger,
+        launch: AutomationDraftInput(launch),
     };
     TurnLaunchSpec::from_automation_draft(draft.launch.clone())
         .and_then(|spec| {
@@ -877,79 +892,29 @@ async fn input_to_draft(
     Ok(draft)
 }
 
-fn parse_plugin_action_ref(json: &str) -> Result<automation::PluginActionRef, AppError> {
-    let mut value: serde_json::Value = serde_json::from_str(json)
-        .map_err(|error| AppError::BadRequest(format!("invalid PluginAction: {error}")))?;
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| AppError::BadRequest("PluginAction must be an object".to_string()))?;
-    let plugin_id = object
-        .remove("pluginId")
-        .ok_or_else(|| AppError::BadRequest("PluginAction.pluginId is required".to_string()))?;
-    let action_id = object
-        .remove("actionId")
-        .ok_or_else(|| AppError::BadRequest("PluginAction.actionId is required".to_string()))?;
-    object.insert("id".to_string(), action_id);
-    Ok(automation::PluginActionRef {
-        plugin_id: serde_json::from_value::<PluginId>(plugin_id)
-            .map_err(|error| AppError::BadRequest(error.to_string()))?,
-        action: serde_json::from_value::<PluginAction>(value)
-            .map_err(|error| AppError::BadRequest(error.to_string()))?,
-    })
-}
-
-fn record_to_dto(record: AutomationRecord) -> Result<Automation, AppError> {
-    let (trigger_kind, cron) = match &record.trigger {
-        ScheduleSpec::Manual => ("manual".to_string(), None),
-        ScheduleSpec::Schedule { cron, .. } => ("cron".to_string(), Some(cron.clone())),
-    };
-    let plugin_action_json = record
-        .launch_spec
-        .plugin_actions
-        .first()
-        .map(flatten_plugin_action)
-        .transpose()?;
-    Ok(Automation {
+fn record_to_dto(record: AutomationRecord) -> Result<AutomationView, AppError> {
+    Ok(AutomationView {
         id: record.id,
         name: record.name,
-        project_id: record.launch_spec.workspace.project_id,
-        executor: Some(record.launch_spec.agent.agent_id.into_string()),
-        prompt: record.launch_spec.display_text,
-        plugin_action_json,
-        isolation: match record.launch_spec.workspace.isolation {
-            IsolationSpec::WorktreePerRun => "worktree_per_run".to_string(),
-            IsolationSpec::SharedInRoot => "shared_in_root".to_string(),
-        },
-        trigger_kind,
-        cron,
         enabled: record.enabled,
+        spec_version: record.spec_version,
+        trigger: record.trigger,
         next_run_at: record.next_run_at,
+        launch: record.launch_spec,
+        migration_required: record.legacy_migration_status == "migration_required",
+        unseen_failure_count: record.unseen_failure_count,
+        last_run_status: record.last_run_status,
         created_at: record.created_at,
         updated_at: record.updated_at,
     })
 }
 
-fn flatten_plugin_action(reference: &automation::PluginActionRef) -> Result<String, AppError> {
-    let mut action = serde_json::to_value(&reference.action)
-        .map_err(|error| AppError::Internal(error.to_string()))?;
-    let object = action
-        .as_object_mut()
-        .ok_or_else(|| AppError::Internal("PluginAction was not an object".to_string()))?;
-    let action_id = object
-        .remove("id")
-        .ok_or_else(|| AppError::Internal("PluginAction had no id".to_string()))?;
-    object.insert(
-        "pluginId".to_string(),
-        serde_json::Value::String(reference.plugin_id.as_str().to_string()),
-    );
-    object.insert("actionId".to_string(), action_id);
-    serde_json::to_string(&action).map_err(|error| AppError::Internal(error.to_string()))
-}
-
-fn run_to_dto(run: AutomationRunRecord) -> Result<AutomationRun, AppError> {
-    Ok(AutomationRun {
+fn run_to_dto(run: AutomationRunRecord) -> Result<AutomationRunView, AppError> {
+    Ok(AutomationRunView {
         id: run.snapshot.run_id,
         automation_id: run.snapshot.automation_id,
+        trigger: run.trigger,
+        scheduled_for: run.scheduled_for,
         status: match run.snapshot.status {
             RunStatus::Running => "running",
             RunStatus::Completed => "completed",
@@ -959,7 +924,11 @@ fn run_to_dto(run: AutomationRunRecord) -> Result<AutomationRun, AppError> {
             RunStatus::Skipped => "skipped",
         }
         .to_string(),
+        cancellation_requested: run.snapshot.cancellation_requested,
         conversation_id: run.snapshot.conversation_id,
+        turn_id: run.snapshot.turn_id,
+        workspace_id: run.snapshot.workspace_id,
+        stop_reason: run.stop_reason,
         summary: run.summary,
         error: run.snapshot.error,
         seen: run.seen,

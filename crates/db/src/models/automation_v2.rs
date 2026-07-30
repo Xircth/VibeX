@@ -25,6 +25,8 @@ pub struct AutomationRecord {
     pub next_run_at: Option<DateTime<Utc>>,
     pub launch_spec: TurnLaunchSpec,
     pub legacy_migration_status: String,
+    pub last_run_status: Option<String>,
+    pub unseen_failure_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -53,6 +55,8 @@ struct AutomationRow {
     next_run_at: Option<DateTime<Utc>>,
     turn_launch_spec_json: String,
     legacy_migration_status: String,
+    last_run_status: Option<String>,
+    unseen_failure_count: i64,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -79,7 +83,8 @@ struct RunRow {
 }
 
 const AUTOMATION_COLUMNS: &str = "id,name,enabled,spec_version,trigger_kind,cron,timezone,\
-    next_run_at,turn_launch_spec_json,legacy_migration_status,created_at,updated_at";
+    next_run_at,turn_launch_spec_json,legacy_migration_status,last_run_status,\
+    unseen_failure_count,created_at,updated_at";
 const RUN_COLUMNS: &str = "id,automation_id,trigger,scheduled_for,status,conversation_id,turn_id,\
     connection_id,worktree_workspace_id,resolved_versions_json,cancellation_requested,error,\
     stop_reason,summary,seen,started_at,finished_at";
@@ -739,6 +744,8 @@ fn parse_automation_row(row: AutomationRow) -> Result<AutomationRecord, sqlx::Er
         next_run_at: row.next_run_at,
         launch_spec: serde_json::from_str(&row.turn_launch_spec_json).map_err(protocol_error)?,
         legacy_migration_status: row.legacy_migration_status,
+        last_run_status: row.last_run_status,
+        unseen_failure_count: row.unseen_failure_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })

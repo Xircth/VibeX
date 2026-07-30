@@ -496,6 +496,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::automation::automation_run_now,
             commands::automation::automation_cancel_run,
             commands::automation::automation_preview_next_runs,
+            commands::automation::automation_templates,
             commands::automation::automation_runs,
             commands::automation::automation_unseen_failures,
             commands::automation::automation_mark_seen,

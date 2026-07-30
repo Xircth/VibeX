@@ -64,7 +64,12 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
     let socket_path = default_socket_path(&std::env::temp_dir());
 
     spawn_resolver(broker.clone(), runtime.clone(), map);
-    spawn_parent_teardown(broker.clone(), tokens.clone(), runtime.clone());
+    spawn_parent_teardown(
+        broker.clone(),
+        tokens.clone(),
+        features.clone(),
+        runtime.clone(),
+    );
 
     // Install the companion injector so capable ACP parents auto-launch
     // vibex-mcp with a session-scoped token.
@@ -105,6 +110,7 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
 fn spawn_parent_teardown(
     broker: Arc<DelegationBroker>,
     tokens: Arc<TokenRegistry>,
+    features: Arc<InMemoryCompanionFeatures>,
     runtime: Arc<AgentRuntime>,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -113,7 +119,7 @@ fn spawn_parent_teardown(
             let envelope = match events.recv().await {
                 Ok(envelope) => envelope,
                 Err(RecvError::Lagged(_)) => {
-                    reconcile_parent_teardown(&broker, &tokens, &runtime).await;
+                    reconcile_parent_teardown(&broker, &tokens, &features, &runtime).await;
                     continue;
                 }
                 Err(RecvError::Closed) => break,
@@ -128,7 +134,7 @@ fn spawn_parent_teardown(
                 continue;
             }
             let parent_connection_id = snapshot.id.to_string();
-            teardown_parent(&broker, &tokens, &parent_connection_id).await;
+            teardown_parent(&broker, &tokens, &features, &parent_connection_id).await;
         }
     });
 }
@@ -136,15 +142,18 @@ fn spawn_parent_teardown(
 async fn teardown_parent(
     broker: &DelegationBroker,
     tokens: &TokenRegistry,
+    features: &InMemoryCompanionFeatures,
     parent_connection_id: &str,
 ) {
     tokens.revoke_by_parent(parent_connection_id);
+    features.close_parent_connection(parent_connection_id).await;
     broker.parent_closed(parent_connection_id).await;
 }
 
 async fn reconcile_parent_teardown(
     broker: &DelegationBroker,
     tokens: &TokenRegistry,
+    features: &InMemoryCompanionFeatures,
     runtime: &AgentRuntime,
 ) {
     let snapshot = runtime.snapshot().await;
@@ -160,7 +169,7 @@ async fn reconcile_parent_teardown(
         .map(|connection| connection.id.to_string())
         .collect::<HashSet<_>>();
     for parent_connection_id in stale_parent_ids(tokens, &live) {
-        teardown_parent(broker, tokens, &parent_connection_id).await;
+        teardown_parent(broker, tokens, features, &parent_connection_id).await;
     }
 }
 

@@ -75,8 +75,9 @@ impl DelegationListener {
             }
             BrokerMessage::Status(req) => self.process_status(req).await,
             BrokerMessage::CancelTask(req) => {
-                let report = if let Some(entry) =
-                    self.tokens.authorize(&req.token, TokenFeature::Delegation)
+                let report = if let Some(entry) = self
+                    .authorized_entry(&req.token, TokenFeature::Delegation)
+                    .await
                 {
                     self.broker
                         .cancel_delegation(&scope_for(&entry), &req.task_id)
@@ -89,7 +90,10 @@ impl DelegationListener {
                 }
             }
             BrokerMessage::Cancel(req) => {
-                if let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Delegation) {
+                if let Some(entry) = self
+                    .authorized_entry(&req.token, TokenFeature::Delegation)
+                    .await
+                {
                     self.broker
                         .cancel_external(&scope_for(&entry), &req.external_handle)
                         .await;
@@ -99,13 +103,19 @@ impl DelegationListener {
                 }
             }
             BrokerMessage::Feedback(req) => BrokerResponse {
-                outcome: match self.tokens.authorize(&req.token, TokenFeature::Feedback) {
+                outcome: match self
+                    .authorized_entry(&req.token, TokenFeature::Feedback)
+                    .await
+                {
                     Some(entry) => self.features.feedback(&scope_for(&entry)).await,
                     None => json!({ "count": 0, "feedback": [] }),
                 },
             },
             BrokerMessage::CommitFeedback(req) => {
-                if let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Feedback) {
+                if let Some(entry) = self
+                    .authorized_entry(&req.token, TokenFeature::Feedback)
+                    .await
+                {
                     self.features
                         .commit_feedback(&scope_for(&entry), &req.ids)
                         .await;
@@ -115,13 +125,16 @@ impl DelegationListener {
                 }
             }
             BrokerMessage::Ask(req) => BrokerResponse {
-                outcome: match self.tokens.authorize(&req.token, TokenFeature::Ask) {
+                outcome: match self.authorized_entry(&req.token, TokenFeature::Ask).await {
                     Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
                     None => json!({ "declined": true, "answers": [] }),
                 },
             },
             BrokerMessage::SessionInfo(req) => BrokerResponse {
-                outcome: match self.tokens.authorize(&req.token, TokenFeature::SessionInfo) {
+                outcome: match self
+                    .authorized_entry(&req.token, TokenFeature::SessionInfo)
+                    .await
+                {
                     Some(entry) => {
                         self.features
                             .session_info(
@@ -141,20 +154,28 @@ impl DelegationListener {
         write_frame(conn, &response).await
     }
 
+    async fn authorized_entry(
+        &self,
+        token: &str,
+        feature: TokenFeature,
+    ) -> Option<crate::token_registry::TokenEntry> {
+        let entry = self.tokens.authorize(token, feature)?;
+        self.parent_lookup
+            .contains_session(&entry.parent_connection_id, entry.parent_conversation_id)
+            .await
+            .then_some(entry)
+    }
+
     async fn process_call(&self, req: BrokerRequest) -> DelegationTaskReport {
-        let entry = match self.tokens.authorize(&req.token, TokenFeature::Delegation) {
+        let entry = match self
+            .authorized_entry(&req.token, TokenFeature::Delegation)
+            .await
+        {
             Some(entry) => entry,
             None => return failed_setup_report("canceled", "invalid token"),
         };
         if entry.parent_connection_id != req.parent_connection_id {
             return failed_setup_report("canceled", "token does not match parent connection");
-        }
-        if !self
-            .parent_lookup
-            .contains_session(&entry.parent_connection_id, entry.parent_conversation_id)
-            .await
-        {
-            return failed_setup_report("canceled", "token does not match parent conversation");
         }
         let parent_session_id = entry.parent_conversation_id;
 
@@ -202,7 +223,10 @@ impl DelegationListener {
     }
 
     async fn process_status(&self, req: BrokerStatusRequest) -> BrokerResponse {
-        let Some(entry) = self.tokens.authorize(&req.token, TokenFeature::Delegation) else {
+        let Some(entry) = self
+            .authorized_entry(&req.token, TokenFeature::Delegation)
+            .await
+        else {
             return BrokerResponse {
                 outcome: json!({ "tasks": [] }),
             };
@@ -500,6 +524,32 @@ mod tests {
 
         assert_eq!(response.outcome["status"], "canceled");
         assert_eq!(response.outcome["error_code"], "canceled");
+    }
+
+    #[tokio::test]
+    async fn non_call_messages_require_the_token_session_to_remain_live() {
+        let token_conversation_id = Uuid::new_v4();
+        let (listener, tokens) = listener(Some(Uuid::new_v4()));
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: token_conversation_id,
+                working_root: std::env::temp_dir(),
+            },
+        );
+
+        let response = round_trip(
+            &listener,
+            BrokerMessage::Status(BrokerStatusRequest {
+                token: "tok".to_string(),
+                task_ids: vec!["task".to_string()],
+                wait_ms: None,
+            }),
+        )
+        .await;
+
+        assert_eq!(response.outcome["tasks"], json!([]));
     }
 
     #[tokio::test]

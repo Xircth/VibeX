@@ -27,6 +27,10 @@ pub(crate) struct CompanionFeatureFlags {
 }
 
 impl CompanionFeatureFlags {
+    fn any(self) -> bool {
+        self.delegation || self.feedback || self.ask || self.session_info
+    }
+
     fn launch_arg(self) -> String {
         [
             (self.delegation, "delegation"),
@@ -43,6 +47,11 @@ impl CompanionFeatureFlags {
 
 impl DelegationInjector for VibexDelegationInjector {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection {
+        if !self.features.any() {
+            return CompanionInjection::Unsupported {
+                code: "companion_features_disabled",
+            };
+        }
         if !context.capabilities.accepts_session_mcp_servers {
             return CompanionInjection::Unsupported {
                 code: "delegation_parent_unsupported",
@@ -162,6 +171,32 @@ mod tests {
             unsupported,
             CompanionInjection::Unsupported {
                 code: "delegation_parent_unsupported"
+            }
+        );
+
+        let disabled = VibexDelegationInjector {
+            tokens,
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            features: CompanionFeatureFlags {
+                delegation: false,
+                feedback: false,
+                ask: false,
+                session_info: false,
+            },
+        }
+        .companion(CompanionInjectionContext {
+            parent_connection_id: "parent-3",
+            parent_conversation_id: Uuid::new_v4(),
+            agent_id: &supported_agent,
+            working_root: Path::new("/workspace"),
+            capabilities: CompanionCapabilities {
+                accepts_session_mcp_servers: true,
+            },
+        });
+        assert_eq!(
+            disabled,
+            CompanionInjection::Unsupported {
+                code: "companion_features_disabled"
             }
         );
     }

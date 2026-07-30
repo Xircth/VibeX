@@ -187,15 +187,18 @@ impl DelegationMetaWriter for RecordingMetaWriter {
 pub struct RecordingEventEmitter {
     pub started: Mutex<Vec<DelegationStartedEvent>>,
     pub completed: Mutex<Vec<DelegationCompletedEvent>>,
+    pub order: Mutex<Vec<&'static str>>,
 }
 
 #[async_trait]
 impl DelegationEventEmitter for RecordingEventEmitter {
     async fn emit_started(&self, event: DelegationStartedEvent) {
         self.started.lock().unwrap().push(event);
+        self.order.lock().unwrap().push("started");
     }
 
     async fn emit_completed(&self, event: DelegationCompletedEvent) {
         self.completed.lock().unwrap().push(event);
+        self.order.lock().unwrap().push("completed");
     }
 }

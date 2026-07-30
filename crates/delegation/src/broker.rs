@@ -40,6 +40,7 @@ const COMPLETED_TEXT_CAP: usize = 256 * 1024;
 /// Hard ceiling on a single bounded status wait. The listener also caps the
 /// caller's `wait_ms`; this is a defensive backstop inside the broker.
 const STATUS_WAIT_MAX_MS: u64 = 60_000;
+const TOMBSTONE_CAP: usize = 4_096;
 
 /// How long a status poll should block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +88,7 @@ struct SetupReservation {
     parent_conversation_id: Uuid,
     started_at: Instant,
     external_handle: Option<String>,
+    child_connection_id: String,
 }
 
 #[derive(Default)]
@@ -106,9 +108,11 @@ struct PendingInner {
     early_completes: HashMap<String, DelegationOutcome>,
     /// Scoped MCP handles canceled before the corresponding `Call` arrived.
     pre_canceled_handles: HashSet<(DelegationScope, String)>,
+    pre_canceled_order: VecDeque<(DelegationScope, String)>,
     /// Parent connection ids that reached teardown. Connection ids are unique
     /// per launch, so any later setup for one must fail closed.
     closed_parents: HashSet<String>,
+    closed_parent_order: VecDeque<String>,
 }
 
 /// Everything `finalize` needs to resolve a task to a terminal report,
@@ -309,6 +313,7 @@ impl DelegationBroker {
                         parent_conversation_id: req.parent_session_id,
                         started_at: Instant::now(),
                         external_handle: req.external_handle.clone(),
+                        child_connection_id: child_connection_id.clone(),
                     },
                 );
             }
@@ -376,6 +381,21 @@ impl DelegationBroker {
             }
         };
 
+        // Keep the setup reservation in place while announcing Started. Any
+        // concurrent completion/cancel buffers behind it, so Completed can
+        // never overtake Started in the durable event stream.
+        self.event_emitter
+            .emit_started(DelegationStartedEvent {
+                delegation_id: call_id.clone(),
+                parent_connection_id: req.parent_connection_id.clone(),
+                parent_conversation_id: req.parent_session_id,
+                parent_tool_use_id: parent_tool_use_id.clone(),
+                child_session_id,
+                agent_type: req.agent_type.clone(),
+                task_preview: preview(&req.task),
+            })
+            .await;
+
         // Drain any terminal that beat registration; otherwise register running.
         let resolution = {
             let mut pending = self.pending.lock().unwrap();
@@ -407,19 +427,6 @@ impl DelegationBroker {
                 Resolution::Registered
             }
         };
-
-        // Announce the start regardless — the child did run.
-        self.event_emitter
-            .emit_started(DelegationStartedEvent {
-                delegation_id: call_id.clone(),
-                parent_connection_id: req.parent_connection_id.clone(),
-                parent_conversation_id: req.parent_session_id,
-                parent_tool_use_id: parent_tool_use_id.clone(),
-                child_session_id,
-                agent_type: req.agent_type.clone(),
-                task_preview: preview(&req.task),
-            })
-            .await;
 
         match resolution {
             Resolution::Early {
@@ -498,9 +505,16 @@ impl DelegationBroker {
                         .map(|(task_id, _)| task_id.clone())
                 });
             if task_id.is_none() {
-                pending
-                    .pre_canceled_handles
-                    .insert((scope.clone(), external_handle.to_string()));
+                let tombstone = (scope.clone(), external_handle.to_string());
+                if pending.pre_canceled_handles.insert(tombstone.clone()) {
+                    pending.pre_canceled_order.push_back(tombstone);
+                }
+                while pending.pre_canceled_handles.len() > TOMBSTONE_CAP {
+                    let Some(oldest) = pending.pre_canceled_order.pop_front() else {
+                        break;
+                    };
+                    pending.pre_canceled_handles.remove(&oldest);
+                }
             }
             task_id
         };
@@ -671,13 +685,21 @@ impl DelegationBroker {
             // Mid-setup (reserved but not yet running)? Mark it canceled so
             // start_delegation resolves it as canceled when it drains. `or_insert`
             // lets a real terminal that already buffered win over the cancel.
-            {
+            let setup_child = {
                 let mut pending = self.pending.lock().unwrap();
-                if pending
+                let child_connection_id = pending
                     .setups
                     .get(task_id)
                     .is_some_and(|setup| setup_matches(scope, setup))
-                {
+                    .then(|| {
+                        pending
+                            .setups
+                            .get(task_id)
+                            .expect("matched above")
+                            .child_connection_id
+                            .clone()
+                    });
+                if child_connection_id.is_some() {
                     pending
                         .early_completes
                         .entry(task_id.to_string())
@@ -689,8 +711,13 @@ impl DelegationBroker {
                                 None,
                             )
                         });
-                    return canceling_report(task_id);
                 }
+                child_connection_id
+            };
+            if let Some(child_connection_id) = setup_child {
+                let _ = self.spawner.cancel(&child_connection_id).await;
+                let _ = self.spawner.disconnect(&child_connection_id).await;
+                return canceling_report(task_id);
             }
             return match self.status_lookup.status_by_call_id(task_id).await {
                 Some(record)
@@ -758,9 +785,18 @@ impl DelegationBroker {
     pub async fn parent_closed(&self, parent_connection_id: &str) -> Vec<DelegationTaskReport> {
         let tasks = {
             let mut pending = self.pending.lock().unwrap();
-            pending
-                .closed_parents
-                .insert(parent_connection_id.to_string());
+            let parent_connection_id = parent_connection_id.to_string();
+            if pending.closed_parents.insert(parent_connection_id.clone()) {
+                pending
+                    .closed_parent_order
+                    .push_back(parent_connection_id.clone());
+            }
+            while pending.closed_parents.len() > TOMBSTONE_CAP {
+                let Some(oldest) = pending.closed_parent_order.pop_front() else {
+                    break;
+                };
+                pending.closed_parents.remove(&oldest);
+            }
             let mut tasks = pending
                 .running
                 .iter()
@@ -1548,13 +1584,14 @@ mod tests {
         let captured = spawner.captured_call_id.clone();
         let child = spawner.child_session_id;
         let spawner = Arc::new(spawner);
+        let events = Arc::new(RecordingEventEmitter::default());
 
         let broker = DelegationBroker::new(
             spawner,
             Arc::new(MockDepthLookup::default()),
             Arc::new(MockStatusLookup::default()),
             Arc::new(RecordingMetaWriter::default()),
-            Arc::new(RecordingEventEmitter::default()),
+            events.clone(),
             DelegationConfig::default(),
         );
 
@@ -1580,6 +1617,7 @@ mod tests {
             .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Immediate)
             .await;
         assert_eq!(done[0].status, TaskStatus::Completed);
+        assert_eq!(*events.order.lock().unwrap(), vec!["started", "completed"]);
     }
 
     #[tokio::test]
@@ -1659,6 +1697,8 @@ mod tests {
             .cancel_delegation(&scope(Uuid::nil()), &call_id)
             .await;
         assert_eq!(cancel_report.status, TaskStatus::Canceled);
+        assert_eq!(spawner.calls.lock().unwrap().canceled.len(), 1);
+        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
         release.notify_one();
 
         let start_report = start.await.unwrap();
@@ -1666,7 +1706,10 @@ mod tests {
         // never left running, and tore the child down.
         assert_eq!(start_report.status, TaskStatus::Canceled);
         assert_eq!(broker.running_count(), 0);
-        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
+        assert!(
+            !spawner.calls.lock().unwrap().disconnected.is_empty(),
+            "setup teardown is idempotent"
+        );
     }
 
     #[tokio::test]
@@ -1857,11 +1900,16 @@ mod tests {
         reached.notified().await;
 
         let canceled = broker.parent_closed("parent-conn").await;
+        assert_eq!(spawner.calls.lock().unwrap().canceled.len(), 1);
+        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
         release.notify_one();
 
         assert_eq!(canceled.len(), 1);
         assert_eq!(canceled[0].status, TaskStatus::Canceled);
         assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
-        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
+        assert!(
+            !spawner.calls.lock().unwrap().disconnected.is_empty(),
+            "setup teardown is idempotent"
+        );
     }
 }

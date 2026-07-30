@@ -40,6 +40,11 @@ Fixed-point review added regression coverage for:
 - event-authoritative DB fallback instead of legacy `sessions.status`;
 - teardown reconciliation after a lagged runtime event subscriber;
 - `get_session_info.max_messages`, including metadata-only (`0`) behavior.
+- Started-before-terminal lifecycle ordering and immediate setup-child teardown;
+- one-at-a-time ask handling, parent teardown release, and live-session checks
+  for every companion message;
+- bounded pre-cancel/closed-parent tombstones and transcript folding before the
+  message limit is applied.
 
 Pre-existing behaviors were retained with named regression coverage:
 `identical_parallel_tasks_keep_independent_task_ids`,

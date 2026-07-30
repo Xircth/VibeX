@@ -106,7 +106,7 @@ impl InMemoryCompanionFeatures {
         &self,
         scope: DelegationScope,
         questions: Value,
-    ) -> (PendingQuestion, oneshot::Receiver<Value>) {
+    ) -> Result<(PendingQuestion, oneshot::Receiver<Value>), &'static str> {
         let id = Uuid::new_v4().to_string();
         let question = PendingQuestion {
             id: id.clone(),
@@ -114,15 +114,23 @@ impl InMemoryCompanionFeatures {
             questions,
         };
         let (answer_tx, answer_rx) = oneshot::channel();
-        self.questions.lock().await.insert(
+        let mut pending_questions = self.questions.lock().await;
+        if pending_questions
+            .values()
+            .any(|pending| pending.question.scope == question.scope)
+        {
+            return Err("question already pending for parent conversation");
+        }
+        pending_questions.insert(
             id,
             PendingQuestionState {
                 question: question.clone(),
                 answer_tx,
             },
         );
+        drop(pending_questions);
         self.question_notify.notify_waiters();
-        (question, answer_rx)
+        Ok((question, answer_rx))
     }
 
     pub async fn answer_question(
@@ -157,6 +165,22 @@ impl InMemoryCompanionFeatures {
             .await
             .insert((scope, conversation_id.into()), info);
     }
+
+    /// Drop all steering state for a torn-down parent connection. Dropping the
+    /// answer senders releases blocked `ask` calls as declined.
+    pub async fn close_parent_connection(&self, parent_connection_id: &str) {
+        self.feedback
+            .lock()
+            .await
+            .retain(|scope, _| scope.parent_connection_id != parent_connection_id);
+        self.questions.lock().await.retain(|_, pending| {
+            pending.question.scope.parent_connection_id != parent_connection_id
+        });
+        self.sessions
+            .lock()
+            .await
+            .retain(|(scope, _), _| scope.parent_connection_id != parent_connection_id);
+    }
 }
 
 #[async_trait]
@@ -184,7 +208,13 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
     }
 
     async fn ask(&self, scope: &DelegationScope, questions: Value) -> Value {
-        let (question, answer_rx) = self.begin_question(scope.clone(), questions).await;
+        let Ok((question, answer_rx)) = self.begin_question(scope.clone(), questions).await else {
+            return json!({
+                "declined": true,
+                "answers": [],
+                "error": "question already pending for parent conversation",
+            });
+        };
         match answer_rx.await {
             Ok(answers) => json!({
                 "question_id": question.id,
@@ -238,7 +268,8 @@ mod tests {
                 },
                 json!([{ "question": "Continue?" }]),
             )
-            .await;
+            .await
+            .unwrap();
 
         assert!(
             features
@@ -251,5 +282,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(answer_rx.await.unwrap()["answer"], "yes");
+    }
+
+    #[tokio::test]
+    async fn parent_allows_one_question_and_teardown_releases_waiter() {
+        let features = InMemoryCompanionFeatures::new();
+        let scope = DelegationScope {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::new_v4(),
+        };
+        let (_, first_answer) = features
+            .begin_question(scope.clone(), json!([{ "question": "First?" }]))
+            .await
+            .unwrap();
+
+        assert!(
+            features
+                .begin_question(scope, json!([{ "question": "Second?" }]))
+                .await
+                .is_err()
+        );
+        features.close_parent_connection("parent").await;
+        assert!(first_answer.await.is_err(), "teardown drops answer sender");
     }
 }

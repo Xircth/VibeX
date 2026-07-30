@@ -38,10 +38,17 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
     }
 
     async fn ask(&self, scope: &DelegationScope, questions: Value) -> Value {
-        let (pending, answer_rx) = self
+        let Ok((pending, answer_rx)) = self
             .memory
             .begin_question(scope.clone(), questions.clone())
-            .await;
+            .await
+        else {
+            return json!({
+                "declined": true,
+                "answers": [],
+                "error": "question already pending for parent conversation",
+            });
+        };
         if let (Ok(connection_id), Ok(question_id)) = (
             Uuid::parse_str(&scope.parent_connection_id),
             Uuid::parse_str(&pending.id),
@@ -131,6 +138,7 @@ async fn load_compact_transcript(
     if max_messages == 0 {
         return Vec::new();
     }
+    const EVENT_SCAN_CAP: i64 = 10_000;
     let rows = sqlx::query_scalar::<_, String>(
         r#"SELECT normalized_json
            FROM conversation_events
@@ -140,14 +148,18 @@ async fn load_compact_transcript(
            LIMIT ?"#,
     )
     .bind(conversation_id)
-    .bind(i64::from(max_messages.min(200)))
+    .bind(EVENT_SCAN_CAP)
     .fetch_all(pool)
     .await
     .unwrap_or_default();
-    rows.into_iter()
-        .rev()
-        .filter_map(|normalized| {
-            let event = serde_json::from_str::<ConversationEvent>(&normalized).ok()?;
+    struct CompactMessage {
+        role: &'static str,
+        content: String,
+        message_id: Option<String>,
+    }
+    let mut messages: Vec<CompactMessage> = Vec::new();
+    for normalized in rows.into_iter().rev() {
+        if let Ok(event) = serde_json::from_str::<ConversationEvent>(&normalized) {
             match event {
                 ConversationEvent::UserTurnCreated { blocks } => {
                     let content = blocks
@@ -159,14 +171,43 @@ async fn load_compact_transcript(
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
-                    (!content.is_empty()).then(|| json!({ "role": "user", "content": content }))
+                    if !content.is_empty() {
+                        messages.push(CompactMessage {
+                            role: "user",
+                            content,
+                            message_id: None,
+                        });
+                    }
                 }
-                ConversationEvent::AssistantTextDelta { text, .. } => {
-                    Some(json!({ "role": "assistant", "content": text }))
+                ConversationEvent::AssistantTextDelta { text, message_id } => {
+                    let append_to_previous = messages.last().is_some_and(|previous| {
+                        previous.role == "assistant"
+                            && (message_id.is_none() || previous.message_id == message_id)
+                    });
+                    if append_to_previous {
+                        messages
+                            .last_mut()
+                            .expect("checked above")
+                            .content
+                            .push_str(&text);
+                    } else {
+                        messages.push(CompactMessage {
+                            role: "assistant",
+                            content: text,
+                            message_id,
+                        });
+                    }
                 }
-                _ => None,
+                _ => {}
             }
-        })
+        }
+    }
+    let keep = usize::try_from(max_messages.min(200)).unwrap_or(200);
+    let skip = messages.len().saturating_sub(keep);
+    messages
+        .into_iter()
+        .skip(skip)
+        .map(|message| json!({ "role": message.role, "content": message.content }))
         .collect()
 }
 
@@ -211,7 +252,14 @@ mod tests {
                 2,
                 ConversationEvent::AssistantTextDelta {
                     text: "second".to_string(),
-                    message_id: None,
+                    message_id: Some("assistant-1".to_string()),
+                },
+            ),
+            (
+                3,
+                ConversationEvent::AssistantTextDelta {
+                    text: " third".to_string(),
+                    message_id: Some("assistant-1".to_string()),
                 },
             ),
         ] {
@@ -239,7 +287,7 @@ mod tests {
 
         assert_eq!(
             one,
-            vec![json!({ "role": "assistant", "content": "second" })]
+            vec![json!({ "role": "assistant", "content": "second third" })]
         );
         assert!(none.is_empty());
     }

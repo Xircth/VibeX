@@ -10,7 +10,8 @@ use std::{
 
 use agents::AgentId;
 use delegation_proto::{
-    BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest, read_frame, write_frame,
+    BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest,
+    DelegationTaskReport as WireDelegationTaskReport, read_frame, write_frame,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -69,9 +70,7 @@ impl DelegationListener {
         let response = match message {
             BrokerMessage::Call(req) => {
                 let report = self.process_call(req).await;
-                BrokerResponse {
-                    outcome: to_value(&report),
-                }
+                BrokerResponse::Task(to_wire_report(report))
             }
             BrokerMessage::Status(req) => self.process_status(req).await,
             BrokerMessage::CancelTask(req) => {
@@ -85,9 +84,7 @@ impl DelegationListener {
                 } else {
                     unknown_report(&req.task_id)
                 };
-                BrokerResponse {
-                    outcome: to_value(&report),
-                }
+                BrokerResponse::Task(to_wire_report(report))
             }
             BrokerMessage::Cancel(req) => {
                 if let Some(entry) = self
@@ -98,19 +95,17 @@ impl DelegationListener {
                         .cancel_external(&scope_for(&entry), &req.external_handle)
                         .await;
                 }
-                BrokerResponse {
-                    outcome: Value::Null,
-                }
+                BrokerResponse::Ack
             }
-            BrokerMessage::Feedback(req) => BrokerResponse {
-                outcome: match self
+            BrokerMessage::Feedback(req) => BrokerResponse::Payload(
+                match self
                     .authorized_entry(&req.token, TokenFeature::Feedback)
                     .await
                 {
                     Some(entry) => self.features.feedback(&scope_for(&entry)).await,
                     None => json!({ "count": 0, "feedback": [] }),
                 },
-            },
+            ),
             BrokerMessage::CommitFeedback(req) => {
                 if let Some(entry) = self
                     .authorized_entry(&req.token, TokenFeature::Feedback)
@@ -120,18 +115,16 @@ impl DelegationListener {
                         .commit_feedback(&scope_for(&entry), &req.ids)
                         .await;
                 }
-                BrokerResponse {
-                    outcome: Value::Null,
-                }
+                BrokerResponse::Ack
             }
-            BrokerMessage::Ask(req) => BrokerResponse {
-                outcome: match self.authorized_entry(&req.token, TokenFeature::Ask).await {
+            BrokerMessage::Ask(req) => BrokerResponse::Payload(
+                match self.authorized_entry(&req.token, TokenFeature::Ask).await {
                     Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
                     None => json!({ "declined": true, "answers": [] }),
                 },
-            },
-            BrokerMessage::SessionInfo(req) => BrokerResponse {
-                outcome: match self
+            ),
+            BrokerMessage::SessionInfo(req) => BrokerResponse::Payload(
+                match self
                     .authorized_entry(&req.token, TokenFeature::SessionInfo)
                     .await
                 {
@@ -149,7 +142,7 @@ impl DelegationListener {
                         "conversation_id": req.conversation_id,
                     }),
                 },
-            },
+            ),
         };
         write_frame(conn, &response).await
     }
@@ -227,10 +220,14 @@ impl DelegationListener {
             .authorized_entry(&req.token, TokenFeature::Delegation)
             .await
         else {
-            return BrokerResponse {
-                outcome: json!({ "tasks": [] }),
-            };
+            return BrokerResponse::Tasks { tasks: Vec::new() };
         };
+        if req.task_ids.is_empty() {
+            return BrokerResponse::Error {
+                code: "invalid_task_ids".to_string(),
+                message: "task_ids must contain at least one task id".to_string(),
+            };
+        }
         let wait = match req.wait_ms {
             None => StatusWait::Immediate,
             Some(0) => StatusWait::Infinite,
@@ -240,8 +237,8 @@ impl DelegationListener {
             .broker
             .get_tasks_status(&scope_for(&entry), &req.task_ids, wait)
             .await;
-        BrokerResponse {
-            outcome: json!({ "tasks": reports }),
+        BrokerResponse::Tasks {
+            tasks: reports.into_iter().map(to_wire_report).collect(),
         }
     }
 
@@ -315,8 +312,23 @@ pub fn default_socket_path(_temp_dir: &std::path::Path) -> PathBuf {
     PathBuf::from(format!(r"\\.\pipe\vibex-delegation-{}", std::process::id()))
 }
 
-fn to_value(report: &DelegationTaskReport) -> Value {
-    serde_json::to_value(report).unwrap_or(Value::Null)
+fn to_wire_report(report: DelegationTaskReport) -> WireDelegationTaskReport {
+    WireDelegationTaskReport {
+        task_id: report.task_id,
+        status: match report.status {
+            crate::TaskStatus::Running => delegation_proto::TaskStatus::Running,
+            crate::TaskStatus::Completed => delegation_proto::TaskStatus::Completed,
+            crate::TaskStatus::Failed => delegation_proto::TaskStatus::Failed,
+            crate::TaskStatus::Canceled => delegation_proto::TaskStatus::Canceled,
+            crate::TaskStatus::Unknown => delegation_proto::TaskStatus::Unknown,
+        },
+        child_session_id: report.child_session_id.map(|id| id.to_string()),
+        agent_type: report.agent_type.map(|agent| agent.to_string()),
+        text: report.text,
+        error_code: report.error_code,
+        message: report.message,
+        duration_ms: report.duration_ms,
+    }
 }
 
 fn scope_for(entry: &crate::token_registry::TokenEntry) -> DelegationScope {
@@ -424,11 +436,12 @@ mod tests {
         (listener, tokens)
     }
 
-    async fn round_trip(listener: &DelegationListener, message: BrokerMessage) -> BrokerResponse {
+    async fn round_trip(listener: &DelegationListener, message: BrokerMessage) -> Value {
         let (mut client, mut server) = tokio::io::duplex(64 * 1024);
         write_frame(&mut client, &message).await.unwrap();
         listener.serve_one(&mut server).await.unwrap();
-        read_frame(&mut client).await.unwrap()
+        let response: BrokerResponse = read_frame(&mut client).await.unwrap();
+        response.into_outcome()
     }
 
     fn call(token: &str, parent_conn: &str) -> BrokerMessage {
@@ -454,8 +467,8 @@ mod tests {
         );
 
         let response = round_trip(&listener, call("tok", "conn-1")).await;
-        assert_eq!(response.outcome["status"], "running");
-        assert_eq!(response.outcome["agent_type"], "codex");
+        assert_eq!(response["status"], "running");
+        assert_eq!(response["agent_type"], "codex");
     }
 
     #[tokio::test]
@@ -479,16 +492,16 @@ mod tests {
 
         let response = round_trip(&listener, request).await;
 
-        assert_eq!(response.outcome["status"], "running");
-        assert_eq!(response.outcome["agent_type"], "vendor.agent-v2");
+        assert_eq!(response["status"], "running");
+        assert_eq!(response["agent_type"], "vendor.agent-v2");
     }
 
     #[tokio::test]
     async fn invalid_token_is_rejected() {
         let (listener, _tokens) = listener(Some(Uuid::nil()));
         let response = round_trip(&listener, call("bad", "conn-1")).await;
-        assert_eq!(response.outcome["status"], "canceled");
-        assert_eq!(response.outcome["error_code"], "canceled");
+        assert_eq!(response["status"], "canceled");
+        assert_eq!(response["error_code"], "canceled");
     }
 
     #[tokio::test]
@@ -504,7 +517,7 @@ mod tests {
         );
         // Token belongs to conn-1 but the request claims conn-2.
         let response = round_trip(&listener, call("tok", "conn-2")).await;
-        assert_eq!(response.outcome["status"], "canceled");
+        assert_eq!(response["status"], "canceled");
     }
 
     #[tokio::test]
@@ -522,8 +535,8 @@ mod tests {
 
         let response = round_trip(&listener, call("tok", "conn-1")).await;
 
-        assert_eq!(response.outcome["status"], "canceled");
-        assert_eq!(response.outcome["error_code"], "canceled");
+        assert_eq!(response["status"], "canceled");
+        assert_eq!(response["error_code"], "canceled");
     }
 
     #[tokio::test]
@@ -549,7 +562,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.outcome["tasks"], json!([]));
+        assert_eq!(response["tasks"], json!([]));
     }
 
     #[tokio::test]
@@ -577,8 +590,8 @@ mod tests {
 
         let response = round_trip(&listener, request).await;
 
-        assert_eq!(response.outcome["status"], "failed");
-        assert_eq!(response.outcome["error_code"], "invalid_working_dir");
+        assert_eq!(response["status"], "failed");
+        assert_eq!(response["error_code"], "invalid_working_dir");
     }
 
     #[cfg(unix)]
@@ -615,8 +628,8 @@ mod tests {
 
         let response = round_trip(&listener, request).await;
 
-        assert_eq!(response.outcome["status"], "failed");
-        assert_eq!(response.outcome["error_code"], "invalid_working_dir");
+        assert_eq!(response["status"], "failed");
+        assert_eq!(response["error_code"], "invalid_working_dir");
     }
 
     #[tokio::test]
@@ -638,7 +651,7 @@ mod tests {
             input: json!({ "agent_type": "NOT A VALID ID", "task": "x" }),
         });
         let response = round_trip(&listener, bad).await;
-        assert_eq!(response.outcome["error_code"], "invalid_agent_type");
+        assert_eq!(response["error_code"], "invalid_agent_type");
     }
 
     #[tokio::test]
@@ -658,9 +671,38 @@ mod tests {
             wait_ms: None,
         });
         let response = round_trip(&listener, status).await;
-        let tasks = response.outcome["tasks"].as_array().expect("tasks array");
+        let tasks = response["tasks"].as_array().expect("tasks array");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0]["status"], "unknown");
+    }
+
+    #[tokio::test]
+    async fn empty_infinite_status_request_is_rejected_without_waiting() {
+        let (listener, tokens) = listener(Some(Uuid::nil()));
+        tokens.register(
+            "tok".to_string(),
+            TokenEntry {
+                parent_connection_id: "conn-1".to_string(),
+                parent_conversation_id: Uuid::nil(),
+                working_root: std::env::temp_dir(),
+            },
+        );
+
+        let response = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            round_trip(
+                &listener,
+                BrokerMessage::Status(BrokerStatusRequest {
+                    token: "tok".to_string(),
+                    task_ids: Vec::new(),
+                    wait_ms: Some(0),
+                }),
+            ),
+        )
+        .await
+        .expect("listener must not block on an empty task list");
+
+        assert_eq!(response["error_code"], "invalid_task_ids");
     }
 
     #[tokio::test]
@@ -680,7 +722,7 @@ mod tests {
         };
         request.external_handle = Some("mcp-handle-1".to_string());
         let started = round_trip(&listener, BrokerMessage::Call(request)).await;
-        let task_id = started.outcome["task_id"].as_str().unwrap().to_string();
+        let task_id = started["task_id"].as_str().unwrap().to_string();
 
         round_trip(
             &listener,
@@ -701,7 +743,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(status.outcome["tasks"][0]["status"], "canceled");
+        assert_eq!(status["tasks"][0]["status"], "canceled");
     }
 
     #[tokio::test]
@@ -718,7 +760,7 @@ mod tests {
             );
         }
         let task_b = round_trip(&listener, call("token-b", "conn-b")).await;
-        let task_b_id = task_b.outcome["task_id"].as_str().unwrap().to_string();
+        let task_b_id = task_b["task_id"].as_str().unwrap().to_string();
 
         let response = round_trip(
             &listener,
@@ -730,7 +772,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.outcome["tasks"][0]["status"], "unknown");
+        assert_eq!(response["tasks"][0]["status"], "unknown");
     }
 
     #[tokio::test]
@@ -756,8 +798,8 @@ mod tests {
         });
         let first = round_trip(&listener, message.clone()).await;
         let second = round_trip(&listener, message).await;
-        assert_eq!(first.outcome, second.outcome);
-        assert_eq!(first.outcome["feedback"][0]["text"], "change direction");
+        assert_eq!(first, second);
+        assert_eq!(first["feedback"][0]["text"], "change direction");
 
         round_trip(
             &listener,
@@ -774,7 +816,7 @@ mod tests {
             }),
         )
         .await;
-        assert_eq!(after_commit.outcome["feedback"], json!([]));
+        assert_eq!(after_commit["feedback"], json!([]));
     }
 
     #[tokio::test]
@@ -819,8 +861,8 @@ mod tests {
         )
         .await;
 
-        assert_eq!(feedback.outcome["feedback"], json!([]));
-        assert_eq!(session.outcome["found"], false);
+        assert_eq!(feedback["feedback"], json!([]));
+        assert_eq!(session["found"], false);
     }
 
     #[tokio::test]
@@ -863,8 +905,8 @@ mod tests {
             .unwrap();
         let response = call.await.unwrap();
 
-        assert_eq!(response.outcome["declined"], false);
-        assert_eq!(response.outcome["answers"][0]["selected"][0], "A");
+        assert_eq!(response["declined"], false);
+        assert_eq!(response["answers"][0]["selected"][0], "A");
     }
 
     #[tokio::test]
@@ -902,7 +944,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.outcome["found"], true);
-        assert_eq!(response.outcome["title"], "Prior work");
+        assert_eq!(response["found"], true);
+        assert_eq!(response["title"], "Prior work");
     }
 }

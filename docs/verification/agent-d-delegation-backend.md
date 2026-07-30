@@ -30,6 +30,12 @@ Conversation projection seam.
 | Feedback | Listener returned a permanent empty stub | `cargo test -p delegation feedback_is_delivered_at_least_once_until_committed --lib` |
 | Ask | In-memory feature service had no pending-question/answer seam | `cargo test -p delegation ask_blocks_until_a_structured_answer_arrives --lib` |
 | Session info | `sessions` exposed no tool and listener had no resolver | `cargo test -p vibex-mcp session_info_feature_is_independent`; `cargo test -p delegation session_info_resolves_only_with_its_feature_service --lib` |
+| Typed companion wire | `delegation-proto` exposed only an untyped JSON outcome and had no tag fixture | `cargo test -p delegation-proto broker_wire_contract_uses_typed_reports_and_snake_case_tags` |
+| Empty long poll | An authenticated empty `task_ids` request with `wait_ms=0` never returned | `cargo test -p delegation empty_infinite_status_request_is_rejected_without_waiting --lib` |
+| Pre-cancel reuse | A stale FIFO entry could evict a newly reused cancellation handle | `cargo test -p delegation consumed_pre_cancel_does_not_evict_a_reused_handle --lib` |
+| Linked send failure | A durable child whose first prompt failed had no Started/Completed lifecycle | `cargo test -p delegation linked_send_failure_emits_a_durable_terminal_lifecycle --lib` |
+| Ask cancellation | Dropping the requester left its question occupying the parent scope | `cargo test -p delegation canceled_ask_releases_the_scope_for_a_later_question --lib` |
+| Long transcript stream | A single assistant message over 10,000 deltas lost its first chunks | `cargo test -p vibex compact_transcript_does_not_cut_a_long_streamed_message --lib` |
 
 Fixed-point review added regression coverage for:
 
@@ -45,6 +51,14 @@ Fixed-point review added regression coverage for:
   for every companion message;
 - bounded pre-cancel/closed-parent tombstones and transcript folding before the
   message limit is applied.
+- typed task/status wire responses with stable snake_case tags and a bounded
+  empty-status error path;
+- cancellation-safe pending questions and generation-safe pre-cancel FIFO
+  cleanup;
+- durable Started-to-Completed recovery when the child row exists but its first
+  prompt send fails, including resolver-correlation release;
+- backward-paged transcript folding that completes a streamed message before
+  applying `max_messages`.
 
 Pre-existing behaviors were retained with named regression coverage:
 `identical_parallel_tasks_keep_independent_task_ids`,

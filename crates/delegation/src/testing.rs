@@ -25,6 +25,7 @@ pub struct MockSpawnerCalls {
     pub spawned: Vec<(String, AgentId, Option<String>)>,
     pub prompts: Vec<(String, String)>,
     pub canceled: Vec<String>,
+    pub released: Vec<Uuid>,
     pub disconnected: Vec<String>,
 }
 
@@ -40,6 +41,7 @@ pub struct MockSpawner {
     pub child_session_id: Uuid,
     pub spawn_error: Option<String>,
     pub send_error: Option<String>,
+    pub send_error_after_link: Option<String>,
     pub calls: Mutex<MockSpawnerCalls>,
     pub captured_call_id: Arc<Mutex<Option<String>>>,
     pub send_reached_gate: Arc<Notify>,
@@ -53,6 +55,7 @@ impl MockSpawner {
             child_session_id: Uuid::from_u128(0xC417D),
             spawn_error: None,
             send_error: None,
+            send_error_after_link: None,
             calls: Mutex::new(MockSpawnerCalls::default()),
             captured_call_id: Arc::new(Mutex::new(None)),
             send_reached_gate: Arc::new(Notify::new()),
@@ -105,6 +108,12 @@ impl ConnectionSpawner for MockSpawner {
         if let Some(message) = &self.send_error {
             return Err(SpawnerError::SendPrompt(message.clone()));
         }
+        if let Some(message) = &self.send_error_after_link {
+            return Err(SpawnerError::SendPromptAfterLink {
+                child_session_id: self.child_session_id,
+                message: message.clone(),
+            });
+        }
         Ok(self.child_session_id)
     }
 
@@ -114,6 +123,11 @@ impl ConnectionSpawner for MockSpawner {
             .unwrap()
             .canceled
             .push(child_connection_id.to_string());
+        Ok(())
+    }
+
+    async fn release_child(&self, child_session_id: Uuid) -> Result<(), SpawnerError> {
+        self.calls.lock().unwrap().released.push(child_session_id);
         Ok(())
     }
 

@@ -1,9 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, Notify, oneshot};
+use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
 use uuid::Uuid;
 
 use crate::DelegationScope;
@@ -47,10 +50,10 @@ impl CompanionFeaturePort for NoopCompanionFeatures {
 
 #[derive(Debug, Default)]
 pub struct InMemoryCompanionFeatures {
-    feedback: Mutex<HashMap<DelegationScope, Vec<FeedbackNote>>>,
-    questions: Mutex<HashMap<String, PendingQuestionState>>,
+    feedback: AsyncMutex<HashMap<DelegationScope, Vec<FeedbackNote>>>,
+    questions: Arc<StdMutex<HashMap<String, PendingQuestionState>>>,
     question_notify: Notify,
-    sessions: Mutex<HashMap<(DelegationScope, String), Value>>,
+    sessions: AsyncMutex<HashMap<(DelegationScope, String), Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +67,17 @@ pub struct PendingQuestion {
 struct PendingQuestionState {
     question: PendingQuestion,
     answer_tx: oneshot::Sender<Value>,
+}
+
+struct QuestionWaitGuard {
+    questions: Arc<StdMutex<HashMap<String, PendingQuestionState>>>,
+    question_id: String,
+}
+
+impl Drop for QuestionWaitGuard {
+    fn drop(&mut self) {
+        self.questions.lock().unwrap().remove(&self.question_id);
+    }
 }
 
 impl InMemoryCompanionFeatures {
@@ -91,7 +105,7 @@ impl InMemoryCompanionFeatures {
             if let Some(question) = self
                 .questions
                 .lock()
-                .await
+                .unwrap()
                 .values()
                 .find(|pending| &pending.question.scope == scope)
                 .map(|pending| pending.question.clone())
@@ -114,7 +128,7 @@ impl InMemoryCompanionFeatures {
             questions,
         };
         let (answer_tx, answer_rx) = oneshot::channel();
-        let mut pending_questions = self.questions.lock().await;
+        let mut pending_questions = self.questions.lock().unwrap();
         if pending_questions
             .values()
             .any(|pending| pending.question.scope == question.scope)
@@ -133,13 +147,28 @@ impl InMemoryCompanionFeatures {
         Ok((question, answer_rx))
     }
 
+    /// Await an answer while owning cleanup for the pending question. If the
+    /// caller future is canceled (for example because its socket closes), the
+    /// guard removes the question synchronously and releases the scope.
+    pub async fn wait_for_answer(
+        &self,
+        question_id: &str,
+        answer_rx: oneshot::Receiver<Value>,
+    ) -> Result<Value, oneshot::error::RecvError> {
+        let _guard = QuestionWaitGuard {
+            questions: self.questions.clone(),
+            question_id: question_id.to_string(),
+        };
+        answer_rx.await
+    }
+
     pub async fn answer_question(
         &self,
         question_id: &str,
         parent_conversation_id: Uuid,
         answers: Value,
     ) -> Result<PendingQuestion, &'static str> {
-        let mut questions = self.questions.lock().await;
+        let mut questions = self.questions.lock().unwrap();
         let pending = questions.get(question_id).ok_or("question not found")?;
         if pending.question.scope.parent_conversation_id != parent_conversation_id {
             return Err("question does not belong to conversation");
@@ -173,7 +202,7 @@ impl InMemoryCompanionFeatures {
             .lock()
             .await
             .retain(|scope, _| scope.parent_connection_id != parent_connection_id);
-        self.questions.lock().await.retain(|_, pending| {
+        self.questions.lock().unwrap().retain(|_, pending| {
             pending.question.scope.parent_connection_id != parent_connection_id
         });
         self.sessions
@@ -215,7 +244,7 @@ impl CompanionFeaturePort for InMemoryCompanionFeatures {
                 "error": "question already pending for parent conversation",
             });
         };
-        match answer_rx.await {
+        match self.wait_for_answer(&question.id, answer_rx).await {
             Ok(answers) => json!({
                 "question_id": question.id,
                 "declined": false,
@@ -304,5 +333,51 @@ mod tests {
         );
         features.close_parent_connection("parent").await;
         assert!(first_answer.await.is_err(), "teardown drops answer sender");
+    }
+
+    #[tokio::test]
+    async fn canceled_ask_releases_the_scope_for_a_later_question() {
+        let features = Arc::new(InMemoryCompanionFeatures::new());
+        let scope = DelegationScope {
+            parent_connection_id: "parent".to_string(),
+            parent_conversation_id: Uuid::new_v4(),
+        };
+        let first = tokio::spawn({
+            let features = features.clone();
+            let scope = scope.clone();
+            async move {
+                features
+                    .ask(&scope, json!([{ "question": "First?" }]))
+                    .await
+            }
+        });
+        features.next_question(&scope).await;
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+
+        let second = tokio::spawn({
+            let features = features.clone();
+            let scope = scope.clone();
+            async move {
+                features
+                    .ask(&scope, json!([{ "question": "Second?" }]))
+                    .await
+            }
+        });
+        let pending = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            features.next_question(&scope),
+        )
+        .await
+        .expect("canceled waiter must remove its pending question");
+        features
+            .answer_question(
+                &pending.id,
+                scope.parent_conversation_id,
+                json!([{ "selected": ["yes"] }]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.await.unwrap()["declined"], false);
     }
 }

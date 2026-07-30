@@ -301,9 +301,7 @@ impl DelegationBroker {
             let mut pending = self.pending.lock().unwrap();
             let canceled = pending.closed_parents.contains(&req.parent_connection_id)
                 || req.external_handle.as_ref().is_some_and(|handle| {
-                    pending
-                        .pre_canceled_handles
-                        .remove(&(scope.clone(), handle.clone()))
+                    remove_pre_canceled(&mut pending, &(scope.clone(), handle.clone()))
                 });
             if !canceled {
                 pending.setups.insert(
@@ -340,11 +338,49 @@ impl DelegationBroker {
                 // Preserve whichever terminal arrived first. A cancellation
                 // buffered during setup must not be overwritten by a later send
                 // error.
-                let early_outcome = {
+                let (early_outcome, reserved_at) = {
                     let mut pending = self.pending.lock().unwrap();
-                    pending.setups.remove(&call_id);
-                    pending.early_completes.remove(&call_id)
+                    let reserved_at = pending
+                        .setups
+                        .remove(&call_id)
+                        .map(|reservation| reservation.started_at)
+                        .unwrap_or_else(Instant::now);
+                    (pending.early_completes.remove(&call_id), reserved_at)
                 };
+                if let Some(child_session_id) = err.linked_child_session_id() {
+                    self.event_emitter
+                        .emit_started(DelegationStartedEvent {
+                            delegation_id: call_id.clone(),
+                            parent_connection_id: req.parent_connection_id.clone(),
+                            parent_conversation_id: req.parent_session_id,
+                            parent_tool_use_id: parent_tool_use_id.clone(),
+                            child_session_id,
+                            agent_type: req.agent_type.clone(),
+                            task_preview: preview(&req.task),
+                        })
+                        .await;
+                    let outcome = early_outcome.unwrap_or_else(|| DelegationOutcome::Err {
+                        code: "spawn_failed".to_string(),
+                        message: err.to_string(),
+                        child_session_id: Some(child_session_id),
+                    });
+                    return self
+                        .finalize(
+                            FinalizeCtx {
+                                call_id,
+                                parent_connection_id: req.parent_connection_id,
+                                parent_conversation_id: req.parent_session_id,
+                                parent_tool_use_id,
+                                has_real_tool_call,
+                                child_connection_id,
+                                child_session_id,
+                                agent_type: req.agent_type,
+                                duration_ms: reserved_at.elapsed().as_millis() as u64,
+                            },
+                            outcome,
+                        )
+                        .await;
+                }
                 let _ = self.spawner.disconnect(&child_connection_id).await;
                 return match early_outcome {
                     Some(outcome) => {
@@ -469,11 +505,10 @@ impl DelegationBroker {
         let Some(external_handle) = external_handle else {
             return false;
         };
-        self.pending
-            .lock()
-            .unwrap()
-            .pre_canceled_handles
-            .remove(&(scope.clone(), external_handle.to_string()))
+        remove_pre_canceled(
+            &mut self.pending.lock().unwrap(),
+            &(scope.clone(), external_handle.to_string()),
+        )
     }
 
     /// Cancel by the companion's request handle. Cancellation may arrive on a
@@ -582,6 +617,7 @@ impl DelegationBroker {
             insert_completed(&mut pending, ctx.call_id.clone(), completed.clone(), cap);
         }
 
+        let _ = self.spawner.release_child(ctx.child_session_id).await;
         let _ = self.spawner.disconnect(&ctx.child_connection_id).await;
         if ctx.has_real_tool_call {
             self.meta_writer
@@ -947,6 +983,16 @@ fn task_matches(scope: &DelegationScope, task: &CompletedTask) -> bool {
 fn running_matches(scope: &DelegationScope, task: &RunningTask) -> bool {
     task.parent_connection_id == scope.parent_connection_id
         && task.parent_conversation_id == scope.parent_conversation_id
+}
+
+fn remove_pre_canceled(pending: &mut PendingInner, tombstone: &(DelegationScope, String)) -> bool {
+    let removed = pending.pre_canceled_handles.remove(tombstone);
+    if removed {
+        pending
+            .pre_canceled_order
+            .retain(|queued| queued != tombstone);
+    }
+    removed
 }
 
 fn setup_matches(scope: &DelegationScope, setup: &SetupReservation) -> bool {
@@ -1783,6 +1829,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn consumed_pre_cancel_does_not_evict_a_reused_handle() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        let parent = scope(Uuid::nil());
+
+        h.broker.cancel_external(&parent, "reused").await;
+        let mut first = request(Uuid::nil());
+        first.external_handle = Some("reused".to_string());
+        assert_eq!(
+            h.broker.start_delegation(first).await.status,
+            TaskStatus::Canceled
+        );
+
+        for index in 0..(TOMBSTONE_CAP - 1) {
+            h.broker
+                .cancel_external(&parent, &format!("other-{index}"))
+                .await;
+        }
+        h.broker.cancel_external(&parent, "reused").await;
+        h.broker.cancel_external(&parent, "overflow").await;
+
+        let mut reused = request(Uuid::nil());
+        reused.external_handle = Some("reused".to_string());
+        assert_eq!(
+            h.broker.start_delegation(reused).await.status,
+            TaskStatus::Canceled
+        );
+    }
+
+    #[tokio::test]
     async fn setup_cancel_remains_terminal_when_send_later_fails() {
         let mut spawner = MockSpawner::new();
         spawner.send_error = Some("late send failure".to_string());
@@ -1817,6 +1892,31 @@ mod tests {
             .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Immediate)
             .await;
         assert_eq!(status[0].status, TaskStatus::Canceled);
+    }
+
+    #[tokio::test]
+    async fn linked_send_failure_emits_a_durable_terminal_lifecycle() {
+        let mut spawner = MockSpawner::new();
+        spawner.send_error_after_link = Some("agent rejected first prompt".to_string());
+        let events = Arc::new(RecordingEventEmitter::default());
+        let broker = DelegationBroker::new(
+            Arc::new(spawner),
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(MockStatusLookup::default()),
+            Arc::new(RecordingMetaWriter::default()),
+            events.clone(),
+            DelegationConfig::default(),
+        );
+
+        let report = broker.start_delegation(request(Uuid::nil())).await;
+
+        assert_eq!(report.status, TaskStatus::Failed);
+        assert_eq!(
+            events.order.lock().unwrap().as_slice(),
+            &["started", "completed"]
+        );
+        assert_eq!(events.started.lock().unwrap().len(), 1);
+        assert_eq!(events.completed.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

@@ -100,12 +100,16 @@ impl ConnectionSpawner for RuntimeSpawner {
         self.runtime
             .new_session_with_id(conn, session_id, child_id.to_string())
             .await
-            .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
+            .map_err(|error| SpawnerError::SendPromptAfterLink {
+                child_session_id: child_id,
+                message: error.to_string(),
+            })?;
         self.map
             .lock()
             .await
             .insert(child_id, (link.delegation_call_id.clone(), link.agent_type));
-        self.runtime
+        if let Err(error) = self
+            .runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: conn,
                 session_id,
@@ -114,7 +118,13 @@ impl ConnectionSpawner for RuntimeSpawner {
                 config_overrides: Vec::new(),
             })
             .await
-            .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
+        {
+            self.map.lock().await.remove(&child_id);
+            return Err(SpawnerError::SendPromptAfterLink {
+                child_session_id: child_id,
+                message: error.to_string(),
+            });
+        }
         Ok(child_id)
     }
 
@@ -135,6 +145,11 @@ impl ConnectionSpawner for RuntimeSpawner {
                 })
                 .await;
         }
+        Ok(())
+    }
+
+    async fn release_child(&self, child_session_id: Uuid) -> Result<(), SpawnerError> {
+        self.map.lock().await.remove(&child_session_id);
         Ok(())
     }
 

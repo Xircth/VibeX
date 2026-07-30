@@ -5,6 +5,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::DelegationTaskReport;
+
 /// Hard cap on a single frame's JSON body. A `delegate_to_agent` task can be
 /// large, but anything past this is treated as a corrupt/hostile peer.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -105,12 +107,34 @@ fn default_max_messages() -> u32 {
     20
 }
 
-/// The broker's single reply to any message. `outcome` carries whatever the
-/// handler produced (a serialized task report, `{"tasks":[..]}`, feedback, an
-/// answer set, …) so the companion can pass it straight to the MCP client.
+/// The broker's single reply to any message.
+///
+/// Delegation reports are typed on the wire. Feature-specific companion
+/// payloads remain explicit `Payload` variants so they cannot be confused with
+/// a task report while still allowing their independently versioned schemas.
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
-pub struct BrokerResponse {
-    pub outcome: Value,
+#[serde(tag = "kind", content = "outcome", rename_all = "snake_case")]
+pub enum BrokerResponse {
+    Task(DelegationTaskReport),
+    Tasks { tasks: Vec<DelegationTaskReport> },
+    Payload(Value),
+    Error { code: String, message: String },
+    Ack,
+}
+
+impl BrokerResponse {
+    /// Convert the typed transport response into the MCP tool-result payload.
+    pub fn into_outcome(self) -> Value {
+        match self {
+            Self::Task(report) => serde_json::to_value(report).unwrap_or(Value::Null),
+            Self::Tasks { tasks } => serde_json::json!({ "tasks": tasks }),
+            Self::Payload(payload) => payload,
+            Self::Error { code, message } => {
+                serde_json::json!({ "error_code": code, "message": message })
+            }
+            Self::Ack => Value::Null,
+        }
+    }
 }
 
 /// Serialize `message` and write it as a single length-prefixed frame.
@@ -215,5 +239,45 @@ mod tests {
 
         let result: std::io::Result<BrokerMessage> = read_frame(&mut rx).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn broker_wire_contract_uses_typed_reports_and_snake_case_tags() {
+        let message = BrokerMessage::CancelTask(BrokerCancelTaskRequest {
+            token: "tok".to_string(),
+            task_id: "task-1".to_string(),
+        });
+        assert_eq!(
+            serde_json::to_value(message).expect("serialize message"),
+            serde_json::json!({
+                "cancel_task": {
+                    "token": "tok",
+                    "task_id": "task-1",
+                }
+            })
+        );
+
+        let response = BrokerResponse::Task(crate::DelegationTaskReport {
+            task_id: Some("task-1".to_string()),
+            status: crate::TaskStatus::Running,
+            child_session_id: Some("child-1".to_string()),
+            agent_type: Some("vendor.agent-v2".to_string()),
+            text: None,
+            error_code: None,
+            message: None,
+            duration_ms: None,
+        });
+        assert_eq!(
+            serde_json::to_value(response).expect("serialize response"),
+            serde_json::json!({
+                "kind": "task",
+                "outcome": {
+                    "task_id": "task-1",
+                    "status": "running",
+                    "child_session_id": "child-1",
+                    "agent_type": "vendor.agent-v2",
+                }
+            })
+        );
     }
 }

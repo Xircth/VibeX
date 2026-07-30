@@ -293,8 +293,9 @@ impl Companion {
         match outcome {
             None => {}
             Some(Ok(response)) => {
+                let outcome = response.into_outcome();
                 let feedback_ids = if name == "check_user_feedback" {
-                    response.outcome["feedback"]
+                    outcome["feedback"]
                         .as_array()
                         .into_iter()
                         .flatten()
@@ -303,8 +304,7 @@ impl Companion {
                 } else {
                     Vec::new()
                 };
-                let relayed =
-                    write_opt(&stdout, respond(id, render_result(&response.outcome))).await;
+                let relayed = write_opt(&stdout, respond(id, render_result(&outcome))).await;
                 if relayed && !feedback_ids.is_empty() {
                     let _ = client::call_broker(
                         &self.socket_path,
@@ -719,7 +719,9 @@ mod tests {
     #[cfg(windows)]
     #[tokio::test]
     async fn call_broker_round_trips_over_named_pipe() {
-        use delegation_proto::{BrokerResponse, read_frame, write_frame};
+        use delegation_proto::{
+            BrokerResponse, DelegationTaskReport, TaskStatus, read_frame, write_frame,
+        };
         use tokio::net::windows::named_pipe::ServerOptions;
 
         let path = format!(r"\\.\pipe\vibex-mcp-test-{}", std::process::id());
@@ -731,9 +733,16 @@ mod tests {
             let mut conn = server;
             conn.connect().await.unwrap();
             let received: BrokerMessage = read_frame(&mut conn).await.unwrap();
-            let response = BrokerResponse {
-                outcome: json!({ "status": "running", "task_id": "t1" }),
-            };
+            let response = BrokerResponse::Task(DelegationTaskReport {
+                task_id: Some("t1".to_string()),
+                status: TaskStatus::Running,
+                child_session_id: None,
+                agent_type: None,
+                text: None,
+                error_code: None,
+                message: None,
+                duration_ms: None,
+            });
             write_frame(&mut conn, &response).await.unwrap();
             received
         });
@@ -744,8 +753,11 @@ mod tests {
             task_ids: vec!["t1".to_string()],
             wait_ms: None,
         });
-        let response = client::call_broker(&path, &message).await.unwrap();
-        assert_eq!(response.outcome["status"], "running");
+        let response = client::call_broker(&path, &message)
+            .await
+            .unwrap()
+            .into_outcome();
+        assert_eq!(response["status"], "running");
         assert!(matches!(
             server_task.await.unwrap(),
             BrokerMessage::Status(_)
@@ -755,7 +767,9 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn call_broker_round_trips_over_uds() {
-        use delegation_proto::{BrokerResponse, read_frame, write_frame};
+        use delegation_proto::{
+            BrokerResponse, DelegationTaskReport, TaskStatus, read_frame, write_frame,
+        };
 
         let dir = std::env::temp_dir();
         let path = dir.join(format!("vibex-mcp-test-{}.sock", std::process::id()));
@@ -765,9 +779,16 @@ mod tests {
         let server_task = tokio::spawn(async move {
             let (mut conn, _) = listener.accept().await.unwrap();
             let received: BrokerMessage = read_frame(&mut conn).await.unwrap();
-            let response = BrokerResponse {
-                outcome: json!({ "status": "running", "task_id": "t1" }),
-            };
+            let response = BrokerResponse::Task(DelegationTaskReport {
+                task_id: Some("t1".to_string()),
+                status: TaskStatus::Running,
+                child_session_id: None,
+                agent_type: None,
+                text: None,
+                error_code: None,
+                message: None,
+                duration_ms: None,
+            });
             write_frame(&mut conn, &response).await.unwrap();
             received
         });
@@ -777,8 +798,11 @@ mod tests {
             task_ids: vec!["t1".to_string()],
             wait_ms: None,
         });
-        let response = client::call_broker(&path_str, &message).await.unwrap();
-        assert_eq!(response.outcome["status"], "running");
+        let response = client::call_broker(&path_str, &message)
+            .await
+            .unwrap()
+            .into_outcome();
+        assert_eq!(response["status"], "running");
         assert!(matches!(
             server_task.await.unwrap(),
             BrokerMessage::Status(_)

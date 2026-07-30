@@ -13,10 +13,28 @@ pub enum SpawnerError {
     Spawn(String),
     #[error("send prompt failed: {0}")]
     SendPrompt(String),
+    #[error("send prompt failed after linking child {child_session_id}: {message}")]
+    SendPromptAfterLink {
+        child_session_id: Uuid,
+        message: String,
+    },
     #[error("parent session is gone")]
     ParentGone,
     #[error("{0}")]
     Other(String),
+}
+
+impl SpawnerError {
+    /// Durable child identity, when setup progressed far enough that the broker
+    /// must emit a terminal lifecycle instead of treating the call as absent.
+    pub fn linked_child_session_id(&self) -> Option<Uuid> {
+        match self {
+            Self::SendPromptAfterLink {
+                child_session_id, ..
+            } => Some(*child_session_id),
+            Self::Spawn(_) | Self::SendPrompt(_) | Self::ParentGone | Self::Other(_) => None,
+        }
+    }
 }
 
 /// Spawns and drives child ACP sessions for a `delegate_to_agent` call.
@@ -44,6 +62,10 @@ pub trait ConnectionSpawner: Send + Sync {
 
     /// Interrupt any in-flight prompt on the child. Idempotent.
     async fn cancel(&self, child_connection_id: &str) -> Result<(), SpawnerError>;
+
+    /// Release resolver correlation for a child that the broker has already
+    /// made terminal. Idempotent.
+    async fn release_child(&self, child_session_id: Uuid) -> Result<(), SpawnerError>;
 
     /// Tear down the child connection (one-shot v1: always after resolution).
     async fn disconnect(&self, child_connection_id: &str) -> Result<(), SpawnerError>;

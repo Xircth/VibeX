@@ -78,7 +78,7 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
                 )
                 .await;
         }
-        match answer_rx.await {
+        match self.memory.wait_for_answer(&pending.id, answer_rx).await {
             Ok(answer) if answer["__declined"] == true => json!({
                 "question_id": pending.id,
                 "declined": true,
@@ -138,28 +138,41 @@ async fn load_compact_transcript(
     if max_messages == 0 {
         return Vec::new();
     }
-    const EVENT_SCAN_CAP: i64 = 10_000;
-    let rows = sqlx::query_scalar::<_, String>(
-        r#"SELECT normalized_json
-           FROM conversation_events
-           WHERE conversation_id = ?
-             AND event_kind IN ('user_turn_created', 'assistant_text_delta')
-           ORDER BY sequence DESC
-           LIMIT ?"#,
-    )
-    .bind(conversation_id)
-    .bind(EVENT_SCAN_CAP)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    const PAGE_SIZE: i64 = 512;
     struct CompactMessage {
         role: &'static str,
-        content: String,
+        /// Chunks are collected newest-to-oldest while paging backward.
+        chunks_rev: Vec<String>,
         message_id: Option<String>,
     }
+    let keep = usize::try_from(max_messages.min(200)).unwrap_or(200);
+    let mut before_sequence = i64::MAX;
     let mut messages: Vec<CompactMessage> = Vec::new();
-    for normalized in rows.into_iter().rev() {
-        if let Ok(event) = serde_json::from_str::<ConversationEvent>(&normalized) {
+    'pages: loop {
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            r#"SELECT sequence, normalized_json
+               FROM conversation_events
+               WHERE conversation_id = ?
+                 AND event_kind IN ('user_turn_created', 'assistant_text_delta')
+                 AND sequence < ?
+               ORDER BY sequence DESC
+               LIMIT ?"#,
+        )
+        .bind(conversation_id)
+        .bind(before_sequence)
+        .bind(PAGE_SIZE)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+        if rows.is_empty() {
+            break;
+        }
+        let page_len = rows.len();
+        for (sequence, normalized) in rows {
+            before_sequence = sequence;
+            let Ok(event) = serde_json::from_str::<ConversationEvent>(&normalized) else {
+                continue;
+            };
             match event {
                 ConversationEvent::UserTurnCreated { blocks } => {
                     let content = blocks
@@ -174,40 +187,52 @@ async fn load_compact_transcript(
                     if !content.is_empty() {
                         messages.push(CompactMessage {
                             role: "user",
-                            content,
+                            chunks_rev: vec![content],
                             message_id: None,
                         });
                     }
                 }
                 ConversationEvent::AssistantTextDelta { text, message_id } => {
-                    let append_to_previous = messages.last().is_some_and(|previous| {
-                        previous.role == "assistant"
-                            && (message_id.is_none() || previous.message_id == message_id)
+                    let append_to_current = messages.last().is_some_and(|current| {
+                        current.role == "assistant"
+                            && (message_id.is_none()
+                                || current.message_id.is_none()
+                                || current.message_id == message_id)
                     });
-                    if append_to_previous {
-                        messages
-                            .last_mut()
-                            .expect("checked above")
-                            .content
-                            .push_str(&text);
+                    if append_to_current {
+                        let current = messages.last_mut().expect("checked above");
+                        if current.message_id.is_none() {
+                            current.message_id = message_id;
+                        }
+                        current.chunks_rev.push(text);
                     } else {
                         messages.push(CompactMessage {
                             role: "assistant",
-                            content: text,
+                            chunks_rev: vec![text],
                             message_id,
                         });
                     }
                 }
                 _ => {}
             }
+            // Seeing the boundary of one older message proves that the `keep`
+            // newer messages are complete, including arbitrarily long streams.
+            if messages.len() > keep {
+                break 'pages;
+            }
+        }
+        if page_len < usize::try_from(PAGE_SIZE).unwrap_or(512) {
+            break;
         }
     }
-    let keep = usize::try_from(max_messages.min(200)).unwrap_or(200);
-    let skip = messages.len().saturating_sub(keep);
     messages
         .into_iter()
-        .skip(skip)
-        .map(|message| json!({ "role": message.role, "content": message.content }))
+        .take(keep)
+        .rev()
+        .map(|message| {
+            let content = message.chunks_rev.into_iter().rev().collect::<String>();
+            json!({ "role": message.role, "content": content })
+        })
         .collect()
 }
 
@@ -290,5 +315,58 @@ mod tests {
             vec![json!({ "role": "assistant", "content": "second third" })]
         );
         assert!(none.is_empty());
+    }
+
+    #[tokio::test]
+    async fn compact_transcript_does_not_cut_a_long_streamed_message() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:").unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE conversation_events (
+                   conversation_id BLOB NOT NULL,
+                   event_kind TEXT NOT NULL,
+                   sequence INTEGER NOT NULL,
+                   normalized_json TEXT NOT NULL
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let conversation_id = Uuid::new_v4();
+        let mut transaction = pool.begin().await.unwrap();
+        for sequence in 1..=10_001_i64 {
+            let text = match sequence {
+                1 => "start|",
+                10_001 => "|end",
+                _ => "x",
+            };
+            let normalized = serde_json::to_string(&ConversationEvent::AssistantTextDelta {
+                text: text.to_string(),
+                message_id: Some("one-long-message".to_string()),
+            })
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO conversation_events \
+                 (conversation_id, event_kind, sequence, normalized_json) VALUES (?, ?, ?, ?)",
+            )
+            .bind(conversation_id)
+            .bind("assistant_text_delta")
+            .bind(sequence)
+            .bind(normalized)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        }
+        transaction.commit().await.unwrap();
+
+        let messages = load_compact_transcript(&pool, conversation_id, 1).await;
+        let content = messages[0]["content"].as_str().unwrap();
+
+        assert!(content.starts_with("start|"));
+        assert!(content.ends_with("|end"));
     }
 }

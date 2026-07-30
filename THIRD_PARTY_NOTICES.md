@@ -2,7 +2,8 @@
 
 ## Codeg
 
-Portions of the Office watch lifecycle were adapted from Codeg at commit
+Portions of the Office watch lifecycle and delegation companion behavior were
+adapted from Codeg at commit
 `549add8d3ba07f31464c9cddde8ba7a7478eed14`.
 
 - Upstream author metadata: `feitao`

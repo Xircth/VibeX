@@ -1,4 +1,4 @@
-# Codeg Office Watch Adoption
+# Codeg Adoption
 
 ## Source
 
@@ -36,12 +36,39 @@ capability token, expiry, and reference count.
 The resulting Rust is substantially reorganized for VibeX's ports-and-adapters
 architecture and TDD seams. It is not a byte-identical vendor copy.
 
+## Delegation and companion parity
+
+The Agent D slice reviewed these additional files at the same pinned commit:
+
+- `src-tauri/src/acp/delegation/{broker,companion,listener,parent_watcher,transport,types}.rs`
+- `src-tauri/src/acp/delegation/tool_schema.json`
+- `src-tauri/src/bin/codeg_mcp.rs`
+
+VibeX reimplemented the observable behavior within its existing
+`delegation`, `delegation-proto`, and `vibex-mcp` crates. Adopted behavior
+includes asynchronous task ids, batched status waits, first-terminal-wins
+setup races, per-parent cache isolation, bounded framing, parent teardown,
+feedback pull/commit, blocking questions, independent feature groups, and
+read-only session information. The tool schema was adapted from Codeg's
+`@Agent`/`codeg://agent` convention to VibeX's structured `&Agent` and
+`vibex://agent` contract. VibeX-specific changes include open `AgentId`,
+Conversation UUIDs, event-sourced projection rebuild, token scope binding,
+and a 256 KiB result cap.
+
+No Codeg source file was copied byte-for-byte. This record and the project
+notice preserve attribution for the adapted design, schema language, and
+behavioral tests.
+
 ## Verification
 
 - `cargo test -p artifacts`
 - `cargo test -p artifacts --test local_adapters`
 - `cargo test -p conversations artifact_revision_event_projects_reference_without_file_bytes`
 - `cargo test -p vibex office`
+- `cargo test -p delegation-proto`
+- `cargo test -p delegation`
+- `cargo test -p vibex-mcp`
+- `cargo test -p conversations delegation_events_rebuild_child_binding`
 
 ## Apache-2.0 obligations
 

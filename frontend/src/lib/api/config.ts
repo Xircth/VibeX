@@ -9,7 +9,7 @@ import type {
   ChatChannelMessageLog,
 } from 'shared/types';
 
-import { tauriInvoke } from './base';
+import { backendCall } from './base';
 
 export interface PromptEnhancementContextMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
@@ -106,50 +106,50 @@ export type UserSystemInfo = {
 // Config APIs
 export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
-    return tauriInvoke<UserSystemInfo>('get_user_system_info');
+    return backendCall<UserSystemInfo>('get_user_system_info');
   },
   saveConfig: async (config: Config): Promise<Config> => {
-    return tauriInvoke<Config>('update_config', { newConfig: config });
+    return backendCall<Config>('update_config', { newConfig: config });
   },
   checkEditorAvailability: async (
     editorType: EditorType
   ): Promise<CheckEditorAvailabilityResponse> => {
-    return tauriInvoke<CheckEditorAvailabilityResponse>(
+    return backendCall<CheckEditorAvailabilityResponse>(
       'check_editor_availability',
       { editorType }
     );
   },
   playNotificationSound: async (soundFile: SoundFile): Promise<void> => {
-    return tauriInvoke<void>('play_notification_sound', {
+    return backendCall<void>('play_notification_sound', {
       soundFile,
     });
   },
   enhancePrompt: async (
     payload: PromptEnhancementRequest
   ): Promise<PromptEnhancementResponse> => {
-    return tauriInvoke<PromptEnhancementResponse>('enhance_prompt', {
+    return backendCall<PromptEnhancementResponse>('enhance_prompt', {
       payload,
     });
   },
   listOpencodeModels: async (): Promise<OpencodeModelsResponse> => {
-    return tauriInvoke<OpencodeModelsResponse>('list_opencode_models');
+    return backendCall<OpencodeModelsResponse>('list_opencode_models');
   },
   clearLocalData: async (): Promise<ClearLocalDataResponse> => {
-    return tauriInvoke<ClearLocalDataResponse>('clear_local_app_data');
+    return backendCall<ClearLocalDataResponse>('clear_local_app_data');
   },
   getSystemMaintenanceStatus: async (): Promise<SystemMaintenanceStatus> => {
-    return tauriInvoke<SystemMaintenanceStatus>(
+    return backendCall<SystemMaintenanceStatus>(
       'get_system_maintenance_status'
     );
   },
   checkAppRelease: async (): Promise<AppReleaseStatus> => {
-    return tauriInvoke<AppReleaseStatus>('check_app_release');
+    return backendCall<AppReleaseStatus>('check_app_release');
   },
   installSystemDependencies: async (
     forceUpdate = false,
     toolIds?: string[]
   ): Promise<InstallSystemDependenciesResult> => {
-    return tauriInvoke<InstallSystemDependenciesResult>(
+    return backendCall<InstallSystemDependenciesResult>(
       'install_system_dependencies',
       { forceUpdate, toolIds: toolIds ?? null }
     );
@@ -178,39 +178,39 @@ export interface GitHubCliStatus {
 
 export const versionControlApi = {
   getSettings: async (): Promise<VersionControlCliSettings> => {
-    return tauriInvoke<VersionControlCliSettings>(
+    return backendCall<VersionControlCliSettings>(
       'get_version_control_settings'
     );
   },
   updateSettings: async (
     settings: VersionControlCliSettings
   ): Promise<VersionControlCliSettings> => {
-    return tauriInvoke<VersionControlCliSettings>(
+    return backendCall<VersionControlCliSettings>(
       'update_version_control_settings',
       { settings }
     );
   },
   detectGit: async (): Promise<GitVersionStatus> => {
-    return tauriInvoke<GitVersionStatus>('detect_git_version');
+    return backendCall<GitVersionStatus>('detect_git_version');
   },
   testGitPath: async (path: string): Promise<GitVersionStatus> => {
-    return tauriInvoke<GitVersionStatus>('test_git_path', { path });
+    return backendCall<GitVersionStatus>('test_git_path', { path });
   },
   getGithubCliStatus: async (
     host?: string | null
   ): Promise<GitHubCliStatus> => {
-    return tauriInvoke<GitHubCliStatus>('get_github_cli_status', {
+    return backendCall<GitHubCliStatus>('get_github_cli_status', {
       host: host ?? null,
     });
   },
   openGithubCliLogin: async (host?: string | null): Promise<void> => {
-    return tauriInvoke<void>('open_github_cli_login', { host: host ?? null });
+    return backendCall<void>('open_github_cli_login', { host: host ?? null });
   },
   logoutGithubCli: async (
     host?: string | null,
     username?: string | null
   ): Promise<GitHubCliStatus> => {
-    return tauriInvoke<GitHubCliStatus>('logout_github_cli', {
+    return backendCall<GitHubCliStatus>('logout_github_cli', {
       host: host ?? null,
       username: username ?? null,
     });
@@ -273,24 +273,24 @@ export interface BackupRestoreResult {
 
 export const systemSettingsApi = {
   getProxy: async (): Promise<SystemProxySettings> => {
-    return tauriInvoke<SystemProxySettings>('get_system_proxy_settings');
+    return backendCall<SystemProxySettings>('get_system_proxy_settings');
   },
   updateProxy: async (
     settings: SystemProxySettings
   ): Promise<SystemProxySettings> => {
-    return tauriInvoke<SystemProxySettings>('update_system_proxy_settings', {
+    return backendCall<SystemProxySettings>('update_system_proxy_settings', {
       settings,
     });
   },
   getRendering: async (): Promise<SystemRenderingSettings> => {
-    return tauriInvoke<SystemRenderingSettings>(
+    return backendCall<SystemRenderingSettings>(
       'get_system_rendering_settings'
     );
   },
   updateRendering: async (
     settings: SystemRenderingSettings
   ): Promise<SystemRenderingSettings> => {
-    return tauriInvoke<SystemRenderingSettings>(
+    return backendCall<SystemRenderingSettings>(
       'update_system_rendering_settings',
       { settings }
     );
@@ -299,20 +299,20 @@ export const systemSettingsApi = {
 
 export const backupApi = {
   create: async (options: BackupCreateOptions): Promise<BackupPreview> => {
-    return tauriInvoke<BackupPreview>('backup_create', { options });
+    return backendCall<BackupPreview>('backup_create', { options });
   },
   inspect: async (options: BackupInspectOptions): Promise<BackupPreview> => {
-    return tauriInvoke<BackupPreview>('backup_inspect', { options });
+    return backendCall<BackupPreview>('backup_inspect', { options });
   },
   restoreStage: async (
     payload: BackupRestoreStagePayload
   ): Promise<BackupRestoreResult> => {
-    return tauriInvoke<BackupRestoreResult>('backup_restore_stage', {
+    return backendCall<BackupRestoreResult>('backup_restore_stage', {
       payload,
     });
   },
   cancel: async (opId?: string | null): Promise<void> => {
-    return tauriInvoke<void>('backup_cancel', { opId: opId ?? null });
+    return backendCall<void>('backup_cancel', { opId: opId ?? null });
   },
 };
 
@@ -339,27 +339,27 @@ export interface PortProbeResult {
 
 export const webServiceApi = {
   getConfig: async (): Promise<WebServiceConfig> => {
-    return tauriInvoke<WebServiceConfig>('get_web_service_config');
+    return backendCall<WebServiceConfig>('get_web_service_config');
   },
   updateConfig: async (config: WebServiceConfig): Promise<WebServiceConfig> => {
-    return tauriInvoke<WebServiceConfig>('update_web_service_config', {
+    return backendCall<WebServiceConfig>('update_web_service_config', {
       config,
     });
   },
   getStatus: async (): Promise<WebServerStatus> => {
-    return tauriInvoke<WebServerStatus>('get_web_server_status');
+    return backendCall<WebServerStatus>('get_web_server_status');
   },
   start: async (): Promise<WebServerStatus> => {
-    return tauriInvoke<WebServerStatus>('start_web_server');
+    return backendCall<WebServerStatus>('start_web_server');
   },
   stop: async (): Promise<WebServerStatus> => {
-    return tauriInvoke<WebServerStatus>('stop_web_server');
+    return backendCall<WebServerStatus>('stop_web_server');
   },
   probePort: async (port: number): Promise<PortProbeResult> => {
-    return tauriInvoke<PortProbeResult>('probe_web_service_port', { port });
+    return backendCall<PortProbeResult>('probe_web_service_port', { port });
   },
   generateToken: async (): Promise<WebServiceConfig> => {
-    return tauriInvoke<WebServiceConfig>('generate_web_service_token');
+    return backendCall<WebServiceConfig>('generate_web_service_token');
   },
 };
 
@@ -423,7 +423,7 @@ export interface ProviderModelsResult {
 
 export const modelProviderApi = {
   list: async (agentType: string): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('list_agent_providers', {
+    return backendCall<AgentProvidersView>('list_agent_providers', {
       agentType,
     });
   },
@@ -431,7 +431,7 @@ export const modelProviderApi = {
     agentType: string,
     payload: AgentProviderPayload
   ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('create_agent_provider', {
+    return backendCall<AgentProvidersView>('create_agent_provider', {
       agentType,
       payload,
     });
@@ -441,7 +441,7 @@ export const modelProviderApi = {
     providerId: string,
     payload: AgentProviderPayload
   ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('update_agent_provider', {
+    return backendCall<AgentProvidersView>('update_agent_provider', {
       agentType,
       providerId,
       payload,
@@ -451,7 +451,7 @@ export const modelProviderApi = {
     agentType: string,
     providerId: string
   ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('delete_agent_provider', {
+    return backendCall<AgentProvidersView>('delete_agent_provider', {
       agentType,
       providerId,
     });
@@ -460,7 +460,7 @@ export const modelProviderApi = {
     agentType: string,
     providerId: string
   ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('apply_agent_provider', {
+    return backendCall<AgentProvidersView>('apply_agent_provider', {
       agentType,
       providerId,
     });
@@ -470,7 +470,7 @@ export const modelProviderApi = {
     payload: AgentProviderPayload,
     providerId: string | null
   ): Promise<RenderedConfigFile[]> => {
-    return tauriInvoke<RenderedConfigFile[]>('preview_agent_provider', {
+    return backendCall<RenderedConfigFile[]>('preview_agent_provider', {
       agentType,
       payload,
       providerId,
@@ -480,7 +480,7 @@ export const modelProviderApi = {
     agentType: string,
     providerId: string
   ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('clear_agent_provider_key', {
+    return backendCall<AgentProvidersView>('clear_agent_provider_key', {
       agentType,
       providerId,
     });
@@ -489,7 +489,7 @@ export const modelProviderApi = {
     agentType: string,
     providerId: string
   ): Promise<ProviderModelsResult> => {
-    return tauriInvoke<ProviderModelsResult>('fetch_agent_provider_models', {
+    return backendCall<ProviderModelsResult>('fetch_agent_provider_models', {
       agentType,
       providerId,
     });
@@ -533,70 +533,70 @@ export interface ChatChannelTestResult {
 
 export const chatChannelApi = {
   list: async (): Promise<ChatChannel[]> => {
-    return tauriInvoke<ChatChannel[]>('list_chat_channels');
+    return backendCall<ChatChannel[]>('list_chat_channels');
   },
   messageLogs: async (
     channelId: string,
     limit?: number
   ): Promise<ChatChannelMessageLog[]> => {
-    return tauriInvoke<ChatChannelMessageLog[]>(
+    return backendCall<ChatChannelMessageLog[]>(
       'list_chat_channel_message_logs',
       { channelId, limit: limit ?? null }
     );
   },
   create: async (payload: ChatChannelPayload): Promise<ChatChannel> => {
-    return tauriInvoke<ChatChannel>('create_chat_channel', { payload });
+    return backendCall<ChatChannel>('create_chat_channel', { payload });
   },
   update: async (
     channelId: string,
     payload: ChatChannelPayload
   ): Promise<ChatChannel> => {
-    return tauriInvoke<ChatChannel>('update_chat_channel', {
+    return backendCall<ChatChannel>('update_chat_channel', {
       channelId,
       payload,
     });
   },
   delete: async (channelId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_chat_channel', { channelId });
+    return backendCall<void>('delete_chat_channel', { channelId });
   },
   saveToken: async (channelId: string, token: string): Promise<ChatChannel> => {
-    return tauriInvoke<ChatChannel>('save_chat_channel_token', {
+    return backendCall<ChatChannel>('save_chat_channel_token', {
       channelId,
       token,
     });
   },
   hasToken: async (channelId: string): Promise<boolean> => {
-    return tauriInvoke<boolean>('get_chat_channel_has_token', { channelId });
+    return backendCall<boolean>('get_chat_channel_has_token', { channelId });
   },
   deleteToken: async (channelId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_chat_channel_token', { channelId });
+    return backendCall<void>('delete_chat_channel_token', { channelId });
   },
   test: async (channelId: string): Promise<ChatChannelTestResult> => {
-    return tauriInvoke<ChatChannelTestResult>('test_chat_channel', {
+    return backendCall<ChatChannelTestResult>('test_chat_channel', {
       channelId,
     });
   },
   getEventFilter: async (): Promise<ChatEventFilter> => {
-    return tauriInvoke<ChatEventFilter>('get_chat_event_filter');
+    return backendCall<ChatEventFilter>('get_chat_event_filter');
   },
   setEventFilter: async (filter: ChatEventFilter): Promise<ChatEventFilter> => {
-    return tauriInvoke<ChatEventFilter>('set_chat_event_filter', { filter });
+    return backendCall<ChatEventFilter>('set_chat_event_filter', { filter });
   },
   getCommandPrefix: async (): Promise<ChatCommandPrefix> => {
-    return tauriInvoke<ChatCommandPrefix>('get_chat_command_prefix');
+    return backendCall<ChatCommandPrefix>('get_chat_command_prefix');
   },
   setCommandPrefix: async (
     prefix: ChatCommandPrefix
   ): Promise<ChatCommandPrefix> => {
-    return tauriInvoke<ChatCommandPrefix>('set_chat_command_prefix', {
+    return backendCall<ChatCommandPrefix>('set_chat_command_prefix', {
       prefix,
     });
   },
   getIncludePromptText: async (): Promise<boolean> => {
-    return tauriInvoke<boolean>('get_chat_include_prompt_text');
+    return backendCall<boolean>('get_chat_include_prompt_text');
   },
   setIncludePromptText: async (enabled: boolean): Promise<boolean> => {
-    return tauriInvoke<boolean>('set_chat_include_prompt_text', { enabled });
+    return backendCall<boolean>('set_chat_include_prompt_text', { enabled });
   },
 };
 
@@ -608,10 +608,10 @@ export interface ClaudeSettings {
 
 export const claudeSettingsApi = {
   get: async (): Promise<ClaudeSettings> => {
-    return tauriInvoke<ClaudeSettings>('get_claude_settings');
+    return backendCall<ClaudeSettings>('get_claude_settings');
   },
   update: async (settings: ClaudeSettings): Promise<ClaudeSettings> => {
-    return tauriInvoke<ClaudeSettings>('update_claude_settings', { settings });
+    return backendCall<ClaudeSettings>('update_claude_settings', { settings });
   },
 };
 
@@ -698,17 +698,17 @@ export interface McpMarketplaceServerDetail {
 
 export const mcpMarketApi = {
   scanLocal: async (): Promise<LocalMcpServer[]> => {
-    return tauriInvoke<LocalMcpServer[]>('mcp_scan_local');
+    return backendCall<LocalMcpServer[]>('mcp_scan_local');
   },
   listMarketplaces: async (): Promise<McpMarketplaceProvider[]> => {
-    return tauriInvoke<McpMarketplaceProvider[]>('mcp_list_marketplaces');
+    return backendCall<McpMarketplaceProvider[]>('mcp_list_marketplaces');
   },
   search: async (params: {
     providerId: string;
     query?: string | null;
     limit?: number | null;
   }): Promise<McpMarketplaceItem[]> => {
-    return tauriInvoke<McpMarketplaceItem[]>('mcp_search_marketplace', {
+    return backendCall<McpMarketplaceItem[]>('mcp_search_marketplace', {
       providerId: params.providerId,
       query: params.query ?? null,
       limit: params.limit ?? null,
@@ -718,7 +718,7 @@ export const mcpMarketApi = {
     providerId: string;
     serverId: string;
   }): Promise<McpMarketplaceServerDetail> => {
-    return tauriInvoke<McpMarketplaceServerDetail>(
+    return backendCall<McpMarketplaceServerDetail>(
       'mcp_get_marketplace_server_detail',
       { providerId: params.providerId, serverId: params.serverId }
     );
@@ -732,7 +732,7 @@ export const mcpMarketApi = {
     parameterValues?: Record<string, JsonValue> | null;
     specOverride?: Record<string, JsonValue> | null;
   }): Promise<LocalMcpServer[]> => {
-    return tauriInvoke<LocalMcpServer[]>('mcp_install_marketplace_server', {
+    return backendCall<LocalMcpServer[]>('mcp_install_marketplace_server', {
       providerId: params.providerId,
       serverId: params.serverId,
       global: params.global,
@@ -748,7 +748,7 @@ export const mcpMarketApi = {
     global: boolean;
     apps: McpAppType[];
   }): Promise<LocalMcpServer[]> => {
-    return tauriInvoke<LocalMcpServer[]>('mcp_upsert_local_server', {
+    return backendCall<LocalMcpServer[]>('mcp_upsert_local_server', {
       serverId: params.serverId,
       spec: params.spec,
       global: params.global,
@@ -756,23 +756,23 @@ export const mcpMarketApi = {
     });
   },
   uninstall: async (serverId: string): Promise<LocalMcpServer[]> => {
-    return tauriInvoke<LocalMcpServer[]>('mcp_uninstall_server', { serverId });
+    return backendCall<LocalMcpServer[]>('mcp_uninstall_server', { serverId });
   },
 };
 
 // Profiles API
 export const profilesApi = {
   load: async (): Promise<{ content: string; path: string }> => {
-    return tauriInvoke<{ content: string; path: string }>('get_profiles');
+    return backendCall<{ content: string; path: string }>('get_profiles');
   },
   save: async (content: string): Promise<string> => {
-    return tauriInvoke<string>('update_profiles', { body: content });
+    return backendCall<string>('update_profiles', { body: content });
   },
 };
 
 // Settings Window API
 export const settingsWindowApi = {
   open: async (): Promise<void> => {
-    return tauriInvoke<void>('open_settings_window');
+    return backendCall<void>('open_settings_window');
   },
 };

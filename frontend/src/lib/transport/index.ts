@@ -1,6 +1,13 @@
-export type { BackendEnvironment, BackendTransport } from './BackendTransport';
+export type {
+  BackendEnvironment,
+  BackendTransport,
+  CapabilityId,
+  RemoteEvent,
+  ServerCapabilities,
+  SubscriptionRequest,
+} from './backendTransport';
 export {
   BackendTransportProvider,
   useBackendTransport,
 } from './BackendTransportProvider';
-export { TauriTransport, tauriBackendTransport } from './TauriTransport';
+export { TauriTransport, tauriBackendTransport } from './tauriTransport';

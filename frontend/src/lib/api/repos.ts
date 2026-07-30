@@ -16,53 +16,53 @@ import type {
   Diff,
 } from 'shared/types';
 
-import { tauriInvoke, invokeAsResult } from './base';
+import { backendCall, invokeAsResult } from './base';
 import type { Result, PullResult } from './base';
 
 // Repo APIs
 export const repoApi = {
   list: async (): Promise<Repo[]> => {
-    return tauriInvoke<Repo[]>('get_repos');
+    return backendCall<Repo[]>('get_repos');
   },
 
   listRecent: async (): Promise<Repo[]> => {
-    return tauriInvoke<Repo[]>('get_recent_repos');
+    return backendCall<Repo[]>('get_recent_repos');
   },
 
   getById: async (repoId: string): Promise<Repo> => {
-    return tauriInvoke<Repo>('get_repo', { repoId });
+    return backendCall<Repo>('get_repo', { repoId });
   },
 
   update: async (repoId: string, data: UpdateRepo): Promise<Repo> => {
-    return tauriInvoke<Repo>('update_repo', { repoId, payload: data });
+    return backendCall<Repo>('update_repo', { repoId, payload: data });
   },
 
   register: async (data: {
     path: string;
     display_name?: string;
   }): Promise<Repo> => {
-    return tauriInvoke<Repo>('register_repo', {
+    return backendCall<Repo>('register_repo', {
       path: data.path,
       displayName: data.display_name ?? null,
     });
   },
 
   getBranches: async (repoId: string): Promise<GitBranch[]> => {
-    return tauriInvoke<GitBranch[]>('get_repo_branches', { repoId });
+    return backendCall<GitBranch[]>('get_repo_branches', { repoId });
   },
 
   init: async (data: {
     parent_path: string;
     folder_name: string;
   }): Promise<Repo> => {
-    return tauriInvoke<Repo>('init_repo', {
+    return backendCall<Repo>('init_repo', {
       parentPath: data.parent_path,
       folderName: data.folder_name,
     });
   },
 
   checkGitRepoPath: async (path: string): Promise<boolean> => {
-    return tauriInvoke<boolean>('check_git_repo_path', { path });
+    return backendCall<boolean>('check_git_repo_path', { path });
   },
 
   clone: async (data: {
@@ -70,7 +70,7 @@ export const repoApi = {
     target_path: string;
     display_name?: string;
   }): Promise<Repo> => {
-    return tauriInvoke<Repo>('clone_repo', {
+    return backendCall<Repo>('clone_repo', {
       cloneUrl: data.clone_url,
       targetPath: data.target_path,
       displayName: data.display_name ?? null,
@@ -82,11 +82,11 @@ export const repoApi = {
     name: string,
     url: string
   ): Promise<void> => {
-    return tauriInvoke<void>('add_repo_remote', { repoId, name, url });
+    return backendCall<void>('add_repo_remote', { repoId, name, url });
   },
 
   removeRemote: async (repoId: string, name: string): Promise<void> => {
-    return tauriInvoke<void>('remove_repo_remote', { repoId, name });
+    return backendCall<void>('remove_repo_remote', { repoId, name });
   },
 
   setRemoteUrl: async (
@@ -94,28 +94,28 @@ export const repoApi = {
     name: string,
     url: string
   ): Promise<void> => {
-    return tauriInvoke<void>('set_repo_remote_url', { repoId, name, url });
+    return backendCall<void>('set_repo_remote_url', { repoId, name, url });
   },
 
   initAtPath: async (data: {
     path: string;
     display_name?: string;
   }): Promise<Repo> => {
-    return tauriInvoke<Repo>('init_repo_at_path', {
+    return backendCall<Repo>('init_repo_at_path', {
       path: data.path,
       displayName: data.display_name ?? null,
     });
   },
 
   getBatch: async (ids: string[]): Promise<Repo[]> => {
-    return tauriInvoke<Repo[]>('get_repos_batch', { ids });
+    return backendCall<Repo[]>('get_repos_batch', { ids });
   },
 
   openEditor: async (
     repoId: string,
     data: OpenEditorRequest
   ): Promise<OpenEditorResponse> => {
-    return tauriInvoke<OpenEditorResponse>('open_repo_in_editor', {
+    return backendCall<OpenEditorResponse>('open_repo_in_editor', {
       repoId,
       payload: data,
     });
@@ -126,7 +126,7 @@ export const repoApi = {
     query: string,
     mode?: SearchMode
   ): Promise<SearchResult[]> => {
-    return tauriInvoke<SearchResult[]>('search_repo', {
+    return backendCall<SearchResult[]>('search_repo', {
       repoId,
       q: query,
       mode: mode ?? null,
@@ -156,72 +156,72 @@ export const repoApi = {
   },
 
   listRemotes: async (repoId: string): Promise<GitRemote[]> => {
-    return tauriInvoke<GitRemote[]>('get_repo_remotes', { repoId });
+    return backendCall<GitRemote[]>('get_repo_remotes', { repoId });
   },
 
   // ─── Repo-level Git operations ─────────────────────────────────────────────
 
   getGitStatus: async (repoId: string): Promise<DetailedGitStatus> => {
-    return tauriInvoke<DetailedGitStatus>('get_repo_git_status', { repoId });
+    return backendCall<DetailedGitStatus>('get_repo_git_status', { repoId });
   },
 
   getFileDiffs: async (repoId: string): Promise<GitFileDiffEntry[]> => {
-    return tauriInvoke<GitFileDiffEntry[]>('get_repo_file_diffs', { repoId });
+    return backendCall<GitFileDiffEntry[]>('get_repo_file_diffs', { repoId });
   },
 
   stageFile: async (repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('stage_repo_file', { repoId, filePath });
+    return backendCall<void>('stage_repo_file', { repoId, filePath });
   },
 
   unstageFile: async (repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('unstage_repo_file', { repoId, filePath });
+    return backendCall<void>('unstage_repo_file', { repoId, filePath });
   },
 
   revertFile: async (repoId: string, filePath: string): Promise<void> => {
-    return tauriInvoke<void>('revert_repo_file', { repoId, filePath });
+    return backendCall<void>('revert_repo_file', { repoId, filePath });
   },
 
   stageAll: async (repoId: string): Promise<void> => {
-    return tauriInvoke<void>('stage_repo_all', { repoId });
+    return backendCall<void>('stage_repo_all', { repoId });
   },
 
   revertAll: async (repoId: string): Promise<void> => {
-    return tauriInvoke<void>('revert_repo_all', { repoId });
+    return backendCall<void>('revert_repo_all', { repoId });
   },
 
   commitChanges: async (repoId: string, message: string): Promise<void> => {
-    return tauriInvoke<void>('commit_repo_changes', { repoId, message });
+    return backendCall<void>('commit_repo_changes', { repoId, message });
   },
 
   push: async (repoId: string): Promise<void> => {
-    return tauriInvoke<void>('push_repo', { repoId });
+    return backendCall<void>('push_repo', { repoId });
   },
 
   pull: async (repoId: string): Promise<PullResult> => {
-    return tauriInvoke<PullResult>('pull_repo', { repoId });
+    return backendCall<PullResult>('pull_repo', { repoId });
   },
 
   fetch: async (repoId: string): Promise<void> => {
-    return tauriInvoke<void>('fetch_repo', { repoId });
+    return backendCall<void>('fetch_repo', { repoId });
   },
 
   getGitLog: async (repoId: string): Promise<GitLogStatus> => {
-    return tauriInvoke<GitLogStatus>('get_repo_git_log', { repoId });
+    return backendCall<GitLogStatus>('get_repo_git_log', { repoId });
   },
 
   getCommitDetail: async (
     repoId: string,
     sha: string
   ): Promise<CommitDetail> => {
-    return tauriInvoke<CommitDetail>('get_repo_commit_detail', { repoId, sha });
+    return backendCall<CommitDetail>('get_repo_commit_detail', { repoId, sha });
   },
 
   getCommitDiffs: async (repoId: string, sha: string): Promise<Diff[]> => {
-    return tauriInvoke<Diff[]>('get_repo_commit_diffs', { repoId, sha });
+    return backendCall<Diff[]>('get_repo_commit_diffs', { repoId, sha });
   },
 
   checkoutBranch: async (repoId: string, branchName: string): Promise<void> => {
-    return tauriInvoke<void>('checkout_repo_branch', { repoId, branchName });
+    return backendCall<void>('checkout_repo_branch', { repoId, branchName });
   },
 
   createBranch: async (
@@ -229,7 +229,7 @@ export const repoApi = {
     branchName: string,
     fromRef?: string
   ): Promise<void> => {
-    return tauriInvoke<void>('create_repo_branch', {
+    return backendCall<void>('create_repo_branch', {
       repoId,
       branchName,
       fromRef: fromRef ?? null,
@@ -237,6 +237,6 @@ export const repoApi = {
   },
 
   deleteBranch: async (repoId: string, branchName: string): Promise<void> => {
-    return tauriInvoke<void>('delete_repo_branch', { repoId, branchName });
+    return backendCall<void>('delete_repo_branch', { repoId, branchName });
   },
 };

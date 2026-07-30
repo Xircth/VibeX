@@ -1,4 +1,4 @@
-import { tauriInvoke } from './base';
+import { backendCall } from './base';
 
 // ============= Types =============
 
@@ -92,7 +92,7 @@ export const localUsageApi = {
   async getProjectStatistics(
     params: GetProjectUsageStatisticsParams
   ): Promise<ProjectUsageStatistics> {
-    const result = await tauriInvoke<ProjectUsageStatistics>(
+    const result = await backendCall<ProjectUsageStatistics>(
       'get_project_usage_statistics',
       {
         scope: params.scope,

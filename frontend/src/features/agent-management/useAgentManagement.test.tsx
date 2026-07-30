@@ -16,8 +16,8 @@ vi.mock('./api', () => ({
   },
 }));
 
-vi.mock('@/lib/tauriApi', () => ({
-  tauriListen: vi.fn(
+vi.mock('@/lib/backendTransport', () => ({
+  backendListen: vi.fn(
     async (_event: string, listener: (event: AgentOperationEvent) => void) => {
       mocks.listener = listener;
       return vi.fn();

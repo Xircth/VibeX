@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CONVERSATION_EVENTS_CHANNEL, listenToConversationEvents } from './events';
+import {
+  CONVERSATION_EVENTS_CHANNEL,
+  listenToConversationEvents,
+} from './events';
 
 const { tauriListenMock } = vi.hoisted(() => ({
   tauriListenMock: vi.fn(),
 }));
 
-vi.mock('@/lib/tauriApi', () => ({
-  tauriListen: tauriListenMock,
+vi.mock('@/lib/backendTransport', () => ({
+  backendListen: tauriListenMock,
 }));
 
 describe('listenToConversationEvents', () => {
@@ -15,7 +18,9 @@ describe('listenToConversationEvents', () => {
     tauriListenMock.mockResolvedValue(unsubscribe);
     const handler = vi.fn();
 
-    await expect(listenToConversationEvents(handler)).resolves.toBe(unsubscribe);
+    await expect(listenToConversationEvents(handler)).resolves.toBe(
+      unsubscribe
+    );
 
     expect(tauriListenMock).toHaveBeenCalledWith(
       CONVERSATION_EVENTS_CHANNEL,

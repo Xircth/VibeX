@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createConversationApi } from '@/features/conversation/conversationApi';
-import type { BackendTransport } from './BackendTransport';
+import type { BackendTransport } from './backendTransport';
 
 vi.mock('@tauri-apps/api/core', () => {
   throw new Error('feature tests must not import @tauri-apps/api');

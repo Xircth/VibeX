@@ -1,24 +1,24 @@
 import type { ResetProcessRequest, Session, Workspace } from 'shared/types';
 
-import { tauriInvoke } from './base';
+import { backendCall } from './base';
 import type { SessionStatus, SessionSummary } from './base';
 
 // Sessions API
 export const sessionsApi = {
   getByWorkspace: async (workspaceId: string): Promise<Session[]> => {
-    return tauriInvoke<Session[]>('get_sessions', { workspaceId });
+    return backendCall<Session[]>('get_sessions', { workspaceId });
   },
 
   getSummariesByWorkspace: async (
     workspaceId: string
   ): Promise<SessionSummary[]> => {
-    return tauriInvoke<SessionSummary[]>('get_session_summaries', {
+    return backendCall<SessionSummary[]>('get_session_summaries', {
       workspaceId,
     });
   },
 
   getById: async (sessionId: string): Promise<Session> => {
-    return tauriInvoke<Session>('get_session', { sessionId });
+    return backendCall<Session>('get_session', { sessionId });
   },
 
   create: async (data: {
@@ -28,7 +28,7 @@ export const sessionsApi = {
     initial_prompt?: string | null;
     task_id?: string | null;
   }): Promise<Session> => {
-    return tauriInvoke<Session>('create_session', {
+    return backendCall<Session>('create_session', {
       workspaceId: data.workspace_id,
       executor: data.executor ?? null,
       name: data.name ?? null,
@@ -42,7 +42,7 @@ export const sessionsApi = {
     executor?: string;
     name?: string | null;
   }): Promise<Session> => {
-    return tauriInvoke<Session>('create_project_root_session', {
+    return backendCall<Session>('create_project_root_session', {
       projectId: data.project_id,
       executor: data.executor ?? null,
       name: data.name ?? null,
@@ -60,7 +60,7 @@ export const sessionsApi = {
     create_workspace?: boolean;
     repos?: Array<{ repo_id: string; target_branch: string }>;
   }): Promise<Session> => {
-    return tauriInvoke<Session>('create_project_session', {
+    return backendCall<Session>('create_project_session', {
       payload: {
         session_id: data.session_id ?? null,
         project_id: data.project_id,
@@ -79,14 +79,14 @@ export const sessionsApi = {
     project_id: string;
     branch?: string | null;
   }): Promise<Workspace> => {
-    return tauriInvoke<Workspace>('ensure_project_workspace', {
+    return backendCall<Workspace>('ensure_project_workspace', {
       projectId: data.project_id,
       branch: data.branch ?? null,
     });
   },
 
   rename: async (sessionId: string, name: string | null): Promise<Session> => {
-    return tauriInvoke<Session>('rename_session', {
+    return backendCall<Session>('rename_session', {
       sessionId,
       name,
     });
@@ -96,21 +96,21 @@ export const sessionsApi = {
     sessionId: string,
     status: SessionStatus
   ): Promise<Session> => {
-    return tauriInvoke<Session>('update_session_status', {
+    return backendCall<Session>('update_session_status', {
       sessionId,
       status,
     });
   },
 
   delete: async (sessionId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_session', { sessionId });
+    return backendCall<void>('delete_session', { sessionId });
   },
 
   reset: async (
     sessionId: string,
     data: ResetProcessRequest
   ): Promise<void> => {
-    return tauriInvoke<void>('reset_session_process', {
+    return backendCall<void>('reset_session_process', {
       sessionId,
       processId: data.process_id,
       forceWhenDirty: data.force_when_dirty ?? null,

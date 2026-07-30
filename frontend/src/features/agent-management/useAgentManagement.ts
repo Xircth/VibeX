@@ -6,7 +6,7 @@ import type {
   AgentRegistryViewRow,
 } from 'shared/types';
 
-import { tauriListen } from '@/lib/tauriApi';
+import { backendListen } from '@/lib/backendTransport';
 import { toast } from '@/components/ui/toast';
 
 import { agentManagementApi } from './api';
@@ -44,22 +44,25 @@ export function useAgentManagement() {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | undefined;
-    void tauriListen<AgentOperationEvent>('agent-management-event', (event) => {
-      if (!active) return;
-      if (event.sequence <= lastEventSequence.current) return;
-      lastEventSequence.current = event.sequence;
-      if (event.status === 'failed') {
-        toast.error(event.message?.trim() || 'Agent 安装或验证失败');
+    void backendListen<AgentOperationEvent>(
+      'agent-management-event',
+      (event) => {
+        if (!active) return;
+        if (event.sequence <= lastEventSequence.current) return;
+        lastEventSequence.current = event.sequence;
+        if (event.status === 'failed') {
+          toast.error(event.message?.trim() || 'Agent 安装或验证失败');
+        }
+        setState((current) => reduceOperationEvent(current, event));
+        if (
+          event.status === 'succeeded' ||
+          event.status === 'failed' ||
+          event.status === 'canceled'
+        ) {
+          void refresh().catch(() => undefined);
+        }
       }
-      setState((current) => reduceOperationEvent(current, event));
-      if (
-        event.status === 'succeeded' ||
-        event.status === 'failed' ||
-        event.status === 'canceled'
-      ) {
-        void refresh().catch(() => undefined);
-      }
-    }).then((dispose) => {
+    ).then((dispose) => {
       if (active) unlisten = dispose;
       else dispose();
     });

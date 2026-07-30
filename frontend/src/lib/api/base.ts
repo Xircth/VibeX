@@ -1,9 +1,9 @@
 import type { GitOperationError } from 'shared/types';
 
-import { tauriInvoke } from '../tauriApi';
+import { backendCall } from '../backendTransport';
 
-// Re-export tauriInvoke for use by other modules
-export { tauriInvoke };
+// Re-export the transport-backed call helper for legacy facade modules.
+export { backendCall };
 
 // Pull result type (matches Rust PullResult)
 export interface PullResult {
@@ -49,7 +49,7 @@ export async function invokeAsResult<T, E>(
   args?: Record<string, unknown>
 ): Promise<Result<T, E>> {
   try {
-    const data = await tauriInvoke<T>(cmd, args);
+    const data = await backendCall<T>(cmd, args);
     return { success: true, data };
   } catch (error) {
     // Tauri errors come as strings or objects

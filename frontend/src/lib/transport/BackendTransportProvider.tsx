@@ -1,7 +1,7 @@
 import { createContext, type PropsWithChildren, useContext } from 'react';
 
-import type { BackendTransport } from './BackendTransport';
-import { tauriBackendTransport } from './TauriTransport';
+import type { BackendTransport } from './backendTransport';
+import { tauriBackendTransport } from './tauriTransport';
 
 const BackendTransportContext = createContext<BackendTransport>(
   tauriBackendTransport

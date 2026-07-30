@@ -28,3 +28,4 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs",
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = { workspace = true }

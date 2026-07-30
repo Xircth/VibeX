@@ -4,9 +4,9 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentElicitationResponse, AgentId, AgentPermissionResponse, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
-    ImportedAgentMessageRole, ImportedAgentSession,
+    AgentConnectionId, AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentId,
+    AgentPermissionResponse, AgentSessionConfigOption, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -550,6 +550,44 @@ pub async fn conversation_respond_question(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
+    let companion_answer = match &request.response {
+        AgentElicitationResponse::Accept { content } => content
+            .get("answers")
+            .cloned()
+            .unwrap_or_else(|| content.clone()),
+        AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel => {
+            serde_json::json!({ "__declined": true })
+        }
+    };
+    if let Ok(pending) = state
+        .delegation
+        .features
+        .answer_question(&request.question_id, companion_answer)
+        .await
+    {
+        let connection_id = Uuid::parse_str(&pending.scope.parent_connection_id)
+            .map(AgentConnectionId::from)
+            .map_err(|error| {
+                AppError::BadRequest(format!("invalid companion connection id: {error}"))
+            })?;
+        let question_id = Uuid::parse_str(&pending.id)
+            .map(AgentElicitationId)
+            .map_err(|error| {
+                AppError::BadRequest(format!("invalid companion question id: {error}"))
+            })?;
+        state
+            .agent_runtime
+            .emit_external(
+                connection_id,
+                Some(AgentSessionId::from(pending.scope.parent_conversation_id)),
+                AgentEvent::ElicitationResponded {
+                    elicitation_id: question_id,
+                    response: request.response,
+                },
+            )
+            .await;
+        return Ok(());
+    }
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_question(conversation_id, request.question_id, request.response)
         .await;

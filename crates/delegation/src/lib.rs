@@ -18,6 +18,7 @@ pub mod listener;
 pub mod lookups;
 pub mod meta_writer;
 pub mod spawner;
+pub mod steering;
 pub mod stop_reason;
 pub mod token_registry;
 pub mod types;
@@ -31,9 +32,14 @@ pub use listener::{DelegationListener, default_socket_path};
 pub use lookups::{ChildStatusLookup, ChildStatusRecord, DepthLookup, ParentSessionLookup};
 pub use meta_writer::DelegationMetaWriter;
 pub use spawner::{ConnectionSpawner, SpawnerError};
+pub use steering::{
+    CompanionFeaturePort, FeedbackNote, InMemoryCompanionFeatures, NoopCompanionFeatures,
+    PendingQuestion, SharedCompanionFeatures,
+};
 pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
 pub use token_registry::{TokenEntry, TokenRegistry};
 pub use types::{
     DelegationConfig, DelegationError, DelegationLink, DelegationMatchKey, DelegationOutcome,
-    DelegationRequest, DelegationSuccess, DelegationTaskReport, TaskStatus, TokenUsage,
+    DelegationRequest, DelegationScope, DelegationSuccess, DelegationTaskReport, TaskStatus,
+    TokenUsage,
 };

@@ -5,12 +5,15 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::RwLock};
 
+use uuid::Uuid;
+
 /// What a valid token authorizes: the parent connection it belongs to and that
 /// connection's launch working directory (used to default a delegation's cwd).
 #[derive(Debug, Clone)]
 pub struct TokenEntry {
     pub parent_connection_id: String,
-    pub working_dir: PathBuf,
+    pub parent_conversation_id: Uuid,
+    pub working_root: PathBuf,
 }
 
 #[derive(Default, Debug)]

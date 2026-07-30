@@ -29,6 +29,8 @@ pub enum BrokerMessage {
     CommitFeedback(BrokerCommitFeedbackRequest),
     /// `ask_user_question` — block until the user answers.
     Ask(BrokerAskRequest),
+    /// `get_session_info` — read a referenced Conversation.
+    SessionInfo(BrokerSessionRequest),
 }
 
 /// `delegate_to_agent` call. `parent_connection_id` is the runtime-internal ACP
@@ -89,6 +91,18 @@ pub struct BrokerAskRequest {
     /// Validated question specs. Shape is owned by the companion (parse) and
     /// listener (register) in the steering milestone; carried opaquely here.
     pub questions: Value,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BrokerSessionRequest {
+    pub token: String,
+    pub conversation_id: String,
+    #[serde(default = "default_max_messages")]
+    pub max_messages: u32,
+}
+
+fn default_max_messages() -> u32 {
+    20
 }
 
 /// The broker's single reply to any message. `outcome` carries whatever the

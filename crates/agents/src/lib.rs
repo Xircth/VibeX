@@ -50,7 +50,10 @@ pub use conversation::{
     ConversationUsage, ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy,
     SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
 };
-pub use delegation_inject::{DelegationInjector, InjectedMcpServer};
+pub use delegation_inject::{
+    CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
+    InjectedMcpServer,
+};
 pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use error::{AgentError, AgentResult};

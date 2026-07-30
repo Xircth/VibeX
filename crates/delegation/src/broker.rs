@@ -30,7 +30,7 @@ use crate::{
     spawner::ConnectionSpawner,
     types::{
         DelegationConfig, DelegationError, DelegationLink, DelegationOutcome, DelegationRequest,
-        DelegationTaskReport, TaskStatus,
+        DelegationScope, DelegationTaskReport, TaskStatus,
     },
 };
 
@@ -55,6 +55,7 @@ pub enum StatusWait {
 /// A delegation currently running in the background.
 struct RunningTask {
     parent_connection_id: String,
+    parent_conversation_id: Uuid,
     parent_tool_use_id: String,
     /// Whether `parent_tool_use_id` is a real ACP tool call (vs a synthetic
     /// `delegation-…` id minted when the MCP client supplied none). Meta writes
@@ -70,6 +71,7 @@ struct RunningTask {
 #[derive(Clone)]
 struct CompletedTask {
     parent_connection_id: String,
+    parent_conversation_id: Uuid,
     status: TaskStatus,
     child_session_id: Option<Uuid>,
     agent_type: Option<AgentId>,
@@ -77,6 +79,12 @@ struct CompletedTask {
     error_code: Option<String>,
     message: Option<String>,
     duration_ms: Option<u64>,
+}
+
+struct SetupReservation {
+    parent_connection_id: String,
+    parent_conversation_id: Uuid,
+    started_at: Instant,
 }
 
 #[derive(Default)]
@@ -90,7 +98,7 @@ struct PendingInner {
     /// Call ids reserved during the spawn→send setup window (value = reserve
     /// instant). Lets a child that finishes mid-setup buffer its terminal
     /// outcome rather than have it dropped.
-    setups: HashMap<String, Instant>,
+    setups: HashMap<String, SetupReservation>,
     /// Terminal outcomes that arrived before the task was registered as running;
     /// drained by `start_delegation` at registration.
     early_completes: HashMap<String, DelegationOutcome>,
@@ -101,6 +109,7 @@ struct PendingInner {
 struct FinalizeCtx {
     call_id: String,
     parent_connection_id: String,
+    parent_conversation_id: Uuid,
     parent_tool_use_id: String,
     has_real_tool_call: bool,
     child_connection_id: String,
@@ -182,7 +191,7 @@ impl DelegationBroker {
             status_lookup,
             meta_writer,
             event_emitter,
-            config: Arc::new(Mutex::new(config)),
+            config: Arc::new(Mutex::new(config.normalized())),
             pending: Arc::new(Mutex::new(PendingInner::default())),
             result_notify: Arc::new(Notify::new()),
         }
@@ -193,7 +202,7 @@ impl DelegationBroker {
     }
 
     pub fn set_config(&self, config: DelegationConfig) {
-        *self.config.lock().unwrap() = config;
+        *self.config.lock().unwrap() = config.normalized();
     }
 
     /// Validate, spawn, and register a delegation. Returns a `Running` ack on
@@ -260,7 +269,14 @@ impl DelegationBroker {
         // send window buffers its terminal outcome instead of having it dropped.
         {
             let mut pending = self.pending.lock().unwrap();
-            pending.setups.insert(call_id.clone(), Instant::now());
+            pending.setups.insert(
+                call_id.clone(),
+                SetupReservation {
+                    parent_connection_id: req.parent_connection_id.clone(),
+                    parent_conversation_id: req.parent_session_id,
+                    started_at: Instant::now(),
+                },
+            );
         }
 
         let link = DelegationLink {
@@ -291,7 +307,11 @@ impl DelegationBroker {
         // Drain any terminal that beat registration; otherwise register running.
         let resolution = {
             let mut pending = self.pending.lock().unwrap();
-            let reserved_at = pending.setups.remove(&call_id).unwrap_or_else(Instant::now);
+            let reserved_at = pending
+                .setups
+                .remove(&call_id)
+                .map(|reservation| reservation.started_at)
+                .unwrap_or_else(Instant::now);
             if let Some(outcome) = pending.early_completes.remove(&call_id) {
                 Resolution::Early {
                     outcome,
@@ -302,6 +322,7 @@ impl DelegationBroker {
                     call_id.clone(),
                     RunningTask {
                         parent_connection_id: req.parent_connection_id.clone(),
+                        parent_conversation_id: req.parent_session_id,
                         parent_tool_use_id: parent_tool_use_id.clone(),
                         has_real_tool_call,
                         child_connection_id: child_connection_id.clone(),
@@ -317,7 +338,9 @@ impl DelegationBroker {
         // Announce the start regardless — the child did run.
         self.event_emitter
             .emit_started(DelegationStartedEvent {
+                delegation_id: call_id.clone(),
                 parent_connection_id: req.parent_connection_id.clone(),
+                parent_conversation_id: req.parent_session_id,
                 parent_tool_use_id: parent_tool_use_id.clone(),
                 child_session_id,
                 agent_type: req.agent_type.clone(),
@@ -333,6 +356,7 @@ impl DelegationBroker {
                 let ctx = FinalizeCtx {
                     call_id,
                     parent_connection_id: req.parent_connection_id,
+                    parent_conversation_id: req.parent_session_id,
                     parent_tool_use_id,
                     has_real_tool_call,
                     child_connection_id,
@@ -370,7 +394,10 @@ impl DelegationBroker {
                     // start_delegation applies it at registration. Otherwise the
                     // task is unknown / already terminal — drop.
                     if pending.setups.contains_key(call_id) {
-                        pending.early_completes.insert(call_id.to_string(), outcome);
+                        pending
+                            .early_completes
+                            .entry(call_id.to_string())
+                            .or_insert(outcome);
                     }
                     return;
                 }
@@ -379,6 +406,7 @@ impl DelegationBroker {
         let ctx = FinalizeCtx {
             call_id: call_id.to_string(),
             parent_connection_id: task.parent_connection_id,
+            parent_conversation_id: task.parent_conversation_id,
             parent_tool_use_id: task.parent_tool_use_id,
             has_real_tool_call: task.has_real_tool_call,
             child_connection_id: task.child_connection_id,
@@ -397,6 +425,7 @@ impl DelegationBroker {
         let cap = self.config_snapshot().completed_cache_cap_bytes;
         let completed = CompletedTask {
             parent_connection_id: ctx.parent_connection_id.clone(),
+            parent_conversation_id: ctx.parent_conversation_id,
             status,
             child_session_id: Some(ctx.child_session_id),
             agent_type: Some(ctx.agent_type.clone()),
@@ -422,7 +451,9 @@ impl DelegationBroker {
         }
         self.event_emitter
             .emit_completed(DelegationCompletedEvent {
+                delegation_id: ctx.call_id.clone(),
                 parent_connection_id: ctx.parent_connection_id.clone(),
+                parent_conversation_id: ctx.parent_conversation_id,
                 parent_tool_use_id: ctx.parent_tool_use_id.clone(),
                 child_session_id: ctx.child_session_id,
                 agent_type: ctx.agent_type,
@@ -438,6 +469,7 @@ impl DelegationBroker {
     /// settled (terminal/unknown), honoring the wait mode.
     pub async fn get_tasks_status(
         &self,
+        scope: &DelegationScope,
         task_ids: &[String],
         wait: StatusWait,
     ) -> Vec<DelegationTaskReport> {
@@ -454,7 +486,7 @@ impl DelegationBroker {
             tokio::pin!(notified);
             notified.as_mut().enable();
 
-            let (reports, any_settled) = self.assemble_reports(task_ids).await;
+            let (reports, any_settled) = self.assemble_reports(scope, task_ids).await;
             if matches!(wait, StatusWait::Immediate) || any_settled {
                 return reports;
             }
@@ -467,7 +499,7 @@ impl DelegationBroker {
                     tokio::select! {
                         _ = &mut notified => {}
                         _ = tokio::time::sleep(dl - now) => {
-                            return self.assemble_reports(task_ids).await.0;
+                            return self.assemble_reports(scope, task_ids).await.0;
                         }
                     }
                 }
@@ -478,25 +510,45 @@ impl DelegationBroker {
 
     /// Cancel a running task by id and tear down its child. If it already
     /// finished, returns its cached (or DB-recovered) report instead.
-    pub async fn cancel_delegation(&self, task_id: &str) -> DelegationTaskReport {
+    pub async fn cancel_delegation(
+        &self,
+        scope: &DelegationScope,
+        task_id: &str,
+    ) -> DelegationTaskReport {
         if let Some(report) = {
             let pending = self.pending.lock().unwrap();
             pending
                 .completed
                 .get(task_id)
+                .filter(|task| task_matches(scope, task))
                 .map(|task| completed_report(task_id, task))
         } {
             return report;
         }
 
-        let running = self.pending.lock().unwrap().running.remove(task_id);
+        let running = {
+            let mut pending = self.pending.lock().unwrap();
+            if pending
+                .running
+                .get(task_id)
+                .is_some_and(|task| running_matches(scope, task))
+            {
+                pending.running.remove(task_id)
+            } else {
+                None
+            }
+        };
         let Some(task) = running else {
             // Mid-setup (reserved but not yet running)? Mark it canceled so
             // start_delegation resolves it as canceled when it drains. `or_insert`
             // lets a real terminal that already buffered win over the cancel.
             {
                 let mut pending = self.pending.lock().unwrap();
-                if pending.setups.contains_key(task_id) {
+                if pending
+                    .setups
+                    .get(task_id)
+                    .is_some_and(|setup| setup_matches(scope, setup))
+                {
                     pending
                         .early_completes
                         .entry(task_id.to_string())
@@ -512,8 +564,13 @@ impl DelegationBroker {
                 }
             }
             return match self.status_lookup.status_by_call_id(task_id).await {
-                Some(record) => report_from_record(task_id, &record),
+                Some(record)
+                    if record.parent_conversation_id == Some(scope.parent_conversation_id) =>
+                {
+                    report_from_record(task_id, &record)
+                }
                 None => unknown_report(task_id),
+                Some(_) => unknown_report(task_id),
             };
         };
 
@@ -521,6 +578,7 @@ impl DelegationBroker {
         let duration_ms = task.started_at.elapsed().as_millis() as u64;
         let completed = CompletedTask {
             parent_connection_id: task.parent_connection_id.clone(),
+            parent_conversation_id: task.parent_conversation_id,
             status: TaskStatus::Canceled,
             child_session_id: Some(task.child_session_id),
             agent_type: Some(task.agent_type.clone()),
@@ -547,7 +605,9 @@ impl DelegationBroker {
         }
         self.event_emitter
             .emit_completed(DelegationCompletedEvent {
+                delegation_id: task_id.to_string(),
                 parent_connection_id: task.parent_connection_id.clone(),
+                parent_conversation_id: task.parent_conversation_id,
                 parent_tool_use_id: task.parent_tool_use_id.clone(),
                 child_session_id: task.child_session_id,
                 agent_type: task.agent_type.clone(),
@@ -563,13 +623,61 @@ impl DelegationBroker {
         completed_report(task_id, &completed)
     }
 
+    /// Cascade parent teardown to every child still running for that
+    /// connection. A terminal completion that wins after the snapshot remains
+    /// authoritative because explicit cancellation is already first-terminal.
+    pub async fn parent_closed(&self, parent_connection_id: &str) -> Vec<DelegationTaskReport> {
+        let tasks = {
+            let pending = self.pending.lock().unwrap();
+            let mut tasks = pending
+                .running
+                .iter()
+                .filter(|(_, task)| task.parent_connection_id == parent_connection_id)
+                .map(|(task_id, task)| {
+                    (
+                        task_id.clone(),
+                        DelegationScope {
+                            parent_connection_id: task.parent_connection_id.clone(),
+                            parent_conversation_id: task.parent_conversation_id,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            tasks.extend(
+                pending
+                    .setups
+                    .iter()
+                    .filter(|(_, setup)| setup.parent_connection_id == parent_connection_id)
+                    .map(|(task_id, setup)| {
+                        (
+                            task_id.clone(),
+                            DelegationScope {
+                                parent_connection_id: setup.parent_connection_id.clone(),
+                                parent_conversation_id: setup.parent_conversation_id,
+                            },
+                        )
+                    }),
+            );
+            tasks
+        };
+        let mut reports = Vec::with_capacity(tasks.len());
+        for (task_id, scope) in tasks {
+            reports.push(self.cancel_delegation(&scope, &task_id).await);
+        }
+        reports
+    }
+
     /// Classify each requested id (completed cache → running set → DB fallback →
     /// unknown) and report whether any is settled. A task counts as settled
     /// unless it is an *in-memory* running task — the only state a `result_notify`
     /// wakeup can ever advance. A task resolvable only from the DB (or unknown)
     /// is settled for wait purposes, since the broker has no way to wake on it
     /// (otherwise an in-progress DB row would block the wait forever).
-    async fn assemble_reports(&self, task_ids: &[String]) -> (Vec<DelegationTaskReport>, bool) {
+    async fn assemble_reports(
+        &self,
+        scope: &DelegationScope,
+        task_ids: &[String],
+    ) -> (Vec<DelegationTaskReport>, bool) {
         enum Slot {
             Ready {
                 report: DelegationTaskReport,
@@ -582,12 +690,20 @@ impl DelegationBroker {
             task_ids
                 .iter()
                 .map(|id| {
-                    if let Some(task) = pending.completed.get(id) {
+                    if let Some(task) = pending
+                        .completed
+                        .get(id)
+                        .filter(|task| task_matches(scope, task))
+                    {
                         Slot::Ready {
                             report: completed_report(id, task),
                             settled: true,
                         }
-                    } else if let Some(task) = pending.running.get(id) {
+                    } else if let Some(task) = pending
+                        .running
+                        .get(id)
+                        .filter(|task| running_matches(scope, task))
+                    {
                         Slot::Ready {
                             report: running_report(
                                 id,
@@ -595,6 +711,14 @@ impl DelegationBroker {
                                 task.agent_type.clone(),
                             ),
                             settled: false,
+                        }
+                    } else if pending.completed.contains_key(id)
+                        || pending.running.contains_key(id)
+                        || pending.setups.contains_key(id)
+                    {
+                        Slot::Ready {
+                            report: unknown_report(id),
+                            settled: true,
                         }
                     } else {
                         Slot::NeedsDb(id.clone())
@@ -613,8 +737,14 @@ impl DelegationBroker {
                 }
                 Slot::NeedsDb(id) => {
                     let report = match self.status_lookup.status_by_call_id(&id).await {
-                        Some(record) => report_from_record(&id, &record),
+                        Some(record)
+                            if record.parent_conversation_id
+                                == Some(scope.parent_conversation_id) =>
+                        {
+                            report_from_record(&id, &record)
+                        }
                         None => unknown_report(&id),
+                        Some(_) => unknown_report(&id),
                     };
                     any_settled = true;
                     reports.push(report);
@@ -639,6 +769,21 @@ impl DelegationBroker {
             .get(call_id)
             .map(|task| completed_report(call_id, task))
     }
+}
+
+fn task_matches(scope: &DelegationScope, task: &CompletedTask) -> bool {
+    task.parent_connection_id == scope.parent_connection_id
+        && task.parent_conversation_id == scope.parent_conversation_id
+}
+
+fn running_matches(scope: &DelegationScope, task: &RunningTask) -> bool {
+    task.parent_connection_id == scope.parent_connection_id
+        && task.parent_conversation_id == scope.parent_conversation_id
+}
+
+fn setup_matches(scope: &DelegationScope, setup: &SetupReservation) -> bool {
+    setup.parent_connection_id == scope.parent_connection_id
+        && setup.parent_conversation_id == scope.parent_conversation_id
 }
 
 fn cap_text(text: &str) -> String {
@@ -831,6 +976,17 @@ mod tests {
         }
     }
 
+    fn scope(parent_conversation_id: Uuid) -> DelegationScope {
+        scope_for("parent-conn", parent_conversation_id)
+    }
+
+    fn scope_for(parent_connection_id: &str, parent_conversation_id: Uuid) -> DelegationScope {
+        DelegationScope {
+            parent_connection_id: parent_connection_id.to_string(),
+            parent_conversation_id,
+        }
+    }
+
     struct Harness {
         broker: DelegationBroker,
         spawner: Arc<MockSpawner>,
@@ -891,6 +1047,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lifecycle_events_reference_the_parent_conversation() {
+        let parent_conversation_id = Uuid::new_v4();
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+
+        let report = h
+            .broker
+            .start_delegation(request(parent_conversation_id))
+            .await;
+        let task_id = report.task_id.unwrap();
+        h.broker
+            .complete_call(&task_id, ok_outcome(h.spawner.child_session_id))
+            .await;
+
+        assert_eq!(
+            h.events.started.lock().unwrap()[0].parent_conversation_id,
+            parent_conversation_id
+        );
+        assert_eq!(
+            h.events.completed.lock().unwrap()[0].parent_conversation_id,
+            parent_conversation_id
+        );
+        assert_eq!(h.events.started.lock().unwrap()[0].delegation_id, task_id);
+        assert_eq!(h.events.completed.lock().unwrap()[0].delegation_id, task_id);
+    }
+
+    #[tokio::test]
     async fn depth_limit_rejects_before_spawning() {
         // Parent at depth 1 (root -> parent); with default limit 1 the child
         // would be depth 2 and must be rejected.
@@ -908,6 +1090,23 @@ mod tests {
         // Never spawned.
         assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
         assert_eq!(h.broker.running_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn depth_limit_is_capped_at_eight() {
+        let chain = (1..=9).map(Uuid::from_u128).collect::<Vec<_>>();
+        let parent = *chain.last().unwrap();
+        let config = DelegationConfig {
+            depth_limit: 9,
+            ..DelegationConfig::default()
+        };
+        let h = harness(MockDepthLookup::chain(&chain), config);
+
+        let report = h.broker.start_delegation(request(parent)).await;
+
+        assert_eq!(report.status, TaskStatus::Failed);
+        assert_eq!(report.error_code.as_deref(), Some("depth_limit"));
+        assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
     }
 
     #[tokio::test]
@@ -987,7 +1186,11 @@ mod tests {
 
         let running = h
             .broker
-            .get_tasks_status(std::slice::from_ref(&call_id), StatusWait::Immediate)
+            .get_tasks_status(
+                &scope(Uuid::nil()),
+                std::slice::from_ref(&call_id),
+                StatusWait::Immediate,
+            )
             .await;
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].status, TaskStatus::Running);
@@ -998,9 +1201,40 @@ mod tests {
 
         let done = h
             .broker
-            .get_tasks_status(&[call_id], StatusWait::Immediate)
+            .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Immediate)
             .await;
         assert_eq!(done[0].status, TaskStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn identical_parallel_tasks_keep_independent_task_ids() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        let (first, second) = tokio::join!(
+            h.broker.start_delegation(request(Uuid::nil())),
+            h.broker.start_delegation(request(Uuid::nil())),
+        );
+        let first_id = first.task_id.unwrap();
+        let second_id = second.task_id.unwrap();
+        assert_ne!(first_id, second_id);
+
+        h.broker
+            .complete_call(
+                &first_id,
+                ok_text_outcome(h.spawner.child_session_id, "first result".to_string()),
+            )
+            .await;
+        let reports = h
+            .broker
+            .get_tasks_status(
+                &scope(Uuid::nil()),
+                &[first_id, second_id],
+                StatusWait::Immediate,
+            )
+            .await;
+
+        assert_eq!(reports[0].status, TaskStatus::Completed);
+        assert_eq!(reports[0].text.as_deref(), Some("first result"));
+        assert_eq!(reports[1].status, TaskStatus::Running);
     }
 
     #[tokio::test]
@@ -1023,7 +1257,7 @@ mod tests {
 
         let reports = h
             .broker
-            .get_tasks_status(&[call_id], StatusWait::Bounded(5_000))
+            .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Bounded(5_000))
             .await;
         assert_eq!(reports[0].status, TaskStatus::Completed);
     }
@@ -1033,7 +1267,11 @@ mod tests {
         let h = harness(MockDepthLookup::default(), DelegationConfig::default());
         let reports = h
             .broker
-            .get_tasks_status(&["nope".to_string()], StatusWait::Immediate)
+            .get_tasks_status(
+                &scope(Uuid::nil()),
+                &["nope".to_string()],
+                StatusWait::Immediate,
+            )
             .await;
         assert_eq!(reports[0].status, TaskStatus::Unknown);
     }
@@ -1043,6 +1281,7 @@ mod tests {
         let status = Arc::new(MockStatusLookup {
             record: Some(ChildStatusRecord {
                 child_session_id: Uuid::from_u128(7),
+                parent_conversation_id: Some(Uuid::nil()),
                 status: TaskStatus::Completed,
                 agent_type: Some(AgentId::parse("gemini").unwrap()),
             }),
@@ -1056,7 +1295,11 @@ mod tests {
             DelegationConfig::default(),
         );
         let reports = broker
-            .get_tasks_status(&["evicted".to_string()], StatusWait::Immediate)
+            .get_tasks_status(
+                &scope(Uuid::nil()),
+                &["evicted".to_string()],
+                StatusWait::Immediate,
+            )
             .await;
         assert_eq!(reports[0].status, TaskStatus::Completed);
         assert_eq!(reports[0].child_session_id, Some(Uuid::from_u128(7)));
@@ -1072,7 +1315,10 @@ mod tests {
             .task_id
             .unwrap();
 
-        let report = h.broker.cancel_delegation(&call_id).await;
+        let report = h
+            .broker
+            .cancel_delegation(&scope(Uuid::nil()), &call_id)
+            .await;
         assert_eq!(report.status, TaskStatus::Canceled);
         assert_eq!(h.broker.running_count(), 0);
         let calls = h.spawner.calls.lock().unwrap();
@@ -1093,7 +1339,10 @@ mod tests {
             .complete_call(&call_id, ok_outcome(h.spawner.child_session_id))
             .await;
 
-        let report = h.broker.cancel_delegation(&call_id).await;
+        let report = h
+            .broker
+            .cancel_delegation(&scope(Uuid::nil()), &call_id)
+            .await;
         assert_eq!(report.status, TaskStatus::Completed);
         assert!(h.spawner.calls.lock().unwrap().canceled.is_empty());
     }
@@ -1129,6 +1378,30 @@ mod tests {
             "oldest evicted"
         );
         assert!(h.broker.completed_report(&ids[2]).is_some(), "newest kept");
+    }
+
+    #[tokio::test]
+    async fn completed_result_is_capped_at_256_kib() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        let task_id = h
+            .broker
+            .start_delegation(request(Uuid::nil()))
+            .await
+            .task_id
+            .unwrap();
+        h.broker
+            .complete_call(
+                &task_id,
+                ok_text_outcome(h.spawner.child_session_id, "x".repeat(300 * 1024)),
+            )
+            .await;
+
+        let reports = h
+            .broker
+            .get_tasks_status(&scope(Uuid::nil()), &[task_id], StatusWait::Immediate)
+            .await;
+
+        assert_eq!(reports[0].text.as_ref().unwrap().len(), 256 * 1024);
     }
 
     #[tokio::test]
@@ -1172,7 +1445,7 @@ mod tests {
         );
         assert_eq!(broker.running_count(), 0);
         let done = broker
-            .get_tasks_status(&[call_id], StatusWait::Immediate)
+            .get_tasks_status(&scope(Uuid::nil()), &[call_id], StatusWait::Immediate)
             .await;
         assert_eq!(done[0].status, TaskStatus::Completed);
     }
@@ -1198,6 +1471,7 @@ mod tests {
         let status = Arc::new(MockStatusLookup {
             record: Some(ChildStatusRecord {
                 child_session_id: Uuid::nil(),
+                parent_conversation_id: Some(Uuid::nil()),
                 status: TaskStatus::Running,
                 agent_type: None,
             }),
@@ -1213,7 +1487,11 @@ mod tests {
 
         let reports = tokio::time::timeout(
             Duration::from_secs(1),
-            broker.get_tasks_status(&["db-only".to_string()], StatusWait::Infinite),
+            broker.get_tasks_status(
+                &scope(Uuid::nil()),
+                &["db-only".to_string()],
+                StatusWait::Infinite,
+            ),
         )
         .await
         .expect("must not block on a DB-only running task");
@@ -1245,7 +1523,9 @@ mod tests {
         // Cancel while start_delegation is parked in send (task is in `setups`).
         reached.notified().await;
         let call_id = captured.lock().unwrap().clone().expect("captured call id");
-        let cancel_report = broker.cancel_delegation(&call_id).await;
+        let cancel_report = broker
+            .cancel_delegation(&scope(Uuid::nil()), &call_id)
+            .await;
         assert_eq!(cancel_report.status, TaskStatus::Canceled);
         release.notify_one();
 
@@ -1254,6 +1534,118 @@ mod tests {
         // never left running, and tore the child down.
         assert_eq!(start_report.status, TaskStatus::Canceled);
         assert_eq!(broker.running_count(), 0);
+        assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn early_cancel_wins_over_later_setup_completion() {
+        let mut spawner = MockSpawner::new();
+        let release = Arc::new(tokio::sync::Notify::new());
+        spawner.release_gate = Some(release.clone());
+        let reached = spawner.send_reached_gate.clone();
+        let captured = spawner.captured_call_id.clone();
+        let child = spawner.child_session_id;
+        let spawner = Arc::new(spawner);
+        let broker = DelegationBroker::new(
+            spawner,
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(MockStatusLookup::default()),
+            Arc::new(RecordingMetaWriter::default()),
+            Arc::new(RecordingEventEmitter::default()),
+            DelegationConfig::default(),
+        );
+        let start_broker = broker.clone();
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        reached.notified().await;
+        let call_id = captured.lock().unwrap().clone().expect("captured call id");
+
+        let canceled = broker
+            .cancel_delegation(&scope(Uuid::nil()), &call_id)
+            .await;
+        assert_eq!(canceled.status, TaskStatus::Canceled);
+        broker.complete_call(&call_id, ok_outcome(child)).await;
+        release.notify_one();
+
+        let report = start.await.unwrap();
+        assert_eq!(report.status, TaskStatus::Canceled);
+    }
+
+    #[tokio::test]
+    async fn parent_closed_cascades_only_its_running_children() {
+        let h = harness(MockDepthLookup::default(), DelegationConfig::default());
+        let first = h
+            .broker
+            .start_delegation(request(Uuid::nil()))
+            .await
+            .task_id
+            .unwrap();
+        let second = h
+            .broker
+            .start_delegation(request(Uuid::nil()))
+            .await
+            .task_id
+            .unwrap();
+        let mut other_parent = request(Uuid::nil());
+        other_parent.parent_connection_id = "conn-2".to_string();
+        let unaffected = h
+            .broker
+            .start_delegation(other_parent)
+            .await
+            .task_id
+            .unwrap();
+
+        let canceled = h.broker.parent_closed("parent-conn").await;
+
+        assert_eq!(canceled.len(), 2);
+        assert!(
+            canceled
+                .iter()
+                .all(|report| report.status == TaskStatus::Canceled)
+        );
+        let status = h
+            .broker
+            .get_tasks_status(&scope(Uuid::nil()), &[first, second], StatusWait::Immediate)
+            .await;
+        let unaffected_status = h
+            .broker
+            .get_tasks_status(
+                &scope_for("conn-2", Uuid::nil()),
+                &[unaffected],
+                StatusWait::Immediate,
+            )
+            .await;
+        assert_eq!(status[0].status, TaskStatus::Canceled);
+        assert_eq!(status[1].status, TaskStatus::Canceled);
+        assert_eq!(unaffected_status[0].status, TaskStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn parent_closed_during_setup_cancels_the_child() {
+        let mut spawner = MockSpawner::new();
+        let release = Arc::new(tokio::sync::Notify::new());
+        spawner.release_gate = Some(release.clone());
+        let reached = spawner.send_reached_gate.clone();
+        let spawner = Arc::new(spawner);
+        let broker = DelegationBroker::new(
+            spawner.clone(),
+            Arc::new(MockDepthLookup::default()),
+            Arc::new(MockStatusLookup::default()),
+            Arc::new(RecordingMetaWriter::default()),
+            Arc::new(RecordingEventEmitter::default()),
+            DelegationConfig::default(),
+        );
+        let start_broker = broker.clone();
+        let start =
+            tokio::spawn(async move { start_broker.start_delegation(request(Uuid::nil())).await });
+        reached.notified().await;
+
+        let canceled = broker.parent_closed("parent-conn").await;
+        release.notify_one();
+
+        assert_eq!(canceled.len(), 1);
+        assert_eq!(canceled[0].status, TaskStatus::Canceled);
+        assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
         assert_eq!(spawner.calls.lock().unwrap().disconnected.len(), 1);
     }
 }

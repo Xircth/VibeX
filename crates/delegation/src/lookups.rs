@@ -20,6 +20,7 @@ pub trait DepthLookup: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ChildStatusRecord {
     pub child_session_id: Uuid,
+    pub parent_conversation_id: Option<Uuid>,
     pub status: TaskStatus,
     pub agent_type: Option<AgentId>,
 }

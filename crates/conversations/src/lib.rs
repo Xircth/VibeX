@@ -21,5 +21,6 @@ pub use search::{
 pub use service::{
     AgentRuntimeLaunchSettings, ConversationContext, ConversationHost, ConversationRuntimeState,
     ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
-    ConversationTurnSnapshot, finalize_checkpoint_file_changes, preview_checkpoint_file_changes,
+    ConversationTurnSnapshot, CreateDelegatedConversation, create_delegated_conversation,
+    finalize_checkpoint_file_changes, preview_checkpoint_file_changes,
 };

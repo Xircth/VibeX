@@ -317,6 +317,7 @@ pub enum AgentEvent {
     /// the PARENT connection's stream so the UI can render an inline delegation
     /// card on the parent's `delegate_to_agent` tool call.
     DelegationStarted {
+        delegation_id: String,
         parent_tool_use_id: String,
         /// The child's `sessions.id` — the conversation the user can open.
         child_session_id: Uuid,
@@ -325,6 +326,7 @@ pub enum AgentEvent {
     },
     /// A delegated child reached a terminal state.
     DelegationCompleted {
+        delegation_id: String,
         parent_tool_use_id: String,
         child_session_id: Uuid,
         agent_id: AgentId,

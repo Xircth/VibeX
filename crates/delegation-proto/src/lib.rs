@@ -12,6 +12,6 @@ mod transport;
 
 pub use transport::{
     BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest,
-    MAX_FRAME_BYTES, read_frame, write_frame,
+    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, MAX_FRAME_BYTES, read_frame, write_frame,
 };

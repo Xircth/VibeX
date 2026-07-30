@@ -1426,10 +1426,12 @@ mod tests {
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::Session,
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
+    use crate::{CreateDelegatedConversation, create_delegated_conversation};
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -1449,6 +1451,28 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    async fn setup_temp_pool() -> (tempfile::TempDir, SqlitePool) {
+        let dir = tempfile::tempdir().expect("temp db dir");
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("conversations.sqlite"))
+            .create_if_missing(true)
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect temp db");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        (dir, pool)
     }
 
     async fn seed_turn(pool: &SqlitePool) -> (Uuid, Uuid) {
@@ -2616,6 +2640,90 @@ mod tests {
             Some(ConversationDelegationResult::Ok { .. })
         ));
         assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn delegation_events_rebuild_child_binding() {
+        let (_dir, pool) = setup_temp_pool().await;
+        let (parent_conversation_id, turn_id) = seed_turn(&pool).await;
+        let child_conversation_id = Uuid::new_v4();
+        let delegation_id = "delegation-call-1";
+        create_delegated_conversation(
+            &pool,
+            CreateDelegatedConversation {
+                id: child_conversation_id,
+                parent_conversation_id,
+                parent_tool_call_id: "tool-1".into(),
+                delegation_id: delegation_id.into(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                prompt: "Review the diff".into(),
+            },
+        )
+        .await
+        .expect("persist delegated child");
+        append_event(
+            &pool,
+            parent_conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation {
+                    delegation_id: delegation_id.into(),
+                    parent_tool_call_id: "tool-1".into(),
+                    child_conversation_id,
+                    agent_id: AgentId::parse("codex").unwrap(),
+                    task_preview: "Review the diff".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            parent_conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationCompleted {
+                delegation_id: delegation_id.into(),
+                result: ConversationDelegationResult::Ok {
+                    text_preview: Some("done".into()),
+                    duration_ms: Some(10),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let before = ConversationProjector::project(&pool, parent_conversation_id)
+            .await
+            .expect("project before rebuild");
+        ConversationProjector::rebuild_projection(&pool, parent_conversation_id)
+            .await
+            .expect("rebuild projection");
+        let after = ConversationProjector::project(&pool, parent_conversation_id)
+            .await
+            .expect("project after rebuild");
+        assert_eq!(after, before);
+        let delegation = after
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::Delegation { delegation } => Some(delegation),
+                _ => None,
+            })
+            .expect("delegation row");
+        assert_eq!(delegation.delegation_id, delegation_id);
+        assert_eq!(
+            delegation.child_conversation_id,
+            Some(child_conversation_id)
+        );
+        assert_eq!(delegation.status, "completed");
+        let child = Session::find_by_delegation_call_id(&pool, delegation_id)
+            .await
+            .expect("find child")
+            .expect("child exists");
+        assert_eq!(child.parent_session_id, Some(parent_conversation_id));
+        assert_eq!(child.parent_tool_use_id.as_deref(), Some("tool-1"));
     }
 
     #[tokio::test]

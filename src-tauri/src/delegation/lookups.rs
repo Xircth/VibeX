@@ -42,6 +42,7 @@ impl ChildStatusLookup for DbChildStatusLookup {
             .ok()??;
         Some(ChildStatusRecord {
             child_session_id: session.id,
+            parent_conversation_id: session.parent_session_id,
             status: map_status(&session.status),
             agent_type: session.agent_id,
         })

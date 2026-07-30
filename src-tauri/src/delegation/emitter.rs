@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use agents::{
     events::{AgentEvent, DelegationResultSummary},
-    ids::AgentConnectionId,
+    ids::{AgentConnectionId, AgentSessionId},
     runtime::AgentRuntime,
 };
 use async_trait::async_trait;
@@ -33,8 +33,9 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
         self.runtime
             .emit_external(
                 conn,
-                None,
+                Some(AgentSessionId::from(event.parent_conversation_id)),
                 AgentEvent::DelegationStarted {
+                    delegation_id: event.delegation_id,
                     parent_tool_use_id: event.parent_tool_use_id,
                     child_session_id: event.child_session_id,
                     agent_id: event.agent_type,
@@ -60,8 +61,9 @@ impl DelegationEventEmitter for RuntimeEventEmitter {
         self.runtime
             .emit_external(
                 conn,
-                None,
+                Some(AgentSessionId::from(event.parent_conversation_id)),
                 AgentEvent::DelegationCompleted {
+                    delegation_id: event.delegation_id,
                     parent_tool_use_id: event.parent_tool_use_id,
                     child_session_id: event.child_session_id,
                     agent_id: event.agent_type,

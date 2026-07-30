@@ -1,6 +1,6 @@
 //! `vibex-mcp` — the per-launch companion MCP server.
 //!
-//! A parent ACP agent (v1: ClaudeCode) launches this as a stdio MCP server,
+//! A capable parent ACP agent launches this as a stdio MCP server,
 //! injected via the ACP `session/new` `mcp_servers` parameter with
 //! `--parent-connection-id`, `--socket-path`, `--token`, and `--features`. It
 //! exposes the delegation + steering tools and bridges each `tools/call` to the
@@ -23,8 +23,8 @@ use std::{
 };
 
 use delegation_proto::{
-    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerFeedbackRequest,
-    BrokerMessage, BrokerRequest, BrokerStatusRequest,
+    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
+    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerSessionRequest, BrokerStatusRequest,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -48,6 +48,7 @@ struct CompanionFeatures {
     delegation: bool,
     feedback: bool,
     ask: bool,
+    session_info: bool,
 }
 
 impl CompanionFeatures {
@@ -59,6 +60,7 @@ impl CompanionFeatures {
                 delegation: true,
                 feedback: false,
                 ask: false,
+                session_info: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -66,6 +68,7 @@ impl CompanionFeatures {
                     delegation: has("delegation"),
                     feedback: has("feedback"),
                     ask: has("ask"),
+                    session_info: has("sessions"),
                 }
             }
         }
@@ -76,6 +79,7 @@ impl CompanionFeatures {
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
+            "get_session_info" => self.session_info,
             _ => false,
         }
     }
@@ -289,7 +293,28 @@ impl Companion {
         match outcome {
             None => {}
             Some(Ok(response)) => {
-                write_opt(&stdout, respond(id, render_result(&response.outcome))).await;
+                let feedback_ids = if name == "check_user_feedback" {
+                    response.outcome["feedback"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|note| note["id"].as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+                let relayed =
+                    write_opt(&stdout, respond(id, render_result(&response.outcome))).await;
+                if relayed && !feedback_ids.is_empty() {
+                    let _ = client::call_broker(
+                        &self.socket_path,
+                        &BrokerMessage::CommitFeedback(BrokerCommitFeedbackRequest {
+                            token: self.token.clone(),
+                            ids: feedback_ids,
+                        }),
+                    )
+                    .await;
+                }
             }
             Some(Err(err)) => {
                 write_opt(
@@ -360,6 +385,23 @@ impl Companion {
                     .cloned()
                     .unwrap_or_else(|| json!([])),
             })),
+            "get_session_info" => {
+                let conversation_id = arguments
+                    .get("conversation_id")
+                    .and_then(Value::as_str)
+                    .ok_or("conversation_id is required")?
+                    .to_string();
+                let max_messages = arguments
+                    .get("max_messages")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(20)
+                    .min(200) as u32;
+                Ok(BrokerMessage::SessionInfo(BrokerSessionRequest {
+                    token,
+                    conversation_id,
+                    max_messages,
+                }))
+            }
             other => Err(format!("unknown tool: {other}")),
         }
     }
@@ -435,12 +477,14 @@ fn respond_error(id: Option<Value>, code: i64, message: &str) -> Option<String> 
     .ok()
 }
 
-async fn write_opt(stdout: &Arc<Mutex<tokio::io::Stdout>>, response: Option<String>) {
-    let Some(response) = response else { return };
+async fn write_opt(stdout: &Arc<Mutex<tokio::io::Stdout>>, response: Option<String>) -> bool {
+    let Some(response) = response else {
+        return false;
+    };
     let mut out = stdout.lock().await;
-    let _ = out.write_all(response.as_bytes()).await;
-    let _ = out.write_all(b"\n").await;
-    let _ = out.flush().await;
+    out.write_all(response.as_bytes()).await.is_ok()
+        && out.write_all(b"\n").await.is_ok()
+        && out.flush().await.is_ok()
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -465,7 +509,9 @@ async fn main() {
             continue;
         };
         match companion.classify(&value) {
-            LineAction::Respond(response) => write_opt(&stdout, Some(response)).await,
+            LineAction::Respond(response) => {
+                write_opt(&stdout, Some(response)).await;
+            }
             LineAction::Ignore => {}
             LineAction::Call {
                 id,
@@ -561,12 +607,48 @@ mod tests {
     }
 
     #[test]
+    fn tool_schema_explains_agent_mentions() {
+        let value = respond_text(classify(
+            "delegation",
+            r#"{"jsonrpc":"2.0","id":23,"method":"tools/list"}"#,
+        ));
+        let description = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "delegate_to_agent")
+            .and_then(|tool| tool["description"].as_str())
+            .expect("delegate_to_agent description");
+
+        assert!(description.contains("every AgentMention"));
+        assert!(description.contains("[&Codex](vibex://agent/codex)"));
+        assert!(description.contains("does not itself start"));
+        assert!(description.contains("ASYNCHRONOUS"));
+    }
+
+    #[test]
     fn all_features_expose_five_tools() {
         let value = respond_text(classify(
             "delegation,feedback,ask",
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
         ));
         assert_eq!(value["result"]["tools"].as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn session_info_feature_is_independent() {
+        let value = respond_text(classify(
+            "sessions",
+            r#"{"jsonrpc":"2.0","id":31,"method":"tools/list"}"#,
+        ));
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, vec!["get_session_info"]);
     }
 
     #[test]

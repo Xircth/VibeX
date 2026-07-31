@@ -7,6 +7,287 @@ use uuid::Uuid;
 pub mod conversation_migration;
 pub mod legacy_migration;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewInstallationOperation {
+    pub agent_id: AgentId,
+    pub kind: String,
+    pub frozen_plan_json: String,
+    pub host_instance_id: String,
+    pub resource_claims: Vec<String>,
+    pub staging_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallationOperationRecord {
+    pub id: Uuid,
+    pub agent_id: AgentId,
+    pub kind: String,
+    pub status: String,
+    pub frozen_plan_json: String,
+    pub host_instance_id: String,
+    pub heartbeat_at: Option<String>,
+    pub staging_path: Option<String>,
+    pub resource_claims: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, FromRow)]
+struct InstallationOperationRow {
+    id: String,
+    agent_id: String,
+    operation_kind: String,
+    status: String,
+    frozen_plan_json: String,
+    host_instance_id: String,
+    heartbeat_at: Option<String>,
+    staging_path: Option<String>,
+    resource_claims_json: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl TryFrom<InstallationOperationRow> for InstallationOperationRecord {
+    type Error = AgentManagementRepositoryError;
+
+    fn try_from(row: InstallationOperationRow) -> Result<Self, Self::Error> {
+        let raw_agent_id = row.agent_id;
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|_| AgentManagementRepositoryError::InvalidOperationId(row.id))?,
+            agent_id: AgentId::parse(&raw_agent_id)
+                .map_err(|_| AgentManagementRepositoryError::InvalidAgentId(raw_agent_id))?,
+            kind: row.operation_kind,
+            status: row.status,
+            frozen_plan_json: row.frozen_plan_json,
+            host_instance_id: row.host_instance_id,
+            heartbeat_at: row.heartbeat_at,
+            staging_path: row.staging_path,
+            resource_claims: serde_json::from_str(&row.resource_claims_json)
+                .map_err(|_| AgentManagementRepositoryError::InvalidResourceClaims)?,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct InstallationOperationRepository {
+    pool: SqlitePool,
+}
+
+impl InstallationOperationRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn enqueue(
+        &self,
+        operation: NewInstallationOperation,
+    ) -> Result<InstallationOperationRecord, AgentManagementRepositoryError> {
+        let id = Uuid::new_v4();
+        let claims_json = serde_json::to_string(&operation.resource_claims)
+            .map_err(|_| AgentManagementRepositoryError::InvalidResourceClaims)?;
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            r#"INSERT INTO agent_install_operation
+               (id, agent_id, operation_kind, status, frozen_plan_json,
+                host_instance_id, staging_path, resource_claims_json)
+               VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)"#,
+        )
+        .bind(id.to_string())
+        .bind(operation.agent_id.as_str())
+        .bind(&operation.kind)
+        .bind(&operation.frozen_plan_json)
+        .bind(&operation.host_instance_id)
+        .bind(&operation.staging_path)
+        .bind(&claims_json)
+        .execute(&mut *transaction)
+        .await?;
+        for resource in &operation.resource_claims {
+            sqlx::query(
+                r#"INSERT INTO agent_install_resource_lease (resource_key, operation_id)
+                   VALUES (?, ?)"#,
+            )
+            .bind(resource)
+            .bind(id.to_string())
+            .execute(&mut *transaction)
+            .await?;
+        }
+        sqlx::query(
+            r#"INSERT INTO agent_installation
+               (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
+                active_operation, active_operation_id, updated_at)
+               VALUES (?, 'managed', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(agent_id) DO UPDATE SET
+                 lifecycle = 'queued',
+                 active_operation = excluded.active_operation,
+                 active_operation_id = excluded.active_operation_id,
+                 updated_at = CURRENT_TIMESTAMP"#,
+        )
+        .bind(operation.agent_id.as_str())
+        .bind(&operation.kind)
+        .bind(id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        self.find(id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn mark_running(
+        &self,
+        id: Uuid,
+        host_instance_id: &str,
+    ) -> Result<(), AgentManagementRepositoryError> {
+        sqlx::query(
+            r#"UPDATE agent_install_operation
+               SET status = 'running',
+                   host_instance_id = ?,
+                   heartbeat_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status = 'queued'"#,
+        )
+        .bind(host_instance_id)
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_staging_path(
+        &self,
+        id: Uuid,
+        staging_path: &str,
+    ) -> Result<(), AgentManagementRepositoryError> {
+        sqlx::query(
+            r#"UPDATE agent_install_operation
+               SET staging_path = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status IN ('queued', 'running')"#,
+        )
+        .bind(staging_path)
+        .bind(id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn find(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<InstallationOperationRecord>, AgentManagementRepositoryError> {
+        sqlx::query_as::<_, InstallationOperationRow>(
+            r#"SELECT id, agent_id, operation_kind, status, frozen_plan_json,
+                      host_instance_id, heartbeat_at, staging_path,
+                      resource_claims_json, created_at, updated_at
+               FROM agent_install_operation WHERE id = ?"#,
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .map(TryInto::try_into)
+        .transpose()
+    }
+
+    pub async fn active_for_agent(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<InstallationOperationRecord>, AgentManagementRepositoryError> {
+        sqlx::query_as::<_, InstallationOperationRow>(
+            r#"SELECT id, agent_id, operation_kind, status, frozen_plan_json,
+                      host_instance_id, heartbeat_at, staging_path,
+                      resource_claims_json, created_at, updated_at
+               FROM agent_install_operation
+               WHERE agent_id = ? AND status IN ('queued', 'running')
+               LIMIT 1"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        .map(TryInto::try_into)
+        .transpose()
+    }
+
+    pub async fn recover_interrupted(
+        &self,
+        current_host_instance_id: &str,
+    ) -> Result<Vec<Uuid>, AgentManagementRepositoryError> {
+        let mut transaction = self.pool.begin().await?;
+        let ids = sqlx::query_scalar::<_, String>(
+            r#"SELECT id FROM agent_install_operation
+               WHERE status IN ('queued', 'running') AND host_instance_id <> ?
+               ORDER BY created_at, id"#,
+        )
+        .bind(current_host_instance_id)
+        .fetch_all(&mut *transaction)
+        .await?;
+        for raw_id in &ids {
+            sqlx::query(
+                r#"UPDATE agent_install_operation
+                   SET status = 'interrupted', updated_at = CURRENT_TIMESTAMP
+                   WHERE id = ? AND status IN ('queued', 'running')"#,
+            )
+            .bind(raw_id)
+            .execute(&mut *transaction)
+            .await?;
+            sqlx::query("DELETE FROM agent_install_resource_lease WHERE operation_id = ?")
+                .bind(raw_id)
+                .execute(&mut *transaction)
+                .await?;
+            sqlx::query(
+                r#"UPDATE agent_installation
+                   SET lifecycle = CASE
+                         WHEN current_lock_id IS NULL THEN 'interrupted'
+                         ELSE 'ready'
+                       END,
+                       active_operation = NULL,
+                       active_operation_id = NULL,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE active_operation_id = ?"#,
+            )
+            .bind(raw_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        transaction.commit().await?;
+        ids.into_iter()
+            .map(|id| {
+                Uuid::parse_str(&id)
+                    .map_err(|_| AgentManagementRepositoryError::InvalidOperationId(id))
+            })
+            .collect()
+    }
+
+    pub async fn finish(
+        &self,
+        id: Uuid,
+        status: &str,
+    ) -> Result<(), AgentManagementRepositoryError> {
+        if !matches!(status, "succeeded" | "failed" | "cancelled" | "interrupted") {
+            return Err(AgentManagementRepositoryError::InvalidOperationStatus(
+                status.to_string(),
+            ));
+        }
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            r#"UPDATE agent_install_operation
+               SET status = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status IN ('queued', 'running')"#,
+        )
+        .bind(status)
+        .bind(id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("DELETE FROM agent_install_resource_lease WHERE operation_id = ?")
+            .bind(id.to_string())
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AgentManagementRepositoryError {
     #[error(transparent)]
@@ -17,6 +298,12 @@ pub enum AgentManagementRepositoryError {
     InvalidSource(String),
     #[error("invalid persisted Registry snapshot id `{0}`")]
     InvalidSnapshotId(String),
+    #[error("invalid persisted installation operation id `{0}`")]
+    InvalidOperationId(String),
+    #[error("invalid installation operation resource claims")]
+    InvalidResourceClaims,
+    #[error("invalid installation operation status `{0}`")]
+    InvalidOperationStatus(String),
     #[error("reorder must contain every membership exactly once")]
     InvalidReorder,
 }
@@ -526,5 +813,27 @@ impl SessionDefaultRepository {
         }
         transaction.commit().await?;
         Ok(())
+    }
+
+    pub async fn list_for_agent(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Vec<SessionDefaultRecord>, AgentManagementRepositoryError> {
+        Ok(sqlx::query_as::<_, (String, String, String)>(
+            r#"SELECT option_id, value_json, updated_at
+               FROM agent_session_default
+               WHERE agent_id = ?
+               ORDER BY option_id"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|(option_id, value_json, updated_at)| SessionDefaultRecord {
+            option_id,
+            value_json,
+            updated_at,
+        })
+        .collect())
     }
 }

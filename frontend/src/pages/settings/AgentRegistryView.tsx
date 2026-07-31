@@ -33,7 +33,11 @@ export function AgentRegistryViewPanel({
           !normalized ||
           row.display_name.toLocaleLowerCase().includes(normalized) ||
           row.description.toLocaleLowerCase().includes(normalized) ||
-          row.agent_id.toLocaleLowerCase().includes(normalized)
+          row.agent_id.toLocaleLowerCase().includes(normalized) ||
+          row.registry_id?.toLocaleLowerCase().includes(normalized) ||
+          row.authors.some((author) =>
+            author.toLocaleLowerCase().includes(normalized)
+          )
       )
       .sort((left, right) => {
         if (left.built_in !== right.built_in) {
@@ -79,6 +83,32 @@ export function AgentRegistryViewPanel({
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span
+          aria-label={view?.fresh ? '注册表快照有效' : '注册表缓存已过期'}
+          className={cn(
+            'agent-registry-status',
+            view?.fresh
+              ? 'settings-status-pill-success'
+              : 'settings-status-pill-warning'
+          )}
+          role="status"
+        >
+          {view?.fresh ? '快照有效' : '离线缓存'}
+        </span>
+        <span>
+          {view?.fetched_at
+            ? `获取于 ${new Date(view.fetched_at).toLocaleString()}`
+            : '尚无成功获取的快照'}
+        </span>
+        {view?.snapshot_id ? (
+          <span className="font-mono">ID {view.snapshot_id}</span>
+        ) : null}
+        {view?.refresh_error ? (
+          <span className="text-destructive">{view.refresh_error}</span>
+        ) : null}
+      </div>
+
       <div className="agent-registry-toolbar">
         <div
           aria-label="注册表分类"
@@ -117,7 +147,7 @@ export function AgentRegistryViewPanel({
             className="agent-registry-search-input"
             type="search"
             value={query}
-            placeholder="搜索名称或 Agent ID"
+            placeholder="搜索名称、作者或 Registry ID"
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
@@ -141,13 +171,20 @@ export function AgentRegistryViewPanel({
               <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                 {row.description}
               </p>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                {[row.authors.join('、'), row.registry_id]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
             </div>
             {tab === 'uninstalled' ? (
               <Button
                 size="sm"
                 className="h-8 shrink-0"
                 disabled={
-                  !row.platform_supported || addingAgentId === row.agent_id
+                  !view?.fresh ||
+                  !row.platform_supported ||
+                  addingAgentId === row.agent_id
                 }
                 aria-label={`安装 ${row.display_name}`}
                 onClick={() => onAdd(row)}

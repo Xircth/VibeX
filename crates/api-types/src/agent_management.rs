@@ -76,6 +76,7 @@ pub enum AgentOperationStatus {
     Succeeded,
     Failed,
     Canceled,
+    Interrupted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -107,6 +108,8 @@ pub struct AgentRegistryViewRow {
     pub registry_id: Option<String>,
     pub display_name: String,
     pub description: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
     pub version: String,
     pub icon_light: Option<String>,
     pub icon_dark: Option<String>,
@@ -115,6 +118,18 @@ pub struct AgentRegistryViewRow {
     pub added: bool,
     pub installed: bool,
     pub platform_supported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentUpdateCheckView {
+    pub agent_id: AgentId,
+    pub current_version: Option<String>,
+    pub available_version: Option<String>,
+    pub update_available: bool,
+    pub snapshot_id: Option<String>,
+    pub fetched_at: Option<String>,
+    pub fresh: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

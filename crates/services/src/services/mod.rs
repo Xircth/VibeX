@@ -20,7 +20,6 @@ pub mod notification;
 pub mod pr_monitor;
 pub mod project;
 pub mod prompt_enhancement;
-pub mod provider_config;
 #[cfg(feature = "qa-mode")]
 pub mod qa_repos;
 pub mod repo;

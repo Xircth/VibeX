@@ -73,6 +73,11 @@ impl NativeFileSystem for MemoryNativeFileSystem {
         Ok(())
     }
 
+    async fn remove_file(&self, path: &Path) -> Result<(), BoundaryError> {
+        self.files.lock().unwrap().remove(path);
+        Ok(())
+    }
+
     async fn metadata(&self, path: &Path) -> Result<Option<NativeFileMetadata>, BoundaryError> {
         Ok(self
             .files

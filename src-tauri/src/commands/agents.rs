@@ -1,21 +1,32 @@
-use std::path::PathBuf;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use agents::{
-    AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot, AgentContentBlock,
-    AgentPermissionId, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
-    AgentPromptSnapshot, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionSnapshot,
-    AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput, ConnectAgentInput,
+    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot,
+    AgentContentBlock, AgentManagementSnapshot, AgentPermissionId, AgentPermissionResponse,
+    AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot, AgentSessionControlsSnapshot,
+    AgentSessionId, AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot,
+    CancelAgentPromptInput, ConnectAgentInput, LaunchComponentEvidence, LaunchGate,
     RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput,
-    SessionLaunchLock, terminal::agent_terminal_registry,
+    SessionAuthenticationEvidence, SessionGate, SessionGateInput, SessionLaunchLock,
+    resolve_session_authentication_evidence, terminal::agent_terminal_registry,
 };
-use api_types::AgentId;
+use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
 use db::models::{
-    agent_capability_catalog::AgentCapabilityCatalogRecord, workspace::Workspace,
+    agent_capability_catalog::AgentCapabilityCatalogRecord,
+    agent_management::{SessionDefaultRecord, SessionDefaultRepository},
+    conversation::DbConversationSummary,
+    session::{CreateSession, Session, SessionStatus},
+    workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use services::services::agent_management::AgentManagementApplicationService;
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -38,6 +49,9 @@ impl From<agents::AgentError> for AppError {
             agents::AgentError::UnsupportedPlatform { agent, platform } => AppError::BadRequest(
                 format!("Agent `{agent}` is unsupported on platform `{platform}`"),
             ),
+            agents::AgentError::AuthenticationRequired(message) => {
+                AppError::BadRequest(format!("Agent 需要先完成认证：{message}"))
+            }
             agents::AgentError::InvalidDistribution(message)
             | agents::AgentError::Runtime(message) => AppError::Internal(message),
         }
@@ -134,6 +148,47 @@ pub struct AgentTerminalSnapshotRequest {
     pub terminal_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentListSessionsRequest {
+    pub agent_id: AgentId,
+    pub workspace_id: String,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDeleteRemoteSessionRequest {
+    pub agent_id: AgentId,
+    pub workspace_id: String,
+    pub acp_session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentImportRemoteSessionRequest {
+    pub agent_id: AgentId,
+    pub workspace_id: String,
+    pub acp_session_id: String,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionDefaultsWriteRequest {
+    pub agent_id: AgentId,
+    pub defaults: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSessionDefaultsView {
+    pub values: BTreeMap<String, serde_json::Value>,
+    pub stale_ids: Vec<String>,
+}
+
+const CAPABILITY_CATALOG_TTL: chrono::Duration = chrono::Duration::minutes(10);
+
 /// Read the matching persisted capability catalog. This command is deliberately
 /// side-effect free: opening a selector must never start an ACP process.
 #[tauri::command]
@@ -145,6 +200,37 @@ pub async fn agent_capability_catalog(
     read_matching_open_capability_catalog_for_pool(pool, &agent_id).await
 }
 
+#[tauri::command]
+pub async fn agent_capability_catalog_fresh(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<bool, AppError> {
+    let pool = &state.deployment.db().pool;
+    let launch = match agent_runtime_launch_settings_from_pool(pool, &agent_id).await {
+        Ok(launch) => launch,
+        Err(_) => return Ok(false),
+    };
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
+    Ok(
+        match AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
+            .await?
+        {
+            Some(record) => !record.is_stale_at(chrono::Utc::now(), CAPABILITY_CATALOG_TTL),
+            None => false,
+        },
+    )
+}
+
+fn catalog_controls_if_fresh(
+    record: AgentCapabilityCatalogRecord,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<AgentSessionControlsSnapshot> {
+    if record.is_stale_at(now, CAPABILITY_CATALOG_TTL) {
+        return None;
+    }
+    serde_json::from_str(&record.controls_json).ok()
+}
+
 async fn read_matching_open_capability_catalog_for_pool(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
@@ -153,16 +239,17 @@ async fn read_matching_open_capability_catalog_for_pool(
         Ok(launch) => launch,
         Err(_) => return Ok(None),
     };
-    let fingerprint = open_capability_catalog_fingerprint(&launch.launch_lock)?;
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch.launch_lock).await?;
     let Some(record) =
         AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint).await?
     else {
         return Ok(None);
     };
-    Ok(serde_json::from_str(&record.controls_json).ok())
+    Ok(catalog_controls_if_fresh(record, chrono::Utc::now()))
 }
 
-fn open_capability_catalog_fingerprint(
+async fn open_capability_catalog_fingerprint(
+    pool: &sqlx::SqlitePool,
     launch_lock: &SessionLaunchLock,
 ) -> Result<String, AppError> {
     let mut digest = Sha256::new();
@@ -189,33 +276,128 @@ fn open_capability_catalog_fingerprint(
     digest.update(launch_lock.runtime_version.as_bytes());
     digest.update(b"\0acp:");
     digest.update(launch_lock.acp_version.as_bytes());
+    if let Some(row) = sqlx::query(
+        r#"SELECT updated_at, COALESCE(config_json, ''), COALESCE(env_json, '')
+           FROM agent_setting WHERE agent_type = ?"#,
+    )
+    .bind(launch_lock.agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    {
+        digest.update(b"\0setting:");
+        digest.update(row.try_get::<String, _>(0)?.as_bytes());
+        digest.update(row.try_get::<String, _>(1)?.as_bytes());
+        digest.update(row.try_get::<String, _>(2)?.as_bytes());
+    }
+    for row in sqlx::query(
+        r#"SELECT provider_id, revision, fingerprint, updated_at
+           FROM agent_config_binding
+           WHERE agent_id = ?
+           ORDER BY provider_id"#,
+    )
+    .bind(launch_lock.agent_id.as_str())
+    .fetch_all(pool)
+    .await?
+    {
+        digest.update(b"\0config:");
+        for index in 0..4 {
+            digest.update(row.try_get::<String, _>(index)?.as_bytes());
+            digest.update(b"\0");
+        }
+    }
+    if let Some(row) = sqlx::query(
+        r#"SELECT authentication, observation_generation,
+                  runtime_available, acp_handshake, authentication_required
+           FROM agent_probe WHERE agent_id = ?"#,
+    )
+    .bind(launch_lock.agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    {
+        digest.update(b"\0auth:");
+        digest.update(row.try_get::<String, _>(0)?.as_bytes());
+        digest.update(b"\0");
+        digest.update(row.try_get::<i64, _>(1)?.to_le_bytes());
+        digest.update(b"\0");
+        for index in 2..5 {
+            digest.update(if row.try_get::<bool, _>(index)? {
+                b"1"
+            } else {
+                b"0"
+            });
+            digest.update(b"\0");
+        }
+    }
     Ok(format!("{:x}", digest.finalize()))
 }
 
-/// The prompt-enhancement settings use the exact same persisted OpenCode
-/// catalog as session creation. It deliberately returns an empty list while a
-/// catalog is absent or stale: inventing static/free-tier choices here would
-/// let the UI save a model that the verified runtime cannot use.
-pub(crate) async fn opencode_capability_catalog_models(
+/// Prompt enhancement uses the exact persisted catalogs used by session
+/// creation. Candidate order follows the user's Agent bar order and no Agent
+/// identity is privileged.
+async fn prompt_enhancement_catalog_candidates(
     pool: &sqlx::SqlitePool,
-) -> Result<Vec<String>, AppError> {
-    let agent_id = AgentId::parse("opencode").expect("the built-in OpenCode id is a valid AgentId");
-    let Some(snapshot) = read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?
-    else {
-        return Ok(Vec::new());
-    };
-    Ok(opencode_models_from_catalog(&snapshot))
+) -> Result<Vec<(AgentId, Vec<String>)>, AppError> {
+    let agent_ids = sqlx::query_scalar::<_, String>(
+        r#"SELECT membership.agent_id
+           FROM agent_membership membership
+           JOIN agent_installation installation
+             ON installation.agent_id = membership.agent_id
+           WHERE membership.enabled = 1
+             AND membership.retired = 0
+             AND installation.current_lock_id IS NOT NULL
+           ORDER BY membership.position, membership.agent_id"#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut candidates = Vec::new();
+    for raw_agent_id in agent_ids {
+        let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
+            continue;
+        };
+        let Some(snapshot) =
+            read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?
+        else {
+            continue;
+        };
+        let models = models_from_capability_catalog(&snapshot);
+        if !models.is_empty() {
+            candidates.push((agent_id, models));
+        }
+    }
+    Ok(candidates)
 }
 
-fn opencode_models_from_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
+pub(crate) async fn prompt_enhancement_capability_catalog_models(
+    pool: &sqlx::SqlitePool,
+) -> Result<Vec<String>, AppError> {
+    let mut models = Vec::new();
+    for (_, candidate_models) in prompt_enhancement_catalog_candidates(pool).await? {
+        for model in candidate_models {
+            if !models.contains(&model) {
+                models.push(model);
+            }
+        }
+    }
+    Ok(models)
+}
+
+pub(crate) async fn prompt_enhancement_agent_for_model(
+    pool: &sqlx::SqlitePool,
+    model: &str,
+) -> Result<Option<AgentId>, AppError> {
+    Ok(prompt_enhancement_catalog_candidates(pool)
+        .await?
+        .into_iter()
+        .find(|(_, models)| models.iter().any(|candidate| candidate == model))
+        .map(|(agent_id, _)| agent_id))
+}
+
+fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
     let mut models = Vec::new();
     for option in snapshot
         .config_options
         .iter()
-        // `probe_opencode_session_controls` canonically emits this option.
-        // Match its key rather than labels, which are presentation-only and
-        // may be localized by a future OpenCode release.
-        .filter(|option| option.key == "model")
+        .filter(|option| option.category.as_deref() == Some("model"))
     {
         for choice in &option.choices {
             let Some(model) = choice.value.as_str().map(str::trim) else {
@@ -237,9 +419,21 @@ pub async fn agent_refresh_capability_catalog(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<bool, AppError> {
+    refresh_capability_catalog_for_agent(&state, agent_id).await
+}
+
+async fn refresh_capability_catalog_for_agent(
+    state: &AppState,
+    agent_id: AgentId,
+) -> Result<bool, AppError> {
     let pool = &state.deployment.db().pool;
-    let launch = agent_runtime_launch_settings_from_pool(pool, &agent_id).await?;
-    let fingerprint = open_capability_catalog_fingerprint(&launch.launch_lock)?;
+    let launch = agent_runtime_launch_settings_for_session_from_pool(pool, &agent_id).await?;
+    let launch_lock = launch.launch_lock;
+    let fingerprint = open_capability_catalog_fingerprint(pool, &launch_lock).await?;
+    let expected_generation =
+        AgentCapabilityCatalogRecord::find_matching(pool, agent_id.as_str(), &fingerprint)
+            .await?
+            .map(|record| record.generation);
     let session_id = AgentSessionId(Uuid::new_v4());
     let working_dir = std::env::temp_dir()
         .join("vibex-agent-capability-probe")
@@ -251,27 +445,203 @@ pub async fn agent_refresh_capability_catalog(
         ))
     })?;
 
-    let prepared = state
-        .agent_runtime
-        .prepare_session(agents::EnsureAgentSessionInput {
-            agent_id: agent_id.clone(),
-            launch_lock: launch.launch_lock,
-            workspace_id: Uuid::new_v4(),
-            working_dir,
-            session_id,
-            acp_session_id: format!("vibex-capability-probe-{}", session_id),
-            auto_approve_mode: launch.auto_approve_mode,
-            env: launch.env,
-        })
-        .await?;
-    let controls_json = serde_json::to_string(&prepared.controls)?;
-    AgentCapabilityCatalogRecord::replace(pool, agent_id.as_str(), &fingerprint, &controls_json)
-        .await?;
-    state
+    let discovery = settle_session_authentication(
+        pool,
+        &agent_id,
+        state
+            .agent_runtime
+            .prepare_session(agents::EnsureAgentSessionInput {
+                agent_id: agent_id.clone(),
+                launch_lock: launch_lock.clone(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
+                session_id,
+                acp_session_id: format!("vibex-capability-probe-{}", session_id),
+                auto_approve_mode: launch.auto_approve_mode,
+                env: launch.env,
+            })
+            .await,
+    )
+    .await;
+    let persist_result = match discovery {
+        Ok(prepared) => {
+            async {
+                // Authentication settlement can change the management projection.
+                // Persist under the post-handshake fingerprint so the catalog is
+                // immediately readable rather than born stale.
+                let persist_fingerprint =
+                    open_capability_catalog_fingerprint(pool, &launch_lock).await?;
+                let persist_expected_generation = AgentCapabilityCatalogRecord::find_matching(
+                    pool,
+                    agent_id.as_str(),
+                    &persist_fingerprint,
+                )
+                .await?
+                .map(|record| record.generation);
+                let controls_json = serde_json::to_string(&prepared.controls)?;
+                AgentCapabilityCatalogRecord::replace_if_generation(
+                    pool,
+                    agent_id.as_str(),
+                    &persist_fingerprint,
+                    &controls_json,
+                    persist_expected_generation,
+                )
+                .await?;
+                Ok::<(), AppError>(())
+            }
+            .await
+        }
+        Err(error) => {
+            if let Some(expected_generation) = expected_generation {
+                let _ = AgentCapabilityCatalogRecord::record_refresh_error_if_generation(
+                    pool,
+                    agent_id.as_str(),
+                    &fingerprint,
+                    expected_generation,
+                    "probe_failed",
+                )
+                .await;
+            }
+            Err(error)
+        }
+    };
+    let discard_result = state
         .agent_runtime
         .discard_prepared_session(session_id)
-        .await?;
+        .await
+        .map_err(AppError::from);
+    let directory_result = match std::fs::remove_dir_all(&working_dir) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppError::Internal(format!(
+            "failed to remove capability probe directory: {error}"
+        ))),
+    };
+    persist_result?;
+    discard_result?;
+    directory_result?;
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn refresh_prompt_enhancement_catalogs(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, AppError> {
+    let agent_ids = sqlx::query_scalar::<_, String>(
+        r#"SELECT membership.agent_id
+           FROM agent_membership membership
+           JOIN agent_installation installation
+             ON installation.agent_id = membership.agent_id
+           WHERE membership.enabled = 1
+             AND membership.retired = 0
+             AND installation.current_lock_id IS NOT NULL
+           ORDER BY membership.position, membership.agent_id"#,
+    )
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let mut refreshed_any = false;
+    for raw_agent_id in agent_ids {
+        let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
+            continue;
+        };
+        match refresh_capability_catalog_for_agent(&state, agent_id.clone()).await {
+            Ok(true) => refreshed_any = true,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::debug!(
+                    %agent_id,
+                    %error,
+                    "Agent did not provide a prompt-enhancement capability catalog"
+                );
+            }
+        }
+    }
+    Ok(refreshed_any)
+}
+
+#[tauri::command]
+pub async fn agent_session_defaults(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<AgentSessionDefaultsView, AppError> {
+    let pool = &state.deployment.db().pool;
+    let records = SessionDefaultRepository::new(pool.clone())
+        .list_for_agent(&agent_id)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut requested = BTreeMap::new();
+    let mut stale_ids = Vec::new();
+    for record in records {
+        match serde_json::from_str(&record.value_json) {
+            Ok(value) => {
+                requested.insert(record.option_id, value);
+            }
+            Err(_) => stale_ids.push(record.option_id),
+        }
+    }
+    let Some(catalog) = read_matching_open_capability_catalog_for_pool(pool, &agent_id).await?
+    else {
+        stale_ids.extend(requested.into_keys());
+        stale_ids.sort();
+        stale_ids.dedup();
+        return Ok(AgentSessionDefaultsView {
+            values: BTreeMap::new(),
+            stale_ids,
+        });
+    };
+    let validation = agents::validate_session_defaults(requested, &catalog.config_options);
+    stale_ids.extend(validation.stale_ids);
+    stale_ids.sort();
+    stale_ids.dedup();
+    Ok(AgentSessionDefaultsView {
+        values: validation.valid,
+        stale_ids,
+    })
+}
+
+#[tauri::command]
+pub async fn agent_set_session_defaults(
+    state: tauri::State<'_, AppState>,
+    request: AgentSessionDefaultsWriteRequest,
+) -> Result<(), AppError> {
+    let pool = &state.deployment.db().pool;
+    let valid = if request.defaults.is_empty() {
+        BTreeMap::new()
+    } else {
+        let catalog = read_matching_open_capability_catalog_for_pool(pool, &request.agent_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::Conflict(
+                    "Agent capability catalog is unavailable; refresh it before saving defaults"
+                        .to_string(),
+                )
+            })?;
+        let validation =
+            agents::validate_session_defaults(request.defaults, &catalog.config_options);
+        if !validation.stale_ids.is_empty() {
+            return Err(AppError::Conflict(format!(
+                "Agent session defaults are no longer advertised: {}",
+                validation.stale_ids.join(", ")
+            )));
+        }
+        validation.valid
+    };
+    let updated_at = chrono::Utc::now().to_rfc3339();
+    let records = valid
+        .into_iter()
+        .map(|(option_id, value)| {
+            Ok(SessionDefaultRecord {
+                option_id,
+                value_json: serde_json::to_string(&value)?,
+                updated_at: updated_at.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, serde_json::Error>>()?;
+    SessionDefaultRepository::new(pool.clone())
+        .replace_for_agent(&request.agent_id, &records)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 #[tauri::command]
@@ -282,6 +652,138 @@ pub async fn agent_runtime_snapshot(
     // recovery (ADR-0001) voids orphaned ones — the old merge from the retired
     // `agent_permissions` shadow table has no reason to exist (批次D).
     Ok(state.agent_runtime.snapshot().await)
+}
+
+#[tauri::command]
+pub async fn agent_list_remote_sessions(
+    state: tauri::State<'_, AppState>,
+    request: AgentListSessionsRequest,
+) -> Result<agents::AgentSessionListPage, AppError> {
+    let (connection_id, cwd) =
+        connect_agent_for_workspace(state.inner(), &request.agent_id, &request.workspace_id)
+            .await?;
+    let result = state
+        .agent_runtime
+        .list_agent_sessions(connection_id, Some(cwd), request.cursor)
+        .await
+        .map_err(AppError::from);
+    let cleanup = state
+        .agent_runtime
+        .discard_connection(connection_id)
+        .await
+        .map_err(AppError::from);
+    result.and_then(|page| cleanup.map(|()| page))
+}
+
+#[tauri::command]
+pub async fn agent_delete_remote_session(
+    state: tauri::State<'_, AppState>,
+    request: AgentDeleteRemoteSessionRequest,
+) -> Result<(), AppError> {
+    let (connection_id, _cwd) =
+        connect_agent_for_workspace(state.inner(), &request.agent_id, &request.workspace_id)
+            .await?;
+    let result = state
+        .agent_runtime
+        .delete_agent_session(connection_id, request.acp_session_id)
+        .await
+        .map_err(AppError::from);
+    let cleanup = state
+        .agent_runtime
+        .discard_connection(connection_id)
+        .await
+        .map_err(AppError::from);
+    result.and(cleanup)
+}
+
+#[tauri::command]
+pub async fn agent_import_remote_session(
+    state: tauri::State<'_, AppState>,
+    request: AgentImportRemoteSessionRequest,
+) -> Result<Session, AppError> {
+    let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    if let Some(existing) =
+        DbConversationSummary::find_by_external_id(pool, &request.acp_session_id, &request.agent_id)
+            .await?
+    {
+        return Session::find_by_id(pool, existing.id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Session {} not found", existing.id)));
+    }
+
+    let session = Session::create(
+        pool,
+        &CreateSession {
+            executor: Some(request.agent_id.as_str().to_string()),
+            agent_id: Some(request.agent_id.clone()),
+            task_id: Some(workspace.task_id),
+            name: request.title,
+            initial_prompt: None,
+            status: Some(SessionStatus::Todo),
+        },
+        Uuid::new_v4(),
+        workspace_id,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    Session::update_agent_metadata(
+        pool,
+        session.id,
+        Some(&request.acp_session_id),
+        Some(&request.agent_id),
+    )
+    .await?;
+    Session::find_by_id(pool, session.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session.id)))
+}
+
+async fn connect_agent_for_workspace(
+    state: &AppState,
+    agent_id: &AgentId,
+    workspace_id: &str,
+) -> Result<(AgentConnectionId, PathBuf), AppError> {
+    let workspace_id = parse_uuid("workspace_id", workspace_id)?;
+    let pool = &state.deployment.db().pool;
+    let workspace = Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace_id).await?;
+    let working_dir = crate::workspace_paths::resolve_workspace_agent_working_dir(
+        &workspace,
+        &container_ref,
+        &repos,
+    )
+    .unwrap_or_else(|| container_ref.clone());
+    let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
+        &workspace,
+        &container_ref,
+        &repos,
+        &working_dir,
+    );
+    let launch = agent_runtime_launch_settings_for_session_from_pool(pool, agent_id).await?;
+    let connection = state
+        .agent_runtime
+        .connect(ConnectAgentInput {
+            agent_id: agent_id.clone(),
+            launch_lock: launch.launch_lock,
+            workspace_id,
+            working_dir: PathBuf::from(&working_dir),
+            additional_directories,
+            auto_approve_mode: launch.auto_approve_mode,
+            env: launch.env,
+        })
+        .await?;
+    Ok((connection.id, PathBuf::from(working_dir)))
 }
 
 #[tauri::command]
@@ -346,14 +848,31 @@ pub async fn agent_connect(
     request: AgentConnectRequest,
 ) -> Result<AgentConnectionSnapshot, AppError> {
     let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    let repos =
+        WorkspaceRepo::find_repos_for_workspace(&state.deployment.db().pool, workspace_id).await?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
+        &workspace,
+        &container_ref,
+        &repos,
+        &request.working_dir,
+    );
     let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
     state
         .agent_runtime
         .connect(ConnectAgentInput {
-            agent_id: request.agent_id,
+            agent_id: request.agent_id.clone(),
             launch_lock: launch_settings.launch_lock,
             workspace_id,
             working_dir: PathBuf::from(request.working_dir),
+            additional_directories,
             auto_approve_mode: launch_settings.auto_approve_mode,
             env: launch_settings.env,
         })
@@ -375,22 +894,270 @@ pub(crate) async fn agent_runtime_launch_settings_from_pool(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
-    conversations::resolve_agent_runtime_launch_settings(pool, agent_id)
-        .await
-        .map_err(|error| match error {
-            conversations::ConversationServiceError::NotFound(message) => {
-                AppError::NotFound(message)
-            }
-            conversations::ConversationServiceError::BadRequest(message) => {
-                AppError::BadRequest(message)
-            }
-            conversations::ConversationServiceError::Conflict(message) => {
-                AppError::Conflict(message)
-            }
-            conversations::ConversationServiceError::Internal(message) => {
-                AppError::Internal(message)
-            }
+    agent_runtime_launch_settings_from_pool_with_auth_revalidation(pool, agent_id, false).await
+}
+
+pub(crate) async fn agent_runtime_launch_settings_for_session_from_pool(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
+    agent_runtime_launch_settings_from_pool_with_auth_revalidation(pool, agent_id, true).await
+}
+
+async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    revalidate_authentication: bool,
+) -> Result<conversations::AgentRuntimeLaunchSettings, AppError> {
+    #[derive(Deserialize, Default)]
+    struct LockedLaunchPayload {
+        absolute_acp_program: Option<PathBuf>,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: BTreeMap<String, String>,
+        runtime_version: Option<String>,
+        acp_version: Option<String>,
+    }
+
+    let row = sqlx::query(
+        r#"SELECT membership.enabled,
+                  membership.retired,
+                  COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
+                  COALESCE(probe.authentication, 'not_logged_in') AS authentication,
+                  lock.resolved_json,
+                  lock.id
+           FROM agent_membership membership
+           LEFT JOIN agent_installation installation
+             ON installation.agent_id = membership.agent_id
+           LEFT JOIN agent_install_lock lock
+             ON lock.id = installation.current_lock_id
+           LEFT JOIN agent_probe probe
+             ON probe.agent_id = membership.agent_id
+           WHERE membership.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Agent `{agent_id}` has not been added")))?;
+
+    let lifecycle = parse_management_lifecycle(row.try_get::<String, _>("lifecycle")?.as_str());
+    let lifecycle = if revalidate_authentication {
+        lifecycle_for_session_creation(lifecycle)
+    } else {
+        lifecycle
+    };
+    let authentication =
+        parse_management_authentication(row.try_get::<String, _>("authentication")?.as_str());
+    let snapshot = AgentManagementSnapshot {
+        agent_id: agent_id.clone(),
+        enabled: row.try_get("enabled")?,
+        lifecycle,
+        authentication,
+        required_components: Vec::new(),
+    };
+    let resolved_json = row
+        .try_get::<Option<String>, _>("resolved_json")?
+        .ok_or_else(|| {
+            AppError::BadRequest("Agent has no current Installation lock".to_string())
+        })?;
+    let payload: LockedLaunchPayload = serde_json::from_str(&resolved_json).map_err(|error| {
+        AppError::Internal(format!("invalid current Installation lock: {error}"))
+    })?;
+    let lock_id = row.try_get::<Option<String>, _>("id")?.ok_or_else(|| {
+        AppError::BadRequest("Agent has no current Installation lock".to_string())
+    })?;
+    let acp_component = sqlx::query(
+        r#"SELECT absolute_path, version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('acp', 'acp_adapter', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'acp' THEN 0 WHEN 'acp_adapter' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(&lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let runtime_component = sqlx::query(
+        r#"SELECT version
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('runtime', 'agent_runtime', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'runtime' THEN 0 WHEN 'agent_runtime' THEN 1 ELSE 2 END
+           LIMIT 1"#,
+    )
+    .bind(&lock_id)
+    .fetch_optional(pool)
+    .await?;
+    let absolute_acp_program = match acp_component.as_ref() {
+        Some(component) => PathBuf::from(component.try_get::<String, _>("absolute_path")?),
+        None => payload.absolute_acp_program.ok_or_else(|| {
+            AppError::Internal("Installation lock has no ACP component path".to_string())
+        })?,
+    };
+    let acp_version = match acp_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.acp_version.ok_or_else(|| {
+            AppError::Internal("Installation lock has no ACP version".to_string())
+        })?,
+    };
+    let runtime_version = match runtime_component.as_ref() {
+        Some(component) => component.try_get::<String, _>("version")?,
+        None => payload.runtime_version.ok_or_else(|| {
+            AppError::Internal("Installation lock has no local Runtime version".to_string())
+        })?,
+    };
+    let current_lock = SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program,
+        args: payload.args,
+        env: payload.env,
+        runtime_version,
+        acp_version,
+    };
+    let authorization = SessionGate
+        .authorize(SessionGateInput {
+            snapshot,
+            current_lock: Some(current_lock),
+            requested_defaults: BTreeMap::new(),
+            advertised_option_ids: Vec::new(),
+            existing_binding: None,
+            explicit_rebind: false,
         })
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+
+    let launch_lock = SessionLaunchLock {
+        agent_id: authorization.agent_id,
+        absolute_acp_program: authorization.absolute_acp_program,
+        args: authorization.args,
+        env: authorization.env,
+        runtime_version: authorization.runtime_version,
+        acp_version: authorization.acp_version,
+    };
+    let component_rows = sqlx::query(
+        r#"SELECT component_kind, absolute_path, sha256
+           FROM agent_install_component
+           WHERE lock_id = ?
+           ORDER BY component_kind, absolute_path"#,
+    )
+    .bind(&lock_id)
+    .fetch_all(pool)
+    .await?;
+    let components = component_rows
+        .into_iter()
+        .map(|component| {
+            Ok(LaunchComponentEvidence {
+                component_kind: component.try_get("component_kind")?,
+                absolute_path: PathBuf::from(component.try_get::<String, _>("absolute_path")?),
+                expected_sha256: component
+                    .try_get::<Option<String>, _>("sha256")?
+                    .unwrap_or_default(),
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    let launch_lock = match LaunchGate::verify(launch_lock, &components).await {
+        Ok(lock) => lock,
+        Err(error) => {
+            sqlx::query(
+                r#"UPDATE agent_installation
+                   SET lifecycle = 'needs_repair', updated_at = CURRENT_TIMESTAMP
+                   WHERE agent_id = ? AND current_lock_id = ?"#,
+            )
+            .bind(agent_id.as_str())
+            .bind(&lock_id)
+            .execute(pool)
+            .await?;
+            db::models::agent_management::DiagnosticRepository::new(pool.clone())
+                .append_bounded(&db::models::agent_management::DiagnosticRecord {
+                    id: Uuid::new_v4(),
+                    agent_id: agent_id.clone(),
+                    operation_kind: "launch_gate".to_string(),
+                    severity: "error".to_string(),
+                    message: "启动前完整性验证失败".to_string(),
+                    redacted_output: Some(error.to_string()),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                })
+                .await
+                .map_err(|repository_error| AppError::Internal(repository_error.to_string()))?;
+            return Err(AppError::BadRequest(format!(
+                "Agent 安装完整性验证失败，需要修复：{error}"
+            )));
+        }
+    };
+    Ok(conversations::AgentRuntimeLaunchSettings {
+        auto_approve_mode: AgentAutoApproveMode::Off,
+        env: HashMap::new(),
+        launch_lock,
+    })
+}
+
+fn lifecycle_for_session_creation(lifecycle: AgentLifecycleState) -> AgentLifecycleState {
+    if lifecycle == AgentLifecycleState::NeedsAuth {
+        AgentLifecycleState::Ready
+    } else {
+        lifecycle
+    }
+}
+
+pub(crate) async fn settle_session_authentication<T>(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    result: Result<T, agents::AgentError>,
+) -> Result<T, AppError> {
+    let (readiness, output) = match result {
+        Ok(value) => (SessionAuthenticationEvidence::SessionReady, Ok(value)),
+        Err(error @ agents::AgentError::AuthenticationRequired(_)) => (
+            SessionAuthenticationEvidence::AuthenticationRequired,
+            Err(error),
+        ),
+        Err(error) => return Err(error.into()),
+    };
+    let authentication = sqlx::query_scalar::<_, String>(
+        "SELECT authentication FROM agent_probe WHERE agent_id = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .map(|value| parse_management_authentication(&value))
+    .unwrap_or(AgentAuthenticationStatus::NotLoggedIn);
+    let resolved = resolve_session_authentication_evidence(authentication, readiness);
+    AgentManagementApplicationService::new(pool.clone())
+        .sync_authentication(
+            agent_id,
+            resolved.authentication,
+            Some(resolved.authentication_required),
+        )
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    output.map_err(Into::into)
+}
+
+fn parse_management_lifecycle(value: &str) -> AgentLifecycleState {
+    match value {
+        "retired" => AgentLifecycleState::Retired,
+        "platform_unsupported" => AgentLifecycleState::PlatformUnsupported,
+        "queued" => AgentLifecycleState::Queued,
+        "installing" => AgentLifecycleState::Installing,
+        "updating" => AgentLifecycleState::Updating,
+        "repairing" => AgentLifecycleState::Repairing,
+        "needs_auth" => AgentLifecycleState::NeedsAuth,
+        "needs_config" => AgentLifecycleState::NeedsConfig,
+        "ready" => AgentLifecycleState::Ready,
+        "uninstalled" => AgentLifecycleState::Uninstalled,
+        _ => AgentLifecycleState::NeedsRepair,
+    }
+}
+
+fn parse_management_authentication(value: &str) -> AgentAuthenticationStatus {
+    match value {
+        "account" => AgentAuthenticationStatus::Account,
+        "api_key" => AgentAuthenticationStatus::ApiKey,
+        "multiple_unknown" => AgentAuthenticationStatus::MultipleUnknown,
+        "not_required" => AgentAuthenticationStatus::NotRequired,
+        _ => AgentAuthenticationStatus::NotLoggedIn,
+    }
 }
 
 #[tauri::command]
@@ -416,22 +1183,68 @@ pub async fn agent_prepare_session(
         &repos,
     )
     .unwrap_or_else(|| container_ref.clone());
-    let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
+    let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
+        &workspace,
+        &container_ref,
+        &repos,
+        &working_dir,
+    );
+    let launch_settings = agent_runtime_launch_settings_for_session_from_pool(
+        &state.deployment.db().pool,
+        &request.agent_id,
+    )
+    .await?;
 
-    state
-        .agent_runtime
-        .prepare_session(agents::EnsureAgentSessionInput {
-            agent_id: request.agent_id,
-            launch_lock: launch_settings.launch_lock,
-            workspace_id,
-            working_dir: PathBuf::from(working_dir),
-            session_id,
-            acp_session_id: format!("pending-{session_id}"),
-            auto_approve_mode: launch_settings.auto_approve_mode,
-            env: launch_settings.env,
-        })
+    let mut prepared = settle_session_authentication(
+        &state.deployment.db().pool,
+        &request.agent_id,
+        state
+            .agent_runtime
+            .prepare_session(agents::EnsureAgentSessionInput {
+                agent_id: request.agent_id.clone(),
+                launch_lock: launch_settings.launch_lock,
+                workspace_id,
+                working_dir: PathBuf::from(working_dir),
+                additional_directories,
+                session_id,
+                acp_session_id: format!("pending-{session_id}"),
+                auto_approve_mode: launch_settings.auto_approve_mode,
+                env: launch_settings.env,
+            })
+            .await,
+    )
+    .await?;
+    let defaults = SessionDefaultRepository::new(state.deployment.db().pool.clone())
+        .list_for_agent(&request.agent_id)
         .await
-        .map_err(Into::into)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut requested_defaults = BTreeMap::new();
+    let mut stale = Vec::new();
+    for default in defaults {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&default.value_json) else {
+            stale.push(default.option_id);
+            continue;
+        };
+        requested_defaults.insert(default.option_id, value);
+    }
+    let validation =
+        agents::validate_session_defaults(requested_defaults, &prepared.controls.config_options);
+    stale.extend(validation.stale_ids);
+    for (option_id, value) in validation.valid {
+        match state
+            .agent_runtime
+            .set_session_config_option(session_id, option_id.clone(), value)
+            .await
+        {
+            Ok(controls) => prepared.controls = controls,
+            Err(_) => stale.push(option_id),
+        }
+    }
+    if !stale.is_empty() {
+        stale.sort();
+        prepared.stale_default_ids = Some(stale);
+    }
+    Ok(prepared)
 }
 
 #[tauri::command]
@@ -483,16 +1296,31 @@ pub async fn agent_new_session(
     request: AgentNewSessionRequest,
 ) -> Result<AgentSessionSnapshot, AppError> {
     let connection_id = parse_agent_connection_id(&request.connection_id)?;
-    state
+    let agent_id = state
         .agent_runtime
-        .new_session(
-            connection_id,
-            request
-                .acp_session_id
-                .unwrap_or_else(|| format!("pending-{connection_id}")),
-        )
+        .snapshot()
         .await
-        .map_err(Into::into)
+        .connections
+        .into_iter()
+        .find(|connection| connection.id == connection_id)
+        .map(|connection| connection.agent_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!("Agent connection {connection_id} was not found"))
+        })?;
+    settle_session_authentication(
+        &state.deployment.db().pool,
+        &agent_id,
+        state
+            .agent_runtime
+            .new_session(
+                connection_id,
+                request
+                    .acp_session_id
+                    .unwrap_or_else(|| format!("pending-{connection_id}")),
+            )
+            .await,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -500,21 +1328,47 @@ pub async fn agent_resume_session(
     state: tauri::State<'_, AppState>,
     request: AgentResumeSessionRequest,
 ) -> Result<AgentSessionSnapshot, AppError> {
-    let launch_settings = agent_runtime_launch_settings(&state, &request.agent_id).await?;
-    state
-        .agent_runtime
-        .resume_session(ResumeAgentSessionInput {
-            agent_id: request.agent_id,
-            launch_lock: launch_settings.launch_lock,
-            workspace_id: parse_uuid("workspace_id", &request.workspace_id)?,
-            working_dir: PathBuf::from(request.working_dir),
-            session_id: parse_agent_session_id(&request.session_id)?,
-            external_session_id: request.external_session_id,
-            auto_approve_mode: launch_settings.auto_approve_mode,
-            env: launch_settings.env,
-        })
-        .await
-        .map_err(Into::into)
+    let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    let repos =
+        WorkspaceRepo::find_repos_for_workspace(&state.deployment.db().pool, workspace_id).await?;
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
+    let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
+        &workspace,
+        &container_ref,
+        &repos,
+        &request.working_dir,
+    );
+    let launch_settings = agent_runtime_launch_settings_for_session_from_pool(
+        &state.deployment.db().pool,
+        &request.agent_id,
+    )
+    .await?;
+    settle_session_authentication(
+        &state.deployment.db().pool,
+        &request.agent_id,
+        state
+            .agent_runtime
+            .resume_session(ResumeAgentSessionInput {
+                agent_id: request.agent_id.clone(),
+                launch_lock: launch_settings.launch_lock,
+                workspace_id,
+                working_dir: PathBuf::from(request.working_dir),
+                additional_directories,
+                session_id: parse_agent_session_id(&request.session_id)?,
+                external_session_id: request.external_session_id,
+                auto_approve_mode: launch_settings.auto_approve_mode,
+                env: launch_settings.env,
+            })
+            .await,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -658,10 +1512,159 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, path::PathBuf, str::FromStr};
+
+    use chrono::{Duration, Utc};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
     use super::*;
 
+    async fn authentication_projection_pool() -> sqlx::SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_installation (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 current_lock_id TEXT
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_probe (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 authentication TEXT NOT NULL,
+                 detail_json TEXT NOT NULL,
+                 probed_at TEXT NOT NULL,
+                 runtime_available INTEGER NOT NULL DEFAULT 0,
+                 acp_handshake INTEGER NOT NULL DEFAULT 0,
+                 authentication_required INTEGER NOT NULL DEFAULT 0,
+                 observation_generation INTEGER NOT NULL DEFAULT 0
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn capability_fingerprint_pool() -> sqlx::SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        for statement in [
+            r#"CREATE TABLE agent_setting (
+                 agent_type TEXT PRIMARY KEY,
+                 updated_at TEXT NOT NULL,
+                 config_json TEXT,
+                 env_json TEXT
+               )"#,
+            r#"CREATE TABLE agent_config_binding (
+                 agent_id TEXT NOT NULL,
+                 provider_id TEXT NOT NULL,
+                 revision TEXT NOT NULL,
+                 fingerprint TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+               )"#,
+            r#"CREATE TABLE agent_probe (
+                 agent_id TEXT PRIMARY KEY,
+                 authentication TEXT NOT NULL,
+                 probed_at TEXT NOT NULL,
+                 observation_generation INTEGER NOT NULL DEFAULT 0,
+                 runtime_available INTEGER NOT NULL,
+                 acp_handshake INTEGER NOT NULL,
+                 authentication_required INTEGER NOT NULL
+               )"#,
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    fn capability_launch_lock() -> SessionLaunchLock {
+        SessionLaunchLock {
+            agent_id: AgentId::parse("catalog-agent").unwrap(),
+            absolute_acp_program: PathBuf::from("/managed/catalog-agent"),
+            args: vec!["acp".to_string()],
+            env: BTreeMap::new(),
+            runtime_version: "1.0.0".to_string(),
+            acp_version: "0.8".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn capability_fingerprint_ignores_probe_observation_time() {
+        let pool = capability_fingerprint_pool().await;
+        let lock = capability_launch_lock();
+        sqlx::query(
+            r#"INSERT INTO agent_probe
+               VALUES (?, 'not_required', '2026-07-30T01:00:00Z', 7, 1, 1, 0)"#,
+        )
+        .bind(lock.agent_id.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let before = open_capability_catalog_fingerprint(&pool, &lock)
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE agent_probe SET probed_at = '2026-07-30T02:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let after = open_capability_catalog_fingerprint(&pool, &lock)
+            .await
+            .unwrap();
+        assert_eq!(before, after);
+
+        sqlx::query("UPDATE agent_probe SET observation_generation = 8")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let next_observation = open_capability_catalog_fingerprint(&pool, &lock)
+            .await
+            .unwrap();
+        assert_ne!(after, next_observation);
+    }
+
     #[test]
-    fn opencode_model_choices_come_only_from_the_persisted_catalog() {
+    fn stale_capability_catalog_controls_are_not_read() {
+        let now = Utc::now();
+        let record = AgentCapabilityCatalogRecord {
+            agent_type: "catalog-agent".to_string(),
+            fingerprint: "fingerprint".to_string(),
+            generation: 1,
+            controls_json: serde_json::to_string(&AgentSessionControlsSnapshot {
+                modes: Vec::new(),
+                current_mode: None,
+                config_options: Vec::new(),
+                capabilities: None,
+            })
+            .unwrap(),
+            retrieved_at: (now - Duration::minutes(11)).to_rfc3339(),
+            refresh_error_code: None,
+        };
+
+        assert!(catalog_controls_if_fresh(record, now).is_none());
+    }
+
+    #[test]
+    fn model_choices_come_only_from_semantic_catalog_options() {
         let snapshot = AgentSessionControlsSnapshot {
             modes: Vec::new(),
             current_mode: None,
@@ -692,8 +1695,8 @@ mod tests {
                             description: None,
                         },
                         // Values, not presentation labels, are sent back to
-                        // OpenCode. Duplicates and unusable values are not
-                        // transformed into invented fallback choices.
+                        // the Agent. Duplicates and unusable values are not
+                        // transformed into invented fallbacks.
                         agents::AgentSessionConfigChoice {
                             value: serde_json::Value::String("openai/gpt-5.6-sol".to_string()),
                             label: "A different label".to_string(),
@@ -713,22 +1716,113 @@ mod tests {
                     dependency: None,
                 },
             ],
+            capabilities: None,
         };
 
         assert_eq!(
-            opencode_models_from_catalog(&snapshot),
+            models_from_capability_catalog(&snapshot),
             vec!["openai/gpt-5.6-sol".to_string()]
         );
     }
 
     #[test]
-    fn opencode_model_extractor_returns_no_static_fallback_when_catalog_is_empty() {
+    fn model_extractor_returns_no_static_fallback_when_catalog_is_empty() {
         let snapshot = AgentSessionControlsSnapshot {
             modes: Vec::new(),
             current_mode: None,
             config_options: Vec::new(),
+            capabilities: None,
         };
 
-        assert!(opencode_models_from_catalog(&snapshot).is_empty());
+        assert!(models_from_capability_catalog(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn session_creation_revalidates_a_persisted_needs_auth_projection() {
+        assert_eq!(
+            lifecycle_for_session_creation(AgentLifecycleState::NeedsAuth),
+            AgentLifecycleState::Ready
+        );
+        assert_eq!(
+            lifecycle_for_session_creation(AgentLifecycleState::NeedsRepair),
+            AgentLifecycleState::NeedsRepair
+        );
+    }
+
+    #[test]
+    fn authentication_required_is_a_user_actionable_error() {
+        let error = AppError::from(agents::AgentError::AuthenticationRequired(
+            "no auth method id provided".to_string(),
+        ));
+        assert!(matches!(
+            error,
+            AppError::BadRequest(message)
+                if message.contains("需要先完成认证")
+                    && message.contains("no auth method id provided")
+        ));
+    }
+
+    #[tokio::test]
+    async fn actual_session_outcome_repairs_stale_authentication_projections() {
+        let pool = authentication_projection_pool().await;
+        let agent_id = AgentId::parse("opencode").unwrap();
+        sqlx::query("INSERT INTO agent_installation VALUES (?, 'needs_auth', 'lock-opencode')")
+            .bind(agent_id.as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"INSERT INTO agent_probe
+               (agent_id, lifecycle, authentication, detail_json, probed_at,
+                authentication_required)
+               VALUES (?, 'needs_auth', 'not_logged_in', '{}', 'now', 1)"#,
+        )
+        .bind(agent_id.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        settle_session_authentication(&pool, &agent_id, Ok(()))
+            .await
+            .unwrap();
+
+        let open_code_state = sqlx::query_as::<_, (String, String, bool, i64)>(
+            r#"SELECT lifecycle, authentication, authentication_required,
+                      observation_generation
+               FROM agent_probe WHERE agent_id = ?"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(open_code_state.0, "ready");
+        assert_eq!(open_code_state.1, "not_required");
+        assert!(!open_code_state.2);
+        assert_eq!(open_code_state.3, 1);
+
+        let grok_error = settle_session_authentication::<()>(
+            &pool,
+            &agent_id,
+            Err(agents::AgentError::AuthenticationRequired(
+                "no auth method id provided".to_string(),
+            )),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(grok_error, AppError::BadRequest(_)));
+
+        let grok_state = sqlx::query_as::<_, (String, String, bool, i64)>(
+            r#"SELECT lifecycle, authentication, authentication_required,
+                      observation_generation
+               FROM agent_probe WHERE agent_id = ?"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(grok_state.0, "needs_auth");
+        assert_eq!(grok_state.1, "not_logged_in");
+        assert!(grok_state.2);
+        assert_eq!(grok_state.3, 2);
     }
 }

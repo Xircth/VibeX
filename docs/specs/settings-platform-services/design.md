@@ -27,7 +27,6 @@ Target settings navigation:
 │  ├─ 终端
 │  ├─ 编辑器
 │  └─ 预览
-├─ 模型供应商
 ├─ MCP
 ├─ 技能
 ├─ 指令
@@ -75,7 +74,7 @@ Classes should follow the current Tahoe vocabulary:
 
 ### Two-Pane Settings Page
 
-Use for `指令`, `MCP`, and large list/detail pages such as `模型供应商` if needed.
+Use for `指令`, `MCP`, and other large list/detail pages when needed.
 
 ```text
 ┌ left pane ───────────────┬ right pane ─────────────────────┐
@@ -151,24 +150,6 @@ Expose commands:
 - `start_web_server`
 - `stop_web_server`
 - `probe_web_service_port`
-
-### `commands::model_provider`
-
-Use VibeX-native persistence and agent config surfaces:
-
-- provider metadata in SQLite or VibeX config storage,
-- secrets in token store,
-- active provider per Agent,
-- write-through to agent native config when switching provider.
-
-Expose commands:
-
-- `list_model_providers`
-- `create_model_provider`
-- `update_model_provider`
-- `delete_model_provider`
-- `activate_model_provider`
-- `fetch_provider_models`
 
 ### `commands::chat_channel`
 
@@ -256,21 +237,6 @@ interface Instruction {
 }
 ```
 
-### Model Provider
-
-```ts
-interface ModelProvider {
-  id: string;
-  name: string;
-  agent_types: string[];
-  api_url: string;
-  auth_type: 'anthropic' | 'openai_compatible' | 'gemini' | 'custom';
-  default_model: string | null;
-  config_json: string | null;
-  active: boolean;
-}
-```
-
 ### Web Service
 
 ```ts
@@ -316,5 +282,4 @@ type RenderingAccelerationMode = 'auto' | 'force_gpu' | 'disable_gpu';
 
 - Backup/restore can affect user data; restore must inspect first and stage safely.
 - Message channels and web service touch network/listening surfaces; token handling must be careful.
-- Model provider switching can break external CLI config; always preserve previous custom fields and avoid deleting active provider config without confirmation.
 - Rendering acceleration may require app restart and platform-specific behavior.

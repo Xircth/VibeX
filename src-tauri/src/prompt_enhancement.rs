@@ -1,9 +1,9 @@
 //! ACP-native prompt enhancement.
 //!
-//! Runs a one-shot OpenCode prompt through the shared [`AgentRuntime`] instead
-//! of shelling out to a standalone `opencode run` CLI (the retired legacy
-//! executor style). The transport-agnostic pieces (payload building, response
-//! extraction, config selection) stay in `services::services::prompt_enhancement`.
+//! Runs a one-shot prompt through the shared [`AgentRuntime`] using the first
+//! enabled Agent whose verified capability catalog advertises the configured
+//! model. The transport-agnostic pieces stay in
+//! `services::services::prompt_enhancement`.
 
 use std::time::Duration;
 
@@ -24,8 +24,7 @@ use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
 
-/// Synthetic workspace id for enhancement sessions so repeated enhancements
-/// reuse one warm OpenCode connection instead of respawning the agent.
+/// Synthetic workspace id for isolated enhancement sessions.
 const ENHANCEMENT_WORKSPACE_ID: Uuid = Uuid::nil();
 
 pub async fn enhance_prompt(
@@ -36,20 +35,26 @@ pub async fn enhance_prompt(
     validate_prompt_enhancement_request(&config, &payload)?;
 
     let prompt_text = build_prompt_enhancement_payload(&config, &payload)?;
-    let catalog_models =
-        crate::commands::agents::opencode_capability_catalog_models(&state.deployment.db().pool)
-            .await?;
+    let catalog_models = crate::commands::agents::prompt_enhancement_capability_catalog_models(
+        &state.deployment.db().pool,
+    )
+    .await?;
     let model = validated_prompt_enhancement_model(
         selected_prompt_enhancement_model(&config),
         &catalog_models,
     )?;
     let runtime = &state.agent_runtime;
-    // Prompt enhancement is deliberately non-interactive, but it must still
-    // use the same verified local OpenCode Runtime/ACP path as every other
-    // session. Otherwise this hidden session could fall back to a bundled or
-    // different PATH runtime.
-    let agent_id = agents::AgentId::parse("opencode").unwrap();
-    let launch = crate::commands::agents::agent_runtime_launch_settings_from_pool(
+    let agent_id = crate::commands::agents::prompt_enhancement_agent_for_model(
+        &state.deployment.db().pool,
+        &model,
+    )
+    .await?
+    .ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "No enabled Agent currently advertises the configured model `{model}`."
+        ))
+    })?;
+    let launch = crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(
         &state.deployment.db().pool,
         &agent_id,
     )
@@ -58,24 +63,29 @@ pub async fn enhance_prompt(
     // Subscribe before dispatching so no chunk can slip past the receiver.
     let events = runtime.subscribe_events();
 
-    let session = runtime
-        .ensure_session(EnsureAgentSessionInput {
-            agent_id,
-            launch_lock: launch.launch_lock,
-            workspace_id: ENHANCEMENT_WORKSPACE_ID,
-            working_dir: std::env::temp_dir(),
-            session_id: AgentSessionId::new(),
-            acp_session_id: String::new(),
-            auto_approve_mode: AgentAutoApproveMode::Off,
-            env: launch.env,
-        })
-        .await
-        .map_err(|error| AppError::Internal(format!("Failed to run OpenCode: {error}")))?;
+    let session = crate::commands::agents::settle_session_authentication(
+        &state.deployment.db().pool,
+        &agent_id,
+        runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_id: agent_id.clone(),
+                launch_lock: launch.launch_lock,
+                workspace_id: ENHANCEMENT_WORKSPACE_ID,
+                working_dir: std::env::temp_dir(),
+                additional_directories: Vec::new(),
+                session_id: AgentSessionId::new(),
+                acp_session_id: String::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: launch.env,
+            })
+            .await,
+    )
+    .await?;
 
     let enhanced = run_enhancement_turn(runtime, events, &session, prompt_text, &model).await;
 
     // The enhancement session is throwaway: tear the connection down so it
-    // never lingers in the agents UI or holds an OpenCode process alive.
+    // never lingers in the agents UI or holds an Agent process alive.
     let _ = runtime.disconnect(session.connection_id).await;
 
     enhanced.map(|enhanced_prompt| PromptEnhancementResponse {
@@ -86,26 +96,26 @@ pub async fn enhance_prompt(
 
 /// Prompt enhancement cannot invent a default model: that would bypass the
 /// runtime/config fingerprint used by normal sessions. A saved selection is
-/// valid only when it appears in the current verified OpenCode catalog.
+/// valid only when it appears in a current verified Agent catalog.
 fn validated_prompt_enhancement_model(
     configured_model: Option<&str>,
     catalog_models: &[String],
 ) -> Result<String, AppError> {
     let Some(model) = configured_model else {
         return Err(AppError::BadRequest(
-            "Choose an OpenCode model in Settings → General before using prompt enhancement."
+            "Choose an Agent model in Settings → General before using prompt enhancement."
                 .to_string(),
         ));
     };
     if catalog_models.is_empty() {
         return Err(AppError::BadRequest(
-            "OpenCode's verified model catalog is not available yet. Open Settings → General, wait for it to load, then choose a model."
+            "A verified Agent model catalog is not available yet. Open Settings → General, wait for it to load, then choose a model."
                 .to_string(),
         ));
     }
     if !catalog_models.iter().any(|available| available == model) {
         return Err(AppError::BadRequest(format!(
-            "The saved OpenCode model `{model}` is not available from the current verified catalog. Choose a model in Settings → General."
+            "The saved Agent model `{model}` is not available from the current verified catalog. Choose a model in Settings → General."
         )));
     }
     Ok(model.to_string())
@@ -133,11 +143,11 @@ async fn run_enhancement_turn(
             }],
         })
         .await
-        .map_err(|error| AppError::Internal(format!("Failed to run OpenCode: {error}")))?;
+        .map_err(|error| AppError::Internal(format!("Failed to run enhancement Agent: {error}")))?;
 
     if let AgentPromptStatus::Failed { message } = &prompt.status {
         return Err(AppError::Internal(format!(
-            "OpenCode prompt enhancement failed: {message}"
+            "Prompt enhancement Agent failed: {message}"
         )));
     }
 
@@ -149,7 +159,7 @@ async fn run_enhancement_turn(
     {
         Ok(result) => result,
         Err(_) => Err(AppError::Internal(format!(
-            "OpenCode prompt enhancement timed out after {PROMPT_ENHANCE_TIMEOUT_SECS} seconds"
+            "Prompt enhancement Agent timed out after {PROMPT_ENHANCE_TIMEOUT_SECS} seconds"
         ))),
     }
 }
@@ -166,7 +176,7 @@ async fn collect_enhanced_prompt(
             Err(RecvError::Lagged(_)) => continue,
             Err(RecvError::Closed) => {
                 return Err(AppError::Internal(
-                    "OpenCode prompt enhancement failed: agent event stream closed".to_string(),
+                    "Prompt enhancement failed: Agent event stream closed".to_string(),
                 ));
             }
         };
@@ -176,7 +186,7 @@ async fn collect_enhanced_prompt(
                 && let AgentEvent::Error { error } = envelope.event
             {
                 return Err(AppError::Internal(format!(
-                    "OpenCode prompt enhancement failed: {}",
+                    "Prompt enhancement Agent failed: {}",
                     error.message
                 )));
             }
@@ -191,11 +201,11 @@ async fn collect_enhanced_prompt(
                 return extract_enhanced_prompt(&response_text).ok_or_else(|| {
                     let detail = response_text.trim();
                     let message = if detail.is_empty() {
-                        "OpenCode response did not contain a valid EnhancedPrompt field"
+                        "Agent response did not contain a valid EnhancedPrompt field"
                             .to_string()
                     } else {
                         format!(
-                            "OpenCode response did not contain a valid EnhancedPrompt field. Raw output: {detail}"
+                            "Agent response did not contain a valid EnhancedPrompt field. Raw output: {detail}"
                         )
                     };
                     AppError::Internal(message)
@@ -203,7 +213,7 @@ async fn collect_enhanced_prompt(
             }
             AgentEvent::Error { error } => {
                 return Err(AppError::Internal(format!(
-                    "OpenCode prompt enhancement failed: {}",
+                    "Prompt enhancement Agent failed: {}",
                     error.message
                 )));
             }

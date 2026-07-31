@@ -13,7 +13,6 @@ import {
   PlugZap,
   Puzzle,
   SendHorizontal,
-  Server,
   Settings,
   SlidersHorizontal,
   Smartphone,
@@ -44,12 +43,6 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     path: '/settings/general',
     labelKey: 'general',
     icon: SlidersHorizontal,
-    capability: 'desktop.tauri',
-  },
-  {
-    path: '/settings/model-providers',
-    labelKey: 'modelProviders',
-    icon: Server,
     capability: 'desktop.tauri',
   },
   {

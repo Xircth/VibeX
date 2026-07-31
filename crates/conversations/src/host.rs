@@ -30,6 +30,16 @@ impl ConversationHost for DefaultConversationHost {
         resolve_workspace_agent_working_dir(workspace, container_ref, repos)
     }
 
+    fn resolve_additional_directories(
+        &self,
+        workspace: &Workspace,
+        container_ref: &str,
+        repos: &[Repo],
+        working_dir: &str,
+    ) -> Vec<PathBuf> {
+        resolve_workspace_additional_directories(workspace, container_ref, repos, working_dir)
+    }
+
     async fn build_prompt_blocks(
         &self,
         working_dir: &str,
@@ -301,6 +311,40 @@ pub fn resolve_workspace_agent_working_dir(
 ) -> Option<String> {
     normalized_agent_working_dir(workspace, container_ref, repos)
         .or_else(|| infer_single_repo_working_dir(workspace, container_ref, repos))
+}
+
+pub fn resolve_workspace_additional_directories(
+    workspace: &Workspace,
+    container_ref: &str,
+    repos: &[Repo],
+    working_dir: &str,
+) -> Vec<PathBuf> {
+    let mut workspace = workspace.clone();
+    workspace.container_ref = Some(container_ref.to_string());
+    let base = match repos {
+        [repo] if !workspace.use_worktree => repo.path.clone(),
+        _ => PathBuf::from(container_ref),
+    };
+    let cwd = PathBuf::from(working_dir);
+    let cwd = if cwd.is_absolute() {
+        cwd
+    } else {
+        base.join(cwd)
+    };
+    let mut roots = repos
+        .iter()
+        .filter_map(|repo| {
+            if workspace.use_worktree {
+                workspace.repo_path(repo)
+            } else {
+                Some(repo.path.clone())
+            }
+        })
+        .filter(|root| root != &cwd)
+        .collect::<Vec<_>>();
+    roots.sort();
+    roots.dedup();
+    roots
 }
 
 fn normalized_agent_working_dir(

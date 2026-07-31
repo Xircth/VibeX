@@ -19,6 +19,17 @@ pub use conversations::{
 use db::models::{repo::Repo, workspace::Workspace};
 use sqlx::SqlitePool;
 
+fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError {
+    match error {
+        crate::error::AppError::NotFound(message) => ConversationServiceError::NotFound(message),
+        crate::error::AppError::BadRequest(message) => {
+            ConversationServiceError::BadRequest(message)
+        }
+        crate::error::AppError::Conflict(message) => ConversationServiceError::Conflict(message),
+        crate::error::AppError::Internal(message) => ConversationServiceError::Internal(message),
+    }
+}
+
 /// src-tauri-coupled host operations for the conversation turn lifecycle. Implements
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
 /// `AppState` and the command layer.
@@ -37,6 +48,21 @@ impl conversations::ConversationHost for AppConversationHost {
         conversations::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
     }
 
+    fn resolve_additional_directories(
+        &self,
+        workspace: &Workspace,
+        container_ref: &str,
+        repos: &[Repo],
+        working_dir: &str,
+    ) -> Vec<std::path::PathBuf> {
+        crate::workspace_paths::resolve_workspace_additional_directories(
+            workspace,
+            container_ref,
+            repos,
+            working_dir,
+        )
+    }
+
     async fn build_prompt_blocks(
         &self,
         working_dir: &str,
@@ -51,6 +77,8 @@ impl conversations::ConversationHost for AppConversationHost {
         pool: &SqlitePool,
         agent_id: &agents::AgentId,
     ) -> Result<conversations::AgentRuntimeLaunchSettings, ConversationServiceError> {
-        conversations::resolve_agent_runtime_launch_settings(pool, agent_id).await
+        crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(pool, agent_id)
+            .await
+            .map_err(app_err_to_service)
     }
 }

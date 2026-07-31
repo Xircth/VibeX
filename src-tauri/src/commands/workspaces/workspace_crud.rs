@@ -162,24 +162,38 @@ pub async fn create_workspace(
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
+        let additional_directories =
+            crate::workspace_paths::resolve_workspace_additional_directories(
+                &workspace,
+                &container_ref,
+                &repos,
+                &working_dir,
+            );
         let agent_id = payload.executor_profile_id.executor.clone();
-        let launch =
-            crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, &agent_id)
-                .await?;
+        let launch = crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(
+            pool, &agent_id,
+        )
+        .await?;
         let agent_session_id = AgentSessionId(session.id);
-        let agent_session = state
-            .agent_runtime
-            .ensure_session(EnsureAgentSessionInput {
-                agent_id,
-                launch_lock: launch.launch_lock,
-                workspace_id: workspace.id,
-                working_dir: PathBuf::from(working_dir),
-                session_id: agent_session_id,
-                acp_session_id: session.id.to_string(),
-                auto_approve_mode: launch.auto_approve_mode,
-                env: launch.env,
-            })
-            .await?;
+        let agent_session = crate::commands::agents::settle_session_authentication(
+            pool,
+            &agent_id,
+            state
+                .agent_runtime
+                .ensure_session(EnsureAgentSessionInput {
+                    agent_id: agent_id.clone(),
+                    launch_lock: launch.launch_lock,
+                    workspace_id: workspace.id,
+                    working_dir: PathBuf::from(working_dir),
+                    additional_directories,
+                    session_id: agent_session_id,
+                    acp_session_id: session.id.to_string(),
+                    auto_approve_mode: launch.auto_approve_mode,
+                    env: launch.env,
+                })
+                .await,
+        )
+        .await?;
 
         state
             .agent_runtime

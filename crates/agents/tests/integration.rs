@@ -61,6 +61,7 @@ async fn run_agent_fixture_gate(
             launch_lock: fixture_launch_lock(agent_id.clone()),
             workspace_id,
             working_dir: working_dir.clone(),
+            additional_directories: Vec::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
         })
@@ -178,6 +179,7 @@ async fn run_agent_fixture_gate(
             launch_lock: fixture_launch_lock(agent_id.clone()),
             workspace_id,
             working_dir: working_dir.clone(),
+            additional_directories: Vec::new(),
             session_id: resumed_session_id,
             external_session_id: format!("{agent_id}-resume-session"),
             auto_approve_mode: AgentAutoApproveMode::Off,

@@ -157,4 +157,31 @@ describe('AgentConfigurationAndDiagnostics', () => {
       fields: { openai_api_key: null },
     });
   });
+
+  it('offers reload, adopt-external, and explicit overwrite after a conflict', async () => {
+    const onReloadConflict = vi.fn();
+    const onAdoptExternal = vi.fn();
+    const onOverwriteConflict = vi.fn();
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        saving={false}
+        conflictMessage="配置字段已被外部修改：codex_model"
+        onSave={vi.fn()}
+        onReloadConflict={onReloadConflict}
+        onAdoptExternal={onAdoptExternal}
+        onOverwriteConflict={onOverwriteConflict}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '配置字段已被外部修改'
+    );
+    await userEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    await userEvent.click(screen.getByRole('button', { name: '采用外部值' }));
+    await userEvent.click(screen.getByRole('button', { name: '覆盖外部修改' }));
+    expect(onReloadConflict).toHaveBeenCalledOnce();
+    expect(onAdoptExternal).toHaveBeenCalledOnce();
+    expect(onOverwriteConflict).toHaveBeenCalledOnce();
+  });
 });

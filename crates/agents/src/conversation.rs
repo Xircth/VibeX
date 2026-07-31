@@ -32,7 +32,7 @@ pub enum TurnRole {
 }
 
 /// Token accounting for a single turn.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct TurnUsage {
     pub input_tokens: u64,
@@ -43,6 +43,10 @@ pub struct TurnUsage {
     /// provided. None for agents/transcripts that don't report a window.
     #[serde(default)]
     pub context_window_max: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_amount: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_currency: Option<String>,
 }
 
 /// A base64-encoded image payload referenced by image content blocks.
@@ -245,7 +249,36 @@ pub struct ConversationDetail {
 pub struct AgentPromptCapabilities {
     pub text: bool,
     pub image: bool,
+    pub audio: bool,
     pub resource: bool,
+    pub resource_link: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AcpAuthenticationObservationSnapshot {
+    pub state: crate::AuthenticationObservationState,
+    pub method: crate::AuthenticationMethod,
+    pub source: crate::AuthenticationSource,
+    pub observed_at: String,
+    pub capability_generation: u64,
+    pub draft_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<String>,
+}
+
+impl From<crate::AuthenticationObservation> for AcpAuthenticationObservationSnapshot {
+    fn from(observation: crate::AuthenticationObservation) -> Self {
+        Self {
+            state: observation.state,
+            method: observation.method,
+            source: observation.source,
+            observed_at: observation.observed_at.to_rfc3339(),
+            capability_generation: observation.capability_generation,
+            draft_revision: observation.draft_revision.to_string(),
+            diagnostic_code: observation.diagnostic_code,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -257,11 +290,20 @@ pub struct AcpCapabilitySnapshot {
     pub load_session: bool,
     pub resume_session: bool,
     pub close_session: bool,
+    pub fork_session: bool,
+    pub list_sessions: bool,
+    pub delete_session: bool,
     pub terminal: bool,
     pub additional_directories: bool,
     pub filesystem_requests: bool,
-    pub mcp_servers: bool,
-    pub permission_requests: bool,
+    pub mcp_http: bool,
+    pub mcp_sse: bool,
+    pub auth_logout: bool,
+    pub auth_status: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<AcpAuthenticationObservationSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_meta: Option<serde_json::Value>,
     #[serde(default)]
     pub modes: Vec<AgentSessionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,6 +333,9 @@ pub enum ConversationInputBlock {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mime_type: Option<String>,
+    },
+    Protocol {
+        content: serde_json::Value,
     },
 }
 
@@ -414,7 +459,7 @@ pub struct ConversationTerminalPatch {
     pub exit_status: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ConversationUsage {
     pub input_tokens: u64,
@@ -425,6 +470,10 @@ pub struct ConversationUsage {
     /// provided. None for agents that don't report a window.
     #[serde(default)]
     pub context_window_max: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_amount: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -684,6 +733,11 @@ pub enum ConversationEvent {
     },
     AvailableCommandsUpdated {
         commands: Vec<AgentAvailableCommand>,
+    },
+    /// Agent-owned ACP session metadata. This must not mutate the VibeX
+    /// conversation id or imply that the two identity domains are equivalent.
+    AgentSessionInfoUpdated {
+        patch: serde_json::Value,
     },
     DelegationStarted {
         delegation: ConversationDelegation,
@@ -1011,7 +1065,9 @@ mod event_sourced_tests {
                 capabilities: AgentPromptCapabilities {
                     text: true,
                     image: true,
+                    audio: false,
                     resource: false,
+                    resource_link: false,
                 },
             },
             ConversationEvent::AgentBindingLoadFailed {

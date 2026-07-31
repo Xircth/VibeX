@@ -7,6 +7,7 @@ import type {
   AgentPreflightView,
   AgentRegistryView,
   AgentRegistryViewRow,
+  AgentUpdateCheckView,
 } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,14 @@ export function AgentSettings() {
   const [config, setConfig] = useState<AgentNativeConfigView | null>(null);
   const [diagnostics, setDiagnostics] = useState<AgentDiagnosticView[]>([]);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [configConflict, setConfigConflict] = useState<{
+    message: string;
+    request: AgentNativeConfigPatchRequest;
+  } | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<AgentUpdateCheckView | null>(
+    null
+  );
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
@@ -66,6 +75,8 @@ export function AgentSettings() {
     let active = true;
     setPreflight(null);
     setConfig(null);
+    setConfigConflict(null);
+    setUpdateCheck(null);
     void Promise.allSettled([
       agentManagementApi.readConfig(selectedAgentId),
       agentManagementApi.diagnostics(selectedAgentId),
@@ -165,18 +176,41 @@ export function AgentSettings() {
     [management, selectedAgentId]
   );
 
-  const queueAction = useCallback(
-    async (action: 'repair' | 'update') => {
-      if (!selectedAgentId) return;
-      try {
-        await agentManagementApi[action](selectedAgentId);
-        toast.success(action === 'repair' ? '已开始修复' : '已开始检查更新');
-      } catch (error) {
-        toast.error(errorMessage(error, '无法开始操作'));
-      }
-    },
-    [selectedAgentId]
-  );
+  const queueRepair = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      await agentManagementApi.repair(selectedAgentId);
+      toast.success('已开始修复');
+    } catch (error) {
+      toast.error(errorMessage(error, '无法开始操作'));
+    }
+  }, [selectedAgentId]);
+
+  const checkUpdate = useCallback(async () => {
+    if (!selectedAgentId) return;
+    setCheckingUpdate(true);
+    try {
+      const comparison = await agentManagementApi.checkUpdate(selectedAgentId);
+      setUpdateCheck(comparison);
+      toast.success(
+        comparison.update_available ? '发现可用更新' : '当前已是最新版本'
+      );
+    } catch (error) {
+      toast.error(errorMessage(error, '检查更新失败'));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [selectedAgentId]);
+
+  const applyUpdate = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      await agentManagementApi.applyUpdate(selectedAgentId);
+      toast.success('已开始安装确认的更新');
+    } catch (error) {
+      toast.error(errorMessage(error, '无法开始更新'));
+    }
+  }, [selectedAgentId]);
 
   const uninstall = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -231,16 +265,64 @@ export function AgentSettings() {
       setSavingConfig(true);
       try {
         setConfig(await agentManagementApi.writeConfig(request));
+        setConfigConflict(null);
         toast.success('配置已保存，将从下一个会话生效。');
         await management.refresh();
       } catch (error) {
-        toast.error(errorMessage(error, '配置保存失败'));
+        if (isConfigConflict(error)) {
+          const external = await agentManagementApi.readConfig(
+            request.agent_id
+          );
+          setConfig(external);
+          setConfigConflict({
+            message: errorMessage(error, '配置文件已被外部修改'),
+            request,
+          });
+          toast.warning('检测到外部配置修改，请选择处理方式。');
+        } else {
+          toast.error(errorMessage(error, '配置保存失败'));
+        }
       } finally {
         setSavingConfig(false);
       }
     },
     [management]
   );
+
+  const reloadConflict = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      setConfig(await agentManagementApi.readConfig(selectedAgentId));
+      toast.success('已重新读取外部配置');
+    } catch (error) {
+      toast.error(errorMessage(error, '重新加载配置失败'));
+    }
+  }, [selectedAgentId]);
+
+  const overwriteConflict = useCallback(async () => {
+    if (!configConflict || !config) return;
+    const revisions = Object.fromEntries(
+      config.fields
+        .filter((field) => field.id in configConflict.request.fields)
+        .map((field) => [field.id, field.revision])
+    );
+    setSavingConfig(true);
+    try {
+      setConfig(
+        await agentManagementApi.writeConfig({
+          ...configConflict.request,
+          base_field_revisions: revisions,
+        })
+      );
+      setConfigConflict(null);
+      toast.success('已明确覆盖外部修改');
+      await management.refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, '覆盖外部修改失败'));
+    } finally {
+      setSavingConfig(false);
+    }
+  }, [config, configConflict, management]);
 
   const exportDiagnostics = useCallback(() => {
     if (!selectedAgentId) return;
@@ -296,9 +378,16 @@ export function AgentSettings() {
           variant="ghost"
           className="h-9 w-9 shrink-0 p-0"
           aria-label="刷新 Agent 状态"
-          onClick={() => void management.refresh()}
+          aria-busy={management.loading}
+          disabled={management.loading}
+          onClick={() => void management.refreshFresh().catch(() => undefined)}
         >
-          <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+          <RefreshCw
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 ${
+              management.loading ? 'animate-spin' : ''
+            }`}
+          />
         </Button>
       </div>
 
@@ -319,11 +408,14 @@ export function AgentSettings() {
             }
             preflight={preflight}
             checking={checking}
+            checkingUpdate={checkingUpdate}
+            updateCheck={updateCheck}
             onSetEnabled={(enabled) => void setEnabled(enabled)}
             onMove={(direction) => void move(direction)}
             onPreflight={() => void runPreflight()}
-            onRepair={() => void queueAction('repair')}
-            onUpdate={() => void queueAction('update')}
+            onRepair={() => void queueRepair()}
+            onCheckUpdate={() => void checkUpdate()}
+            onApplyUpdate={() => void applyUpdate()}
             onRollback={() => void rollback()}
             onCancelOperation={() => void cancelOperation()}
             onUninstall={() => void uninstall()}
@@ -333,7 +425,11 @@ export function AgentSettings() {
           <AgentConfigurationAndDiagnostics
             config={config}
             saving={savingConfig}
+            conflictMessage={configConflict?.message}
             onSave={(request) => void saveConfig(request)}
+            onReloadConflict={() => void reloadConflict()}
+            onAdoptExternal={() => setConfigConflict(null)}
+            onOverwriteConflict={() => void overwriteConflict()}
           />
         </div>
       ) : (
@@ -357,4 +453,13 @@ function errorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
+}
+
+function isConfigConflict(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'config_conflict'
+  );
 }

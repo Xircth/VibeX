@@ -1,7 +1,8 @@
 use api_types::{AgentId, AgentSource};
 use db::models::agent_management::{
     AgentMembershipRepository, DiagnosticRecord, DiagnosticRepository, InstallLockRecord,
-    InstallationRepository, NewAgentMembership, RegistryEntryRecord, RegistrySnapshotRecord,
+    InstallationOperationRepository, InstallationRepository, NewAgentMembership,
+    NewInstallationOperation, RegistryEntryRecord, RegistrySnapshotRecord,
     RegistrySnapshotRepository, SessionDefaultRecord, SessionDefaultRepository,
     conversation_migration::{
         ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
@@ -64,6 +65,173 @@ async fn seed_legacy_settings(pool: &SqlitePool) {
         .await
         .unwrap();
     }
+}
+
+#[tokio::test]
+async fn agent_management_migration_fixtures_recover_old_operations_without_replay() {
+    let pool = migrated_pool().await;
+    let memberships = AgentMembershipRepository::new(pool.clone());
+    let agent_id = AgentId::parse("fixture.binary").unwrap();
+    memberships
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+
+    let operations = InstallationOperationRepository::new(pool.clone());
+    let queued = operations
+        .enqueue(NewInstallationOperation {
+            agent_id: agent_id.clone(),
+            kind: "repair".to_string(),
+            frozen_plan_json: r#"{"version":"1.0.0","distribution":"binary"}"#.to_string(),
+            host_instance_id: "old-host".to_string(),
+            resource_claims: vec!["shim:fixture.binary".to_string()],
+            staging_path: Some("/fixture/.staging-old".to_string()),
+        })
+        .await
+        .unwrap();
+    operations
+        .mark_running(queued.id, "old-host")
+        .await
+        .unwrap();
+
+    let recovered = operations.recover_interrupted("new-host").await.unwrap();
+    assert_eq!(recovered, vec![queued.id]);
+    let persisted = operations.find(queued.id).await.unwrap().unwrap();
+    assert_eq!(persisted.status, "interrupted");
+    assert_eq!(
+        persisted.frozen_plan_json,
+        r#"{"version":"1.0.0","distribution":"binary"}"#
+    );
+    assert!(
+        operations
+            .active_for_agent(&agent_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let retry = operations
+        .enqueue(NewInstallationOperation {
+            agent_id,
+            kind: "repair".to_string(),
+            frozen_plan_json: persisted.frozen_plan_json,
+            host_instance_id: "new-host".to_string(),
+            resource_claims: vec!["shim:fixture.binary".to_string()],
+            staging_path: None,
+        })
+        .await
+        .unwrap();
+    assert_ne!(retry.id, queued.id);
+}
+
+#[tokio::test]
+async fn agent_probe_business_facts_have_typed_columns() {
+    let pool = migrated_pool().await;
+    let agent_id = AgentId::parse("fixture.typed-probe").unwrap();
+    AgentMembershipRepository::new(pool.clone())
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_probe
+           (agent_id, lifecycle, authentication, detail_json, probed_at,
+            runtime_available, acp_handshake, authentication_required)
+           VALUES (?, 'needs_auth', 'not_logged_in',
+                   '{}', 'now', 1, 0, 1)"#,
+    )
+    .bind(agent_id.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let facts = sqlx::query_as::<_, (bool, bool, bool, i64)>(
+        r#"SELECT runtime_available, acp_handshake, authentication_required,
+                  observation_generation
+           FROM agent_probe WHERE agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(facts, (true, false, true, 0));
+}
+
+#[tokio::test]
+async fn legacy_agent_probe_json_is_imported_once_into_typed_facts() {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::new()
+                .filename(":memory:")
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"CREATE TABLE agent_probe (
+               agent_id TEXT PRIMARY KEY NOT NULL,
+               lifecycle TEXT NOT NULL,
+               authentication TEXT NOT NULL,
+               detail_json TEXT NOT NULL,
+               probed_at TEXT NOT NULL
+           )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_probe VALUES (
+               'fixture.legacy-probe',
+               'needs_auth',
+               'not_logged_in',
+               '{"runtime_available":true,"acp_handshake":false,"authentication_required":true}',
+               'now'
+           )"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260730020000_type_agent_probe_facts.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260730030000_agent_probe_observation_generation.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let facts = sqlx::query_as::<_, (bool, bool, bool, i64)>(
+        r#"SELECT runtime_available, acp_handshake, authentication_required,
+                  observation_generation
+           FROM agent_probe WHERE agent_id = 'fixture.legacy-probe'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(facts, (true, false, true, 1));
 }
 
 #[tokio::test]
@@ -419,4 +587,96 @@ async fn retired_agent_history_is_read_only_but_retrievable() {
             && row.external_session_id.as_deref() == Some("vendor.agent-v2-history")
     }));
     assert!(references.iter().all(|row| row.agent_id.as_str() != ""));
+}
+
+#[tokio::test]
+async fn concurrent_enqueues_keep_one_agent_operation_id() {
+    let pool = migrated_pool().await;
+    let agent_id = AgentId::parse("fixture.concurrent").unwrap();
+    AgentMembershipRepository::new(pool.clone())
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    let first = InstallationOperationRepository::new(pool.clone());
+    let second = InstallationOperationRepository::new(pool.clone());
+    let operation = || NewInstallationOperation {
+        agent_id: agent_id.clone(),
+        kind: "install".to_string(),
+        frozen_plan_json: r#"{"version":"1.0.0"}"#.to_string(),
+        host_instance_id: "host".to_string(),
+        resource_claims: vec!["agent:fixture.concurrent".to_string()],
+        staging_path: None,
+    };
+
+    let (left, right) = tokio::join!(first.enqueue(operation()), second.enqueue(operation()));
+
+    assert_ne!(left.is_ok(), right.is_ok());
+    let winner = left.or(right).unwrap();
+    assert_eq!(
+        InstallationOperationRepository::new(pool)
+            .active_for_agent(&agent_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        winner.id
+    );
+}
+
+#[tokio::test]
+async fn shared_resource_lease_serializes_different_agents() {
+    let pool = migrated_pool().await;
+    let memberships = AgentMembershipRepository::new(pool.clone());
+    let first_id = AgentId::parse("fixture.first").unwrap();
+    let second_id = AgentId::parse("fixture.second").unwrap();
+    for (position, agent_id) in [first_id.clone(), second_id.clone()]
+        .into_iter()
+        .enumerate()
+    {
+        memberships
+            .add(NewAgentMembership {
+                agent_id,
+                source: AgentSource::OfficialRegistry,
+                built_in: false,
+                retired: false,
+                enabled: true,
+                position: position as i64,
+                retained_metadata_json: None,
+                retained_icon_svg: None,
+            })
+            .await
+            .unwrap();
+    }
+    let repository = InstallationOperationRepository::new(pool.clone());
+    let new_operation = |agent_id| NewInstallationOperation {
+        agent_id,
+        kind: "install".to_string(),
+        frozen_plan_json: r#"{"version":"1.0.0"}"#.to_string(),
+        host_instance_id: "host".to_string(),
+        resource_claims: vec!["runtime:node-24".to_string()],
+        staging_path: None,
+    };
+
+    let (left, right) = tokio::join!(
+        repository.enqueue(new_operation(first_id)),
+        repository.enqueue(new_operation(second_id))
+    );
+
+    assert_ne!(left.is_ok(), right.is_ok());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_install_resource_lease")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        1
+    );
 }

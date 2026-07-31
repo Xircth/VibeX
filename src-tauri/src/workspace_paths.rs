@@ -212,6 +212,39 @@ pub fn resolve_workspace_default_open_path(
     resolve_workspace_repo_root(workspace, container_ref, repos)
 }
 
+/// Resolve only repository roots explicitly linked to the current Workspace.
+/// No historical session paths or global repository inventory participate.
+pub fn resolve_workspace_additional_directories(
+    workspace: &Workspace,
+    container_ref: &str,
+    repos: &[Repo],
+    working_dir: &str,
+) -> Vec<PathBuf> {
+    let workspace = workspace_with_container_ref(workspace, container_ref);
+    let base = resolve_workspace_base_path(&workspace, container_ref, repos);
+    let cwd = PathBuf::from(working_dir);
+    let cwd = if cwd.is_absolute() {
+        cwd
+    } else {
+        base.join(cwd)
+    };
+
+    let mut roots = repos
+        .iter()
+        .filter_map(|repo| {
+            if workspace.use_worktree {
+                workspace.repo_path(repo)
+            } else {
+                Some(repo.path.clone())
+            }
+        })
+        .filter(|root| root != &cwd)
+        .collect::<Vec<_>>();
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -221,8 +254,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        resolve_workspace_default_open_path, resolve_workspace_repo_root,
-        resolve_workspace_repo_script_working_dir,
+        resolve_workspace_additional_directories, resolve_workspace_default_open_path,
+        resolve_workspace_repo_root, resolve_workspace_repo_script_working_dir,
     };
 
     fn sample_repo(name: &str, default_working_dir: Option<&str>) -> Repo {
@@ -356,6 +389,22 @@ mod tests {
                 std::slice::from_ref(&repo),
             ),
             PathBuf::from("C:/worktrees/app-feature-b/frontend")
+        );
+    }
+
+    #[test]
+    fn additional_directories_use_only_roots_linked_to_current_workspace() {
+        let workspace = sample_workspace(true);
+        let repos = vec![sample_repo("app", None), sample_repo("shared", None)];
+
+        assert_eq!(
+            resolve_workspace_additional_directories(
+                &workspace,
+                "/workspaces/current",
+                &repos,
+                "/workspaces/current/app",
+            ),
+            vec![PathBuf::from("/workspaces/current/shared")]
         );
     }
 

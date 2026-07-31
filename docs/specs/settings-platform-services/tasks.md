@@ -112,26 +112,7 @@ Review: Complete. Proxy settings validate through `reqwest::Proxy`, rendering us
 
 Review: Complete. Web service config is persisted, status/start/stop/probe/token commands are registered, auto-start is wired during app setup, and `/settings/web-service` uses compact Tahoe rows with status, port, token, and service controls. `pnpm run frontend:check` and `cargo check` pass.
 
-## T7. Model Providers
-
-- [x] Task: Add model provider persistence and secret commands.
-  - Acceptance: provider CRUD and active provider per Agent are available.
-  - Verify: backend check.
-  - Files: backend commands/models/migrations or JSON store.
-
-- [x] Task: Implement provider model fetching.
-  - Acceptance: OpenAI-compatible `/v1/models` fetch works with configured endpoint/key and surfaces errors.
-  - Verify: unit/manual with mockable endpoint where possible.
-  - Files: `model_provider.rs`, frontend API.
-
-- [x] Task: Create `ModelProviderSettings` UI.
-  - Acceptance: list/filter/create/edit/delete/switch provider; custom JSON supported; secrets masked.
-  - Verify: frontend typecheck and visual review.
-  - Files: `frontend/src/pages/settings/ModelProviderSettings.tsx`, dialogs.
-
-Review: Complete. Model providers are stored in a VibeX JSON store, API keys are kept in a separate secret store and only exposed as `has_api_key`, active provider is tracked per Agent, `/v1/models` sync uses the saved endpoint/key, and the settings page supports list/search/create/edit/delete/model sync/custom JSON/Agent activation. `pnpm run frontend:check` and `cargo check` pass.
-
-## T8. Message Channels
+## T7. Message Channels
 
 - [x] Task: Add chat channel persistence/token/status commands.
   - Acceptance: channels can be created, enabled, tested, deleted; token presence is queryable.
@@ -155,7 +136,7 @@ Review: Complete. Model providers are stored in a VibeX JSON store, API keys are
 
 Review: Complete. Chat channel CRUD, token presence, test send, event filter, and command prefix commands are registered. Agent runtime events are forwarded to enabled webhook channels according to the saved filter, without blocking the Tauri event stream. The UI provides channel/config/events/commands tabs and passes `pnpm run frontend:check`; `cargo check` passes.
 
-## T9. Verification And Polish
+## T8. Verification And Polish
 
 - [x] Task: Run frontend/backend checks after implementation.
   - Acceptance: `pnpm run frontend:check` and `pnpm run backend:check` pass unless user says not to run tests/checks.

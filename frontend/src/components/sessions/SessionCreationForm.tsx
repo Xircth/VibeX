@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
@@ -78,6 +78,7 @@ interface SessionCreationFormProps {
   errorMessage?: string | null;
   onSubmit: () => void;
   onCancel?: () => void;
+  onRemoteSessionImported?: (conversationId: string) => void;
   submitLabel?: string;
   cancelLabel?: string;
   className?: string;
@@ -110,6 +111,7 @@ export function SessionCreationForm({
   compact = false,
   dropdownSide = 'bottom',
   onSessionControlsPresetChange,
+  onRemoteSessionImported,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
@@ -153,16 +155,101 @@ export function SessionCreationForm({
     gcTime: Infinity,
     retry: false,
   });
+  const defaultsQuery = useQuery({
+    queryKey: ['agentSessionDefaults', executor],
+    queryFn: () => agentsApi.sessionDefaults(executor!),
+    enabled: Boolean(executor),
+    staleTime: Infinity,
+    retry: false,
+  });
+  const catalogFreshnessQuery = useQuery({
+    queryKey: ['agentCapabilityCatalogFreshness', executor],
+    queryFn: () => agentsApi.capabilityCatalogFresh(executor!),
+    enabled: Boolean(executor && controlsQuery.data),
+    staleTime: 0,
+    retry: false,
+  });
+  const backgroundRefreshAgent = useRef<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<string | null>(null);
   const [selectedConfigValues, setSelectedConfigValues] = useState<
     Record<string, string>
   >({});
+  const [defaultsSaveState, setDefaultsSaveState] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+  const [catalogRefreshFailed, setCatalogRefreshFailed] = useState(false);
+  const [remoteSessionsOpen, setRemoteSessionsOpen] = useState(false);
+  const [remoteSessionAction, setRemoteSessionAction] = useState<string | null>(
+    null
+  );
+  const [remoteSessionStatus, setRemoteSessionStatus] = useState<
+    'idle' | 'imported' | 'error'
+  >('idle');
   useEffect(() => {
     setSelectedMode(null);
     setSelectedConfigValues({});
+    setDefaultsSaveState('idle');
+    setCatalogRefreshFailed(false);
+    setRemoteSessionsOpen(false);
+    setRemoteSessionAction(null);
+    setRemoteSessionStatus('idle');
+    backgroundRefreshAgent.current = null;
   }, [controlsWorkspaceId, executor]);
+  useEffect(() => {
+    if (
+      !executor ||
+      catalogFreshnessQuery.data !== false ||
+      backgroundRefreshAgent.current === executor
+    ) {
+      return;
+    }
+    backgroundRefreshAgent.current = executor;
+    void agentsApi
+      .refreshCapabilityCatalog(executor)
+      .then(async (refreshed) => {
+        if (!refreshed) {
+          setCatalogRefreshFailed(true);
+          return;
+        }
+        setCatalogRefreshFailed(false);
+        await controlsQuery.refetch();
+        await catalogFreshnessQuery.refetch();
+      })
+      .catch(() => setCatalogRefreshFailed(true));
+  }, [catalogFreshnessQuery, controlsQuery, executor]);
+  useEffect(() => {
+    if (!defaultsQuery.data) return;
+    setSelectedConfigValues(
+      Object.fromEntries(
+        Object.entries(defaultsQuery.data.values).flatMap(([key, value]) => {
+          const serialized =
+            value === null
+              ? ''
+              : typeof value === 'string'
+                ? value
+                : JSON.stringify(value);
+          return serialized ? [[key, serialized]] : [];
+        })
+      )
+    );
+  }, [defaultsQuery.data]);
 
   const activeControls = controlsQuery.data ?? null;
+  const supportsRemoteSessionList =
+    activeControls?.capabilities?.list_sessions === true;
+  const remoteSessionsQuery = useQuery({
+    queryKey: ['agentRemoteSessions', executor, controlsWorkspaceId],
+    queryFn: () =>
+      agentsApi.listRemoteSessions(executor!, controlsWorkspaceId!, null),
+    enabled: Boolean(
+      remoteSessionsOpen &&
+        supportsRemoteSessionList &&
+        executor &&
+        controlsWorkspaceId
+    ),
+    staleTime: 0,
+    retry: false,
+  });
   const visibleConfigOptions = visibleSessionConfigOptions(
     activeControls?.config_options ?? []
   );
@@ -205,6 +292,32 @@ export function SessionCreationForm({
     activeControls?.current_mode ?? null
   );
   const modeOverride = selectedMode ?? defaultMode;
+  const saveAgentDefaults = async () => {
+    if (!executor) return;
+    const rawDefaults = Object.fromEntries(
+      visibleConfigOptions.flatMap((option) => {
+        const serialized = configOverrides[option.key];
+        if (serialized === undefined) return [];
+        const advertisedChoice = (option.choices ?? []).find(
+          (choice) => jsonValueToString(choice.value) === serialized
+        );
+        if (advertisedChoice) {
+          return [[option.key, advertisedChoice.value]];
+        }
+        if (typeof option.value === 'boolean') {
+          return [[option.key, serialized === 'true']];
+        }
+        return [[option.key, serialized]];
+      })
+    );
+    setDefaultsSaveState('saving');
+    try {
+      await agentsApi.setSessionDefaults(executor, rawDefaults);
+      setDefaultsSaveState('saved');
+    } catch {
+      setDefaultsSaveState('error');
+    }
+  };
   useEffect(() => {
     onSessionControlsPresetChange?.(
       activeControls
@@ -244,6 +357,45 @@ export function SessionCreationForm({
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
     selectedWorkspaceOption
   );
+  const importRemoteSession = async (
+    acpSessionId: string,
+    title: string | null
+  ) => {
+    if (!executor || !controlsWorkspaceId) return;
+    setRemoteSessionAction(acpSessionId);
+    setRemoteSessionStatus('idle');
+    try {
+      const conversation = await agentsApi.importRemoteSession(
+        executor,
+        controlsWorkspaceId,
+        acpSessionId,
+        title
+      );
+      setRemoteSessionStatus('imported');
+      onRemoteSessionImported?.(conversation.id);
+    } catch {
+      setRemoteSessionStatus('error');
+    } finally {
+      setRemoteSessionAction(null);
+    }
+  };
+  const deleteRemoteSession = async (acpSessionId: string) => {
+    if (!executor || !controlsWorkspaceId) return;
+    setRemoteSessionAction(acpSessionId);
+    setRemoteSessionStatus('idle');
+    try {
+      await agentsApi.deleteRemoteSession(
+        executor,
+        controlsWorkspaceId,
+        acpSessionId
+      );
+      await remoteSessionsQuery.refetch();
+    } catch {
+      setRemoteSessionStatus('error');
+    } finally {
+      setRemoteSessionAction(null);
+    }
+  };
 
   return (
     <form
@@ -344,23 +496,149 @@ export function SessionCreationForm({
           )}
         />
         {hasControls && activeControls ? (
-          <SessionSettingsSummary
-            sessionModes={{
-              current: activeControls.current_mode ?? null,
-              modes: activeControls.modes,
-            }}
-            options={visibleConfigOptions}
-            selectedMode={modeOverride}
-            pending={configOverrides}
-            onSelectMode={handleSelectMode}
-            onSelectConfigOption={handleSelectConfigValue}
-            disabled={isSubmitting}
-            dropdownSide={dropdownSide}
-          />
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <SessionSettingsSummary
+                sessionModes={{
+                  current: activeControls.current_mode ?? null,
+                  modes: activeControls.modes,
+                }}
+                options={visibleConfigOptions}
+                selectedMode={modeOverride}
+                pending={configOverrides}
+                onSelectMode={handleSelectMode}
+                onSelectConfigOption={handleSelectConfigValue}
+                disabled={isSubmitting}
+                dropdownSide={dropdownSide}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                disabled={isSubmitting || defaultsSaveState === 'saving'}
+                onClick={() => void saveAgentDefaults()}
+              >
+                {defaultsSaveState === 'saving'
+                  ? t('sessionCreation.savingAgentDefaults')
+                  : t('sessionCreation.saveAgentDefaults')}
+              </Button>
+            </div>
+            {defaultsQuery.data?.staleIds.length ? (
+              <p className="text-[11px] text-[hsl(var(--warning))]" role="status">
+                {t('sessionCreation.staleDefaults', {
+                  options: defaultsQuery.data.staleIds.join(', '),
+                })}
+              </p>
+            ) : defaultsSaveState === 'saved' ? (
+              <p className="text-[11px] text-muted-foreground" role="status">
+                {t('sessionCreation.agentDefaultsSaved')}
+              </p>
+            ) : defaultsSaveState === 'error' ? (
+              <p className="text-[11px] text-destructive" role="alert">
+                {t('sessionCreation.agentDefaultsSaveFailed')}
+              </p>
+            ) : null}
+            {catalogFreshnessQuery.data === false ? (
+              <p className="text-[11px] text-muted-foreground" role="status">
+                {catalogRefreshFailed
+                  ? t('sessionCreation.catalogRefreshFailed')
+                  : t('sessionCreation.catalogRefreshing')}
+              </p>
+            ) : null}
+          </>
         ) : executor && controlsPending ? (
           <p className="text-[11px] text-muted-foreground">
             {t('sessionCreation.controlsLoading')}
           </p>
+        ) : null}
+        {supportsRemoteSessionList && controlsWorkspaceId ? (
+          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[11px]"
+              disabled={isSubmitting}
+              onClick={() => setRemoteSessionsOpen((open) => !open)}
+            >
+              {t('sessionCreation.importAgentSession')}
+            </Button>
+            {remoteSessionsOpen ? (
+              remoteSessionsQuery.isPending ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('sessionCreation.remoteSessionsLoading')}
+                </p>
+              ) : remoteSessionsQuery.error ? (
+                <p className="text-[11px] text-destructive" role="alert">
+                  {t('sessionCreation.remoteSessionsLoadFailed')}
+                </p>
+              ) : remoteSessionsQuery.data?.sessions.length ? (
+                <div className="space-y-2">
+                  {remoteSessionsQuery.data.sessions.map((remote) => (
+                    <div
+                      key={remote.acp_session_id}
+                      className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/70 px-2.5 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">
+                          {remote.title ?? remote.acp_session_id}
+                        </p>
+                        <p className="truncate text-[10px] text-muted-foreground">
+                          {remote.cwd}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          disabled={remoteSessionAction !== null}
+                          onClick={() =>
+                            void importRemoteSession(
+                              remote.acp_session_id,
+                              remote.title ?? null
+                            )
+                          }
+                        >
+                          {t('sessionCreation.importThisSession')}
+                        </Button>
+                        {activeControls?.capabilities?.delete_session ===
+                        true ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-[11px] text-destructive"
+                            disabled={remoteSessionAction !== null}
+                            onClick={() =>
+                              void deleteRemoteSession(remote.acp_session_id)
+                            }
+                          >
+                            {t('sessionCreation.deleteAgentSession')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('sessionCreation.noRemoteSessions')}
+                </p>
+              )
+            ) : null}
+            {remoteSessionStatus === 'imported' ? (
+              <p className="text-[11px] text-muted-foreground" role="status">
+                {t('sessionCreation.remoteSessionImported')}
+              </p>
+            ) : remoteSessionStatus === 'error' ? (
+              <p className="text-[11px] text-destructive" role="alert">
+                {t('sessionCreation.remoteSessionActionFailed')}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

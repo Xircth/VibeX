@@ -113,6 +113,51 @@ pub enum AuthenticationPrecedence {
     SingleSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountEvidenceKind {
+    NonEmptyObject,
+    NonEmptyObjectAt(&'static [&'static str]),
+    ProviderEntryNotApiKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountEvidence {
+    pub home_relative_directory: &'static str,
+    pub directory_override_env: Option<&'static str>,
+    pub relative_file: &'static str,
+    pub kind: AccountEvidenceKind,
+}
+
+impl AccountEvidence {
+    pub fn matches(&self, value: &serde_json::Value) -> bool {
+        match self.kind {
+            AccountEvidenceKind::NonEmptyObject => {
+                value.as_object().is_some_and(|object| !object.is_empty())
+            }
+            AccountEvidenceKind::NonEmptyObjectAt(path) => {
+                let mut current = value;
+                for segment in path {
+                    let Some(next) = current.get(*segment) else {
+                        return false;
+                    };
+                    current = next;
+                }
+                current.as_object().is_some_and(|object| !object.is_empty())
+            }
+            AccountEvidenceKind::ProviderEntryNotApiKey => {
+                value.as_object().is_some_and(|object| {
+                    object.values().any(|entry| {
+                        entry
+                            .get("type")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|kind| !matches!(kind, "api" | "api_key"))
+                    })
+                })
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltInProfile {
     pub agent_id: AgentId,
@@ -130,6 +175,8 @@ pub struct BuiltInProfile {
     pub runtime_executable_env: Option<&'static str>,
     pub native_config: &'static [NativeConfigBinding],
     pub authentication_precedence: AuthenticationPrecedence,
+    pub authentication_required_by_default: bool,
+    pub account_evidence: Option<AccountEvidence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -793,6 +840,13 @@ fn claude_code_profile() -> BuiltInProfile {
         runtime_executable_env: Some("CLAUDE_CODE_EXECUTABLE"),
         native_config: CLAUDE_CONFIG,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".claude",
+            directory_override_env: Some("CLAUDE_CONFIG_DIR"),
+            relative_file: ".credentials.json",
+            kind: AccountEvidenceKind::NonEmptyObject,
+        }),
     }
 }
 
@@ -832,6 +886,13 @@ fn codex_profile() -> BuiltInProfile {
         runtime_executable_env: Some("CODEX_PATH"),
         native_config: CODEX_CONFIG,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".codex",
+            directory_override_env: Some("CODEX_HOME"),
+            relative_file: "auth.json",
+            kind: AccountEvidenceKind::NonEmptyObjectAt(&["tokens"]),
+        }),
     }
 }
 
@@ -891,6 +952,13 @@ fn opencode_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: OPENCODE_CONFIG,
         authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: false,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".local/share",
+            directory_override_env: Some("XDG_DATA_HOME"),
+            relative_file: "opencode/auth.json",
+            kind: AccountEvidenceKind::ProviderEntryNotApiKey,
+        }),
     }
 }
 
@@ -962,5 +1030,12 @@ fn pi_profile() -> BuiltInProfile {
         runtime_executable_env: None,
         native_config: PI_CONFIG,
         authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".pi/agent",
+            directory_override_env: Some("PI_CODING_AGENT_DIR"),
+            relative_file: "auth.json",
+            kind: AccountEvidenceKind::ProviderEntryNotApiKey,
+        }),
     }
 }

@@ -8,7 +8,42 @@ use std::{
 use api_types::{AgentId, AgentLifecycleState};
 use serde_json::Value;
 
-use crate::AgentManagementSnapshot;
+use crate::{AgentManagementSnapshot, AgentSessionConfigOption};
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionDefaultValidation {
+    pub valid: BTreeMap<String, Value>,
+    pub stale_ids: Vec<String>,
+}
+
+/// Validate persisted raw ACP option/value pairs against the exact options
+/// advertised by the newly prepared session. A catalog or historical option
+/// label is never sufficient evidence for sending a saved value.
+pub fn validate_session_defaults(
+    defaults: BTreeMap<String, Value>,
+    advertised_options: &[AgentSessionConfigOption],
+) -> SessionDefaultValidation {
+    let mut validation = SessionDefaultValidation::default();
+    for (option_id, value) in defaults {
+        let valid = advertised_options
+            .iter()
+            .find(|option| option.key == option_id)
+            .is_some_and(|option| {
+                if option.choices.is_empty() {
+                    option.value.as_ref().is_some_and(Value::is_boolean) && value.is_boolean()
+                } else {
+                    option.choices.iter().any(|choice| choice.value == value)
+                }
+            });
+        if valid {
+            validation.valid.insert(option_id, value);
+        } else {
+            validation.stale_ids.push(option_id);
+        }
+    }
+    validation.stale_ids.sort();
+    validation
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionLaunchLock {

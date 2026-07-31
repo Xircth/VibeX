@@ -115,6 +115,8 @@ fn record_from_message(message: &Value) -> Option<ParsedRecord> {
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: token_field(tokens, "cached"),
         context_window_max: None,
+        cost_amount: None,
+        cost_currency: None,
     });
     let model = message
         .get("model")

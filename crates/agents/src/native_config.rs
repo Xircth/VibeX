@@ -222,6 +222,7 @@ impl NativeConfigProvider {
             return Err(NativeConfigSaveError::FieldConflicts { fields: conflicts });
         }
 
+        let mut writes = Vec::with_capacity(documents.len());
         for (binding, path, document) in &mut documents {
             for field in binding
                 .fields
@@ -240,11 +241,12 @@ impl NativeConfigProvider {
                 }
             }
             let bytes = serialize_document(binding, document)?;
-            self.filesystem
-                .write_atomic(path, &bytes)
-                .await
-                .map_err(|error| NativeConfigError::FileSystem(error.to_string()))?;
+            writes.push((path.clone(), bytes));
         }
+        self.filesystem
+            .write_many_atomic(&writes)
+            .await
+            .map_err(|error| NativeConfigError::FileSystem(error.to_string()))?;
 
         let snapshot = self.read(agent_id, account_logged_in).await?;
         Ok(NativeConfigSaveResult {

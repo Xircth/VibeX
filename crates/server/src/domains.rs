@@ -228,7 +228,7 @@ impl ServerApplicationDomains {
 
     async fn agent_management_bar(&self) -> Result<Value, ApplicationError> {
         serialize(
-            services::services::agent_management::AgentManagementQueryService::new(
+            services::services::agent_management::AgentManagementApplicationService::new(
                 self.pool.clone(),
             )
             .list()

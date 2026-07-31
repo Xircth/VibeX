@@ -56,11 +56,14 @@ describe('AgentDetail', () => {
         operation={null}
         preflight={preflight}
         checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={onPreflight}
         onRepair={onRepair}
-        onUpdate={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={vi.fn()}
@@ -96,11 +99,14 @@ describe('AgentDetail', () => {
         }}
         preflight={null}
         checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
         onRepair={vi.fn()}
-        onUpdate={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
         onRollback={vi.fn()}
         onCancelOperation={onCancelOperation}
         onUninstall={vi.fn()}
@@ -113,25 +119,33 @@ describe('AgentDetail', () => {
     expect(onCancelOperation).toHaveBeenCalledOnce();
   });
 
-  it('keeps update and uninstall beside the enable control, outside preflight', async () => {
+  it('keeps update, uninstall, and remove together beside the enable control', async () => {
     const onExportDiagnostics = vi.fn();
-    const onUpdate = vi.fn();
+    const onCheckUpdate = vi.fn();
     const onUninstall = vi.fn();
+    const onRemove = vi.fn();
     render(
       <AgentDetail
-        agent={agent}
+        agent={{
+          ...agent,
+          source: 'official_registry',
+          built_in: false,
+        }}
         operation={null}
         preflight={preflight}
         checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
         onRepair={vi.fn()}
-        onUpdate={onUpdate}
+        onCheckUpdate={onCheckUpdate}
+        onApplyUpdate={vi.fn()}
         onRollback={vi.fn()}
         onCancelOperation={vi.fn()}
         onUninstall={onUninstall}
-        onRemove={vi.fn()}
+        onRemove={onRemove}
         onExportDiagnostics={onExportDiagnostics}
       />
     );
@@ -141,6 +155,7 @@ describe('AgentDetail', () => {
     const enable = within(header).getByRole('switch', { name: '启用 Agent' });
     const update = within(header).getByRole('button', { name: '检查更新' });
     const uninstall = within(header).getByRole('button', { name: '卸载' });
+    const remove = within(header).getByRole('button', { name: '移除' });
     expect(
       enable.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -149,17 +164,90 @@ describe('AgentDetail', () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
+      uninstall.compareDocumentPosition(remove) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
       within(preflightRegion).queryByRole('button', { name: '检查更新' })
     ).not.toBeInTheDocument();
     expect(
       within(preflightRegion).queryByRole('button', { name: '卸载' })
     ).not.toBeInTheDocument();
+    expect(
+      within(preflightRegion).queryByRole('button', { name: '移除' })
+    ).not.toBeInTheDocument();
 
     await userEvent.click(update);
     await userEvent.click(uninstall);
+    await userEvent.click(remove);
     await userEvent.click(screen.getByRole('button', { name: '导出诊断记录' }));
-    expect(onUpdate).toHaveBeenCalledOnce();
+    expect(onCheckUpdate).toHaveBeenCalledOnce();
     expect(onUninstall).toHaveBeenCalledOnce();
+    expect(onRemove).toHaveBeenCalledOnce();
     expect(onExportDiagnostics).toHaveBeenCalledOnce();
+  });
+
+  it('requires an explicit second action before applying an available update', async () => {
+    const onCheckUpdate = vi.fn();
+    const onApplyUpdate = vi.fn();
+    const { rerender } = render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={onCheckUpdate}
+        onApplyUpdate={onApplyUpdate}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '检查更新' }));
+    expect(onCheckUpdate).toHaveBeenCalledOnce();
+    expect(onApplyUpdate).not.toHaveBeenCalled();
+
+    rerender(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={{
+          agent_id: agent.agent_id,
+          current_version: '1.0.0',
+          available_version: '1.1.0',
+          update_available: true,
+          snapshot_id: 'snapshot-1',
+          fetched_at: '2026-07-30T00:00:00Z',
+          fresh: true,
+        }}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={onCheckUpdate}
+        onApplyUpdate={onApplyUpdate}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('可更新：1.0.0 → 1.1.0')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '安装更新' }));
+    expect(onApplyUpdate).toHaveBeenCalledOnce();
   });
 });

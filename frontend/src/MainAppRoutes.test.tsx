@@ -76,8 +76,6 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-logs' }),
     McpSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-mcp' }),
-    ModelProviderSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-model-providers' }),
     PluginsSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-plugins' }),
     SettingsLayout: () =>
@@ -159,6 +157,15 @@ describe('MainAppRoutes', () => {
     expect(await screen.findByTestId('settings-agents')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('does not expose the removed model providers settings route', () => {
+    renderAt('/settings/model-providers');
+
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(/^settings-model-providers$/)
+    ).not.toBeInTheDocument();
   });
 
   it('redirects legacy MCP settings path to the settings MCP route', async () => {

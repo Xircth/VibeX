@@ -4,28 +4,30 @@ use agents::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentCapability, AgentConnectionId,
     AgentConnectionSnapshot, AgentConnectionStatus, AgentContentBlock, AgentElicitationId,
     AgentElicitationRequest, AgentElicitationResponse, AgentErrorEvent, AgentEvent,
-    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentPermissionId,
-    AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
+    AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentListedSession,
+    AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
     AgentPermissionResponse, AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished,
     AgentPromptId, AgentPromptSnapshot, AgentPromptStatus, AgentSessionConfigChoice,
     AgentSessionConfigDependency, AgentSessionConfigOption, AgentSessionConfigOverride,
-    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionMode, AgentSessionSnapshot,
-    AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
-    AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
-    AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary, ImportedAgentMessage,
-    ImportedAgentMessageRole, ImportedAgentSession, RuntimeSnapshot,
+    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage, AgentSessionMode,
+    AgentSessionSnapshot, AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar,
+    AgentTerminalExit, AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot,
+    AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
+    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
+    ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession, RuntimeSnapshot,
     conversation::{
-        AcpCapabilitySnapshot, AgentExecutionStats, AgentPromptCapabilities, ContentBlock,
-        ConversationAgentConnectionStatus, ConversationArtifactPreviewReference,
-        ConversationArtifactReference, ConversationBundleChecksum, ConversationBundleManifest,
-        ConversationBundlePayload, ConversationDelegation, ConversationDelegationResult,
-        ConversationDelegationView, ConversationDetail, ConversationError, ConversationErrorView,
-        ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
-        ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
-        ConversationFileChangeSummary, ConversationFileLocation, ConversationInputBlock,
-        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
-        ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
-        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
+        AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
+        AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
+        ConversationArtifactPreviewReference, ConversationArtifactReference,
+        ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
+        ConversationDelegation, ConversationDelegationResult, ConversationDelegationView,
+        ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
+        ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
+        ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
+        ConversationFileLocation, ConversationInputBlock, ConversationPermissionRequest,
+        ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
+        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRowOp,
+        ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
         ConversationSessionNotice, ConversationSummary, ConversationTerminalPatch,
         ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
         ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData,
@@ -40,7 +42,7 @@ use api_types::{
     AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
     AgentNativeConfigPatchRequest, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
     AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightView,
-    AgentRegistryView, AgentRegistryViewRow, AgentSource,
+    AgentRegistryView, AgentRegistryViewRow, AgentSource, AgentUpdateCheckView,
 };
 use conversations::ConversationSearchHit;
 use db::models::{
@@ -292,6 +294,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentManagementView>(&mut decls);
     insert_declaration::<AgentRegistryViewRow>(&mut decls);
     insert_declaration::<AgentRegistryView>(&mut decls);
+    insert_declaration::<AgentUpdateCheckView>(&mut decls);
     insert_declaration::<AgentOperationEvent>(&mut decls);
     insert_declaration::<AgentManagementErrorCode>(&mut decls);
     insert_declaration::<AgentManagementErrorView>(&mut decls);
@@ -363,6 +366,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentToolCallUpdate>(&mut decls);
     insert_declaration::<AgentPlan>(&mut decls);
     insert_declaration::<AgentUsage>(&mut decls);
+    insert_declaration::<AgentListedSession>(&mut decls);
+    insert_declaration::<AgentSessionListPage>(&mut decls);
     insert_declaration::<AgentSessionMode>(&mut decls);
     insert_declaration::<AgentSessionConfigChoice>(&mut decls);
     insert_declaration::<AgentPreparedSessionSnapshot>(&mut decls);
@@ -405,6 +410,10 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationSummary>(&mut decls);
     insert_declaration::<ConversationDetail>(&mut decls);
     insert_declaration::<AgentPromptCapabilities>(&mut decls);
+    insert_declaration::<AuthenticationObservationState>(&mut decls);
+    insert_declaration::<AuthenticationMethod>(&mut decls);
+    insert_declaration::<AuthenticationSource>(&mut decls);
+    insert_declaration::<AcpAuthenticationObservationSnapshot>(&mut decls);
     insert_declaration::<AcpCapabilitySnapshot>(&mut decls);
     insert_declaration::<ConversationInputBlock>(&mut decls);
     insert_declaration::<ConversationPlanEntry>(&mut decls);

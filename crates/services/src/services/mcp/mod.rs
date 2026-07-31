@@ -1861,6 +1861,12 @@ fn scan_local_servers() -> Result<Vec<LocalMcpServer>, McpError> {
         .collect())
 }
 
+/// Synchronous read used while constructing ACP `session/new` MCP inputs.
+/// This performs local file reads only; no marketplace/network access.
+pub fn scan_local_sync() -> Result<Vec<LocalMcpServer>, McpError> {
+    scan_local_servers()
+}
+
 /// Add a server to the requested targets (never removes from others). When
 /// `global` is set, the server is recorded in the global registry AND mirrored
 /// into every agent's config file.

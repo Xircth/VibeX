@@ -10,12 +10,11 @@ use std::{collections::HashMap, sync::Arc};
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentRuntime,
     conversation::{
-        AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
-        ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
-        ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
-        ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
-        ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
-        ConversationUsage,
+        ConversationAgentConnectionStatus, ConversationDelegation, ConversationDelegationResult,
+        ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileLocation,
+        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
+        ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
+        ConversationToolCallPatch, ConversationUsage,
     },
 };
 use db::models::{
@@ -228,12 +227,14 @@ fn map_agent_event(
                 },
             })
         }
-        AgentEvent::SessionLinked { acp_session_id, .. } => {
-            Some(ConversationEvent::AgentBindingReady {
-                acp_session_id: acp_session_id.clone(),
-                capabilities: default_conversation_capabilities(),
-            })
-        }
+        AgentEvent::SessionLinked {
+            acp_session_id,
+            capabilities,
+            ..
+        } => Some(ConversationEvent::AgentBindingReady {
+            acp_session_id: acp_session_id.clone(),
+            capabilities: capabilities.clone(),
+        }),
         AgentEvent::MessageChunk {
             content: AgentContentBlock::Text { text },
         } => Some(ConversationEvent::AssistantTextDelta {
@@ -302,6 +303,8 @@ fn map_agent_event(
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
                 context_window_max: usage.limit,
+                cost_amount: None,
+                cost_currency: None,
             },
         }),
         AgentEvent::SessionModes { modes, current } => {
@@ -318,6 +321,11 @@ fn map_agent_event(
         AgentEvent::AvailableCommands { commands } => {
             Some(ConversationEvent::AvailableCommandsUpdated {
                 commands: commands.clone(),
+            })
+        }
+        AgentEvent::SessionInfoUpdated { patch } => {
+            Some(ConversationEvent::AgentSessionInfoUpdated {
+                patch: patch.clone(),
             })
         }
         AgentEvent::SessionLoadFailed { reason } => {
@@ -494,19 +502,4 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
         .ok()
         .and_then(|value| value["kind"].as_str().map(str::to_string))
         .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn default_conversation_capabilities() -> AcpCapabilitySnapshot {
-    AcpCapabilitySnapshot {
-        prompt: AgentPromptCapabilities {
-            text: true,
-            image: true,
-            resource: false,
-        },
-        load_session: true,
-        close_session: true,
-        terminal: true,
-        mcp_servers: true,
-        ..Default::default()
-    }
 }

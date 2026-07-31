@@ -64,6 +64,7 @@ impl ConnectionSpawner for RuntimeSpawner {
                 launch_lock: launch.launch_lock,
                 workspace_id: parent_conn.workspace_id,
                 working_dir,
+                additional_directories: Vec::new(),
                 auto_approve_mode: launch.auto_approve_mode,
                 env: launch.env,
             })

@@ -121,6 +121,7 @@ impl ConnectionSpawner for RuntimeSpawner {
                 working_dir: working_dir
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from(&parent.working_dir)),
+                additional_directories: Vec::new(),
                 auto_approve_mode: launch.auto_approve_mode,
                 env: launch.env,
             })

@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { ExecutorProfileId } from 'shared/types';
+import type { AgentLifecycleState, ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
 import { settingsWindowApi } from '@/lib/api';
@@ -22,6 +22,32 @@ interface AgentSelectorProps {
   className?: string;
   iconOnly?: boolean;
   dropdownSide?: 'top' | 'bottom';
+}
+
+export function unavailableAgentStatusKey(
+  lifecycle: AgentLifecycleState
+): string {
+  switch (lifecycle) {
+    case 'needs_auth':
+      return 'agentSelector.needsAuth';
+    case 'needs_config':
+      return 'agentSelector.needsConfig';
+    case 'needs_repair':
+      return 'agentSelector.needsRepair';
+    case 'platform_unsupported':
+      return 'agentSelector.platformUnsupported';
+    case 'retired':
+      return 'agentSelector.retired';
+    case 'queued':
+    case 'installing':
+    case 'updating':
+    case 'repairing':
+      return 'agentSelector.inProgress';
+    case 'uninstalled':
+      return 'agentSelector.notInstalled';
+    case 'ready':
+      return 'agentSelector.unavailable';
+  }
 }
 
 export function AgentSelector({
@@ -93,7 +119,7 @@ export function AgentSelector({
               {t('agentSelector.noAgentsAvailable')}
             </div>
           ) : (
-            agents.map(({ agentId, displayName, runnable }) =>
+            agents.map(({ agentId, displayName, lifecycle, runnable }) =>
               runnable ? (
                 <DropdownMenuItem
                   key={agentId}
@@ -112,14 +138,14 @@ export function AgentSelector({
                   key={agentId}
                   disabled
                   className="justify-between"
-                  title={t('agentSelector.notInstalledHint')}
+                  title={t(unavailableAgentStatusKey(lifecycle))}
                 >
                   <span className="flex items-center gap-2">
                     <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
                     {displayName}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
-                    {t('agentSelector.notInstalled')}
+                    {t(unavailableAgentStatusKey(lifecycle))}
                   </span>
                 </DropdownMenuItem>
               )

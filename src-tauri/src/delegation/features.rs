@@ -181,7 +181,8 @@ async fn load_compact_transcript(
                         .filter_map(|block| match block {
                             ConversationInputBlock::Text { text } => Some(text),
                             ConversationInputBlock::Image { .. }
-                            | ConversationInputBlock::Resource { .. } => None,
+                            | ConversationInputBlock::Resource { .. }
+                            | ConversationInputBlock::Protocol { .. } => None,
                         })
                         .collect::<Vec<_>>()
                         .join("\n");

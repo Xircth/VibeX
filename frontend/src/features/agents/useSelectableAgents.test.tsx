@@ -73,6 +73,7 @@ describe('useSelectableAgents', () => {
     expect(result.current[0]).toMatchObject({
       agentId: 'codex',
       enabled: true,
+      lifecycle: 'needs_repair',
       runnable: false,
     });
   });

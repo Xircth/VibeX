@@ -18,12 +18,13 @@ use agent_client_protocol::{
             BooleanConfigOptionCapabilities, CancelNotification, ClientCapabilities,
             ClientResponse, ClientSessionCapabilities, CloseSessionRequest, ContentBlock,
             CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
-            ElicitationAcceptAction, ElicitationAction, ElicitationCapabilities,
-            ElicitationContentValue, ElicitationFormCapabilities, ElicitationMode,
-            ElicitationScope, ForkSessionRequest, ImageContent, Implementation, InitializeRequest,
-            KillTerminalRequest, KillTerminalResponse, LoadSessionRequest, NewSessionRequest,
-            PermissionOptionKind, PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
-            RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
+            DeleteSessionRequest, ElicitationAcceptAction, ElicitationAction,
+            ElicitationCapabilities, ElicitationContentValue, ElicitationFormCapabilities,
+            ElicitationMode, ElicitationScope, ForkSessionRequest, ImageContent, Implementation,
+            InitializeRequest, KillTerminalRequest, KillTerminalResponse, ListSessionsRequest,
+            LoadSessionRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
+            ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
+            RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
             SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
             SessionConfigOptionCategory, SessionConfigOptionValue,
             SessionConfigOptionsCapabilities, SessionConfigSelectOption,
@@ -49,18 +50,21 @@ use tokio_util::{
 use workspace_utils::process::new_hidden_tokio_command;
 
 use crate::{
-    AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentContentBlock,
-    AgentElicitationId, AgentElicitationRequest, AgentElicitationResponse, AgentError,
-    AgentErrorEvent, AgentEvent, AgentId, AgentPermissionId, AgentPermissionOption,
+    AcpAuthStatusAdapter, AcpCapabilityNormalizer, AcpCapabilitySnapshot, AgentAutoApproveMode,
+    AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentElicitationId,
+    AgentElicitationRequest, AgentElicitationResponse, AgentError, AgentErrorEvent, AgentEvent,
+    AgentId, AgentListedSession, AgentPermissionId, AgentPermissionOption,
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
-    AgentSessionId, AgentSessionMode, AgentTerminalCreateRequest, AgentTerminalEnvVar,
-    AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage, SessionLaunchLock,
+    AgentSessionId, AgentSessionListPage, AgentSessionMode, AgentTerminalCreateRequest,
+    AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage,
+    SessionLaunchLock,
     conversation::SessionLoadFailureReason,
     decide_auto_permission_response,
     delegation_inject::{
         CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
+        InjectedRemoteMcpTransport,
     },
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
@@ -77,6 +81,8 @@ const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
 // legitimately-streaming long turn; permission waits are exempt (see run_prompt).
 const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
 const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
+const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
+const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
 const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -198,6 +204,14 @@ fn acp_error_code_str(error: &acp::Error) -> Option<String> {
     Some(code.to_string())
 }
 
+fn map_acp_session_error(context: &str, error: acp::Error) -> AgentError {
+    if i32::from(error.code) == -32000 {
+        AgentError::AuthenticationRequired(error.to_string())
+    } else {
+        AgentError::Runtime(format!("{context}: {error}"))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentConnectionLaunch {
     pub connection_id: AgentConnectionId,
@@ -205,6 +219,9 @@ pub struct AgentConnectionLaunch {
     pub launch_lock: SessionLaunchLock,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
+    /// Workspace/project roots explicitly associated with this session. The
+    /// runner forwards them only after ACP advertises additionalDirectories.
+    pub additional_directories: Vec<PathBuf>,
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
 }
@@ -232,6 +249,15 @@ pub enum AgentConnectionCommand {
     ForkSession {
         session_id: AgentSessionId,
         result_tx: oneshot::Sender<AgentResult<String>>,
+    },
+    ListSessions {
+        cwd: Option<PathBuf>,
+        cursor: Option<String>,
+        result_tx: oneshot::Sender<AgentResult<AgentSessionListPage>>,
+    },
+    DeleteSession {
+        external_session_id: String,
+        result_tx: oneshot::Sender<AgentResult<()>>,
     },
     Prompt {
         session_id: AgentSessionId,
@@ -279,6 +305,7 @@ pub struct ManagedAgentConnectionSnapshot {
     pub launch_lock: SessionLaunchLock,
     pub workspace_id: uuid::Uuid,
     pub working_dir: PathBuf,
+    pub additional_directories: Vec<PathBuf>,
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
 }
@@ -295,6 +322,8 @@ pub struct AgentConnectionManagerEvent {
 struct ManagedAgentConnection {
     snapshot: ManagedAgentConnectionSnapshot,
     cmd_tx: mpsc::Sender<AgentConnectionCommand>,
+    capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 #[derive(Debug)]
@@ -358,6 +387,7 @@ impl AgentConnectionManager {
             launch_lock: launch.launch_lock,
             workspace_id: launch.workspace_id,
             working_dir: launch.working_dir,
+            additional_directories: launch.additional_directories,
             auto_approve_mode: launch.auto_approve_mode,
             env: launch.env,
         };
@@ -366,29 +396,46 @@ impl AgentConnectionManager {
             self.event_tx.clone(),
             self.delegation_injector.get().cloned(),
         );
+        let capabilities = Arc::clone(&runner.capabilities);
 
-        if self.driver_enabled {
+        let task = if self.driver_enabled {
             tokio::spawn(async move {
                 runner.run(cmd_rx, ready_tx).await;
-            });
+            })
         } else {
             // The in-memory driver has no process to spawn / handshake — it's
             // ready the moment it's registered.
             let _ = ready_tx.send(Ok(()));
             tokio::spawn(async move {
                 runner.run_in_memory(cmd_rx).await;
-            });
-        }
+            })
+        };
 
         self.connections.lock().await.insert(
             snapshot.connection_id,
             ManagedAgentConnection {
                 snapshot: snapshot.clone(),
                 cmd_tx,
+                capabilities,
+                task,
             },
         );
 
         (snapshot, ready_rx)
+    }
+
+    pub async fn connection_capabilities(
+        &self,
+        connection_id: AgentConnectionId,
+    ) -> AgentResult<AcpCapabilitySnapshot> {
+        let capabilities = self
+            .connections
+            .lock()
+            .await
+            .get(&connection_id)
+            .map(|connection| Arc::clone(&connection.capabilities))
+            .ok_or_else(|| AgentError::ConnectionNotFound(connection_id.to_string()))?;
+        Ok(capabilities.read().await.clone())
     }
 
     pub async fn send_prompt(
@@ -545,6 +592,46 @@ impl AgentConnectionManager {
         })?
     }
 
+    pub async fn list_sessions(
+        &self,
+        connection_id: AgentConnectionId,
+        cwd: Option<PathBuf>,
+        cursor: Option<String>,
+    ) -> AgentResult<AgentSessionListPage> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::ListSessions {
+                cwd,
+                cursor,
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before session list completed".into())
+        })?
+    }
+
+    pub async fn delete_session(
+        &self,
+        connection_id: AgentConnectionId,
+        external_session_id: impl Into<String>,
+    ) -> AgentResult<()> {
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::DeleteSession {
+                external_session_id: external_session_id.into(),
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before session delete completed".into())
+        })?
+    }
+
     /// Immediately switch the session's mode via ACP `session/set_mode`
     /// (matched against the modes the agent advertised). Errors while a turn is
     /// in flight — callers keep the choice as a next-turn override instead.
@@ -605,11 +692,16 @@ impl AgentConnectionManager {
             return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
         };
 
-        connection
+        // A closed command channel means the process task is already exiting;
+        // it is still safe and necessary to join it.
+        let _ = connection
             .cmd_tx
             .send(AgentConnectionCommand::Disconnect)
+            .await;
+        connection
+            .task
             .await
-            .map_err(|_| AgentError::Runtime("agent connection command channel closed".into()))
+            .map_err(|error| AgentError::Runtime(format!("agent connection task failed: {error}")))
     }
 
     pub async fn list_connections(&self) -> Vec<ManagedAgentConnectionSnapshot> {
@@ -669,6 +761,7 @@ struct AgentConnectionRunner {
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
+    capabilities: Arc<RwLock<AcpCapabilitySnapshot>>,
     pending_permissions: Arc<Mutex<HashMap<String, PendingPermission>>>,
     pending_elicitations: Arc<Mutex<HashMap<String, PendingElicitation>>>,
     auto_approve_mode: AgentAutoApproveMode,
@@ -729,6 +822,7 @@ impl AgentConnectionRunner {
             event_tx,
             session_map: Arc::new(RwLock::new(HashMap::new())),
             session_controls: Arc::new(RwLock::new(HashMap::new())),
+            capabilities: Arc::new(RwLock::new(AcpCapabilitySnapshot::default())),
             pending_permissions: Arc::new(Mutex::new(HashMap::new())),
             pending_elicitations: Arc::new(Mutex::new(HashMap::new())),
             auto_approve_mode,
@@ -799,6 +893,7 @@ impl AgentConnectionRunner {
                             modes: Vec::new(),
                             current_mode: None,
                             config_options: Vec::new(),
+                            capabilities: None,
                         },
                     )));
                 }
@@ -815,7 +910,16 @@ impl AgentConnectionRunner {
                     external_session_id,
                     result_tx,
                 } => {
-                    let controls = self.session_controls_snapshot(session_id).await;
+                    self.session_map
+                        .write()
+                        .await
+                        .insert(session_id, external_session_id.clone());
+                    let controls = AgentSessionControlsSnapshot {
+                        modes: Vec::new(),
+                        current_mode: None,
+                        config_options: Vec::new(),
+                        capabilities: None,
+                    };
                     let _ = result_tx.send(Ok((external_session_id, controls)));
                 }
                 AgentConnectionCommand::ForkSession {
@@ -825,6 +929,16 @@ impl AgentConnectionRunner {
                     // The in-memory agent has no server-side session; hand back a
                     // synthetic forked id so the fork flow is exercisable in tests.
                     let _ = result_tx.send(Ok(format!("fork-{}", session_id.0)));
+                }
+                AgentConnectionCommand::ListSessions { result_tx, .. } => {
+                    let _ = result_tx.send(Err(AgentError::Runtime(
+                        "agent does not support session/list".into(),
+                    )));
+                }
+                AgentConnectionCommand::DeleteSession { result_tx, .. } => {
+                    let _ = result_tx.send(Err(AgentError::Runtime(
+                        "agent does not support session/delete".into(),
+                    )));
                 }
                 AgentConnectionCommand::Prompt {
                     session_id,
@@ -840,6 +954,9 @@ impl AgentConnectionRunner {
                                 uri.as_deref().unwrap_or("[image]").to_string()
                             }
                             AgentContentBlock::Resource { uri, .. } => uri,
+                            AgentContentBlock::Protocol { content } => {
+                                serde_json::to_string(&content).unwrap_or_default()
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join("\n");
@@ -932,6 +1049,7 @@ impl AgentConnectionRunner {
                     title: "Inspect fixture workspace".to_string(),
                     kind: Some("read".to_string()),
                     input_preview: None,
+                    meta: None,
                 },
             },
         );
@@ -943,6 +1061,7 @@ impl AgentConnectionRunner {
                     id: "fixture-tool".to_string(),
                     status: Some("running".to_string()),
                     content: Some("reading fixture input".to_string()),
+                    meta: None,
                 },
             },
         );
@@ -1070,6 +1189,7 @@ impl AgentConnectionRunner {
                     id: "fixture-tool".to_string(),
                     status: Some("completed".to_string()),
                     content: Some("fixture tool completed".to_string()),
+                    meta: None,
                 },
             },
         );
@@ -1251,30 +1371,27 @@ impl AgentConnectionRunner {
                 acp::on_receive_notification!(),
             )
             .connect_with(transport, |conn: ConnectionTo<Agent>| async move {
-                let initialize = conn
-                    .send_request(
-                        InitializeRequest::new(ProtocolVersion::LATEST)
-                            .client_capabilities(
-                                ClientCapabilities::new()
-                                    .terminal(true)
-                                    .session(
-                                        ClientSessionCapabilities::new().config_options(
-                                            SessionConfigOptionsCapabilities::new()
-                                                .boolean(BooleanConfigOptionCapabilities::new()),
-                                        ),
-                                    )
-                                    .elicitation(
-                                        // Form mode only: it covers AskUserQuestion and MCP
-                                        // form elicitations. URL mode needs a browser hand-off
-                                        // flow the app doesn't have yet.
-                                        ElicitationCapabilities::new()
-                                            .form(ElicitationFormCapabilities::new()),
-                                    ),
-                            )
-                            .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
+                let client_capabilities = ClientCapabilities::new()
+                    .terminal(true)
+                    .session(
+                        ClientSessionCapabilities::new().config_options(
+                            SessionConfigOptionsCapabilities::new()
+                                .boolean(BooleanConfigOptionCapabilities::new()),
+                        ),
                     )
-                    .block_task();
-                let initialize_response =
+                    .elicitation(
+                        // Form mode only: it covers AskUserQuestion and MCP
+                        // form elicitations. URL mode needs a browser hand-off
+                        // flow the app doesn't have yet.
+                        ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()),
+                    );
+                let initialize = AcpAuthStatusAdapter::initialize(
+                    &conn,
+                    InitializeRequest::new(ProtocolVersion::LATEST)
+                        .client_capabilities(client_capabilities.clone())
+                        .client_info(Implementation::new("vibex", env!("CARGO_PKG_VERSION"))),
+                );
+                let (initialize_response, raw_capabilities) =
                     match tokio::time::timeout(handshake_timeout_duration, initialize).await {
                         Ok(result) => result?,
                         Err(_) => {
@@ -1282,7 +1399,27 @@ impl AgentConnectionRunner {
                             return Err(acp::Error::internal_error());
                         }
                     };
+                let mut capability_snapshot = AcpCapabilityNormalizer::normalize(
+                    initialize_response.protocol_version,
+                    &initialize_response.agent_capabilities,
+                    &raw_capabilities,
+                    &client_capabilities,
+                );
+                capability_snapshot.authentication = AcpAuthStatusAdapter::observe_if_advertised(
+                    &conn,
+                    &raw_capabilities,
+                    1,
+                    Duration::from_secs(AUTH_STATUS_TIMEOUT_SECS),
+                )
+                .await
+                .map(Into::into);
+                *runner.capabilities.write().await = capability_snapshot;
                 let supports_load_session = initialize_response.agent_capabilities.load_session;
+                let supports_resume_session = initialize_response
+                    .agent_capabilities
+                    .session_capabilities
+                    .resume
+                    .is_some();
                 let supports_close_session = initialize_response
                     .agent_capabilities
                     .session_capabilities
@@ -1300,6 +1437,16 @@ impl AgentConnectionRunner {
                 let companion_capabilities = CompanionCapabilities {
                     accepts_session_mcp_servers: true,
                 };
+                let supports_list = initialize_response
+                    .agent_capabilities
+                    .session_capabilities
+                    .list
+                    .is_some();
+                let supports_delete = initialize_response
+                    .agent_capabilities
+                    .session_capabilities
+                    .delete
+                    .is_some();
                 // Handshake succeeded — the connection is now genuinely reachable.
                 // Signal readiness so `connect` can mark it Ready. A failure before
                 // this point leaves the sender for `run` to forward the real error.
@@ -1333,9 +1480,10 @@ impl AgentConnectionRunner {
                                     runner.emit_controls_snapshot(session_id, &controls);
                                     Ok((acp_session_id, controls))
                                 }
-                                Err(error) => Err(AgentError::Runtime(format!(
-                                    "ACP session preparation failed: {error}"
-                                ))),
+                                Err(error) => Err(map_acp_session_error(
+                                    "ACP session preparation failed",
+                                    error,
+                                )),
                             };
                             let _ = result_tx.send(result);
                         }
@@ -1382,13 +1530,12 @@ impl AgentConnectionRunner {
                                     session_id,
                                     external_session_id,
                                     supports_load_session,
+                                    supports_resume_session,
                                     companion_capabilities,
                                 )
                                 .await
                                 .map_err(|error| {
-                                    AgentError::Runtime(format!(
-                                        "ACP session resume failed: {error}"
-                                    ))
+                                    map_acp_session_error("ACP session resume failed", error)
                                 });
                             let result = match result {
                                 Ok(acp_session_id) => Ok((
@@ -1450,6 +1597,69 @@ impl AgentConnectionRunner {
                             } else {
                                 Err(AgentError::Runtime(
                                     "agent does not support session/fork".into(),
+                                ))
+                            };
+                            let _ = result_tx.send(result);
+                        }
+                        AgentConnectionCommand::ListSessions {
+                            cwd,
+                            cursor,
+                            result_tx,
+                        } => {
+                            let result = if supports_list {
+                                let response = conn
+                                    .send_request(
+                                        ListSessionsRequest::new().cwd(cwd).cursor(cursor),
+                                    )
+                                    .block_task()
+                                    .await
+                                    .map_err(|error| {
+                                        AgentError::Runtime(format!("session/list failed: {error}"))
+                                    });
+                                response.map(|response| AgentSessionListPage {
+                                    sessions: response
+                                        .sessions
+                                        .into_iter()
+                                        .map(|session| AgentListedSession {
+                                            acp_session_id: session.session_id.0.to_string(),
+                                            cwd: session.cwd.to_string_lossy().into_owned(),
+                                            additional_directories: session
+                                                .additional_directories
+                                                .into_iter()
+                                                .map(|path| path.to_string_lossy().into_owned())
+                                                .collect(),
+                                            title: session.title,
+                                            updated_at: session.updated_at,
+                                            meta: bounded_optional_meta(session.meta),
+                                        })
+                                        .collect(),
+                                    next_cursor: response.next_cursor,
+                                    meta: bounded_optional_meta(response.meta),
+                                })
+                            } else {
+                                Err(AgentError::Runtime(
+                                    "agent does not support session/list".into(),
+                                ))
+                            };
+                            let _ = result_tx.send(result);
+                        }
+                        AgentConnectionCommand::DeleteSession {
+                            external_session_id,
+                            result_tx,
+                        } => {
+                            let result = if supports_delete {
+                                conn.send_request(DeleteSessionRequest::new(SessionId::new(
+                                    external_session_id,
+                                )))
+                                .block_task()
+                                .await
+                                .map(|_| ())
+                                .map_err(|error| {
+                                    AgentError::Runtime(format!("session/delete failed: {error}"))
+                                })
+                            } else {
+                                Err(AgentError::Runtime(
+                                    "agent does not support session/delete".into(),
                                 ))
                             };
                             let _ = result_tx.send(result);
@@ -1547,6 +1757,7 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         external_session_id: String,
         supports_load_session: bool,
+        supports_resume_session: bool,
         companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
@@ -1554,13 +1765,16 @@ impl AgentConnectionRunner {
         }
 
         if supports_load_session {
-            let load_result = conn
-                .send_request(LoadSessionRequest::new(
-                    SessionId::new(external_session_id.clone()),
-                    working_dir.to_path_buf(),
-                ))
-                .block_task()
-                .await;
+            let mut request = LoadSessionRequest::new(
+                SessionId::new(external_session_id.clone()),
+                working_dir.to_path_buf(),
+            );
+            if self.capabilities.read().await.additional_directories {
+                request =
+                    request.additional_directories(self.snapshot.additional_directories.clone());
+            }
+            request = request.mcp_servers(self.session_mcp_servers(working_dir).await);
+            let load_result = conn.send_request(request).block_task().await;
             match load_result {
                 Ok(response) => {
                     self.session_map
@@ -1576,6 +1790,25 @@ impl AgentConnectionRunner {
                 }
             }
         } else {
+            if supports_resume_session {
+                let mut request = ResumeSessionRequest::new(
+                    SessionId::new(external_session_id.clone()),
+                    working_dir.to_path_buf(),
+                );
+                if self.capabilities.read().await.additional_directories {
+                    request = request
+                        .additional_directories(self.snapshot.additional_directories.clone());
+                }
+                request = request.mcp_servers(self.session_mcp_servers(working_dir).await);
+                let response = conn.send_request(request).block_task().await?;
+                self.session_map
+                    .write()
+                    .await
+                    .insert(session_id, external_session_id.clone());
+                self.emit_session_controls(session_id, response.modes, response.config_options)
+                    .await;
+                return Ok(external_session_id);
+            }
             self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
         }
 
@@ -1614,6 +1847,10 @@ impl AgentConnectionRunner {
         companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         let mut request = NewSessionRequest::new(working_dir.to_path_buf());
+        if self.capabilities.read().await.additional_directories {
+            request = request.additional_directories(self.snapshot.additional_directories.clone());
+        }
+        request.mcp_servers = self.session_mcp_servers(working_dir).await;
         // Splice in the delegation companion (so the agent's LLM gets the
         // delegate_to_agent tools) when the host installed an injector.
         if let Some(injector) = &self.delegation_injector {
@@ -1654,11 +1891,42 @@ impl AgentConnectionRunner {
             AgentEvent::SessionLinked {
                 acp_session_id: acp_session_id.clone(),
                 agent_id: self.snapshot.agent_id.clone(),
+                capabilities: self.capabilities.read().await.clone(),
             },
         );
         self.emit_session_controls(session_id, response.modes, response.config_options)
             .await;
         Ok(acp_session_id)
+    }
+
+    async fn session_mcp_servers(&self, _working_dir: &Path) -> Vec<acp::schema::v1::McpServer> {
+        let mut servers = Vec::new();
+        if let Some(injector) = &self.delegation_injector {
+            let capabilities = self.capabilities.read().await.clone();
+            for server in injector.remote_servers() {
+                let headers = server
+                    .headers
+                    .into_iter()
+                    .map(|(name, value)| acp::schema::v1::HttpHeader::new(name, value))
+                    .collect();
+                match server.transport {
+                    InjectedRemoteMcpTransport::Http if capabilities.mcp_http => {
+                        servers.push(acp::schema::v1::McpServer::Http(
+                            acp::schema::v1::McpServerHttp::new(server.name, server.url)
+                                .headers(headers),
+                        ));
+                    }
+                    InjectedRemoteMcpTransport::Sse if capabilities.mcp_sse => {
+                        servers.push(acp::schema::v1::McpServer::Sse(
+                            acp::schema::v1::McpServerSse::new(server.name, server.url)
+                                .headers(headers),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        servers
     }
 
     async fn emit_session_controls(
@@ -1724,6 +1992,7 @@ impl AgentConnectionRunner {
                 modes: Vec::new(),
                 current_mode: None,
                 config_options: Vec::new(),
+                capabilities: Some(self.capabilities.read().await.clone()),
             };
         };
         let (modes, current_mode) = controls
@@ -1735,6 +2004,7 @@ impl AgentConnectionRunner {
             modes,
             current_mode,
             config_options: agent_session_config_options_from_acp(controls.config_options.clone()),
+            capabilities: Some(self.capabilities.read().await.clone()),
         }
     }
 
@@ -1785,13 +2055,17 @@ impl AgentConnectionRunner {
                 .await?;
         }
 
-        // OpenCode rebuilds its config options when its model changes. An
-        // effort submitted first is therefore evaluated against the old/default
-        // model and can be rejected or applied to the wrong variant. Keep the
-        // normal caller ordering for every other agent, but make this
-        // dependency explicit for OpenCode's first-turn preset.
-        for override_item in
-            ordered_session_config_overrides(&self.snapshot.agent_id, config_overrides)
+        // ACP Agents may rebuild dependent config options after a model
+        // selection. Use the advertised semantic category to apply model
+        // selections first without consulting an Agent identity.
+        let advertised_options = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .map(|state| state.config_options.clone())
+            .unwrap_or_default();
+        for override_item in ordered_session_config_overrides(&advertised_options, config_overrides)
         {
             let Some(key) = non_empty_trimmed(&override_item.key) else {
                 continue;
@@ -2184,6 +2458,16 @@ impl AgentConnectionRunner {
                             let _ = result_tx.send(Err(AgentError::Runtime(
                                 "cannot fork the session while a turn is in progress; wait for it to finish"
                                     .into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::ListSessions { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot list sessions while a turn is in progress".into(),
+                            )));
+                        }
+                        Some(AgentConnectionCommand::DeleteSession { result_tx, .. }) => {
+                            let _ = result_tx.send(Err(AgentError::Runtime(
+                                "cannot delete a session while a turn is in progress".into(),
                             )));
                         }
                         Some(AgentConnectionCommand::SetSessionMode { result_tx, .. })
@@ -2734,7 +3018,8 @@ impl AcpClientBridge {
         // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
         // the in-flight prompt alive for the idle watchdog in `run_prompt`.
         *self.last_activity.lock().await = Instant::now();
-        let raw_notification = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
+        let mut raw_notification = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
+        bound_meta_fields(&mut raw_notification);
         let acp_session_id = args.session_id.0.to_string();
         let session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
         let event = match args.update {
@@ -2762,6 +3047,7 @@ impl AcpClientBridge {
                     input_preview: tool_call
                         .raw_input
                         .and_then(|input| serde_json::to_string(&input).ok()),
+                    meta: bounded_optional_meta(tool_call.meta),
                 },
             }),
             SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
@@ -2780,6 +3066,7 @@ impl AcpClientBridge {
                                 .as_ref()
                                 .and_then(|content| serde_json::to_string(content).ok())
                         }),
+                    meta: bounded_optional_meta(update.meta),
                 },
             }),
             SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
@@ -2838,10 +3125,10 @@ impl AcpClientBridge {
                 })
             }
             SessionUpdate::UsageUpdate(update) => Some(AgentEvent::Usage {
-                usage: AgentUsage {
-                    used: update.used,
-                    limit: Some(update.size),
-                },
+                usage: agent_usage_from_acp(update),
+            }),
+            SessionUpdate::SessionInfoUpdate(update) => Some(AgentEvent::SessionInfoUpdated {
+                patch: session_info_patch_from_acp(update),
             }),
             _ => Some(AgentEvent::RawAcpDiagnostic {
                 raw: raw_notification,
@@ -2941,22 +3228,22 @@ fn non_empty_trimmed(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-/// Apply dependency-bearing OpenCode options in the order its ACP service
-/// expects. `sort_by_key` is stable, so selections unrelated to this
-/// dependency retain their caller-provided order.
+/// Apply a model selection before options that may depend on it. The category
+/// comes from the Agent's ACP session-config advertisement; `sort_by_key` is
+/// stable, so unrelated selections retain their caller-provided order.
 fn ordered_session_config_overrides(
-    agent_id: &AgentId,
+    options: &[AcpSessionConfigOption],
     mut overrides: Vec<AgentSessionConfigOverride>,
 ) -> Vec<AgentSessionConfigOverride> {
-    if agent_id.as_str() == "opencode" {
-        overrides.sort_by_key(|override_item| {
-            match override_item.key.trim().to_ascii_lowercase().as_str() {
-                "model" => 0,
-                "effort" => 1,
-                _ => 2,
-            }
+    overrides.sort_by_key(|override_item| {
+        let is_model = options.iter().any(|option| {
+            matches!(
+                option.category.as_ref(),
+                Some(SessionConfigOptionCategory::Model)
+            ) && config_option_matches(option, &override_item.key)
         });
-    }
+        u8::from(!is_model)
+    });
     overrides
 }
 
@@ -3197,21 +3484,74 @@ fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
             uri,
         } => ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri)),
         AgentContentBlock::Resource { uri, .. } => ContentBlock::Text(TextContent::new(uri)),
+        AgentContentBlock::Protocol { content } => {
+            serde_json::from_value(content).unwrap_or_else(|error| {
+                ContentBlock::Text(TextContent::new(format!(
+                    "Unsupported ACP content block: {error}"
+                )))
+            })
+        }
     }
 }
 
 fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
     match block {
-        ContentBlock::Text(text) => AgentContentBlock::Text { text: text.text },
-        ContentBlock::Image(image) => AgentContentBlock::Image {
+        ContentBlock::Text(text) if text.meta.is_none() => {
+            AgentContentBlock::Text { text: text.text }
+        }
+        ContentBlock::Image(image) if image.meta.is_none() => AgentContentBlock::Image {
             data: image.data,
             mime_type: image.mime_type,
             uri: image.uri,
         },
         #[allow(unreachable_patterns)]
-        other => AgentContentBlock::Text {
-            text: serde_json::to_string(&other).unwrap_or_default(),
+        other => AgentContentBlock::Protocol {
+            content: bounded_acp_content_value(other),
         },
+    }
+}
+
+fn bounded_acp_content_value(block: impl Serialize) -> serde_json::Value {
+    let mut value = serde_json::to_value(block).unwrap_or(serde_json::Value::Null);
+    bound_meta_fields(&mut value);
+    value
+}
+
+fn session_info_patch_from_acp(
+    update: agent_client_protocol::schema::v1::SessionInfoUpdate,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(update).unwrap_or(serde_json::Value::Null);
+    bound_meta_fields(&mut value);
+    value
+}
+
+fn bounded_optional_meta(meta: Option<impl Serialize>) -> Option<serde_json::Value> {
+    meta.and_then(|meta| serde_json::to_value(meta).ok())
+        .filter(|meta| {
+            serde_json::to_vec(meta).is_ok_and(|encoded| encoded.len() <= MAX_CONTENT_META_BYTES)
+        })
+}
+
+fn bound_meta_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.get("_meta").is_some_and(|meta| {
+                serde_json::to_vec(meta)
+                    .map(|encoded| encoded.len() > MAX_CONTENT_META_BYTES)
+                    .unwrap_or(true)
+            }) {
+                object.remove("_meta");
+            }
+            for child in object.values_mut() {
+                bound_meta_fields(child);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                bound_meta_fields(child);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -3223,6 +3563,19 @@ where
         .ok()
         .and_then(|value| value.as_str().map(str::to_string))
         .unwrap_or_else(|| format!("{value:?}"))
+}
+
+fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) -> AgentUsage {
+    let (cost_amount, cost_currency) = update
+        .cost
+        .map(|cost| (Some(cost.amount), Some(cost.currency)))
+        .unwrap_or((None, None));
+    AgentUsage {
+        used: update.used,
+        limit: Some(update.size),
+        cost_amount,
+        cost_currency,
+    }
 }
 
 fn merged_agent_env(configured_env: &HashMap<String, String>) -> HashMap<String, String> {
@@ -3424,7 +3777,104 @@ mod tests {
     }
 
     #[test]
-    fn opencode_applies_model_before_model_dependent_effort() {
+    fn audio_resource_and_resource_link_content_round_trip_without_flattening() {
+        let fixtures = [
+            serde_json::json!({
+                "type": "audio",
+                "data": "AAEC",
+                "mimeType": "audio/wav",
+                "_meta": {"trace": "audio"}
+            }),
+            serde_json::json!({
+                "type": "resource",
+                "resource": {
+                    "uri": "file:///notes.txt",
+                    "mimeType": "text/plain",
+                    "text": "hello"
+                },
+                "_meta": {"trace": "resource"}
+            }),
+            serde_json::json!({
+                "type": "resource_link",
+                "name": "notes",
+                "uri": "file:///notes.txt",
+                "title": "Notes",
+                "description": "Project notes",
+                "mimeType": "text/plain",
+                "size": 5,
+                "_meta": {"trace": "link"}
+            }),
+        ];
+
+        for fixture in fixtures {
+            let acp: ContentBlock = serde_json::from_value(fixture.clone()).unwrap();
+            let normalized = acp_content_to_agent(acp);
+            let round_tripped = agent_block_to_acp(normalized);
+            assert_eq!(serde_json::to_value(round_tripped).unwrap(), fixture);
+        }
+    }
+
+    #[test]
+    fn oversized_content_meta_is_dropped_but_payload_is_preserved() {
+        let acp: ContentBlock = serde_json::from_value(serde_json::json!({
+            "type": "audio",
+            "data": "AAEC",
+            "mimeType": "audio/wav",
+            "_meta": {"large": "x".repeat(17 * 1024)}
+        }))
+        .unwrap();
+
+        let normalized = acp_content_to_agent(acp);
+        let encoded = serde_json::to_value(agent_block_to_acp(normalized)).unwrap();
+
+        assert_eq!(encoded["data"], "AAEC");
+        assert!(encoded.get("_meta").is_none());
+    }
+
+    #[test]
+    fn usage_keeps_cumulative_cost_and_currency() {
+        let usage = agent_usage_from_acp(
+            agent_client_protocol::schema::v1::UsageUpdate::new(53_000, 200_000)
+                .cost(agent_client_protocol::schema::v1::Cost::new(0.045, "USD")),
+        );
+
+        assert_eq!(usage.used, 53_000);
+        assert_eq!(usage.limit, Some(200_000));
+        assert_eq!(usage.cost_amount, Some(0.045));
+        assert_eq!(usage.cost_currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn session_info_update_preserves_partial_fields_and_bounded_meta() {
+        let update: agent_client_protocol::schema::v1::SessionInfoUpdate =
+            serde_json::from_value(serde_json::json!({
+                "title": "Renamed",
+                "_meta": {"source": "fixture"}
+            }))
+            .unwrap();
+        assert_eq!(
+            session_info_patch_from_acp(update),
+            serde_json::json!({
+                "title": "Renamed",
+                "_meta": {"source": "fixture"}
+            })
+        );
+    }
+
+    #[test]
+    fn model_selection_precedes_dependent_session_options_for_every_agent() {
+        let options = vec![
+            AcpSessionConfigOption::select(
+                "runtime-model",
+                "Runtime model",
+                "registry/example",
+                vec![SessionConfigSelectOption::new(
+                    "registry/example",
+                    "Registry Example",
+                )],
+            )
+            .category(Some(SessionConfigOptionCategory::Model)),
+        ];
         let overrides = vec![
             AgentSessionConfigOverride {
                 key: "effort".to_string(),
@@ -3440,8 +3890,7 @@ mod tests {
             },
         ];
 
-        let agent_id = AgentId::parse("opencode").unwrap();
-        let ordered = ordered_session_config_overrides(&agent_id, overrides);
+        let ordered = ordered_session_config_overrides(&options, overrides);
         assert_eq!(
             ordered
                 .iter()
@@ -3452,26 +3901,25 @@ mod tests {
     }
 
     #[test]
-    fn other_agents_keep_their_config_override_order() {
+    fn overrides_without_a_model_keep_their_caller_order() {
         let overrides = vec![
             AgentSessionConfigOverride {
                 key: "effort".to_string(),
                 value: "high".to_string(),
             },
             AgentSessionConfigOverride {
-                key: "model".to_string(),
-                value: "example".to_string(),
+                key: "permission".to_string(),
+                value: "ask".to_string(),
             },
         ];
 
-        let agent_id = AgentId::parse("codex").unwrap();
-        let ordered = ordered_session_config_overrides(&agent_id, overrides);
+        let ordered = ordered_session_config_overrides(&[], overrides);
         assert_eq!(
             ordered
                 .iter()
                 .map(|override_item| override_item.key.as_str())
                 .collect::<Vec<_>>(),
-            ["effort", "model"]
+            ["effort", "permission"]
         );
     }
 
@@ -3537,6 +3985,7 @@ mod tests {
                     launch_lock,
                     workspace_id: uuid::Uuid::new_v4(),
                     working_dir: std::env::temp_dir(),
+                    additional_directories: Vec::new(),
                     auto_approve_mode: AgentAutoApproveMode::Off,
                     env: HashMap::new(),
                 })
@@ -3566,6 +4015,7 @@ mod tests {
                 launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -3608,6 +4058,7 @@ mod tests {
                 launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -3657,6 +4108,7 @@ mod tests {
                 launch_lock: test_launch_lock(AgentId::parse("codex").unwrap()),
                 workspace_id: uuid::Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -3674,6 +4126,7 @@ mod tests {
                 modes: Vec::new(),
                 current_mode: None,
                 config_options: Vec::new(),
+                capabilities: None,
             }
         );
     }

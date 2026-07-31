@@ -36,7 +36,6 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { agentsApi } from '@/features/agents/api';
 import { configApi } from '@/lib/api';
 import {
   getDefaultTerminalShell,
@@ -74,10 +73,6 @@ Rules:
 
 Output shape:
 {"EnhancedPrompt":"..."}`;
-
-function isFreeOpenCodeModel(model: string): boolean {
-  return model.toLowerCase().includes('-free');
-}
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);
@@ -137,8 +132,8 @@ export function GeneralSettings() {
     Partial<Record<EditorType, boolean>>
   >({});
 
-  const [opencodeModels, setOpencodeModels] = useState<string[]>([]);
-  const [opencodeModelsLoading, setOpencodeModelsLoading] = useState(false);
+  const [agentModels, setAgentModels] = useState<string[]>([]);
+  const [agentModelsLoading, setAgentModelsLoading] = useState(false);
 
   useEffect(() => {
     if (config && !dirty) {
@@ -177,10 +172,10 @@ export function GeneralSettings() {
     });
   }, []);
 
-  const readPersistedOpencodeModels = useCallback(async () => {
+  const readPersistedAgentModels = useCallback(async () => {
     try {
-      const result = await configApi.listOpencodeModels();
-      setOpencodeModels(result.models);
+      const result = await configApi.listPromptEnhancementModels();
+      setAgentModels(result.models);
       return result.models;
     } catch {
       return null;
@@ -188,7 +183,7 @@ export function GeneralSettings() {
   }, []);
 
   // A normal settings visit only reads the same fingerprint-matching catalog
-  // that session creation uses. It never starts an OpenCode process. If
+  // that session creation uses. It never starts an Agent process. If
   // startup warmup is still completing, retry the local catalog read for a
   // short, bounded window rather than polling forever on an absent runtime.
   useEffect(() => {
@@ -198,7 +193,7 @@ export function GeneralSettings() {
     const maxStartupCatalogRetries = 10;
 
     const loadCatalog = async () => {
-      const models = await readPersistedOpencodeModels();
+      const models = await readPersistedAgentModels();
       if (
         !disposed &&
         models?.length === 0 &&
@@ -216,21 +211,20 @@ export function GeneralSettings() {
       disposed = true;
       if (retryTimer != null) window.clearTimeout(retryTimer);
     };
-  }, [readPersistedOpencodeModels]);
+  }, [readPersistedAgentModels]);
 
-  const refreshOpencodeModels = useCallback(async () => {
-    setOpencodeModelsLoading(true);
+  const refreshAgentModels = useCallback(async () => {
+    setAgentModelsLoading(true);
     try {
       // This is the only user-initiated path allowed to refresh discovery. The
-      // backend uses the verified absolute local Runtime/ACP pair, then the UI
-      // reads the persisted catalog below; it never launches bare `opencode`.
-      const refreshed = await agentsApi.refreshCapabilityCatalog('opencode');
+      // backend uses each eligible Agent's verified local Runtime/ACP pair.
+      const refreshed = await configApi.refreshPromptEnhancementModels();
       if (!refreshed) {
         toast.error(t('general.modelsRefreshFailed'));
         return;
       }
 
-      const models = await readPersistedOpencodeModels();
+      const models = await readPersistedAgentModels();
       if (!models?.length) {
         toast.error(t('general.modelsRefreshFailed'));
         return;
@@ -243,28 +237,21 @@ export function GeneralSettings() {
           : t('general.modelsRefreshFailed')
       );
     } finally {
-      setOpencodeModelsLoading(false);
+      setAgentModelsLoading(false);
     }
-  }, [readPersistedOpencodeModels, t]);
+  }, [readPersistedAgentModels, t]);
 
   const promptEnhancementModels = useMemo(() => {
     const uniqueModels: string[] = [];
 
-    for (const model of opencodeModels) {
+    for (const model of agentModels) {
       if (model && !uniqueModels.includes(model)) {
         uniqueModels.push(model);
       }
     }
 
-    return uniqueModels.sort((a, b) => {
-      const aIsFree = isFreeOpenCodeModel(a);
-      const bIsFree = isFreeOpenCodeModel(b);
-      if (aIsFree !== bIsFree) {
-        return aIsFree ? -1 : 1;
-      }
-      return a.localeCompare(b);
-    });
-  }, [opencodeModels]);
+    return uniqueModels.sort((a, b) => a.localeCompare(b));
+  }, [agentModels]);
   const currentPromptEnhancementModel =
     draft?.prompt_enhancement_model?.trim() ?? '';
   const currentPromptEnhancementModelAvailable =
@@ -492,7 +479,7 @@ export function GeneralSettings() {
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-4">
                 <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {t('general.opencodeModel')}
+                  {t('general.promptEnhancementModel')}
                 </Label>
                 <div className="flex items-center justify-end gap-2">
                   <Select
@@ -508,7 +495,7 @@ export function GeneralSettings() {
                   >
                     <SelectTrigger
                       className="!w-72"
-                      aria-label={t('general.opencodeModel')}
+                      aria-label={t('general.promptEnhancementModel')}
                     >
                       <SelectValue
                         placeholder={t('general.selectModelPlaceholder')}
@@ -516,26 +503,13 @@ export function GeneralSettings() {
                     </SelectTrigger>
                     <SelectContent align="start" className="max-h-72">
                       {promptEnhancementModels.map((model) => {
-                        const isFree = isFreeOpenCodeModel(model);
                         return (
                           <SelectItem
                             key={model}
                             value={model}
                             textValue={model}
-                            className={
-                              isFree
-                                ? 'settings-status-free font-medium focus:text-[hsl(var(--success))]'
-                                : undefined
-                            }
                           >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate">{model}</span>
-                              {isFree ? (
-                                <span className="settings-status-free-badge shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none">
-                                  FREE
-                                </span>
-                              ) : null}
-                            </span>
+                            <span className="truncate">{model}</span>
                           </SelectItem>
                         );
                       })}
@@ -545,14 +519,14 @@ export function GeneralSettings() {
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() => void refreshOpencodeModels()}
-                    disabled={opencodeModelsLoading}
+                    onClick={() => void refreshAgentModels()}
+                    disabled={agentModelsLoading}
                     title={t('general.refreshModels')}
                     aria-label={t('general.refreshModels')}
                   >
                     <RefreshCw
                       className={`h-3.5 w-3.5 ${
-                        opencodeModelsLoading ? 'animate-spin' : ''
+                        agentModelsLoading ? 'animate-spin' : ''
                       }`}
                     />
                   </Button>

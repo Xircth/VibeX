@@ -45,9 +45,27 @@ pub enum CompanionInjection {
     Unsupported { code: &'static str },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InjectedRemoteMcpTransport {
+    Http,
+    Sse,
+}
+
+#[derive(Debug, Clone)]
+pub struct InjectedRemoteMcpServer {
+    pub name: String,
+    pub transport: InjectedRemoteMcpTransport,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+}
+
 /// Asked, per new ACP session, for a companion MCP server to inject (or `None`
 /// to skip). Implementations may mint + register a per-launch token as a side
 /// effect; they must be cheap and non-blocking (called on the connection runner).
 pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection;
+
+    fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
+        Vec::new()
+    }
 }

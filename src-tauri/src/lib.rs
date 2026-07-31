@@ -268,6 +268,27 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             });
 
             app.manage(state);
+            // Recover Agent management, publish stable terminal commands, and
+            // warm slow installation evidence without making Settings → Agent
+            // responsible for startup work.
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let pool = handle
+                        .state::<state::AppState>()
+                        .deployment
+                        .db()
+                        .pool
+                        .clone();
+                    commands::agent_management::recover_interrupted_agent_operations(
+                        &handle, &pool,
+                    )
+                    .await;
+                    commands::agent_management::reconcile_managed_cli_exposures(&handle, &pool)
+                        .await;
+                    commands::agent_management::warm_agent_management(&handle, &pool).await;
+                });
+            }
             // Bidirectional IM channels: run inbound loops + conversation command dispatch.
             commands::chat_channel::set_audit_pool(
                 app.state::<state::AppState>().deployment.db().pool.clone(),
@@ -592,7 +613,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::config::check_editor_availability,
             commands::config::play_notification_sound,
             commands::config::enhance_prompt,
-            commands::config::list_opencode_models,
+            commands::config::list_prompt_enhancement_models,
             commands::config::get_claude_settings,
             commands::config::update_claude_settings,
             commands::config::mcp_scan_local,
@@ -608,6 +629,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::desktop_toast::desktop_toast_window_ready,
             // Open Agent management and official ACP Registry
             commands::agent_management::agent_management_bar,
+            commands::agent_management::agent_management_refresh,
             commands::agent_management::agent_management_detail,
             commands::agent_management::agent_registry_view,
             commands::agent_management::agent_registry_refresh,
@@ -616,7 +638,8 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::agent_management::agent_management_reorder,
             commands::agent_management::agent_management_preflight,
             commands::agent_management::agent_management_repair,
-            commands::agent_management::agent_management_update,
+            commands::agent_management::agent_management_check_update,
+            commands::agent_management::agent_management_apply_update,
             commands::agent_management::agent_management_rollback,
             commands::agent_management::agent_management_cancel_operation,
             commands::agent_management::agent_management_uninstall,
@@ -647,14 +670,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::web_service::stop_web_server,
             commands::web_service::probe_web_service_port,
             commands::web_service::generate_web_service_token,
-            commands::model_provider::list_agent_providers,
-            commands::model_provider::create_agent_provider,
-            commands::model_provider::update_agent_provider,
-            commands::model_provider::delete_agent_provider,
-            commands::model_provider::apply_agent_provider,
-            commands::model_provider::preview_agent_provider,
-            commands::model_provider::clear_agent_provider_key,
-            commands::model_provider::fetch_agent_provider_models,
             commands::chat_channel::list_chat_channels,
             commands::chat_channel::list_chat_channel_message_logs,
             commands::chat_channel::create_chat_channel,
@@ -690,8 +705,15 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::approvals::respond_to_approval,
             // ACP-native agent platform commands
             commands::agents::agent_capability_catalog,
+            commands::agents::agent_capability_catalog_fresh,
             commands::agents::agent_refresh_capability_catalog,
+            commands::agents::refresh_prompt_enhancement_catalogs,
+            commands::agents::agent_session_defaults,
+            commands::agents::agent_set_session_defaults,
             commands::agents::agent_runtime_snapshot,
+            commands::agents::agent_list_remote_sessions,
+            commands::agents::agent_delete_remote_session,
+            commands::agents::agent_import_remote_session,
             commands::agents::agent_connection_snapshot,
             commands::agents::agent_load_session,
             commands::agents::agent_list_session_commands,

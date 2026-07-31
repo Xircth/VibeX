@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use agents::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, ComponentProbeState,
     ExternalCandidateObservation, ManagementFacts, ManagementOperationState, ProbeService,
-    RequiredComponentProbe, reduce_management_snapshot,
+    RequiredComponentProbe, SessionAuthenticationEvidence, reduce_management_snapshot,
+    resolve_session_authentication_evidence,
 };
 
 fn facts() -> ManagementFacts {
@@ -124,4 +125,46 @@ fn probe_service_only_adopts_fully_verified_profile_candidates() {
     ] {
         assert!(service.adopt_external_candidate(&codex, invalid).is_none());
     }
+}
+
+#[test]
+fn session_ready_agent_can_use_an_authentication_free_provider() {
+    let resolved = resolve_session_authentication_evidence(
+        AgentAuthenticationStatus::NotLoggedIn,
+        SessionAuthenticationEvidence::SessionReady,
+    );
+
+    assert_eq!(
+        resolved.authentication,
+        AgentAuthenticationStatus::NotRequired
+    );
+    assert!(!resolved.authentication_required);
+}
+
+#[test]
+fn session_authentication_requirement_overrides_a_generic_no_auth_assumption() {
+    let resolved = resolve_session_authentication_evidence(
+        AgentAuthenticationStatus::NotRequired,
+        SessionAuthenticationEvidence::AuthenticationRequired,
+    );
+
+    assert_eq!(
+        resolved.authentication,
+        AgentAuthenticationStatus::NotLoggedIn
+    );
+    assert!(resolved.authentication_required);
+}
+
+#[test]
+fn ambiguous_credentials_do_not_block_a_confirmed_ready_session() {
+    let resolved = resolve_session_authentication_evidence(
+        AgentAuthenticationStatus::MultipleUnknown,
+        SessionAuthenticationEvidence::SessionReady,
+    );
+
+    assert_eq!(
+        resolved.authentication,
+        AgentAuthenticationStatus::MultipleUnknown
+    );
+    assert!(!resolved.authentication_required);
 }

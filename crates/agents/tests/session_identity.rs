@@ -28,6 +28,7 @@ async fn session_eligibility_uses_open_agent_id() {
             },
             workspace_id: Uuid::new_v4(),
             working_dir: PathBuf::from("/tmp/vibex-open-agent-session"),
+            additional_directories: Vec::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
         })
@@ -46,6 +47,7 @@ async fn session_eligibility_uses_open_agent_id() {
     let linked = serde_json::to_value(AgentEvent::SessionLinked {
         acp_session_id: "vendor-acp-session".to_string(),
         agent_id: agent_id.clone(),
+        capabilities: Default::default(),
     })
     .unwrap();
     assert_eq!(linked["agent_id"], "vendor.agent-v2");

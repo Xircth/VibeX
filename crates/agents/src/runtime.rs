@@ -38,6 +38,7 @@ pub struct ConnectAgentInput {
     pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
+    pub additional_directories: Vec<PathBuf>,
     pub auto_approve_mode: AgentAutoApproveMode,
     pub env: HashMap<String, String>,
 }
@@ -78,6 +79,7 @@ pub struct EnsureAgentSessionInput {
     pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
+    pub additional_directories: Vec<PathBuf>,
     pub session_id: AgentSessionId,
     pub acp_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -90,6 +92,7 @@ pub struct ResumeAgentSessionInput {
     pub launch_lock: SessionLaunchLock,
     pub workspace_id: Uuid,
     pub working_dir: PathBuf,
+    pub additional_directories: Vec<PathBuf>,
     pub session_id: AgentSessionId,
     pub external_session_id: String,
     pub auto_approve_mode: AgentAutoApproveMode,
@@ -113,7 +116,7 @@ struct RuntimeConnection {
     snapshot: AgentConnectionSnapshot,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RuntimeSession {
     snapshot: AgentSessionSnapshot,
     queue: AgentPromptQueue,
@@ -391,6 +394,7 @@ impl AgentRuntime {
                 launch_lock: input.launch_lock,
                 workspace_id: snapshot.workspace_id,
                 working_dir: input.working_dir,
+                additional_directories: input.additional_directories,
                 auto_approve_mode: input.auto_approve_mode,
                 env: input.env,
             })
@@ -495,6 +499,7 @@ impl AgentRuntime {
                     modes: Vec::new(),
                     current_mode: None,
                     config_options: Vec::new(),
+                    capabilities: None,
                 },
             },
         );
@@ -589,6 +594,7 @@ impl AgentRuntime {
                     launch_lock: input.launch_lock,
                     workspace_id: input.workspace_id,
                     working_dir: input.working_dir,
+                    additional_directories: input.additional_directories,
                     auto_approve_mode: input.auto_approve_mode,
                     env: input.env,
                 })
@@ -669,6 +675,7 @@ impl AgentRuntime {
         Ok(AgentPreparedSessionSnapshot {
             session: stored.snapshot.clone(),
             controls,
+            stale_default_ids: None,
         })
     }
 
@@ -775,8 +782,8 @@ impl AgentRuntime {
     }
 
     pub async fn discard_prepared_session(&self, session_id: AgentSessionId) -> AgentResult<()> {
-        let mut state = self.state.write().await;
-        let Some(session) = state.sessions.get(&session_id) else {
+        let session = self.state.read().await.sessions.get(&session_id).cloned();
+        let Some(session) = session else {
             return Ok(());
         };
         if session.ownership != RuntimeSessionOwnership::Prepared {
@@ -786,7 +793,19 @@ impl AgentRuntime {
         self.connection_manager
             .discard_session(connection_id, session_id)
             .await?;
-        state.sessions.remove(&session_id);
+        let should_reap = {
+            let mut state = self.state.write().await;
+            state.sessions.remove(&session_id);
+            !state
+                .sessions
+                .values()
+                .any(|session| session.snapshot.connection_id == connection_id)
+        };
+        if should_reap {
+            let disconnected = self.connection_manager.disconnect(connection_id).await;
+            self.state.write().await.connections.remove(&connection_id);
+            disconnected?;
+        }
         Ok(())
     }
 
@@ -800,6 +819,7 @@ impl AgentRuntime {
                 launch_lock: input.launch_lock,
                 workspace_id: input.workspace_id,
                 working_dir: input.working_dir,
+                additional_directories: input.additional_directories,
                 session_id: input.session_id,
                 acp_session_id: input.external_session_id.clone(),
                 auto_approve_mode: input.auto_approve_mode,
@@ -859,6 +879,29 @@ impl AgentRuntime {
         };
         self.connection_manager
             .fork_session(connection_id, session_id)
+            .await
+    }
+
+    pub async fn list_agent_sessions(
+        &self,
+        connection_id: AgentConnectionId,
+        cwd: Option<PathBuf>,
+        cursor: Option<String>,
+    ) -> AgentResult<crate::AgentSessionListPage> {
+        self.connection_manager
+            .list_sessions(connection_id, cwd, cursor)
+            .await
+    }
+
+    /// Delete only the Agent-owned ACP session. VibeX conversation rows and
+    /// durable event logs are intentionally outside this protocol operation.
+    pub async fn delete_agent_session(
+        &self,
+        connection_id: AgentConnectionId,
+        external_session_id: impl Into<String>,
+    ) -> AgentResult<()> {
+        self.connection_manager
+            .delete_session(connection_id, external_session_id)
             .await
     }
 
@@ -1172,6 +1215,18 @@ impl AgentRuntime {
         Ok(snapshot)
     }
 
+    /// Reap a short-lived probe/discovery connection and remove it from the
+    /// runtime active set instead of retaining a Disconnected history entry.
+    pub async fn discard_connection(&self, connection_id: AgentConnectionId) -> AgentResult<()> {
+        self.connection_manager.disconnect(connection_id).await?;
+        let mut state = self.state.write().await;
+        state.connections.remove(&connection_id);
+        state
+            .sessions
+            .retain(|_, session| session.snapshot.connection_id != connection_id);
+        Ok(())
+    }
+
     fn emit_locked(
         &self,
         state: &mut RuntimeState,
@@ -1466,6 +1521,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -1505,6 +1561,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -1572,6 +1629,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -1609,6 +1667,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -1795,6 +1854,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -1908,6 +1968,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -2052,6 +2113,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -2069,6 +2131,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir,
+                additional_directories: Vec::new(),
                 session_id: session.id,
                 acp_session_id: session.acp_session_id.clone(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2104,6 +2167,7 @@ mod tests {
             launch_lock: test_launch_lock(),
             workspace_id,
             working_dir: working_dir.clone(),
+            additional_directories: Vec::new(),
             session_id,
             acp_session_id: format!("pending-{session_id}"),
             auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2127,6 +2191,10 @@ mod tests {
                 .sessions
                 .iter()
                 .all(|session| session.id != discarded_id)
+        );
+        assert!(
+            runtime.snapshot().await.connections.is_empty(),
+            "discarding the last prepared session must reap its ACP connection"
         );
 
         let committed_id = AgentSessionId::new();
@@ -2189,6 +2257,7 @@ mod tests {
             launch_lock: test_launch_lock(),
             workspace_id,
             working_dir: PathBuf::from("C:/prepared-reconnect"),
+            additional_directories: Vec::new(),
             session_id,
             acp_session_id: format!("pending-{session_id}"),
             auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2246,6 +2315,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/prepared-controls"),
+                additional_directories: Vec::new(),
                 session_id,
                 acp_session_id: format!("pending-{session_id}"),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2335,6 +2405,7 @@ mod tests {
                         launch_lock: test_launch_lock(),
                         workspace_id,
                         working_dir: PathBuf::from("C:/work"),
+                        additional_directories: Vec::new(),
                         session_id,
                         acp_session_id: "shared-acp-session".to_string(),
                         auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2371,6 +2442,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 session_id,
                 external_session_id: "codex-session-123".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2391,6 +2463,7 @@ mod tests {
                 modes: Vec::new(),
                 current_mode: None,
                 config_options: Vec::new(),
+                capabilities: None,
             }
         );
     }
@@ -2407,6 +2480,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id,
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 session_id: local_session_id,
                 acp_session_id: "external-acp-session".to_string(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
@@ -2429,6 +2503,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })
@@ -2503,6 +2578,7 @@ mod tests {
                 launch_lock: test_launch_lock(),
                 workspace_id: Uuid::new_v4(),
                 working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
                 auto_approve_mode: AgentAutoApproveMode::Off,
                 env: HashMap::new(),
             })

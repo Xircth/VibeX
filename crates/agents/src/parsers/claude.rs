@@ -181,6 +181,8 @@ fn parse_usage(value: Option<&Value>) -> Option<TurnUsage> {
         cache_creation_input_tokens: field("cache_creation_input_tokens"),
         cache_read_input_tokens: field("cache_read_input_tokens"),
         context_window_max: None,
+        cost_amount: None,
+        cost_currency: None,
     };
     (usage != TurnUsage::default()).then_some(usage)
 }

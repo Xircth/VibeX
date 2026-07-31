@@ -84,6 +84,31 @@ pub struct NativeFileMetadata {
 pub trait NativeFileSystem: Send + Sync {
     async fn read(&self, path: &Path) -> Result<Option<Vec<u8>>, BoundaryError>;
     async fn write_atomic(&self, path: &Path, bytes: &[u8]) -> Result<(), BoundaryError>;
+    async fn remove_file(&self, path: &Path) -> Result<(), BoundaryError> {
+        Err(BoundaryError::new(format!(
+            "filesystem adapter cannot remove `{}`",
+            path.display()
+        )))
+    }
+    async fn write_many_atomic(&self, writes: &[(PathBuf, Vec<u8>)]) -> Result<(), BoundaryError> {
+        let mut originals = Vec::with_capacity(writes.len());
+        for (path, _) in writes {
+            originals.push((path.clone(), self.read(path).await?));
+        }
+        for (committed, (path, bytes)) in writes.iter().enumerate() {
+            if let Err(error) = self.write_atomic(path, bytes).await {
+                for (rollback_path, original) in originals[..committed].iter().rev() {
+                    if let Some(original) = original {
+                        self.write_atomic(rollback_path, original).await?;
+                    } else {
+                        self.remove_file(rollback_path).await?;
+                    }
+                }
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
     async fn metadata(&self, path: &Path) -> Result<Option<NativeFileMetadata>, BoundaryError>;
 }
 
@@ -120,6 +145,14 @@ impl NativeFileSystem for TokioNativeFileSystem {
             return Err(BoundaryError::new(error.to_string()));
         }
         Ok(())
+    }
+
+    async fn remove_file(&self, path: &Path) -> Result<(), BoundaryError> {
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(BoundaryError::new(error.to_string())),
+        }
     }
 
     async fn metadata(&self, path: &Path) -> Result<Option<NativeFileMetadata>, BoundaryError> {

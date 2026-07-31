@@ -49,6 +49,13 @@ pub enum AgentContentBlock {
         uri: String,
         title: Option<String>,
     },
+    /// A lossless ACP content block for protocol variants that do not have a
+    /// legacy VibeX presentation shape (audio, embedded resource,
+    /// resource-link, or future additions). `_meta` is retained only within
+    /// the configured size bound.
+    Protocol {
+        content: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -60,6 +67,8 @@ pub struct AgentToolCall {
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -70,6 +79,8 @@ pub struct AgentToolCallUpdate {
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -78,11 +89,15 @@ pub struct AgentPlan {
     pub entries: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentUsage {
     pub used: u64,
     pub limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_amount: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -105,6 +120,8 @@ pub struct AgentSessionControlsSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_mode: Option<String>,
     pub config_options: Vec<AgentSessionConfigOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<crate::AcpCapabilitySnapshot>,
 }
 
 /// A real ACP session created ahead of conversation persistence so creation
@@ -115,6 +132,27 @@ pub struct AgentSessionControlsSnapshot {
 pub struct AgentPreparedSessionSnapshot {
     pub session: AgentSessionSnapshot,
     pub controls: AgentSessionControlsSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_default_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentListedSession {
+    pub acp_session_id: String,
+    pub cwd: String,
+    pub additional_directories: Vec<String>,
+    pub title: Option<String>,
+    pub updated_at: Option<String>,
+    pub meta: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentSessionListPage {
+    pub sessions: Vec<AgentListedSession>,
+    pub next_cursor: Option<String>,
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -235,6 +273,7 @@ pub enum AgentEvent {
     SessionLinked {
         acp_session_id: String,
         agent_id: AgentId,
+        capabilities: crate::AcpCapabilitySnapshot,
     },
     PromptStarted {
         snapshot: AgentPromptSnapshot,
@@ -274,6 +313,11 @@ pub enum AgentEvent {
     },
     AvailableCommands {
         commands: Vec<AgentAvailableCommand>,
+    },
+    /// A partial ACP session metadata patch. Kept as protocol-shaped JSON so
+    /// fields added by newer ACP revisions survive without being flattened.
+    SessionInfoUpdated {
+        patch: serde_json::Value,
     },
     SessionLoadFailed {
         reason: SessionLoadFailureReason,
@@ -455,6 +499,7 @@ mod tests {
                     title: "Edit".to_string(),
                     kind: Some("edit".to_string()),
                     input_preview: Some("{}".to_string()),
+                    meta: None,
                 },
             },
             AgentEvent::ToolCallUpdate {
@@ -462,6 +507,7 @@ mod tests {
                     id: "tool-1".to_string(),
                     status: Some("completed".to_string()),
                     content: Some("ok".to_string()),
+                    meta: None,
                 },
             },
             AgentEvent::SessionLoadFailed {

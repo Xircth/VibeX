@@ -5,6 +5,8 @@ export type {
   ApplicationCommandResult,
   BackendTransport,
   BackendEnvironment,
+  CreateDevicePairingRequest,
+  DevicePairingChallenge,
 } from './transport';
 export {
   configuredBackendTransport,

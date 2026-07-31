@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::{
     ApplicationCore, CancelConversationTurn, ConversationRepository, CreateConversation,
     DomainCommand, ListConversations, Principal, RespondConversationPermission,
-    StartConversationTurn,
+    RespondConversationQuestion, StartConversationTurn,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -15,6 +15,7 @@ pub enum RegisteredCommand {
     ConversationCreate,
     ConversationStartTurn,
     ConversationRespondPermission,
+    ConversationRespondQuestion,
     ConversationCancelTurn,
     Domain(DomainCommand),
 }
@@ -26,6 +27,7 @@ impl RegisteredCommand {
             Self::ConversationCreate => "conversation_create",
             Self::ConversationStartTurn => "conversation_start_turn",
             Self::ConversationRespondPermission => "conversation_respond_permission",
+            Self::ConversationRespondQuestion => "conversation_respond_question",
             Self::ConversationCancelTurn => "conversation_cancel_turn",
             Self::Domain(command) => command.as_str(),
         }
@@ -41,6 +43,7 @@ impl FromStr for RegisteredCommand {
             "conversation_create" => Ok(Self::ConversationCreate),
             "conversation_start_turn" => Ok(Self::ConversationStartTurn),
             "conversation_respond_permission" => Ok(Self::ConversationRespondPermission),
+            "conversation_respond_question" => Ok(Self::ConversationRespondQuestion),
             "conversation_cancel_turn" => Ok(Self::ConversationCancelTurn),
             _ => DomainCommand::from_str(value).map(Self::Domain),
         }
@@ -70,6 +73,11 @@ struct ConversationStartTurnArgs {
 #[derive(Deserialize)]
 struct ConversationRespondPermissionArgs {
     request: RespondConversationPermission,
+}
+
+#[derive(Deserialize)]
+struct ConversationRespondQuestionArgs {
+    request: RespondConversationQuestion,
 }
 
 #[derive(Deserialize)]
@@ -230,6 +238,26 @@ where
                     })?;
                 self.core
                     .respond_conversation_permission(principal, args.request)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::Value::Null
+            }
+            RegisteredCommand::ConversationRespondQuestion => {
+                let args = serde_json::from_value::<ConversationRespondQuestionArgs>(args)
+                    .map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                self.core
+                    .respond_conversation_question(principal, args.request)
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();

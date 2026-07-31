@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
+import type { BackendTransport } from '@/lib/backendTransport';
+import { useBackendTransport } from '@/lib/transport';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +31,7 @@ import {
   SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
+import { DevicePairingPanel } from './DevicePairingPanel';
 
 const DEFAULT_CONFIG: WebServiceConfig = {
   port: 17891,
@@ -40,7 +43,13 @@ function sameConfig(a: WebServiceConfig, b: WebServiceConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function WebServiceSettings() {
+export function WebServiceSettings({
+  transport: transportOverride,
+}: {
+  transport?: BackendTransport;
+} = {}) {
+  const contextTransport = useBackendTransport();
+  const transport = transportOverride ?? contextTransport;
   const { t } = useTranslation(['settings', 'common']);
   const [config, setConfig] = useState<WebServiceConfig>(DEFAULT_CONFIG);
   const [draft, setDraft] = useState<WebServiceConfig>(DEFAULT_CONFIG);
@@ -203,6 +212,8 @@ export function WebServiceSettings() {
       />
 
       <div className="settings-sections">
+        <DevicePairingPanel transport={transport} />
+
         <SettingsSection
           icon={Globe}
           title={t('webService.statusSectionTitle')}

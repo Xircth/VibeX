@@ -70,6 +70,14 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     .await;
     assert_eq!(artifacts, serde_json::json!([]));
 
+    let engine_status = call(
+        app.clone(),
+        "automation_engine_status",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(engine_status, serde_json::json!({ "active": true }));
+
     let templates = call(app, "automation_templates", serde_json::json!({})).await;
     assert_eq!(templates.as_array().expect("templates").len(), 7);
 }

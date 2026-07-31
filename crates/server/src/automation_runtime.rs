@@ -2,11 +2,12 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use automation::{
-    AgentRuntimeVersionEvidence, AutomationEngine, AutomationRunner, ClaimedRun,
-    ComponentVersionEvidence, ConnectionLaunch, IsolationSpec, PreparedWorkspace,
-    ResolvedVersionEvidence, RunError, RunExecutionRequest, RunStatus, StartupRecoveryReport,
-    SystemClock, ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort, WorkspaceError,
-    WorkspacePreparationRequest, WorkspacePreparerPort,
+    AgentRuntimeVersionEvidence, AutomationEngine, AutomationRetentionService, AutomationRunner,
+    ClaimedRun, ComponentVersionEvidence, ConnectionLaunch, IsolationSpec, PreparedWorkspace,
+    ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError, RunExecutionRequest,
+    RunStatus, StartupRecoveryReport, SystemClock, ToolLockVersionEvidence, TurnLaunchSpec,
+    TurnLauncherPort, WorkspaceError, WorkspacePreparationRequest, WorkspacePreparerPort,
+    WorkspaceRetentionPort,
 };
 use db::models::{
     automation_v2::{AutomationRunRecord, SqliteAutomationStore},
@@ -62,6 +63,16 @@ impl HeadlessAutomationRuntime {
             interval.tick().await;
             if let Err(error) = self.reconcile_running_turns().await {
                 tracing::warn!("headless Automation terminal reconciliation failed: {error}");
+            }
+            let retention = AutomationRetentionService::new(
+                self.store.clone(),
+                ServerRetentionWorkspaces {
+                    deployment: self.deployment.clone(),
+                },
+                RetentionPolicy::default(),
+            );
+            if let Err(error) = retention.enforce(chrono::Utc::now()).await {
+                tracing::warn!("headless Automation retention failed: {error}");
             }
             match service.tick().await {
                 Ok(claimed) => {
@@ -174,6 +185,28 @@ impl HeadlessAutomationRuntime {
         automation::RunStorePort::settle(&self.store, run.snapshot.run_id, status, error)
             .await
             .map_err(|error| error.to_string())
+    }
+}
+
+#[derive(Clone)]
+struct ServerRetentionWorkspaces {
+    deployment: Arc<LocalDeployment>,
+}
+
+#[async_trait]
+impl WorkspaceRetentionPort for ServerRetentionWorkspaces {
+    async fn release_retained_workspace(&self, workspace_id: Uuid) -> Result<(), RetentionError> {
+        let workspace = Workspace::find_by_id(&self.deployment.db().pool, workspace_id)
+            .await
+            .map_err(|error| RetentionError::Workspace(error.to_string()))?;
+        if let Some(workspace) = workspace {
+            self.deployment
+                .container()
+                .delete(&workspace)
+                .await
+                .map_err(|error| RetentionError::Workspace(error.to_string()))?;
+        }
+        Ok(())
     }
 }
 

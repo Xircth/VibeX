@@ -46,13 +46,12 @@ repeatable desktop-journey fixture therefore runs the real React desktop
 components in Chromium with the backend boundary faked. Native Tauri adapter
 coverage remains in the Rust and transport test suites.
 
-This is partial T2.8 evidence: the fixture proves the frontend journey and
-public transport contract, but its localStorage projection and local child
-navigation do not independently prove one native run through vibex-mcp/Broker,
-temporary SQLite, and the production router. Those layers are covered
-separately by Delegation, Conversations, UDS, named-pipe, and frontend
-navigation tests; a packaged-platform journey remains the M2 release gate on a
-supported CI runner.
+The final release suite also builds this fixture with the optimized production
+asset graph and runs it under Playwright together with the real Server product
+journey. Its persisted projection and child navigation remain intentionally
+backed by a fake MCP-capable `BackendTransport`; native vibex-mcp/Broker,
+temporary SQLite, UDS/named-pipe, and router boundaries are verified by their
+Rust integration suites because macOS has no supported Tauri WebDriver backend.
 
 ## Accessibility
 
@@ -79,6 +78,8 @@ respects reduced motion.
 - `pnpm run check`: passed.
 - `pnpm run lint`: passed.
 - `cargo fmt --all -- --check`: passed.
+- Final release addendum: `pnpm run test:web:e2e` passed all four optimized
+  journeys, including two Mention children, cancel, navigation, and refresh.
 
 The full frontend suite still prints pre-existing React `act(...)` and React
 Router future-flag warnings. These warnings were present in the Agent E

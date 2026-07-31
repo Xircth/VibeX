@@ -3,8 +3,8 @@
 use async_trait::async_trait;
 use automation::{
     AutomationDraft, ClaimStorePort, ClaimedRun, EngineError, IsolationSpec, PreparedWorkspace,
-    RecoveryStorePort, RunError, RunSnapshot, RunStatus, RunStorePort, ScheduleSpec,
-    TurnLaunchCorrelation, TurnLaunchSpec, next_run_after,
+    RecoveryStorePort, RetainedRun, RetentionError, RetentionStorePort, RunError, RunSnapshot,
+    RunStatus, RunStorePort, ScheduleSpec, TurnLaunchCorrelation, TurnLaunchSpec, next_run_after,
 };
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
@@ -678,6 +678,97 @@ impl RunStorePort for SqliteAutomationStore {
             .map_err(|error| RunError::Store(error.to_string()))?;
         Ok(result.rows_affected() == 1)
     }
+}
+
+#[async_trait]
+impl RetentionStorePort for SqliteAutomationStore {
+    async fn terminal_runs_oldest_first(&self) -> Result<Vec<RetainedRun>, RetentionError> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                Option<DateTime<Utc>>,
+                Option<Uuid>,
+                String,
+                Option<String>,
+            ),
+        >(
+            "SELECT r.id, r.status, r.finished_at, r.worktree_workspace_id,
+                    a.isolation, w.container_ref
+             FROM automation_runs r
+             JOIN automations a ON a.id = r.automation_id
+             LEFT JOIN workspaces w ON w.id = r.worktree_workspace_id
+             WHERE r.status <> 'running'
+             ORDER BY COALESCE(r.finished_at, r.started_at) ASC, r.id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| RetentionError::Store(error.to_string()))?;
+        let paths = rows
+            .iter()
+            .map(|row| {
+                if row.4 == "worktree_per_run" {
+                    row.5.clone()
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let sizes = tokio::task::spawn_blocking(move || {
+            paths
+                .into_iter()
+                .map(|path| {
+                    path.map_or(0, |path| {
+                        directory_size_without_symlinks(std::path::Path::new(&path))
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .map_err(|error| RetentionError::Store(error.to_string()))?;
+
+        rows.into_iter()
+            .zip(sizes)
+            .map(|(row, storage_bytes)| {
+                Ok(RetainedRun {
+                    run_id: row.0,
+                    status: parse_run_status(&row.1)
+                        .map_err(|error| RetentionError::Store(error.to_string()))?,
+                    finished_at: row.2,
+                    workspace_id: (row.4 == "worktree_per_run").then_some(row.3).flatten(),
+                    storage_bytes,
+                })
+            })
+            .collect()
+    }
+
+    async fn delete_run(&self, run_id: Uuid) -> Result<(), RetentionError> {
+        sqlx::query("DELETE FROM automation_runs WHERE id = ? AND status <> 'running'")
+            .bind(run_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|error| RetentionError::Store(error.to_string()))?;
+        Ok(())
+    }
+}
+
+fn directory_size_without_symlinks(path: &std::path::Path) -> u64 {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if metadata.file_type().is_symlink() {
+        return 0;
+    }
+    if metadata.is_file() {
+        return metadata.len();
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries.filter_map(Result::ok).fold(0_u64, |total, entry| {
+        total.saturating_add(directory_size_without_symlinks(&entry.path()))
+    })
 }
 
 async fn insert_running(

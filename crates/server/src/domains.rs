@@ -88,6 +88,9 @@ impl ServerApplicationDomains {
             DomainCommand::ArtifactOpenPreview => self.open_preview(args).await,
             DomainCommand::ArtifactClosePreview => self.close_preview(args).await,
             DomainCommand::AutomationList => self.automation_list().await,
+            DomainCommand::AutomationEngineStatus => {
+                Ok(json!({ "active": self.owns_automation_engine }))
+            }
             DomainCommand::AutomationCreate => self.automation_create(args).await,
             DomainCommand::AutomationUpdate => self.automation_update(args).await,
             DomainCommand::AutomationSetEnabled => self.automation_set_enabled(args).await,

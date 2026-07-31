@@ -4,6 +4,7 @@ mod adapters;
 mod engine;
 mod isolation;
 mod recovery;
+mod retention;
 mod runner;
 mod schedule;
 mod spec;
@@ -18,6 +19,10 @@ pub use isolation::{
     WorkspacePreparationRequest, WorkspaceService,
 };
 pub use recovery::{RecoveryStorePort, StartupReconciler, StartupRecoveryReport};
+pub use retention::{
+    AutomationRetentionService, RetainedRun, RetentionError, RetentionPolicy, RetentionReport,
+    RetentionStorePort, WorkspaceRetentionPort,
+};
 pub use runner::{
     AgentRuntimeVersionEvidence, AutomationRunner, ComponentVersionEvidence, ConnectionLaunch,
     ResolvedVersionEvidence, RunError, RunExecutionRequest, RunSnapshot, RunStatus, RunStorePort,

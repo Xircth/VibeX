@@ -95,6 +95,7 @@ class FakeAutomationTransport implements BackendTransport {
     command: string,
     args?: Record<string, unknown>
   ): Promise<unknown> {
+    if (command === 'automation_engine_status') return { active: true };
     if (command === 'automation_list')
       return this.automation ? [this.automation] : [];
     if (command === 'automation_templates') {

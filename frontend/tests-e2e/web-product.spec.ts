@@ -26,6 +26,9 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
   await expect(
     page.getByRole('button', { name: /Plugins|插件/ })
   ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Devices|设备/ })
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: /Agents|智能体/ })).toHaveCount(
     0
   );
@@ -38,6 +41,16 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
     page.getByRole('heading', { name: /Plugins|插件/ })
   ).toBeVisible();
   await expect(page).toHaveURL(/\/settings\/plugins$/);
+
+  await page.getByRole('button', { name: /Devices|设备/ }).click();
+  await page
+    .getByRole('button', { name: /Create device pairing|创建设备配对/ })
+    .click();
+  await expect(
+    page.getByRole('img', { name: /Device pairing QR code|设备配对二维码/ })
+  ).toBeVisible();
+  await expect(page.getByText(/Shown once|仅显示一次/)).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/devices$/);
   await expect
     .poll(() => pageErrors, {
       message: 'the production UI emitted page errors',

@@ -821,7 +821,12 @@ try {
   const output = check ? temporary : checkedIn;
   generate(output);
   if (check) compareTrees(output, checkedIn);
-  if (!skipCompile) compileModels(output);
+  if (!skipCompile) {
+    // Smoke compilers emit launchers and binaries next to their inputs. Keep
+    // those transient artifacts out of the checked-in protocol directory.
+    if (!check) generate(temporary);
+    compileModels(check ? output : temporary);
+  }
   process.stdout.write(
     `${check ? 'verified' : 'generated'} remote protocol v1 artifacts\n`,
   );

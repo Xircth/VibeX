@@ -9,11 +9,12 @@ use std::{
 use async_trait::async_trait;
 use automation::{
     AgentRuntimeVersionEvidence, AutomationDraft, AutomationDraftInput, AutomationEngine,
-    AutomationRunner, ClaimedRun, ComponentVersionEvidence, ConnectionLaunch, FileOwnerLock,
-    IsolationSpec, PluginActionCatalogPort, PreparedWorkspace, ResolvedVersionEvidence, RunError,
-    RunExecutionRequest, RunStatus, ScheduleService, ScheduleSpec, StartupReconciler, SystemClock,
+    AutomationRetentionService, AutomationRunner, ClaimedRun, ComponentVersionEvidence,
+    ConnectionLaunch, FileOwnerLock, IsolationSpec, PluginActionCatalogPort, PreparedWorkspace,
+    ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError, RunExecutionRequest,
+    RunStatus, ScheduleService, ScheduleSpec, StartupReconciler, SystemClock,
     ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort, WorkspaceError,
-    WorkspacePreparationRequest, WorkspacePreparerPort,
+    WorkspacePreparationRequest, WorkspacePreparerPort, WorkspaceRetentionPort,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
@@ -95,6 +96,11 @@ pub struct AutomationTemplateView {
     pub draft: AutomationDraft,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct AutomationEngineStatus {
+    pub active: bool,
+}
+
 struct EngineOwnershipMarker {
     data_dir_key: String,
 }
@@ -135,6 +141,22 @@ impl Drop for EngineOwnershipMarker {
 
 fn store(state: &AppState) -> SqliteAutomationStore {
     SqliteAutomationStore::new(state.deployment.db().pool.clone())
+}
+
+#[tauri::command]
+pub async fn automation_engine_status(app: AppHandle) -> Result<AutomationEngineStatus, AppError> {
+    let data_dir_key = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .to_string_lossy()
+        .to_string();
+    Ok(AutomationEngineStatus {
+        active: OWNED_DATA_DIRS
+            .lock()
+            .expect("Automation ownership registry poisoned")
+            .contains(&data_dir_key),
+    })
 }
 
 #[tauri::command]
@@ -358,6 +380,17 @@ pub fn start_automation_engine(app: AppHandle) {
             if let Err(error) = reconcile_running_turns(&app).await {
                 tracing::warn!("automation terminal reconciliation failed: {error}");
             }
+            let retention = AutomationRetentionService::new(
+                {
+                    let state = app.state::<AppState>();
+                    store(state.inner())
+                },
+                TauriRetentionWorkspaces { app: app.clone() },
+                RetentionPolicy::default(),
+            );
+            if let Err(error) = retention.enforce(Utc::now()).await {
+                tracing::warn!("automation retention failed: {error}");
+            }
             match service.tick().await {
                 Ok(claimed) => {
                     for run in claimed {
@@ -371,6 +404,30 @@ pub fn start_automation_engine(app: AppHandle) {
             }
         }
     });
+}
+
+#[derive(Clone)]
+struct TauriRetentionWorkspaces {
+    app: AppHandle,
+}
+
+#[async_trait]
+impl WorkspaceRetentionPort for TauriRetentionWorkspaces {
+    async fn release_retained_workspace(&self, workspace_id: Uuid) -> Result<(), RetentionError> {
+        let state = self.app.state::<AppState>();
+        let workspace = Workspace::find_by_id(&state.deployment.db().pool, workspace_id)
+            .await
+            .map_err(|error| RetentionError::Workspace(error.to_string()))?;
+        if let Some(workspace) = workspace {
+            state
+                .deployment
+                .container()
+                .delete(&workspace)
+                .await
+                .map_err(|error| RetentionError::Workspace(error.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 async fn reconcile_running_turns(app: &AppHandle) -> Result<(), AppError> {

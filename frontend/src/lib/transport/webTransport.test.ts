@@ -118,6 +118,41 @@ describe('WebTransport', () => {
     });
   });
 
+  it('creates a device pairing challenge without putting either token in the URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        pairing_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',
+        pairing_token: 'pair-once-secret',
+        expires_at: '2026-07-31T05:05:00Z',
+        requested_scopes: ['conversation.read', 'conversation.question'],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const transport = new WebTransport({
+      baseUrl: 'http://127.0.0.1:3080',
+      token: 'remote-secret',
+    });
+
+    await expect(
+      transport.createDevicePairing({
+        requested_scopes: ['conversation.read', 'conversation.question'],
+      })
+    ).resolves.toMatchObject({ pairing_token: 'pair-once-secret' });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:3080/api/v1/auth/pairings');
+    expect(url).not.toContain('remote-secret');
+    expect(url).not.toContain('pair-once-secret');
+    expect(init.headers).toEqual(
+      expect.objectContaining({ Authorization: 'Bearer remote-secret' })
+    );
+    expect(JSON.parse(init.body as string)).toEqual({
+      requested_scopes: ['conversation.read', 'conversation.question'],
+    });
+  });
+
   it('multiplexes subscriptions and reconnects from each durable cursor', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', MockWebSocket);

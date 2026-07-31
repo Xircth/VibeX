@@ -23,6 +23,7 @@ const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
 const WRITE_CONVERSATIONS_SCOPE: &str = "conversation.write";
 const ATTACH_CONVERSATIONS_SCOPE: &str = "conversation.attach";
 const RESPOND_PERMISSION_SCOPE: &str = "conversation.permission";
+const RESPOND_QUESTION_SCOPE: &str = "conversation.question";
 const CANCEL_CONVERSATION_SCOPE: &str = "conversation.cancel";
 const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
@@ -62,6 +63,14 @@ pub struct RespondConversationPermission {
     pub response: serde_json::Value,
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RespondConversationQuestion {
+    pub conversation_id: Uuid,
+    pub question_id: String,
+    pub response: serde_json::Value,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelConversationTurn {
@@ -82,6 +91,15 @@ pub trait ConversationExecutionPort: Send + Sync {
     ) -> Result<(), ApplicationError> {
         Err(ApplicationError::capability_unavailable(
             "conversation permission response is not configured",
+        ))
+    }
+
+    async fn respond_question(
+        &self,
+        _request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation question response is not configured",
         ))
     }
 
@@ -108,6 +126,15 @@ impl ConversationExecutionPort for UnavailableConversationExecution {
     async fn respond_permission(
         &self,
         _request: RespondConversationPermission,
+    ) -> Result<(), ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation execution is not configured",
+        ))
+    }
+
+    async fn respond_question(
+        &self,
+        _request: RespondConversationQuestion,
     ) -> Result<(), ApplicationError> {
         Err(ApplicationError::capability_unavailable(
             "conversation execution is not configured",
@@ -526,6 +553,19 @@ where
             ));
         }
         self.execution.respond_permission(request).await
+    }
+
+    pub async fn respond_conversation_question(
+        &self,
+        principal: &Principal,
+        request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(RESPOND_QUESTION_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.question",
+            ));
+        }
+        self.execution.respond_question(request).await
     }
 
     pub async fn cancel_conversation_turn(

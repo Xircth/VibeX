@@ -59,6 +59,14 @@ Integration SHA: `37a34f25ee5ee399f836d1034c0265746222c699`
    GREEN: Playwright boots the real `vibex-server`, authenticates, opens
    Automation and Plugin settings, checks desktop capability absence, and
    verifies that the token is not persisted.
+9. RED: the release suite did not exercise permission response, reconnect
+   sequence evidence, or an Office preview iframe from optimized assets.
+   GREEN: a production-build journey drives the public `BackendTransport`,
+   renders permission and Artifact cards, reconnects from the persisted
+   sequence, and verifies an opaque-origin, no-referrer preview.
+10. RED: device pairing was protocol-only. GREEN: capability-gated Web settings
+    create a real five-minute challenge and an accessible one-time QR without
+    embedding a Server URL or bearer credential.
 
 ## Verification
 
@@ -70,8 +78,8 @@ Integration SHA: `37a34f25ee5ee399f836d1034c0265746222c699`
 - `cargo test -p delegation`
 - `cargo test -p vibex remote_desktop`
 - `cargo test --workspace`
-- `cd frontend && pnpm test` — 202 files, 1005 tests passed
-- `pnpm run test:web:e2e` — production build and one Chromium journey passed
+- `cd frontend && pnpm test` — 203 files, 1009 tests passed
+- `pnpm run test:web:e2e` — production build and four Chromium journeys passed
 - `pnpm run prepare-db:check`
 - `pnpm run generate-types:check`
 - `node --test scripts/check-third-party-adoption.test.js`
@@ -82,6 +90,9 @@ Successful local Playwright evidence:
 
 - `frontend/test-results/web-production/web-product-production-Web-48ec8-es-only-Server-capabilities/test-finished-1.png`
 - `frontend/test-results/web-production/web-product-production-Web-48ec8-es-only-Server-capabilities/video.webm`
+- `frontend/test-results/web-production/product-journeys-two-agent-e2d1b--cancelled-delegation-cards/video.webm`
+- `frontend/test-results/web-production/product-journeys-Office-Au-5f5b2-minal-and-Artifact-evidence/video.webm`
+- `frontend/test-results/web-production/product-journeys-Web-Turn--a05ea-eview-stay-transport-driven/video.webm`
 
 Codeg source, adaptation, and Apache-2.0 obligations are recorded in
 `docs/third-party/codeg-adoption.md`.

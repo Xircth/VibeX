@@ -22,6 +22,7 @@ const DEVICE_SCOPES: &[&str] = &[
     "conversation.write",
     "conversation.attach",
     "conversation.permission",
+    "conversation.question",
     "conversation.cancel",
     "plugin.read",
     "artifact.read",
@@ -39,6 +40,7 @@ pub(crate) const ADMIN_SCOPES: &[&str] = &[
     "conversation.write",
     "conversation.attach",
     "conversation.permission",
+    "conversation.question",
     "conversation.cancel",
     "application.call",
     "plugin.read",
@@ -174,6 +176,19 @@ impl AuthenticatedCredential {
 
     pub fn allows(&self, scope: &str) -> bool {
         self.scopes.contains(scope)
+    }
+
+    /// Resolve a public capability through the shared authorization policy.
+    ///
+    /// Capabilities normally use the same identifier as their required scope.
+    /// `preview.proxy` is a transport description of `artifact.preview`, not a
+    /// second privilege, so it deliberately shares that scope.
+    pub fn grants_capability(&self, capability: &str) -> bool {
+        let required_scope = match capability {
+            "preview.proxy" => "artifact.preview",
+            scope => scope,
+        };
+        self.allows(required_scope)
     }
 }
 

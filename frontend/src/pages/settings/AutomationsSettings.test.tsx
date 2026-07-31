@@ -35,6 +35,7 @@ function createTransport(
     runNow?: object;
     runResponses?: object[][];
     failListOnce?: boolean;
+    engineOwner?: boolean;
   } = {}
 ) {
   let runResponseIndex = 0;
@@ -42,6 +43,8 @@ function createTransport(
   const call = vi.fn(
     async (command: string, args?: Record<string, unknown>) => {
       switch (command) {
+        case 'automation_engine_status':
+          return { active: options.engineOwner ?? true };
         case 'automation_list':
           listAttempts += 1;
           if (options.failListOnce && listAttempts === 1) {
@@ -234,6 +237,29 @@ function runView(status: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe('AutomationsSettings', () => {
+  it('shows a read-only state when another host owns the Automation Engine', async () => {
+    const { transport, call } = createTransport({
+      automations: [automationView()],
+      engineOwner: false,
+    });
+    renderSettings(transport);
+
+    expect(
+      await screen.findByRole('status', {
+        name: /Automation Engine.*another host|自动化引擎.*其他宿主/i,
+      })
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', {
+        name: /Run Nightly review|运行 Nightly review/i,
+      })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: /New automation|新建自动化/i })
+    ).toBeDisabled();
+    expect(call).toHaveBeenCalledWith('automation_engine_status');
+  });
+
   beforeEach(() => {
     vi.useRealTimers();
     HTMLElement.prototype.scrollIntoView = vi.fn();

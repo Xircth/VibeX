@@ -492,6 +492,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::conversations::conversation_import,
             commands::conversations::conversation_fork,
             commands::automation::automation_list,
+            commands::automation::automation_engine_status,
             commands::automation::automation_create,
             commands::automation::automation_update,
             commands::automation::automation_set_enabled,

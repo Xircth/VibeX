@@ -100,8 +100,16 @@ export type AutomationTemplateView = {
   draft: AutomationDraftRequest;
 };
 
+export type AutomationEngineStatus = {
+  active: boolean;
+};
+
 export function createAutomationApi(transport: BackendTransport) {
   return {
+    engineStatus: () =>
+      transport.call(
+        'automation_engine_status'
+      ) as Promise<AutomationEngineStatus>,
     list: () => transport.call('automation_list') as Promise<AutomationView[]>,
 
     create: (input: AutomationDraftRequest) =>

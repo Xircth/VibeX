@@ -5,8 +5,8 @@ use std::{
 
 use application::{
     ApplicationCore, ApplicationError, CancelConversationTurn, ConversationExecutionPort,
-    ConversationTurnSnapshot, RespondConversationPermission, SqliteConversationRepository,
-    StartConversationTurn,
+    ConversationTurnSnapshot, RespondConversationPermission, RespondConversationQuestion,
+    SqliteConversationRepository, StartConversationTurn,
 };
 use async_trait::async_trait;
 use axum::{
@@ -24,6 +24,7 @@ use uuid::Uuid;
 struct FakeExecution {
     starts: Mutex<Vec<StartConversationTurn>>,
     permissions: Mutex<Vec<RespondConversationPermission>>,
+    questions: Mutex<Vec<RespondConversationQuestion>>,
     cancellations: Mutex<Vec<CancelConversationTurn>>,
 }
 
@@ -55,6 +56,14 @@ impl ConversationExecutionPort for FakeExecution {
         Ok(())
     }
 
+    async fn respond_question(
+        &self,
+        request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        self.questions.lock().expect("question calls").push(request);
+        Ok(())
+    }
+
     async fn cancel_turn(&self, request: CancelConversationTurn) -> Result<(), ApplicationError> {
         self.cancellations
             .lock()
@@ -62,6 +71,62 @@ impl ConversationExecutionPort for FakeExecution {
             .push(request);
         Ok(())
     }
+}
+
+#[tokio::test]
+async fn authenticated_call_responds_to_a_question_through_the_execution_port() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    let execution = Arc::new(FakeExecution::default());
+    let core =
+        ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
+        core,
+    )
+    .router();
+    let conversation_id = Uuid::new_v4();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/call/conversation_respond_question")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "operation_id": OperationId::new(),
+                        "args": {
+                            "request": {
+                                "conversationId": conversation_id,
+                                "questionId": Uuid::new_v4().to_string(),
+                                "response": {
+                                    "action": "accept",
+                                    "content": { "environment": "staging" }
+                                }
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let calls = execution.questions.lock().expect("question calls");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].conversation_id, conversation_id);
+    assert_eq!(calls[0].response["content"]["environment"], "staging");
 }
 
 #[tokio::test]

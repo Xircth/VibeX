@@ -85,6 +85,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Due claim（到期认领）** — 在同一事务内创建 Run 并推进 `next_run_at` 的操作；双 Engine/双 tick 不得产生双调度。
 - **Automation isolation（自动化隔离）** — 默认每个 Run 创建独立 worktree；shared-root 必须显式选择并通过 clean/branch 检查。运行绝不自动 merge、push、publish 或 deploy。
 - **Automation recovery（自动化恢复）** — 启动时把遗留 running Run 变为 Interrupted，释放锁且绝不重发对应 Turn。停机期间至多补一次最近错过的 schedule，其余错过触发不排队。
+- **Automation retention（自动化保留）** — terminal Run 与其独立 worktree 默认保留 30 天，并受每个数据目录 10 GiB 配额约束；按完成时间从旧到新清理。running Run 永不参与清理，worktree 删除失败时保留 Run 证据供后续重试，目录计量不跟随符号链接。
 
 ## Plugin, Tool, and Artifact domain
 

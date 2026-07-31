@@ -3,6 +3,7 @@
 - Worktree: `.worktrees/plugin-v2-tool-runtime`
 - Branch: `codex/agent-k-release-hardening`
 - Base SHA: `650164ebf7afd1ec8ae0b258fc422e28e9d31c47`
+- Final completion-audit SHA: `6316622c7ecf9e1cea779ab7e7a9b3e923352812`
 - Scope: M6 and M7 only; no mobile product implementation
 
 ## Baseline
@@ -63,6 +64,19 @@ directories are Tauri packaging icons, not product source.
 12. RED: the oversized-frame test assumed the peer could not reject while the
     client was still flushing. GREEN: the public-seam assertion accepts both
     legal close timings and passed ten consecutive focused runs.
+13. RED: protocol generation compiled language smoke fixtures inside the
+    checked-in protocol directory and left binaries behind. GREEN: generation
+    still updates deterministic sources, while all compile/runtime artifacts
+    are emitted beneath a temporary directory.
+14. RED: the final audit had no dependency-license gate and no user-facing
+    device pairing affordance. GREEN: CI validates both ecosystems' license
+    metadata, and capability-gated settings create an accessible short-lived
+    QR whose payload contains no URL or long-lived credential.
+15. RED: routing every question response through the generic desktop
+    Application adapter bypassed the established Delegation companion ask
+    responder. GREEN: Web uses the transport-neutral command while desktop
+    retains its explicit companion-aware Tauri adapter; a Transport test fixes
+    that dispatch boundary.
 
 ## M7 recovery matrix
 
@@ -103,14 +117,17 @@ Final serial results from this worktree:
 | `pnpm run prepare-db:check` | PASS; all migrations through `20260731100000` and SQLx metadata current |
 | `pnpm run remote-protocol-schema:check` | PASS; schema/OpenAPI and TypeScript/Swift/Kotlin compile/runtime smoke current |
 | `cargo test --workspace -q` | PASS; only explicitly opt-in live ACP/PTY tests ignored |
-| `cd frontend && pnpm test` | PASS; 202 files, 1005 tests |
+| `cd frontend && pnpm test` | PASS; 203 files, 1009 tests |
 | `pnpm run check` | PASS |
 | `pnpm run lint` | PASS with Clippy warnings denied |
-| `pnpm run frontend:build` | PASS as the first phase of production Web E2E |
+| `pnpm run frontend:build` | PASS; optimized production assets |
 | `pnpm run server:package-smoke` | PASS; release binary, loopback auth/capabilities, no token output |
-| `pnpm run test:web:e2e` | PASS; production build and one Playwright product journey |
-| Desktop journey fixtures | PASS inside the full frontend suite: Agent E and Agent G |
+| `pnpm run test:web:e2e` | PASS; four production-build Playwright journeys |
+| Desktop journey fixtures | PASS: Agent E and Agent G production components plus Agent J transport/preview journey |
 | `node --test scripts/check-third-party-adoption.test.js` | PASS; 6 tests |
+| `node --test scripts/check-dependency-licenses.test.mjs` | PASS; 4 tests |
+| `pnpm run dependency:licenses` | PASS; 480 JavaScript groups and 883 Rust packages |
+| `pnpm audit --prod --audit-level high` | PASS; 0 high findings after patched transitive resolutions |
 | `cargo fmt --all -- --check` and `git diff --check` | PASS |
 | Mobile product-source scan | PASS; no Xcode, CocoaPods, Gradle, Android manifest or mobile application project |
 

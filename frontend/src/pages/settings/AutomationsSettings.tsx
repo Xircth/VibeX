@@ -180,18 +180,26 @@ export function AutomationsSettings({
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewRuns, setPreviewRuns] = useState<string[]>([]);
+  const [engineActive, setEngineActive] = useState(true);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [loadedAutomations, loadedTemplates, projectValue, agentValue] =
-        await Promise.all([
-          api.list(),
-          api.templates(),
-          transport.call('get_projects'),
-          transport.call('agent_management_bar'),
-        ]);
+      const [
+        engineStatus,
+        loadedAutomations,
+        loadedTemplates,
+        projectValue,
+        agentValue,
+      ] = await Promise.all([
+        api.engineStatus(),
+        api.list(),
+        api.templates(),
+        transport.call('get_projects'),
+        transport.call('agent_management_bar'),
+      ]);
+      setEngineActive(engineStatus.active);
       setAutomations(loadedAutomations);
       setTemplates(loadedTemplates);
       setProjects(
@@ -720,13 +728,28 @@ export function AutomationsSettings({
         descriptionClassName="text-foreground"
         action={
           draft ? null : (
-            <Button size="sm" variant="outline" onClick={startNew}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={startNew}
+              disabled={!engineActive}
+            >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
               {t('automations.newAutomation')}
             </Button>
           )
         }
       >
+        {!engineActive ? (
+          <div
+            role="status"
+            aria-label={t('automations.nonOwnerStatus')}
+            className="m-3 flex items-start gap-2 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{t('automations.nonOwnerDescription')}</span>
+          </div>
+        ) : null}
         {loadError ? (
           <div
             role="alert"
@@ -768,6 +791,7 @@ export function AutomationsSettings({
               onCancelRun={cancelRun}
               runsByAutomation={runsByAutomation}
               historyOpenId={historyOpenId}
+              mutable={engineActive}
               t={t}
             />
             {draft ? (
@@ -1128,6 +1152,7 @@ export function AutomationsSettings({
                 variant="outline"
                 className="h-auto justify-start px-3 py-2 text-left"
                 onClick={() => startTemplate(template)}
+                disabled={!engineActive}
                 aria-label={t('automations.useTemplateNamed', {
                   name: template.draft.name,
                 })}
@@ -1160,6 +1185,7 @@ function AutomationList({
   onCancelRun,
   runsByAutomation,
   historyOpenId,
+  mutable,
   t,
 }: {
   automations: AutomationView[];
@@ -1172,6 +1198,7 @@ function AutomationList({
   onCancelRun: (run: AutomationRunView) => void;
   runsByAutomation: Record<string, AutomationRunView[]>;
   historyOpenId: string | null;
+  mutable: boolean;
   t: ReturnType<typeof useTranslation>['t'];
 }) {
   if (automations.length === 0) {
@@ -1203,6 +1230,7 @@ function AutomationList({
               type="button"
               className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => onEdit(automation)}
+              disabled={!mutable}
             >
               <span className="block truncate text-sm font-medium">
                 {automation.name}
@@ -1233,6 +1261,7 @@ function AutomationList({
               aria-label={t('automations.toggleAria', {
                 name: automation.name,
               })}
+              disabled={!mutable}
             />
           </div>
           <div className="mt-2 flex items-center justify-end gap-1">
@@ -1253,6 +1282,7 @@ function AutomationList({
               variant="ghost"
               className="h-7 px-2"
               onClick={() => onEdit(automation)}
+              disabled={!mutable}
               aria-label={t('automations.editNamed', {
                 name: automation.name,
               })}
@@ -1265,7 +1295,9 @@ function AutomationList({
               variant="ghost"
               className="h-7 px-2"
               onClick={() => onRun(automation)}
-              disabled={!automation.enabled || automation.migrationRequired}
+              disabled={
+                !mutable || !automation.enabled || automation.migrationRequired
+              }
               aria-label={t('automations.runNamed', {
                 name: automation.name,
               })}
@@ -1290,6 +1322,7 @@ function AutomationList({
               variant="ghost"
               className="h-7 px-2 text-destructive"
               onClick={() => onRemove(automation)}
+              disabled={!mutable}
               aria-label={t('automations.deleteNamed', {
                 name: automation.name,
               })}

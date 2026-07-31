@@ -3,6 +3,7 @@ export { AgentSettings } from './AgentSettings';
 export { AppearanceSettings } from './AppearanceSettings';
 export { AutomationsSettings } from './AutomationsSettings';
 export { ChatChannelSettings } from './ChatChannelSettings';
+export { DeviceSettings } from './DeviceSettings';
 export { EditorSettings } from './EditorSettings';
 export { GeneralSettings } from './GeneralSettings';
 export { InstructionsSettings } from './InstructionsSettings';

@@ -16,7 +16,9 @@ Run the commands and record exact results in
 `docs/verification/agent-k-release-hardening.md`. In particular, schema and DB
 generated checks must be clean, all Rust/frontend tests must pass serially,
 the production Web E2E must use built static assets, and the release Server
-package smoke must not expose its supplied token.
+package smoke must not expose its supplied token. Run
+`pnpm run dependency:licenses`; CI additionally runs RustSec and the pnpm
+high-severity advisory gate.
 
 Create a release tag only from a clean integration commit. Archive protocol
 `docs/protocol/v1`, third-party notices, migration/security reports and the
@@ -29,7 +31,8 @@ exact base/release SHAs with the build.
    directories and Artifact files.
 3. Deploy the desktop and `vibex-server` binaries plus matching Web static tree.
 4. Start one host and verify health, authentication, protocol compatibility,
-   migration evidence, Automation owner/reconciliation and a read-only replay.
+   migration evidence, Automation owner/reconciliation, retention cleanup and
+   a read-only replay.
 5. Review legacy Plugin/Automation drafts before enabling.
 6. Expand to additional hosts only after confirming the first owner is stable.
 

@@ -6,7 +6,8 @@ use std::{
 use application::{
     ApplicationCore, ApplicationError, CancelConversationTurn, ConversationExecutionPort,
     ConversationTurnSnapshot, CreateConversation, ListConversations, Principal,
-    RespondConversationPermission, SqliteConversationRepository, StartConversationTurn,
+    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
+    StartConversationTurn,
 };
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -16,6 +17,7 @@ use uuid::Uuid;
 struct FakeExecution {
     started: Mutex<Vec<StartConversationTurn>>,
     permissions: Mutex<Vec<RespondConversationPermission>>,
+    questions: Mutex<Vec<RespondConversationQuestion>>,
     cancellations: Mutex<Vec<CancelConversationTurn>>,
 }
 
@@ -44,6 +46,14 @@ impl ConversationExecutionPort for FakeExecution {
             .lock()
             .expect("permission calls")
             .push(request);
+        Ok(())
+    }
+
+    async fn respond_question(
+        &self,
+        request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        self.questions.lock().expect("question calls").push(request);
         Ok(())
     }
 
@@ -85,6 +95,41 @@ async fn cancel_turn_is_forwarded_to_the_same_execution_port() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].conversation_id, conversation_id);
     assert_eq!(calls[0].reason.as_deref(), Some("user requested"));
+}
+
+#[tokio::test]
+async fn question_response_is_forwarded_with_its_dedicated_remote_scope() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    let execution = Arc::new(FakeExecution::default());
+    let core =
+        ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
+    let conversation_id = Uuid::new_v4();
+
+    core.respond_conversation_question(
+        &Principal::remote("paired-device", ["conversation.question".to_string()]),
+        RespondConversationQuestion {
+            conversation_id,
+            question_id: Uuid::new_v4().to_string(),
+            response: serde_json::json!({
+                "action": "accept",
+                "content": { "environment": "staging" }
+            }),
+        },
+    )
+    .await
+    .expect("respond question");
+
+    let calls = execution.questions.lock().expect("questions");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].conversation_id, conversation_id);
+    assert_eq!(calls[0].response["content"]["environment"], "staging");
 }
 
 #[tokio::test]

@@ -16,6 +16,7 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
+  Smartphone,
   Sun,
 } from 'lucide-react';
 
@@ -99,6 +100,12 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     labelKey: 'webService',
     icon: Globe,
     capability: 'desktop.tauri',
+  },
+  {
+    path: '/settings/devices',
+    labelKey: 'devices',
+    icon: Smartphone,
+    capability: 'device.pair',
   },
   {
     path: '/settings/logs',

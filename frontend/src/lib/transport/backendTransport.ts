@@ -2,6 +2,7 @@ export type BackendEnvironment = 'desktop' | 'web' | 'remote-desktop';
 import type {
   AgentId,
   AgentPermissionResponse,
+  AgentElicitationResponse,
   AgentSessionConfigOverride,
   CapabilityId,
   DbConversationSummary,
@@ -17,6 +18,17 @@ export type {
   RemoteEvent,
   ServerCapabilities,
   SubscriptionRequest,
+};
+
+export type CreateDevicePairingRequest = {
+  requested_scopes: string[];
+};
+
+export type DevicePairingChallenge = {
+  pairing_id: string;
+  pairing_token: string;
+  expires_at: string;
+  requested_scopes: string[];
 };
 
 export interface ApplicationCommandMap {
@@ -58,6 +70,16 @@ export interface ApplicationCommandMap {
     };
     result: void;
   };
+  conversation_respond_question: {
+    args: {
+      request: {
+        conversationId: string;
+        questionId: string;
+        response: AgentElicitationResponse;
+      };
+    };
+    result: void;
+  };
   conversation_cancel_turn: {
     args: {
       request: { conversationId: string; reason?: string | null };
@@ -77,6 +99,9 @@ export interface BackendTransport {
   call(command: string, args?: Record<string, unknown>): Promise<unknown>;
   subscribe?(request: SubscriptionRequest): AsyncIterable<RemoteEvent>;
   capabilities?(): Promise<ServerCapabilities>;
+  createDevicePairing?(
+    request: CreateDevicePairingRequest
+  ): Promise<DevicePairingChallenge>;
   listen?<T>(event: string, handler: (payload: T) => void): Promise<() => void>;
   emit?(event: string, payload?: unknown): Promise<void>;
   artifactPreviewUrl?(lease: {

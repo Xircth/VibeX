@@ -12,7 +12,8 @@ pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
     ApplicationCore, CancelConversationTurn, ConversationExecutionPort, ConversationRepository,
     ConversationSubscriptionRegistrar, CreateConversation, ListConversations,
-    RespondConversationPermission, SqliteConversationRepository, StartConversationTurn,
+    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
+    StartConversationTurn,
 };
 pub use conversation_execution::ConversationSessionExecutionPort;
 pub use conversations::ConversationTurnSnapshot;

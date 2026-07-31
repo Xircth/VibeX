@@ -1,4 +1,6 @@
-use agents::{AgentId, AgentPermissionResponse, AgentSessionConfigOverride};
+use agents::{
+    AgentElicitationResponse, AgentId, AgentPermissionResponse, AgentSessionConfigOverride,
+};
 use async_trait::async_trait;
 use conversations::{
     ConversationContext, ConversationServiceError, ConversationSessionService,
@@ -8,7 +10,7 @@ use executors::profile::ExecutorProfileId;
 
 use crate::{
     ApplicationError, CancelConversationTurn, ConversationExecutionPort,
-    RespondConversationPermission, StartConversationTurn,
+    RespondConversationPermission, RespondConversationQuestion, StartConversationTurn,
 };
 
 pub struct ConversationSessionExecutionPort {
@@ -66,6 +68,18 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         self.service
             .respond_permission(request.conversation_id, request.permission_id, response)
+            .await
+            .map_err(map_service_error)
+    }
+
+    async fn respond_question(
+        &self,
+        request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        let response = serde_json::from_value::<AgentElicitationResponse>(request.response)
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        self.service
+            .respond_question(request.conversation_id, request.question_id, response)
             .await
             .map_err(map_service_error)
     }

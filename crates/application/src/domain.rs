@@ -22,6 +22,7 @@ pub enum DomainCommand {
     ArtifactOpenPreview,
     ArtifactClosePreview,
     AutomationList,
+    AutomationEngineStatus,
     AutomationCreate,
     AutomationUpdate,
     AutomationSetEnabled,
@@ -54,6 +55,7 @@ impl DomainCommand {
             Self::ArtifactOpenPreview => "artifact_open_preview",
             Self::ArtifactClosePreview => "artifact_close_preview",
             Self::AutomationList => "automation_list",
+            Self::AutomationEngineStatus => "automation_engine_status",
             Self::AutomationCreate => "automation_create",
             Self::AutomationUpdate => "automation_update",
             Self::AutomationSetEnabled => "automation_set_enabled",
@@ -81,6 +83,7 @@ impl DomainCommand {
             Self::ArtifactList => "artifact.read",
             Self::ArtifactOpenPreview | Self::ArtifactClosePreview => "artifact.preview",
             Self::AutomationList
+            | Self::AutomationEngineStatus
             | Self::AutomationRuns
             | Self::AutomationPreviewNextRuns
             | Self::AutomationTemplates
@@ -120,6 +123,7 @@ impl FromStr for DomainCommand {
             Self::ArtifactOpenPreview,
             Self::ArtifactClosePreview,
             Self::AutomationList,
+            Self::AutomationEngineStatus,
             Self::AutomationCreate,
             Self::AutomationUpdate,
             Self::AutomationSetEnabled,

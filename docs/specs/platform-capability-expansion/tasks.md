@@ -1,6 +1,8 @@
 # Tasks：TDD 纵向实施计划
 
-> 状态：待评审。只有 T0.1 的测试缝与需求验收获确认后才能开始功能实现。
+> 状态：`approved-for-implementation`。维护者已于 2026-07-31 确认 T0.1
+> 的公共测试缝、需求验收、非目标与关键语义；最终实现追踪见
+> `docs/verification/platform-capability-completion.md`。
 >
 > 每项任务是一轮或少量连续的 RED → GREEN → REVIEW，不允许把一个里程碑全部测试
 > 预先写完。`Files` 是责任范围提示；实现时每个提交尽量控制在约 5 个文件内。

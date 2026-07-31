@@ -75,3 +75,7 @@ selectors, live status roles, and explicit shared-root risk text.
 - `pnpm run frontend:check` and `pnpm run frontend:lint`: passed.
 - `pnpm run check` and `pnpm run lint`: passed, including workspace Clippy with
   warnings denied.
+- Final release addendum: `pnpm run test:web:e2e` passed all four optimized
+  journeys, including Office PluginAction, isolated worktree, real Turn
+  terminal evidence, Artifact output, dirty shared-root rejection, overlapping
+  skip, and restart Interrupted recovery.

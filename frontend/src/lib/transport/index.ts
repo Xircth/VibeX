@@ -6,6 +6,8 @@ export type {
   BackendEnvironment,
   BackendTransport,
   CapabilityId,
+  CreateDevicePairingRequest,
+  DevicePairingChallenge,
   RemoteEvent,
   ServerCapabilities,
   SubscriptionRequest,

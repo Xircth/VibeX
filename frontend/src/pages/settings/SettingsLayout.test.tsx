@@ -20,6 +20,7 @@ describe('SettingsLayout capability gating', () => {
           'artifact.read',
           'automation.read',
           'delegation.read',
+          'device.pair',
         ],
       }),
     };
@@ -45,6 +46,9 @@ describe('SettingsLayout capability gating', () => {
     );
     expect(
       screen.getByRole('button', { name: /plugins|插件/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /devices|设备/i })
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /web service|Web 服务/i })

@@ -38,7 +38,8 @@
     "tauri:build:all": "node scripts/run-tauri-build-all.js",
     "test:updater-manifest": "node --test scripts/generate-updater-manifest.test.js",
     "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js",
-    "test:web:e2e": "cd frontend && pnpm run test:e2e:web"
+    "test:web:e2e": "cd frontend && pnpm run test:e2e:web",
+    "dependency:licenses": "node scripts/check-dependency-licenses.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",
@@ -48,6 +49,14 @@
   "engines": {
     "node": ">=18",
     "pnpm": ">=8"
+  },
+  "pnpm": {
+    "overrides": {
+      "devalue": "5.9.0",
+      "fast-uri": "4.1.1",
+      "lodash": "4.18.1",
+      "lodash-es": "4.18.1"
+    }
   },
   "packageManager": "pnpm@10.13.1",
   "dependencies": {

@@ -64,6 +64,8 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-automations' }),
     ChatChannelSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-chat-channels' }),
+    DeviceSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-devices' }),
     EditorSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-editor' }),
     GeneralSettings: () =>

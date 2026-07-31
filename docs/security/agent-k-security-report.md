@@ -41,6 +41,7 @@ JSON decoding. Delegation companion framing independently remains capped at
 | Replay race | atomic attach/high-water test and WebSocket reconnect test | No gap or duplicate application |
 | Scheduler race | owner lease, transactional concurrent ticks, one-active-run index | No double scheduling |
 | Terminal race | Delegation early complete/cancel/parent close and Automation four terminal projections | First terminal wins; no permanent running |
+| Dependency/license drift | deterministic pnpm/Cargo metadata audit plus RustSec and pnpm advisory CI jobs | Unknown or non-approved licenses fail; high-severity advisories fail CI |
 
 ## Secret and scope properties
 
@@ -54,6 +55,9 @@ JSON decoding. Delegation companion framing independently remains capped at
   prompt/output/path/token fields.
 - Preview capabilities are distinct from Server/device credentials and are
   never forwarded upstream.
+- The Web pairing QR contains only the five-minute one-time pairing secret,
+  pairing id and expiry. It contains neither the Server URL nor the
+  administrator bearer token.
 
 ## Random/property testing
 
@@ -68,4 +72,9 @@ minimal failing seed before a fix.
   exposure requires explicit opt-in plus an external reviewed TLS boundary.
 - Notification DTOs do not send APNs/FCM messages.
 - Offline data is read-only and does not queue commands.
-- Device pairing has protocol/routes but no QR-code/mobile product UI.
+- Device pairing has a capability-gated Web QR affordance, but there is no
+  mobile product application.
+- Native macOS WebDriver is not provided by Tauri. Desktop journey components
+  are exercised as optimized multi-page builds in Chromium, while native
+  Tauri commands and transports remain covered by Rust/TypeScript integration
+  tests.

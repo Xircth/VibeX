@@ -81,6 +81,7 @@ export class TauriTransport implements BackendTransport {
         'conversation.write',
         'conversation.attach',
         'conversation.permission',
+        'conversation.question',
         'conversation.cancel',
         'plugin.read',
         'plugin.write',

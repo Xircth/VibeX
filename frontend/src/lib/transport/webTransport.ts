@@ -1,5 +1,7 @@
 import type {
   BackendTransport,
+  CreateDevicePairingRequest,
+  DevicePairingChallenge,
   RemoteEvent,
   ServerCapabilities,
   SubscriptionRequest,
@@ -139,6 +141,16 @@ export class WebTransport implements BackendTransport {
   async capabilities(): Promise<ServerCapabilities> {
     const response = await this.request('/api/v1/capabilities');
     return response.json() as Promise<ServerCapabilities>;
+  }
+
+  async createDevicePairing(
+    request: CreateDevicePairingRequest
+  ): Promise<DevicePairingChallenge> {
+    const response = await this.request('/api/v1/auth/pairings', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    return response.json() as Promise<DevicePairingChallenge>;
   }
 
   artifactPreviewUrl(lease: {

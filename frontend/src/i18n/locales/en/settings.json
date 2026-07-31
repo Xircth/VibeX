@@ -13,6 +13,7 @@
     "automations": "Automations",
     "plugins": "Plugins",
     "webService": "Web service",
+    "devices": "Devices",
     "logs": "Logs",
     "system": "System"
   },
@@ -226,6 +227,8 @@
     "unseenFailures": "{{count}} unread failures",
     "lastRunStatus": "Last: {{status}}",
     "migrationRequired": "Migration required",
+    "nonOwnerStatus": "Automation Engine is owned by another host",
+    "nonOwnerDescription": "Read-only: another desktop or Server process owns this data directory. Editing and execution become available after it releases the Engine lease.",
     "status": {
       "running": "Running",
       "completed": "Completed",
@@ -378,7 +381,21 @@
     "tokenPlaceholder": "Not generated yet",
     "copyToken": "Copy Token",
     "generate": "Generate",
+    "pairingTitle": "Device pairing",
+    "pairingDescription": "Create a five-minute, one-time code for a trusted device. The code grants only conversation read and question-response access.",
+    "createPairing": "Create device pairing",
+    "pairingFailed": "Failed to create device pairing",
+    "pairingCopied": "Pairing code copied",
+    "pairingQrAlt": "Device pairing QR code",
+    "pairingQrLoading": "Generating device pairing QR code",
+    "pairingCodeLabel": "One-time pairing code",
+    "pairingOneTime": "Shown once and expires at {{expiresAt}}. It does not contain the Server access token.",
+    "copyPairingCode": "Copy pairing code",
     "actionBarMessage": "Web service configuration modified; it takes effect after saving."
+  },
+  "devices": {
+    "title": "Devices",
+    "description": "Pair and manage clients with narrowly scoped, revocable access."
   },
   "instructions": {
     "title": "Instructions",

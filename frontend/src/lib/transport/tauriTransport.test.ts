@@ -47,6 +47,23 @@ describe('TauriTransport application command adapter', () => {
     expect(tauriInvoke).toHaveBeenCalledWith('health_check', undefined);
   });
 
+  it('preserves the desktop companion-aware question adapter', async () => {
+    tauriInvoke.mockResolvedValue(undefined);
+    const request = {
+      conversationId: 'conversation-1',
+      questionId: 'question-1',
+      response: { outcome: 'cancel' as const },
+    };
+
+    await new TauriTransport().call('conversation_respond_question', {
+      request,
+    });
+
+    expect(tauriInvoke).toHaveBeenCalledWith('conversation_respond_question', {
+      request,
+    });
+  });
+
   it('rejects an outbound cursor that cannot round-trip through JSON safely', async () => {
     const events = new TauriTransport().subscribe({
       subscription_id: '0195d6f4-8c37-7b28-a982-6a9e60142f55',

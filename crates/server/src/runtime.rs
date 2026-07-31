@@ -118,6 +118,7 @@ where
                 CapabilityId::new("conversation.write"),
                 CapabilityId::new("conversation.attach"),
                 CapabilityId::new("conversation.permission"),
+                CapabilityId::new("conversation.question"),
                 CapabilityId::new("conversation.cancel"),
                 CapabilityId::new("application.call"),
                 CapabilityId::new("plugin.read"),
@@ -337,19 +338,7 @@ where
         .await
     {
         Ok(response) => Json(response).into_response(),
-        Err(error) => {
-            let status = match error.code {
-                ErrorCode::BadRequest => StatusCode::BAD_REQUEST,
-                ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
-                ErrorCode::Forbidden => StatusCode::FORBIDDEN,
-                ErrorCode::NotFound => StatusCode::NOT_FOUND,
-                ErrorCode::Conflict => StatusCode::CONFLICT,
-                ErrorCode::CapabilityUnavailable => StatusCode::NOT_IMPLEMENTED,
-                ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status, Json(error)).into_response()
-        }
+        Err(error) => application_error_response(error),
     }
 }
 
@@ -392,10 +381,9 @@ async fn capabilities<R>(
         }
     }
     let mut capabilities = state.capabilities.clone();
-    capabilities.capabilities.retain(|capability| {
-        credential.allows(capability.as_str())
-            || (capability.as_str() == "preview.proxy" && credential.allows("artifact.preview"))
-    });
+    capabilities
+        .capabilities
+        .retain(|capability| credential.grants_capability(capability.as_str()));
     Json(capabilities).into_response()
 }
 
@@ -555,7 +543,11 @@ fn bad_request(message: &str) -> Response {
 }
 
 fn application_error_response(error: ErrorEnvelope) -> Response {
-    let status = match error.code {
+    (status_for_error_code(error.code), Json(error)).into_response()
+}
+
+fn status_for_error_code(code: ErrorCode) -> StatusCode {
+    match code {
         ErrorCode::BadRequest => StatusCode::BAD_REQUEST,
         ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         ErrorCode::Forbidden => StatusCode::FORBIDDEN,
@@ -564,8 +556,7 @@ fn application_error_response(error: ErrorEnvelope) -> Response {
         ErrorCode::CapabilityUnavailable => StatusCode::NOT_IMPLEMENTED,
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
-    };
-    (status, Json(error)).into_response()
+    }
 }
 
 fn auth_error_response(error: AuthStoreError) -> Response {

@@ -13,6 +13,7 @@
     "automations": "自动化",
     "plugins": "插件",
     "webService": "Web 服务",
+    "devices": "设备",
     "logs": "日志",
     "system": "系统"
   },
@@ -226,6 +227,8 @@
     "unseenFailures": "{{count}} 次未读失败",
     "lastRunStatus": "上次：{{status}}",
     "migrationRequired": "需要迁移",
+    "nonOwnerStatus": "自动化引擎由其他宿主持有",
+    "nonOwnerDescription": "当前为只读：另一个桌面端或 Server 进程持有此数据目录的引擎租约。其释放后即可编辑和运行。",
     "status": {
       "running": "运行中",
       "completed": "已完成",
@@ -378,7 +381,21 @@
     "tokenPlaceholder": "尚未生成",
     "copyToken": "复制 Token",
     "generate": "生成",
+    "pairingTitle": "设备配对",
+    "pairingDescription": "为受信任设备创建五分钟内有效的一次性配对码，仅授予会话读取和问题响应权限。",
+    "createPairing": "创建设备配对",
+    "pairingFailed": "创建设备配对失败",
+    "pairingCopied": "配对码已复制",
+    "pairingQrAlt": "设备配对二维码",
+    "pairingQrLoading": "正在生成设备配对二维码",
+    "pairingCodeLabel": "一次性配对码",
+    "pairingOneTime": "仅显示一次，将于 {{expiresAt}} 过期；其中不包含 Server 主访问 Token。",
+    "copyPairingCode": "复制配对码",
     "actionBarMessage": "Web 服务配置已修改，保存后生效。"
+  },
+  "devices": {
+    "title": "设备",
+    "description": "配对客户端，并通过可撤销的最小权限控制其访问。"
   },
   "instructions": {
     "title": "指令",

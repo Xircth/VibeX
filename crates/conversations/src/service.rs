@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::PathBuf,
     sync::Arc,
 };
@@ -12,13 +12,15 @@ use agents::{
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
     SendAgentPromptInput, SessionLaunchLock,
     conversation::{
-        AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
-        ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
+        AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
+        ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
         ConversationQuestionResponse,
     },
+    validate_session_defaults,
 };
 use db::models::{
+    agent_management::SessionDefaultRepository,
     conversation::{
         ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
         CreateConversationRecord,
@@ -98,6 +100,13 @@ pub trait ConversationHost: Send + Sync {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String>;
+    fn resolve_additional_directories(
+        &self,
+        workspace: &Workspace,
+        container_ref: &str,
+        repos: &[Repo],
+        working_dir: &str,
+    ) -> Vec<PathBuf>;
     async fn build_prompt_blocks(
         &self,
         working_dir: &str,
@@ -232,6 +241,12 @@ impl ConversationSessionService {
             .host
             .resolve_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
+        let additional_directories = self.ctx.host.resolve_additional_directories(
+            &workspace,
+            &container_ref,
+            &repos,
+            &working_dir,
+        );
         let agent_blocks = self
             .ctx
             .host
@@ -283,7 +298,13 @@ impl ConversationSessionService {
         .await;
 
         let result = self
-            .send_turn_to_agent(&input, &working_dir, agent_blocks, turn.id)
+            .send_turn_to_agent(
+                &input,
+                &working_dir,
+                &additional_directories,
+                agent_blocks,
+                turn.id,
+            )
             .await;
 
         match result {
@@ -546,6 +567,12 @@ impl ConversationSessionService {
             .host
             .resolve_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
+        let additional_directories = self.ctx.host.resolve_additional_directories(
+            &workspace,
+            &container_ref,
+            &repos,
+            &working_dir,
+        );
         let launch_settings = self.ctx.host.launch_settings(pool, &agent_id).await?;
         let latest_binding =
             ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?;
@@ -561,6 +588,7 @@ impl ConversationSessionService {
                     launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: workspace.id,
                     working_dir: PathBuf::from(&working_dir),
+                    additional_directories: additional_directories.clone(),
                     session_id: runtime_session_id,
                     external_session_id,
                     auto_approve_mode: launch_settings.auto_approve_mode,
@@ -568,7 +596,7 @@ impl ConversationSessionService {
                 })
                 .await?
         } else {
-            let prepared = self
+            let mut prepared = self
                 .ctx
                 .agent_runtime
                 .prepare_session(EnsureAgentSessionInput {
@@ -576,12 +604,60 @@ impl ConversationSessionService {
                     launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: workspace.id,
                     working_dir: PathBuf::from(&working_dir),
+                    additional_directories,
                     session_id: runtime_session_id,
                     acp_session_id: format!("vibex-new-session-{conversation_id}"),
                     auto_approve_mode: launch_settings.auto_approve_mode,
                     env: launch_settings.env,
                 })
                 .await?;
+            let mut requested_defaults = BTreeMap::new();
+            let mut stale_default_ids = Vec::new();
+            for default in SessionDefaultRepository::new(pool.clone())
+                .list_for_agent(&agent_id)
+                .await
+                .map_err(|error| ConversationServiceError::Internal(error.to_string()))?
+            {
+                match serde_json::from_str(&default.value_json) {
+                    Ok(value) => {
+                        requested_defaults.insert(default.option_id, value);
+                    }
+                    Err(_) => stale_default_ids.push(default.option_id),
+                }
+            }
+            let validation =
+                validate_session_defaults(requested_defaults, &prepared.controls.config_options);
+            stale_default_ids.extend(validation.stale_ids);
+            for (key, value) in validation.valid {
+                match self
+                    .ctx
+                    .agent_runtime
+                    .set_session_config_option(runtime_session_id, key.clone(), value)
+                    .await
+                {
+                    Ok(controls) => prepared.controls = controls,
+                    Err(error) => {
+                        tracing::warn!(
+                            %conversation_id,
+                            agent_id = %agent_id,
+                            option_id = %key,
+                            %error,
+                            "saved Agent session default was rejected by the prepared session"
+                        );
+                        stale_default_ids.push(key);
+                    }
+                }
+            }
+            if !stale_default_ids.is_empty() {
+                stale_default_ids.sort();
+                stale_default_ids.dedup();
+                tracing::warn!(
+                    %conversation_id,
+                    agent_id = %agent_id,
+                    stale_default_ids = ?stale_default_ids,
+                    "saved Agent session defaults were stale and were not sent"
+                );
+            }
             Session::update_agent_metadata(
                 pool,
                 conversation_id,
@@ -878,6 +954,7 @@ impl ConversationSessionService {
         &self,
         input: &ConversationStartTurnInput,
         working_dir: &str,
+        additional_directories: &[PathBuf],
         blocks: Vec<AgentContentBlock>,
         turn_id: Uuid,
     ) -> Result<AgentPromptSnapshot, ConversationServiceError> {
@@ -959,6 +1036,7 @@ impl ConversationSessionService {
                     launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
+                    additional_directories: additional_directories.to_vec(),
                     session_id: AgentSessionId(input.conversation_id),
                     external_session_id,
                     auto_approve_mode: launch_settings.auto_approve_mode,
@@ -973,6 +1051,7 @@ impl ConversationSessionService {
                     launch_lock: launch_settings.launch_lock.clone(),
                     workspace_id: input.workspace_id,
                     working_dir: PathBuf::from(working_dir),
+                    additional_directories: additional_directories.to_vec(),
                     session_id: AgentSessionId(input.conversation_id),
                     acp_session_id: acp_session_id.clone(),
                     auto_approve_mode: launch_settings.auto_approve_mode,
@@ -996,7 +1075,9 @@ impl ConversationSessionService {
             "runtime",
             ConversationEvent::AgentBindingReady {
                 acp_session_id: session.acp_session_id.clone(),
-                capabilities: default_capabilities(),
+                // The manager's SessionLinked event replaces this conservative
+                // placeholder with the authoritative initialization snapshot.
+                capabilities: AcpCapabilitySnapshot::default(),
             },
             Some(format!("binding:{}:ready", binding.id)),
         )
@@ -1696,22 +1777,11 @@ fn conversation_input_blocks(blocks: &[AgentContentBlock]) -> Vec<ConversationIn
                 title: title.clone(),
                 mime_type: None,
             },
+            AgentContentBlock::Protocol { content } => ConversationInputBlock::Protocol {
+                content: content.clone(),
+            },
         })
         .collect()
-}
-
-fn default_capabilities() -> AcpCapabilitySnapshot {
-    AcpCapabilitySnapshot {
-        prompt: AgentPromptCapabilities {
-            text: true,
-            image: true,
-            resource: false,
-        },
-        load_session: true,
-        close_session: true,
-        terminal: true,
-        ..Default::default()
-    }
 }
 
 /// Layer the composer's explicit selection on top of profile/slash defaults.
@@ -1795,7 +1865,7 @@ mod tests {
 
     use agents::{
         AgentContentBlock, AgentId, AgentSessionConfigOverride,
-        conversation::ConversationFileChange,
+        conversation::{AcpCapabilitySnapshot, ConversationFileChange},
     };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
@@ -1813,7 +1883,7 @@ mod tests {
     use super::{
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
         checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
-        conversation_input_blocks, default_capabilities, diff_to_conversation_file_change,
+        conversation_input_blocks, diff_to_conversation_file_change,
         ensure_conversation_has_no_in_flight_turn, known_acp_session_id,
         merge_user_prompt_overrides,
     };
@@ -2090,14 +2160,14 @@ mod tests {
     }
 
     #[test]
-    fn conversation_capabilities_default_snapshot_matches_binding_assumptions() {
-        let capabilities = default_capabilities();
+    fn conversation_capabilities_are_conservative_until_handshake_event() {
+        let capabilities = AcpCapabilitySnapshot::default();
 
-        assert!(capabilities.prompt.text);
-        assert!(capabilities.prompt.image);
-        assert!(capabilities.load_session);
-        assert!(capabilities.close_session);
-        assert!(capabilities.terminal);
+        assert!(!capabilities.prompt.text);
+        assert!(!capabilities.prompt.image);
+        assert!(!capabilities.load_session);
+        assert!(!capabilities.close_session);
+        assert!(!capabilities.terminal);
     }
 
     #[test]

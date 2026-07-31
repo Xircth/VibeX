@@ -2,6 +2,7 @@ import { tauriInvoke } from '@/lib/tauriApi';
 import type {
   AgentPreparedSessionSnapshot,
   AgentSessionControlsSnapshot,
+  AgentSessionListPage,
 } from 'shared/types';
 import type {
   AgentAvailableCommand,
@@ -68,6 +69,11 @@ export type AgentTerminalSnapshotRequest = {
   terminalId: string;
 };
 
+export type AgentSessionDefaultsView = {
+  values: Record<string, unknown>;
+  staleIds: string[];
+};
+
 export const agentsApi = {
   /** Matching persisted capability catalog; this is a side-effect-free read. */
   capabilityCatalog: (
@@ -75,11 +81,58 @@ export const agentsApi = {
   ): Promise<AgentSessionControlsSnapshot | null> =>
     tauriInvoke('agent_capability_catalog', { agentId }),
 
+  capabilityCatalogFresh: (agentId: string): Promise<boolean> =>
+    tauriInvoke('agent_capability_catalog_fresh', { agentId }),
+
   refreshCapabilityCatalog: (agentId: string): Promise<boolean> =>
     tauriInvoke('agent_refresh_capability_catalog', { agentId }),
 
+  sessionDefaults: (agentId: string): Promise<AgentSessionDefaultsView> =>
+    tauriInvoke('agent_session_defaults', { agentId }),
+
+  setSessionDefaults: (
+    agentId: string,
+    defaults: Record<string, unknown>
+  ): Promise<void> =>
+    tauriInvoke('agent_set_session_defaults', {
+      request: { agentId, defaults },
+    }),
+
   snapshot: (): Promise<AgentRuntimeSnapshot> =>
     tauriInvoke('agent_runtime_snapshot'),
+
+  listRemoteSessions: (
+    agentId: string,
+    workspaceId: string,
+    cursor?: string | null
+  ): Promise<AgentSessionListPage> =>
+    tauriInvoke('agent_list_remote_sessions', {
+      request: { agentId, workspaceId, cursor: cursor ?? null },
+    }),
+
+  deleteRemoteSession: (
+    agentId: string,
+    workspaceId: string,
+    acpSessionId: string
+  ): Promise<void> =>
+    tauriInvoke('agent_delete_remote_session', {
+      request: { agentId, workspaceId, acpSessionId },
+    }),
+
+  importRemoteSession: (
+    agentId: string,
+    workspaceId: string,
+    acpSessionId: string,
+    title?: string | null
+  ): Promise<{ id: string }> =>
+    tauriInvoke('agent_import_remote_session', {
+      request: {
+        agentId,
+        workspaceId,
+        acpSessionId,
+        title: title ?? null,
+      },
+    }),
 
   connectionSnapshot: (
     request: AgentConnectionRequest

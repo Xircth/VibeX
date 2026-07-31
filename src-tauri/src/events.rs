@@ -3,12 +3,12 @@ use std::{collections::HashMap, sync::Arc};
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
     conversation::{
-        AcpCapabilitySnapshot, AgentPromptCapabilities, ConversationAgentConnectionStatus,
-        ConversationDelegation, ConversationDelegationResult, ConversationError, ConversationEvent,
-        ConversationEventEnvelope, ConversationFileLocation, ConversationPermissionRequest,
-        ConversationPermissionResponse, ConversationPlanEntry, ConversationQuestionRequest,
-        ConversationQuestionResponse, ConversationRowOpBatch, ConversationSessionModes,
-        ConversationTerminalPatch, ConversationToolCallPatch, ConversationUsage,
+        ConversationAgentConnectionStatus, ConversationDelegation, ConversationDelegationResult,
+        ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileLocation,
+        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
+        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRowOpBatch,
+        ConversationSessionModes, ConversationTerminalPatch, ConversationToolCallPatch,
+        ConversationUsage,
     },
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
@@ -506,6 +506,20 @@ async fn map_conversation_event_record(
         )
         .await?;
     }
+    if let AgentEvent::SessionInfoUpdated { patch } = &envelope.event
+        && let Some(title) = patch
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+    {
+        db::models::conversation::DbConversationSummary::backfill_title(
+            pool,
+            conversation_id,
+            title,
+        )
+        .await?;
+    }
 
     Ok(Some(MappedConversationEventRecord {
         conversation_id,
@@ -748,9 +762,10 @@ fn map_agent_event_to_conversation_event(
         AgentEvent::SessionLinked {
             acp_session_id,
             agent_id: _,
+            capabilities,
         } => Some(ConversationEvent::AgentBindingReady {
             acp_session_id: acp_session_id.clone(),
-            capabilities: default_conversation_capabilities(),
+            capabilities: capabilities.clone(),
         }),
         AgentEvent::MessageChunk {
             content: AgentContentBlock::Text { text },
@@ -781,7 +796,7 @@ fn map_agent_event_to_conversation_event(
                 raw_output_append: None,
                 content: None,
                 locations: None,
-                metadata: None,
+                metadata: tool_call.meta.clone(),
                 images: Vec::new(),
             },
         }),
@@ -802,7 +817,7 @@ fn map_agent_event_to_conversation_event(
                     .as_ref()
                     .map(|content| serde_json::json!({ "text": content })),
                 locations: Some(Vec::<ConversationFileLocation>::new()),
-                metadata: None,
+                metadata: update.meta.clone(),
                 images: Vec::new(),
             },
         }),
@@ -828,6 +843,8 @@ fn map_agent_event_to_conversation_event(
                 // Preserve the agent-reported context-window size (ACP usage
                 // `size`) so the composer can show a real usage ratio.
                 context_window_max: usage.limit,
+                cost_amount: usage.cost_amount,
+                cost_currency: usage.cost_currency.clone(),
             },
         }),
         AgentEvent::SessionModes { modes, current } => {
@@ -844,6 +861,11 @@ fn map_agent_event_to_conversation_event(
         AgentEvent::AvailableCommands { commands } => {
             Some(ConversationEvent::AvailableCommandsUpdated {
                 commands: commands.clone(),
+            })
+        }
+        AgentEvent::SessionInfoUpdated { patch } => {
+            Some(ConversationEvent::AgentSessionInfoUpdated {
+                patch: patch.clone(),
             })
         }
         AgentEvent::SessionLoadFailed { reason } => {
@@ -1017,23 +1039,10 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
         | AgentEvent::ToolCallUpdate { .. }
         | AgentEvent::Plan { .. }
         | AgentEvent::Usage { .. }
+        | AgentEvent::SessionInfoUpdated { .. }
         | AgentEvent::TurnCompleted { .. }
         | AgentEvent::PromptFinished { .. } => "acp",
         _ => "runtime",
-    }
-}
-
-fn default_conversation_capabilities() -> AcpCapabilitySnapshot {
-    AcpCapabilitySnapshot {
-        prompt: AgentPromptCapabilities {
-            text: true,
-            image: true,
-            resource: false,
-        },
-        load_session: true,
-        close_session: true,
-        terminal: true,
-        ..Default::default()
     }
 }
 

@@ -62,24 +62,22 @@ export function getPromptEnhancementErrorMessage(error: unknown): string {
   if (/Prompt enhancement returned empty content/i.test(detail)) {
     return 'Prompt enhancement failed: enhanced prompt was empty.';
   }
-  if (/OpenCode CLI not found/i.test(detail)) {
-    return 'Prompt enhancement failed: OpenCode is not available.';
+  if (/No enabled Agent currently advertises/i.test(detail)) {
+    return 'Prompt enhancement failed: no compatible Agent is available.';
   }
   if (
-    /OpenCode response did not contain a valid EnhancedPrompt field/i.test(
-      detail
-    )
+    /Agent response did not contain a valid EnhancedPrompt field/i.test(detail)
   ) {
-    return 'Prompt enhancement failed: OpenCode returned no valid enhanced prompt.';
+    return 'Prompt enhancement failed: Agent returned no valid enhanced prompt.';
   }
-  if (/OpenCode prompt enhancement failed/i.test(detail)) {
-    return 'Prompt enhancement failed: OpenCode execution failed.';
+  if (/Prompt enhancement Agent failed/i.test(detail)) {
+    return 'Prompt enhancement failed: Agent execution failed.';
   }
-  if (/OpenCode prompt enhancement timed out/i.test(detail)) {
-    return 'Prompt enhancement failed: OpenCode timed out.';
+  if (/Prompt enhancement Agent timed out/i.test(detail)) {
+    return 'Prompt enhancement failed: Agent timed out.';
   }
-  if (/Failed to run OpenCode/i.test(detail)) {
-    return 'Prompt enhancement failed: failed to start OpenCode.';
+  if (/Failed to run enhancement Agent/i.test(detail)) {
+    return 'Prompt enhancement failed: failed to start Agent.';
   }
 
   const normalizedDetail = detail || rawMessage || 'Unknown error';

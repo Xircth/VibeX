@@ -1,11 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ExecutorConfigs } from 'shared/types';
 import { TerminalProfileControls } from './TerminalProfileControls';
-
-vi.mock('@/hooks/useClaudeSettings', () => ({
-  useClaudeSettings: () => ({ settings: null }),
-}));
 
 const profiles = {
   codex: {
@@ -29,8 +25,8 @@ const profiles = {
 } as const satisfies ExecutorConfigs['executors'];
 
 describe('TerminalProfileControls', () => {
-  it('renders one combined Codex safety control in icon-only composer mode', () => {
-    render(
+  it('does not render profile-derived controls for a locked ACP session', () => {
+    const { container } = render(
       <TerminalProfileControls
         profiles={profiles}
         selectedProfile={{ executor: 'codex' as const, variant: null }}
@@ -40,12 +36,6 @@ describe('TerminalProfileControls', () => {
       />
     );
 
-    expect(screen.getByTitle('Full Access / Never')).toBeInTheDocument();
-    expect(screen.queryByTitle('Full Access')).not.toBeInTheDocument();
-
-    const safetyButtons = screen
-      .getAllByRole('button')
-      .filter((button) => button.getAttribute('title')?.includes('Access'));
-    expect(safetyButtons).toHaveLength(1);
+    expect(container).toBeEmptyDOMElement();
   });
 });

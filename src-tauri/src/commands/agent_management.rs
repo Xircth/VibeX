@@ -8,10 +8,9 @@ mod tests {
     };
 
     use super::{
-        OperationCancellationRegistry, auth_document_has_account, bind_profile_runtime_executable,
-        build_launch_environment, install_locked_plan, managed_install_root, management_error,
-        operation_event, resolve_npm_package_executable, resolve_uv_tool_executable,
-        verify_acp_handshake,
+        OperationCancellationRegistry, bind_profile_runtime_executable, build_launch_environment,
+        install_locked_plan, managed_install_root, management_error, operation_event,
+        resolve_npm_package_executable, resolve_uv_tool_executable, verify_acp_handshake,
     };
 
     #[test]
@@ -106,27 +105,29 @@ mod tests {
 
     #[test]
     fn provider_api_keys_are_not_misreported_as_account_logins() {
-        let opencode = AgentId::parse("opencode").unwrap();
-        let pi = AgentId::parse("pi").unwrap();
+        let catalog = agents::BuiltInProfileCatalog::bundled();
+        let opencode = catalog
+            .profile(&AgentId::parse("opencode").unwrap())
+            .unwrap()
+            .account_evidence
+            .as_ref()
+            .unwrap();
+        let pi = catalog
+            .profile(&AgentId::parse("pi").unwrap())
+            .unwrap()
+            .account_evidence
+            .as_ref()
+            .unwrap();
 
-        assert!(!auth_document_has_account(
-            &opencode,
-            &serde_json::json!({
-                "anthropic": {"type": "api", "key": "local"}
-            }),
-        ));
-        assert!(!auth_document_has_account(
-            &pi,
-            &serde_json::json!({
-                "anthropic": {"type": "api_key", "key": "local"}
-            }),
-        ));
-        assert!(auth_document_has_account(
-            &pi,
-            &serde_json::json!({
-                "anthropic": {"type": "oauth", "access": "token"}
-            }),
-        ));
+        assert!(!opencode.matches(&serde_json::json!({
+            "anthropic": {"type": "api", "key": "local"}
+        })));
+        assert!(!pi.matches(&serde_json::json!({
+            "anthropic": {"type": "api_key", "key": "local"}
+        })));
+        assert!(pi.matches(&serde_json::json!({
+            "anthropic": {"type": "oauth", "access": "token"}
+        })));
     }
 
     #[tokio::test]
@@ -403,26 +404,33 @@ use std::{
 };
 
 use agents::{
-    AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager,
-    ArtifactTrust, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
-    InstallPlanner, InstallPlanningInput, LockedInstallSource, NativeConfigPatch,
-    NativeConfigProvider, OfficialRegistryHttpFetcher, PlannedDistributionKind,
+    AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentAutoApproveMode,
+    AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, ArtifactTrust,
+    AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
+    InstallEnvironment, InstallPlanner, InstallPlanningInput, LockedInstallSource,
+    NativeConfigPatch, NativeConfigProvider, OfficialRegistryHttpFetcher, PlannedDistributionKind,
     PlannedInstallComponent, ProfileComponent, ProfileInstallSource, ProfileTopology,
     RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient, ResolvedInstallPlan,
-    SessionLaunchLock, SystemClock, TofuFingerprint, TokioNativeFileSystem, verify_artifact_bytes,
+    SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint, TokioNativeFileSystem,
+    publish_managed_runtime_cli, remove_managed_runtime_cli, switch_managed_runtime_cli,
+    verify_artifact_bytes,
 };
 use api_types::{
-    AgentAuthenticationStatus, AgentDiagnosticView, AgentId, AgentManagementErrorCode,
-    AgentManagementErrorView, AgentManagementView, AgentNativeConfigFieldKind,
-    AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFormat,
-    AgentNativeConfigOptionView, AgentNativeConfigPatchRequest, AgentNativeConfigView,
-    AgentOperationEvent, AgentOperationKind, AgentOperationReceipt, AgentOperationStatus,
-    AgentPreflightItemView, AgentPreflightView, AgentRegistryView,
+    AgentAuthenticationStatus, AgentDiagnosticView, AgentId, AgentLifecycleState,
+    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementView,
+    AgentNativeConfigFieldKind, AgentNativeConfigFieldView, AgentNativeConfigFileView,
+    AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
+    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
+    AgentOperationStatus, AgentPreflightItemView, AgentPreflightView, AgentRegistryView,
+    AgentUpdateCheckView,
 };
 use chrono::{Duration, Utc};
-use db::models::agent_management::{AgentMembershipRepository, RegistrySnapshotRepository};
+use db::models::agent_management::{
+    AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
+    RegistrySnapshotRepository,
+};
 use services::services::{
-    agent_management::AgentManagementQueryService, agent_registry::AgentRegistrySnapshotStore,
+    agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
 };
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
@@ -433,9 +441,50 @@ use uuid::Uuid;
 use crate::state::AppState;
 
 const MANAGEMENT_EVENT: &str = "agent-management-event";
+const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
 static EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static OPERATION_SCHEDULER: OnceLock<OperationScheduler> = OnceLock::new();
 static BUILT_IN_PROBES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
+static CLI_EXPOSURES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
+static HOST_INSTANCE_ID: OnceLock<String> = OnceLock::new();
+
+fn host_instance_id() -> &'static str {
+    HOST_INSTANCE_ID
+        .get_or_init(|| Uuid::new_v4().to_string())
+        .as_str()
+}
+
+pub(crate) async fn recover_interrupted_agent_operations(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    let repository = InstallationOperationRepository::new(pool.clone());
+    let recovered = match repository.recover_interrupted(host_instance_id()).await {
+        Ok(recovered) => recovered,
+        Err(error) => {
+            tracing::error!(%error, "failed to recover interrupted Agent operations");
+            return;
+        }
+    };
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    for operation_id in recovered {
+        let Ok(Some(operation)) = repository.find(operation_id).await else {
+            continue;
+        };
+        let Some(staging_path) = operation.staging_path.map(PathBuf::from) else {
+            continue;
+        };
+        let Ok(root) = managed_install_root(&app_data_dir, &operation.agent_id) else {
+            continue;
+        };
+        let is_staging = staging_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(".staging-"));
+        if staging_path.is_absolute() && staging_path.starts_with(&root) && is_staging {
+            let _ = tokio::fs::remove_dir_all(staging_path).await;
+        }
+    }
+}
 
 struct OperationScheduler {
     global: Arc<Semaphore>,
@@ -509,6 +558,177 @@ fn managed_install_root(app_data_dir: &Path, agent_id: &AgentId) -> anyhow::Resu
     Ok(root)
 }
 
+fn configured_shell_family() -> ShellFamily {
+    #[cfg(windows)]
+    {
+        return ShellFamily::Windows;
+    }
+    #[cfg(not(windows))]
+    ShellFamily::from_shell_path(std::env::var_os("SHELL").as_deref().map(Path::new))
+}
+
+async fn managed_runtime_for_lock(
+    pool: &sqlx::SqlitePool,
+    lock_id: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        r#"SELECT absolute_path
+           FROM agent_install_component
+           WHERE lock_id = ?
+             AND component_kind IN ('agent_runtime', 'combined_runtime')
+           ORDER BY CASE component_kind
+             WHEN 'agent_runtime' THEN 0
+             ELSE 1
+           END
+           LIMIT 1"#,
+    )
+    .bind(lock_id)
+    .fetch_optional(pool)
+    .await?
+    .map(PathBuf::from))
+}
+
+async fn current_managed_runtime(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> anyhow::Result<Option<PathBuf>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        r#"SELECT component.absolute_path
+           FROM agent_installation installation
+           JOIN agent_install_component component
+             ON component.lock_id = installation.current_lock_id
+           WHERE installation.agent_id = ?
+             AND installation.ownership = 'managed'
+             AND component.component_kind IN ('agent_runtime', 'combined_runtime')
+           ORDER BY CASE component.component_kind
+             WHEN 'agent_runtime' THEN 0
+             ELSE 1
+           END
+           LIMIT 1"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .map(PathBuf::from))
+}
+
+fn restore_managed_cli_switch(
+    home_dir: &Path,
+    agent_id: &AgentId,
+    managed_install_root: &Path,
+    previous_runtime: Option<&Path>,
+    attempted_runtime: &Path,
+    shell: ShellFamily,
+) -> Result<(), agents::CliExposureError> {
+    match previous_runtime {
+        Some(previous_runtime) => switch_managed_runtime_cli(
+            home_dir,
+            agent_id,
+            managed_install_root,
+            Some(attempted_runtime),
+            previous_runtime,
+            shell,
+        )
+        .map(|_| ()),
+        None => remove_managed_runtime_cli(home_dir, agent_id, attempted_runtime),
+    }
+}
+
+pub(crate) async fn reconcile_managed_cli_exposures(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    let installations = match sqlx::query_scalar::<_, String>(
+        r#"SELECT installation.agent_id
+           FROM agent_installation installation
+           WHERE installation.ownership = 'managed'
+             AND installation.current_lock_id IS NOT NULL
+           ORDER BY installation.agent_id"#,
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(installations) => installations,
+        Err(error) => {
+            tracing::warn!(%error, "failed to load managed Agent CLI exposures");
+            return;
+        }
+    };
+    let Ok(home_dir) = app.path().home_dir() else {
+        return;
+    };
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    for agent_id in installations {
+        let Ok(agent_id) = AgentId::parse(agent_id) else {
+            continue;
+        };
+        let already_reconciled = CLI_EXPOSURES
+            .get_or_init(|| AsyncMutex::new(HashSet::new()))
+            .lock()
+            .await
+            .contains(&agent_id);
+        if already_reconciled {
+            continue;
+        }
+        let agent_lock = OperationScheduler::shared().agent_lock(&agent_id);
+        let _agent_guard = agent_lock.lock().await;
+        let runtime = current_managed_runtime(pool, &agent_id)
+            .await
+            .and_then(|runtime| {
+                runtime.ok_or_else(|| anyhow::anyhow!("安装记录没有本地 Runtime 组件"))
+            });
+        let result = runtime.and_then(|runtime| {
+            let root = managed_install_root(&app_data_dir, &agent_id)?;
+            publish_managed_runtime_cli(
+                &home_dir,
+                &agent_id,
+                &root,
+                &runtime,
+                configured_shell_family(),
+            )
+            .map_err(Into::into)
+        });
+        match result {
+            Ok(_) => {
+                CLI_EXPOSURES
+                    .get_or_init(|| AsyncMutex::new(HashSet::new()))
+                    .lock()
+                    .await
+                    .insert(agent_id);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    agent_id = %agent_id,
+                    %error,
+                    "failed to reconcile managed Agent terminal command"
+                );
+                let redacted = redact_operation_output(&error.to_string());
+                let _ = sqlx::query(
+                    r#"UPDATE agent_installation
+                       SET lifecycle = 'needs_repair', updated_at = CURRENT_TIMESTAMP
+                       WHERE agent_id = ? AND ownership = 'managed'
+                         AND current_lock_id IS NOT NULL"#,
+                )
+                .bind(agent_id.as_str())
+                .execute(pool)
+                .await;
+                let _ = db::models::agent_management::DiagnosticRepository::new(pool.clone())
+                    .append_bounded(&db::models::agent_management::DiagnosticRecord {
+                        id: Uuid::new_v4(),
+                        agent_id,
+                        operation_kind: "terminal_cli".to_string(),
+                        severity: "error".to_string(),
+                        message: "本地终端命令发布失败".to_string(),
+                        redacted_output: Some(redacted),
+                        created_at: Utc::now().to_rfc3339(),
+                    })
+                    .await;
+            }
+        }
+    }
+    let _ = utils::shell::refresh_process_path_after_install().await;
+}
+
 async fn probe_built_in_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
     let profiles = BuiltInProfileCatalog::bundled();
     for profile in profiles.profiles() {
@@ -540,6 +760,54 @@ async fn probe_built_in_external_installations(app: &AppHandle, pool: &sqlx::Sql
                 agent_id = %profile.agent_id,
                 %error,
                 "built-in external Agent candidate was not adopted"
+            );
+        }
+    }
+}
+
+async fn refresh_agent_management_evidence(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+) -> Result<(), AgentManagementErrorView> {
+    probe_built_in_external_installations(app, pool).await;
+    normalize_optional_profile_authentication(pool).await;
+    AgentManagementApplicationService::new(pool.clone())
+        .refresh_component_integrity()
+        .await
+        .map_err(internal_error)?;
+    Ok(())
+}
+
+pub(crate) async fn warm_agent_management(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    if let Err(error) = refresh_agent_management_evidence(app, pool).await {
+        tracing::warn!(
+            message = %error.message,
+            "Agent management startup warmup failed"
+        );
+    }
+    if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
+        tracing::warn!(%error, "failed to emit Agent management snapshot invalidation");
+    }
+}
+
+async fn normalize_optional_profile_authentication(pool: &sqlx::SqlitePool) {
+    for profile in BuiltInProfileCatalog::bundled()
+        .profiles()
+        .iter()
+        .filter(|profile| !profile.authentication_required_by_default)
+    {
+        if let Err(error) = sync_authentication_probe_with_requirement(
+            pool,
+            &profile.agent_id,
+            AgentAuthenticationStatus::NotRequired,
+            false,
+        )
+        .await
+        {
+            tracing::warn!(
+                agent_id = %profile.agent_id,
+                message = %error.message,
+                "failed to normalize optional profile authentication"
             );
         }
     }
@@ -779,11 +1047,21 @@ fn emit_operation(
 
 #[tauri::command]
 pub async fn agent_management_bar(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+        .list()
+        .await
+        .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn agent_management_refresh(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
-    probe_built_in_external_installations(&app, &state.deployment.db().pool).await;
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    refresh_agent_management_evidence(&app, &state.deployment.db().pool).await?;
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
         .map_err(internal_error)
@@ -794,7 +1072,7 @@ pub async fn agent_management_detail(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentManagementView, AgentManagementErrorView> {
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
         .map_err(internal_error)?
@@ -827,7 +1105,7 @@ pub async fn agent_registry_view(
             }
         })
         .unwrap_or(RegistryCacheFreshness::Empty);
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .registry_view(freshness, None)
         .await
         .map_err(internal_error)
@@ -856,7 +1134,7 @@ pub async fn agent_registry_refresh(
     {
         store.save(snapshot).await.map_err(internal_error)?;
     }
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .registry_view(view.freshness, view.refresh_error)
         .await
         .map_err(internal_error)
@@ -868,7 +1146,7 @@ pub async fn agent_registry_add_and_install(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .add(agent_id.clone())
         .await
         .map_err(|error| {
@@ -921,7 +1199,7 @@ pub async fn agent_management_reorder(
         .reorder(&agent_ids)
         .await
         .map_err(internal_error)?;
-    AgentManagementQueryService::new(state.deployment.db().pool.clone())
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
         .map_err(internal_error)
@@ -982,6 +1260,7 @@ pub async fn agent_management_preflight(
     let acp = component_available(&["acp_adapter", "combined_runtime"]);
     let runtime_ok = runtime.is_some();
     let mut acp_ok = false;
+    let mut authentication_observation = None;
     if let (Some((_, resolved_json)), Some(_)) = (&lock, acp) {
         #[derive(serde::Deserialize)]
         struct LockedPayload {
@@ -1000,24 +1279,31 @@ pub async fn agent_management_preflight(
                 .map_err(internal_error)?
                 .join("agents")
                 .join(agent_id.as_str());
-            acp_ok = verify_acp_handshake(
+            let launch_lock = SessionLaunchLock {
+                agent_id: agent_id.clone(),
+                absolute_acp_program: payload.absolute_acp_program,
+                args: payload.args,
+                env: payload.env,
+                runtime_version: payload.runtime_version,
+                acp_version: payload.acp_version,
+            };
+            match probe_acp_capabilities(
                 &agent_id,
-                &SessionLaunchLock {
-                    agent_id: agent_id.clone(),
-                    absolute_acp_program: payload.absolute_acp_program,
-                    args: payload.args,
-                    env: payload.env,
-                    runtime_version: payload.runtime_version,
-                    acp_version: payload.acp_version,
-                },
+                &launch_lock,
                 &working_dir,
                 &CancellationToken::new(),
             )
             .await
-            .is_ok();
+            {
+                Ok(capabilities) => {
+                    acp_ok = true;
+                    authentication_observation = capabilities.authentication;
+                }
+                Err(_) => acp_ok = false,
+            }
         }
     }
-    let authentication = if let Ok(home) = app.path().home_dir() {
+    let native_authentication = if let Ok(home) = app.path().home_dir() {
         let account_logged_in = detect_account_login(&home, &agent_id).await;
         let provider = NativeConfigProvider::bundled(Arc::new(TokioNativeFileSystem), home);
         match provider.read(&agent_id, account_logged_in).await {
@@ -1030,37 +1316,37 @@ pub async fn agent_management_preflight(
     } else {
         AgentAuthenticationStatus::NotLoggedIn
     };
+    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+        .profile(&agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
+    let (authentication, authentication_required) = resolve_authentication_observation(
+        native_authentication,
+        authentication_observation.as_ref(),
+        authentication_required_by_default,
+    );
     let lifecycle = if !runtime_ok || !acp_ok {
-        "needs_repair"
-    } else if authentication == AgentAuthenticationStatus::NotLoggedIn {
-        "needs_auth"
+        AgentLifecycleState::NeedsRepair
+    } else if authentication_required
+        && matches!(
+            authentication,
+            AgentAuthenticationStatus::NotLoggedIn | AgentAuthenticationStatus::MultipleUnknown
+        )
+    {
+        AgentLifecycleState::NeedsAuth
     } else {
-        "ready"
+        AgentLifecycleState::Ready
     };
-    sqlx::query(
-        r#"INSERT INTO agent_probe
-           (agent_id, lifecycle, authentication, detail_json, probed_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(agent_id) DO UPDATE SET
-             lifecycle = excluded.lifecycle,
-             authentication = excluded.authentication,
-             detail_json = excluded.detail_json,
-             probed_at = excluded.probed_at"#,
-    )
-    .bind(agent_id.as_str())
-    .bind(lifecycle)
-    .bind(authentication_key(authentication))
-    .bind(
-        serde_json::json!({
-            "runtime_available": runtime_ok,
-            "acp_handshake": acp_ok,
-        })
-        .to_string(),
-    )
-    .bind(Utc::now().to_rfc3339())
-    .execute(pool)
-    .await
-    .map_err(internal_error)?;
+    AgentManagementApplicationService::new(pool.clone())
+        .record_probe(
+            &agent_id,
+            lifecycle,
+            authentication,
+            runtime_ok,
+            acp_ok,
+            authentication_required,
+        )
+        .await
+        .map_err(internal_error)?;
     Ok(AgentPreflightView {
         agent_id,
         checked_at: Utc::now().to_rfc3339(),
@@ -1115,7 +1401,54 @@ pub async fn agent_management_repair(
 }
 
 #[tauri::command]
-pub async fn agent_management_update(
+pub async fn agent_management_check_update(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<AgentUpdateCheckView, AgentManagementErrorView> {
+    let current_version = sqlx::query_scalar::<_, String>(
+        r#"SELECT lock.registry_version
+           FROM agent_installation installation
+           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(&state.deployment.db().pool)
+    .await
+    .map_err(internal_error)?;
+    let snapshot = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(
+        state.deployment.db().pool.clone(),
+    ))
+    .load()
+    .await
+    .map_err(internal_error)?;
+    let available_version = snapshot.as_ref().and_then(|snapshot| {
+        snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.agent_id == agent_id)
+            .map(|entry| entry.version.clone())
+    });
+    let fresh = snapshot.as_ref().is_some_and(|snapshot| {
+        Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
+    });
+    Ok(AgentUpdateCheckView {
+        agent_id,
+        update_available: current_version
+            .as_ref()
+            .zip(available_version.as_ref())
+            .is_some_and(|(current, available)| current != available),
+        current_version,
+        available_version,
+        snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
+        fetched_at: snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.fetched_at.to_rfc3339()),
+        fresh,
+    })
+}
+
+#[tauri::command]
+pub async fn agent_management_apply_update(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
@@ -1131,25 +1464,77 @@ pub async fn agent_management_update(
 
 #[tauri::command]
 pub async fn agent_management_rollback(
+    app: AppHandle,
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentManagementView, AgentManagementErrorView> {
-    let active_operation = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT active_operation FROM agent_installation WHERE agent_id = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(&state.deployment.db().pool)
-    .await
-    .map_err(internal_error)?
-    .flatten();
-    if active_operation.is_some() {
+    let installation =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(
+            r#"SELECT active_operation, current_lock_id, rollback_lock_id, ownership
+           FROM agent_installation
+           WHERE agent_id = ?"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&state.deployment.db().pool)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            management_error(
+                AgentManagementErrorCode::NotFound,
+                format!("Agent `{agent_id}` has not been added"),
+                Some(agent_id.clone()),
+            )
+        })?;
+    if installation.0.is_some() {
         return Err(management_error(
             AgentManagementErrorCode::Busy,
             "Agent 已有正在执行的管理操作",
             Some(agent_id),
         ));
     }
-    let changed = sqlx::query(
+    let rollback_lock_id = installation.2.as_deref().ok_or_else(|| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            "Agent 没有可回滚的上一版本",
+            Some(agent_id.clone()),
+        )
+    })?;
+    let mut cli_switch = None;
+    if installation.3 == "managed" {
+        let current_runtime = match installation.1.as_deref() {
+            Some(lock_id) => managed_runtime_for_lock(&state.deployment.db().pool, lock_id)
+                .await
+                .map_err(internal_error)?,
+            None => None,
+        };
+        let rollback_runtime =
+            managed_runtime_for_lock(&state.deployment.db().pool, rollback_lock_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| {
+                    management_error(
+                        AgentManagementErrorCode::InvalidState,
+                        "上一版本没有有效的本地 Runtime",
+                        Some(agent_id.clone()),
+                    )
+                })?;
+        let app_data_dir = app.path().app_data_dir().map_err(internal_error)?;
+        let home_dir = app.path().home_dir().map_err(internal_error)?;
+        let root = managed_install_root(&app_data_dir, &agent_id).map_err(internal_error)?;
+        let shell = configured_shell_family();
+        let _ = utils::shell::refresh_process_path_after_install().await;
+        switch_managed_runtime_cli(
+            &home_dir,
+            &agent_id,
+            &root,
+            current_runtime.as_deref(),
+            &rollback_runtime,
+            shell,
+        )
+        .map_err(internal_error)?;
+        cli_switch = Some((home_dir, root, current_runtime, rollback_runtime, shell));
+    }
+    let update = sqlx::query(
         r#"UPDATE agent_installation
            SET current_lock_id = rollback_lock_id,
                rollback_lock_id = current_lock_id,
@@ -1159,10 +1544,46 @@ pub async fn agent_management_rollback(
     )
     .bind(agent_id.as_str())
     .execute(&state.deployment.db().pool)
-    .await
-    .map_err(internal_error)?
-    .rows_affected();
+    .await;
+    let changed = match update {
+        Ok(result) => result.rows_affected(),
+        Err(error) => {
+            if let Some((home, root, current, rollback, shell)) = &cli_switch
+                && let Err(restore_error) = restore_managed_cli_switch(
+                    home,
+                    &agent_id,
+                    root,
+                    current.as_deref(),
+                    rollback,
+                    *shell,
+                )
+            {
+                tracing::error!(
+                    agent_id = %agent_id,
+                    %restore_error,
+                    "failed to restore terminal command after rollback database failure"
+                );
+            }
+            return Err(internal_error(error));
+        }
+    };
     if changed == 0 {
+        if let Some((home, root, current, rollback, shell)) = &cli_switch
+            && let Err(error) = restore_managed_cli_switch(
+                home,
+                &agent_id,
+                root,
+                current.as_deref(),
+                rollback,
+                *shell,
+            )
+        {
+            tracing::error!(
+                agent_id = %agent_id,
+                %error,
+                "failed to restore terminal command after rejected rollback"
+            );
+        }
         return Err(management_error(
             AgentManagementErrorCode::InvalidState,
             "Agent 没有可回滚的上一版本",
@@ -1174,6 +1595,7 @@ pub async fn agent_management_rollback(
         .execute(&state.deployment.db().pool)
         .await
         .map_err(internal_error)?;
+    let _ = utils::shell::refresh_process_path_after_install().await;
     agent_management_detail(state, agent_id).await
 }
 
@@ -1184,39 +1606,42 @@ async fn queue_operation(
     kind: AgentOperationKind,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
     let kind_key = operation_kind_key(kind);
-    let operation_id = Uuid::new_v4().to_string();
-    let existing = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT active_operation FROM agent_installation WHERE agent_id = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?
-    .flatten();
-    if existing.is_some() {
-        return Err(management_error(
-            AgentManagementErrorCode::Busy,
-            "Agent 已有正在执行的管理操作",
-            Some(agent_id),
-        ));
+    let plan = match kind {
+        AgentOperationKind::Repair => resolve_repair_plan(pool, &agent_id).await,
+        _ => resolve_install_plan(pool, &agent_id).await,
     }
-    sqlx::query(
-        r#"INSERT INTO agent_installation
-           (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
-            active_operation, active_operation_id, updated_at)
-           VALUES (?, 'managed', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT(agent_id) DO UPDATE SET
-             lifecycle = 'queued',
-             active_operation = excluded.active_operation,
-             active_operation_id = excluded.active_operation_id,
-             updated_at = CURRENT_TIMESTAMP"#,
-    )
-    .bind(agent_id.as_str())
-    .bind(kind_key)
-    .bind(&operation_id)
-    .execute(pool)
-    .await
-    .map_err(internal_error)?;
+    .map_err(|error| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            error.to_string(),
+            Some(agent_id.clone()),
+        )
+    })?;
+    let frozen_plan_json = serde_json::to_string(&plan).map_err(internal_error)?;
+    let resource_claims = install_resource_claims(&plan);
+    let operation = InstallationOperationRepository::new(pool.clone())
+        .enqueue(NewInstallationOperation {
+            agent_id: agent_id.clone(),
+            kind: kind_key.to_string(),
+            frozen_plan_json,
+            host_instance_id: host_instance_id().to_string(),
+            resource_claims,
+            staging_path: None,
+        })
+        .await
+        .map_err(|error| {
+            let message = error.to_string();
+            if message.contains("UNIQUE constraint failed") {
+                management_error(
+                    AgentManagementErrorCode::Busy,
+                    "Agent 已有正在执行的管理操作，或所需共享资源正被占用",
+                    Some(agent_id.clone()),
+                )
+            } else {
+                internal_error(error)
+            }
+        })?;
+    let operation_id = operation.id.to_string();
     let cancellation = OperationScheduler::shared()
         .cancellations
         .register(&operation_id);
@@ -1240,6 +1665,7 @@ async fn queue_operation(
             operation_agent_id,
             operation_id_for_task,
             kind,
+            plan,
             cancellation,
         )
         .await;
@@ -1258,6 +1684,7 @@ async fn run_install_operation(
     agent_id: AgentId,
     operation_id: String,
     kind: AgentOperationKind,
+    plan: ResolvedInstallPlan,
     cancellation: CancellationToken,
 ) {
     let scheduler = OperationScheduler::shared();
@@ -1285,6 +1712,22 @@ async fn run_install_operation(
         AgentOperationKind::Repair => "repairing",
         _ => "installing",
     };
+    if let Ok(operation_uuid) = Uuid::parse_str(&operation_id)
+        && let Err(error) = InstallationOperationRepository::new(pool.clone())
+            .mark_running(operation_uuid, host_instance_id())
+            .await
+    {
+        finish_failed_operation(
+            &app,
+            &pool,
+            &agent_id,
+            &operation_id,
+            kind,
+            error.to_string(),
+        )
+        .await;
+        return;
+    }
     if let Err(error) = sqlx::query(
         "UPDATE agent_installation SET lifecycle = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?",
     )
@@ -1307,7 +1750,6 @@ async fn run_install_operation(
     );
 
     let result = async {
-        let plan = resolve_install_plan(&pool, &agent_id).await?;
         let app_data_dir = app
             .path()
             .app_data_dir()
@@ -1316,6 +1758,11 @@ async fn run_install_operation(
         tokio::fs::create_dir_all(&root).await?;
         let lock_id = Uuid::new_v4();
         let staging = root.join(format!(".staging-{lock_id}"));
+        if let Ok(operation_uuid) = Uuid::parse_str(&operation_id) {
+            InstallationOperationRepository::new(pool.clone())
+                .set_staging_path(operation_uuid, &staging.display().to_string())
+                .await?;
+        }
         tokio::fs::create_dir_all(&staging).await?;
         emit_operation(
             &app,
@@ -1360,12 +1807,57 @@ async fn run_install_operation(
             let _ = tokio::fs::remove_dir_all(&staging).await;
             anyhow::bail!("operation canceled");
         }
+        emit_operation(
+            &app,
+            agent_id.clone(),
+            &operation_id,
+            kind,
+            AgentOperationStatus::Running,
+            Some(85),
+            Some("正在发布本地终端命令".to_string()),
+        );
+        let previous_runtime = current_managed_runtime(&pool, &agent_id).await?;
+        let runtime_executable = installation.runtime_executable()?.to_path_buf();
+        let home_dir = app
+            .path()
+            .home_dir()
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let shell = configured_shell_family();
+        let _ = utils::shell::refresh_process_path_after_install().await;
+        switch_managed_runtime_cli(
+            &home_dir,
+            &agent_id,
+            &root,
+            previous_runtime.as_deref(),
+            &runtime_executable,
+            shell,
+        )?;
         if let Err(error) =
             persist_installed_lock(&pool, lock_id, &plan, &installation, "managed").await
         {
+            if let Err(restore_error) = restore_managed_cli_switch(
+                &home_dir,
+                &agent_id,
+                &root,
+                previous_runtime.as_deref(),
+                &runtime_executable,
+                shell,
+            ) {
+                tracing::error!(
+                    agent_id = %agent_id,
+                    %restore_error,
+                    "failed to restore Agent terminal command after lock persistence failure"
+                );
+            }
             let _ = tokio::fs::remove_dir_all(&staging).await;
             return Err(error);
         }
+        CLI_EXPOSURES
+            .get_or_init(|| AsyncMutex::new(HashSet::new()))
+            .lock()
+            .await
+            .insert(agent_id.clone());
+        let _ = utils::shell::refresh_process_path_after_install().await;
         record_post_install_probe(&app, &pool, &agent_id).await?;
         Ok::<_, anyhow::Error>(())
     }
@@ -1379,6 +1871,11 @@ async fn run_install_operation(
             .bind(agent_id.as_str())
             .execute(&pool)
             .await;
+            if let Ok(operation_uuid) = Uuid::parse_str(&operation_id) {
+                let _ = InstallationOperationRepository::new(pool.clone())
+                    .finish(operation_uuid, "succeeded")
+                    .await;
+            }
             emit_operation(
                 &app,
                 agent_id,
@@ -1412,7 +1909,50 @@ async fn record_post_install_probe(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> anyhow::Result<()> {
-    let authentication = if let Ok(home) = app.path().home_dir() {
+    #[derive(serde::Deserialize)]
+    struct LockedPayload {
+        absolute_acp_program: PathBuf,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        env: BTreeMap<String, String>,
+        runtime_version: String,
+        acp_version: String,
+    }
+
+    let resolved_json = sqlx::query_scalar::<_, String>(
+        r#"SELECT lock.resolved_json
+           FROM agent_installation installation
+           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(pool)
+    .await?;
+    let payload: LockedPayload = serde_json::from_str(&resolved_json)?;
+    let launch_lock = SessionLaunchLock {
+        agent_id: agent_id.clone(),
+        absolute_acp_program: payload.absolute_acp_program,
+        args: payload.args,
+        env: payload.env,
+        runtime_version: payload.runtime_version,
+        acp_version: payload.acp_version,
+    };
+    let working_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?
+        .join("agents")
+        .join(agent_id.as_str());
+    tokio::fs::create_dir_all(&working_dir).await?;
+    let capabilities = probe_acp_capabilities(
+        agent_id,
+        &launch_lock,
+        &working_dir,
+        &CancellationToken::new(),
+    )
+    .await?;
+    let native_authentication = if let Ok(home) = app.path().home_dir() {
         let account_logged_in = detect_account_login(&home, agent_id).await;
         let provider = NativeConfigProvider::bundled(Arc::new(TokioNativeFileSystem), home);
         match provider.read(agent_id, account_logged_in).await {
@@ -1425,63 +1965,42 @@ async fn record_post_install_probe(
     } else {
         AgentAuthenticationStatus::NotRequired
     };
-    sync_authentication_probe(pool, agent_id, authentication)
-        .await
-        .map_err(|error| anyhow::anyhow!(error.message))
+    let authentication_required_by_default = BuiltInProfileCatalog::bundled()
+        .profile(agent_id)
+        .is_some_and(|profile| profile.authentication_required_by_default);
+    let (authentication, authentication_required) = resolve_authentication_observation(
+        native_authentication,
+        capabilities.authentication.as_ref(),
+        authentication_required_by_default,
+    );
+    sync_authentication_probe_with_requirement(
+        pool,
+        agent_id,
+        authentication,
+        authentication_required,
+    )
+    .await
+    .map_err(|error| anyhow::anyhow!(error.message))
 }
 
 async fn detect_account_login(home: &Path, agent_id: &AgentId) -> bool {
-    let candidates = match agent_id.as_str() {
-        "claude_code" => {
-            vec![config_directory(home, "CLAUDE_CONFIG_DIR", ".claude").join(".credentials.json")]
-        }
-        "codex" => vec![config_directory(home, "CODEX_HOME", ".codex").join("auth.json")],
-        "opencode" => vec![
-            config_directory(home, "XDG_DATA_HOME", ".local/share")
-                .join("opencode")
-                .join("auth.json"),
-        ],
-        "pi" => vec![config_directory(home, "PI_CODING_AGENT_DIR", ".pi/agent").join("auth.json")],
-        _ => Vec::new(),
+    let catalog = BuiltInProfileCatalog::bundled();
+    let Some(evidence) = catalog
+        .profile(agent_id)
+        .and_then(|profile| profile.account_evidence.as_ref())
+    else {
+        return false;
     };
-    for path in candidates {
-        let Ok(bytes) = tokio::fs::read(path).await else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-            continue;
-        };
-        if auth_document_has_account(agent_id, &value) {
-            return true;
-        }
-    }
-    false
-}
-
-fn config_directory(home: &Path, environment_key: &str, fallback: &str) -> PathBuf {
-    std::env::var_os(environment_key)
+    let directory = evidence
+        .directory_override_env
+        .and_then(std::env::var_os)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(fallback))
-}
-
-fn auth_document_has_account(agent_id: &AgentId, value: &serde_json::Value) -> bool {
-    match agent_id.as_str() {
-        "codex" => value
-            .get("tokens")
-            .and_then(serde_json::Value::as_object)
-            .is_some_and(|tokens| !tokens.is_empty()),
-        "claude_code" => value.as_object().is_some_and(|object| !object.is_empty()),
-        "opencode" | "pi" => value.as_object().is_some_and(|object| {
-            object.values().any(|entry| {
-                entry
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|kind| !matches!(kind, "api" | "api_key"))
-            })
-        }),
-        _ => false,
-    }
+        .unwrap_or_else(|| home.join(evidence.home_relative_directory));
+    let Ok(bytes) = tokio::fs::read(directory.join(evidence.relative_file)).await else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|value| evidence.matches(&value))
 }
 
 async fn resolve_install_plan(
@@ -1503,6 +2022,9 @@ async fn resolve_install_plan(
             .load()
             .await?
             .ok_or_else(|| anyhow::anyhow!("ACP Registry 缓存为空，请先刷新注册表"))?;
+        if Utc::now().signed_duration_since(snapshot.fetched_at) > Duration::hours(24) {
+            anyhow::bail!("ACP Registry 快照已过期，请先刷新注册表");
+        }
         let entry = snapshot
             .entries
             .iter()
@@ -1520,6 +2042,52 @@ async fn resolve_install_plan(
         .map_err(Into::into)
 }
 
+async fn resolve_repair_plan(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> anyhow::Result<ResolvedInstallPlan> {
+    let resolved_json = sqlx::query_scalar::<_, String>(
+        r#"SELECT lock.resolved_json
+           FROM agent_installation installation
+           JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+           WHERE installation.agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("Agent 没有可用于修复的 current Installation lock"))?;
+    let value: serde_json::Value = serde_json::from_str(&resolved_json)?;
+    let plan = value.get("frozen_plan").cloned().ok_or_else(|| {
+        anyhow::anyhow!("现有 Installation lock 缺少可复现修复计划，需要重新安装")
+    })?;
+    serde_json::from_value(plan).map_err(Into::into)
+}
+
+fn install_resource_claims(plan: &ResolvedInstallPlan) -> Vec<String> {
+    let mut claims = vec![
+        format!("agent:{}", plan.agent_id),
+        format!("shim:{}", plan.agent_id),
+        format!("target:{}", plan.agent_id),
+    ];
+    for component in &plan.components {
+        match component.distribution_kind {
+            PlannedDistributionKind::Npx => {
+                claims.push("runtime:node".to_string());
+                claims.push("cache:npm".to_string());
+            }
+            PlannedDistributionKind::Uvx => {
+                claims.push("runtime:python".to_string());
+                claims.push("runtime:uv".to_string());
+                claims.push("cache:uv".to_string());
+            }
+            PlannedDistributionKind::Binary => {}
+        }
+    }
+    claims.sort();
+    claims.dedup();
+    claims
+}
+
 struct InstalledComponent {
     kind: String,
     absolute_path: PathBuf,
@@ -1534,6 +2102,21 @@ struct InstalledPlan {
     components: Vec<InstalledComponent>,
 }
 
+impl InstalledPlan {
+    fn runtime_executable(&self) -> anyhow::Result<&Path> {
+        self.components
+            .iter()
+            .find(|component| {
+                matches!(
+                    component.kind.as_str(),
+                    "agent_runtime" | "combined_runtime"
+                )
+            })
+            .map(|component| component.absolute_path.as_path())
+            .ok_or_else(|| anyhow::anyhow!("安装方案没有本地 Runtime 组件"))
+    }
+}
+
 async fn install_locked_plan(
     plan: &ResolvedInstallPlan,
     staging: &Path,
@@ -1545,7 +2128,7 @@ async fn install_locked_plan(
     for (index, component) in plan.components.iter().enumerate() {
         let component_root = staging.join(format!("{index}-{}", component.component_id));
         tokio::fs::create_dir_all(&component_root).await?;
-        let (absolute_path, sha256, trust_state) = match component.distribution_kind {
+        let (absolute_path, mut sha256, trust_state) = match component.distribution_kind {
             PlannedDistributionKind::Npx => {
                 verify_npm_integrity(&component.resolved_source, &component.trust, cancellation)
                     .await?;
@@ -1641,6 +2224,10 @@ async fn install_locked_plan(
                 component.component_id,
                 absolute_path.display()
             );
+        }
+        if sha256.is_none() {
+            let bytes = tokio::fs::read(&absolute_path).await?;
+            sha256 = Some(format!("{:x}", Sha256::digest(bytes)));
         }
         components.push(InstalledComponent {
             kind: component.component_id.clone(),
@@ -2061,6 +2648,7 @@ async fn verify_acp_handshake(
             launch_lock: lock.clone(),
             workspace_id: Uuid::nil(),
             working_dir: working_dir.to_path_buf(),
+            additional_directories: Vec::new(),
             auto_approve_mode: AgentAutoApproveMode::Off,
             env: HashMap::new(),
         })
@@ -2077,6 +2665,87 @@ async fn verify_acp_handshake(
     };
     manager.disconnect(connection_id).await?;
     Ok(())
+}
+
+async fn probe_acp_capabilities(
+    agent_id: &AgentId,
+    lock: &SessionLaunchLock,
+    working_dir: &Path,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<AcpCapabilitySnapshot> {
+    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let manager = AgentConnectionManager::new(event_tx);
+    let connection_id = AgentConnectionId::new();
+    let (_snapshot, ready) = manager
+        .register_connection(AgentConnectionLaunch {
+            connection_id,
+            agent_id: agent_id.clone(),
+            launch_lock: lock.clone(),
+            workspace_id: Uuid::nil(),
+            working_dir: working_dir.to_path_buf(),
+            additional_directories: Vec::new(),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env: HashMap::new(),
+        })
+        .await;
+    let initialized: anyhow::Result<()> = tokio::select! {
+        result = ready => match result {
+            Ok(result) => result.map_err(Into::into),
+            Err(_) => Err(anyhow::anyhow!("ACP process exited before initialize")),
+        },
+        () = cancellation.cancelled() => Err(anyhow::anyhow!("operation canceled")),
+    };
+    if let Err(error) = initialized {
+        let _ = manager.disconnect(connection_id).await;
+        return Err(error);
+    }
+
+    let capabilities = manager.connection_capabilities(connection_id).await;
+    let disconnected = manager.disconnect(connection_id).await;
+    match (capabilities, disconnected) {
+        (Ok(capabilities), Ok(())) => Ok(capabilities),
+        (Err(error), _) => Err(error.into()),
+        (Ok(_), Err(error)) => Err(error.into()),
+    }
+}
+
+fn resolve_authentication_observation(
+    native_authentication: AgentAuthenticationStatus,
+    observation: Option<&AcpAuthenticationObservationSnapshot>,
+    authentication_required_by_default: bool,
+) -> (AgentAuthenticationStatus, bool) {
+    if matches!(
+        native_authentication,
+        AgentAuthenticationStatus::Account | AgentAuthenticationStatus::ApiKey
+    ) {
+        return (native_authentication, false);
+    }
+
+    match observation.map(|observation| observation.state) {
+        Some(AuthenticationObservationState::Authenticated) => {
+            (AgentAuthenticationStatus::MultipleUnknown, false)
+        }
+        Some(AuthenticationObservationState::Unauthenticated)
+            if authentication_required_by_default =>
+        {
+            (AgentAuthenticationStatus::NotLoggedIn, true)
+        }
+        Some(AuthenticationObservationState::Unauthenticated) => {
+            (AgentAuthenticationStatus::NotRequired, false)
+        }
+        Some(
+            AuthenticationObservationState::Unknown | AuthenticationObservationState::Degraded,
+        )
+        | None => (
+            native_authentication,
+            authentication_required_by_default
+                && matches!(
+                    native_authentication,
+                    AgentAuthenticationStatus::NotLoggedIn
+                        | AgentAuthenticationStatus::MultipleUnknown
+                ),
+        ),
+    }
 }
 
 async fn persist_installed_lock(
@@ -2101,6 +2770,7 @@ async fn persist_installed_lock(
     };
     let resolved_json = serde_json::json!({
         "source": source,
+        "frozen_plan": plan,
         "absolute_acp_program": installation.launch_lock.absolute_acp_program,
         "args": installation.launch_lock.args,
         "env": installation.launch_lock.env,
@@ -2189,6 +2859,11 @@ async fn finish_failed_operation(
     .bind(agent_id.as_str())
     .execute(pool)
     .await;
+    if let Ok(operation_uuid) = Uuid::parse_str(operation_id) {
+        let _ = InstallationOperationRepository::new(pool.clone())
+            .finish(operation_uuid, "failed")
+            .await;
+    }
     let redacted = redact_operation_output(&message);
     let _ = db::models::agent_management::DiagnosticRepository::new(pool.clone())
         .append_bounded(&db::models::agent_management::DiagnosticRecord {
@@ -2234,6 +2909,11 @@ async fn finish_canceled_operation(
     .bind(operation_id)
     .execute(pool)
     .await;
+    if let Ok(operation_uuid) = Uuid::parse_str(operation_id) {
+        let _ = InstallationOperationRepository::new(pool.clone())
+            .finish(operation_uuid, "cancelled")
+            .await;
+    }
     emit_operation(
         app,
         agent_id.clone(),
@@ -2252,6 +2932,39 @@ pub async fn agent_management_cancel_operation(
     agent_id: AgentId,
     operation_id: String,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
+    let operation_repository =
+        InstallationOperationRepository::new(state.deployment.db().pool.clone());
+    if let Ok(id) = Uuid::parse_str(&operation_id) {
+        let operation = operation_repository
+            .find(id)
+            .await
+            .map_err(internal_error)?;
+        if let Some(operation) = operation
+            && operation.agent_id == agent_id
+            && !matches!(operation.status.as_str(), "queued" | "running")
+        {
+            let kind = parse_operation_kind(&operation.kind).ok_or_else(|| {
+                management_error(
+                    AgentManagementErrorCode::InvalidState,
+                    "持久化管理操作类型无效",
+                    Some(agent_id.clone()),
+                )
+            })?;
+            let status = match operation.status.as_str() {
+                "succeeded" => AgentOperationStatus::Succeeded,
+                "failed" => AgentOperationStatus::Failed,
+                "cancelled" => AgentOperationStatus::Canceled,
+                "interrupted" => AgentOperationStatus::Interrupted,
+                _ => AgentOperationStatus::Failed,
+            };
+            return Ok(AgentOperationReceipt {
+                operation_id,
+                agent_id,
+                kind,
+                status,
+            });
+        }
+    }
     let active = sqlx::query_as::<_, (Option<String>, Option<String>)>(
         "SELECT active_operation, active_operation_id FROM agent_installation WHERE agent_id = ?",
     )
@@ -2353,11 +3066,34 @@ async fn uninstall_managed_installation(
     .map_err(internal_error)?;
     if ownership.as_deref() == Some("managed") {
         let app_data_dir = app.path().app_data_dir().map_err(internal_error)?;
+        let home_dir = app.path().home_dir().map_err(internal_error)?;
         let root = managed_install_root(&app_data_dir, agent_id).map_err(internal_error)?;
+        let runtime = current_managed_runtime(pool, agent_id)
+            .await
+            .map_err(internal_error)?;
+        if let Some(runtime) = runtime.as_deref() {
+            remove_managed_runtime_cli(&home_dir, agent_id, runtime).map_err(internal_error)?;
+        }
         match tokio::fs::remove_dir_all(&root).await {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
+                if let Some(runtime) = runtime.as_deref()
+                    && runtime.is_file()
+                    && let Err(restore_error) = publish_managed_runtime_cli(
+                        &home_dir,
+                        agent_id,
+                        &root,
+                        runtime,
+                        configured_shell_family(),
+                    )
+                {
+                    tracing::error!(
+                        agent_id = %agent_id,
+                        %restore_error,
+                        "failed to restore terminal command after uninstall failure"
+                    );
+                }
                 return Err(management_error(
                     AgentManagementErrorCode::Internal,
                     format!("无法删除平台托管的 Agent 安装：{error}"),
@@ -2385,6 +3121,11 @@ async fn uninstall_managed_installation(
         .await
         .map_err(internal_error)?;
     transaction.commit().await.map_err(internal_error)?;
+    CLI_EXPOSURES
+        .get_or_init(|| AsyncMutex::new(HashSet::new()))
+        .lock()
+        .await
+        .remove(agent_id);
     Ok(())
 }
 
@@ -2428,13 +3169,21 @@ async fn ensure_not_busy(
     state: &tauri::State<'_, AppState>,
     agent_id: &AgentId,
 ) -> Result<(), AgentManagementErrorView> {
-    let active_process = state
-        .agent_runtime
-        .snapshot()
-        .await
-        .connections
-        .iter()
-        .any(|connection| &connection.agent_id == agent_id);
+    let active_process =
+        state
+            .agent_runtime
+            .snapshot()
+            .await
+            .connections
+            .iter()
+            .any(|connection| {
+                &connection.agent_id == agent_id
+                    && matches!(
+                        connection.status,
+                        agents::AgentConnectionStatus::Connecting
+                            | agents::AgentConnectionStatus::Ready
+                    )
+            });
     let active_operation = sqlx::query_scalar::<_, Option<String>>(
         "SELECT active_operation FROM agent_installation WHERE agent_id = ?",
     )
@@ -2563,6 +3312,7 @@ fn native_config_view(
 
 #[tauri::command]
 pub async fn agent_management_config_write(
+    app: AppHandle,
     state: tauri::State<'_, AppState>,
     request: AgentNativeConfigPatchRequest,
 ) -> Result<AgentNativeConfigView, AgentManagementErrorView> {
@@ -2599,6 +3349,20 @@ pub async fn agent_management_config_write(
         result.snapshot.authentication,
     )
     .await?;
+    let probe_app = app.clone();
+    let probe_pool = state.deployment.db().pool.clone();
+    let probe_agent_id = request.agent_id.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) =
+            record_post_install_probe(&probe_app, &probe_pool, &probe_agent_id).await
+        {
+            tracing::warn!(
+                agent_id = %probe_agent_id,
+                %error,
+                "failed to refresh ACP authentication after saving Agent configuration"
+            );
+        }
+    });
     Ok(native_config_view(request.agent_id, result.snapshot))
 }
 
@@ -2607,56 +3371,22 @@ async fn sync_authentication_probe(
     agent_id: &AgentId,
     authentication: AgentAuthenticationStatus,
 ) -> Result<(), AgentManagementErrorView> {
-    let installation = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT lifecycle, current_lock_id FROM agent_installation WHERE agent_id = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(internal_error)?;
-    let Some((current_lifecycle, current_lock_id)) = installation else {
-        return Ok(());
-    };
-    let lifecycle = if current_lock_id.is_none() {
-        "uninstalled"
-    } else if matches!(authentication, AgentAuthenticationStatus::NotLoggedIn) {
-        "needs_auth"
-    } else if matches!(
-        current_lifecycle.as_str(),
-        "ready" | "needs_auth" | "needs_config"
-    ) {
-        "ready"
-    } else {
-        current_lifecycle.as_str()
-    };
-    sqlx::query(
-        r#"INSERT INTO agent_probe
-           (agent_id, lifecycle, authentication, detail_json, probed_at)
-           VALUES (?, ?, ?, '{}', ?)
-           ON CONFLICT(agent_id) DO UPDATE SET
-             lifecycle = excluded.lifecycle,
-             authentication = excluded.authentication,
-             detail_json = excluded.detail_json,
-             probed_at = excluded.probed_at"#,
-    )
-    .bind(agent_id.as_str())
-    .bind(lifecycle)
-    .bind(authentication_key(authentication))
-    .bind(Utc::now().to_rfc3339())
-    .execute(pool)
-    .await
-    .map_err(internal_error)?;
-    Ok(())
+    AgentManagementApplicationService::new(pool.clone())
+        .sync_authentication(agent_id, authentication, None)
+        .await
+        .map_err(internal_error)
 }
 
-fn authentication_key(authentication: AgentAuthenticationStatus) -> &'static str {
-    match authentication {
-        AgentAuthenticationStatus::Account => "account",
-        AgentAuthenticationStatus::ApiKey => "api_key",
-        AgentAuthenticationStatus::NotLoggedIn => "not_logged_in",
-        AgentAuthenticationStatus::MultipleUnknown => "multiple_unknown",
-        AgentAuthenticationStatus::NotRequired => "not_required",
-    }
+pub(crate) async fn sync_authentication_probe_with_requirement(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    authentication: AgentAuthenticationStatus,
+    authentication_required: bool,
+) -> Result<(), AgentManagementErrorView> {
+    AgentManagementApplicationService::new(pool.clone())
+        .sync_authentication(agent_id, authentication, Some(authentication_required))
+        .await
+        .map_err(internal_error)
 }
 
 #[tauri::command]

@@ -1,6 +1,6 @@
 //! Concrete `DelegationInjector`: mints a per-launch token, registers it, and
-//! returns the `vibex-mcp` companion entry to splice into a ClaudeCode parent's
-//! `session/new`. Lives here (not in `agents`) so it can touch the token
+//! returns the `vibex-mcp` companion entry plus global remote MCP entries to
+//! splice into an ACP `session/new`. Lives here (not in `agents`) so it can touch the token
 //! registry + locate the companion binary.
 
 use std::{
@@ -8,7 +8,10 @@ use std::{
     sync::Arc,
 };
 
-use agents::{AgentId, DelegationInjector, InjectedMcpServer};
+use agents::{
+    AgentId, DelegationInjector, InjectedMcpServer, InjectedRemoteMcpServer,
+    InjectedRemoteMcpTransport,
+};
 use delegation::{TokenEntry, TokenRegistry};
 use uuid::Uuid;
 
@@ -22,14 +25,9 @@ impl DelegationInjector for VibexDelegationInjector {
     fn companion(
         &self,
         parent_connection_id: &str,
-        agent_id: &AgentId,
+        _agent_id: &AgentId,
         working_dir: &Path,
     ) -> Option<InjectedMcpServer> {
-        // v1: only ClaudeCode parents get the companion (other agents' MCP
-        // injection mechanisms differ — deferred).
-        if agent_id.as_str() != "claude_code" {
-            return None;
-        }
         let token = Uuid::new_v4().to_string();
         self.tokens.register(
             token.clone(),
@@ -53,6 +51,43 @@ impl DelegationInjector for VibexDelegationInjector {
                 "delegation".to_string(),
             ],
         })
+    }
+
+    fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
+        services::services::mcp::scan_local_sync()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|server| server.global)
+            .filter_map(|server| {
+                let object = server.spec.as_object()?;
+                let transport = match object.get("type")?.as_str()? {
+                    "http" => InjectedRemoteMcpTransport::Http,
+                    "sse" => InjectedRemoteMcpTransport::Sse,
+                    _ => return None,
+                };
+                let url = object.get("url")?.as_str()?.trim();
+                if url.is_empty() {
+                    return None;
+                }
+                let headers = object
+                    .get("headers")
+                    .and_then(serde_json::Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(name, value)| {
+                        value
+                            .as_str()
+                            .map(|value| (name.clone(), value.to_string()))
+                    })
+                    .collect();
+                Some(InjectedRemoteMcpServer {
+                    name: server.id,
+                    transport,
+                    url: url.to_string(),
+                    headers,
+                })
+            })
+            .collect()
     }
 }
 

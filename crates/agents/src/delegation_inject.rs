@@ -19,6 +19,20 @@ pub struct InjectedMcpServer {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InjectedRemoteMcpTransport {
+    Http,
+    Sse,
+}
+
+#[derive(Debug, Clone)]
+pub struct InjectedRemoteMcpServer {
+    pub name: String,
+    pub transport: InjectedRemoteMcpTransport,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+}
+
 /// Asked, per new ACP session, for a companion MCP server to inject (or `None`
 /// to skip). Implementations may mint + register a per-launch token as a side
 /// effect; they must be cheap and non-blocking (called on the connection runner).
@@ -29,4 +43,8 @@ pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
         agent_id: &AgentId,
         working_dir: &Path,
     ) -> Option<InjectedMcpServer>;
+
+    fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
+        Vec::new()
+    }
 }

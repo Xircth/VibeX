@@ -7,9 +7,6 @@ import {
   getCodexModelOptions,
   getCodexVariantConfig,
   getCodexVariantFromConfigSelection,
-  getOpenCodeVariantConfig,
-  getOpenCodeVariantFromSelection,
-  getOpenCodeModelOptions,
 } from './executor';
 
 const profiles = {
@@ -176,34 +173,4 @@ describe('executor utilities', () => {
     ).toBe('GPT_5_4');
   });
 
-  it('derives OpenCode config from the selected variant', () => {
-    expect(getOpenCodeVariantConfig(profiles, 'PLAN')).toMatchObject({
-      agentMode: 'plan',
-      permissionMode: 'auto',
-    });
-  });
-
-  it('does not invent OpenCode model choices before the capability catalog loads', () => {
-    const options = getOpenCodeModelOptions(profiles);
-
-    expect(options).toEqual([]);
-  });
-
-  it('maps OpenCode mode and permission back to real variants', () => {
-    expect(
-      getOpenCodeVariantFromSelection(profiles, {
-        model: null,
-        agentMode: 'plan',
-        permissionMode: 'auto',
-      })
-    ).toBe('PLAN');
-
-    expect(
-      getOpenCodeVariantFromSelection(profiles, {
-        model: null,
-        agentMode: null,
-        permissionMode: 'ask',
-      })
-    ).toBe('APPROVALS');
-  });
 });

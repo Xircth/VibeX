@@ -93,9 +93,9 @@ describe('session composer prompt enhancement helpers', () => {
   });
 
   it('trims enhanced prompt responses before applying them', () => {
-    expect(normalizeEnhancedPrompt({ enhancedPrompt: '  better prompt  ' })).toBe(
-      'better prompt'
-    );
+    expect(
+      normalizeEnhancedPrompt({ enhancedPrompt: '  better prompt  ' })
+    ).toBe('better prompt');
   });
 
   it('rejects empty enhanced prompt responses with the backend-compatible error', () => {
@@ -122,12 +122,12 @@ describe('session composer prompt enhancement helpers', () => {
     const empty = getPromptEnhancementErrorMessage(
       new Error('Prompt enhancement returned empty content')
     );
-    const missingCli = getPromptEnhancementErrorMessage(
-      'OpenCode CLI not found'
+    const missingAgent = getPromptEnhancementErrorMessage(
+      'No enabled Agent currently advertises the configured model'
     );
 
     expect(disabled).not.toContain('Prompt enhancement is disabled');
     expect(empty).not.toContain('Prompt enhancement returned empty content');
-    expect(missingCli).not.toContain('OpenCode CLI not found');
+    expect(missingAgent).not.toContain('No enabled Agent');
   });
 });

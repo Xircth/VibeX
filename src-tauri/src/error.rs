@@ -134,17 +134,6 @@ impl From<services::services::mcp::McpError> for AppError {
     }
 }
 
-impl From<services::services::provider_config::ProviderConfigError> for AppError {
-    fn from(e: services::services::provider_config::ProviderConfigError) -> Self {
-        use services::services::provider_config::ProviderConfigError;
-        match e {
-            ProviderConfigError::NotFound(message) => AppError::NotFound(message),
-            ProviderConfigError::BadRequest(message) => AppError::BadRequest(message),
-            ProviderConfigError::Internal(message) => AppError::Internal(message),
-        }
-    }
-}
-
 impl From<services::services::prompt_enhancement::PromptEnhancementError> for AppError {
     fn from(e: services::services::prompt_enhancement::PromptEnhancementError) -> Self {
         use services::services::prompt_enhancement::PromptEnhancementError;

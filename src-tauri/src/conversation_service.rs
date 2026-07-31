@@ -51,6 +51,21 @@ impl conversations::ConversationHost for AppConversationHost {
         crate::workspace_paths::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
     }
 
+    fn resolve_additional_directories(
+        &self,
+        workspace: &Workspace,
+        container_ref: &str,
+        repos: &[Repo],
+        working_dir: &str,
+    ) -> Vec<std::path::PathBuf> {
+        crate::workspace_paths::resolve_workspace_additional_directories(
+            workspace,
+            container_ref,
+            repos,
+            working_dir,
+        )
+    }
+
     async fn build_prompt_blocks(
         &self,
         working_dir: &str,
@@ -67,7 +82,7 @@ impl conversations::ConversationHost for AppConversationHost {
         pool: &SqlitePool,
         agent_id: &agents::AgentId,
     ) -> Result<conversations::AgentRuntimeLaunchSettings, ConversationServiceError> {
-        crate::commands::agents::agent_runtime_launch_settings_from_pool(pool, agent_id)
+        crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(pool, agent_id)
             .await
             .map_err(app_err_to_service)
     }

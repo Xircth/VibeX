@@ -16,6 +16,8 @@ pub enum AgentError {
     SessionNotFound(String),
     #[error("agent prompt `{0}` was not found")]
     PromptNotFound(String),
+    #[error("agent authentication required: {0}")]
+    AuthenticationRequired(String),
     #[error("agent runtime error: {0}")]
     Runtime(String),
 }

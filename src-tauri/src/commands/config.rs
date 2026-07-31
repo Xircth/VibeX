@@ -32,12 +32,11 @@ pub use services::services::prompt_enhancement::{
     PromptEnhancementContextMessage, PromptEnhancementRequest, PromptEnhancementResponse,
 };
 
-/// Models available to the prompt-enhancement settings. The list is read from
-/// the fingerprint-matching, persisted OpenCode capability catalog rather than
-/// asking a second runtime or maintaining a static fallback.
+/// Models available to prompt enhancement, merged from fingerprint-matching
+/// persisted capability catalogs without starting a second runtime.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OpencodeModelsResponse {
+pub struct PromptEnhancementModelsResponse {
     pub models: Vec<String>,
 }
 
@@ -357,11 +356,11 @@ pub async fn enhance_prompt(
 }
 
 #[tauri::command]
-pub async fn list_opencode_models(
+pub async fn list_prompt_enhancement_models(
     state: tauri::State<'_, AppState>,
-) -> Result<OpencodeModelsResponse, AppError> {
-    Ok(OpencodeModelsResponse {
-        models: crate::commands::agents::opencode_capability_catalog_models(
+) -> Result<PromptEnhancementModelsResponse, AppError> {
+    Ok(PromptEnhancementModelsResponse {
+        models: crate::commands::agents::prompt_enhancement_capability_catalog_models(
             &state.deployment.db().pool,
         )
         .await?,

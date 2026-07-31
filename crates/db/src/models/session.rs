@@ -467,6 +467,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_session_title_never_overwrites_an_explicit_user_title() {
+        let pool = setup_pool().await;
+        let session = Session::create(&pool, &sample("CODEX"), Uuid::new_v4(), Uuid::new_v4())
+            .await
+            .expect("create session");
+
+        crate::models::conversation::DbConversationSummary::backfill_title(
+            &pool,
+            session.id,
+            "Agent title",
+        )
+        .await
+        .unwrap();
+        crate::models::conversation::DbConversationSummary::set_title(
+            &pool,
+            session.id,
+            "User title",
+        )
+        .await
+        .unwrap();
+        crate::models::conversation::DbConversationSummary::backfill_title(
+            &pool,
+            session.id,
+            "Later Agent title",
+        )
+        .await
+        .unwrap();
+
+        let summary =
+            crate::models::conversation::DbConversationSummary::find_by_id(&pool, session.id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(summary.title.as_deref(), Some("User title"));
+        assert!(summary.title_locked);
+    }
+
+    #[tokio::test]
     async fn create_with_delegation_links_parent_and_is_findable_by_call_id() {
         let pool = setup_pool().await;
         let workspace_id = Uuid::new_v4();

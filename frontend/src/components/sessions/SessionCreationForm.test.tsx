@@ -9,7 +9,13 @@ import {
 } from './SessionCreationForm';
 
 const capabilityCatalog = vi.fn();
+const capabilityCatalogFresh = vi.fn();
 const refreshCapabilityCatalog = vi.fn();
+const sessionDefaults = vi.fn();
+const setSessionDefaults = vi.fn();
+const listRemoteSessions = vi.fn();
+const importRemoteSession = vi.fn();
+const deleteRemoteSession = vi.fn();
 const terminalProfileControls = vi.fn();
 
 vi.mock('react-i18next', () => ({
@@ -31,8 +37,15 @@ vi.mock('./WorkspaceSelector', () => ({ WorkspaceSelector: () => null }));
 vi.mock('@/features/agents/api', () => ({
   agentsApi: {
     capabilityCatalog: (...args: unknown[]) => capabilityCatalog(...args),
+    capabilityCatalogFresh: (...args: unknown[]) =>
+      capabilityCatalogFresh(...args),
     refreshCapabilityCatalog: (...args: unknown[]) =>
       refreshCapabilityCatalog(...args),
+    sessionDefaults: (...args: unknown[]) => sessionDefaults(...args),
+    setSessionDefaults: (...args: unknown[]) => setSessionDefaults(...args),
+    listRemoteSessions: (...args: unknown[]) => listRemoteSessions(...args),
+    importRemoteSession: (...args: unknown[]) => importRemoteSession(...args),
+    deleteRemoteSession: (...args: unknown[]) => deleteRemoteSession(...args),
   },
 }));
 
@@ -126,10 +139,26 @@ function renderForm(
 describe('SessionCreationForm agent capability catalog controls', () => {
   beforeEach(() => {
     capabilityCatalog.mockReset();
+    capabilityCatalogFresh.mockReset();
     refreshCapabilityCatalog.mockReset();
+    sessionDefaults.mockReset();
+    setSessionDefaults.mockReset();
+    listRemoteSessions.mockReset();
+    importRemoteSession.mockReset();
+    deleteRemoteSession.mockReset();
     terminalProfileControls.mockReset();
     capabilityCatalog.mockResolvedValue(CONTROLS);
+    capabilityCatalogFresh.mockResolvedValue(true);
     refreshCapabilityCatalog.mockResolvedValue(true);
+    sessionDefaults.mockResolvedValue({ values: {}, staleIds: [] });
+    setSessionDefaults.mockResolvedValue(undefined);
+    listRemoteSessions.mockResolvedValue({
+      sessions: [],
+      next_cursor: null,
+      meta: null,
+    });
+    importRemoteSession.mockResolvedValue({ id: 'conversation-imported' });
+    deleteRemoteSession.mockResolvedValue(undefined);
   });
 
   it('loads editable controls for the first session in a new workspace', async () => {
@@ -169,6 +198,21 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(refreshCapabilityCatalog).toHaveBeenCalledTimes(1);
     expect(refreshCapabilityCatalog).toHaveBeenCalledWith('gemini');
     expect(capabilityCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows stale cached controls while refreshing them in the background', async () => {
+    capabilityCatalogFresh
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    renderForm('gemini', vi.fn(), 'new_workspace');
+
+    expect(
+      await screen.findByTestId('session-settings-summary')
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(refreshCapabilityCatalog).toHaveBeenCalledWith('gemini')
+    );
+    await waitFor(() => expect(capabilityCatalog).toHaveBeenCalledTimes(2));
   });
 
   it('reuses each agent catalog from the shared query cache', async () => {
@@ -215,6 +259,29 @@ describe('SessionCreationForm agent capability catalog controls', () => {
           model: 'opus',
           fast: 'true',
         },
+      })
+    );
+  });
+
+  it('loads raw Agent defaults, warns about stale values, and saves current choices', async () => {
+    sessionDefaults.mockResolvedValue({
+      values: { model: 'opus' },
+      staleIds: ['removed-option'],
+    });
+    renderForm('claude_code', vi.fn());
+    const user = userEvent.setup();
+
+    expect(
+      await screen.findByText('sessionCreation.staleDefaults')
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'sessionCreation.saveAgentDefaults' })
+    );
+
+    await waitFor(() =>
+      expect(setSessionDefaults).toHaveBeenCalledWith('claude_code', {
+        model: 'opus',
+        fast: false,
       })
     );
   });
@@ -366,5 +433,52 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(
       screen.queryByText('sessionCreation.controlsUnavailable')
     ).not.toBeInTheDocument();
+  });
+
+  it('shows explicit Agent session import only when list is advertised', async () => {
+    capabilityCatalog.mockResolvedValue({
+      ...CONTROLS,
+      capabilities: {
+        list_sessions: true,
+        delete_session: true,
+      },
+    });
+    listRemoteSessions.mockResolvedValue({
+      sessions: [
+        {
+          acp_session_id: 'acp-session-1',
+          cwd: '/workspace',
+          additional_directories: [],
+          title: 'Fixture session',
+          updated_at: '2026-07-30T00:00:00Z',
+          meta: null,
+        },
+      ],
+      next_cursor: null,
+      meta: null,
+    });
+    renderForm('gemini', vi.fn());
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'sessionCreation.importAgentSession',
+      })
+    );
+    expect(await screen.findByText('Fixture session')).toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', {
+        name: 'sessionCreation.importThisSession',
+      })
+    );
+
+    await waitFor(() =>
+      expect(importRemoteSession).toHaveBeenCalledWith(
+        'gemini',
+        'workspace-1',
+        'acp-session-1',
+        'Fixture session'
+      )
+    );
   });
 });

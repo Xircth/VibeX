@@ -760,6 +760,7 @@ impl ProjectionFold {
                                 uri: Some(uri),
                             }),
                             agents::conversation::ConversationInputBlock::Resource { .. } => None,
+                            agents::conversation::ConversationInputBlock::Protocol { .. } => None,
                         })
                         .collect();
                 }
@@ -886,9 +887,14 @@ impl ProjectionFold {
                         cache_creation_input_tokens: usage.cache_creation_input_tokens,
                         cache_read_input_tokens: usage.cache_read_input_tokens,
                         context_window_max: usage.context_window_max,
+                        cost_amount: usage.cost_amount,
+                        cost_currency: usage.cost_currency.clone(),
                     });
                 }
             }
+            // ACP session metadata is preserved in the durable event log. It is
+            // intentionally not folded into VibeX conversation identity/title.
+            ConversationEvent::AgentSessionInfoUpdated { .. } => {}
             ConversationEvent::TurnCompleted { .. } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
@@ -2580,6 +2586,8 @@ mod tests {
                     cache_creation_input_tokens: 0,
                     cache_read_input_tokens: 0,
                     context_window_max: None,
+                    cost_amount: None,
+                    cost_currency: None,
                 },
             },
             None,

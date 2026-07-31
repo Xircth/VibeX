@@ -122,6 +122,8 @@ fn sum_usage(a: Option<TurnUsage>, b: Option<TurnUsage>) -> Option<TurnUsage> {
                 + y.cache_creation_input_tokens,
             cache_read_input_tokens: x.cache_read_input_tokens + y.cache_read_input_tokens,
             context_window_max: x.context_window_max.or(y.context_window_max),
+            cost_amount: y.cost_amount.or(x.cost_amount),
+            cost_currency: y.cost_currency.or(x.cost_currency),
         }),
     }
 }
@@ -148,7 +150,7 @@ pub fn group_into_turns(records: Vec<ParsedRecord>) -> Vec<MessageTurn> {
         if attaches_to_assistant || same_role {
             let turn = turns.last_mut().expect("checked above");
             turn.blocks.extend(record.blocks);
-            turn.usage = sum_usage(turn.usage, record.usage);
+            turn.usage = sum_usage(turn.usage.clone(), record.usage);
             if turn.model.is_none() {
                 turn.model = record.model;
             }
@@ -179,9 +181,9 @@ pub fn session_stats(turns: &[MessageTurn]) -> Option<SessionStats> {
 
     let total_usage = turns
         .iter()
-        .filter_map(|turn| turn.usage)
+        .filter_map(|turn| turn.usage.clone())
         .fold(None, |acc, usage| sum_usage(acc, Some(usage)));
-    let total_tokens = total_usage.map(|usage| {
+    let total_tokens = total_usage.as_ref().map(|usage| {
         usage.input_tokens
             + usage.output_tokens
             + usage.cache_creation_input_tokens

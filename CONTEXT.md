@@ -98,7 +98,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
-- **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物。
+- **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物，并通过带所有权标记的用户级稳定 shim 将本地 Runtime 主命令暴露给终端。
 - **External agent installation（外部 Agent 安装）** — 由用户或系统所有、经 VibeX 校验后接入的本地 Agent runtime；VibeX 可以使用和重新校验它，但不能擅自升级、修改或卸载它。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
 - **Installation lock（安装锁）** — 一次 Agent 安装实际采用的 Agent Runtime、ACP 适配器与基础运行环境的精确版本和来源记录；它使当前安装可以被验证、复现和安全回退。

@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { AgentId, AgentManagementView } from 'shared/types';
+import type {
+  AgentId,
+  AgentLifecycleState,
+  AgentManagementView,
+} from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
 
@@ -10,6 +14,7 @@ export type SelectableAgent = {
   iconDark: string | null;
   iconSvg: string | null;
   enabled: boolean;
+  lifecycle: AgentLifecycleState;
   runnable: boolean;
 };
 
@@ -21,6 +26,7 @@ function toSelectableAgent(agent: AgentManagementView): SelectableAgent {
     iconDark: agent.icon_dark,
     iconSvg: agent.icon_svg,
     enabled: agent.enabled,
+    lifecycle: agent.lifecycle,
     runnable:
       agent.enabled &&
       agent.lifecycle === 'ready' &&

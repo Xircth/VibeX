@@ -189,6 +189,8 @@ fn assistant_usage(message: &Value) -> Option<TurnUsage> {
         cache_creation_input_tokens: usage.get("cacheWrite").and_then(Value::as_u64).unwrap_or(0),
         cache_read_input_tokens: usage.get("cacheRead").and_then(Value::as_u64).unwrap_or(0),
         context_window_max: None,
+        cost_amount: None,
+        cost_currency: None,
     })
 }
 

@@ -8,7 +8,6 @@ import type {
   ExecutorConfigs,
   ExecutorProfileId,
   ExecutionProcess,
-  Opencode,
   SandboxMode,
 } from 'shared/types';
 
@@ -21,7 +20,6 @@ type ExecutorVariantRecord<T extends Record<string, unknown>> = {
 
 const CLAUDE_CODE_EXECUTOR: AgentKind = 'claude_code';
 const CODEX_EXECUTOR: AgentKind = 'codex';
-const OPENCODE_EXECUTOR: AgentKind = 'opencode';
 const CLAUDE_DEFAULT_MODEL = 'sonnet';
 const CODEX_DEFAULT_MODEL = 'gpt-5.3-codex';
 
@@ -51,7 +49,6 @@ const CODEX_MODEL_LABELS: Record<string, string> = {
 
 export type ClaudePermissionMode = 'auto' | 'ask' | 'plan';
 export type CodexPermissionMode = 'auto' | 'ask';
-export type OpenCodePermissionMode = 'auto' | 'ask';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 
 export const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
@@ -127,14 +124,6 @@ export type CodexVariantConfig = {
   approvalPolicy: AskForApproval;
   permissionMode: CodexPermissionMode;
   reasoningEffort: CodexReasoningEffort;
-  variant: string | null;
-};
-
-export type OpenCodeVariantConfig = {
-  model: string | null;
-  agentMode: string | null;
-  autoApprove: boolean;
-  permissionMode: OpenCodePermissionMode;
   variant: string | null;
 };
 
@@ -669,112 +658,6 @@ export function getCodexVariantFromConfigSelection(
   });
 }
 
-export function getOpenCodeVariantConfig(
-  profiles: ExecutorConfigs['executors'] | null | undefined,
-  variant: string | null
-): OpenCodeVariantConfig {
-  const record = getExecutorVariantRecord<Opencode>(
-    profiles,
-    OPENCODE_EXECUTOR,
-    variant
-  );
-
-  return {
-    model: typeof record?.model === 'string' ? record.model : null,
-    agentMode: typeof record?.agent === 'string' ? record.agent : null,
-    autoApprove: record?.auto_approve ?? true,
-    permissionMode: (record?.auto_approve ?? true) ? 'auto' : 'ask',
-    variant,
-  };
-}
-
-export function getOpenCodePermissionOptions(
-  profiles: ExecutorConfigs['executors'] | null | undefined
-): OpenCodePermissionMode[] {
-  const seen = new Set<OpenCodePermissionMode>();
-  const options: OpenCodePermissionMode[] = [];
-
-  for (const entry of getExecutorVariantRecords<Opencode>(
-    profiles,
-    OPENCODE_EXECUTOR
-  )) {
-    const permissionMode = getOpenCodeVariantConfig(
-      profiles,
-      entry.variant
-    ).permissionMode;
-    if (seen.has(permissionMode)) continue;
-    seen.add(permissionMode);
-    options.push(permissionMode);
-  }
-
-  return options;
-}
-
-export function getOpenCodeModeOptions(
-  profiles: ExecutorConfigs['executors'] | null | undefined
-): Array<string | null> {
-  const seen = new Set<string>();
-  const options: Array<string | null> = [];
-
-  for (const entry of getExecutorVariantRecords<Opencode>(
-    profiles,
-    OPENCODE_EXECUTOR
-  )) {
-    const agentMode = getOpenCodeVariantConfig(
-      profiles,
-      entry.variant
-    ).agentMode;
-    const modeKey = agentMode ?? 'DEFAULT';
-    if (seen.has(modeKey)) continue;
-    seen.add(modeKey);
-    options.push(agentMode);
-  }
-
-  return options;
-}
-
-export function getOpenCodeModelOptions(
-  profiles: ExecutorConfigs['executors'] | null | undefined
-): CodexModelOption[] {
-  // OpenCode's provider-backed models and their per-model controls are only
-  // authoritative in the persisted capability catalog. Executor profiles are
-  // defaults for an existing session, not a second model-picker source. The
-  // caller deliberately gets no selectable model here; ACP/catalog selectors
-  // own that UI instead.
-  void profiles;
-  return [];
-}
-
-export function getOpenCodeVariantFromSelection(
-  profiles: ExecutorConfigs['executors'] | null | undefined,
-  selection: {
-    model: string | null;
-    agentMode: string | null;
-    permissionMode: OpenCodePermissionMode;
-  }
-): string | null {
-  const variants = getExecutorVariantRecords<Opencode>(
-    profiles,
-    OPENCODE_EXECUTOR
-  ).map((entry) => getOpenCodeVariantConfig(profiles, entry.variant));
-
-  const exactMatch = variants.find(
-    (config) =>
-      config.model === selection.model &&
-      config.agentMode === selection.agentMode &&
-      config.permissionMode === selection.permissionMode
-  );
-  if (exactMatch) return exactMatch.variant;
-
-  return findBestMatchingVariant(variants, (config) => {
-    let score = 0;
-    if (config.model === selection.model) score += 3;
-    if (config.agentMode === selection.agentMode) score += 2;
-    if (config.permissionMode === selection.permissionMode) score += 1;
-    return score;
-  });
-}
-
 export function formatSandboxModeLabel(mode: SandboxMode): string {
   switch (mode) {
     case 'danger-full-access':
@@ -815,16 +698,6 @@ export function formatClaudePermissionLabel(
     default:
       return 'Auto';
   }
-}
-
-export function formatOpenCodeModeLabel(mode: string | null): string {
-  return formatSimpleLabel(mode);
-}
-
-export function formatOpenCodePermissionLabel(
-  mode: OpenCodePermissionMode
-): string {
-  return mode === 'auto' ? 'Auto Approve' : 'Ask';
 }
 
 export function extractProfileFromAction(

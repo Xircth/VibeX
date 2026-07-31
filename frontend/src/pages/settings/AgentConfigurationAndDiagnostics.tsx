@@ -14,13 +14,21 @@ import { SettingsActionBar } from './SettingsUi';
 type Props = {
   config: AgentNativeConfigView | null;
   saving: boolean;
+  conflictMessage?: string | null;
   onSave: (request: AgentNativeConfigPatchRequest) => void;
+  onReloadConflict?: () => void;
+  onAdoptExternal?: () => void;
+  onOverwriteConflict?: () => void;
 };
 
 export function AgentConfigurationAndDiagnostics({
   config,
   saving,
+  conflictMessage,
   onSave,
+  onReloadConflict,
+  onAdoptExternal,
+  onOverwriteConflict,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
@@ -102,6 +110,41 @@ export function AgentConfigurationAndDiagnostics({
             <h3>配置管理</h3>
           </div>
         </div>
+
+        {conflictMessage ? (
+          <div
+            className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-foreground"
+            role="alert"
+          >
+            <span>{conflictMessage}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                onClick={onReloadConflict}
+              >
+                重新加载
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={onAdoptExternal}
+              >
+                采用外部值
+              </Button>
+              <Button
+                size="sm"
+                className="h-7"
+                disabled={saving}
+                onClick={onOverwriteConflict}
+              >
+                覆盖外部修改
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         {!config ? (
           <p className="px-4 pb-4 text-xs text-muted-foreground">

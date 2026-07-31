@@ -31,14 +31,14 @@ pub struct InstallPlanningInput {
     pub environment: InstallEnvironment,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PlannedDistributionKind {
     Binary,
     Npx,
     Uvx,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ArtifactTrust {
     ExpectedSha256 { sha256: String },
     EcosystemIntegrity { integrity: String },
@@ -46,7 +46,7 @@ pub enum ArtifactTrust {
     Tofu,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PlannedInstallComponent {
     pub component_id: String,
     pub distribution_kind: PlannedDistributionKind,
@@ -58,7 +58,7 @@ pub struct PlannedInstallComponent {
     pub trust: ArtifactTrust,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LockedInstallSource {
     BuiltInProfile,
     OfficialRegistry {
@@ -67,7 +67,7 @@ pub enum LockedInstallSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedInstallPlan {
     pub agent_id: AgentId,
     pub source: LockedInstallSource,

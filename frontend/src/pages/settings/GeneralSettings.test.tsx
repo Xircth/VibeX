@@ -7,12 +7,9 @@ import { GeneralSettings } from './GeneralSettings';
 
 const configApiMock = vi.hoisted(() => ({
   checkEditorAvailability: vi.fn(),
-  listOpencodeModels: vi.fn(),
+  listPromptEnhancementModels: vi.fn(),
+  refreshPromptEnhancementModels: vi.fn(),
   playNotificationSound: vi.fn(),
-}));
-
-const agentsApiMock = vi.hoisted(() => ({
-  refreshCapabilityCatalog: vi.fn(),
 }));
 
 const userSystemMock = vi.hoisted(() => ({
@@ -21,10 +18,6 @@ const userSystemMock = vi.hoisted(() => ({
 
 vi.mock('@/lib/api', () => ({
   configApi: configApiMock,
-}));
-
-vi.mock('@/features/agents/api', () => ({
-  agentsApi: agentsApiMock,
 }));
 
 vi.mock('@/components/ConfigProvider', () => userSystemMock);
@@ -58,12 +51,9 @@ function renderSettings(model = 'opencode/minimax-m2.5-free') {
   return render(<GeneralSettings />);
 }
 
-describe('GeneralSettings OpenCode model catalog', () => {
+describe('GeneralSettings Agent model catalogs', () => {
   beforeEach(() => {
     for (const fn of Object.values(configApiMock)) {
-      fn.mockReset();
-    }
-    for (const fn of Object.values(agentsApiMock)) {
       fn.mockReset();
     }
     userSystemMock.useUserSystem.mockReset();
@@ -74,49 +64,53 @@ describe('GeneralSettings OpenCode model catalog', () => {
   });
 
   it('does not fabricate choices when the matching capability catalog is empty', async () => {
-    configApiMock.listOpencodeModels.mockResolvedValue({ models: [] });
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
 
     renderSettings();
 
     await waitFor(() => {
-      expect(configApiMock.listOpencodeModels).toHaveBeenCalledTimes(1);
+      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
+        1
+      );
     });
 
     expect(
       screen.getByText(
-        /已保存的模型 opencode\/minimax-m2\.5-free 不在当前已验证的 OpenCode 配置中/
+        /已保存的模型 opencode\/minimax-m2\.5-free 不在当前已验证的 Agent 目录中/
       )
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('combobox', { name: 'OpenCode 模型' })
-    ).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Agent 模型' })).toBeDisabled();
     expect(screen.queryByText('opencode/claude-opus-4-7')).toBeNull();
-    expect(agentsApiMock.refreshCapabilityCatalog).not.toHaveBeenCalled();
+    expect(configApiMock.refreshPromptEnhancementModels).not.toHaveBeenCalled();
   });
 
   it('uses the explicit verified catalog refresh before exposing new models', async () => {
     const user = userEvent.setup();
-    configApiMock.listOpencodeModels
+    configApiMock.listPromptEnhancementModels
       .mockResolvedValueOnce({ models: [] })
       .mockResolvedValueOnce({ models: ['openai/gpt-5.6-sol'] });
-    agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
+    configApiMock.refreshPromptEnhancementModels.mockResolvedValue(true);
 
     renderSettings();
     await waitFor(() => {
-      expect(configApiMock.listOpencodeModels).toHaveBeenCalledTimes(1);
+      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
+        1
+      );
     });
 
     await user.click(screen.getByRole('button', { name: '刷新模型列表' }));
 
     await waitFor(() => {
-      expect(agentsApiMock.refreshCapabilityCatalog).toHaveBeenCalledWith(
-        'opencode'
+      expect(
+        configApiMock.refreshPromptEnhancementModels
+      ).toHaveBeenCalledTimes(1);
+      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
+        2
       );
-      expect(configApiMock.listOpencodeModels).toHaveBeenCalledTimes(2);
     });
 
     expect(
-      screen.getByRole('combobox', { name: 'OpenCode 模型' })
+      screen.getByRole('combobox', { name: 'Agent 模型' })
     ).not.toBeDisabled();
   });
 });

@@ -16,6 +16,7 @@ const view: AgentRegistryView = {
       registry_id: 'codex-acp',
       display_name: 'Codex',
       description: 'Codex ACP',
+      authors: ['OpenAI'],
       version: '1.0.0',
       icon_light: null,
       icon_dark: null,
@@ -30,6 +31,7 @@ const view: AgentRegistryView = {
       registry_id: 'alpha',
       display_name: 'Alpha',
       description: 'Alpha ACP',
+      authors: ['Acme Labs'],
       version: '1.0.0',
       icon_light: null,
       icon_dark: null,
@@ -46,6 +48,7 @@ const view: AgentRegistryView = {
       registry_id: 'zeta',
       display_name: 'Zeta',
       description: 'Zeta ACP',
+      authors: ['Zed Industries'],
       version: '2.0.0',
       icon_light: null,
       icon_dark: null,
@@ -60,6 +63,7 @@ const view: AgentRegistryView = {
       registry_id: 'beta',
       display_name: 'Beta',
       description: 'Beta ACP',
+      authors: ['Beta Works'],
       version: '1.0.0',
       icon_light: null,
       icon_dark: null,
@@ -86,11 +90,37 @@ describe('AgentRegistryViewPanel', () => {
 
     const search = screen.getByRole('searchbox', { name: '搜索 Agent' });
     expect(screen.getAllByRole('searchbox')).toHaveLength(1);
-    expect(screen.getAllByRole('status')).toHaveLength(view.installed.length);
+    expect(screen.getAllByRole('status')).toHaveLength(
+      view.installed.length + 1
+    );
 
     await userEvent.type(search, 'Alpha');
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByText('Alpha')).toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, 'OpenAI');
+    expect(
+      screen.getByText('Codex', { selector: 'span' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
+  });
+
+  it('discloses snapshot freshness and blocks stale installation', async () => {
+    render(
+      <AgentRegistryViewPanel
+        view={{ ...view, fresh: false }}
+        loading={false}
+        addingAgentId={null}
+        onRefresh={vi.fn()}
+        onAdd={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('status', { name: '注册表缓存已过期' }))
+      .toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /未安装/ }));
+    expect(screen.getByRole('button', { name: '安装 Zeta' })).toBeDisabled();
   });
 
   it('separates independently sorted tabs and adds supported Agents inline', async () => {

@@ -18,7 +18,6 @@ import {
   InstructionsSettings,
   LogsSettings,
   McpSettings,
-  ModelProviderSettings,
   PluginsSettings,
   SettingsLayout,
   ShortcutSettings,
@@ -90,7 +89,6 @@ export function MainAppRoutes() {
         <Route path="agents" element={<AgentSettings />} />
         <Route path="appearance" element={<AppearanceSettings />} />
         <Route path="general" element={<GeneralSettings />} />
-        <Route path="model-providers" element={<ModelProviderSettings />} />
         <Route path="mcp" element={<McpSettings />} />
         <Route path="skills" element={<SkillsSettings />} />
         <Route path="instructions" element={<InstructionsSettings />} />

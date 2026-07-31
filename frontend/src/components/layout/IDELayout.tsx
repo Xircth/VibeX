@@ -82,7 +82,10 @@ import {
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
 import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
-import { defaultSessionPanelWidth } from '@/utils/dockviewStartupSizing';
+import {
+  defaultSessionPanelWidth,
+  layoutDockviewPreservingGroupWidths,
+} from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
   // A (dock) defaults to 10% of the full grid; C (session) uses the shared
@@ -863,6 +866,40 @@ export function IDELayout({
 
       enforceTabVisibilityRef.current(api);
 
+      let resizeFrame: number | null = null;
+      const dockviewResizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+
+        const { width, height } = entry.contentRect;
+        if (width <= 0 || height <= 0) return;
+
+        if (resizeFrame !== null) {
+          cancelAnimationFrame(resizeFrame);
+        }
+        resizeFrame = requestAnimationFrame(() => {
+          resizeFrame = null;
+          if (apiRef.current !== api) return;
+
+          const arrangement = getLayoutArrangement();
+          const sideGroups = [
+            slotOfZone(arrangement, 'dock') !== 'center' &&
+            slotOfZone(arrangement, 'dock') !== 'bottom'
+              ? getLeftGroup(api)
+              : null,
+            slotOfZone(arrangement, 'session') !== 'center' &&
+            slotOfZone(arrangement, 'session') !== 'bottom'
+              ? getRightGroup(api)
+              : null,
+          ].filter((group): group is DockviewGroup => group !== null);
+
+          layoutDockviewPreservingGroupWidths(api, sideGroups, width, height);
+        });
+      });
+      if (dockviewRootRef.current) {
+        dockviewResizeObserver.observe(dockviewRootRef.current);
+      }
+
       const dndGuardDisposable = registerDndGuard(api);
       const removePanelDisposable = api.onDidRemovePanel((panel) => {
         if (isResettingRef.current) return;
@@ -992,6 +1029,10 @@ export function IDELayout({
       });
 
       return () => {
+        dockviewResizeObserver.disconnect();
+        if (resizeFrame !== null) {
+          cancelAnimationFrame(resizeFrame);
+        }
         dndGuardDisposable.dispose();
         removePanelDisposable.dispose();
         normalizeGroupsDisposable.dispose();
@@ -1290,6 +1331,7 @@ export function IDELayout({
                 defaultTabComponent={WorkspaceDockviewTab}
                 onReady={handleReady}
                 className="dockview-theme-light dockview-theme-ayu"
+                disableAutoResizing={true}
                 disableFloatingGroups={true}
               />
             </div>

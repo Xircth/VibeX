@@ -220,8 +220,6 @@ fn collect_sources() -> Result<Vec<BackupSource>, AppError> {
         "instructions-metadata.json",
         "system-settings.json",
         "web-service-settings.json",
-        "model-provider-settings.json",
-        "model-provider-secrets.json",
         "chat-channel-settings.json",
         "chat-channel-secrets.json",
     ] {

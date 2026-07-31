@@ -3,14 +3,102 @@ mod support;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use agents::{
-    AgentAuthenticationStatus, AgentId, ConfigApplyEffect, NativeConfigFormat, NativeConfigPatch,
-    NativeConfigProvider, NativeConfigSaveError,
+    AgentAuthenticationStatus, AgentId, BoundaryError, ConfigApplyEffect, NativeConfigFormat,
+    NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError, NativeFileMetadata,
+    NativeFileSystem,
 };
+use async_trait::async_trait;
 use support::management::MemoryNativeFileSystem;
+
+#[derive(Default)]
+struct FailSecondWriteFileSystem {
+    files: Mutex<std::collections::HashMap<PathBuf, Vec<u8>>>,
+    writes: Mutex<usize>,
+}
+
+#[async_trait]
+impl NativeFileSystem for FailSecondWriteFileSystem {
+    async fn read(&self, path: &Path) -> Result<Option<Vec<u8>>, BoundaryError> {
+        Ok(self.files.lock().unwrap().get(path).cloned())
+    }
+
+    async fn write_atomic(&self, path: &Path, bytes: &[u8]) -> Result<(), BoundaryError> {
+        let mut writes = self.writes.lock().unwrap();
+        *writes += 1;
+        if *writes == 2 {
+            return Err(BoundaryError::new("injected second-file failure"));
+        }
+        self.files
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), bytes.to_vec());
+        Ok(())
+    }
+
+    async fn remove_file(&self, path: &Path) -> Result<(), BoundaryError> {
+        self.files.lock().unwrap().remove(path);
+        Ok(())
+    }
+
+    async fn metadata(&self, path: &Path) -> Result<Option<NativeFileMetadata>, BoundaryError> {
+        Ok(self
+            .files
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|bytes| NativeFileMetadata {
+                length: bytes.len() as u64,
+            }))
+    }
+}
+
+#[tokio::test]
+async fn native_config_multi_file_failure_rolls_back_every_original() {
+    let filesystem = Arc::new(FailSecondWriteFileSystem::default());
+    let config_path = PathBuf::from("/home/user/.codex/config.toml");
+    let auth_path = PathBuf::from("/home/user/.codex/auth.json");
+    let original_config = br#"model = "old""#.to_vec();
+    let original_auth = br#"{"OPENAI_API_KEY":"old"}"#.to_vec();
+    filesystem
+        .files
+        .lock()
+        .unwrap()
+        .insert(config_path.clone(), original_config.clone());
+    filesystem
+        .files
+        .lock()
+        .unwrap()
+        .insert(auth_path.clone(), original_auth.clone());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let agent_id = AgentId::parse("codex").unwrap();
+    let initial = provider.read(&agent_id, false).await.unwrap();
+
+    let result = provider
+        .save(
+            &agent_id,
+            NativeConfigPatch {
+                base_field_revisions: initial
+                    .fields
+                    .iter()
+                    .map(|field| (field.field_id.clone(), field.revision.clone()))
+                    .collect(),
+                values: BTreeMap::from([
+                    ("codex_model".to_string(), Some("new".to_string())),
+                    ("openai_api_key".to_string(), Some("new-key".to_string())),
+                ]),
+            },
+            false,
+        )
+        .await;
+    assert!(result.is_err());
+    let files = filesystem.files.lock().unwrap();
+    assert_eq!(files[&config_path], original_config);
+    assert_eq!(files[&auth_path], original_auth);
+}
 
 #[tokio::test]
 async fn native_config_preserves_unknown_fields_and_reports_auth_status() {

@@ -869,24 +869,23 @@ fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTu
 }
 
 fn session_stats_from_turns(turns: &[MessageTurn]) -> Option<SessionStats> {
-    let total_usage =
-        turns
-            .iter()
-            .filter_map(|turn| turn.usage)
-            .fold(TurnUsage::default(), |mut acc, usage| {
-                acc.input_tokens += usage.input_tokens;
-                acc.output_tokens += usage.output_tokens;
-                acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
-                acc.cache_read_input_tokens += usage.cache_read_input_tokens;
-                acc
-            });
+    let total_usage = turns.iter().filter_map(|turn| turn.usage.clone()).fold(
+        TurnUsage::default(),
+        |mut acc, usage| {
+            acc.input_tokens += usage.input_tokens;
+            acc.output_tokens += usage.output_tokens;
+            acc.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            acc.cache_read_input_tokens += usage.cache_read_input_tokens;
+            acc
+        },
+    );
     let total_tokens = total_usage.input_tokens
         + total_usage.output_tokens
         + total_usage.cache_creation_input_tokens
         + total_usage.cache_read_input_tokens;
     // Latest agent-reported context-window snapshot (ACP usage), when available.
     let context_window = turns.iter().rev().find_map(|turn| {
-        let usage = turn.usage?;
+        let usage = turn.usage.clone()?;
         let max = usage.context_window_max?;
         let used = usage.input_tokens
             + usage.output_tokens

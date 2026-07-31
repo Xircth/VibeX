@@ -7,6 +7,7 @@ import type {
   AgentOperationReceipt,
   AgentPreflightView,
   AgentRegistryView,
+  AgentUpdateCheckView,
 } from 'shared/types';
 
 import { tauriInvoke } from '@/lib/tauriApi';
@@ -14,6 +15,9 @@ import { tauriInvoke } from '@/lib/tauriApi';
 export const agentManagementApi = {
   bar: (): Promise<AgentManagementView[]> =>
     tauriInvoke('agent_management_bar'),
+
+  refreshBar: (): Promise<AgentManagementView[]> =>
+    tauriInvoke('agent_management_refresh'),
 
   detail: (agentId: AgentId): Promise<AgentManagementView> =>
     tauriInvoke('agent_management_detail', { agentId }),
@@ -42,8 +46,11 @@ export const agentManagementApi = {
   repair: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     tauriInvoke('agent_management_repair', { agentId }),
 
-  update: (agentId: AgentId): Promise<AgentOperationReceipt> =>
-    tauriInvoke('agent_management_update', { agentId }),
+  checkUpdate: (agentId: AgentId): Promise<AgentUpdateCheckView> =>
+    tauriInvoke('agent_management_check_update', { agentId }),
+
+  applyUpdate: (agentId: AgentId): Promise<AgentOperationReceipt> =>
+    tauriInvoke('agent_management_apply_update', { agentId }),
 
   rollback: (agentId: AgentId): Promise<AgentManagementView> =>
     tauriInvoke('agent_management_rollback', { agentId }),

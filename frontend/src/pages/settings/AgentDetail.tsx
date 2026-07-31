@@ -14,6 +14,7 @@ import type {
   AgentManagementView,
   AgentPreflightItemView,
   AgentPreflightView,
+  AgentUpdateCheckView,
 } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
@@ -28,11 +29,14 @@ type AgentDetailProps = {
   operation: AgentOperationState | null;
   preflight: AgentPreflightView | null;
   checking: boolean;
+  checkingUpdate: boolean;
+  updateCheck: AgentUpdateCheckView | null;
   onSetEnabled: (enabled: boolean) => void;
   onMove: (direction: -1 | 1) => void;
   onPreflight: () => void;
   onRepair: () => void;
-  onUpdate: () => void;
+  onCheckUpdate: () => void;
+  onApplyUpdate: () => void;
   onRollback: () => void;
   onCancelOperation: () => void;
   onUninstall: () => void;
@@ -45,11 +49,14 @@ export function AgentDetail({
   operation,
   preflight,
   checking,
+  checkingUpdate,
+  updateCheck,
   onSetEnabled,
   onMove,
   onPreflight,
   onRepair,
-  onUpdate,
+  onCheckUpdate,
+  onApplyUpdate,
   onRollback,
   onCancelOperation,
   onUninstall,
@@ -119,10 +126,10 @@ export function AgentDetail({
             size="sm"
             variant="outline"
             className="h-8"
-            disabled={busy || agent.retired}
-            onClick={onUpdate}
+            disabled={busy || agent.retired || checkingUpdate}
+            onClick={onCheckUpdate}
           >
-            检查更新
+            {checkingUpdate ? '正在检查…' : '检查更新'}
           </Button>
           <Button
             size="sm"
@@ -133,8 +140,50 @@ export function AgentDetail({
           >
             卸载
           </Button>
+          {!agent.built_in ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8"
+              disabled={busy}
+              onClick={onRemove}
+            >
+              <Trash2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+              移除
+            </Button>
+          ) : null}
         </div>
       </header>
+
+      {updateCheck ? (
+        <section
+          aria-label="更新比较"
+          className="settings-surface flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+        >
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              {updateCheck.update_available
+                ? `可更新：${updateCheck.current_version ?? '未知'} → ${updateCheck.available_version}`
+                : '当前已是最新版本'}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {updateCheck.fresh
+                ? '比较基于当前有效的 Registry 快照。'
+                : '比较基于离线缓存；刷新 Registry 后才能安装更新。'}
+            </p>
+          </div>
+          {updateCheck.update_available ? (
+            <Button
+              size="sm"
+              className="h-8"
+              disabled={busy || !updateCheck.fresh}
+              onClick={onApplyUpdate}
+            >
+              安装更新
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
 
       <section
         aria-labelledby="agent-preflight-heading"
@@ -225,31 +274,17 @@ export function AgentDetail({
           ))}
         </ul>
 
-        {agent.rollback_available || !agent.built_in ? (
+        {agent.rollback_available ? (
           <div className="agent-install-actions">
-            {agent.rollback_available ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={busy}
-                onClick={onRollback}
-              >
-                回滚上一版本
-              </Button>
-            ) : null}
-            {!agent.built_in ? (
-              <Button
-                size="sm"
-                variant="destructive"
-                className="h-8"
-                disabled={busy}
-                onClick={onRemove}
-              >
-                <Trash2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                移除
-              </Button>
-            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={busy}
+              onClick={onRollback}
+            >
+              回滚上一版本
+            </Button>
           </div>
         ) : null}
       </section>

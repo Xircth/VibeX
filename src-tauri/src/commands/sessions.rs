@@ -754,7 +754,15 @@ pub async fn rename_session(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
 
-    Session::update_name(pool, session.id, name.as_deref()).await?;
+    if let Some(name) = name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        db::models::conversation::DbConversationSummary::set_title(pool, session.id, name).await?;
+    } else {
+        Session::update_name(pool, session.id, None).await?;
+    }
 
     Session::find_by_id(pool, session_id)
         .await?

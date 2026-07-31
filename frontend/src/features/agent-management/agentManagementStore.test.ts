@@ -35,6 +35,7 @@ const codex: AgentManagementView = {
 const generic: AgentRegistryViewRow = {
   agent_id: 'vendor.agent',
   registry_id: 'vendor.agent',
+  authors: [],
   display_name: 'Vendor Agent',
   description: 'Generic ACP Agent',
   version: '2.0.0',

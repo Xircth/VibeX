@@ -37,9 +37,20 @@ export function useAgentManagement() {
     }
   }, []);
 
-  useEffect(() => {
-    void refresh().catch(() => undefined);
-  }, [refresh]);
+  const refreshFresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const agents = await agentManagementApi.refreshBar();
+      setState((current) => mergeManagementSnapshot(current, agents));
+      setError(null);
+      return agents;
+    } catch (nextError) {
+      setError(nextError);
+      throw nextError;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -63,6 +74,31 @@ export function useAgentManagement() {
       if (active) unlisten = dispose;
       else dispose();
     });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const dispose = await tauriListen<void>(
+          'agent-management-snapshot-invalidated',
+          () => {
+            if (active) void refresh().catch(() => undefined);
+          }
+        );
+        if (active) unlisten = dispose;
+        else dispose();
+      } finally {
+        // Register first so a startup warmup cannot complete between the
+        // initial snapshot read and invalidation subscription.
+        if (active) void refresh().catch(() => undefined);
+      }
+    })().catch(() => undefined);
     return () => {
       active = false;
       unlisten?.();
@@ -110,6 +146,7 @@ export function useAgentManagement() {
     loading,
     error,
     refresh,
+    refreshFresh,
     select,
     addAndInstall,
     mergeAgent,

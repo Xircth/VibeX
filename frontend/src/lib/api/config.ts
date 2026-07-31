@@ -29,7 +29,7 @@ export interface PromptEnhancementResponse {
   model: string;
 }
 
-export interface OpencodeModelsResponse {
+export interface PromptEnhancementModelsResponse {
   models: string[];
 }
 
@@ -131,8 +131,14 @@ export const configApi = {
       payload,
     });
   },
-  listOpencodeModels: async (): Promise<OpencodeModelsResponse> => {
-    return tauriInvoke<OpencodeModelsResponse>('list_opencode_models');
+  listPromptEnhancementModels:
+    async (): Promise<PromptEnhancementModelsResponse> => {
+      return tauriInvoke<PromptEnhancementModelsResponse>(
+        'list_prompt_enhancement_models'
+      );
+    },
+  refreshPromptEnhancementModels: async (): Promise<boolean> => {
+    return tauriInvoke<boolean>('refresh_prompt_enhancement_catalogs');
   },
   clearLocalData: async (): Promise<ClearLocalDataResponse> => {
     return tauriInvoke<ClearLocalDataResponse>('clear_local_app_data');
@@ -360,139 +366,6 @@ export const webServiceApi = {
   },
   generateToken: async (): Promise<WebServiceConfig> => {
     return tauriInvoke<WebServiceConfig>('generate_web_service_token');
-  },
-};
-
-/** A model provider configured for a specific agent. */
-export interface AgentProvider {
-  id: string;
-  name: string;
-  api_url: string;
-  default_model: string | null;
-  models: string[];
-  /** Provider protocol: "openai_compatible" | "anthropic". */
-  auth_type: string | null;
-  /** Codex wire protocol: "chat" | "responses". */
-  wire_api: string | null;
-  /** Manual per-file overrides keyed by file id (e.g. "config.toml"). */
-  config_overrides: Record<string, string>;
-  has_api_key: boolean;
-  is_current: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-/** A config file rendered for preview / edit before it is written. */
-export interface RenderedConfigFile {
-  /** Stable file basename id, used to key overrides. */
-  id: string;
-  path: string;
-  language: string;
-  content: string;
-}
-
-/** The provider set for one agent, plus its apply capability/target. */
-export interface AgentProvidersView {
-  agent_type: string;
-  providers: AgentProvider[];
-  current: string | null;
-  /** False for agents (e.g. cline) whose config cannot be switched via files. */
-  supports_apply: boolean;
-  /** Primary config file written when applying, for display. */
-  config_path: string | null;
-}
-
-export interface AgentProviderPayload {
-  name: string;
-  api_url: string;
-  default_model?: string | null;
-  models?: string[];
-  auth_type?: string | null;
-  wire_api?: string | null;
-  /** Manual per-file overrides keyed by file id. */
-  config_overrides?: Record<string, string>;
-  /** Optional; empty/absent leaves a stored key unchanged on update. */
-  api_key?: string | null;
-}
-
-export interface ProviderModelsResult {
-  provider_id: string;
-  models: string[];
-  fetched_at: string;
-}
-
-export const modelProviderApi = {
-  list: async (agentType: string): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('list_agent_providers', {
-      agentType,
-    });
-  },
-  create: async (
-    agentType: string,
-    payload: AgentProviderPayload
-  ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('create_agent_provider', {
-      agentType,
-      payload,
-    });
-  },
-  update: async (
-    agentType: string,
-    providerId: string,
-    payload: AgentProviderPayload
-  ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('update_agent_provider', {
-      agentType,
-      providerId,
-      payload,
-    });
-  },
-  delete: async (
-    agentType: string,
-    providerId: string
-  ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('delete_agent_provider', {
-      agentType,
-      providerId,
-    });
-  },
-  apply: async (
-    agentType: string,
-    providerId: string
-  ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('apply_agent_provider', {
-      agentType,
-      providerId,
-    });
-  },
-  preview: async (
-    agentType: string,
-    payload: AgentProviderPayload,
-    providerId: string | null
-  ): Promise<RenderedConfigFile[]> => {
-    return tauriInvoke<RenderedConfigFile[]>('preview_agent_provider', {
-      agentType,
-      payload,
-      providerId,
-    });
-  },
-  clearApiKey: async (
-    agentType: string,
-    providerId: string
-  ): Promise<AgentProvidersView> => {
-    return tauriInvoke<AgentProvidersView>('clear_agent_provider_key', {
-      agentType,
-      providerId,
-    });
-  },
-  fetchModels: async (
-    agentType: string,
-    providerId: string
-  ): Promise<ProviderModelsResult> => {
-    return tauriInvoke<ProviderModelsResult>('fetch_agent_provider_models', {
-      agentType,
-      providerId,
-    });
   },
 };
 

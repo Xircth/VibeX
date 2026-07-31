@@ -293,6 +293,48 @@ impl Downloader for CountingDownloader {
     }
 }
 
+#[tokio::test]
+async fn authoritative_runtime_rejects_unsafe_download_urls_before_fetch() {
+    for unsafe_url in [
+        "http://169.254.169.254/latest/meta-data",
+        "https://localhost./officecli",
+        "https://downloads.vibex.dev/officecli?token=release-secret",
+        "https://downloads.vibex.dev/officecli#release-secret",
+        "https://user:release-secret@downloads.vibex.dev/officecli",
+    ] {
+        let downloader = Arc::new(CountingDownloader {
+            calls: AtomicUsize::new(0),
+            bytes: b"never downloaded".to_vec(),
+        });
+        let runtime = ToolRuntime::new(
+            ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
+            downloader.clone(),
+            Arc::new(FakeFilesystem::default()),
+            Arc::new(FakeProbe::default()),
+            Arc::new(FakeLockStore::default()),
+        )
+        .expect("runtime");
+        let request = ToolRequest {
+            tool_id: "officecli".to_string(),
+            version: "1.0.0".to_string(),
+            target: "aarch64-apple-darwin".to_string(),
+            url: unsafe_url.to_string(),
+            sha256: "0".repeat(64),
+            executable_name: "officecli".to_string(),
+            probe_args: vec!["--version".to_string()],
+        };
+
+        let error = runtime
+            .ensure(&request, &CancellationToken::new())
+            .await
+            .expect_err("unsafe URL must be rejected");
+
+        assert_eq!(error.code(), "tool_request_invalid", "{unsafe_url}");
+        assert_eq!(downloader.calls.load(Ordering::SeqCst), 0, "{unsafe_url}");
+        assert!(!error.message().contains("release-secret"));
+    }
+}
+
 #[async_trait]
 impl Downloader for CatalogDownloader {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, PortError> {
@@ -323,7 +365,7 @@ fn request(version: &str, bytes: &[u8], probe_args: &[&str]) -> ToolRequest {
         tool_id: "officecli".to_string(),
         version: version.to_string(),
         target: "aarch64-apple-darwin".to_string(),
-        url: format!("fixture://officecli/{version}"),
+        url: format!("https://downloads.vibex.dev/fixtures/officecli/{version}"),
         sha256: format!("{:x}", Sha256::digest(bytes)),
         executable_name: "officecli".to_string(),
         probe_args: probe_args.iter().map(|arg| (*arg).to_string()).collect(),
@@ -338,8 +380,14 @@ async fn upgrade_is_atomic() {
         ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
-                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
-                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                    b"v1".to_vec(),
+                ),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/2.0.0".to_string(),
+                    b"v2".to_vec(),
+                ),
             ]),
         }),
         filesystem.clone(),
@@ -483,8 +531,14 @@ async fn cancellation_at_current_commit_keeps_previous_version() {
         ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
-                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
-                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                    b"v1".to_vec(),
+                ),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/2.0.0".to_string(),
+                    b"v2".to_vec(),
+                ),
             ]),
         }),
         Arc::new(FakeFilesystem::default()),
@@ -526,9 +580,18 @@ async fn release_delays_cleanup_for_active_lease() {
         ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
-                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
-                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
-                ("fixture://officecli/3.0.0".to_string(), b"v3".to_vec()),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                    b"v1".to_vec(),
+                ),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/2.0.0".to_string(),
+                    b"v2".to_vec(),
+                ),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/3.0.0".to_string(),
+                    b"v3".to_vec(),
+                ),
             ]),
         }),
         filesystem.clone(),
@@ -575,9 +638,18 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
             ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
             Arc::new(CatalogDownloader {
                 artifacts: HashMap::from([
-                    ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
-                    ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
-                    ("fixture://officecli/3.0.0".to_string(), b"v3".to_vec()),
+                    (
+                        "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                        b"v1".to_vec(),
+                    ),
+                    (
+                        "https://downloads.vibex.dev/fixtures/officecli/2.0.0".to_string(),
+                        b"v2".to_vec(),
+                    ),
+                    (
+                        "https://downloads.vibex.dev/fixtures/officecli/3.0.0".to_string(),
+                        b"v3".to_vec(),
+                    ),
                 ]),
             }),
             filesystem.clone(),
@@ -612,7 +684,7 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
         tool_id: "officecli".into(),
         version: "1.0.0".into(),
         target: "aarch64-apple-darwin".into(),
-        source_url: "fixture://officecli/1.0.0".into(),
+        source_url: "https://downloads.vibex.dev/fixtures/officecli/1.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v1")),
         executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
         installed_at_unix_ms: 1,
@@ -644,7 +716,7 @@ async fn lease_acquisition_is_rejected_while_release_deletes_a_version() {
     }
     let v3_lock = ToolInstallationLock {
         version: "3.0.0".into(),
-        source_url: "fixture://officecli/3.0.0".into(),
+        source_url: "https://downloads.vibex.dev/fixtures/officecli/3.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v3")),
         executable_path: PathBuf::from("/managed-tools/officecli/versions/3.0.0/officecli"),
         ..v1_lock
@@ -662,7 +734,7 @@ async fn lease_acquisition_is_rejected_while_uninstall_deletes_the_tool() {
             ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
             Arc::new(CatalogDownloader {
                 artifacts: HashMap::from([(
-                    "fixture://officecli/1.0.0".to_string(),
+                    "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
                     b"v1".to_vec(),
                 )]),
             }),
@@ -688,7 +760,7 @@ async fn lease_acquisition_is_rejected_while_uninstall_deletes_the_tool() {
         tool_id: "officecli".into(),
         version: "1.0.0".into(),
         target: "aarch64-apple-darwin".into(),
-        source_url: "fixture://officecli/1.0.0".into(),
+        source_url: "https://downloads.vibex.dev/fixtures/officecli/1.0.0".into(),
         sha256: format!("{:x}", Sha256::digest(b"v1")),
         executable_path: PathBuf::from("/managed-tools/officecli/versions/1.0.0/officecli"),
         installed_at_unix_ms: 1,
@@ -795,8 +867,14 @@ async fn cancellation_during_rename_does_not_switch_current() {
         ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
         Arc::new(CatalogDownloader {
             artifacts: HashMap::from([
-                ("fixture://officecli/1.0.0".to_string(), b"v1".to_vec()),
-                ("fixture://officecli/2.0.0".to_string(), b"v2".to_vec()),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                    b"v1".to_vec(),
+                ),
+                (
+                    "https://downloads.vibex.dev/fixtures/officecli/2.0.0".to_string(),
+                    b"v2".to_vec(),
+                ),
             ]),
         }),
         filesystem.clone(),
@@ -842,7 +920,10 @@ async fn next_install_reconciles_abandoned_staging_attempt() {
     let runtime = ToolRuntime::new(
         ToolRuntimeConfig::new(PathBuf::from("/managed-tools")),
         Arc::new(CatalogDownloader {
-            artifacts: HashMap::from([("fixture://officecli/1.0.0".to_string(), b"v1".to_vec())]),
+            artifacts: HashMap::from([(
+                "https://downloads.vibex.dev/fixtures/officecli/1.0.0".to_string(),
+                b"v1".to_vec(),
+            )]),
         }),
         filesystem.clone(),
         Arc::new(SelectiveProbe),

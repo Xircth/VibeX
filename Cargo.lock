@@ -233,6 +233,7 @@ version = "0.1.0"
 dependencies = [
  "agents",
  "async-trait",
+ "chrono",
  "conversations",
  "db",
  "executors",
@@ -5062,9 +5063,11 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tool-runtime",
+ "url",
 ]
 
 [[package]]
@@ -5540,8 +5543,10 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 name = "remote-protocol"
 version = "0.1.0"
 dependencies = [
+ "schemars 1.2.1",
  "serde",
  "serde_json",
+ "tempfile",
  "ts-rs",
  "uuid",
 ]
@@ -7876,6 +7881,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "url",
  "uuid",
 ]
 

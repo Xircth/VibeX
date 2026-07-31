@@ -123,6 +123,48 @@ async fn permission_response_is_forwarded_without_transport_semantics() {
 }
 
 #[tokio::test]
+async fn permission_and_cancel_require_their_narrow_remote_scopes() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    let execution = Arc::new(FakeExecution::default());
+    let core =
+        ApplicationCore::with_execution(SqliteConversationRepository::new(pool), execution.clone());
+    let conversation_id = Uuid::new_v4();
+
+    core.respond_conversation_permission(
+        &Principal::remote("paired-device", ["conversation.permission".to_string()]),
+        RespondConversationPermission {
+            conversation_id,
+            permission_id: "permission-1".to_string(),
+            response: serde_json::json!({"kind": "denied"}),
+        },
+    )
+    .await
+    .expect("dedicated permission scope");
+    core.cancel_conversation_turn(
+        &Principal::remote("paired-device", ["conversation.cancel".to_string()]),
+        CancelConversationTurn {
+            conversation_id,
+            reason: None,
+        },
+    )
+    .await
+    .expect("dedicated cancellation scope");
+
+    assert_eq!(execution.permissions.lock().expect("permissions").len(), 1);
+    assert_eq!(
+        execution.cancellations.lock().expect("cancellations").len(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn create_conversation_is_visible_through_the_same_application_core() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
         .expect("sqlite options")

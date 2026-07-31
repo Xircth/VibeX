@@ -174,3 +174,38 @@ async fn attach_registers_live_delivery_before_capturing_the_high_water_mark() {
         "turn_started"
     );
 }
+
+#[tokio::test]
+async fn attach_accepts_the_dedicated_remote_scope_without_general_read_access() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("focused fixture");
+    let conversation_id = Uuid::new_v4();
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
+
+    let bootstrap = core
+        .attach_conversation(
+            &Principal::remote("paired-device", ["conversation.attach".to_string()]),
+            SubscriptionId::new(),
+            ConversationId::from_uuid(conversation_id),
+            0,
+            &ReadySubscriptions,
+        )
+        .await
+        .expect("dedicated attach scope");
+
+    assert!(bootstrap.ready);
+}

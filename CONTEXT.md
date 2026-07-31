@@ -79,8 +79,33 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Automation domain
 
-- **Automation（自动化）** — 一份保存下来的"发起回合"配置（项目、执行档位、prompt 模板、隔离方式、触发方式），可被反复执行而无需打开会话界面。
-- **Automation run（自动化运行）** — Automation 的一次执行实例，产生一个真实的 Conversation 与 Turn，并记录终态（成功/失败/中断/超时）。宿主进程未运行时不产生运行；错过的定时触发不补跑。
+- **Automation（自动化）** — 一份版本化、transport-neutral 的 `TurnLaunchSpec`，保存结构化 prompt blocks、Agent/mode/config、PluginAction、workspace/branch/isolation 与 manual/schedule 触发；它不是 cron 字符串加任意命令。
+- **Automation run（自动化运行）** — Automation 的一次真实执行实例，必须产生一个 Conversation 与 Turn，并由同一持久 Turn 终态投影为 completed/failed/cancelled/interrupted；`start_turn` 成功后仍是 running。
+- **Automation owner（自动化所有者）** — 对同一数据目录唯一持有 Engine lease 的 desktop 或 `vibex-server` 宿主。只有 owner 可以 reconciliation、claim due 和 tick；退出后另一宿主才可接管。
+- **Due claim（到期认领）** — 在同一事务内创建 Run 并推进 `next_run_at` 的操作；双 Engine/双 tick 不得产生双调度。
+- **Automation isolation（自动化隔离）** — 默认每个 Run 创建独立 worktree；shared-root 必须显式选择并通过 clean/branch 检查。运行绝不自动 merge、push、publish 或 deploy。
+- **Automation recovery（自动化恢复）** — 启动时把遗留 running Run 变为 Interrupted，释放锁且绝不重发对应 Turn。停机期间至多补一次最近错过的 schedule，其余错过触发不排队。
+
+## Plugin, Tool, and Artifact domain
+
+- **Plugin membership（插件纳入关系）** — 插件是否属于当前 VibeX catalog；与 enabled、dependency、skill 和 provider readiness 分离。
+- **Plugin activation（插件启用状态）** — 用户是否允许一个已纳入 Plugin 的后续动作；启用不能伪造 Tool、Skill 或 Provider readiness。
+- **PluginAction（插件动作）** — Composer 与 Automation 共用的结构化工作流意图，由 prompt blocks、所需 Skill/Tool 与可选 Artifact intent 组成；插入动作不等于自动发送或执行。
+- **Tool dependency（工具依赖）** — Plugin v2 manifest 中的声明式、精确版本、确定性平台分发；分发必须是无凭据的公网 HTTPS URL，并在执行前通过 SHA-256。
+- **Tool installation lock（工具安装锁）** — 版本化托管目录中当前可执行文件、版本、平台、来源 URL 与 hash 的持久证据。Provider 只能从该 lock 获得绝对执行路径，不能把 PATH 查询作为最终语义。
+- **Legacy plugin evidence（旧插件证据）** — v1 manifest 的完整只读保存；其 `install_command` 永远不能执行。只有固定 ID 且明确映射的内置插件可自动建立 v2 membership，并仍保持 disabled。
+- **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
+- **Artifact preview lease（产物预览租约）** — 对一个已解析 Tool lock、文件、provider 进程和短期 capability 的引用计数租约；最后一个 lease 关闭、过期或进程崩溃时可回收。
+
+## Remote and device domain
+
+- **Application Core（应用核心）** — 不依赖 Tauri 或 Axum 的用例门面；desktop command、Web route 与 Remote Desktop adapter 都只能做认证、DTO/错误转换后调用同一公共 seam。
+- **Remote protocol（远程协议）** — `remote-protocol` 的版本化稳定 ID、error envelope、capabilities、typed command 与 durable subscription DTO。v1 Schema/OpenAPI 位于 `docs/protocol/v1/`。
+- **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
+- **Device pairing（设备配对）** — 管理员生成五分钟、只可兑换一次的 pairing secret；Server 只存 hash。兑换产生绑定 credential/device id 与批准 scopes 的 device token。
+- **Device revocation（设备撤销）** — 撤销后新 HTTP 请求和已经建立的 WebSocket 都必须失效；主 token 或 device token 不得出现在 URL、事件或日志。
+- **Offline conversation cache（离线会话缓存）** — 仅包含持久 sequence 与 open events 的只读缓存；`read_only` 必须为 true，不能离线排队写操作。
+- **Terminal notification summary（终态通知摘要）** — 只包含 Conversation/Automation 稳定 ID、终态、时间与 operation id 的无 secret 投影；不包含 prompt、输出、诊断或文件路径，也不直接接入 APNs/FCM。
 
 ## Agent domain
 

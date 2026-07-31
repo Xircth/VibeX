@@ -131,6 +131,19 @@ remote HTTP calls outside the WebView. Production Playwright tests boot the
 actual `vibex-server`, serve the built static tree, authenticate, exercise SPA
 navigation, and retain a video and screenshot.
 
+## Agent K release review
+
+Agent K reviewed the complete pinned Codeg adoption record while hardening the
+mobile-ready protocol and release boundary. No Codeg iOS/Android source,
+generated model, pairing implementation, migration fixture, security test or
+operator document was copied or adapted. The TypeScript/Swift/Kotlin fixtures
+are generated from VibeX's own `remote-protocol` Rust DTOs.
+
+The schema smoke may download the official pinned Kotlin command-line compiler
+and Eclipse Temurin JRE into ignored `target/tools` cache directories, verifies
+both archives by SHA-256, and does not package either tool with VibeX. This adds
+no Codeg attribution obligation and no mobile product source.
+
 ## Verification
 
 - `node --test scripts/check-third-party-adoption.test.js`

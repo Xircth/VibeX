@@ -15,7 +15,7 @@ use sqlx::{
 };
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{Message, client::IntoClientRequest, http::HeaderValue},
+    tungstenite::{Error as WebSocketError, Message, client::IntoClientRequest, http::HeaderValue},
 };
 use uuid::Uuid;
 
@@ -204,5 +204,69 @@ async fn websocket_attach_ready_replay_and_reconnect() {
         } if subscription_id == reconnect_id
     ));
 
+    server.abort();
+}
+
+#[tokio::test]
+async fn websocket_rejects_an_oversized_frame_before_json_processing() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("oversized-frame-token-with-at-least-32-bytes"),
+        ApplicationCore::new(SqliteConversationRepository::new(pool)),
+    )
+    .router();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let address = listener.local_addr().expect("address");
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut socket = connect(address, "oversized-frame-token-with-at-least-32-bytes").await;
+
+    let send_result = socket
+        .send(Message::Text("x".repeat(1024 * 1024 + 1).into()))
+        .await;
+    match send_result {
+        Ok(()) => {
+            let response = tokio::time::timeout(Duration::from_secs(2), socket.next())
+                .await
+                .expect("server closes promptly");
+            assert!(
+                !matches!(response, Some(Ok(Message::Text(_)))),
+                "oversized input must not reach JSON error processing"
+            );
+        }
+        Err(error) => {
+            // The server may reject and close while the client is still
+            // flushing the oversized frame. That is the same public
+            // fail-closed outcome as observing the close on the next read.
+            assert!(
+                matches!(
+                    &error,
+                    WebSocketError::ConnectionClosed
+                        | WebSocketError::AlreadyClosed
+                        | WebSocketError::Protocol(_)
+                ) || matches!(
+                    &error,
+                    WebSocketError::Io(io_error)
+                        if matches!(
+                            io_error.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::NotConnected
+                        )
+                ),
+                "unexpected oversized-frame write error: {error}"
+            );
+        }
+    }
     server.abort();
 }

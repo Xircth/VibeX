@@ -1,7 +1,10 @@
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
-use crate::{ServerCredentials, ServerToken, auth::TokenDigest};
+use crate::{
+    ServerCredentials, ServerToken,
+    auth::{ADMIN_SCOPES, TokenDigest},
+};
 
 pub struct ProvisionedToken {
     pub credentials: ServerCredentials,
@@ -89,11 +92,9 @@ impl SqliteTokenHashStore {
              (id, token_hash, scopes_json, created_at)
              VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
         )
-        .bind(Uuid::new_v4())
+        .bind(Uuid::new_v4().to_string())
         .bind(credentials.token_digest.as_bytes().as_slice())
-        .bind(
-            r#"["conversation.read","conversation.write","application.call","plugin.read","plugin.write","artifact.read","artifact.preview","automation.read","automation.write","delegation.read","delegation.cancel"]"#,
-        )
+        .bind(serde_json::to_string(ADMIN_SCOPES).expect("admin scopes serialize"))
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await

@@ -5,6 +5,7 @@ mod conversation;
 mod conversation_execution;
 mod domain;
 mod error;
+mod notification;
 mod principal;
 
 pub use command::{CommandRegistry, RegisteredCommand};
@@ -18,4 +19,5 @@ pub use conversations::ConversationTurnSnapshot;
 pub use db::models::conversation::DbConversationSummary as ConversationSummary;
 pub use domain::{ApplicationDomainPort, DomainCommand};
 pub use error::ApplicationError;
+pub use notification::{NotificationProjector, TerminalNotificationEvidence};
 pub use principal::Principal;

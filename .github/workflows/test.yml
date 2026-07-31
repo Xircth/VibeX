@@ -71,6 +71,25 @@ jobs:
       - name: Sqlx checks
         run: npm run prepare-db:check
 
+  remote-protocol-schema-smoke:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Compile generated TypeScript, Swift, and Kotlin protocol models
+        run: pnpm run remote-protocol-schema:check
+
   backend-clippy:
     runs-on: *runner_label
     env:

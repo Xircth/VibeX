@@ -147,10 +147,8 @@ impl OfficeRuntime {
         let tools = Arc::new(ToolRuntime::new(
             ToolRuntimeConfig::new(managed_root.clone()),
             Arc::new(HttpDownloader::new(
-                reqwest::Client::builder()
-                    .connect_timeout(Duration::from_secs(15))
-                    .timeout(Duration::from_secs(10 * 60))
-                    .build()?,
+                Duration::from_secs(15),
+                Duration::from_secs(10 * 60),
             )),
             Arc::new(LocalToolFilesystem),
             Arc::new(OfficeCliProbe),

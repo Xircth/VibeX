@@ -5,6 +5,8 @@ pub enum Principal {
     LocalDesktop,
     Remote {
         subject: String,
+        credential_id: Option<String>,
+        device_id: Option<String>,
         scopes: BTreeSet<String>,
     },
 }
@@ -17,7 +19,37 @@ impl Principal {
     pub fn remote(subject: impl Into<String>, scopes: impl IntoIterator<Item = String>) -> Self {
         Self::Remote {
             subject: subject.into(),
+            credential_id: None,
+            device_id: None,
             scopes: scopes.into_iter().collect(),
+        }
+    }
+
+    pub fn remote_credential(
+        subject: impl Into<String>,
+        credential_id: impl Into<String>,
+        device_id: Option<String>,
+        scopes: impl IntoIterator<Item = String>,
+    ) -> Self {
+        Self::Remote {
+            subject: subject.into(),
+            credential_id: Some(credential_id.into()),
+            device_id,
+            scopes: scopes.into_iter().collect(),
+        }
+    }
+
+    pub fn credential_id(&self) -> Option<&str> {
+        match self {
+            Self::LocalDesktop => None,
+            Self::Remote { credential_id, .. } => credential_id.as_deref(),
+        }
+    }
+
+    pub fn device_id(&self) -> Option<&str> {
+        match self {
+            Self::LocalDesktop => None,
+            Self::Remote { device_id, .. } => device_id.as_deref(),
         }
     }
 

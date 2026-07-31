@@ -1,0 +1,880 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VibeX Remote Protocol",
+    "version": "1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Negotiated Server capabilities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerCapabilities"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/auth/pairings": {
+      "post": {
+        "operationId": "createDevicePairing",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePairingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Short-lived one-time pairing challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingChallenge"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/auth/pairings/redeem": {
+      "post": {
+        "operationId": "redeemDevicePairing",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemPairingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Device credential returned exactly once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCredential"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Pairing expired or already redeemed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/devices/{device_id}": {
+      "delete": {
+        "operationId": "revokeDevice",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Device credential revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeDeviceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/call/{command}": {
+      "post": {
+        "operationId": "callApplicationCommand",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "command",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Application command result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/conversations/{conversation_id}/offline": {
+      "get": {
+        "operationId": "readOfflineConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after_sequence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durable read-only event cache",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfflineConversationCache"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/conversations/{conversation_id}/notification-summary": {
+      "get": {
+        "operationId": "getTerminalNotificationSummary",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Secret-free terminal outcome summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TerminalNotificationSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "operationId": "openSubscriptionSocket",
+        "security": [
+          {
+            "webSocketToken": []
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket subscription stream"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ServerCapabilities": {
+        "description": "Response payload for protocol and feature negotiation.",
+        "type": "object",
+        "properties": {
+          "server_version": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "minimum_client_version": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapabilityId"
+            }
+          }
+        },
+        "required": [
+          "server_version",
+          "protocol_version",
+          "minimum_client_version",
+          "capabilities"
+        ]
+      },
+      "CapabilityId": {
+        "description": "Open capability identifier. Unknown values are intentionally preserved so\nolder clients can safely negotiate with newer servers.",
+        "type": "string"
+      },
+      "CommandRequest": {
+        "description": "Versioned application-command request shared by HTTP and local adapters.",
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "args": true
+        },
+        "required": [
+          "operation_id",
+          "args"
+        ]
+      },
+      "CommandResponse": {
+        "description": "Successful command envelope. Errors use [`crate::ErrorEnvelope`] with the\nsame operation id.",
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": true
+        },
+        "required": [
+          "operation_id",
+          "data"
+        ]
+      },
+      "ErrorEnvelope": {
+        "description": "Transport-stable error shape. Adapter-specific errors must be normalized\ninto this envelope before crossing the application boundary.",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "details": {
+            "default": null
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "operation_id"
+        ]
+      },
+      "ErrorCode": {
+        "description": "Stable machine-readable error classes shared by every transport adapter.",
+        "type": "string",
+        "enum": [
+          "bad_request",
+          "unauthorized",
+          "forbidden",
+          "not_found",
+          "conflict",
+          "capability_unavailable",
+          "internal"
+        ]
+      },
+      "SubscriptionClientMessage": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              },
+              "type": {
+                "type": "string",
+                "const": "attach"
+              }
+            },
+            "required": [
+              "type",
+              "request"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "const": "detach"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ping"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        ]
+      },
+      "SubscriptionRequest": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ],
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "conversation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "after_sequence": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "resource": {
+                "type": "string",
+                "const": "conversation"
+              }
+            },
+            "required": [
+              "resource",
+              "conversation_id",
+              "after_sequence"
+            ]
+          }
+        ]
+      },
+      "SubscriptionServerMessage": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "const": "ready"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "snapshot": {
+                "$ref": "#/components/schemas/SubscriptionSnapshot"
+              },
+              "type": {
+                "type": "string",
+                "const": "snapshot"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id",
+              "snapshot"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "event": {
+                "$ref": "#/components/schemas/RemoteEvent"
+              },
+              "type": {
+                "type": "string",
+                "const": "event"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id",
+              "event"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "high_water_mark": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "type": {
+                "type": "string",
+                "const": "live"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id",
+              "high_water_mark"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "subscription_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "const": "detached"
+              }
+            },
+            "required": [
+              "type",
+              "subscription_id",
+              "reason"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "pong"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ErrorEnvelope"
+              },
+              "type": {
+                "type": "string",
+                "const": "error"
+              }
+            },
+            "required": [
+              "type",
+              "error"
+            ]
+          }
+        ]
+      },
+      "SubscriptionSnapshot": {
+        "type": "object",
+        "properties": {
+          "through_sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "payload": true
+        },
+        "required": [
+          "through_sequence",
+          "payload"
+        ]
+      },
+      "RemoteEvent": {
+        "description": "An open event envelope: `kind` remains a string and `payload` remains JSON so\na client can preserve or ignore events introduced by a newer server.",
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": true
+        },
+        "required": [
+          "sequence",
+          "kind",
+          "payload"
+        ]
+      },
+      "CreatePairingRequest": {
+        "type": "object",
+        "properties": {
+          "requested_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "requested_scopes"
+        ]
+      },
+      "PairingChallenge": {
+        "type": "object",
+        "properties": {
+          "pairing_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pairing_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "requested_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "pairing_id",
+          "pairing_token",
+          "expires_at",
+          "requested_scopes"
+        ]
+      },
+      "RedeemPairingRequest": {
+        "type": "object",
+        "properties": {
+          "pairing_token": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pairing_token",
+          "device_name"
+        ]
+      },
+      "DeviceCredential": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "access_token": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "device_id",
+          "access_token",
+          "scopes"
+        ]
+      },
+      "RevokeDeviceResponse": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "device_id",
+          "revoked"
+        ]
+      },
+      "TerminalNotificationSummary": {
+        "description": "Secret-free terminal projection suitable for a future notification\nprovider. It deliberately contains no prompt, output, path, or diagnostic.",
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/NotificationSource"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/NotificationOutcome"
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "source",
+          "outcome",
+          "occurred_at",
+          "operation_id"
+        ]
+      },
+      "NotificationSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "conversation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "type": "string",
+                "const": "conversation"
+              }
+            },
+            "required": [
+              "kind",
+              "conversation_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "automation_id": {
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "conversation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid"
+              },
+              "kind": {
+                "type": "string",
+                "const": "automation"
+              }
+            },
+            "required": [
+              "kind",
+              "automation_id",
+              "run_id"
+            ]
+          }
+        ]
+      },
+      "NotificationOutcome": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "cancelled",
+          "interrupted"
+        ]
+      },
+      "OfflineConversationCache": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "confirmed_through": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "read_only": {
+            "type": "boolean",
+            "default": true,
+            "const": true
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RemoteEvent"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "conversation_id",
+          "confirmed_through"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "webSocketToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Sec-WebSocket-Protocol"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing, expired, or revoked credential",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      }
+    }
+  }
+}

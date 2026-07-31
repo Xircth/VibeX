@@ -110,6 +110,25 @@ async fn preview_proxy_rejects_missing_wrong_expired_and_unknown_capabilities() 
 }
 
 #[tokio::test]
+async fn revoked_preview_capability_cannot_be_replayed() {
+    let runtime = runtime().await;
+    let registry = runtime.preview_proxy_registry();
+    let lease = Uuid::new_v4();
+    registry
+        .register(lease, 40555, CAPABILITY, future_expiry())
+        .await
+        .expect("registration");
+    registry.revoke(lease).await;
+
+    let replay = request_get(
+        runtime.router(),
+        &format!("/api/v1/previews/{lease}?cap={CAPABILITY}"),
+    )
+    .await;
+    assert_eq!(replay.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn preview_proxy_rejects_unknown_ports_and_ssrf_paths() {
     let runtime = runtime().await;
     let registry = runtime.preview_proxy_registry();

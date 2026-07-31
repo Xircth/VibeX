@@ -1,6 +1,6 @@
 use remote_protocol::{
-    ConversationId, RemoteEvent, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
-    SubscriptionResource,
+    ConversationId, OfflineConversationCache, RemoteEvent, SubscriptionBootstrap, SubscriptionId,
+    SubscriptionRequest, SubscriptionResource,
 };
 use serde_json::json;
 
@@ -40,5 +40,32 @@ fn subscription_fixture_preserves_unknown_conversation_events() {
     assert_eq!(
         serde_json::to_value((decoded_request, decoded_bootstrap)).expect("reserialize"),
         encoded
+    );
+}
+
+#[test]
+fn offline_cache_preserves_unknown_events_and_resumes_from_confirmed_high_water() {
+    let fixture = json!({
+        "conversation_id": "0195d6f4-8c37-7b28-a982-6a9e60142f54",
+        "confirmed_through": 7,
+        "read_only": true,
+        "events": [{
+            "sequence": 7,
+            "kind": "future_mobile_event",
+            "payload": {
+                "future_shape": ["preserved", 2]
+            }
+        }]
+    });
+
+    let cache: OfflineConversationCache =
+        serde_json::from_value(fixture.clone()).expect("future event remains readable");
+
+    assert!(cache.read_only);
+    assert_eq!(cache.resume_after(), 7);
+    assert_eq!(cache.events[0].kind, "future_mobile_event");
+    assert_eq!(
+        serde_json::to_value(cache).expect("cache JSON remains portable"),
+        fixture
     );
 }

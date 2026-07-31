@@ -7,17 +7,26 @@ use db::models::{
     conversation_event::ConversationEventRecord,
 };
 use remote_protocol::{
-    ConversationId, RemoteEvent, SubscriptionBootstrap, SubscriptionId, SubscriptionSnapshot,
+    ConversationId, NotificationOutcome, NotificationSource, OfflineConversationCache, OperationId,
+    RemoteEvent, SubscriptionBootstrap, SubscriptionId, SubscriptionSnapshot,
+    TerminalNotificationSummary,
 };
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
-    ApplicationDomainPort, ApplicationError, DomainCommand, Principal, domain::unavailable_domains,
+    ApplicationDomainPort, ApplicationError, DomainCommand, NotificationProjector, Principal,
+    TerminalNotificationEvidence, domain::unavailable_domains,
 };
 
 const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
 const WRITE_CONVERSATIONS_SCOPE: &str = "conversation.write";
+const ATTACH_CONVERSATIONS_SCOPE: &str = "conversation.attach";
+const RESPOND_PERMISSION_SCOPE: &str = "conversation.permission";
+const CANCEL_CONVERSATION_SCOPE: &str = "conversation.cancel";
+const OFFLINE_READ_SCOPE: &str = "offline.read";
+const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
+const MAX_OFFLINE_EVENTS: i64 = 10_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ListConversations {
@@ -130,6 +139,25 @@ pub trait ConversationRepository: Send + Sync {
         conversation_id: ConversationId,
         after_sequence: i64,
     ) -> Result<SubscriptionBootstrap, ApplicationError>;
+
+    async fn offline_cache(
+        &self,
+        _conversation_id: ConversationId,
+        _after_sequence: i64,
+    ) -> Result<OfflineConversationCache, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "offline conversation reads are not configured",
+        ))
+    }
+
+    async fn terminal_notification(
+        &self,
+        _conversation_id: ConversationId,
+    ) -> Result<TerminalNotificationSummary, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "terminal notification summaries are not configured",
+        ))
+    }
 }
 
 /// Adapter-owned live stream registration. Implementations must make future
@@ -268,6 +296,130 @@ impl ConversationRepository for SqliteConversationRepository {
             high_water_mark,
         })
     }
+
+    async fn offline_cache(
+        &self,
+        conversation_id: ConversationId,
+        after_sequence: i64,
+    ) -> Result<OfflineConversationCache, ApplicationError> {
+        let conversation_uuid = conversation_id.as_uuid();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let high_water_mark = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(sequence), 0)
+             FROM conversation_events
+             WHERE conversation_id = ?",
+        )
+        .bind(conversation_uuid)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let records = ConversationEventRecord::events_since(
+            &mut *transaction,
+            conversation_uuid,
+            after_sequence,
+            MAX_OFFLINE_EVENTS,
+        )
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let confirmed_through = records
+            .last()
+            .map_or(after_sequence.max(0).min(high_water_mark), |record| {
+                record.sequence
+            });
+        let events = records
+            .into_iter()
+            .filter(|record| record.sequence <= high_water_mark)
+            .map(remote_event)
+            .collect();
+        Ok(OfflineConversationCache {
+            conversation_id,
+            confirmed_through,
+            read_only: true,
+            events,
+        })
+    }
+
+    async fn terminal_notification(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<TerminalNotificationSummary, ApplicationError> {
+        let conversation_uuid = conversation_id.as_uuid();
+        let record = sqlx::query_as::<_, (Uuid, String, String, chrono::DateTime<chrono::Utc>)>(
+            "SELECT id, event_kind, normalized_json, created_at
+             FROM conversation_events
+             WHERE conversation_id = ?
+               AND event_kind IN (
+                   'turn_completed', 'turn_failed', 'turn_cancelled', 'turn_interrupted'
+               )
+             ORDER BY sequence DESC
+             LIMIT 1",
+        )
+        .bind(conversation_uuid)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .ok_or_else(|| {
+            ApplicationError::not_found(format!(
+                "conversation {conversation_id} has no terminal event"
+            ))
+        })?;
+        let source = sqlx::query_as::<_, (Uuid, Uuid)>(
+            "SELECT id, automation_id
+             FROM automation_runs
+             WHERE conversation_id = ?
+             ORDER BY started_at DESC
+             LIMIT 1",
+        )
+        .bind(conversation_uuid)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .map_or(
+            NotificationSource::Conversation { conversation_id },
+            |row| NotificationSource::Automation {
+                run_id: row.0.to_string(),
+                automation_id: row.1.to_string(),
+                conversation_id: Some(conversation_id),
+            },
+        );
+        let outcome = match record.1.as_str() {
+            "turn_completed" => NotificationOutcome::Completed,
+            "turn_failed" => NotificationOutcome::Failed,
+            "turn_cancelled" => NotificationOutcome::Cancelled,
+            "turn_interrupted" => NotificationOutcome::Interrupted,
+            _ => {
+                return Err(ApplicationError::internal(
+                    "terminal event query returned a non-terminal event",
+                ));
+            }
+        };
+        Ok(NotificationProjector::project(
+            TerminalNotificationEvidence {
+                source,
+                outcome,
+                occurred_at: record.3.to_rfc3339(),
+                operation_id: OperationId::from_uuid(record.0),
+                private_detail: Some(record.2),
+            },
+        ))
+    }
+}
+
+fn remote_event(record: ConversationEventRecord) -> RemoteEvent {
+    RemoteEvent {
+        sequence: record.sequence,
+        kind: record.event_kind,
+        payload: serde_json::from_str(&record.normalized_json)
+            .unwrap_or_else(|_| serde_json::json!({ "unparsed": record.normalized_json })),
+    }
 }
 
 pub struct ApplicationCore<R> {
@@ -368,9 +520,9 @@ where
         principal: &Principal,
         request: RespondConversationPermission,
     ) -> Result<(), ApplicationError> {
-        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+        if !principal.allows(RESPOND_PERMISSION_SCOPE) {
             return Err(ApplicationError::forbidden(
-                "principal lacks conversation.write",
+                "principal lacks conversation.permission",
             ));
         }
         self.execution.respond_permission(request).await
@@ -381,9 +533,9 @@ where
         principal: &Principal,
         request: CancelConversationTurn,
     ) -> Result<(), ApplicationError> {
-        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+        if !principal.allows(CANCEL_CONVERSATION_SCOPE) {
             return Err(ApplicationError::forbidden(
-                "principal lacks conversation.write",
+                "principal lacks conversation.cancel",
             ));
         }
         self.execution.cancel_turn(request).await
@@ -404,6 +556,35 @@ where
         self.domains.execute(principal, command, args).await
     }
 
+    pub async fn offline_conversation_cache(
+        &self,
+        principal: &Principal,
+        conversation_id: ConversationId,
+        after_sequence: i64,
+    ) -> Result<OfflineConversationCache, ApplicationError> {
+        if !principal.allows(OFFLINE_READ_SCOPE) {
+            return Err(ApplicationError::forbidden("principal lacks offline.read"));
+        }
+        self.conversations
+            .offline_cache(conversation_id, after_sequence)
+            .await
+    }
+
+    pub async fn terminal_notification_summary(
+        &self,
+        principal: &Principal,
+        conversation_id: ConversationId,
+    ) -> Result<TerminalNotificationSummary, ApplicationError> {
+        if !principal.allows(NOTIFICATION_SUMMARY_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks notification.summary",
+            ));
+        }
+        self.conversations
+            .terminal_notification(conversation_id)
+            .await
+    }
+
     pub async fn attach_conversation<S>(
         &self,
         principal: &Principal,
@@ -415,9 +596,9 @@ where
     where
         S: ConversationSubscriptionRegistrar + ?Sized,
     {
-        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+        if !principal.allows(ATTACH_CONVERSATIONS_SCOPE) {
             return Err(ApplicationError::forbidden(
-                "principal lacks conversation.read",
+                "principal lacks conversation.attach",
             ));
         }
         subscriptions

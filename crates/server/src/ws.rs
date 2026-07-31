@@ -7,7 +7,7 @@ use application::{
 use async_trait::async_trait;
 use axum::{
     extract::{
-        State, WebSocketUpgrade,
+        Extension, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     response::Response,
@@ -18,9 +18,11 @@ use remote_protocol::{
     SubscriptionId, SubscriptionResource, SubscriptionServerMessage,
 };
 
-use crate::runtime::ServerState;
+use crate::{AuthenticatedCredential, runtime::ServerState};
 
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const REVOCATION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_CLIENT_FRAME_BYTES: usize = 1024 * 1024;
 
 struct DurablePollingRegistration;
 
@@ -43,31 +45,33 @@ struct ActiveSubscription {
 
 pub(crate) async fn ws_handler<R>(
     State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
     upgrade: WebSocketUpgrade,
 ) -> Response
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
     upgrade
+        .max_frame_size(MAX_CLIENT_FRAME_BYTES)
+        .max_message_size(MAX_CLIENT_FRAME_BYTES)
         .protocols(["vibex.v1"])
-        .on_upgrade(move |socket| handle_socket(socket, state))
+        .on_upgrade(move |socket| handle_socket(socket, state, credential))
 }
 
-async fn handle_socket<R>(socket: WebSocket, state: Arc<ServerState<R>>)
-where
+async fn handle_socket<R>(
+    socket: WebSocket,
+    state: Arc<ServerState<R>>,
+    credential: AuthenticatedCredential,
+) where
     R: ConversationRepository + Send + Sync + 'static,
 {
     let (mut sender, mut receiver) = socket.split();
     let mut subscriptions = HashMap::<SubscriptionId, ActiveSubscription>::new();
-    let mut ticker = tokio::time::interval(LIVE_POLL_INTERVAL);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let principal = Principal::remote(
-        "server-token",
-        [
-            "conversation.read".to_string(),
-            "conversation.write".to_string(),
-        ],
-    );
+    let mut live_ticker = tokio::time::interval(LIVE_POLL_INTERVAL);
+    live_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut revocation_ticker = tokio::time::interval(REVOCATION_POLL_INTERVAL);
+    revocation_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let principal = credential.principal();
 
     loop {
         tokio::select! {
@@ -113,7 +117,28 @@ where
                     break;
                 }
             }
-            _ = ticker.tick(), if !subscriptions.is_empty() => {
+            _ = revocation_ticker.tick() => {
+                match state.auth.is_active(&credential).await {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let _ = send_message(
+                            &mut sender,
+                            SubscriptionServerMessage::Error {
+                                error: ErrorEnvelope::new(
+                                    ErrorCode::Unauthorized,
+                                    "credential has been revoked",
+                                    false,
+                                    OperationId::new(),
+                                ),
+                            },
+                        )
+                        .await;
+                        break;
+                    }
+                    Err(_) => break,
+                }
+            }
+            _ = live_ticker.tick(), if !subscriptions.is_empty() => {
                 let active = subscriptions
                     .iter()
                     .map(|(id, subscription)| (*id, *subscription))

@@ -3,25 +3,30 @@ use std::{
     sync::Arc,
 };
 
-use application::{ApplicationCore, CommandRegistry, ConversationRepository, Principal};
+use application::{ApplicationCore, CommandRegistry, ConversationRepository};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{OriginalUri, Path, Request, State},
+    extract::{Extension, OriginalUri, Path, Query, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use remote_protocol::{
-    CapabilityId, CommandRequest, ErrorCode, ErrorEnvelope, OperationId, ServerCapabilities,
+    CapabilityId, CommandRequest, ConversationId, CreatePairingRequest, DeviceId, ErrorCode,
+    ErrorEnvelope, OperationId, RedeemPairingRequest, ServerCapabilities,
 };
+use serde::Deserialize;
 use serde_json::json;
 
-use crate::{ServerConfig, ServerCredentials, ServerToken, auth::TokenDigest};
+use crate::{
+    AuthStoreError, AuthenticatedCredential, ServerAuth, ServerConfig, ServerCredentials,
+    ServerToken, SqliteServerAuth, auth::StaticServerAuth,
+};
 
 pub(crate) struct ServerState<R> {
-    pub(crate) token_digest: TokenDigest,
+    pub(crate) auth: Arc<dyn ServerAuth>,
     pub(crate) capabilities: ServerCapabilities,
     pub(crate) core: Arc<ApplicationCore<R>>,
     pub(crate) commands: CommandRegistry<R>,
@@ -62,6 +67,47 @@ where
         core: ApplicationCore<R>,
         preview_proxy: crate::PreviewProxyRegistry,
     ) -> Self {
+        Self::from_auth_with_preview_proxy(
+            config,
+            Arc::new(StaticServerAuth::new(credentials)),
+            core,
+            preview_proxy,
+        )
+    }
+
+    pub fn from_sqlite_auth(
+        config: ServerConfig,
+        pool: sqlx::SqlitePool,
+        core: ApplicationCore<R>,
+    ) -> Self {
+        Self::from_auth_with_preview_proxy(
+            config,
+            Arc::new(SqliteServerAuth::new(pool)),
+            core,
+            crate::PreviewProxyRegistry::default(),
+        )
+    }
+
+    pub fn from_sqlite_auth_with_preview_proxy(
+        config: ServerConfig,
+        pool: sqlx::SqlitePool,
+        core: ApplicationCore<R>,
+        preview_proxy: crate::PreviewProxyRegistry,
+    ) -> Self {
+        Self::from_auth_with_preview_proxy(
+            config,
+            Arc::new(SqliteServerAuth::new(pool)),
+            core,
+            preview_proxy,
+        )
+    }
+
+    pub fn from_auth_with_preview_proxy(
+        config: ServerConfig,
+        auth: Arc<dyn ServerAuth>,
+        core: ApplicationCore<R>,
+        preview_proxy: crate::PreviewProxyRegistry,
+    ) -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let capabilities = ServerCapabilities {
             server_version: config.server_version.clone(),
@@ -83,13 +129,17 @@ where
                 CapabilityId::new("automation.write"),
                 CapabilityId::new("delegation.read"),
                 CapabilityId::new("delegation.cancel"),
+                CapabilityId::new("device.pair"),
+                CapabilityId::new("device.revoke"),
+                CapabilityId::new("notification.summary"),
+                CapabilityId::new("offline.read"),
             ],
         };
         let core = Arc::new(core);
         Self {
             config: config.clone(),
             state: Arc::new(ServerState {
-                token_digest: credentials.token_digest,
+                auth,
                 capabilities,
                 commands: CommandRegistry::from_core(Arc::clone(&core)),
                 core,
@@ -109,12 +159,23 @@ where
             .route("/capabilities", get(capabilities::<R>))
             .route("/ws", get(crate::ws::ws_handler::<R>))
             .route("/call/{command}", post(application_call::<R>))
+            .route("/auth/pairings", post(create_pairing::<R>))
+            .route("/auth/devices/{device_id}", delete(revoke_device::<R>))
+            .route(
+                "/conversations/{conversation_id}/offline",
+                get(offline_conversation::<R>),
+            )
+            .route(
+                "/conversations/{conversation_id}/notification-summary",
+                get(notification_summary::<R>),
+            )
             .route_layer(middleware::from_fn_with_state(
                 Arc::clone(&self.state),
                 require_token::<R>,
             ));
         Router::new()
             .route("/health", get(health))
+            .route("/api/v1/auth/pairings/redeem", post(redeem_pairing::<R>))
             .route(
                 "/api/v1/previews/{lease_id}",
                 get(crate::preview_proxy::proxy_root::<R>),
@@ -251,7 +312,7 @@ fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
     }
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_METHODS,
-        HeaderValue::from_static("GET, POST, OPTIONS"),
+        HeaderValue::from_static("GET, POST, DELETE, OPTIONS"),
     );
     headers.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
@@ -262,28 +323,14 @@ fn apply_cors_headers(headers: &mut HeaderMap, origin: &str) {
 
 async fn application_call<R>(
     State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
     Path(command): Path<String>,
     Json(request): Json<CommandRequest<serde_json::Value>>,
 ) -> Response
 where
     R: ConversationRepository + Send + Sync + 'static,
 {
-    let principal = Principal::remote(
-        "server-token",
-        [
-            "conversation.read".to_string(),
-            "conversation.write".to_string(),
-            "application.call".to_string(),
-            "plugin.read".to_string(),
-            "plugin.write".to_string(),
-            "artifact.read".to_string(),
-            "artifact.preview".to_string(),
-            "automation.read".to_string(),
-            "automation.write".to_string(),
-            "delegation.read".to_string(),
-            "delegation.cancel".to_string(),
-        ],
-    );
+    let principal = credential.principal();
     match state
         .commands
         .execute_name(&principal, &command, request.operation_id, request.args)
@@ -310,7 +357,11 @@ async fn health() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
 }
 
-async fn capabilities<R>(State(state): State<Arc<ServerState<R>>>, headers: HeaderMap) -> Response {
+async fn capabilities<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    headers: HeaderMap,
+) -> Response {
     if let Some(requested) = headers
         .get("x-vibex-protocol-version")
         .and_then(|value| value.to_str().ok())
@@ -340,28 +391,41 @@ async fn capabilities<R>(State(state): State<Arc<ServerState<R>>>, headers: Head
                 .into_response();
         }
     }
-    Json(state.capabilities.clone()).into_response()
+    let mut capabilities = state.capabilities.clone();
+    capabilities.capabilities.retain(|capability| {
+        credential.allows(capability.as_str())
+            || (capability.as_str() == "preview.proxy" && credential.allows("artifact.preview"))
+    });
+    Json(capabilities).into_response()
 }
 
 async fn require_token<R>(
     State(state): State<Arc<ServerState<R>>>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    let authorized = request
+    let candidate = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|candidate| state.token_digest.verifies(candidate))
-        || request
-            .headers()
-            .get("sec-websocket-protocol")
-            .and_then(|value| value.to_str().ok())
-            .and_then(ws_token_from_protocols)
-            .is_some_and(|candidate| state.token_digest.verifies(&candidate));
-    if authorized {
-        return next.run(request).await;
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            request
+                .headers()
+                .get("sec-websocket-protocol")
+                .and_then(|value| value.to_str().ok())
+                .and_then(ws_token_from_protocols)
+        });
+    if let Some(candidate) = candidate {
+        match state.auth.authenticate(&candidate).await {
+            Ok(Some(credential)) => {
+                request.extensions_mut().insert(credential);
+                return next.run(request).await;
+            }
+            Ok(None) => {}
+            Err(error) => return auth_error_response(error),
+        }
     }
 
     (
@@ -374,6 +438,188 @@ async fn require_token<R>(
         )),
     )
         .into_response()
+}
+
+async fn create_pairing<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Json(request): Json<CreatePairingRequest>,
+) -> Response {
+    match state.auth.create_pairing(&credential, request).await {
+        Ok(challenge) => (StatusCode::CREATED, Json(challenge)).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn redeem_pairing<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Json(request): Json<RedeemPairingRequest>,
+) -> Response {
+    match state.auth.redeem_pairing(request).await {
+        Ok(credential) => (StatusCode::CREATED, Json(credential)).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+async fn revoke_device<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(device_id): Path<String>,
+) -> Response {
+    let device_id = match device_id.parse::<DeviceId>() {
+        Ok(device_id) => device_id,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorEnvelope::new(
+                    ErrorCode::BadRequest,
+                    "device id is invalid",
+                    false,
+                    OperationId::new(),
+                )),
+            )
+                .into_response();
+        }
+    };
+    match state.auth.revoke_device(&credential, device_id).await {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => auth_error_response(error),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+struct OfflineQuery {
+    #[serde(default)]
+    after_sequence: i64,
+}
+
+async fn offline_conversation<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(conversation_id): Path<String>,
+    Query(query): Query<OfflineQuery>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    let conversation_id = match ConversationId::parse(&conversation_id) {
+        Ok(conversation_id) => conversation_id,
+        Err(_) => return bad_request("conversation id is invalid"),
+    };
+    if query.after_sequence < 0 {
+        return bad_request("after_sequence must be non-negative");
+    }
+    match state
+        .core
+        .offline_conversation_cache(
+            &credential.principal(),
+            conversation_id,
+            query.after_sequence,
+        )
+        .await
+    {
+        Ok(cache) => Json(cache).into_response(),
+        Err(error) => application_error_response(error.into_envelope()),
+    }
+}
+
+async fn notification_summary<R>(
+    State(state): State<Arc<ServerState<R>>>,
+    Extension(credential): Extension<AuthenticatedCredential>,
+    Path(conversation_id): Path<String>,
+) -> Response
+where
+    R: ConversationRepository + Send + Sync + 'static,
+{
+    let conversation_id = match ConversationId::parse(&conversation_id) {
+        Ok(conversation_id) => conversation_id,
+        Err(_) => return bad_request("conversation id is invalid"),
+    };
+    match state
+        .core
+        .terminal_notification_summary(&credential.principal(), conversation_id)
+        .await
+    {
+        Ok(summary) => Json(summary).into_response(),
+        Err(error) => application_error_response(error.into_envelope()),
+    }
+}
+
+fn bad_request(message: &str) -> Response {
+    application_error_response(ErrorEnvelope::new(
+        ErrorCode::BadRequest,
+        message,
+        false,
+        OperationId::new(),
+    ))
+}
+
+fn application_error_response(error: ErrorEnvelope) -> Response {
+    let status = match error.code {
+        ErrorCode::BadRequest => StatusCode::BAD_REQUEST,
+        ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
+        ErrorCode::Forbidden => StatusCode::FORBIDDEN,
+        ErrorCode::NotFound => StatusCode::NOT_FOUND,
+        ErrorCode::Conflict => StatusCode::CONFLICT,
+        ErrorCode::CapabilityUnavailable => StatusCode::NOT_IMPLEMENTED,
+        ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(error)).into_response()
+}
+
+fn auth_error_response(error: AuthStoreError) -> Response {
+    let reason = match &error {
+        AuthStoreError::InvalidScope => Some("invalid_device_scope"),
+        AuthStoreError::InvalidPairing => Some("invalid_pairing"),
+        AuthStoreError::PairingExpired => Some("pairing_expired"),
+        AuthStoreError::PairingRedeemed => Some("pairing_redeemed"),
+        AuthStoreError::InvalidDeviceName => Some("invalid_device_name"),
+        AuthStoreError::DeviceNotFound => Some("device_not_found"),
+        AuthStoreError::Forbidden => Some("credential_scope_forbidden"),
+        AuthStoreError::PairingUnavailable => Some("pairing_unavailable"),
+        AuthStoreError::Database(_) => None,
+    };
+    let (status, code, message) = match error {
+        AuthStoreError::InvalidScope | AuthStoreError::InvalidDeviceName => (
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadRequest,
+            error.to_string(),
+        ),
+        AuthStoreError::InvalidPairing => (
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthorized,
+            error.to_string(),
+        ),
+        AuthStoreError::PairingExpired | AuthStoreError::PairingRedeemed => {
+            (StatusCode::CONFLICT, ErrorCode::Conflict, error.to_string())
+        }
+        AuthStoreError::DeviceNotFound => (
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound,
+            error.to_string(),
+        ),
+        AuthStoreError::Forbidden => (
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden,
+            error.to_string(),
+        ),
+        AuthStoreError::PairingUnavailable => (
+            StatusCode::NOT_IMPLEMENTED,
+            ErrorCode::CapabilityUnavailable,
+            error.to_string(),
+        ),
+        AuthStoreError::Database(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            "authentication store failed".to_owned(),
+        ),
+    };
+    let mut envelope = ErrorEnvelope::new(code, message, false, OperationId::new());
+    if let Some(reason) = reason {
+        envelope = envelope.with_details(json!({ "reason": reason }));
+    }
+    (status, Json(envelope)).into_response()
 }
 
 fn ws_token_from_protocols(protocols: &str) -> Option<String> {

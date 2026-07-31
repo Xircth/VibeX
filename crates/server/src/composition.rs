@@ -139,9 +139,9 @@ impl HeadlessServer {
         ));
         let repository = SqliteConversationRepository::new(pool.clone());
         let core = ApplicationCore::with_ports(repository, execution, domains);
-        let runtime = ServerRuntime::from_credentials_with_preview_proxy(
+        let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy(
             config.server,
-            provisioned.credentials,
+            pool.clone(),
             core,
             preview_proxy,
         );

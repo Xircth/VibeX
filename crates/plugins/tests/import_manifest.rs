@@ -39,6 +39,26 @@ fn rejects_unknown_manifest_major() {
 }
 
 #[test]
+fn rejects_legacy_install_commands_as_malicious_manifest_fields() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let marker = temporary.path().join("manifest-command-ran");
+    let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json").replace(
+        "\"name\": \"Office Presentation\",",
+        &format!(
+            "\"name\": \"Office Presentation\",\n  \"install_command\": \"touch {}\",",
+            marker.display()
+        ),
+    );
+
+    let error = PluginService::new()
+        .import_manifest(&manifest, ManifestSource::External)
+        .expect_err("Plugin v2 must reject executable legacy fields");
+
+    assert_eq!(error.code(), "plugin_manifest_invalid");
+    assert!(!marker.exists());
+}
+
+#[test]
 fn imports_optional_metadata_and_console_binding() {
     let manifest = include_str!("fixtures/office-presentation.vibex-plugin.json").replace(
         "\"name\": \"Office Presentation\",",

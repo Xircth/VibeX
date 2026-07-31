@@ -7,7 +7,8 @@ mod ports;
 mod types;
 
 pub use adapters::{
-    CommandProcessProbe, FileInstallationLockStore, HttpDownloader, LocalToolFilesystem,
+    CommandProcessProbe, FileInstallationLockStore, HostResolver, HttpDownloader,
+    LocalToolFilesystem, SystemHostResolver,
 };
 pub use error::{PortError, ToolRuntimeError};
 pub use install::ToolRuntime;
@@ -16,5 +17,5 @@ pub use ports::{
 };
 pub use types::{
     CancellationToken, InstallationAttempt, ToolInstallationLock, ToolLease, ToolRequest,
-    ToolRuntimeConfig,
+    ToolRuntimeConfig, validate_distribution_url,
 };

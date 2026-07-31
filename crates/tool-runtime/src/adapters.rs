@@ -1,45 +1,168 @@
 use std::{
     io::ErrorKind,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use tokio::{fs, process::Command};
+use url::Url;
 use uuid::Uuid;
 
 use crate::{
     CancellationToken, Downloader, InstallationLockGuard, InstallationLockStore, PortError,
-    ProcessProbe, ToolFilesystem, ToolInstallationLock,
+    ProcessProbe, ToolFilesystem, ToolInstallationLock, validate_distribution_url,
 };
 
 #[derive(Clone)]
 pub struct HttpDownloader {
-    client: reqwest::Client,
+    resolver: Arc<dyn HostResolver>,
+    connect_timeout: Duration,
+    request_timeout: Duration,
+    max_bytes: usize,
 }
 
 impl HttpDownloader {
-    pub fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    pub fn new(connect_timeout: Duration, request_timeout: Duration) -> Self {
+        Self::with_resolver(
+            Arc::new(SystemHostResolver),
+            connect_timeout,
+            request_timeout,
+            256 * 1024 * 1024,
+        )
+    }
+
+    pub fn with_resolver(
+        resolver: Arc<dyn HostResolver>,
+        connect_timeout: Duration,
+        request_timeout: Duration,
+        max_bytes: usize,
+    ) -> Self {
+        Self {
+            resolver,
+            connect_timeout,
+            request_timeout,
+            max_bytes,
+        }
+    }
+}
+
+#[async_trait]
+pub trait HostResolver: Send + Sync {
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<IpAddr>, PortError>;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemHostResolver;
+
+#[async_trait]
+impl HostResolver for SystemHostResolver {
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<IpAddr>, PortError> {
+        tokio::net::lookup_host((host, port))
+            .await
+            .map(|addresses| addresses.map(|address| address.ip()).collect())
+            .map_err(|_| PortError::new("download host resolution failed"))
     }
 }
 
 #[async_trait]
 impl Downloader for HttpDownloader {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, PortError> {
-        let response = self
-            .client
+        validate_distribution_url(url).map_err(PortError::new)?;
+        let parsed = Url::parse(url).map_err(|_| PortError::new("download URL is invalid"))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| PortError::new("download URL must contain a host"))?;
+        let port = parsed
+            .port_or_known_default()
+            .ok_or_else(|| PortError::new("download URL port is invalid"))?;
+        let addresses = self.resolver.resolve(host, port).await?;
+        if addresses.is_empty() || addresses.iter().any(|address| !is_public_ip(*address)) {
+            return Err(PortError::new(
+                "download host must resolve only to public IP addresses",
+            ));
+        }
+        let socket_addresses = addresses
+            .iter()
+            .map(|address| SocketAddr::new(*address, port))
+            .collect::<Vec<_>>();
+        let client = reqwest::Client::builder()
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(self.connect_timeout)
+            .timeout(self.request_timeout)
+            .resolve_to_addrs(host, &socket_addresses)
+            .build()
+            .map_err(|_| PortError::new("secure HTTPS client setup failed"))?;
+        let mut response = client
             .get(url)
             .send()
             .await
-            .map_err(port_error)?
+            .map_err(|_| PortError::new("HTTPS download failed"))?;
+        if response.status().is_redirection() {
+            return Err(PortError::new("download redirects are not allowed"));
+        }
+        response = response
             .error_for_status()
-            .map_err(port_error)?;
-        response
-            .bytes()
+            .map_err(|_| PortError::new("HTTPS download returned an error status"))?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > self.max_bytes as u64)
+        {
+            return Err(PortError::new("download exceeds the configured size limit"));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(port_error)
+            .map_err(|_| PortError::new("HTTPS download body failed"))?
+        {
+            if bytes.len().saturating_add(chunk.len()) > self.max_bytes {
+                return Err(PortError::new("download exceeds the configured size limit"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
     }
+}
+
+fn is_public_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_public_ipv4(address),
+        IpAddr::V6(address) => is_public_ipv6(address),
+    }
+}
+
+fn is_public_ipv4(address: Ipv4Addr) -> bool {
+    let [a, b, c, _] = address.octets();
+    !(a == 0
+        || a == 10
+        || a == 127
+        || a >= 224
+        || (a == 100 && (64..=127).contains(&b))
+        || (a == 169 && b == 254)
+        || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 192 && b == 0 && c == 2)
+        || (a == 192 && b == 168)
+        || (a == 198 && (b == 18 || b == 19))
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113))
+}
+
+fn is_public_ipv6(address: Ipv6Addr) -> bool {
+    let segments = address.segments();
+    if let Some(address) = address.to_ipv4_mapped() {
+        return is_public_ipv4(address);
+    }
+    !(address.is_unspecified()
+        || address.is_loopback()
+        || address.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00
+        || (segments[0] & 0xffc0) == 0xfe80
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
 }
 
 #[derive(Clone, Copy, Debug, Default)]

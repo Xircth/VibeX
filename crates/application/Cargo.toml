@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = { workspace = true }
 agents = { path = "../agents" }
+chrono = { workspace = true }
 conversations = { path = "../conversations" }
 db = { path = "../db" }
 executors = { path = "../executors" }

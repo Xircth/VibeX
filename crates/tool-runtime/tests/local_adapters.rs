@@ -43,7 +43,7 @@ async fn refuses_to_lease_an_installation_outside_its_version_directory() {
         tool_id: "officecli".into(),
         version: "0.8.0".into(),
         target: "aarch64-apple-darwin".into(),
-        source_url: "fixture://officecli".into(),
+        source_url: "https://downloads.vibex.dev/fixtures/officecli".into(),
         sha256: "a".repeat(64),
         executable_path: temporary.path().join("attacker-controlled"),
         installed_at_unix_ms: 1,
@@ -102,7 +102,7 @@ async fn persists_versioned_installation_lock() {
         tool_id: "officecli".to_string(),
         version: "0.8.0".to_string(),
         target: "aarch64-apple-darwin".to_string(),
-        url: "fixture://officecli".to_string(),
+        url: "https://downloads.vibex.dev/fixtures/officecli".to_string(),
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         executable_name: "officecli".to_string(),
         probe_args: vec!["--version".to_string()],
@@ -121,7 +121,10 @@ async fn persists_versioned_installation_lock() {
     assert!(lease.executable_path.is_absolute());
     assert!(lease.executable_path.exists());
     assert_eq!(current.executable_path, lease.executable_path);
-    assert_eq!(current.source_url, "fixture://officecli");
+    assert_eq!(
+        current.source_url,
+        "https://downloads.vibex.dev/fixtures/officecli"
+    );
     assert!(current.installed_at_unix_ms > 0);
     assert!(
         managed_root
@@ -172,7 +175,7 @@ async fn rejects_tampered_current_before_returning_lease() {
         tool_id: "officecli".to_string(),
         version: "0.8.0".to_string(),
         target: "aarch64-apple-darwin".to_string(),
-        url: "fixture://officecli".to_string(),
+        url: "https://downloads.vibex.dev/fixtures/officecli".to_string(),
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         executable_name: "officecli".to_string(),
         probe_args: vec!["--version".to_string()],
@@ -211,7 +214,7 @@ async fn rejects_current_lock_with_mismatched_identity() {
         tool_id: "officecli".to_string(),
         version: "0.8.0".to_string(),
         target: "aarch64-apple-darwin".to_string(),
-        url: "fixture://officecli".to_string(),
+        url: "https://downloads.vibex.dev/fixtures/officecli".to_string(),
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         executable_name: "officecli".to_string(),
         probe_args: vec!["--version".to_string()],
@@ -270,7 +273,7 @@ async fn concurrent_runtimes_share_persistent_install_lock() {
         tool_id: "officecli".to_string(),
         version: "0.8.0".to_string(),
         target: "aarch64-apple-darwin".to_string(),
-        url: "fixture://officecli".to_string(),
+        url: "https://downloads.vibex.dev/fixtures/officecli".to_string(),
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         executable_name: "officecli".to_string(),
         probe_args: vec!["--version".to_string()],

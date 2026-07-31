@@ -1,4 +1,5 @@
 use semver::Version;
+use tool_runtime::validate_distribution_url;
 
 use crate::{PluginError, ToolDependency, ToolId, ToolKind};
 
@@ -103,6 +104,12 @@ impl ToolDependencyResolver {
             return Err(PluginError::invalid_distribution(
                 dependency.id.as_str(),
                 "download URL is empty",
+            ));
+        }
+        if let Err(reason) = validate_distribution_url(&distribution.url) {
+            return Err(PluginError::invalid_distribution(
+                dependency.id.as_str(),
+                reason,
             ));
         }
 

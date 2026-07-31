@@ -170,8 +170,9 @@ async fn cors_accepts_only_same_origin_or_the_explicit_allowlist() {
         ServerToken::new("allowlisted-token-with-32-bytes-minimum"),
         core,
     );
-    let accepted = runtime
-        .router()
+    let app = runtime.router();
+    let accepted = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/capabilities")
@@ -192,5 +193,29 @@ async fn cors_accepts_only_same_origin_or_the_explicit_allowlist() {
             .get("access-control-allow-origin")
             .expect("cors origin"),
         "https://console.example"
+    );
+
+    let preflight = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/v1/auth/devices/0195d6f4-8c37-7b28-a982-6a9e60142f54")
+                .header("origin", "https://console.example")
+                .header("access-control-request-method", "DELETE")
+                .body(Body::empty())
+                .expect("preflight"),
+        )
+        .await
+        .expect("preflight response");
+    assert_eq!(preflight.status(), StatusCode::NO_CONTENT);
+    assert!(
+        preflight
+            .headers()
+            .get("access-control-allow-methods")
+            .expect("allowed methods")
+            .to_str()
+            .expect("header text")
+            .split(',')
+            .any(|method| method.trim() == "DELETE")
     );
 }

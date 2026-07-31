@@ -85,3 +85,34 @@ async fn production_assets_and_spa_routes_share_the_static_root() {
         .expect("response");
     assert_eq!(unknown_api.status(), StatusCode::NOT_FOUND);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn static_assets_never_follow_a_symlink_outside_the_root() {
+    use std::os::unix::fs::symlink;
+
+    let root = TempDir::new().expect("static root");
+    let outside = TempDir::new().expect("outside root");
+    std::fs::write(root.path().join("index.html"), "<main>safe shell</main>").expect("index");
+    std::fs::write(outside.path().join("secret.txt"), "must-not-leak").expect("secret");
+    symlink(
+        outside.path().join("secret.txt"),
+        root.path().join("secret.txt"),
+    )
+    .expect("symlink");
+
+    let response = runtime(root.path())
+        .await
+        .router()
+        .oneshot(
+            Request::get("/secret.txt")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    assert_ne!(body, "must-not-leak");
+}

@@ -2412,6 +2412,31 @@
     outline-offset: 2px;
   }
 
+  .composer-status-dismiss {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    transition:
+      background-color 160ms ease-out,
+      color 160ms ease-out;
+  }
+
+  .composer-status-dismiss:hover {
+    background: var(--surface-control-hover);
+    color: var(--text-strong);
+  }
+
+  .composer-status-dismiss:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.45);
+    outline-offset: 2px;
+  }
+
   @container (max-width: 480px) {
     .composer-status-row {
       grid-template-columns: auto minmax(0, 1fr);

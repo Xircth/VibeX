@@ -1,20 +1,70 @@
-import { Info, RotateCcw, TriangleAlert } from 'lucide-react';
+import { useState } from 'react';
+import { Info, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
+import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
+import type { ConversationSessionNotice } from 'shared/types';
+
+const DISMISSED_NOTICE_KEY_PREFIX = 'vibex:dismissed-conversation-notice';
+
+function dismissalStorageKey(
+  scope: string | null | undefined,
+  noticeId: string
+): string | null {
+  return scope ? `${DISMISSED_NOTICE_KEY_PREFIX}:${scope}:${noticeId}` : null;
+}
+
+function wasNoticeDismissed(
+  scope: string | null | undefined,
+  noticeId: string,
+  notice: ConversationSessionNotice
+): boolean {
+  const key = dismissalStorageKey(scope, noticeId);
+  if (!key || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(key) === noticeSignature(notice);
+  } catch {
+    return false;
+  }
+}
+
+function noticeSignature(notice: ConversationSessionNotice): string {
+  return JSON.stringify([notice.title, notice.message, notice.severity]);
+}
+
+function noticeDismissalIdentity(
+  noticeId: string,
+  notice: ConversationSessionNotice
+): string {
+  return `${noticeId}:${noticeSignature(notice)}`;
+}
 
 type ConversationStatusDockProps = {
   notices: ConversationStatusNotice[];
   localError?: string | null;
+  dismissalScope?: string | null;
 };
 
 export function ConversationStatusDock({
   notices,
   localError,
+  dismissalScope,
 }: ConversationStatusDockProps) {
   const { t } = useTranslation(['conversation']);
+  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(
+    () => new Set()
+  );
+  const visibleNotices = notices.filter(
+    (notice) =>
+      notice.kind !== 'session-notice' ||
+      (!dismissedNotices.has(
+        noticeDismissalIdentity(notice.id, notice.notice)
+      ) &&
+        !wasNoticeDismissed(dismissalScope, notice.id, notice.notice))
+  );
 
-  if (notices.length === 0 && !localError) return null;
+  if (visibleNotices.length === 0 && !localError) return null;
 
   return (
     <div
@@ -29,7 +79,7 @@ export function ConversationStatusDock({
           </StatusSurface>
         ) : null}
 
-        {notices.map((notice) => {
+        {visibleNotices.map((notice) => {
           if (notice.kind === 'turn-error') {
             return (
               <TurnErrorCard
@@ -81,20 +131,52 @@ export function ConversationStatusDock({
               : notice.notice.severity === 'warning'
                 ? 'warning'
                 : 'info';
+          const copy = getConversationSessionNoticeCopy(notice.notice, t);
           return (
             <StatusSurface
               key={notice.id}
               tone={tone}
               role={tone === 'error' ? 'alert' : 'status'}
               icon={tone === 'info' ? <Info /> : <TriangleAlert />}
+              action={
+                <button
+                  type="button"
+                  className="composer-status-dismiss"
+                  onClick={() =>
+                    setDismissedNotices((current) => {
+                      const next = new Set(current);
+                      next.add(
+                        noticeDismissalIdentity(notice.id, notice.notice)
+                      );
+                      const storageKey = dismissalStorageKey(
+                        dismissalScope,
+                        notice.id
+                      );
+                      if (storageKey) {
+                        try {
+                          window.localStorage.setItem(
+                            storageKey,
+                            noticeSignature(notice.notice)
+                          );
+                        } catch {
+                          // Dismissal still works for this mount when storage is unavailable.
+                        }
+                      }
+                      return next;
+                    })
+                  }
+                  title={t('statusDock.dismiss')}
+                  aria-label={t('statusDock.dismiss')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              }
             >
               <div className="min-w-0">
-                <p className="font-medium text-foreground">
-                  {notice.notice.title}
-                </p>
-                {notice.notice.message ? (
+                <p className="font-medium text-foreground">{copy.title}</p>
+                {copy.message ? (
                   <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">
-                    {notice.notice.message}
+                    {copy.message}
                   </p>
                 ) : null}
               </div>

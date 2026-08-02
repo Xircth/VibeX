@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import type { AgentManagementView } from 'shared/types';
 import {
   SessionCreationForm,
   type SessionControlsPreset,
@@ -16,7 +17,7 @@ const setSessionDefaults = vi.fn();
 const listRemoteSessions = vi.fn();
 const importRemoteSession = vi.fn();
 const deleteRemoteSession = vi.fn();
-const terminalProfileControls = vi.fn();
+const agentManagementBar = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -24,16 +25,15 @@ vi.mock('react-i18next', () => ({
       typeof options?.error === 'string' ? `${key}: ${options.error}` : key,
   }),
 }));
-vi.mock('@/components/tasks/TerminalProfileControls', () => ({
-  TerminalProfileControls: (props: unknown) => {
-    terminalProfileControls(props);
-    return <div data-testid="profile-controls" />;
-  },
-}));
 vi.mock('@/components/tasks/RepoBranchSelector', () => ({
   default: () => null,
 }));
 vi.mock('./WorkspaceSelector', () => ({ WorkspaceSelector: () => null }));
+vi.mock('@/features/agent-management', () => ({
+  agentManagementApi: {
+    bar: (...args: unknown[]) => agentManagementBar(...args),
+  },
+}));
 vi.mock('@/features/agents/api', () => ({
   agentsApi: {
     capabilityCatalog: (...args: unknown[]) => capabilityCatalog(...args),
@@ -94,7 +94,8 @@ const CONTROLS = {
 function renderForm(
   executor: 'claude_code' | 'codex' | 'gemini',
   onPreset: (preset: SessionControlsPreset | null) => void,
-  mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace'
+  mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace',
+  compact = false
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -124,6 +125,7 @@ function renderForm(
       isLoadingBranches={false}
       canSubmit={true}
       isSubmitting={false}
+      compact={compact}
       onSubmit={() => {}}
       onSessionControlsPresetChange={onPreset}
     />
@@ -146,7 +148,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     listRemoteSessions.mockReset();
     importRemoteSession.mockReset();
     deleteRemoteSession.mockReset();
-    terminalProfileControls.mockReset();
+    agentManagementBar.mockReset();
     capabilityCatalog.mockResolvedValue(CONTROLS);
     capabilityCatalogFresh.mockResolvedValue(true);
     refreshCapabilityCatalog.mockResolvedValue(true);
@@ -159,6 +161,27 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     });
     importRemoteSession.mockResolvedValue({ id: 'conversation-imported' });
     deleteRemoteSession.mockResolvedValue(undefined);
+    agentManagementBar.mockResolvedValue([
+      {
+        agent_id: 'codex',
+        display_name: 'Codex',
+        description: '',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+      } satisfies AgentManagementView,
+    ]);
   });
 
   it('loads editable controls for the first session in a new workspace', async () => {
@@ -174,9 +197,6 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(
       screen.queryByText('sessionCreation.controlsUnavailable')
     ).not.toBeInTheDocument();
-    expect(terminalProfileControls.mock.calls.at(-1)?.[0]).toMatchObject({
-      suppressAcpManagedControls: true,
-    });
     expect(onPreset).toHaveBeenLastCalledWith({
       modeOverride: 'auto',
       configOverrides: {
@@ -185,6 +205,22 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       },
     });
   });
+
+  it.each([false, true])(
+    'keeps the agent selector chevron on the trigger row when compact=%s',
+    async (compact) => {
+      renderForm('codex', vi.fn(), 'new_workspace', compact);
+
+      const trigger = await screen.findByRole('button', {
+        name: 'agentSelector.selectAgentAriaLabel',
+      });
+      const chevron = trigger.querySelector('svg.lucide-arrow-down');
+      expect(trigger).toHaveClass('w-full');
+      expect(trigger).not.toHaveClass('flex-wrap', 'grid');
+      expect(chevron).toBe(trigger.lastElementChild);
+      expect(chevron).toHaveClass('shrink-0');
+    }
+  );
 
   it('discovers and persists controls once when no verified catalog exists yet', async () => {
     capabilityCatalog

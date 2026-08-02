@@ -119,6 +119,13 @@
     "toolCall": "工具调用",
     "generatingAgents": "正在生成 {{count}} 个智能体"
   },
+  "statusDock": {
+    "dismiss": "关闭提示",
+    "newerEventTitle": "此会话包含较新版本的记录",
+    "newerEventDescription": "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。",
+    "unreadableEventTitle": "部分会话记录无法显示",
+    "unreadableEventDescription": "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。"
+  },
   "feedbackCheck": {
     "label": "反馈",
     "checkItems": "检查项",

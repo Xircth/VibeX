@@ -433,6 +433,8 @@ impl AgentManagementApplicationService {
         } else {
             current_lifecycle.as_str()
         };
+        // Capability catalogs include this generation in their fingerprint.
+        // Re-observing identical facts must not invalidate a verified catalog.
         sqlx::query(
             r#"INSERT INTO agent_probe
                (agent_id, lifecycle, authentication, detail_json, probed_at,
@@ -444,7 +446,10 @@ impl AgentManagementApplicationService {
                  authentication = excluded.authentication,
                  authentication_required = excluded.authentication_required,
                  probed_at = excluded.probed_at,
-                 observation_generation = agent_probe.observation_generation + 1"#,
+                 observation_generation = agent_probe.observation_generation +
+                   CASE WHEN agent_probe.authentication IS NOT excluded.authentication
+                          OR agent_probe.authentication_required IS NOT excluded.authentication_required
+                        THEN 1 ELSE 0 END"#,
         )
         .bind(agent_id.as_str())
         .bind(lifecycle)
@@ -464,6 +469,8 @@ impl AgentManagementApplicationService {
         acp_handshake: bool,
         authentication_required: bool,
     ) -> Result<()> {
+        // Keep the fingerprint stable across periodic probes that report the
+        // same facts; only an actual capability/auth boundary change advances it.
         sqlx::query(
             r#"INSERT INTO agent_probe
                (agent_id, lifecycle, authentication, detail_json, probed_at,
@@ -477,7 +484,12 @@ impl AgentManagementApplicationService {
                  acp_handshake = excluded.acp_handshake,
                  authentication_required = excluded.authentication_required,
                  probed_at = excluded.probed_at,
-                 observation_generation = agent_probe.observation_generation + 1"#,
+                 observation_generation = agent_probe.observation_generation +
+                   CASE WHEN agent_probe.authentication IS NOT excluded.authentication
+                          OR agent_probe.runtime_available IS NOT excluded.runtime_available
+                          OR agent_probe.acp_handshake IS NOT excluded.acp_handshake
+                          OR agent_probe.authentication_required IS NOT excluded.authentication_required
+                        THEN 1 ELSE 0 END"#,
         )
         .bind(agent_id.as_str())
         .bind(lifecycle_key(lifecycle))
@@ -556,5 +568,143 @@ fn parse_management_operation(value: &str) -> Option<ManagementOperationState> {
         "updating" => Some(ManagementOperationState::Updating),
         "repairing" => Some(ManagementOperationState::Repairing),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use api_types::{AgentAuthenticationStatus, AgentId};
+    use sqlx::SqlitePool;
+
+    use super::AgentManagementApplicationService;
+
+    async fn management_pool_with_ready_opencode() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_installation (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 current_lock_id TEXT
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_probe (
+                 agent_id TEXT PRIMARY KEY,
+                 lifecycle TEXT NOT NULL,
+                 authentication TEXT NOT NULL,
+                 detail_json TEXT NOT NULL,
+                 probed_at TEXT NOT NULL,
+                 runtime_available INTEGER NOT NULL DEFAULT 0,
+                 acp_handshake INTEGER NOT NULL DEFAULT 0,
+                 authentication_required INTEGER NOT NULL DEFAULT 0,
+                 observation_generation INTEGER NOT NULL DEFAULT 0
+               )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO agent_installation VALUES ('opencode', 'ready', 'lock-1')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"INSERT INTO agent_probe
+               VALUES ('opencode', 'ready', 'not_required', '{}',
+                       '2026-08-01T00:00:00Z', 1, 1, 0, 49)"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn authentication_generation_advances_only_when_evidence_changes() {
+        let pool = management_pool_with_ready_opencode().await;
+
+        AgentManagementApplicationService::new(pool.clone())
+            .sync_authentication(
+                &AgentId::parse("opencode").unwrap(),
+                AgentAuthenticationStatus::NotRequired,
+                Some(false),
+            )
+            .await
+            .unwrap();
+
+        let observation = sqlx::query_as::<_, (String, String, bool, i64)>(
+            r#"SELECT lifecycle, authentication, authentication_required,
+                      observation_generation
+               FROM agent_probe WHERE agent_id = 'opencode'"#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            observation,
+            ("ready".into(), "not_required".into(), false, 49)
+        );
+
+        AgentManagementApplicationService::new(pool.clone())
+            .sync_authentication(
+                &AgentId::parse("opencode").unwrap(),
+                AgentAuthenticationStatus::NotLoggedIn,
+                Some(true),
+            )
+            .await
+            .unwrap();
+        let changed_generation = sqlx::query_scalar::<_, i64>(
+            "SELECT observation_generation FROM agent_probe WHERE agent_id = 'opencode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(changed_generation, 50);
+    }
+
+    #[tokio::test]
+    async fn full_probe_generation_advances_only_when_fingerprint_facts_change() {
+        let pool = management_pool_with_ready_opencode().await;
+
+        AgentManagementApplicationService::new(pool.clone())
+            .record_probe(
+                &AgentId::parse("opencode").unwrap(),
+                api_types::AgentLifecycleState::Ready,
+                AgentAuthenticationStatus::NotRequired,
+                true,
+                true,
+                false,
+            )
+            .await
+            .unwrap();
+
+        let generation = sqlx::query_scalar::<_, i64>(
+            "SELECT observation_generation FROM agent_probe WHERE agent_id = 'opencode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(generation, 49);
+
+        AgentManagementApplicationService::new(pool.clone())
+            .record_probe(
+                &AgentId::parse("opencode").unwrap(),
+                api_types::AgentLifecycleState::NeedsRepair,
+                AgentAuthenticationStatus::NotRequired,
+                false,
+                false,
+                false,
+            )
+            .await
+            .unwrap();
+        let changed_generation = sqlx::query_scalar::<_, i64>(
+            "SELECT observation_generation FROM agent_probe WHERE agent_id = 'opencode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(changed_generation, 50);
     }
 }

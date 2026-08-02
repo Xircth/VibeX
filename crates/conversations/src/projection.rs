@@ -8,8 +8,8 @@ use agents::conversation::{
 };
 use db::models::{
     conversation_event::{
-        AppendConversationEvent, ConversationEventRecord, find_conversation_event_by_idempotency,
-        insert_conversation_event,
+        AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
+        find_conversation_event_by_idempotency, insert_conversation_event,
     },
     conversation_side_effects::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
@@ -23,10 +23,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v2: timeline rows carry `row_id` + `revision` (incremental row-op protocol,
-// 消灭双投影); the snapshot's `side_rows` shape changed, so v1 snapshots are
-// discarded and rebuilt by the projection-version check in `load_fold_from_snapshot`.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 2;
+// v3: rebuild snapshots that cached placeholder notices for legacy capability and
+// agent-binding events before their same-version compatibility rules were restored.
+// v2 introduced `row_id` + `revision` on timeline rows (incremental row-op protocol).
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 3;
 
 pub struct ConversationEventAppender;
 
@@ -678,15 +678,27 @@ impl ProjectionFold {
                     sequence = record.sequence,
                     "conversation event not renderable by this build; showing placeholder row"
                 );
+                let notice = if record.event_version > CURRENT_EVENT_VERSION {
+                    ConversationSessionNotice {
+                        title: "此会话包含较新版本的记录".into(),
+                        message: Some(
+                            "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。"
+                                .into(),
+                        ),
+                        severity: "warning".into(),
+                    }
+                } else {
+                    ConversationSessionNotice {
+                        title: "部分会话记录无法显示".into(),
+                        message: Some(
+                            "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into(),
+                        ),
+                        severity: "warning".into(),
+                    }
+                };
                 let row = side_row(
                     record.sequence,
-                    ConversationTimelineRow::SessionNotice {
-                        notice: ConversationSessionNotice {
-                            title: "此事件由更新版本产生，无法显示".into(),
-                            message: None,
-                            severity: "warning".into(),
-                        },
-                    },
+                    ConversationTimelineRow::SessionNotice { notice },
                 );
                 let op = ConversationRowOp::Upsert { row: row.clone() };
                 self.side_rows.push(row);
@@ -1600,7 +1612,7 @@ mod tests {
             .iter()
             .filter_map(|row| match &row.row {
                 ConversationTimelineRow::SessionNotice { notice }
-                    if notice.title == "此事件由更新版本产生，无法显示" =>
+                    if notice.title == "部分会话记录无法显示" =>
                 {
                     Some(notice)
                 }
@@ -1608,6 +1620,10 @@ mod tests {
             })
             .collect();
         assert_eq!(placeholders.len(), 1, "exactly one placeholder row");
+        assert_eq!(
+            placeholders[0].message.as_deref(),
+            Some("VibeX 无法读取其中一条历史记录，其余会话内容不受影响。")
+        );
 
         // The normal assistant text still folded through, proving the unknown event
         // did not abort the rest of the timeline.
@@ -1619,6 +1635,205 @@ mod tests {
             _ => false,
         });
         assert!(has_assistant_text, "surrounding events still fold");
+    }
+
+    #[test]
+    fn newer_event_version_renders_upgrade_guidance() {
+        let conversation_id = Uuid::new_v4();
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[ConversationEventRecord {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                sequence: 1,
+                source: "test".into(),
+                event_kind: "future_event".into(),
+                event_version: CURRENT_EVENT_VERSION + 1,
+                normalized_json: r#"{"kind":"future_event"}"#.into(),
+                raw_json: None,
+                idempotency_key: None,
+                created_at: chrono::Utc::now(),
+            }],
+        )
+        .expect("future event should degrade to a notice");
+
+        let notice = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+            _ => None,
+        });
+        assert_eq!(
+            notice.map(|notice| notice.title.as_str()),
+            Some("此会话包含较新版本的记录")
+        );
+        assert!(
+            notice
+                .and_then(|notice| notice.message.as_deref())
+                .is_some_and(|message| message.contains("更新 VibeX"))
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "agent_binding_started",
+                normalized_json: r#"{
+                    "kind":"agent_binding_started",
+                    "agent_type":"codex",
+                    "working_dir":"/tmp/project"
+                }"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append legacy event");
+
+        let mut stale_fold = ProjectionFold {
+            last_sequence: 1,
+            ..ProjectionFold::default()
+        };
+        stale_fold.side_rows.push(side_row(
+            1,
+            ConversationTimelineRow::SessionNotice {
+                notice: ConversationSessionNotice {
+                    title: "cached stale notice".into(),
+                    message: None,
+                    severity: "warning".into(),
+                },
+            },
+        ));
+        let fold_json = serde_json::to_string(&stale_fold.to_snapshot_state())
+            .expect("serialize stale snapshot");
+        ConversationProjectionSnapshotRecord::upsert(
+            &pool,
+            conversation_id,
+            i64::from(CONVERSATION_PROJECTION_VERSION) - 1,
+            1,
+            &fold_json,
+        )
+        .await
+        .expect("persist stale snapshot");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("stale snapshot should be rebuilt");
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_capability_snapshot_does_not_render_unknown_event_notice() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "agent_binding_ready",
+                normalized_json: r#"{
+                    "kind":"agent_binding_ready",
+                    "acp_session_id":"legacy-session",
+                    "capabilities":{
+                        "prompt":{"text":true,"image":true,"resource":false},
+                        "load_session":true,
+                        "resume_session":false,
+                        "close_session":true,
+                        "terminal":true,
+                        "additional_directories":false,
+                        "filesystem_requests":false,
+                        "mcp_servers":false,
+                        "permission_requests":false,
+                        "modes":[],
+                        "config_options":[],
+                        "available_commands":[]
+                    }
+                }"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append legacy capability snapshot");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project legacy capability snapshot");
+
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
+            "same-version legacy capabilities should remain readable"
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_agent_binding_field_does_not_render_unknown_event_notice() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        ConversationEventAppender::append(
+            &pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: Some(turn_id),
+                binding_id: None,
+                connection_id: Some("connection-1"),
+                prompt_id: Some("prompt-1"),
+                source: "acp",
+                event_kind: "agent_binding_started",
+                normalized_json: r#"{
+                    "kind":"agent_binding_started",
+                    "agent_type":"codex",
+                    "working_dir":"/tmp/project"
+                }"#,
+                raw_json: None,
+                idempotency_key: None,
+            },
+        )
+        .await
+        .expect("append legacy agent binding");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project legacy agent binding");
+
+        assert!(
+            timeline
+                .rows
+                .iter()
+                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. })),
+            "renamed same-version fields should remain readable"
+        );
     }
 
     #[tokio::test]

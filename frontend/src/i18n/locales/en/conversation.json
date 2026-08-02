@@ -119,6 +119,13 @@
     "toolCall": "Tool call",
     "generatingAgents": "Generating {{count}} agents"
   },
+  "statusDock": {
+    "dismiss": "Dismiss notice",
+    "newerEventTitle": "This conversation includes a record from a newer version",
+    "newerEventDescription": "This version cannot display one record yet. The rest of the conversation is unaffected. Update VibeX to view it.",
+    "unreadableEventTitle": "Some conversation history cannot be displayed",
+    "unreadableEventDescription": "VibeX cannot read one historical record. The rest of the conversation is unaffected."
+  },
   "feedbackCheck": {
     "label": "Feedback",
     "checkItems": "Check Items",

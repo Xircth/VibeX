@@ -34,6 +34,7 @@ import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
 import { ResendCheckpointDialog } from '@/components/dialogs';
@@ -208,6 +209,7 @@ function ConversationSideRows({
   respondingQuestionId: string | null;
   onOpenChild?: (childConversationId: string) => void;
 }) {
+  const { t } = useTranslation(['conversation']);
   // turn_error renders as the standalone TurnErrorCard; file_change_summary is
   // anchored inline at the end of its own turn (TurnFileChangesCard); pending
   // permission requests dock at the bottom of the stream instead.
@@ -275,17 +277,16 @@ function ConversationSideRows({
           );
         }
         if (row.kind === 'session_notice') {
+          const copy = getConversationSessionNoticeCopy(row.notice, t);
           return (
             <div
               key={`notice-${index}`}
               className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
             >
-              <div className="font-medium text-foreground">
-                {row.notice.title}
-              </div>
-              {row.notice.message ? (
+              <div className="font-medium text-foreground">{copy.title}</div>
+              {copy.message ? (
                 <div className="mt-1 whitespace-pre-wrap break-words">
-                  {row.notice.message}
+                  {copy.message}
                 </div>
               ) : null}
             </div>

@@ -64,9 +64,7 @@ export function AgentSelector({
   const agents = useMemo(() => {
     return selectable
       .filter((agent) => agent.enabled)
-      .sort((left, right) =>
-        left.displayName.localeCompare(right.displayName)
-      );
+      .sort((left, right) => left.displayName.localeCompare(right.displayName));
   }, [selectable]);
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel =
@@ -104,7 +102,7 @@ export function AgentSelector({
                 <span className="truncate">{selectedAgentLabel}</span>
               ) : null}
             </div>
-            {!iconOnly ? <ArrowDown className="h-3 w-3" /> : null}
+            {!iconOnly ? <ArrowDown className="h-3 w-3 shrink-0" /> : null}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

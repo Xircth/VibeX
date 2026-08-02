@@ -126,30 +126,44 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## ACP 官方参考文档
 
-来源：ACP 官方文档索引（[llms.txt](https://agentclientprotocol.com/llms.txt)）。最后核对：2026-07-16。
+来源：ACP 官方文档索引（[llms.txt](https://agentclientprotocol.com/llms.txt)）。最后核对：2026-08-02。
 
-### 稳定协议（v1，VibeX 实现优先参考）
+### v2 Draft（新架构与方案设计优先参考）
 
-- [协议概览](https://agentclientprotocol.com/protocol/v1/overview) — JSON-RPC 通信模型、基础生命周期与约定。
-- [初始化](https://agentclientprotocol.com/protocol/v1/initialization) — `initialize`、版本与能力协商。
-- [认证](https://agentclientprotocol.com/protocol/v1/authentication) — `authenticate` 与 `logout`。
-- [会话建立](https://agentclientprotocol.com/protocol/v1/session-setup) — `session/new`、`session/load`。
-- [会话列表](https://agentclientprotocol.com/protocol/v1/session-list) — `session/list`。
-- [删除会话](https://agentclientprotocol.com/protocol/v1/session-delete) — `session/delete`。
-- [提示回合](https://agentclientprotocol.com/protocol/v1/prompt-turn) — `session/prompt`、更新与结束原因。
-- [内容](https://agentclientprotocol.com/protocol/v1/content) — 消息与内容块。
-- [工具调用](https://agentclientprotocol.com/protocol/v1/tool-calls) — 工具调用、更新与权限请求。
-- [文件系统](https://agentclientprotocol.com/protocol/v1/file-system) — 客户端文件读取与写入能力。
-- [取消](https://agentclientprotocol.com/protocol/v1/cancellation) — `session/cancel`。
-- [终端](https://agentclientprotocol.com/protocol/v1/terminals) — 终端创建、输出、等待、终止与释放。
-- [Agent 计划](https://agentclientprotocol.com/protocol/v1/agent-plan) — 计划展示与更新。
-- [会话模式](https://agentclientprotocol.com/protocol/v1/session-modes) — `session/set_mode` 与模式更新。
-- [会话配置选项](https://agentclientprotocol.com/protocol/v1/session-config-options) — 模型、推理等级等动态选择器。
-- [斜杠命令](https://agentclientprotocol.com/protocol/v1/slash-commands) — 命令发现与更新。
-- [扩展性](https://agentclientprotocol.com/protocol/v1/extensibility) — `_meta`、自定义能力与 `_` 前缀方法。
-- [传输](https://agentclientprotocol.com/protocol/v1/transports) — 传输机制。
-- [Schema](https://agentclientprotocol.com/protocol/v1/schema) — 完整协议类型与 JSON Schema 定义。
-- [OpenAPI Schema（JSON）](https://agentclientprotocol.com/api-reference/openapi.json) — 可用于代码生成或机器校验。
+ACP v2 当前仍是 Draft，不应被当作已经稳定的生产协议。VibeX 设计新能力时以 v2
+语义为目标，但实现与发布必须通过版本协商和功能开关保留 v1 并行兼容；同一连接只使用
+协商完成后的一个协议版本。迁移背景与上线约束见
+[v2 Draft 公告](https://agentclientprotocol.com/announcements/acp-v2-draft)与
+[v1 → v2 迁移指南](https://agentclientprotocol.com/protocol/v2/migration)。
+
+- [协议概览](https://agentclientprotocol.com/protocol/v2/overview) — v2 JSON-RPC 通信模型、角色对称能力与会话生命周期。
+- [迁移指南](https://agentclientprotocol.com/protocol/v2/migration) — v1/v2 方法、能力、数据模型与并行兼容差异。
+- [初始化](https://agentclientprotocol.com/protocol/v2/initialization) — `initialize`、协议版本与双向能力协商。
+- [认证](https://agentclientprotocol.com/protocol/v2/authentication) — `auth/login`、`auth/logout` 与认证方法。
+- [会话建立与恢复](https://agentclientprotocol.com/protocol/v2/session-setup) — `session/new`、`session/resume` 与 `replayFrom`。
+- [会话列表](https://agentclientprotocol.com/protocol/v2/session-list) — `session/list`。
+- [删除会话](https://agentclientprotocol.com/protocol/v2/session-delete) — 可选的 `session/delete`。
+- [Prompt 生命周期](https://agentclientprotocol.com/protocol/v2/prompt-lifecycle) — 接收确认、运行状态、后台更新与结束原因。
+- [内容](https://agentclientprotocol.com/protocol/v2/content) — 消息、内容块、资源与扩展类型。
+- [工具调用](https://agentclientprotocol.com/protocol/v2/tool-calls) — ID 驱动的工具调用 upsert、内容分块、结构化 diff、终端展示与权限请求。
+- [Elicitation](https://agentclientprotocol.com/protocol/v2/elicitation) — 结构化用户补充输入。
+- [取消](https://agentclientprotocol.com/protocol/v2/cancellation) — `session/cancel` 与基于状态更新的取消完成语义。
+- [Agent 计划](https://agentclientprotocol.com/protocol/v2/agent-plan) — 带 `planId` 的多计划更新与可扩展计划类型。
+- [会话配置选项](https://agentclientprotocol.com/protocol/v2/session-config-options) — 统一模式、模型、模型配置与思考等级。
+- [斜杠命令](https://agentclientprotocol.com/protocol/v2/slash-commands) — 命令发现、更新与结构化输入。
+- [扩展性](https://agentclientprotocol.com/protocol/v2/extensibility) — 开放枚举、未知变体、`_meta` 与前向兼容。
+- [传输](https://agentclientprotocol.com/protocol/v2/transports) — stdio JSON-RPC 与批处理约束。
+- [Schema](https://agentclientprotocol.com/protocol/v2/schema) — 完整 v2 类型与 JSON Schema 定义。
+
+v2 不再提供独立的客户端文件系统、客户端终端和 Session Modes 协议面：文件/编辑器/命令
+能力通过 MCP 暴露，Agent 终端输出归入工具调用展示，Mode 归入 Session Config Options。
+v1 仍是当前稳定兼容基线，排查旧 Agent 行为时参考
+[v1 概览](https://agentclientprotocol.com/protocol/v1/overview)与
+[v1 Schema](https://agentclientprotocol.com/protocol/v1/schema)。
+
+VibeX 的采用决策见
+[ADR-0035](docs/adr/0035-acp-v2-dual-protocol-session-items.md)，分阶段落地与发布门禁见
+[ACP V1 → V2 迁移与架构改进计划](docs/plans/2026-08-02-acp-v2-migration.md)。
 
 ### 入门、生态与实现库
 
@@ -166,7 +180,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - [社区维护的库](https://agentclientprotocol.com/libraries/community)
 - [官方 GitHub 仓库](https://github.com/agentclientprotocol/agent-client-protocol)
 
-### RFD 与 v2 演进（设计新能力前参考）
+### RFD 与 v2 设计背景（协议文档优先，RFD 用于决策追溯）
 
 - [RFD 流程](https://agentclientprotocol.com/rfds/about)
 - [ACP Agent Registry](https://agentclientprotocol.com/rfds/acp-agent-registry)

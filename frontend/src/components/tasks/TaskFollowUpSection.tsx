@@ -754,6 +754,7 @@ export function TaskFollowUpSection({
         <ConversationStatusDock
           notices={conversationStatusNotices}
           localError={followUpError}
+          dismissalScope={session?.id ?? null}
         />
 
         {/* Input area with buttons inside */}

@@ -490,10 +490,7 @@ export function SessionCreationForm({
           disabled={isSubmitting}
           dropdownSide={dropdownSide}
           suppressAcpManagedControls={true}
-          className={cn(
-            'flex flex-wrap items-center gap-2',
-            compact ? 'grid gap-2 sm:grid-cols-[minmax(0,1.2fr)_auto_auto]' : ''
-          )}
+          className={cn('w-full', compact && 'min-w-0')}
         />
         {hasControls && activeControls ? (
           <>
@@ -525,7 +522,10 @@ export function SessionCreationForm({
               </Button>
             </div>
             {defaultsQuery.data?.staleIds.length ? (
-              <p className="text-[11px] text-[hsl(var(--warning))]" role="status">
+              <p
+                className="text-[11px] text-[hsl(var(--warning))]"
+                role="status"
+              >
                 {t('sessionCreation.staleDefaults', {
                   options: defaultsQuery.data.staleIds.join(', '),
                 })}

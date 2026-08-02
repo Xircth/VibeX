@@ -245,6 +245,7 @@ pub struct ConversationDetail {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct AgentPromptCapabilities {
     pub text: bool,
@@ -282,6 +283,7 @@ impl From<crate::AuthenticationObservation> for AcpAuthenticationObservationSnap
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
 #[ts(export)]
 pub struct AcpCapabilitySnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -556,6 +558,7 @@ pub struct ConversationDelegation {
     pub delegation_id: String,
     pub parent_tool_call_id: String,
     pub child_conversation_id: Uuid,
+    #[serde(alias = "agent_type")]
     pub agent_id: AgentId,
     pub task_preview: String,
 }
@@ -584,6 +587,7 @@ pub enum ConversationEvent {
         title: Option<String>,
     },
     AgentBindingStarted {
+        #[serde(alias = "agent_type")]
         agent_id: AgentId,
         working_dir: String,
     },
@@ -1040,5 +1044,27 @@ mod event_sourced_tests {
                 serde_json::from_value(value).expect("deserialize event");
             assert_eq!(roundtrip, event);
         }
+    }
+
+    #[test]
+    fn legacy_delegation_agent_type_remains_deserializable() {
+        let event: ConversationEvent = serde_json::from_value(serde_json::json!({
+            "kind": "delegation_started",
+            "delegation": {
+                "delegation_id": "delegation-1",
+                "parent_tool_call_id": "tool-1",
+                "child_conversation_id": Uuid::nil(),
+                "agent_type": "codex",
+                "task_preview": "review the change"
+            }
+        }))
+        .expect("legacy delegation event should remain readable");
+
+        assert!(matches!(
+            event,
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation { agent_id, .. }
+            } if agent_id.as_str() == "codex"
+        ));
     }
 }

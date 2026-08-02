@@ -139,6 +139,38 @@ describe('MessageTurnView', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('collapses command prelude text when AI messages default to collapsed', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-command:assistant',
+            role: 'assistant',
+            blocks: [
+              {
+                type: 'text',
+                text: 'Wall time: 1.7 seconds\nOutput:\nFinal answer',
+              },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess
+      />
+    );
+
+    expect(screen.getByText('Final answer')).toBeInTheDocument();
+    expect(screen.queryByText(/Wall time/)).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Expand previous AI content' })
+    );
+    expect(screen.getByText(/Wall time: 1\.7 seconds/)).toBeInTheDocument();
+  });
+
   it('hides thinking blocks for ClaudeCode assistant turns', () => {
     render(
       <MessageTurnView

@@ -8,22 +8,30 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 import i18n from '@/i18n';
 import type { BackendTransport } from '@/lib/backendTransport';
 import { AutomationsSettings } from './AutomationsSettings';
 
-function renderSettings(transport: BackendTransport, pollIntervalMs?: number) {
+function renderSettings(
+  transport: BackendTransport,
+  pollIntervalMs?: number,
+  withRouter = false
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const settings = (
     <QueryClientProvider client={queryClient}>
       <AutomationsSettings
         transport={transport}
         pollIntervalMs={pollIntervalMs}
       />
     </QueryClientProvider>
+  );
+  return render(
+    withRouter ? <MemoryRouter>{settings}</MemoryRouter> : settings
   );
 }
 
@@ -36,6 +44,7 @@ function createTransport(
     runResponses?: object[][];
     failListOnce?: boolean;
     engineOwner?: boolean;
+    projects?: object[];
   } = {}
 ) {
   let runResponseIndex = 0;
@@ -54,13 +63,15 @@ function createTransport(
         case 'automation_templates':
           return options.templates ?? [];
         case 'get_projects':
-          return [
-            {
-              id: 'project-1',
-              name: 'VibeX',
-              created_at: '2026-07-30T00:00:00Z',
-            },
-          ];
+          return (
+            options.projects ?? [
+              {
+                id: 'project-1',
+                name: 'VibeX',
+                created_at: '2026-07-30T00:00:00Z',
+              },
+            ]
+          );
         case 'get_project_repositories':
           return [
             {
@@ -237,6 +248,31 @@ function runView(status: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe('AutomationsSettings', () => {
+  it('describes the user-facing scheduling capability without implementation details', async () => {
+    const { transport } = createTransport();
+    renderSettings(transport);
+
+    expect(
+      await screen.findByText('让任务按需或定时自动运行。')
+    ).toBeVisible();
+    expect(screen.queryByText(/worktree|IANA|后端/)).not.toBeInTheDocument();
+  });
+
+  it('explains an empty project list and links to project setup', async () => {
+    const user = userEvent.setup();
+    const { transport } = createTransport({ projects: [] });
+    renderSettings(transport, undefined, true);
+
+    await user.click(await screen.findByRole('button', { name: '新建自动化' }));
+
+    expect(screen.getByRole('combobox', { name: '项目' })).toBeDisabled();
+    expect(screen.getByText('还没有可用于自动化的项目。')).toBeVisible();
+    expect(screen.getByRole('link', { name: '添加项目' })).toHaveAttribute(
+      'href',
+      '/local-projects'
+    );
+  });
+
   it('shows a read-only state when another host owns the Automation Engine', async () => {
     const { transport, call } = createTransport({
       automations: [automationView()],

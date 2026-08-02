@@ -14,21 +14,10 @@ import type {
 export type PluginComponentStatus = OfficeComponentReadiness['status'];
 export type PluginActionCatalog = OfficePluginCatalog;
 
-export interface LegacyPluginMigrationSummary {
-  legacyPluginId: string;
-  name: string;
-  status: 'migration_required' | 'mapped_builtin';
-  mappedPluginId: string | null;
-}
-
 export function createPluginApi(transport: BackendTransport) {
   return {
     catalog: () =>
       transport.call('plugin_action_catalog') as Promise<PluginActionCatalog>,
-    listLegacy: () =>
-      transport.call('plugin_legacy_migration_list') as Promise<
-        LegacyPluginMigrationSummary[]
-      >,
     installOffice: (taskId: string) =>
       transport.call('officecli_install', { taskId }),
     cancelOfficeInstall: (taskId: string) =>

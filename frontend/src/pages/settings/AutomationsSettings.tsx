@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import {
   CalendarClock,
   Clock3,
@@ -820,6 +821,7 @@ export function AutomationsSettings({
                     <Label>{t('automations.project')}</Label>
                     <Select
                       value={draft.projectId}
+                      disabled={projects.length === 0}
                       onValueChange={(projectId) =>
                         setDraft({ ...draft, projectId })
                       }
@@ -840,6 +842,19 @@ export function AutomationsSettings({
                         ))}
                       </SelectContent>
                     </Select>
+                    {projects.length === 0 ? (
+                      <div
+                        role="status"
+                        className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"
+                      >
+                        <span>{t('automations.noProjects')}</span>
+                        <Button asChild variant="link" size="sm">
+                          <Link to="/local-projects">
+                            {t('automations.addProject')}
+                          </Link>
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 

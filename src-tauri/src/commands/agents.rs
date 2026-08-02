@@ -336,7 +336,7 @@ async fn open_capability_catalog_fingerprint(
 /// identity is privileged.
 async fn prompt_enhancement_catalog_candidates(
     pool: &sqlx::SqlitePool,
-) -> Result<Vec<(AgentId, Vec<String>)>, AppError> {
+) -> Result<Vec<(AgentId, Vec<(String, String)>)>, AppError> {
     let agent_ids = sqlx::query_scalar::<_, String>(
         r#"SELECT membership.agent_id
            FROM agent_membership membership
@@ -359,9 +359,9 @@ async fn prompt_enhancement_catalog_candidates(
         else {
             continue;
         };
-        let models = models_from_capability_catalog(&snapshot);
-        if !models.is_empty() {
-            candidates.push((agent_id, models));
+        let selections = model_selections_from_capability_catalog(&snapshot);
+        if !selections.is_empty() {
+            candidates.push((agent_id, selections));
         }
     }
     Ok(candidates)
@@ -371,8 +371,8 @@ pub(crate) async fn prompt_enhancement_capability_catalog_models(
     pool: &sqlx::SqlitePool,
 ) -> Result<Vec<String>, AppError> {
     let mut models = Vec::new();
-    for (_, candidate_models) in prompt_enhancement_catalog_candidates(pool).await? {
-        for model in candidate_models {
+    for (_, candidate_selections) in prompt_enhancement_catalog_candidates(pool).await? {
+        for (_, model) in candidate_selections {
             if !models.contains(&model) {
                 models.push(model);
             }
@@ -381,19 +381,25 @@ pub(crate) async fn prompt_enhancement_capability_catalog_models(
     Ok(models)
 }
 
-pub(crate) async fn prompt_enhancement_agent_for_model(
+pub(crate) async fn prompt_enhancement_selection_for_model(
     pool: &sqlx::SqlitePool,
     model: &str,
-) -> Result<Option<AgentId>, AppError> {
-    Ok(prompt_enhancement_catalog_candidates(pool)
-        .await?
-        .into_iter()
-        .find(|(_, models)| models.iter().any(|candidate| candidate == model))
-        .map(|(agent_id, _)| agent_id))
+) -> Result<Option<(AgentId, String)>, AppError> {
+    for (agent_id, selections) in prompt_enhancement_catalog_candidates(pool).await? {
+        if let Some((option_key, _)) = selections
+            .into_iter()
+            .find(|(_, candidate)| candidate == model)
+        {
+            return Ok(Some((agent_id, option_key)));
+        }
+    }
+    Ok(None)
 }
 
-fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
-    let mut models = Vec::new();
+fn model_selections_from_capability_catalog(
+    snapshot: &AgentSessionControlsSnapshot,
+) -> Vec<(String, String)> {
+    let mut selections = Vec::new();
     for option in snapshot
         .config_options
         .iter()
@@ -403,9 +409,24 @@ fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Ve
             let Some(model) = choice.value.as_str().map(str::trim) else {
                 continue;
             };
-            if !model.is_empty() && !models.iter().any(|existing| existing == model) {
-                models.push(model.to_string());
+            if !model.is_empty()
+                && !selections
+                    .iter()
+                    .any(|(key, existing)| key == &option.key && existing == model)
+            {
+                selections.push((option.key.clone(), model.to_string()));
             }
+        }
+    }
+    selections
+}
+
+#[cfg(test)]
+fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
+    let mut models = Vec::new();
+    for (_, model) in model_selections_from_capability_catalog(snapshot) {
+        if !models.contains(&model) {
+            models.push(model);
         }
     }
     models
@@ -527,7 +548,7 @@ async fn refresh_capability_catalog_for_agent(
 #[tauri::command]
 pub async fn refresh_prompt_enhancement_catalogs(
     state: tauri::State<'_, AppState>,
-) -> Result<bool, AppError> {
+) -> Result<crate::commands::config::PromptEnhancementModelsResponse, AppError> {
     let agent_ids = sqlx::query_scalar::<_, String>(
         r#"SELECT membership.agent_id
            FROM agent_membership membership
@@ -541,6 +562,7 @@ pub async fn refresh_prompt_enhancement_catalogs(
     .fetch_all(&state.deployment.db().pool)
     .await?;
     let mut refreshed_any = false;
+    let mut refresh_errors = Vec::new();
     for raw_agent_id in agent_ids {
         let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
             continue;
@@ -549,15 +571,23 @@ pub async fn refresh_prompt_enhancement_catalogs(
             Ok(true) => refreshed_any = true,
             Ok(false) => {}
             Err(error) => {
-                tracing::debug!(
+                tracing::warn!(
                     %agent_id,
                     %error,
                     "Agent did not provide a prompt-enhancement capability catalog"
                 );
+                refresh_errors.push(format!("{agent_id}: {error}"));
             }
         }
     }
-    Ok(refreshed_any)
+    let models = prompt_enhancement_capability_catalog_models(&state.deployment.db().pool).await?;
+    if models.is_empty() && !refreshed_any && !refresh_errors.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "Unable to refresh Agent model catalogs: {}",
+            refresh_errors.join("; ")
+        )));
+    }
+    Ok(crate::commands::config::PromptEnhancementModelsResponse { models })
 }
 
 #[tauri::command]
@@ -1735,6 +1765,33 @@ mod tests {
         };
 
         assert!(models_from_capability_catalog(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn prompt_enhancement_preserves_the_advertised_model_option_key() {
+        let snapshot = AgentSessionControlsSnapshot {
+            modes: Vec::new(),
+            current_mode: None,
+            config_options: vec![agents::AgentSessionConfigOption {
+                key: "model_id".to_string(),
+                label: "Model".to_string(),
+                description: None,
+                category: Some("model".to_string()),
+                value: None,
+                choices: vec![agents::AgentSessionConfigChoice {
+                    value: serde_json::Value::String("openai/gpt-5.6-sol".to_string()),
+                    label: "GPT 5.6 Sol".to_string(),
+                    description: None,
+                }],
+                dependency: None,
+            }],
+            capabilities: None,
+        };
+
+        assert_eq!(
+            model_selections_from_capability_catalog(&snapshot),
+            vec![("model_id".to_string(), "openai/gpt-5.6-sol".to_string())]
+        );
     }
 
     #[test]

@@ -5,10 +5,12 @@ import {
   Action,
   Scope,
   bindingKey,
+  getConfigurableKeyBindings,
   getEffectiveKeyBindings,
   getKeysFor,
   findChordConflicts,
   keyBindings,
+  sequentialBindings,
 } from './registry';
 
 function evt(partial: Partial<Parameters<typeof chordFromEvent>[0]>) {
@@ -72,6 +74,42 @@ describe('registry binding ids', () => {
   it('are unique across all single-chord bindings', () => {
     const ids = keyBindings.map((b) => bindingKey(b.action, b.scopes));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('settings shortcut catalog', () => {
+  it('only advertises bindings with mounted UI consumers', () => {
+    const configurable = getConfigurableKeyBindings({});
+
+    expect(configurable).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: Action.CREATE,
+          scopes: [Scope.PROJECTS],
+        }),
+        expect.objectContaining({
+          action: Action.SUBMIT_FOLLOW_UP,
+          scopes: [Scope.FOLLOW_UP_READY],
+        }),
+      ])
+    );
+    expect(configurable).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scopes: [Scope.KANBAN] }),
+        expect.objectContaining({ scopes: [Scope.SETTINGS] }),
+      ])
+    );
+  });
+
+  it('does not advertise sequential actions without an execution bridge', () => {
+    expect(sequentialBindings.map((binding) => binding.actionId)).toEqual([
+      'settings',
+      'toggle-changes-mode',
+      'toggle-logs-mode',
+      'toggle-preview-mode',
+      'toggle-left-sidebar',
+      'toggle-left-main-panel',
+    ]);
   });
 });
 

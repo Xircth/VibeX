@@ -47,6 +47,10 @@ describe('PluginsSettings', () => {
     render(<PluginsSettings transport={transport} />);
 
     expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(screen.getByText('添加更多能力支持')).toBeVisible();
+    expect(
+      screen.queryByText(/manifest|固定版本|哈希|安装命令/)
+    ).not.toBeInTheDocument();
     expect(screen.getByText('已启用')).toBeVisible();
     expect(screen.getByText('依赖 · officecli')).toBeVisible();
     expect(screen.getByText('1.0.140 · 就绪')).toBeVisible();
@@ -54,7 +58,7 @@ describe('PluginsSettings', () => {
     expect(screen.getByText('Provider · officecli')).toBeVisible();
   });
 
-  it('marks legacy plugins for migration without exposing install commands', async () => {
+  it('does not load or render the removed legacy plugin settings', async () => {
     const call = vi.fn(async (command: string) => {
       if (command === 'plugin_action_catalog') {
         return {
@@ -74,22 +78,8 @@ describe('PluginsSettings', () => {
           },
         };
       }
-      if (command === 'plugin_legacy_migration_list') {
-        return [
-          {
-            legacyPluginId: 'legacy-1',
-            name: 'Old PPT Plugin',
-            status: 'migration_required',
-            mappedPluginId: null,
-          },
-          {
-            legacyPluginId: 'legacy-builtin',
-            name: 'Mapped builtin',
-            status: 'mapped_builtin',
-            mappedPluginId: 'vibex.builtin.dashi-ppt',
-          },
-        ];
-      }
+      if (command === 'plugin_legacy_migration_list')
+        throw new Error('legacy settings API must not be called');
       throw new Error(`unexpected command: ${command}`);
     });
     const transport: BackendTransport = {
@@ -99,10 +89,12 @@ describe('PluginsSettings', () => {
 
     render(<PluginsSettings transport={transport} />);
 
-    expect(await screen.findByText('Old PPT Plugin')).toBeVisible();
+    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(call).not.toHaveBeenCalledWith('plugin_legacy_migration_list');
+    expect(screen.queryByText('Old PPT Plugin')).not.toBeInTheDocument();
     expect(screen.queryByText('Mapped builtin')).not.toBeInTheDocument();
-    expect(screen.getByText('migration_required')).toBeVisible();
-    expect(screen.getByText(/旧安装命令不会执行/)).toBeVisible();
+    expect(screen.queryByText('migration_required')).not.toBeInTheDocument();
+    expect(screen.queryByText(/旧安装命令不会执行/)).not.toBeInTheDocument();
     expect(
       screen.queryByRole('textbox', { name: /安装命令/ })
     ).not.toBeInTheDocument();

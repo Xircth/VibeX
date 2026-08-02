@@ -137,8 +137,11 @@ export const configApi = {
         'list_prompt_enhancement_models'
       );
     },
-  refreshPromptEnhancementModels: async (): Promise<boolean> => {
-    return backendCall<boolean>('refresh_prompt_enhancement_catalogs');
+  refreshPromptEnhancementModels:
+    async (): Promise<PromptEnhancementModelsResponse> => {
+      return backendCall<PromptEnhancementModelsResponse>(
+        'refresh_prompt_enhancement_catalogs'
+      );
   },
   clearLocalData: async (): Promise<ClearLocalDataResponse> => {
     return backendCall<ClearLocalDataResponse>('clear_local_app_data');

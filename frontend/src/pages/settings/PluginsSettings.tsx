@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Loader2, Plug, Puzzle } from 'lucide-react';
+import { AlertTriangle, Check, Loader2, Puzzle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,6 @@ import { Switch } from '@/components/ui/switch';
 import type { BackendTransport } from '@/lib/backendTransport';
 import {
   createPluginApi,
-  type LegacyPluginMigrationSummary,
   type PluginActionCatalog,
   type PluginComponentStatus,
 } from '@/lib/api/plugins';
@@ -71,9 +70,6 @@ export function PluginsSettings({
   const { t } = useTranslation(['settings', 'common']);
   const api = useMemo(() => createPluginApi(transport), [transport]);
   const [catalog, setCatalog] = useState<PluginActionCatalog | null>(null);
-  const [legacyPlugins, setLegacyPlugins] = useState<
-    LegacyPluginMigrationSummary[]
-  >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isToggling, setIsToggling] = useState(false);
@@ -83,12 +79,7 @@ export function PluginsSettings({
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [nextCatalog, nextLegacy] = await Promise.all([
-        api.catalog(),
-        api.listLegacy(),
-      ]);
-      setCatalog(nextCatalog);
-      setLegacyPlugins(nextLegacy);
+      setCatalog(await api.catalog());
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -237,37 +228,6 @@ export function PluginsSettings({
           </p>
         )}
       </SettingsSection>
-
-      {legacyPlugins.length > 0 ? (
-        <SettingsSection
-          icon={Plug}
-          title={t('plugins.legacyTitle')}
-          description={t('plugins.legacyDescription')}
-        >
-          <ul className="space-y-2">
-            {legacyPlugins
-              .filter((plugin) => plugin.status === 'migration_required')
-              .map((plugin) => (
-                <li
-                  key={plugin.legacyPluginId}
-                  className="flex items-start justify-between gap-4 border-t border-border/70 py-3 first:border-t-0"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {plugin.name}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t('plugins.migrationRequired')}
-                    </p>
-                  </div>
-                  <span className="rounded border border-[hsl(var(--warning)/0.45)] bg-[hsl(var(--warning)/0.1)] px-2 py-1 text-[10px] font-medium text-[hsl(var(--warning))]">
-                    migration_required
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </SettingsSection>
-      ) : null}
     </div>
   );
 }

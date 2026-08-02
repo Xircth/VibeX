@@ -7,6 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use reqwest::header::LOCATION;
 use tokio::{fs, process::Command};
 use url::Url;
 use uuid::Uuid;
@@ -70,40 +71,68 @@ impl HostResolver for SystemHostResolver {
 #[async_trait]
 impl Downloader for HttpDownloader {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, PortError> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         validate_distribution_url(url).map_err(PortError::new)?;
-        let parsed = Url::parse(url).map_err(|_| PortError::new("download URL is invalid"))?;
-        let host = parsed
+        let initial = Url::parse(url).map_err(|_| PortError::new("download URL is invalid"))?;
+        let initial_host = initial
             .host_str()
-            .ok_or_else(|| PortError::new("download URL must contain a host"))?;
-        let port = parsed
-            .port_or_known_default()
-            .ok_or_else(|| PortError::new("download URL port is invalid"))?;
-        let addresses = self.resolver.resolve(host, port).await?;
-        if addresses.is_empty() || addresses.iter().any(|address| !is_public_ip(*address)) {
-            return Err(PortError::new(
-                "download host must resolve only to public IP addresses",
-            ));
-        }
-        let socket_addresses = addresses
-            .iter()
-            .map(|address| SocketAddr::new(*address, port))
-            .collect::<Vec<_>>();
-        let client = reqwest::Client::builder()
-            .https_only(true)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(self.connect_timeout)
-            .timeout(self.request_timeout)
-            .resolve_to_addrs(host, &socket_addresses)
-            .build()
-            .map_err(|_| PortError::new("secure HTTPS client setup failed"))?;
-        let mut response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|_| PortError::new("HTTPS download failed"))?;
-        if response.status().is_redirection() {
-            return Err(PortError::new("download redirects are not allowed"));
-        }
+            .ok_or_else(|| PortError::new("download URL must contain a host"))?
+            .to_ascii_lowercase();
+        let mut current = initial;
+        let mut redirect_count = 0_u8;
+
+        let mut response = loop {
+            validate_redirect_target(&initial_host, &current, redirect_count)?;
+            let host = current
+                .host_str()
+                .ok_or_else(|| PortError::new("download URL must contain a host"))?;
+            let port = current
+                .port_or_known_default()
+                .ok_or_else(|| PortError::new("download URL port is invalid"))?;
+            let addresses = self.resolver.resolve(host, port).await?;
+            if addresses.is_empty()
+                || addresses
+                    .iter()
+                    .any(|address| !is_allowed_download_address(host, *address))
+            {
+                return Err(PortError::new(
+                    "download host must resolve only to public IP addresses",
+                ));
+            }
+            let socket_addresses = addresses
+                .iter()
+                .map(|address| SocketAddr::new(*address, port))
+                .collect::<Vec<_>>();
+            let client = reqwest::Client::builder()
+                .https_only(true)
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(self.connect_timeout)
+                .timeout(self.request_timeout)
+                .resolve_to_addrs(host, &socket_addresses)
+                .build()
+                .map_err(|_| PortError::new("secure HTTPS client setup failed"))?;
+            let response = client
+                .get(current.clone())
+                .send()
+                .await
+                .map_err(|_| PortError::new("HTTPS download failed"))?;
+            if !response.status().is_redirection() {
+                break response;
+            }
+            if redirect_count >= 5 {
+                return Err(PortError::new("download redirect limit exceeded"));
+            }
+            let location = response
+                .headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| PortError::new("download redirect is missing a valid location"))?;
+            current = current
+                .join(location)
+                .map_err(|_| PortError::new("download redirect location is invalid"))?;
+            redirect_count += 1;
+        };
+
         response = response
             .error_for_status()
             .map_err(|_| PortError::new("HTTPS download returned an error status"))?;
@@ -125,6 +154,61 @@ impl Downloader for HttpDownloader {
             bytes.extend_from_slice(&chunk);
         }
         Ok(bytes)
+    }
+}
+
+fn validate_redirect_target(
+    initial_host: &str,
+    target: &Url,
+    redirect_count: u8,
+) -> Result<(), PortError> {
+    let host = target
+        .host_str()
+        .ok_or_else(|| PortError::new("download redirect must contain a DNS host"))?;
+    let normalized_host = host.trim_end_matches('.').to_ascii_lowercase();
+    let credentials_are_empty = target.username().is_empty() && target.password().is_none();
+    let standard_https_port = target.port_or_known_default() == Some(443);
+    if target.scheme() != "https"
+        || normalized_host.len() != host.len()
+        || !credentials_are_empty
+        || target.fragment().is_some()
+        || !standard_https_port
+    {
+        return Err(PortError::new("download redirect target is not allowed"));
+    }
+    if redirect_count == 0 {
+        return Ok(());
+    }
+    let trusted_github_release = initial_host == "github.com"
+        && matches!(
+            normalized_host.as_str(),
+            "github.com" | "release-assets.githubusercontent.com"
+        );
+    if !trusted_github_release {
+        return Err(PortError::new("download redirect target is not allowed"));
+    }
+    Ok(())
+}
+
+fn is_allowed_download_address(host: &str, address: IpAddr) -> bool {
+    is_public_ip(address)
+        || (is_trusted_github_download_host(host) && is_proxy_synthetic_ip(address))
+}
+
+fn is_trusted_github_download_host(host: &str) -> bool {
+    matches!(
+        host.trim_end_matches('.').to_ascii_lowercase().as_str(),
+        "github.com" | "release-assets.githubusercontent.com"
+    )
+}
+
+fn is_proxy_synthetic_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => {
+            let [a, b, _, _] = address.octets();
+            a == 198 && (b == 18 || b == 19)
+        }
+        IpAddr::V6(_) => false,
     }
 }
 

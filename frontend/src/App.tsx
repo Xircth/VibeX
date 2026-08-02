@@ -24,7 +24,11 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { configApi, type LocalToolStatus } from '@/lib/api';
+import {
+  configApi,
+  settingsWindowApi,
+  type LocalToolStatus,
+} from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import {
@@ -43,6 +47,12 @@ import {
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
 import { useBackendTransport } from '@/lib/transport';
+import {
+  SequenceIndicator,
+  SequenceTrackerProvider,
+  SHORTCUT_ACTION_EVENT,
+  type ShortcutActionEventDetail,
+} from '@/keyboard';
 
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
@@ -423,6 +433,22 @@ function AppContent() {
   return <MainAppContent />;
 }
 
+function GlobalShortcutActionBridge() {
+  useEffect(() => {
+    const handleShortcut = (event: Event) => {
+      const { actionId } = (event as CustomEvent<ShortcutActionEventDetail>)
+        .detail;
+      if (actionId === 'settings') {
+        void settingsWindowApi.open();
+      }
+    };
+    window.addEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
+    return () =>
+      window.removeEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <AppErrorBoundary>
@@ -438,7 +464,11 @@ function App() {
                   'projects',
                 ]}
               >
-                <AppContent />
+                <SequenceTrackerProvider>
+                  <GlobalShortcutActionBridge />
+                  <AppContent />
+                  <SequenceIndicator />
+                </SequenceTrackerProvider>
               </HotkeysProvider>
             </ProjectProvider>
           </ClickedElementsProvider>

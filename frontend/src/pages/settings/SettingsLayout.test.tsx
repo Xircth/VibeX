@@ -7,6 +7,28 @@ import { BackendTransportProvider } from '@/lib/transport';
 import { SettingsLayout } from './SettingsLayout';
 
 describe('SettingsLayout capability gating', () => {
+  it('keeps the settings shell pinned to the visible viewport', () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const shell = screen.getByText('General content').closest('.settings-page');
+    expect(shell).toHaveClass('fixed', 'inset-0');
+    expect(shell).not.toHaveClass('h-screen');
+  });
+
   it('shows Web-supported product settings and hides desktop-only controls', async () => {
     const transport: BackendTransport = {
       environment: 'web',

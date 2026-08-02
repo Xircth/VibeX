@@ -129,7 +129,7 @@ export function SettingsLayout() {
   );
 
   return (
-    <div className="settings-page settings-shell flex h-screen flex-col overflow-hidden text-foreground">
+    <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">
       <div className="flex min-h-0 flex-1">
         <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
           <nav className="space-y-1" aria-busy={capabilities === null}>

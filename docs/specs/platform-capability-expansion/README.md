@@ -1,6 +1,7 @@
 # VibeX 平台能力扩展总计划
 
-> 状态：Specify / Plan / Tasks 已起草，等待评审后进入 Implement
+> 状态：`approved-for-implementation`；公共 seam 与验收于 2026-07-31
+> 由维护者确认，实施与发布收口按本目录任务执行。
 >
 > 日期：2026-07-29
 >

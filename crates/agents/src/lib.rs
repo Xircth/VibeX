@@ -67,7 +67,8 @@ pub use conversation::{
     TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{
-    DelegationInjector, InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport,
+    CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
+    InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport,
 };
 pub use distribution::current_platform;
 pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};

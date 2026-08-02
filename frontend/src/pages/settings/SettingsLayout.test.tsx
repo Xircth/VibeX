@@ -1,0 +1,82 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { BackendTransport } from '@/lib/backendTransport';
+import { BackendTransportProvider } from '@/lib/transport';
+import { SettingsLayout } from './SettingsLayout';
+
+describe('SettingsLayout capability gating', () => {
+  it('keeps the settings shell pinned to the visible viewport', () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/general']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="general" element={<div>General content</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    const shell = screen.getByText('General content').closest('.settings-page');
+    expect(shell).toHaveClass('fixed', 'inset-0');
+    expect(shell).not.toHaveClass('h-screen');
+  });
+
+  it('shows Web-supported product settings and hides desktop-only controls', async () => {
+    const transport: BackendTransport = {
+      environment: 'web',
+      call: vi.fn(),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: '1.0.0',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: [
+          'plugin.read',
+          'artifact.read',
+          'automation.read',
+          'delegation.read',
+          'device.pair',
+        ],
+      }),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/automations']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route
+                path="automations"
+                element={<div>Automation content</div>}
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /automations|自动化/i })
+      ).toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole('button', { name: /plugins|插件/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /devices|设备/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /web service|Web 服务/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^agents?$|^Agent$/i })
+    ).not.toBeInTheDocument();
+  });
+});

@@ -10,6 +10,10 @@ use sqlx::{FromRow, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
+pub use crate::models::plugin_v2::{
+    LegacyMigrationStatus, LegacyPluginEvidence, PluginV1Migration,
+};
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Plugin {
@@ -219,7 +223,7 @@ impl Plugin {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{path::Path, str::FromStr};
 
     use chrono::Duration;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -338,5 +342,75 @@ mod tests {
             .expect("exists");
         assert_eq!(kept.name, "Builtin");
         assert!(kept.enabled);
+    }
+
+    #[tokio::test]
+    async fn plugin_v1_migration_never_executes_command() {
+        let pool = setup_pool().await;
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let marker = temporary.path().join("legacy-command-executed");
+        let mut legacy = input("Untrusted legacy plugin", None);
+        legacy.install_command = format!("touch {}", marker.display());
+        let plugin = Plugin::create(&pool, Uuid::new_v4(), &legacy)
+            .await
+            .expect("create legacy plugin");
+
+        let migrated = PluginV1Migration::migrate_all(&pool)
+            .await
+            .expect("capture legacy evidence");
+        let evidence = migrated
+            .iter()
+            .find(|evidence| evidence.legacy_plugin_id == plugin.id)
+            .expect("migration evidence for plugin");
+
+        assert_eq!(evidence.status, LegacyMigrationStatus::MigrationRequired);
+        assert_eq!(
+            evidence.original_manifest["install_command"],
+            legacy.install_command
+        );
+        assert!(!Path::new(&marker).exists());
+    }
+
+    #[tokio::test]
+    async fn plugin_v1_migration_maps_only_known_builtin_ids() {
+        let pool = setup_pool().await;
+        let known_id =
+            Uuid::parse_str("3f8e2b10-7c44-4c5e-9a11-d2af01000001").expect("known builtin id");
+        Plugin::insert_builtin_if_missing(&pool, known_id, &input("Dashi PPT", None))
+            .await
+            .expect("seed known builtin");
+        Plugin::create(
+            &pool,
+            Uuid::new_v4(),
+            &input("Unmapped third-party plugin", None),
+        )
+        .await
+        .expect("create third-party plugin");
+
+        let evidence = PluginV1Migration::migrate_all(&pool)
+            .await
+            .expect("migrate legacy rows");
+        let mapped = evidence
+            .iter()
+            .find(|row| row.legacy_plugin_id == known_id)
+            .expect("known builtin evidence");
+        assert_eq!(mapped.status, LegacyMigrationStatus::MappedBuiltin);
+        assert_eq!(
+            mapped.mapped_plugin_id.as_deref(),
+            Some("vibex.builtin.dashi-ppt")
+        );
+        assert!(
+            evidence
+                .iter()
+                .any(|row| row.status == LegacyMigrationStatus::MigrationRequired)
+        );
+
+        let enabled: bool =
+            sqlx::query_scalar("SELECT enabled FROM plugin_v2_activation WHERE plugin_id = ?")
+                .bind("vibex.builtin.dashi-ppt")
+                .fetch_one(&pool)
+                .await
+                .expect("mapped builtin activation");
+        assert!(!enabled, "mapped builtins must require explicit enable");
     }
 }

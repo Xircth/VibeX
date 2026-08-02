@@ -23,10 +23,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v3: rebuild snapshots that cached placeholder notices for legacy capability and
-// agent-binding events before their same-version compatibility rules were restored.
-// v2 introduced `row_id` + `revision` on timeline rows (incremental row-op protocol).
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 3;
+// v4 merges two independently shipped v3 projection changes: compatibility for
+// legacy capability/agent-binding events and Artifact revision timeline rows.
+// Rebuild either predecessor's v3 snapshot so neither placeholder notices nor
+// previously skipped Artifact events survive the merge.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 4;
 
 pub struct ConversationEventAppender;
 
@@ -1045,6 +1046,14 @@ impl ProjectionFold {
                 // than a second, context-less "completed" row.
                 let status = match &result {
                     ConversationDelegationResult::Ok { .. } => "completed",
+                    ConversationDelegationResult::Err { error }
+                        if matches!(
+                            error.code.as_deref(),
+                            Some("canceled" | "cancelled" | "request_cancelled")
+                        ) =>
+                    {
+                        "canceled"
+                    }
                     ConversationDelegationResult::Err { .. } => "failed",
                 };
                 let mut merged = false;
@@ -1083,6 +1092,12 @@ impl ProjectionFold {
                         summary,
                         turn_id: record.turn_id,
                     },
+                ));
+            }
+            ConversationEvent::ArtifactRevisionRecorded { artifact } => {
+                side_rows.push(side_row(
+                    record.sequence,
+                    ConversationTimelineRow::ArtifactRevision { artifact },
                 ));
             }
             ConversationEvent::TurnFailed { error } => {
@@ -1309,6 +1324,9 @@ fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
             format!("del:{}", delegation.delegation_id)
         }
         ConversationTimelineRow::FileChangeSummary { .. } => format!("fc:{sequence}"),
+        ConversationTimelineRow::ArtifactRevision { artifact } => {
+            format!("artifact:{}:{}", artifact.artifact_id, artifact.revision)
+        }
         ConversationTimelineRow::TurnError { error } => match error.turn_id {
             Some(turn_id) => format!("err:{turn_id}:{sequence}"),
             None => format!("err:{sequence}"),
@@ -1424,21 +1442,23 @@ mod tests {
         AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
         AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
-            ConversationDelegation, ConversationDelegationResult, ConversationError,
-            ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
-            ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionRequest,
-            ConversationPermissionResponse, ConversationQuestionRequest,
-            ConversationQuestionResponse, ConversationTerminalPatch, ConversationToolCallPatch,
-            ConversationUsage,
+            ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
+            ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
+            ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
+            ConversationPermissionRequest, ConversationPermissionResponse,
+            ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
+            ConversationToolCallPatch, ConversationUsage,
         },
     };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
+        session::Session,
     };
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
     use super::*;
+    use crate::{CreateDelegatedConversation, create_delegated_conversation};
 
     async fn setup_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -1458,6 +1478,28 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    async fn setup_temp_pool() -> (tempfile::TempDir, SqlitePool) {
+        let dir = tempfile::tempdir().expect("temp db dir");
+        let options = SqliteConnectOptions::new()
+            .filename(dir.path().join("conversations.sqlite"))
+            .create_if_missing(true)
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect temp db");
+        sqlx::migrate!("../db/migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&pool)
+            .await
+            .expect("disable foreign keys");
+        (dir, pool)
     }
 
     async fn seed_turn(pool: &SqlitePool) -> (Uuid, Uuid) {
@@ -1520,6 +1562,157 @@ mod tests {
         )
         .await
         .expect("append event")
+    }
+
+    #[tokio::test]
+    async fn artifact_revision_event_projects_reference_without_file_bytes() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let artifact_id = Uuid::new_v4();
+
+        let record = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/quarter.xlsx".into(),
+                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        .into(),
+                    content_hash: "a".repeat(64),
+                    revision: 1,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-revision-1"),
+        )
+        .await;
+
+        assert_eq!(record.event_kind, "artifact_revision_recorded");
+        assert!(record.normalized_json.contains(&artifact_id.to_string()));
+        assert!(!record.normalized_json.contains("\"bytes\""));
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project artifact event");
+        assert_eq!(timeline.last_sequence, record.sequence);
+        let artifact_row = timeline
+            .rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                )
+            })
+            .expect("artifact revision row");
+        assert_eq!(artifact_row.row_id, format!("artifact:{artifact_id}:1"));
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/quarter.xlsx".into(),
+                    media_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        .into(),
+                    content_hash: "b".repeat(64),
+                    revision: 2,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-revision-2"),
+        )
+        .await;
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project both artifact revisions");
+        assert_eq!(
+            timeline
+                .rows
+                .iter()
+                .filter(|row| matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                ))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn artifact_projection_rebuilds_a_v3_snapshot_that_skipped_artifacts() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let artifact_id = Uuid::new_v4();
+        let record = append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "host",
+            ConversationEvent::ArtifactRevisionRecorded {
+                artifact: ConversationArtifactReference {
+                    artifact_id,
+                    workspace_id: Some(Uuid::new_v4()),
+                    relative_path: "reports/history.pptx".into(),
+                    media_type:
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                            .into(),
+                    content_hash: "b".repeat(64),
+                    revision: 1,
+                    plugin_id: "builtin.office".into(),
+                    plugin_version: "2.0.0".into(),
+                    provider_id: "officecli".into(),
+                    tool_lock_id: "officecli:test:1.0.140".into(),
+                },
+            },
+            Some("artifact-v3-snapshot"),
+        )
+        .await;
+
+        let skipped_artifact_snapshot = serde_json::to_string(&ProjectionSnapshotState {
+            turns: Vec::new(),
+            side_rows: Vec::new(),
+            last_sequence: record.sequence,
+        })
+        .expect("serialize v3 snapshot");
+        ConversationProjectionSnapshotRecord::upsert(
+            &pool,
+            conversation_id,
+            3,
+            record.sequence,
+            &skipped_artifact_snapshot,
+        )
+        .await
+        .expect("seed stale v3 snapshot");
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("rebuild artifact projection");
+        assert!(
+            timeline.rows.iter().any(|row| {
+                matches!(
+                    &row.row,
+                    ConversationTimelineRow::ArtifactRevision { artifact }
+                        if artifact.artifact_id == artifact_id
+                )
+            }),
+            "a predecessor v3 snapshot that skipped Artifact events must be rebuilt"
+        );
     }
 
     #[tokio::test]
@@ -2677,6 +2870,150 @@ mod tests {
             Some(ConversationDelegationResult::Ok { .. })
         ));
         assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn delegation_events_rebuild_child_binding() {
+        let (_dir, pool) = setup_temp_pool().await;
+        let (parent_conversation_id, turn_id) = seed_turn(&pool).await;
+        let child_conversation_id = Uuid::new_v4();
+        let delegation_id = "delegation-call-1";
+        create_delegated_conversation(
+            &pool,
+            CreateDelegatedConversation {
+                id: child_conversation_id,
+                parent_conversation_id,
+                parent_tool_call_id: "tool-1".into(),
+                delegation_id: delegation_id.into(),
+                agent_id: AgentId::parse("codex").unwrap(),
+                prompt: "Review the diff".into(),
+            },
+        )
+        .await
+        .expect("persist delegated child");
+        append_event(
+            &pool,
+            parent_conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation {
+                    delegation_id: delegation_id.into(),
+                    parent_tool_call_id: "tool-1".into(),
+                    child_conversation_id,
+                    agent_id: AgentId::parse("codex").unwrap(),
+                    task_preview: "Review the diff".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            parent_conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationCompleted {
+                delegation_id: delegation_id.into(),
+                result: ConversationDelegationResult::Ok {
+                    text_preview: Some("done".into()),
+                    duration_ms: Some(10),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let before = ConversationProjector::project(&pool, parent_conversation_id)
+            .await
+            .expect("project before rebuild");
+        ConversationProjector::rebuild_projection(&pool, parent_conversation_id)
+            .await
+            .expect("rebuild projection");
+        let after = ConversationProjector::project(&pool, parent_conversation_id)
+            .await
+            .expect("project after rebuild");
+        assert_eq!(after, before);
+        let delegation = after
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::Delegation { delegation } => Some(delegation),
+                _ => None,
+            })
+            .expect("delegation row");
+        assert_eq!(delegation.delegation_id, delegation_id);
+        assert_eq!(
+            delegation.child_conversation_id,
+            Some(child_conversation_id)
+        );
+        assert_eq!(delegation.status, "completed");
+        let child = Session::find_by_delegation_call_id(&pool, delegation_id)
+            .await
+            .expect("find child")
+            .expect("child exists");
+        assert_eq!(child.parent_session_id, Some(parent_conversation_id));
+        assert_eq!(child.parent_tool_use_id.as_deref(), Some("tool-1"));
+    }
+
+    #[tokio::test]
+    async fn canceled_delegation_remains_canceled_after_projection_rebuild() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        let delegation_id = "delegation-canceled-1";
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationStarted {
+                delegation: ConversationDelegation {
+                    delegation_id: delegation_id.into(),
+                    parent_tool_call_id: "tool-canceled-1".into(),
+                    child_conversation_id: Uuid::new_v4(),
+                    agent_id: AgentId::parse("codex").unwrap(),
+                    task_preview: "Review cancellation behavior".into(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::DelegationCompleted {
+                delegation_id: delegation_id.into(),
+                result: ConversationDelegationResult::Err {
+                    error: ConversationError {
+                        message: "canceled by request".into(),
+                        code: Some("canceled".into()),
+                        raw: None,
+                    },
+                },
+            },
+            None,
+        )
+        .await;
+
+        ConversationProjector::rebuild_projection(&pool, conversation_id)
+            .await
+            .expect("rebuild projection");
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project rebuilt timeline");
+        let delegation = timeline
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::Delegation { delegation } => Some(delegation),
+                _ => None,
+            })
+            .expect("delegation row");
+
+        assert_eq!(delegation.status, "canceled");
+        assert!(delegation.child_conversation_id.is_some());
     }
 
     #[tokio::test]

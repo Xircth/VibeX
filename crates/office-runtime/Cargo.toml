@@ -1,0 +1,26 @@
+[package]
+name = "office-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+agents = { path = "../agents" }
+anyhow = { workspace = true }
+artifacts = { path = "../artifacts" }
+async-trait = { workspace = true }
+conversations = { path = "../conversations" }
+db = { path = "../db" }
+plugins = { path = "../plugins" }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tool-runtime = { path = "../tool-runtime" }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

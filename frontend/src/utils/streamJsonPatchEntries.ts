@@ -1,7 +1,7 @@
 // streamJsonPatchEntries.ts - Tauri Events JSON patch streaming utility
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 
 type PatchContainer<E = unknown> = { entries: E[] };
 
@@ -111,7 +111,7 @@ export function streamJsonPatchEntries<E = unknown>(
     : `conversation-stream:${params.executionProcessId}`;
 
   // 1. First listen for events, then invoke the subscription command
-  tauriListen<unknown>(channel, handleMessage)
+  backendListen<unknown>(channel, handleMessage)
     .then((unlisten) => {
       if (closed) {
         // If close() was called before listener was set up, immediately unlisten
@@ -123,7 +123,7 @@ export function streamJsonPatchEntries<E = unknown>(
       opts.onConnect?.();
 
       // 2. Trigger Rust backend to start pushing events
-      return tauriInvoke('subscribe_conversation_stream', {
+      return backendCall('subscribe_conversation_stream', {
         executionProcessId: params.executionProcessId,
         normalized: params.normalized !== undefined ? params.normalized : true,
         streamId: params.streamId,

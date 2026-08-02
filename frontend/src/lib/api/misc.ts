@@ -18,7 +18,7 @@ import type {
   UpdateTag,
 } from 'shared/types';
 
-import { tauriInvoke } from './base';
+import { backendCall } from './base';
 
 async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -43,7 +43,7 @@ async function imageUploadPayload(file: File) {
 // Execution Process APIs
 export const executionProcessesApi = {
   getDetails: async (processId: string): Promise<ExecutionProcess> => {
-    return tauriInvoke<ExecutionProcess>('get_execution_process', {
+    return backendCall<ExecutionProcess>('get_execution_process', {
       id: processId,
     });
   },
@@ -51,14 +51,14 @@ export const executionProcessesApi = {
   getRepoStates: async (
     processId: string
   ): Promise<ExecutionProcessRepoState[]> => {
-    return tauriInvoke<ExecutionProcessRepoState[]>(
+    return backendCall<ExecutionProcessRepoState[]>(
       'get_execution_process_repo_states',
       { id: processId }
     );
   },
 
   stopExecutionProcess: async (processId: string): Promise<void> => {
-    return tauriInvoke<void>('stop_execution_process', { id: processId });
+    return backendCall<void>('stop_execution_process', { id: processId });
   },
 };
 
@@ -129,37 +129,37 @@ export const fileTreeApi = {
     rootPath: string,
     depth?: number
   ): Promise<FileTreeEntry[]> => {
-    return tauriInvoke<FileTreeEntry[]>('get_file_tree', {
+    return backendCall<FileTreeEntry[]>('get_file_tree', {
       rootPath,
       depth: depth ?? null,
     });
   },
 
   readFile: async (path: string): Promise<string> => {
-    return tauriInvoke<string>('read_file_content', { path });
+    return backendCall<string>('read_file_content', { path });
   },
 
   saveFile: async (path: string, content: string): Promise<void> => {
-    return tauriInvoke<void>('save_file_content', { path, content });
+    return backendCall<void>('save_file_content', { path, content });
   },
 
   deleteFile: async (path: string): Promise<void> => {
-    return tauriInvoke<void>('delete_file', { path });
+    return backendCall<void>('delete_file', { path });
   },
 
   getFileAtHead: async (filePath: string): Promise<string> => {
-    return tauriInvoke<string>('get_file_at_head', { filePath });
+    return backendCall<string>('get_file_at_head', { filePath });
   },
 
   getClaudeSettingsPath: async (): Promise<string> => {
-    return tauriInvoke<string>('get_claude_settings_path');
+    return backendCall<string>('get_claude_settings_path');
   },
 
   listDirectoryChildren: async (
     rootPath: string,
     relativePath: string
   ): Promise<DirectoryChildrenResponse> => {
-    return tauriInvoke<DirectoryChildrenResponse>('list_directory_children', {
+    return backendCall<DirectoryChildrenResponse>('list_directory_children', {
       rootPath,
       relativePath,
     });
@@ -169,7 +169,7 @@ export const fileTreeApi = {
     path: string,
     maxBytes?: number
   ): Promise<ReadFileResponse> => {
-    return tauriInvoke<ReadFileResponse>('read_file_with_truncation', {
+    return backendCall<ReadFileResponse>('read_file_with_truncation', {
       path,
       maxBytes: maxBytes ?? null,
     });
@@ -178,38 +178,38 @@ export const fileTreeApi = {
   readDocumentPreview: async (
     path: string
   ): Promise<DocumentPreviewResponse> => {
-    return tauriInvoke<DocumentPreviewResponse>('read_document_preview', {
+    return backendCall<DocumentPreviewResponse>('read_document_preview', {
       path,
     });
   },
 
   readBinaryAsset: async (path: string): Promise<BinaryAssetResponse> => {
-    return tauriInvoke<BinaryAssetResponse>('read_binary_asset', {
+    return backendCall<BinaryAssetResponse>('read_binary_asset', {
       path,
     });
   },
 
   trashItem: async (path: string): Promise<void> => {
-    return tauriInvoke<void>('trash_item', { path });
+    return backendCall<void>('trash_item', { path });
   },
 
   copyItem: async (path: string): Promise<string> => {
-    return tauriInvoke<string>('copy_item', { path });
+    return backendCall<string>('copy_item', { path });
   },
 
   moveItem: async (path: string, newPath: string): Promise<string> => {
-    return tauriInvoke<string>('move_item', { path, newPath });
+    return backendCall<string>('move_item', { path, newPath });
   },
 
   createDirectory: async (path: string): Promise<void> => {
-    return tauriInvoke<void>('create_directory', { path });
+    return backendCall<void>('create_directory', { path });
   },
 
   searchText: async (
     rootPath: string,
     options: TextSearchOptions
   ): Promise<TextSearchResponse> => {
-    return tauriInvoke<TextSearchResponse>('search_workspace_text', {
+    return backendCall<TextSearchResponse>('search_workspace_text', {
       rootPath,
       options,
     });
@@ -246,59 +246,59 @@ export const OFFICECLI_INSTALL_EVENT = 'officecli-install';
 
 export const officeApi = {
   detect: async (): Promise<OfficecliInfo> => {
-    return tauriInvoke<OfficecliInfo>('officecli_detect');
+    return backendCall<OfficecliInfo>('officecli_detect');
   },
 
   install: async (taskId: string): Promise<OfficecliInfo> => {
-    return tauriInvoke<OfficecliInfo>('officecli_install', { taskId });
+    return backendCall<OfficecliInfo>('officecli_install', { taskId });
   },
 
   uninstall: async (): Promise<OfficecliInfo> => {
-    return tauriInvoke<OfficecliInfo>('officecli_uninstall');
+    return backendCall<OfficecliInfo>('officecli_uninstall');
   },
 
   startWatch: async (filePath: string): Promise<OfficeWatchStartResult> => {
-    return tauriInvoke<OfficeWatchStartResult>('start_office_watch', {
+    return backendCall<OfficeWatchStartResult>('start_office_watch', {
       filePath,
     });
   },
 
   stopWatch: async (filePath: string): Promise<void> => {
-    return tauriInvoke<void>('stop_office_watch', { filePath });
+    return backendCall<void>('stop_office_watch', { filePath });
   },
 };
 
 export const desktopApi = {
   revealInFileManager: async (path: string): Promise<void> => {
-    return tauriInvoke<void>('reveal_in_file_manager', { path });
+    return backendCall<void>('reveal_in_file_manager', { path });
   },
   isMainWindowFocused: async (): Promise<boolean> => {
-    return tauriInvoke<boolean>('is_main_window_focused');
+    return backendCall<boolean>('is_main_window_focused');
   },
   exitApp: async (): Promise<void> => {
-    return tauriInvoke<void>('exit_app');
+    return backendCall<void>('exit_app');
   },
   // Application log viewer (P2-8).
   getAppLogs: async (maxLines?: number): Promise<string[]> => {
-    return tauriInvoke<string[]>('get_app_logs', {
+    return backendCall<string[]>('get_app_logs', {
       maxLines: maxLines ?? null,
     });
   },
   getLogsDir: async (): Promise<string> => {
-    return tauriInvoke<string>('get_logs_dir');
+    return backendCall<string>('get_logs_dir');
   },
 };
 
 // File System APIs
 export const fileSystemApi = {
   list: async (path?: string): Promise<DirectoryListResponse> => {
-    return tauriInvoke<DirectoryListResponse>('list_directory', {
+    return backendCall<DirectoryListResponse>('list_directory', {
       path: path ?? null,
     });
   },
 
   listGitRepos: async (path?: string): Promise<DirectoryEntry[]> => {
-    return tauriInvoke<DirectoryEntry[]>('list_git_repos', {
+    return backendCall<DirectoryEntry[]>('list_git_repos', {
       path: path ?? null,
     });
   },
@@ -307,21 +307,21 @@ export const fileSystemApi = {
 // Task Tags APIs (all tags are global)
 export const tagsApi = {
   list: async (params?: TagSearchParams): Promise<Tag[]> => {
-    return tauriInvoke<Tag[]>('get_tags', {
+    return backendCall<Tag[]>('get_tags', {
       search: params?.search ?? null,
     });
   },
 
   create: async (data: CreateTag): Promise<Tag> => {
-    return tauriInvoke<Tag>('create_tag', { payload: data });
+    return backendCall<Tag>('create_tag', { payload: data });
   },
 
   update: async (tagId: string, data: UpdateTag): Promise<Tag> => {
-    return tauriInvoke<Tag>('update_tag', { tagId, payload: data });
+    return backendCall<Tag>('update_tag', { tagId, payload: data });
   },
 
   delete: async (tagId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_tag', { tagId });
+    return backendCall<void>('delete_tag', { tagId });
   },
 };
 
@@ -350,38 +350,38 @@ export interface UpdateInstructionPayload {
 
 export const instructionsApi = {
   listLocal: async (search?: string | null): Promise<Instruction[]> => {
-    return tauriInvoke<Instruction[]>('list_instructions', {
+    return backendCall<Instruction[]>('list_instructions', {
       search: search ?? null,
     });
   },
 
   listOfficial: async (): Promise<Instruction[]> => {
-    return tauriInvoke<Instruction[]>('list_official_instructions');
+    return backendCall<Instruction[]>('list_official_instructions');
   },
 
   create: async (payload: CreateInstructionPayload): Promise<Instruction> => {
-    return tauriInvoke<Instruction>('create_instruction', { payload });
+    return backendCall<Instruction>('create_instruction', { payload });
   },
 
   update: async (
     instructionId: string,
     payload: UpdateInstructionPayload
   ): Promise<Instruction> => {
-    return tauriInvoke<Instruction>('update_instruction', {
+    return backendCall<Instruction>('update_instruction', {
       instructionId,
       payload,
     });
   },
 
   delete: async (instructionId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_instruction', { instructionId });
+    return backendCall<void>('delete_instruction', { instructionId });
   },
 
   installOfficial: async (
     officialId: string,
     agentTypes?: string[] | null
   ): Promise<Instruction> => {
-    return tauriInvoke<Instruction>('install_official_instruction', {
+    return backendCall<Instruction>('install_official_instruction', {
       officialId,
       agentTypes: agentTypes ?? null,
     });
@@ -391,13 +391,13 @@ export const instructionsApi = {
 // Images API
 export const imagesApi = {
   upload: async (file: File): Promise<ImageResponse> => {
-    return tauriInvoke<ImageResponse>('upload_image', {
+    return backendCall<ImageResponse>('upload_image', {
       payload: await imageUploadPayload(file),
     });
   },
 
   uploadForTask: async (taskId: string, file: File): Promise<ImageResponse> => {
-    return tauriInvoke<ImageResponse>('upload_image_for_task', {
+    return backendCall<ImageResponse>('upload_image_for_task', {
       taskId,
       payload: await imageUploadPayload(file),
     });
@@ -411,18 +411,18 @@ export const imagesApi = {
     attemptId: string,
     file: File
   ): Promise<ImageResponse> => {
-    return tauriInvoke<ImageResponse>('upload_image_for_workspace', {
+    return backendCall<ImageResponse>('upload_image_for_workspace', {
       workspaceId: attemptId,
       payload: await imageUploadPayload(file),
     });
   },
 
   delete: async (imageId: string): Promise<void> => {
-    return tauriInvoke<void>('delete_image', { imageId });
+    return backendCall<void>('delete_image', { imageId });
   },
 
   getTaskImages: async (taskId: string): Promise<ImageResponse[]> => {
-    return tauriInvoke<ImageResponse[]>('get_task_images', { taskId });
+    return backendCall<ImageResponse[]>('get_task_images', { taskId });
   },
 };
 
@@ -432,7 +432,7 @@ export const approvalsApi = {
     approvalId: string,
     payload: ApprovalResponse
   ): Promise<ApprovalStatus> => {
-    return tauriInvoke<ApprovalStatus>('respond_to_approval', {
+    return backendCall<ApprovalStatus>('respond_to_approval', {
       approvalId,
       response: payload,
     });
@@ -446,7 +446,7 @@ export const scratchApi = {
     id: string,
     data: CreateScratch
   ): Promise<Scratch> => {
-    return tauriInvoke<Scratch>('create_scratch', {
+    return backendCall<Scratch>('create_scratch', {
       scratchType,
       id,
       payload: data,
@@ -454,7 +454,7 @@ export const scratchApi = {
   },
 
   get: async (scratchType: ScratchType, id: string): Promise<Scratch> => {
-    return tauriInvoke<Scratch>('get_scratch', {
+    return backendCall<Scratch>('get_scratch', {
       scratchType,
       id,
     });
@@ -465,7 +465,7 @@ export const scratchApi = {
     id: string,
     data: UpdateScratch
   ): Promise<void> => {
-    await tauriInvoke<void>('update_scratch', {
+    await backendCall<void>('update_scratch', {
       scratchType,
       id,
       payload: data,
@@ -473,7 +473,7 @@ export const scratchApi = {
   },
 
   delete: async (scratchType: ScratchType, id: string): Promise<void> => {
-    await tauriInvoke<void>('delete_scratch', {
+    await backendCall<void>('delete_scratch', {
       scratchType,
       id,
     });
@@ -492,7 +492,7 @@ export const searchApi = {
     // Search each repo in parallel and merge results
     const results = await Promise.all(
       repoIds.map((repoId) =>
-        tauriInvoke<SearchResult[]>('search_repo', {
+        backendCall<SearchResult[]>('search_repo', {
           repoId,
           q: query,
           mode: mode ?? null,
@@ -542,14 +542,14 @@ export interface AgentSkillContent {
 
 export const skillsApi = {
   listLocal: (agentType: string): Promise<AgentLocalSkill[]> =>
-    tauriInvoke<AgentLocalSkill[]>('list_local_agent_skills', { agentType }),
+    backendCall<AgentLocalSkill[]>('list_local_agent_skills', { agentType }),
   // Per-agent skills CRUD (global / project scope), backed by each agent's
   // own skill directories; writes are scoped to a writable directory.
   list: (
     agentType: string,
     workspacePath?: string | null
   ): Promise<AgentSkillsListResult> =>
-    tauriInvoke<AgentSkillsListResult>('list_agent_skills', {
+    backendCall<AgentSkillsListResult>('list_agent_skills', {
       agentType,
       workspacePath: workspacePath ?? null,
     }),
@@ -559,7 +559,7 @@ export const skillsApi = {
     skillId: string;
     workspacePath?: string | null;
   }): Promise<AgentSkillContent> =>
-    tauriInvoke<AgentSkillContent>('read_agent_skill', {
+    backendCall<AgentSkillContent>('read_agent_skill', {
       agentType: params.agentType,
       scope: params.scope,
       skillId: params.skillId,
@@ -572,7 +572,7 @@ export const skillsApi = {
     content: string;
     workspacePath?: string | null;
   }): Promise<AgentSkillItem> =>
-    tauriInvoke<AgentSkillItem>('save_agent_skill', {
+    backendCall<AgentSkillItem>('save_agent_skill', {
       agentType: params.agentType,
       scope: params.scope,
       skillId: params.skillId,
@@ -585,7 +585,7 @@ export const skillsApi = {
     skillId: string;
     workspacePath?: string | null;
   }): Promise<void> =>
-    tauriInvoke<void>('delete_agent_skill', {
+    backendCall<void>('delete_agent_skill', {
       agentType: params.agentType,
       scope: params.scope,
       skillId: params.skillId,
@@ -629,18 +629,18 @@ export interface SkillMarketDetail {
 
 export const skillsMarketApi = {
   scanLocal: (): Promise<LocalSkill[]> =>
-    tauriInvoke<LocalSkill[]>('scan_local_skills'),
+    backendCall<LocalSkill[]>('scan_local_skills'),
   readLocal: (skillId: string): Promise<LocalSkillContent> =>
-    tauriInvoke<LocalSkillContent>('read_local_skill', { skillId }),
+    backendCall<LocalSkillContent>('read_local_skill', { skillId }),
   search: (query?: string | null): Promise<SkillMarketItem[]> =>
-    tauriInvoke<SkillMarketItem[]>('search_skill_market', {
+    backendCall<SkillMarketItem[]>('search_skill_market', {
       query: query ?? null,
     }),
   detail: (params: {
     source: string;
     skillId: string;
   }): Promise<SkillMarketDetail> =>
-    tauriInvoke<SkillMarketDetail>('get_market_skill_detail', {
+    backendCall<SkillMarketDetail>('get_market_skill_detail', {
       source: params.source,
       skillId: params.skillId,
     }),
@@ -651,7 +651,7 @@ export const skillsMarketApi = {
     apps: string[];
     link: boolean;
   }): Promise<LocalSkill[]> =>
-    tauriInvoke<LocalSkill[]>('install_market_skill', {
+    backendCall<LocalSkill[]>('install_market_skill', {
       source: params.source,
       skillId: params.skillId,
       global: params.global,
@@ -664,12 +664,12 @@ export const skillsMarketApi = {
     apps: string[];
     link: boolean;
   }): Promise<LocalSkill[]> =>
-    tauriInvoke<LocalSkill[]>('set_skill_hosting', {
+    backendCall<LocalSkill[]>('set_skill_hosting', {
       skillId: params.skillId,
       global: params.global,
       apps: params.apps,
       link: params.link,
     }),
   uninstall: (skillId: string): Promise<LocalSkill[]> =>
-    tauriInvoke<LocalSkill[]>('uninstall_skill', { skillId }),
+    backendCall<LocalSkill[]>('uninstall_skill', { skillId }),
 };

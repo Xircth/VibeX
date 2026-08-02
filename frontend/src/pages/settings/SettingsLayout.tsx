@@ -15,52 +15,110 @@ import {
   SendHorizontal,
   Settings,
   SlidersHorizontal,
+  Smartphone,
   Sun,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useBackendCapabilities } from '@/lib/transport';
 
 interface SettingsNavItem {
   path: string;
   /** Key under the `settings:nav` namespace. */
   labelKey: string;
   icon: ComponentType<{ className?: string }>;
+  capability?: string;
 }
 
 const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  { path: '/settings/agents', labelKey: 'agents', icon: Bot },
+  {
+    path: '/settings/agents',
+    labelKey: 'agents',
+    icon: Bot,
+    capability: 'desktop.tauri',
+  },
   { path: '/settings/appearance', labelKey: 'appearance', icon: Sun },
-  { path: '/settings/general', labelKey: 'general', icon: SlidersHorizontal },
-  { path: '/settings/mcp', labelKey: 'mcp', icon: PlugZap },
-  { path: '/settings/skills', labelKey: 'skills', icon: BookOpenText },
+  {
+    path: '/settings/general',
+    labelKey: 'general',
+    icon: SlidersHorizontal,
+    capability: 'desktop.tauri',
+  },
+  {
+    path: '/settings/mcp',
+    labelKey: 'mcp',
+    icon: PlugZap,
+    capability: 'desktop.tauri',
+  },
+  {
+    path: '/settings/skills',
+    labelKey: 'skills',
+    icon: BookOpenText,
+    capability: 'desktop.tauri',
+  },
   {
     path: '/settings/instructions',
     labelKey: 'instructions',
     icon: MessageSquareText,
+    capability: 'desktop.tauri',
   },
   { path: '/settings/shortcuts', labelKey: 'shortcuts', icon: Keyboard },
   {
     path: '/settings/version-control',
     labelKey: 'versionControl',
     icon: GitBranch,
+    capability: 'desktop.tauri',
   },
   {
     path: '/settings/chat-channels',
     labelKey: 'chatChannels',
     icon: SendHorizontal,
+    capability: 'desktop.tauri',
   },
-  { path: '/settings/automations', labelKey: 'automations', icon: Clock },
-  { path: '/settings/plugins', labelKey: 'plugins', icon: Puzzle },
-  { path: '/settings/web-service', labelKey: 'webService', icon: Globe },
-  { path: '/settings/logs', labelKey: 'logs', icon: FileText },
-  { path: '/settings/system', labelKey: 'system', icon: Settings },
+  {
+    path: '/settings/automations',
+    labelKey: 'automations',
+    icon: Clock,
+    capability: 'automation.read',
+  },
+  {
+    path: '/settings/plugins',
+    labelKey: 'plugins',
+    icon: Puzzle,
+    capability: 'plugin.read',
+  },
+  {
+    path: '/settings/web-service',
+    labelKey: 'webService',
+    icon: Globe,
+    capability: 'desktop.tauri',
+  },
+  {
+    path: '/settings/devices',
+    labelKey: 'devices',
+    icon: Smartphone,
+    capability: 'device.pair',
+  },
+  {
+    path: '/settings/logs',
+    labelKey: 'logs',
+    icon: FileText,
+    capability: 'desktop.tauri',
+  },
+  {
+    path: '/settings/system',
+    labelKey: 'system',
+    icon: Settings,
+    capability: 'desktop.tauri',
+  },
 ];
 
 export function SettingsLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation('settings');
+  const { capabilities, supports } = useBackendCapabilities();
 
   const navigateTo = useCallback(
     (path: string) => {
@@ -71,11 +129,13 @@ export function SettingsLayout() {
   );
 
   return (
-    <div className="settings-page settings-shell flex h-screen flex-col overflow-hidden text-foreground">
+    <div className="settings-page settings-shell fixed inset-0 flex flex-col overflow-hidden text-foreground">
       <div className="flex min-h-0 flex-1">
         <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
-          <nav className="space-y-1">
-            {SETTINGS_NAV_ITEMS.map((item) => {
+          <nav className="space-y-1" aria-busy={capabilities === null}>
+            {SETTINGS_NAV_ITEMS.filter(
+              (item) => !item.capability || supports(item.capability)
+            ).map((item) => {
               const Icon = item.icon;
               const active =
                 location.pathname === item.path ||

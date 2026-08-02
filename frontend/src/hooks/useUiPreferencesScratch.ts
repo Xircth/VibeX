@@ -21,10 +21,11 @@ const UI_PREFERENCES_ID = '00000000-0000-0000-0000-000000000001';
  * Hook that syncs UI preferences between Zustand store and server scratch storage.
  * Should be used once at the app root level.
  */
-export function useUiPreferencesScratch() {
+export function useUiPreferencesScratch(enabled = true) {
   const { scratch, updateScratch, isLoading, isConnected } = useScratch(
     ScratchType.UI_PREFERENCES,
-    UI_PREFERENCES_ID
+    UI_PREFERENCES_ID,
+    { enabled }
   );
 
   // Track whether we've initialized from server
@@ -53,7 +54,11 @@ export function useUiPreferencesScratch() {
 
   // Save to server function
   const saveToServer = useCallback(async () => {
-    if (isApplyingServerDataRef.current || !hasInitializedRef.current) {
+    if (
+      !enabled ||
+      isApplyingServerDataRef.current ||
+      !hasInitializedRef.current
+    ) {
       return;
     }
 
@@ -81,13 +86,13 @@ export function useUiPreferencesScratch() {
     } catch (e) {
       console.error('[useUiPreferencesScratch] Failed to save:', e);
     }
-  }, [updateScratch]);
+  }, [enabled, updateScratch]);
 
   const { debounced: debouncedSave } = useDebouncedCallback(saveToServer, 500);
 
   // Initialize store from server data when first loaded
   useEffect(() => {
-    if (hasInitializedRef.current || isLoading || !isConnected) {
+    if (!enabled || hasInitializedRef.current || isLoading || !isConnected) {
       return;
     }
 
@@ -124,18 +129,22 @@ export function useUiPreferencesScratch() {
         clearTimeout(settleTimer);
       }
     };
-  }, [isLoading, isConnected, scratchData]);
+  }, [enabled, isLoading, isConnected, scratchData]);
 
   // Subscribe to store changes and save to server
   useEffect(() => {
     const unsubscribe = useUiPreferencesStore.subscribe(() => {
-      if (!isApplyingServerDataRef.current && hasInitializedRef.current) {
+      if (
+        enabled &&
+        !isApplyingServerDataRef.current &&
+        hasInitializedRef.current
+      ) {
         debouncedSave();
       }
     });
 
     return unsubscribe;
-  }, [debouncedSave]);
+  }, [debouncedSave, enabled]);
 
   return {
     isLoading,

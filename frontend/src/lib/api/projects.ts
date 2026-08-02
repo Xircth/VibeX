@@ -10,31 +10,31 @@ import type {
   UpdateProject,
 } from 'shared/types';
 
-import { tauriInvoke } from './base';
+import { backendCall } from './base';
 
 // Project Management APIs
 export const projectsApi = {
   getAll: async (): Promise<Project[]> => {
-    return tauriInvoke<Project[]>('get_projects');
+    return backendCall<Project[]>('get_projects');
   },
 
   create: async (data: CreateProject): Promise<Project> => {
-    return tauriInvoke<Project>('create_project', { payload: data });
+    return backendCall<Project>('create_project', { payload: data });
   },
 
   update: async (id: string, data: UpdateProject): Promise<Project> => {
-    return tauriInvoke<Project>('update_project', { id, payload: data });
+    return backendCall<Project>('update_project', { id, payload: data });
   },
 
   delete: async (id: string): Promise<void> => {
-    return tauriInvoke<void>('delete_project', { id });
+    return backendCall<void>('delete_project', { id });
   },
 
   openEditor: async (
     id: string,
     data: OpenEditorRequest
   ): Promise<OpenEditorResponse> => {
-    return tauriInvoke<OpenEditorResponse>('open_project_in_editor', {
+    return backendCall<OpenEditorResponse>('open_project_in_editor', {
       id,
       payload: data,
     });
@@ -45,7 +45,7 @@ export const projectsApi = {
     query: string,
     mode?: SearchMode
   ): Promise<SearchResult[]> => {
-    return tauriInvoke<SearchResult[]>('search_project_files', {
+    return backendCall<SearchResult[]>('search_project_files', {
       id,
       q: query,
       mode: mode ?? null,
@@ -53,14 +53,14 @@ export const projectsApi = {
   },
 
   getRepositories: async (projectId: string): Promise<Repo[]> => {
-    return tauriInvoke<Repo[]>('get_project_repositories', { id: projectId });
+    return backendCall<Repo[]>('get_project_repositories', { id: projectId });
   },
 
   addRepository: async (
     projectId: string,
     data: CreateProjectRepo
   ): Promise<Repo> => {
-    return tauriInvoke<Repo>('add_project_repository', {
+    return backendCall<Repo>('add_project_repository', {
       id: projectId,
       payload: data,
     });
@@ -70,7 +70,7 @@ export const projectsApi = {
     projectId: string,
     repoId: string
   ): Promise<void> => {
-    return tauriInvoke<void>('delete_project_repository', {
+    return backendCall<void>('delete_project_repository', {
       projectId,
       repoId,
     });

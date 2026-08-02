@@ -13,6 +13,7 @@ import {
   AppearanceSettings,
   AutomationsSettings,
   ChatChannelSettings,
+  DeviceSettings,
   EditorSettings,
   GeneralSettings,
   InstructionsSettings,
@@ -99,6 +100,7 @@ export function MainAppRoutes() {
         <Route path="automations" element={<AutomationsSettings />} />
         <Route path="plugins" element={<PluginsSettings />} />
         <Route path="web-service" element={<WebServiceSettings />} />
+        <Route path="devices" element={<DeviceSettings />} />
         <Route path="logs" element={<LogsSettings />} />
         <Route path="system" element={<SystemSettings />} />
       </Route>

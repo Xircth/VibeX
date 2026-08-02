@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Operation } from 'rfc6902';
 import { applyUpsertPatch } from '@/utils/jsonPatch';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 
 // ------------------------------------------------------------------
 // Tauri event payload types
@@ -115,7 +115,7 @@ export const useTauriPatchStream = <T extends object>(
       try {
         // 1. Start listening BEFORE invoking the command so we don't miss
         //    any events emitted immediately after the subscribe call.
-        unlisten = await tauriListen<TauriLogMsg>(eventChannel, (msg) => {
+        unlisten = await backendListen<TauriLogMsg>(eventChannel, (msg) => {
           if (cancelled || finishedRef.current) return;
 
           try {
@@ -177,7 +177,7 @@ export const useTauriPatchStream = <T extends object>(
           ? (JSON.parse(argsKey) as Record<string, unknown>)
           : undefined;
 
-        await tauriInvoke(subscribeCommand, args);
+        await backendCall(subscribeCommand, args);
 
         if (!cancelled) {
           setIsConnected(true);

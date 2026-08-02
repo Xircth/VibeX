@@ -24,6 +24,9 @@
     "backend:dev:watch": "node scripts/run-backend-dev.js",
     "generate-types": "node scripts/run-generate-types.js",
     "generate-types:check": "node scripts/run-generate-types.js --check",
+    "remote-protocol-schema": "node scripts/remote-protocol-schema.js",
+    "remote-protocol-schema:check": "node scripts/remote-protocol-schema.js --check",
+    "server:package-smoke": "pnpm run frontend:build && node scripts/smoke-vibex-server-package.js",
     "prepare-db": "node scripts/prepare-db.js",
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "tauri:dev": "pnpm run tauri:dev:desktop",
@@ -34,7 +37,9 @@
     "tauri:build:linux": "node scripts/run-tauri-build.js --bundles appimage,deb",
     "tauri:build:all": "node scripts/run-tauri-build-all.js",
     "test:updater-manifest": "node --test scripts/generate-updater-manifest.test.js",
-    "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js"
+    "test:cef:bundle:macos": "node scripts/smoke-cef-bundle-macos.js",
+    "test:web:e2e": "cd frontend && pnpm run test:e2e:web",
+    "dependency:licenses": "node scripts/check-dependency-licenses.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.0",
@@ -44,6 +49,14 @@
   "engines": {
     "node": ">=18",
     "pnpm": ">=8"
+  },
+  "pnpm": {
+    "overrides": {
+      "devalue": "5.9.0",
+      "fast-uri": "4.1.1",
+      "lodash": "4.18.1",
+      "lodash-es": "4.18.1"
+    }
   },
   "packageManager": "pnpm@10.13.1",
   "dependencies": {

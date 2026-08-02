@@ -15,6 +15,7 @@ pub struct Automation {
     pub project_id: Uuid,
     pub executor: Option<String>,
     pub prompt: String,
+    pub plugin_action_json: Option<String>,
     /// `in_place` | `new_worktree`.
     pub isolation: String,
     /// `manual` | `cron`.
@@ -34,6 +35,7 @@ pub struct AutomationInput {
     pub project_id: Uuid,
     pub executor: Option<String>,
     pub prompt: String,
+    pub plugin_action_json: Option<String>,
     pub isolation: String,
     pub trigger_kind: String,
     pub cron: Option<String>,
@@ -55,8 +57,13 @@ pub struct AutomationRun {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
-const AUTOMATION_COLS: &str = "id, name, project_id, executor, prompt, isolation, \
-    trigger_kind, cron, enabled, next_run_at, created_at, updated_at";
+const AUTOMATION_COLS: &str = "a.id, a.name, a.project_id, \
+    json_extract(a.turn_launch_spec_json, '$.agent.agentId') AS executor, \
+    json_extract(a.turn_launch_spec_json, '$.displayText') AS prompt, \
+    json_extract(e.evidence_json, '$.plugin_action_json') AS plugin_action_json, \
+    a.isolation, \
+    CASE a.trigger_kind WHEN 'schedule' THEN 'cron' ELSE 'manual' END AS trigger_kind, \
+    a.cron, a.enabled, a.next_run_at, a.created_at, a.updated_at";
 
 impl Automation {
     pub async fn create(
@@ -66,26 +73,46 @@ impl Automation {
         next_run_at: Option<DateTime<Utc>>,
     ) -> Result<Self, sqlx::Error> {
         let now = Utc::now();
+        let (launch_json, isolation, enabled) = compatibility_launch(input)?;
         sqlx::query(
             "INSERT INTO automations \
-             (id, name, project_id, executor, prompt, isolation, trigger_kind, cron, \
-              enabled, next_run_at, created_at, updated_at) \
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+             (id,name,enabled,spec_version,trigger_kind,cron,timezone,next_run_at,\
+              turn_launch_spec_json,isolation,project_id,root_folder,branch,\
+              legacy_migration_status,created_at,updated_at) \
+             VALUES (?,?,?,1,?,?, 'UTC',?,?,?,?, '',NULL,'migration_required',?,?)",
         )
         .bind(id)
         .bind(&input.name)
-        .bind(input.project_id)
-        .bind(&input.executor)
-        .bind(&input.prompt)
-        .bind(&input.isolation)
-        .bind(&input.trigger_kind)
+        .bind(enabled)
+        .bind(if input.trigger_kind == "cron" {
+            "schedule"
+        } else {
+            "manual"
+        })
         .bind(&input.cron)
-        .bind(input.enabled)
-        .bind(next_run_at)
+        .bind(if enabled { next_run_at } else { None })
+        .bind(launch_json)
+        .bind(isolation)
+        .bind(input.project_id)
         .bind(now)
         .bind(now)
         .execute(pool)
         .await?;
+        if input.plugin_action_json.is_some() {
+            let evidence = serde_json::json!({
+                "source": "legacy_compatibility_input",
+                "plugin_action_json": input.plugin_action_json,
+            });
+            sqlx::query(
+                "INSERT INTO automation_legacy_evidence
+                 (automation_id,evidence_json,captured_at) VALUES (?,?,?)",
+            )
+            .bind(id)
+            .bind(evidence.to_string())
+            .bind(now)
+            .execute(pool)
+            .await?;
+        }
         Self::find_by_id(pool, id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)
@@ -93,7 +120,9 @@ impl Automation {
 
     pub async fn list(pool: &SqlitePool) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
-            "SELECT {AUTOMATION_COLS} FROM automations ORDER BY created_at DESC"
+            "SELECT {AUTOMATION_COLS} FROM automations a
+             LEFT JOIN automation_legacy_evidence e ON e.automation_id = a.id
+             ORDER BY a.created_at DESC"
         ))
         .fetch_all(pool)
         .await
@@ -101,7 +130,9 @@ impl Automation {
 
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
-            "SELECT {AUTOMATION_COLS} FROM automations WHERE id = ?"
+            "SELECT {AUTOMATION_COLS} FROM automations a
+             LEFT JOIN automation_legacy_evidence e ON e.automation_id = a.id
+             WHERE a.id = ?"
         ))
         .bind(id)
         .fetch_optional(pool)
@@ -111,10 +142,11 @@ impl Automation {
     /// Enabled cron automations whose next run is due at or before `now`.
     pub async fn due(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
-            "SELECT {AUTOMATION_COLS} FROM automations \
-             WHERE enabled = 1 AND trigger_kind = 'cron' \
-               AND next_run_at IS NOT NULL AND next_run_at <= ? \
-             ORDER BY next_run_at ASC"
+            "SELECT {AUTOMATION_COLS} FROM automations a
+             LEFT JOIN automation_legacy_evidence e ON e.automation_id = a.id
+             WHERE a.enabled = 1 AND a.trigger_kind = 'schedule' \
+               AND a.next_run_at IS NOT NULL AND a.next_run_at <= ? \
+             ORDER BY a.next_run_at ASC"
         ))
         .bind(now)
         .fetch_all(pool)
@@ -127,23 +159,45 @@ impl Automation {
         input: &AutomationInput,
         next_run_at: Option<DateTime<Utc>>,
     ) -> Result<Self, sqlx::Error> {
+        let (launch_json, isolation, enabled) = compatibility_launch(input)?;
         sqlx::query(
-            "UPDATE automations SET name=?, project_id=?, executor=?, prompt=?, isolation=?, \
-             trigger_kind=?, cron=?, enabled=?, next_run_at=?, updated_at=? WHERE id=?",
+            "UPDATE automations SET name=?,project_id=?,turn_launch_spec_json=?,isolation=?,\
+             trigger_kind=?,cron=?,enabled=?,next_run_at=?,updated_at=? WHERE id=?",
         )
         .bind(&input.name)
         .bind(input.project_id)
-        .bind(&input.executor)
-        .bind(&input.prompt)
-        .bind(&input.isolation)
-        .bind(&input.trigger_kind)
+        .bind(launch_json)
+        .bind(isolation)
+        .bind(if input.trigger_kind == "cron" {
+            "schedule"
+        } else {
+            "manual"
+        })
         .bind(&input.cron)
-        .bind(input.enabled)
-        .bind(next_run_at)
+        .bind(enabled)
+        .bind(if enabled { next_run_at } else { None })
         .bind(Utc::now())
         .bind(id)
         .execute(pool)
         .await?;
+        if let Some(plugin_action_json) = &input.plugin_action_json {
+            let evidence = serde_json::json!({
+                "source": "legacy_compatibility_input",
+                "plugin_action_json": plugin_action_json,
+            });
+            sqlx::query(
+                "INSERT INTO automation_legacy_evidence
+                 (automation_id,evidence_json,captured_at) VALUES (?,?,?)
+                 ON CONFLICT(automation_id) DO UPDATE SET
+                    evidence_json=excluded.evidence_json,
+                    captured_at=excluded.captured_at",
+            )
+            .bind(id)
+            .bind(evidence.to_string())
+            .bind(Utc::now())
+            .execute(pool)
+            .await?;
+        }
         Self::find_by_id(pool, id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)
@@ -169,7 +223,8 @@ impl Automation {
         next_run_at: Option<DateTime<Utc>>,
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "UPDATE automations SET enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE automations SET enabled = ?, next_run_at = ?, updated_at = ?
+             WHERE id = ? AND legacy_migration_status = 'ready'",
         )
         .bind(enabled)
         .bind(next_run_at)
@@ -205,8 +260,8 @@ impl AutomationRun {
     ) -> Result<Self, sqlx::Error> {
         sqlx::query(
             "INSERT INTO automation_runs \
-             (id, automation_id, status, conversation_id, seen, started_at) \
-             VALUES (?,?,'running',?,0,?)",
+             (id, automation_id, trigger, status, conversation_id, seen, started_at) \
+             VALUES (?,?,'manual','running',?,0,?)",
         )
         .bind(id)
         .bind(automation_id)
@@ -295,6 +350,43 @@ impl AutomationRun {
     }
 }
 
+fn compatibility_launch(
+    input: &AutomationInput,
+) -> Result<(String, &'static str, bool), sqlx::Error> {
+    let isolation = if matches!(
+        input.isolation.as_str(),
+        "new_worktree" | "worktree_per_run"
+    ) {
+        "worktree_per_run"
+    } else {
+        "shared_in_root"
+    };
+    let enabled = input.enabled && isolation == "worktree_per_run";
+    let agent_id = input
+        .executor
+        .as_deref()
+        .unwrap_or("codex")
+        .to_ascii_lowercase();
+    let launch = serde_json::json!({
+        "specVersion": 1,
+        "promptBlocks": [{"type": "text", "text": input.prompt}],
+        "displayText": input.prompt,
+        "agent": {"agentId": agent_id, "executorProfileId": null},
+        "modeId": null,
+        "configValues": [],
+        "pluginActions": [],
+        "skills": [],
+        "workspace": {
+            "projectId": input.project_id,
+            "rootFolder": "",
+            "branch": null,
+            "isolation": isolation,
+        },
+        "labelSnapshot": input.name,
+    });
+    Ok((launch.to_string(), isolation, enabled))
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -329,7 +421,8 @@ mod tests {
             project_id: Uuid::new_v4(),
             executor: Some("CLAUDE_CODE".to_string()),
             prompt: "run tests".to_string(),
-            isolation: "in_place".to_string(),
+            plugin_action_json: None,
+            isolation: "new_worktree".to_string(),
             trigger_kind: trigger_kind.to_string(),
             cron: cron.map(ToOwned::to_owned),
             enabled,
@@ -388,6 +481,24 @@ mod tests {
             .await
             .expect("set next run");
         assert!(Automation::due(&pool, now).await.expect("due").is_empty());
+    }
+
+    #[tokio::test]
+    async fn structured_plugin_action_round_trips_with_the_automation() {
+        let pool = setup_pool().await;
+        let mut input = input("office", "manual", None, true);
+        input.plugin_action_json =
+            Some(r#"{"pluginId":"vibex.office","actionId":"create-presentation"}"#.into());
+        let automation = Automation::create(&pool, Uuid::new_v4(), &input, None)
+            .await
+            .expect("create automation");
+        assert_eq!(automation.plugin_action_json, input.plugin_action_json);
+
+        let loaded = Automation::find_by_id(&pool, automation.id)
+            .await
+            .expect("load automation")
+            .expect("automation exists");
+        assert_eq!(loaded.plugin_action_json, input.plugin_action_json);
     }
 
     #[tokio::test]

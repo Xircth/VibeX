@@ -18,6 +18,7 @@ use agents::{
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
+        ConversationArtifactPreviewReference, ConversationArtifactReference,
         ConversationBundleChecksum, ConversationBundleManifest, ConversationBundlePayload,
         ConversationDelegation, ConversationDelegationResult, ConversationDelegationView,
         ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
@@ -62,6 +63,11 @@ use executors::{
     profile::ExecutorProfileId,
 };
 use git::{GitBranch, StashEntry};
+use remote_protocol::{
+    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, RemoteEvent,
+    ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
+    SubscriptionResource, SubscriptionSnapshot,
+};
 use services::services::config::{Config, LinkOpenBehavior};
 use ts_rs::TS;
 use vibex::{
@@ -69,6 +75,11 @@ use vibex::{
         attention::{AttentionInbox, AttentionItem, AttentionItemKind},
         conversations::{ConversationActiveBinding, ConversationCurrentTurn, DbConversationDetail},
         crash_reports::{CrashReportMeta, CrashReportsInfo},
+        office_tools::{
+            ArtifactPreviewLeaseDto, OfficeArtifactIntent, OfficeComponentReadiness,
+            OfficePluginAction, OfficePluginCatalog, OfficePluginIdentity, OfficePluginReadiness,
+            OfficePromptBlock,
+        },
         plugin::PluginActivation,
         sessions::{SessionContinuityMode, SessionSummary},
     },
@@ -320,6 +331,14 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<Plugin>(&mut decls);
     insert_declaration::<PluginInput>(&mut decls);
     insert_declaration::<PluginActivation>(&mut decls);
+    insert_declaration::<OfficePromptBlock>(&mut decls);
+    insert_declaration::<OfficeArtifactIntent>(&mut decls);
+    insert_declaration::<OfficePluginAction>(&mut decls);
+    insert_declaration::<OfficePluginIdentity>(&mut decls);
+    insert_declaration::<OfficeComponentReadiness>(&mut decls);
+    insert_declaration::<OfficePluginReadiness>(&mut decls);
+    insert_declaration::<OfficePluginCatalog>(&mut decls);
+    insert_declaration::<ArtifactPreviewLeaseDto>(&mut decls);
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
     insert_declaration::<AgentCapability>(&mut decls);
@@ -418,6 +437,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationDelegation>(&mut decls);
     insert_declaration::<ConversationDelegationResult>(&mut decls);
     insert_declaration::<ConversationDelegationView>(&mut decls);
+    insert_declaration::<ConversationArtifactReference>(&mut decls);
+    insert_declaration::<ConversationArtifactPreviewReference>(&mut decls);
     insert_declaration::<ConversationEvent>(&mut decls);
     insert_declaration::<ConversationEventEnvelope>(&mut decls);
     insert_declaration::<ConversationPermissionView>(&mut decls);
@@ -444,6 +465,18 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationCurrentTurn>(&mut decls);
     insert_declaration::<DbConversationDetail>(&mut decls);
     insert_declaration::<ConversationTurnSnapshot>(&mut decls);
+    insert_declaration::<OperationId>(&mut decls);
+    insert_declaration::<SubscriptionId>(&mut decls);
+    insert_declaration::<ConversationId>(&mut decls);
+    insert_declaration::<ErrorCode>(&mut decls);
+    insert_declaration::<ErrorEnvelope>(&mut decls);
+    insert_declaration::<CapabilityId>(&mut decls);
+    insert_declaration::<ServerCapabilities>(&mut decls);
+    insert_declaration::<SubscriptionRequest>(&mut decls);
+    insert_declaration::<SubscriptionResource>(&mut decls);
+    insert_declaration::<RemoteEvent>(&mut decls);
+    insert_declaration::<SubscriptionSnapshot>(&mut decls);
+    insert_declaration::<SubscriptionBootstrap>(&mut decls);
     decls
 }
 

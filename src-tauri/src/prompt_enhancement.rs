@@ -44,16 +44,17 @@ pub async fn enhance_prompt(
         &catalog_models,
     )?;
     let runtime = &state.agent_runtime;
-    let agent_id = crate::commands::agents::prompt_enhancement_agent_for_model(
-        &state.deployment.db().pool,
-        &model,
-    )
-    .await?
-    .ok_or_else(|| {
-        AppError::BadRequest(format!(
-            "No enabled Agent currently advertises the configured model `{model}`."
-        ))
-    })?;
+    let (agent_id, model_option_key) =
+        crate::commands::agents::prompt_enhancement_selection_for_model(
+            &state.deployment.db().pool,
+            &model,
+        )
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "No enabled Agent currently advertises the configured model `{model}`."
+            ))
+        })?;
     let launch = crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(
         &state.deployment.db().pool,
         &agent_id,
@@ -82,7 +83,15 @@ pub async fn enhance_prompt(
     )
     .await?;
 
-    let enhanced = run_enhancement_turn(runtime, events, &session, prompt_text, &model).await;
+    let enhanced = run_enhancement_turn(
+        runtime,
+        events,
+        &session,
+        prompt_text,
+        &model_option_key,
+        &model,
+    )
+    .await;
 
     // The enhancement session is throwaway: tear the connection down so it
     // never lingers in the agents UI or holds an Agent process alive.
@@ -126,6 +135,7 @@ async fn run_enhancement_turn(
     events: broadcast::Receiver<AgentEventEnvelope>,
     session: &AgentSessionSnapshot,
     prompt_text: String,
+    model_option_key: &str,
     model: &str,
 ) -> Result<String, AppError> {
     let prompt = runtime
@@ -138,7 +148,7 @@ async fn run_enhancement_turn(
             // settings and session selectors use. ACP remains the final
             // authority if the runtime changes after this local read.
             config_overrides: vec![AgentSessionConfigOverride {
-                key: "model".to_string(),
+                key: model_option_key.to_string(),
                 value: model.to_string(),
             }],
         })

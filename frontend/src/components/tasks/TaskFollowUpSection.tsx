@@ -40,6 +40,8 @@ import {
   selectConfigOptionValue,
 } from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
+import { ComposerPluginActions } from './follow-up/ComposerPluginActions';
+import { AgentMentionProvider } from './follow-up/AgentMention';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
@@ -97,6 +99,7 @@ import {
   codexGoalEntriesFromConversation,
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
+import { tauriBackendTransport } from '@/lib/backendTransport';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -244,6 +247,7 @@ export function TaskFollowUpSection({
     attachedImagePaths,
     executorProfileRef,
   } = useSessionComposerLocalState();
+  const [isPluginActionReady, setIsPluginActionReady] = useState(true);
   const {
     createdSessionProfiles,
     handleSelectSession,
@@ -558,6 +562,7 @@ export function TaskFollowUpSection({
 
   const canSendFollowUp = useMemo(
     () =>
+      isPluginActionReady &&
       getCanSendFollowUp({
         canType: canTypeFollowUp,
         hasExecutor: !!effectiveExecutorProfile?.executor,
@@ -577,6 +582,7 @@ export function TaskFollowUpSection({
       conflictResolutionInstructions,
       reviewMarkdown,
       attachedImages.length,
+      isPluginActionReady,
     ]
   );
   const canEnhancePrompt = useMemo(
@@ -787,25 +793,41 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
-          <SessionComposerInput
-            value={localMessage}
-            onChange={handleEditorChange}
-            disabled={!isEditable}
-            context={{
-              sendShortcut: config?.send_message_shortcut ?? 'Enter',
-              taskAttemptId: workspaceId,
-              taskId: taskId ?? undefined,
-              workspaceId: workspaceIdValue,
-              repoId: summaryRepoId ?? undefined,
-              repoIds: repos.map((repo) => repo.id),
-              executorProfile: effectiveExecutorProfile,
-              sessionId,
-            }}
-            images={attachedImages}
-            onSubmit={handleSubmitShortcut}
-            onAttachImages={handleAttachImages}
-            onRemoveImage={handleRemoveImage}
+          <ComposerPluginActions
+            key={sessionId ?? workspaceId}
+            transport={tauriBackendTransport}
+            message={localMessage}
+            onMessageChange={handleEditorChange}
+            onReadyChange={setIsPluginActionReady}
           />
+          <AgentMentionProvider
+            transport={tauriBackendTransport}
+            conversationId={sessionId}
+          >
+            <SessionComposerInput
+              value={localMessage}
+              onChange={handleEditorChange}
+              disabled={!isEditable}
+              context={{
+                sendShortcut: config?.send_message_shortcut ?? 'Enter',
+                taskAttemptId: workspaceId,
+                taskId: taskId ?? undefined,
+                workspaceId: workspaceIdValue,
+                repoId: summaryRepoId ?? undefined,
+                repoIds: repos.map((repo) => repo.id),
+                executorProfile: effectiveExecutorProfile,
+                sessionId,
+              }}
+              images={attachedImages}
+              onSubmit={() => {
+                if (isPluginActionReady) {
+                  handleSubmitShortcut();
+                }
+              }}
+              onAttachImages={handleAttachImages}
+              onRemoveImage={handleRemoveImage}
+            />
+          </AgentMentionProvider>
 
           <ActionBar
             profiles={profiles}

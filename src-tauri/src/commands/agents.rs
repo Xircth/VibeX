@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    path::{Component, Path, PathBuf},
+    path::PathBuf,
 };
 
 use agents::{
@@ -14,7 +14,6 @@ use agents::{
     resolve_session_authentication_evidence, terminal::agent_terminal_registry,
 };
 use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use db::models::{
     agent_capability_catalog::AgentCapabilityCatalogRecord,
     agent_management::{SessionDefaultRecord, SessionDefaultRepository},
@@ -337,7 +336,7 @@ async fn open_capability_catalog_fingerprint(
 /// identity is privileged.
 async fn prompt_enhancement_catalog_candidates(
     pool: &sqlx::SqlitePool,
-) -> Result<Vec<(AgentId, Vec<String>)>, AppError> {
+) -> Result<Vec<(AgentId, Vec<(String, String)>)>, AppError> {
     let agent_ids = sqlx::query_scalar::<_, String>(
         r#"SELECT membership.agent_id
            FROM agent_membership membership
@@ -360,9 +359,9 @@ async fn prompt_enhancement_catalog_candidates(
         else {
             continue;
         };
-        let models = models_from_capability_catalog(&snapshot);
-        if !models.is_empty() {
-            candidates.push((agent_id, models));
+        let selections = model_selections_from_capability_catalog(&snapshot);
+        if !selections.is_empty() {
+            candidates.push((agent_id, selections));
         }
     }
     Ok(candidates)
@@ -372,8 +371,8 @@ pub(crate) async fn prompt_enhancement_capability_catalog_models(
     pool: &sqlx::SqlitePool,
 ) -> Result<Vec<String>, AppError> {
     let mut models = Vec::new();
-    for (_, candidate_models) in prompt_enhancement_catalog_candidates(pool).await? {
-        for model in candidate_models {
+    for (_, candidate_selections) in prompt_enhancement_catalog_candidates(pool).await? {
+        for (_, model) in candidate_selections {
             if !models.contains(&model) {
                 models.push(model);
             }
@@ -382,19 +381,25 @@ pub(crate) async fn prompt_enhancement_capability_catalog_models(
     Ok(models)
 }
 
-pub(crate) async fn prompt_enhancement_agent_for_model(
+pub(crate) async fn prompt_enhancement_selection_for_model(
     pool: &sqlx::SqlitePool,
     model: &str,
-) -> Result<Option<AgentId>, AppError> {
-    Ok(prompt_enhancement_catalog_candidates(pool)
-        .await?
-        .into_iter()
-        .find(|(_, models)| models.iter().any(|candidate| candidate == model))
-        .map(|(agent_id, _)| agent_id))
+) -> Result<Option<(AgentId, String)>, AppError> {
+    for (agent_id, selections) in prompt_enhancement_catalog_candidates(pool).await? {
+        if let Some((option_key, _)) = selections
+            .into_iter()
+            .find(|(_, candidate)| candidate == model)
+        {
+            return Ok(Some((agent_id, option_key)));
+        }
+    }
+    Ok(None)
 }
 
-fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
-    let mut models = Vec::new();
+fn model_selections_from_capability_catalog(
+    snapshot: &AgentSessionControlsSnapshot,
+) -> Vec<(String, String)> {
+    let mut selections = Vec::new();
     for option in snapshot
         .config_options
         .iter()
@@ -404,9 +409,24 @@ fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Ve
             let Some(model) = choice.value.as_str().map(str::trim) else {
                 continue;
             };
-            if !model.is_empty() && !models.iter().any(|existing| existing == model) {
-                models.push(model.to_string());
+            if !model.is_empty()
+                && !selections
+                    .iter()
+                    .any(|(key, existing)| key == &option.key && existing == model)
+            {
+                selections.push((option.key.clone(), model.to_string()));
             }
+        }
+    }
+    selections
+}
+
+#[cfg(test)]
+fn models_from_capability_catalog(snapshot: &AgentSessionControlsSnapshot) -> Vec<String> {
+    let mut models = Vec::new();
+    for (_, model) in model_selections_from_capability_catalog(snapshot) {
+        if !models.contains(&model) {
+            models.push(model);
         }
     }
     models
@@ -528,7 +548,7 @@ async fn refresh_capability_catalog_for_agent(
 #[tauri::command]
 pub async fn refresh_prompt_enhancement_catalogs(
     state: tauri::State<'_, AppState>,
-) -> Result<bool, AppError> {
+) -> Result<crate::commands::config::PromptEnhancementModelsResponse, AppError> {
     let agent_ids = sqlx::query_scalar::<_, String>(
         r#"SELECT membership.agent_id
            FROM agent_membership membership
@@ -542,6 +562,7 @@ pub async fn refresh_prompt_enhancement_catalogs(
     .fetch_all(&state.deployment.db().pool)
     .await?;
     let mut refreshed_any = false;
+    let mut refresh_errors = Vec::new();
     for raw_agent_id in agent_ids {
         let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
             continue;
@@ -550,15 +571,23 @@ pub async fn refresh_prompt_enhancement_catalogs(
             Ok(true) => refreshed_any = true,
             Ok(false) => {}
             Err(error) => {
-                tracing::debug!(
+                tracing::warn!(
                     %agent_id,
                     %error,
                     "Agent did not provide a prompt-enhancement capability catalog"
                 );
+                refresh_errors.push(format!("{agent_id}: {error}"));
             }
         }
     }
-    Ok(refreshed_any)
+    let models = prompt_enhancement_capability_catalog_models(&state.deployment.db().pool).await?;
+    if models.is_empty() && !refreshed_any && !refresh_errors.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "Unable to refresh Agent model catalogs: {}",
+            refresh_errors.join("; ")
+        )));
+    }
+    Ok(crate::commands::config::PromptEnhancementModelsResponse { models })
 }
 
 #[tauri::command]
@@ -1511,96 +1540,6 @@ fn text_prompt_blocks(text: String) -> Vec<AgentContentBlock> {
     }
 }
 
-pub(crate) async fn workspace_prompt_blocks(
-    working_dir: &str,
-    text: String,
-    images: &[String],
-) -> Result<Vec<AgentContentBlock>, AppError> {
-    let mut blocks = text_prompt_blocks(text);
-    for image in images {
-        blocks.push(read_workspace_image_block(working_dir, image).await?);
-    }
-    if blocks.is_empty() {
-        return Err(AppError::BadRequest(
-            "Prompt must include text or an image".to_string(),
-        ));
-    }
-    Ok(blocks)
-}
-
-async fn read_workspace_image_block(
-    working_dir: &str,
-    relative_path: &str,
-) -> Result<AgentContentBlock, AppError> {
-    let relative = relative_agent_asset_path(relative_path)?;
-    let file_path = Path::new(working_dir).join(&relative);
-    if !file_path.is_file() {
-        return Err(AppError::NotFound(format!(
-            "Image not found: {relative_path}"
-        )));
-    }
-
-    let bytes = tokio::fs::read(&file_path).await.map_err(|err| {
-        AppError::Internal(format!("Failed to read image {relative_path}: {err}"))
-    })?;
-
-    Ok(AgentContentBlock::Image {
-        data: BASE64.encode(bytes),
-        mime_type: mime_type_for_agent_asset(&file_path).to_string(),
-        uri: Some(relative.to_string_lossy().replace('\\', "/")),
-    })
-}
-
-fn relative_agent_asset_path(path: &str) -> Result<PathBuf, AppError> {
-    let candidate = Path::new(path);
-    if candidate.is_absolute() {
-        return Err(AppError::BadRequest(format!(
-            "Image path must be workspace-relative: {path}"
-        )));
-    }
-
-    let mut relative = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            Component::Normal(segment) => relative.push(segment),
-            Component::CurDir => {}
-            _ => {
-                return Err(AppError::BadRequest(format!(
-                    "Image path must stay inside the workspace: {path}"
-                )));
-            }
-        }
-    }
-
-    if relative.as_os_str().is_empty() {
-        return Err(AppError::BadRequest(
-            "Image path cannot be empty".to_string(),
-        ));
-    }
-
-    Ok(relative)
-}
-
-fn mime_type_for_agent_asset(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("bmp") => "image/bmp",
-        Some("svg") => "image/svg+xml",
-        Some("avif") => "image/avif",
-        Some("heic") => "image/heic",
-        Some("heif") => "image/heif",
-        _ => "application/octet-stream",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{collections::BTreeMap, path::PathBuf, str::FromStr};
@@ -1826,6 +1765,33 @@ mod tests {
         };
 
         assert!(models_from_capability_catalog(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn prompt_enhancement_preserves_the_advertised_model_option_key() {
+        let snapshot = AgentSessionControlsSnapshot {
+            modes: Vec::new(),
+            current_mode: None,
+            config_options: vec![agents::AgentSessionConfigOption {
+                key: "model_id".to_string(),
+                label: "Model".to_string(),
+                description: None,
+                category: Some("model".to_string()),
+                value: None,
+                choices: vec![agents::AgentSessionConfigChoice {
+                    value: serde_json::Value::String("openai/gpt-5.6-sol".to_string()),
+                    label: "GPT 5.6 Sol".to_string(),
+                    description: None,
+                }],
+                dependency: None,
+            }],
+            capabilities: None,
+        };
+
+        assert_eq!(
+            model_selections_from_capability_catalog(&snapshot),
+            vec![("model_id".to_string(), "openai/gpt-5.6-sol".to_string())]
+        );
     }
 
     #[test]

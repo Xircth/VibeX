@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ConversationDelegationView } from 'shared/types';
+import type { BackendTransport } from '@/lib/backendTransport';
+import { BackendTransportProvider } from '@/lib/transport';
 import { DelegationCard } from './DelegationCard';
 
 function running(
@@ -18,9 +20,21 @@ function running(
   };
 }
 
+function renderCard(card: React.ReactElement) {
+  const transport = {
+    environment: 'desktop',
+    call: vi.fn().mockResolvedValue(undefined),
+  } satisfies BackendTransport;
+  return render(
+    <BackendTransportProvider transport={transport}>
+      {card}
+    </BackendTransportProvider>
+  );
+}
+
 describe('DelegationCard', () => {
   it('shows the running sub-agent with its task and agent label', () => {
-    render(<DelegationCard delegation={running()} />);
+    renderCard(<DelegationCard delegation={running()} />);
 
     expect(screen.getByText('委派给 Codex')).toBeInTheDocument();
     expect(screen.getByText('Review the diff')).toBeInTheDocument();
@@ -28,7 +42,7 @@ describe('DelegationCard', () => {
   });
 
   it('renders the completion result preview and duration', () => {
-    render(
+    renderCard(
       <DelegationCard
         delegation={running({
           status: 'completed',
@@ -47,7 +61,7 @@ describe('DelegationCard', () => {
   });
 
   it('renders a failure with the real error message', () => {
-    render(
+    renderCard(
       <DelegationCard
         delegation={running({
           status: 'failed',
@@ -63,9 +77,32 @@ describe('DelegationCard', () => {
     expect(screen.getByText('sub-agent crashed')).toBeInTheDocument();
   });
 
+  it('renders a canceled delegation as canceled instead of failed', () => {
+    renderCard(
+      <DelegationCard
+        delegation={running({
+          status: 'canceled',
+          result: {
+            kind: 'err',
+            error: {
+              message: 'canceled by request',
+              code: 'canceled',
+            },
+          },
+        })}
+      />
+    );
+
+    expect(screen.getByText('已取消')).toBeInTheDocument();
+    expect(screen.queryByText('失败')).toBeNull();
+    expect(screen.getByText('canceled by request')).toBeInTheDocument();
+  });
+
   it('opens the child transcript with the real child conversation id', () => {
     const onOpenChild = vi.fn();
-    render(<DelegationCard delegation={running()} onOpenChild={onOpenChild} />);
+    renderCard(
+      <DelegationCard delegation={running()} onOpenChild={onOpenChild} />
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /打开子会话/ }));
 
@@ -73,8 +110,36 @@ describe('DelegationCard', () => {
   });
 
   it('hides the open-child action when navigation is unavailable', () => {
-    render(<DelegationCard delegation={running()} />);
+    renderCard(<DelegationCard delegation={running()} />);
 
     expect(screen.queryByRole('button', { name: /打开子会话/ })).toBeNull();
+  });
+
+  it('cancels a running delegation through the active remote transport', async () => {
+    const call = vi.fn().mockResolvedValue(undefined);
+    const transport = {
+      environment: 'web',
+      call,
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: '1',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1',
+        capabilities: ['delegation.cancel'],
+      }),
+    } satisfies BackendTransport;
+    render(
+      <BackendTransportProvider transport={transport}>
+        <DelegationCard delegation={running()} />
+      </BackendTransportProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /取消委派/ }));
+
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('delegation_cancel', {
+        childConversationId: 'child-conversation-1',
+      })
+    );
+    expect(screen.getByText('运行中')).toBeInTheDocument();
   });
 });

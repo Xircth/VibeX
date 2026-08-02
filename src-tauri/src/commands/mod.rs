@@ -21,6 +21,7 @@ pub mod logs;
 pub mod office_tools;
 pub mod plugin;
 pub mod projects;
+pub mod remote_desktop;
 pub mod repos;
 pub mod scratch;
 pub mod sessions;

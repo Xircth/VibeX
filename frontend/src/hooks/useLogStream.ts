@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import type { PatchType } from 'shared/types';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 
 type LogEntry = Extract<PatchType, { type: 'STDOUT' } | { type: 'STDERR' }>;
 
@@ -53,7 +53,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
       try {
         // 1. Start listening BEFORE invoking the subscribe command
         //    so we don't miss events emitted immediately after.
-        unlisten = await tauriListen<TauriLogMsg>(
+        unlisten = await backendListen<TauriLogMsg>(
           `log-stream:${processId}`,
           (msg) => {
             if (cancelled || currentProcessIdRef.current !== processId) return;
@@ -119,7 +119,7 @@ export const useLogStream = (processId: string): UseLogStreamResult => {
         }
 
         // 2. Invoke the subscribe command to start the backend stream.
-        await tauriInvoke('subscribe_log_stream', { processId });
+        await backendCall('subscribe_log_stream', { processId });
 
         if (!cancelled) {
           setError(null);

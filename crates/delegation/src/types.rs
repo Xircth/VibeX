@@ -29,6 +29,14 @@ pub struct DelegationRequest {
     pub external_handle: Option<String>,
 }
 
+/// Authority carried by a companion token. Task reads and cancellation must
+/// match both the live parent connection and its durable Conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DelegationScope {
+    pub parent_connection_id: String,
+    pub parent_conversation_id: Uuid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub input: u64,
@@ -195,6 +203,13 @@ pub struct DelegationConfig {
     pub depth_limit: u32,
     /// Per-parent result-cache byte budget; `0` disables eviction.
     pub completed_cache_cap_bytes: usize,
+}
+
+impl DelegationConfig {
+    pub(crate) fn normalized(mut self) -> Self {
+        self.depth_limit = self.depth_limit.clamp(1, 8);
+        self
+    }
 }
 
 impl Default for DelegationConfig {

@@ -4,9 +4,9 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentElicitationResponse, AgentId, AgentPermissionResponse, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
-    ImportedAgentMessageRole, ImportedAgentSession,
+    AgentConnectionId, AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentId,
+    AgentPermissionResponse, AgentSessionConfigOption, AgentSessionConfigOverride,
+    AgentSessionControlsSnapshot, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -14,6 +14,10 @@ use agents::{
         ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
         ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
+};
+use automation::{
+    AgentSelectionIntent, ComposerCanonicalInput, IsolationSpec, TurnLaunchSpec,
+    TurnLaunchSpecInput, WorkspaceTarget,
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
@@ -26,8 +30,10 @@ use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
+    workspace::Workspace,
 };
 use executors::profile::ExecutorProfileId;
+use plugins::PromptBlock;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
@@ -314,12 +320,97 @@ pub async fn conversation_ensure_session_controls(
 pub async fn conversation_list(
     state: tauri::State<'_, AppState>,
     workspace_id: String,
-) -> Result<Vec<DbConversationSummary>, AppError> {
-    let workspace_id = Uuid::parse_str(&workspace_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
-    DbConversationSummary::list_for_workspace(&state.deployment.db().pool, workspace_id)
-        .await
-        .map_err(Into::into)
+) -> Result<Vec<DbConversationSummary>, remote_protocol::ErrorEnvelope> {
+    use application::{
+        ApplicationCore, ListConversations, Principal, SqliteConversationRepository,
+    };
+    use remote_protocol::{ErrorCode, ErrorEnvelope, OperationId};
+
+    let workspace_id = Uuid::parse_str(&workspace_id).map_err(|error| {
+        ErrorEnvelope::new(
+            ErrorCode::BadRequest,
+            format!("invalid workspace id: {error}"),
+            false,
+            OperationId::new(),
+        )
+    })?;
+    let core = ApplicationCore::new(SqliteConversationRepository::new(
+        state.deployment.db().pool.clone(),
+    ));
+    core.list_conversations(
+        &Principal::local_desktop(),
+        ListConversations { workspace_id },
+    )
+    .await
+    .map_err(application::ApplicationError::into_envelope)
+}
+
+/// Closed application command adapter. Only names present in
+/// `application::CommandRegistry` can cross this boundary.
+#[tauri::command]
+pub async fn application_call(
+    state: tauri::State<'_, AppState>,
+    command: String,
+    operation_id: remote_protocol::OperationId,
+    args: serde_json::Value,
+) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
+    use application::{
+        ApplicationCore, CommandRegistry, ConversationSessionExecutionPort, Principal,
+        SqliteConversationRepository,
+    };
+
+    CommandRegistry::new(ApplicationCore::with_execution(
+        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
+        std::sync::Arc::new(ConversationSessionExecutionPort::new(
+            state.conversation_context(),
+        )),
+    ))
+    .execute_name(&Principal::local_desktop(), &command, operation_id, args)
+    .await
+}
+
+#[tauri::command]
+pub async fn conversation_attach(
+    state: tauri::State<'_, AppState>,
+    request: remote_protocol::SubscriptionRequest,
+) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
+    use application::{
+        ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
+        SqliteConversationRepository,
+    };
+    use remote_protocol::SubscriptionResource;
+
+    struct TauriConversationSubscriptions;
+
+    #[async_trait::async_trait]
+    impl ConversationSubscriptionRegistrar for TauriConversationSubscriptions {
+        async fn register(
+            &self,
+            _subscription_id: remote_protocol::SubscriptionId,
+            _conversation_id: remote_protocol::ConversationId,
+        ) -> Result<(), ApplicationError> {
+            // Tauri's process-wide event channel is already active; the desktop
+            // transport installs its listener before invoking this command.
+            Ok(())
+        }
+    }
+
+    let SubscriptionResource::Conversation {
+        conversation_id,
+        after_sequence,
+    } = request.resource;
+    let core = ApplicationCore::new(SqliteConversationRepository::new(
+        state.deployment.db().pool.clone(),
+    ));
+    core.attach_conversation(
+        &Principal::local_desktop(),
+        request.subscription_id,
+        conversation_id,
+        after_sequence,
+        &TauriConversationSubscriptions,
+    )
+    .await
+    .map_err(application::ApplicationError::into_envelope)
 }
 
 pub async fn conversation_events_since_core(
@@ -438,6 +529,36 @@ pub async fn conversation_start_turn(
     let conversation_id = Uuid::parse_str(&request.conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
+    let workspace = Workspace::find_by_id(&pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("workspace {workspace_id} not found")))?;
+    if !request.text.trim().is_empty() {
+        TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
+            prompt_blocks: vec![PromptBlock::Text {
+                text: request.text.clone(),
+            }],
+            display_text: request.text.clone(),
+            agent: AgentSelectionIntent {
+                agent_id: request.agent_id.clone(),
+                executor_profile_id: request.executor_profile_id.clone(),
+            },
+            mode_id: request.mode_override.clone(),
+            config_values: request.config_overrides.clone(),
+            plugin_actions: Vec::new(),
+            skills: Vec::new(),
+            workspace: WorkspaceTarget {
+                project_id: workspace.project_id,
+                root_folder: workspace
+                    .container_ref
+                    .clone()
+                    .unwrap_or_else(|| workspace.id.to_string()),
+                branch: Some(workspace.branch),
+                isolation: IsolationSpec::SharedInRoot,
+            },
+            label_snapshot: None,
+        }))
+        .map_err(|error| AppError::BadRequest(format!("{}: {error}", error.code())))?;
+    }
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
     let service = ConversationSessionService::new(state.conversation_context());
     let result = service
@@ -550,6 +671,44 @@ pub async fn conversation_respond_question(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = state.deployment.db().pool.clone();
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
+    let companion_answer = match &request.response {
+        AgentElicitationResponse::Accept { content } => content
+            .get("answers")
+            .cloned()
+            .unwrap_or_else(|| content.clone()),
+        AgentElicitationResponse::Decline | AgentElicitationResponse::Cancel => {
+            serde_json::json!({ "__declined": true })
+        }
+    };
+    if let Ok(pending) = state
+        .delegation
+        .features
+        .answer_question(&request.question_id, conversation_id, companion_answer)
+        .await
+    {
+        let connection_id = Uuid::parse_str(&pending.scope.parent_connection_id)
+            .map(AgentConnectionId::from)
+            .map_err(|error| {
+                AppError::BadRequest(format!("invalid companion connection id: {error}"))
+            })?;
+        let question_id = Uuid::parse_str(&pending.id)
+            .map(AgentElicitationId)
+            .map_err(|error| {
+                AppError::BadRequest(format!("invalid companion question id: {error}"))
+            })?;
+        state
+            .agent_runtime
+            .emit_external(
+                connection_id,
+                Some(AgentSessionId::from(pending.scope.parent_conversation_id)),
+                AgentEvent::ElicitationResponded {
+                    elicitation_id: question_id,
+                    response: request.response,
+                },
+            )
+            .await;
+        return Ok(());
+    }
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_question(conversation_id, request.question_id, request.response)
         .await;

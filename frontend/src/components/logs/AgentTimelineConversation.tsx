@@ -31,6 +31,7 @@ import { PermissionRequestCard } from '@/components/NormalizedConversation/conve
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
+import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -273,6 +274,14 @@ function ConversationSideRows({
               key={`delegation-${row.delegation.delegation_id}-${index}`}
               delegation={row.delegation}
               onOpenChild={onOpenChild}
+            />
+          );
+        }
+        if (row.kind === 'artifact_revision') {
+          return (
+            <ArtifactTimelineCard
+              key={`artifact-${row.artifact.artifact_id}-${index}`}
+              artifact={row.artifact}
             />
           );
         }

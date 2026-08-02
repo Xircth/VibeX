@@ -9,9 +9,9 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import { getTerminalTheme } from '@/utils/terminalTheme';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+type UnlistenFn = () => void;
 
 function isTerminalCopyShortcut(
   event: Pick<
@@ -269,7 +269,7 @@ export function useTauriTerminal({
     pendingInputRef.current = '';
     inputWriteInFlightRef.current = true;
 
-    tauriInvoke('write_terminal', {
+    backendCall('write_terminal', {
       sessionId,
       data: encodeBase64(data),
     })
@@ -412,7 +412,7 @@ export function useTauriTerminal({
 
       applyCurrentTheme();
 
-      tauriListen<{ theme: string }>('theme-changed', () => {
+      backendListen<{ theme: string }>('theme-changed', () => {
         applyCurrentTheme();
       }).then((unlisten) => {
         if (!mountedRef.current || !terminalRef.current) {
@@ -457,7 +457,7 @@ export function useTauriTerminal({
       fitTerminalIfReady(fitAddon, terminal, container);
 
       const attachListener = async (currentSessionId: string) => {
-        const unlisten = await tauriListen<string>(
+        const unlisten = await backendListen<string>(
           `terminal-output:${currentSessionId}`,
           (payload) => {
             if (
@@ -481,13 +481,13 @@ export function useTauriTerminal({
       try {
         if (resolvedSessionId) {
           await attachListener(resolvedSessionId);
-          await tauriInvoke<string>('attach_terminal', {
+          await backendCall<string>('attach_terminal', {
             sessionId: resolvedSessionId,
           });
         } else {
           resolvedSessionId = crypto.randomUUID();
           await attachListener(resolvedSessionId);
-          await tauriInvoke<string>('create_terminal', {
+          await backendCall<string>('create_terminal', {
             workspaceId,
             cols: terminal.cols,
             rows: terminal.rows,
@@ -505,7 +505,7 @@ export function useTauriTerminal({
           try {
             resolvedSessionId = crypto.randomUUID();
             await attachListener(resolvedSessionId);
-            await tauriInvoke<string>('create_terminal', {
+            await backendCall<string>('create_terminal', {
               workspaceId,
               cols: terminal.cols,
               rows: terminal.rows,
@@ -565,7 +565,7 @@ export function useTauriTerminal({
 
       terminal.onResize(({ cols, rows }) => {
         if (isCurrentInitialization() && sessionIdRef.current) {
-          tauriInvoke('resize_terminal', {
+          backendCall('resize_terminal', {
             sessionId: sessionIdRef.current,
             cols,
             rows,

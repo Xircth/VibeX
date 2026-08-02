@@ -1,4 +1,4 @@
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 
 export type DesktopToastPayload = {
   projectId: string;
@@ -13,5 +13,5 @@ export type DesktopToastPayload = {
 export async function showDesktopToast(
   payload: DesktopToastPayload
 ): Promise<void> {
-  await tauriInvoke('show_desktop_toast', { payload });
+  await backendCall('show_desktop_toast', { payload });
 }

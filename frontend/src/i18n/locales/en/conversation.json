@@ -1,4 +1,12 @@
 {
+  "artifact": {
+    "openPreview": "Open preview",
+    "openPreviewAria": "Open {{name}} preview",
+    "closePreviewAria": "Close {{name}} preview",
+    "previewTitle": "{{name}} preview",
+    "revision": "revision {{revision}}",
+    "invalidPreviewLease": "The Artifact Provider returned an invalid preview lease"
+  },
   "loadingCard": {
     "thinking": "AI is thinking...",
     "copy": "Copy"
@@ -80,8 +88,12 @@
     "openChildSession": "Open child session",
     "duration": "Took {{duration}}",
     "running": "Running",
+    "cancel": "Cancel delegation",
+    "canceling": "Canceling…",
+    "cancelFailed": "Could not cancel: {{error}}",
     "completed": "Completed",
-    "failed": "Failed"
+    "failed": "Failed",
+    "canceled": "Canceled"
   },
   "commandTool": {
     "commandLabel": "Command",

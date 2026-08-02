@@ -17,19 +17,16 @@ pub use conversations::{
     finalize_checkpoint_file_changes,
 };
 use db::models::{repo::Repo, workspace::Workspace};
-use deployment::Deployment;
 use sqlx::SqlitePool;
 
-use crate::error::AppError;
-
-/// Map the shell's `AppError` back to the orchestration core's error, preserving the
-/// variant so the command boundary reconstructs the same `AppError` kind.
-fn app_err_to_service(error: AppError) -> ConversationServiceError {
+fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError {
     match error {
-        AppError::NotFound(message) => ConversationServiceError::NotFound(message),
-        AppError::BadRequest(message) => ConversationServiceError::BadRequest(message),
-        AppError::Conflict(message) => ConversationServiceError::Conflict(message),
-        AppError::Internal(message) => ConversationServiceError::Internal(message),
+        crate::error::AppError::NotFound(message) => ConversationServiceError::NotFound(message),
+        crate::error::AppError::BadRequest(message) => {
+            ConversationServiceError::BadRequest(message)
+        }
+        crate::error::AppError::Conflict(message) => ConversationServiceError::Conflict(message),
+        crate::error::AppError::Internal(message) => ConversationServiceError::Internal(message),
     }
 }
 
@@ -37,7 +34,7 @@ fn app_err_to_service(error: AppError) -> ConversationServiceError {
 /// [`conversations::ConversationHost`] so the orchestration core stays decoupled from
 /// `AppState` and the command layer.
 pub struct AppConversationHost {
-    pub deployment: Arc<dyn Deployment>,
+    pub deployment: Arc<dyn deployment::Deployment>,
 }
 
 #[async_trait::async_trait]
@@ -48,7 +45,7 @@ impl conversations::ConversationHost for AppConversationHost {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String> {
-        crate::workspace_paths::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+        conversations::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
     }
 
     fn resolve_additional_directories(
@@ -72,9 +69,7 @@ impl conversations::ConversationHost for AppConversationHost {
         text: String,
         images: &[String],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        crate::commands::agents::workspace_prompt_blocks(working_dir, text, images)
-            .await
-            .map_err(app_err_to_service)
+        conversations::workspace_prompt_blocks(working_dir, text, images).await
     }
 
     async fn launch_settings(

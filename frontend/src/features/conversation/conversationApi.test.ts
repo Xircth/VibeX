@@ -1,21 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { conversationApi } from './conversationApi';
+import type { BackendTransport } from '@/lib/backendTransport';
+import { createConversationApi } from './conversationApi';
 
-const { tauriInvokeMock } = vi.hoisted(() => ({
-  tauriInvokeMock: vi.fn(),
-}));
-
-vi.mock('@/lib/tauriApi', () => ({
-  tauriInvoke: tauriInvokeMock,
-}));
+const call = vi.fn();
+const transport: BackendTransport = { environment: 'desktop', call };
+const conversationApi = createConversationApi(transport);
 
 describe('conversationApi', () => {
   beforeEach(() => {
-    tauriInvokeMock.mockReset();
+    call.mockReset();
+  });
+
+  it('creates conversations through the transport-neutral command', async () => {
+    call.mockResolvedValue({ id: 'conversation-1' });
+
+    await conversationApi.create({
+      workspaceId: 'workspace-1',
+      agentId: 'codex',
+      title: 'Remote work',
+      initialPrompt: 'Draft the plan',
+    });
+
+    expect(call).toHaveBeenCalledWith('conversation_create', {
+      workspaceId: 'workspace-1',
+      agentId: 'codex',
+      title: 'Remote work',
+      initialPrompt: 'Draft the plan',
+    });
   });
 
   it('starts turns through conversation_start_turn', async () => {
-    tauriInvokeMock.mockResolvedValue({
+    call.mockResolvedValue({
       conversationId: 'conversation-1',
       turnId: 'turn-1',
       status: 'running',
@@ -29,7 +44,7 @@ describe('conversationApi', () => {
       text: 'hello',
     });
 
-    expect(tauriInvokeMock).toHaveBeenCalledWith('conversation_start_turn', {
+    expect(call).toHaveBeenCalledWith('conversation_start_turn', {
       request: {
         agentId: 'codex',
         workspaceId: 'workspace-1',
@@ -41,7 +56,7 @@ describe('conversationApi', () => {
   });
 
   it('requests durable events by sequence', async () => {
-    tauriInvokeMock.mockResolvedValue({
+    call.mockResolvedValue({
       conversation_id: 'conversation-1',
       after_sequence: 4n,
       last_sequence: 4n,
@@ -55,9 +70,9 @@ describe('conversationApi', () => {
       limit: 100,
     });
 
-    const [, args] = tauriInvokeMock.mock.calls[0];
+    const [, args] = call.mock.calls[0];
     expect(() => JSON.stringify(args)).not.toThrow();
-    expect(tauriInvokeMock).toHaveBeenCalledWith('conversation_events_since', {
+    expect(call).toHaveBeenCalledWith('conversation_events_since', {
       request: {
         conversationId: 'conversation-1',
         afterSequence: 4,

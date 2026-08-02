@@ -1,7 +1,7 @@
 [
   {
     "name": "delegate_to_agent",
-    "description": "Hand off a self-contained sub-task to a separate local AI agent that runs in its own session. ASYNCHRONOUS: returns a task_id right away and the sub-agent keeps working in the background — this call never blocks. So you can fan out several delegations at once and keep working, then collect the results with get_delegation_status by passing the task_ids array (one id to poll a single task, or many at once to poll the whole fan-out in one call) — or stop one early with cancel_delegation(task_id). The sub-agent CANNOT see this conversation, your open files, or earlier turns — it starts cold, so `task` must carry everything it needs. Best for independent, parallelizable work you can describe up front; not for steps that need your ongoing back-and-forth.",
+    "description": "Hand off a self-contained sub-task to a separate local AI agent that runs in its own session. A structured mention such as `[&Codex](vibex://agent/codex)` is an explicit user request to consider delegation: for every AgentMention in the prompt, call this tool once with the matching stable agent id unless delegation would be unsafe or impossible, and explain any refusal. The mention does not itself start a child session; only this tool call does. ASYNCHRONOUS: returns a task_id right away and the sub-agent keeps working in the background — this call never blocks. So you can fan out several delegations at once and keep working, then collect the results with get_delegation_status by passing the task_ids array (one id to poll a single task, or many at once to poll the whole fan-out in one call) — or stop one early with cancel_delegation(task_id). The sub-agent CANNOT see this conversation, your open files, or earlier turns — it starts cold, so `task` must carry everything it needs. Best for independent, parallelizable work you can describe up front; not for steps that need your ongoing back-and-forth.",
     "inputSchema": {
       "type": "object",
       "required": ["agent_type", "task"],
@@ -96,6 +96,27 @@
               }
             }
           }
+        }
+      }
+    }
+  },
+  {
+    "name": "get_session_info",
+    "description": "Read metadata and an optional compact transcript for a VibeX Conversation explicitly referenced by the user, for example `[Fix auth](vibex://conversation/550e8400-e29b-41d4-a716-446655440000)`. This is read-only: it never resumes, modifies, or delegates to the referenced Conversation. A missing Conversation returns found=false.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["conversation_id"],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The stable UUID from a vibex://conversation/<uuid> reference."
+        },
+        "max_messages": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Recent messages to include; defaults to 20. Use 0 for metadata only."
         }
       }
     }

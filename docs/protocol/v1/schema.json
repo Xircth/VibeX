@@ -1,0 +1,624 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeX Remote Protocol v1",
+  "type": "object",
+  "properties": {
+    "capabilities": {
+      "$ref": "#/$defs/ServerCapabilities"
+    },
+    "command_request": {
+      "$ref": "#/$defs/CommandRequest"
+    },
+    "command_response": {
+      "$ref": "#/$defs/CommandResponse"
+    },
+    "command_error": {
+      "$ref": "#/$defs/ErrorEnvelope"
+    },
+    "subscription_client_message": {
+      "$ref": "#/$defs/SubscriptionClientMessage"
+    },
+    "subscription_server_message": {
+      "$ref": "#/$defs/SubscriptionServerMessage"
+    },
+    "create_pairing_request": {
+      "$ref": "#/$defs/CreatePairingRequest"
+    },
+    "pairing_challenge": {
+      "$ref": "#/$defs/PairingChallenge"
+    },
+    "redeem_pairing_request": {
+      "$ref": "#/$defs/RedeemPairingRequest"
+    },
+    "device_credential": {
+      "$ref": "#/$defs/DeviceCredential"
+    },
+    "revoke_device_response": {
+      "$ref": "#/$defs/RevokeDeviceResponse"
+    },
+    "terminal_notification_summary": {
+      "$ref": "#/$defs/TerminalNotificationSummary"
+    },
+    "offline_conversation_cache": {
+      "$ref": "#/$defs/OfflineConversationCache"
+    }
+  },
+  "required": [
+    "capabilities",
+    "command_request",
+    "command_response",
+    "command_error",
+    "subscription_client_message",
+    "subscription_server_message",
+    "create_pairing_request",
+    "pairing_challenge",
+    "redeem_pairing_request",
+    "device_credential",
+    "revoke_device_response",
+    "terminal_notification_summary",
+    "offline_conversation_cache"
+  ],
+  "$defs": {
+    "ServerCapabilities": {
+      "description": "Response payload for protocol and feature negotiation.",
+      "type": "object",
+      "properties": {
+        "server_version": {
+          "type": "string"
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "minimum_client_version": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CapabilityId"
+          }
+        }
+      },
+      "required": [
+        "server_version",
+        "protocol_version",
+        "minimum_client_version",
+        "capabilities"
+      ]
+    },
+    "CapabilityId": {
+      "description": "Open capability identifier. Unknown values are intentionally preserved so\nolder clients can safely negotiate with newer servers.",
+      "type": "string"
+    },
+    "CommandRequest": {
+      "description": "Versioned application-command request shared by HTTP and local adapters.",
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "args": true
+      },
+      "required": [
+        "operation_id",
+        "args"
+      ]
+    },
+    "CommandResponse": {
+      "description": "Successful command envelope. Errors use [`crate::ErrorEnvelope`] with the\nsame operation id.",
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "data": true
+      },
+      "required": [
+        "operation_id",
+        "data"
+      ]
+    },
+    "ErrorEnvelope": {
+      "description": "Transport-stable error shape. Adapter-specific errors must be normalized\ninto this envelope before crossing the application boundary.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "details": {
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "operation_id"
+      ]
+    },
+    "ErrorCode": {
+      "description": "Stable machine-readable error classes shared by every transport adapter.",
+      "type": "string",
+      "enum": [
+        "bad_request",
+        "unauthorized",
+        "forbidden",
+        "not_found",
+        "conflict",
+        "capability_unavailable",
+        "internal"
+      ]
+    },
+    "SubscriptionClientMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/SubscriptionRequest"
+            },
+            "type": {
+              "type": "string",
+              "const": "attach"
+            }
+          },
+          "required": [
+            "type",
+            "request"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": {
+              "type": "string",
+              "const": "detach"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ping"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "SubscriptionRequest": {
+      "type": "object",
+      "properties": {
+        "subscription_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "subscription_id"
+      ],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "conversation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "after_sequence": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "resource": {
+              "type": "string",
+              "const": "conversation"
+            }
+          },
+          "required": [
+            "resource",
+            "conversation_id",
+            "after_sequence"
+          ]
+        }
+      ]
+    },
+    "SubscriptionServerMessage": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": {
+              "type": "string",
+              "const": "ready"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "snapshot": {
+              "$ref": "#/$defs/SubscriptionSnapshot"
+            },
+            "type": {
+              "type": "string",
+              "const": "snapshot"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id",
+            "snapshot"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "event": {
+              "$ref": "#/$defs/RemoteEvent"
+            },
+            "type": {
+              "type": "string",
+              "const": "event"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id",
+            "event"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "high_water_mark": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "type": {
+              "type": "string",
+              "const": "live"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id",
+            "high_water_mark"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "detached"
+            }
+          },
+          "required": [
+            "type",
+            "subscription_id",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pong"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ErrorEnvelope"
+            },
+            "type": {
+              "type": "string",
+              "const": "error"
+            }
+          },
+          "required": [
+            "type",
+            "error"
+          ]
+        }
+      ]
+    },
+    "SubscriptionSnapshot": {
+      "type": "object",
+      "properties": {
+        "through_sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "payload": true
+      },
+      "required": [
+        "through_sequence",
+        "payload"
+      ]
+    },
+    "RemoteEvent": {
+      "description": "An open event envelope: `kind` remains a string and `payload` remains JSON so\na client can preserve or ignore events introduced by a newer server.",
+      "type": "object",
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "payload": true
+      },
+      "required": [
+        "sequence",
+        "kind",
+        "payload"
+      ]
+    },
+    "CreatePairingRequest": {
+      "type": "object",
+      "properties": {
+        "requested_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "requested_scopes"
+      ]
+    },
+    "PairingChallenge": {
+      "type": "object",
+      "properties": {
+        "pairing_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pairing_token": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "requested_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "pairing_id",
+        "pairing_token",
+        "expires_at",
+        "requested_scopes"
+      ]
+    },
+    "RedeemPairingRequest": {
+      "type": "object",
+      "properties": {
+        "pairing_token": {
+          "type": "string"
+        },
+        "device_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pairing_token",
+        "device_name"
+      ]
+    },
+    "DeviceCredential": {
+      "type": "object",
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "access_token": {
+          "type": "string"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "device_id",
+        "access_token",
+        "scopes"
+      ]
+    },
+    "RevokeDeviceResponse": {
+      "type": "object",
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revoked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device_id",
+        "revoked"
+      ]
+    },
+    "TerminalNotificationSummary": {
+      "description": "Secret-free terminal projection suitable for a future notification\nprovider. It deliberately contains no prompt, output, path, or diagnostic.",
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/NotificationSource"
+        },
+        "outcome": {
+          "$ref": "#/$defs/NotificationOutcome"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "source",
+        "outcome",
+        "occurred_at",
+        "operation_id"
+      ]
+    },
+    "NotificationSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "conversation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "const": "conversation"
+            }
+          },
+          "required": [
+            "kind",
+            "conversation_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "automation_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "conversation_id": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "kind": {
+              "type": "string",
+              "const": "automation"
+            }
+          },
+          "required": [
+            "kind",
+            "automation_id",
+            "run_id"
+          ]
+        }
+      ]
+    },
+    "NotificationOutcome": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted"
+      ]
+    },
+    "OfflineConversationCache": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "confirmed_through": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "read_only": {
+          "type": "boolean",
+          "default": true,
+          "const": true
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEvent"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "conversation_id",
+        "confirmed_through"
+      ]
+    }
+  },
+  "$id": "https://schemas.vibex.dev/remote-protocol/v1/schema.json"
+}

@@ -25,6 +25,7 @@ pub struct MockSpawnerCalls {
     pub spawned: Vec<(String, AgentId, Option<String>)>,
     pub prompts: Vec<(String, String)>,
     pub canceled: Vec<String>,
+    pub released: Vec<Uuid>,
     pub disconnected: Vec<String>,
 }
 
@@ -40,8 +41,11 @@ pub struct MockSpawner {
     pub child_session_id: Uuid,
     pub spawn_error: Option<String>,
     pub send_error: Option<String>,
+    pub send_error_after_link: Option<String>,
     pub calls: Mutex<MockSpawnerCalls>,
     pub captured_call_id: Arc<Mutex<Option<String>>>,
+    pub spawn_reached_gate: Arc<Notify>,
+    pub spawn_release_gate: Option<Arc<Notify>>,
     pub send_reached_gate: Arc<Notify>,
     pub release_gate: Option<Arc<Notify>>,
 }
@@ -53,8 +57,11 @@ impl MockSpawner {
             child_session_id: Uuid::from_u128(0xC417D),
             spawn_error: None,
             send_error: None,
+            send_error_after_link: None,
             calls: Mutex::new(MockSpawnerCalls::default()),
             captured_call_id: Arc::new(Mutex::new(None)),
+            spawn_reached_gate: Arc::new(Notify::new()),
+            spawn_release_gate: None,
             send_reached_gate: Arc::new(Notify::new()),
             release_gate: None,
         }
@@ -75,6 +82,10 @@ impl ConnectionSpawner for MockSpawner {
         agent_type: AgentId,
         working_dir: Option<String>,
     ) -> Result<String, SpawnerError> {
+        self.spawn_reached_gate.notify_one();
+        if let Some(gate) = &self.spawn_release_gate {
+            gate.notified().await;
+        }
         if let Some(message) = &self.spawn_error {
             return Err(SpawnerError::Spawn(message.clone()));
         }
@@ -92,9 +103,6 @@ impl ConnectionSpawner for MockSpawner {
         task: String,
         link: DelegationLink,
     ) -> Result<Uuid, SpawnerError> {
-        if let Some(message) = &self.send_error {
-            return Err(SpawnerError::SendPrompt(message.clone()));
-        }
         *self.captured_call_id.lock().unwrap() = Some(link.delegation_call_id.clone());
         self.calls
             .lock()
@@ -105,6 +113,15 @@ impl ConnectionSpawner for MockSpawner {
         if let Some(gate) = &self.release_gate {
             gate.notified().await;
         }
+        if let Some(message) = &self.send_error {
+            return Err(SpawnerError::SendPrompt(message.clone()));
+        }
+        if let Some(message) = &self.send_error_after_link {
+            return Err(SpawnerError::SendPromptAfterLink {
+                child_session_id: self.child_session_id,
+                message: message.clone(),
+            });
+        }
         Ok(self.child_session_id)
     }
 
@@ -114,6 +131,11 @@ impl ConnectionSpawner for MockSpawner {
             .unwrap()
             .canceled
             .push(child_connection_id.to_string());
+        Ok(())
+    }
+
+    async fn release_child(&self, child_session_id: Uuid) -> Result<(), SpawnerError> {
+        self.calls.lock().unwrap().released.push(child_session_id);
         Ok(())
     }
 
@@ -132,6 +154,8 @@ impl ConnectionSpawner for MockSpawner {
 #[derive(Default)]
 pub struct MockDepthLookup {
     pub parents: HashMap<Uuid, Uuid>,
+    pub reached_gate: Option<Arc<Notify>>,
+    pub release_gate: Option<Arc<Notify>>,
 }
 
 impl MockDepthLookup {
@@ -141,13 +165,23 @@ impl MockDepthLookup {
         for pair in ids.windows(2) {
             parents.insert(pair[1], pair[0]);
         }
-        Self { parents }
+        Self {
+            parents,
+            reached_gate: None,
+            release_gate: None,
+        }
     }
 }
 
 #[async_trait]
 impl DepthLookup for MockDepthLookup {
     async fn parent_session_id(&self, session_id: Uuid) -> Result<Option<Uuid>, DelegationError> {
+        if let Some(reached) = &self.reached_gate {
+            reached.notify_one();
+        }
+        if let Some(release) = &self.release_gate {
+            release.notified().await;
+        }
         Ok(self.parents.get(&session_id).copied())
     }
 }
@@ -187,15 +221,18 @@ impl DelegationMetaWriter for RecordingMetaWriter {
 pub struct RecordingEventEmitter {
     pub started: Mutex<Vec<DelegationStartedEvent>>,
     pub completed: Mutex<Vec<DelegationCompletedEvent>>,
+    pub order: Mutex<Vec<&'static str>>,
 }
 
 #[async_trait]
 impl DelegationEventEmitter for RecordingEventEmitter {
     async fn emit_started(&self, event: DelegationStartedEvent) {
         self.started.lock().unwrap().push(event);
+        self.order.lock().unwrap().push("started");
     }
 
     async fn emit_completed(&self, event: DelegationCompletedEvent) {
         self.completed.lock().unwrap().push(event);
+        self.order.lock().unwrap().push("completed");
     }
 }

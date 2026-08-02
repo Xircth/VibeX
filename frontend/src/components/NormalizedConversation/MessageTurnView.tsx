@@ -36,7 +36,11 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
-import { AGGREGATION_LABELS } from './conversation-entry-utils';
+import {
+  AGGREGATION_LABELS,
+  splitAssistantCommandOutput,
+} from './conversation-entry-utils';
+import { AssistantCommandOutputEntry } from './MessageCard';
 import {
   groupTurnRenderItems,
   type IndexedTurnItem,
@@ -552,6 +556,20 @@ export const MessageTurnView = memo(function MessageTurnView({
     key: string,
     hideToolLabel = false
   ): ReactNode => {
+    if (item.kind === 'markdown' && collapseProcess) {
+      const commandOutput = splitAssistantCommandOutput(item.text);
+      if (commandOutput) {
+        return (
+          <AssistantCommandOutputEntry
+            key={key}
+            prefix={commandOutput.prefix}
+            output={commandOutput.output}
+            expansionKey={key}
+            markdownContext={context}
+          />
+        );
+      }
+    }
     if (item.kind === 'tool' && item.use) {
       return (
         <DisplayConversationEntry

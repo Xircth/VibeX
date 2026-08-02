@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { TFunction } from 'i18next';
+import { SoundFile } from 'shared/types';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useProject } from '@/contexts/ProjectContext';
@@ -17,12 +18,13 @@ import {
 } from '@/lib/api';
 import { showDesktopToast } from '@/lib/desktopToast';
 import { paths } from '@/lib/paths';
-import { tauriListen } from '@/lib/tauriApi';
+import { backendListen } from '@/lib/backendTransport';
 import { desktopApi } from '@/lib/api';
 import { dateTimestamp } from '@/utils/date';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
+import { deliverSessionCompletionNotification } from './sessionCompletionNotification';
 
 function getSessionStatusLabel(
   session: KanbanProjectSessionRecord,
@@ -189,13 +191,16 @@ function ProjectActivityTracker({
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
-    tauriListen<ProjectSessionTarget>('desktop-toast-activated', (payload) => {
-      if (payload.projectId !== projectId) {
-        return;
-      }
+    backendListen<ProjectSessionTarget>(
+      'desktop-toast-activated',
+      (payload) => {
+        if (payload.projectId !== projectId) {
+          return;
+        }
 
-      openProjectSession(payload);
-    }).then((dispose) => {
+        openProjectSession(payload);
+      }
+    ).then((dispose) => {
       unlisten = dispose;
     });
 
@@ -313,39 +318,26 @@ function ProjectActivityTracker({
             return;
           }
 
-          const shouldNotify = kind === 'error' || !windowFocused;
-          if (!shouldNotify) {
-            return;
-          }
-
-          if (config?.notifications.sound_enabled) {
-            void configApi
-              .playNotificationSound(config.notifications.sound_file)
-              .catch((error) => {
-                console.error(
-                  'Failed to play session notification sound:',
-                  error
-                );
-              });
-          }
-
-          if (!config?.notifications.push_enabled) {
-            return;
-          }
-
-          void showDesktopToast({
-            projectId,
-            workspaceId: workspace.id,
-            sessionId: latestSummary.id,
-            title,
-            description,
+          void deliverSessionCompletionNotification({
             kind,
-            durationMs: 15000,
+            windowFocused,
+            soundEnabled: config?.notifications.sound_enabled ?? false,
+            soundFile:
+              config?.notifications.sound_file ?? SoundFile.ABSTRACT_SOUND1,
+            pushEnabled: config?.notifications.push_enabled ?? false,
+            playSound: configApi.playNotificationSound,
+            showPush: () =>
+              showDesktopToast({
+                projectId,
+                workspaceId: workspace.id,
+                sessionId: latestSummary.id,
+                title,
+                description,
+                kind,
+                durationMs: 15000,
+              }),
           }).catch((error) => {
-            console.error(
-              'Failed to show detached desktop toast window for session notification:',
-              error
-            );
+            console.error('Failed to deliver session completion notification:', error);
           });
         })
         .catch((error) => {

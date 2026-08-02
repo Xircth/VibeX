@@ -959,13 +959,14 @@ fn map_agent_event_to_conversation_event(
             },
         }),
         AgentEvent::DelegationStarted {
+            delegation_id,
             parent_tool_use_id,
             child_session_id,
             agent_id,
             task_preview,
         } => Some(ConversationEvent::DelegationStarted {
             delegation: ConversationDelegation {
-                delegation_id: format!("delegation-{child_session_id}"),
+                delegation_id: delegation_id.clone(),
                 parent_tool_call_id: parent_tool_use_id.clone(),
                 child_conversation_id: *child_session_id,
                 agent_id: agent_id.clone(),
@@ -973,12 +974,13 @@ fn map_agent_event_to_conversation_event(
             },
         }),
         AgentEvent::DelegationCompleted {
+            delegation_id,
             parent_tool_use_id: _,
-            child_session_id,
+            child_session_id: _,
             result,
             ..
         } => Some(ConversationEvent::DelegationCompleted {
-            delegation_id: format!("delegation-{child_session_id}"),
+            delegation_id: delegation_id.clone(),
             result: match result {
                 agents::DelegationResultSummary::Ok {
                     duration_ms,

@@ -48,6 +48,8 @@ pub struct AppState {
     /// (`forget_conversation_runtime`).
     pub conversation_row_projectors:
         Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
+    pub office_runtime: Arc<crate::office_runtime::OfficeRuntime>,
+    pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
 }
 
 impl AppState {
@@ -59,6 +61,27 @@ impl AppState {
         // record (批次D). The first-generation `agent_*` shadow tables are retired, so
         // the runtime uses the no-op sink instead of the old SQLite mirror.
         let agent_runtime = Arc::new(AgentRuntime::default());
+        let office_runtime = Arc::new(
+            crate::office_runtime::OfficeRuntime::new(
+                pool.clone(),
+                utils::assets::asset_dir().join("managed-tools"),
+            )
+            .await?,
+        );
+        let remote_desktop = Arc::new(
+            crate::remote_desktop::RemoteDesktopRegistry::new()
+                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
+        );
+        if office_runtime.should_restore_enabled_on_startup() {
+            let runtime = office_runtime.clone();
+            tokio::spawn(async move {
+                if let Err(error) = runtime.restore_enabled_on_startup().await {
+                    tracing::warn!(
+                        "managed Office plugin startup restore remains not-ready: {error}"
+                    );
+                }
+            });
+        }
         // Build the delegation broker over the runtime + DB and start its
         // listener + resolver. Live from startup; ClaudeCode MCP injection (so
         // the agent auto-calls it) lands in a follow-up.
@@ -75,6 +98,8 @@ impl AppState {
             conversation_turn_locks: Arc::new(Mutex::new(HashMap::new())),
             conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
             conversation_row_projectors: Arc::new(Mutex::new(HashMap::new())),
+            office_runtime,
+            remote_desktop,
         })
     }
 

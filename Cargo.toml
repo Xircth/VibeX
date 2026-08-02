@@ -17,6 +17,14 @@ members = [
     "crates/local-deployment",
     "crates/deployment",
     "crates/review",
+    "crates/plugins",
+    "crates/tool-runtime",
+    "crates/artifacts",
+    "crates/office-runtime",
+    "crates/automation",
+    "crates/remote-protocol",
+    "crates/application",
+    "crates/server",
     "src-tauri",
 ]
 
@@ -48,6 +56,7 @@ strum_macros = "0.27.2"
 json-patch = "2.0"
 tempfile = "3"
 regex = "1"
+url = "2.5"
 
 [profile.release]
 debug = 1

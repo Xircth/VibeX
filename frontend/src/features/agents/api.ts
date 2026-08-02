@@ -1,4 +1,4 @@
-import { tauriInvoke } from '@/lib/tauriApi';
+import { backendCall } from '@/lib/backendTransport';
 import type {
   AgentPreparedSessionSnapshot,
   AgentSessionControlsSnapshot,
@@ -79,34 +79,34 @@ export const agentsApi = {
   capabilityCatalog: (
     agentId: string
   ): Promise<AgentSessionControlsSnapshot | null> =>
-    tauriInvoke('agent_capability_catalog', { agentId }),
+    backendCall('agent_capability_catalog', { agentId }),
 
   capabilityCatalogFresh: (agentId: string): Promise<boolean> =>
-    tauriInvoke('agent_capability_catalog_fresh', { agentId }),
+    backendCall('agent_capability_catalog_fresh', { agentId }),
 
   refreshCapabilityCatalog: (agentId: string): Promise<boolean> =>
-    tauriInvoke('agent_refresh_capability_catalog', { agentId }),
+    backendCall('agent_refresh_capability_catalog', { agentId }),
 
   sessionDefaults: (agentId: string): Promise<AgentSessionDefaultsView> =>
-    tauriInvoke('agent_session_defaults', { agentId }),
+    backendCall('agent_session_defaults', { agentId }),
 
   setSessionDefaults: (
     agentId: string,
     defaults: Record<string, unknown>
   ): Promise<void> =>
-    tauriInvoke('agent_set_session_defaults', {
+    backendCall('agent_set_session_defaults', {
       request: { agentId, defaults },
     }),
 
   snapshot: (): Promise<AgentRuntimeSnapshot> =>
-    tauriInvoke('agent_runtime_snapshot'),
+    backendCall('agent_runtime_snapshot'),
 
   listRemoteSessions: (
     agentId: string,
     workspaceId: string,
     cursor?: string | null
   ): Promise<AgentSessionListPage> =>
-    tauriInvoke('agent_list_remote_sessions', {
+    backendCall('agent_list_remote_sessions', {
       request: { agentId, workspaceId, cursor: cursor ?? null },
     }),
 
@@ -115,7 +115,7 @@ export const agentsApi = {
     workspaceId: string,
     acpSessionId: string
   ): Promise<void> =>
-    tauriInvoke('agent_delete_remote_session', {
+    backendCall('agent_delete_remote_session', {
       request: { agentId, workspaceId, acpSessionId },
     }),
 
@@ -125,7 +125,7 @@ export const agentsApi = {
     acpSessionId: string,
     title?: string | null
   ): Promise<{ id: string }> =>
-    tauriInvoke('agent_import_remote_session', {
+    backendCall('agent_import_remote_session', {
       request: {
         agentId,
         workspaceId,
@@ -137,29 +137,29 @@ export const agentsApi = {
   connectionSnapshot: (
     request: AgentConnectionRequest
   ): Promise<AgentConnectionSnapshot> =>
-    tauriInvoke('agent_connection_snapshot', { request }),
+    backendCall('agent_connection_snapshot', { request }),
 
   loadSession: (request: AgentSessionRequest): Promise<AgentSessionSnapshot> =>
-    tauriInvoke('agent_load_session', { request }),
+    backendCall('agent_load_session', { request }),
 
   listSessionCommands: (
     request: AgentSessionRequest
   ): Promise<AgentAvailableCommand[]> =>
-    tauriInvoke('agent_list_session_commands', { request }),
+    backendCall('agent_list_session_commands', { request }),
 
   connect: (request: AgentConnectRequest): Promise<AgentConnectionSnapshot> =>
-    tauriInvoke('agent_connect', { request }),
+    backendCall('agent_connect', { request }),
 
   prepareSession: (
     request: AgentPrepareSessionRequest
   ): Promise<AgentPreparedSessionSnapshot> =>
-    tauriInvoke('agent_prepare_session', { request }),
+    backendCall('agent_prepare_session', { request }),
 
   setPreparedSessionMode: (
     sessionId: string,
     modeId: string
   ): Promise<AgentSessionControlsSnapshot> =>
-    tauriInvoke('agent_set_prepared_session_mode', {
+    backendCall('agent_set_prepared_session_mode', {
       request: { sessionId, modeId },
     }),
 
@@ -168,43 +168,43 @@ export const agentsApi = {
     key: string,
     value: unknown
   ): Promise<AgentSessionControlsSnapshot> =>
-    tauriInvoke('agent_set_prepared_session_config', {
+    backendCall('agent_set_prepared_session_config', {
       request: { sessionId, key, value },
     }),
 
   discardPreparedSession: (sessionId: string): Promise<void> =>
-    tauriInvoke('agent_discard_prepared_session', {
+    backendCall('agent_discard_prepared_session', {
       request: { sessionId },
     }),
 
   newSession: (
     request: AgentNewSessionRequest
   ): Promise<AgentSessionSnapshot> =>
-    tauriInvoke('agent_new_session', { request }),
+    backendCall('agent_new_session', { request }),
 
   resumeSession: (
     request: AgentResumeSessionRequest
   ): Promise<AgentSessionSnapshot> =>
-    tauriInvoke('agent_resume_session', { request }),
+    backendCall('agent_resume_session', { request }),
 
   sendPrompt: (request: AgentSendPromptRequest): Promise<AgentPromptSnapshot> =>
-    tauriInvoke('agent_send_prompt', { request }),
+    backendCall('agent_send_prompt', { request }),
 
   cancelPrompt: (request: AgentCancelPromptRequest): Promise<void> =>
-    tauriInvoke('agent_cancel_prompt', { request }),
+    backendCall('agent_cancel_prompt', { request }),
 
   disconnect: (
     request: AgentConnectionRequest
   ): Promise<AgentConnectionSnapshot> =>
-    tauriInvoke('agent_disconnect', { request }),
+    backendCall('agent_disconnect', { request }),
 
   respondPermission: (request: AgentRespondPermissionRequest): Promise<void> =>
-    tauriInvoke('agent_respond_permission', { request }),
+    backendCall('agent_respond_permission', { request }),
 
   terminalSnapshot: (
     request: AgentTerminalSnapshotRequest
   ): Promise<AgentTerminalOutputSnapshot | null> =>
-    tauriInvoke('agent_terminal_snapshot', { request }),
+    backendCall('agent_terminal_snapshot', { request }),
 
   // Restore the workspace to the checkpoint recorded before the Nth user message
   // (ordinal). Destructive when performGitReset; the ACP transcript is not
@@ -215,7 +215,7 @@ export const agentsApi = {
     performGitReset = true,
     forceWhenDirty = false
   ): Promise<void> =>
-    tauriInvoke('agent_reset_to_checkpoint', {
+    backendCall('agent_reset_to_checkpoint', {
       sessionId,
       ordinal,
       performGitReset,

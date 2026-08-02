@@ -7,6 +7,8 @@ edition = "2024"
 utils = { path = "../utils" }
 executors = { path = "../executors" }
 api-types = { path = "../api-types" }
+automation = { path = "../automation" }
+async-trait = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -14,12 +16,15 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
 chrono = { workspace = true }
+iana-time-zone = "0.1"
 uuid = { workspace = true }
 ts-rs = { workspace = true }
+tokio = { workspace = true }
 serde_with = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 sha2 = "0.10"
 
 [dev-dependencies]
+tempfile = { workspace = true }
 tokio = { workspace = true }

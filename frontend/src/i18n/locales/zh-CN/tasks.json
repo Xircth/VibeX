@@ -1,4 +1,12 @@
 {
+  "composer": {
+    "inputLabel": "消息"
+  },
+  "agentMention": {
+    "companionUnsupported": "当前父 Agent 不支持 VibeX companion，Mention 不会启动委派。",
+    "loading": "正在加载 Agent...",
+    "noMatches": "没有匹配的 Agent。"
+  },
   "sessionConversationView": {
     "backToBottom": "回到消息底部",
     "loadingSession": "正在加载会话..."
@@ -347,6 +355,27 @@
       "reasonTokenExpired": "登录凭据已过期：请打开对应 CLI 执行任意对话刷新凭据后重试",
       "errorTitle": "读取失败",
       "hint": "额度数据直接读取本机 CLI 凭据与官方接口，不经过任何第三方服务"
+    }
+  },
+  "pluginActions": {
+    "loadingAria": "Plugin actions 加载状态",
+    "loading": "正在加载 Office 快捷工作流",
+    "retry": "重试加载快捷工作流",
+    "empty": "暂无可用的 Office 快捷工作流",
+    "installing": "正在安装 OfficeCLI",
+    "installProgressAria": "OfficeCLI 安装进度",
+    "cancelInstall": "取消安装 OfficeCLI",
+    "cancelFailed": "安装任务已结束，无法取消",
+    "retryInstall": "重试安装 OfficeCLI",
+    "invalidCatalog": "OfficeCLI 已安装，但刷新后的快捷工作流目录无效",
+    "promptAria": "动作提示词",
+    "actions": {
+      "create-presentation": "创建 PPT",
+      "modify-presentation": "修改 PPT",
+      "create-document": "创建 DOCX",
+      "modify-document": "修改 DOCX",
+      "analyze-spreadsheet": "分析 Excel",
+      "generate-spreadsheet": "生成 Excel"
     }
   },
   "composerCompact": {

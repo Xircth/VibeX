@@ -1,4 +1,12 @@
 {
+  "composer": {
+    "inputLabel": "Message"
+  },
+  "agentMention": {
+    "companionUnsupported": "The current parent agent does not support the VibeX companion, so this mention will not start a delegation.",
+    "loading": "Loading agents...",
+    "noMatches": "No matching agents found."
+  },
   "sessionConversationView": {
     "backToBottom": "Back to bottom",
     "loadingSession": "Loading session..."
@@ -347,6 +355,27 @@
       "reasonTokenExpired": "Credentials expired: run any prompt in the CLI to refresh, then retry",
       "errorTitle": "Failed to read usage",
       "hint": "Usage is read from local CLI credentials and official endpoints only — no third-party service involved"
+    }
+  },
+  "pluginActions": {
+    "loadingAria": "Plugin actions loading state",
+    "loading": "Loading Office workflows",
+    "retry": "Retry loading workflows",
+    "empty": "No Office workflows are available",
+    "installing": "Installing OfficeCLI",
+    "installProgressAria": "OfficeCLI installation progress",
+    "cancelInstall": "Cancel OfficeCLI installation",
+    "cancelFailed": "The installation task has already finished and cannot be cancelled",
+    "retryInstall": "Retry OfficeCLI installation",
+    "invalidCatalog": "OfficeCLI installed, but the refreshed workflow catalog was invalid",
+    "promptAria": "Action prompt",
+    "actions": {
+      "create-presentation": "Create presentation",
+      "modify-presentation": "Modify presentation",
+      "create-document": "Create document",
+      "modify-document": "Modify document",
+      "analyze-spreadsheet": "Analyze spreadsheet",
+      "generate-spreadsheet": "Generate spreadsheet"
     }
   },
   "composerCompact": {

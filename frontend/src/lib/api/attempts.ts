@@ -33,7 +33,7 @@ import type {
 
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { createWorkspaceWithSession } from '@/types/attempt';
-import { tauriInvoke, invokeAsResult } from './base';
+import { backendCall, invokeAsResult } from './base';
 import type {
   Result,
   RebaseResult,
@@ -52,7 +52,7 @@ export const attemptsApi = {
   getTauriInspectorStatus: async (
     attemptId: string
   ): Promise<TauriInspectorStatus> => {
-    return tauriInvoke<TauriInspectorStatus>('get_tauri_inspector_status', {
+    return backendCall<TauriInspectorStatus>('get_tauri_inspector_status', {
       workspaceId: attemptId,
     });
   },
@@ -60,7 +60,7 @@ export const attemptsApi = {
   installTauriInspector: async (
     attemptId: string
   ): Promise<TauriInspectorStatus> => {
-    return tauriInvoke<TauriInspectorStatus>('install_tauri_inspector', {
+    return backendCall<TauriInspectorStatus>('install_tauri_inspector', {
       workspaceId: attemptId,
     });
   },
@@ -69,7 +69,7 @@ export const attemptsApi = {
     attemptId: string,
     action: 'activate' | 'deactivate'
   ): Promise<void> => {
-    return tauriInvoke<void>('control_tauri_inspector', {
+    return backendCall<void>('control_tauri_inspector', {
       workspaceId: attemptId,
       action,
     });
@@ -78,38 +78,38 @@ export const attemptsApi = {
   takeTauriInspectorCapture: async (
     attemptId: string
   ): Promise<RedlineDocument | null> => {
-    return tauriInvoke<RedlineDocument | null>('take_tauri_inspector_capture', {
+    return backendCall<RedlineDocument | null>('take_tauri_inspector_capture', {
       workspaceId: attemptId,
     });
   },
 
   getChildren: async (attemptId: string): Promise<TaskRelationships> => {
-    return tauriInvoke<TaskRelationships>('get_workspace_children', {
+    return backendCall<TaskRelationships>('get_workspace_children', {
       workspaceId: attemptId,
     });
   },
 
   getAll: async (taskId: string): Promise<Workspace[]> => {
-    return tauriInvoke<Workspace[]>('get_workspaces', { taskId });
+    return backendCall<Workspace[]>('get_workspaces', { taskId });
   },
 
   /** Get all workspaces across all tasks (newest first) */
   getAllWorkspaces: async (): Promise<Workspace[]> => {
-    return tauriInvoke<Workspace[]>('get_workspaces', { taskId: null });
+    return backendCall<Workspace[]>('get_workspaces', { taskId: null });
   },
 
   /** Get all workspaces for a project (also syncs local worktrees). */
   getProjectWorkspaces: async (projectId: string): Promise<Workspace[]> => {
-    return tauriInvoke<Workspace[]>('get_project_workspaces', { projectId });
+    return backendCall<Workspace[]>('get_project_workspaces', { projectId });
   },
 
   /** Get total count of workspaces */
   getCount: async (): Promise<number> => {
-    return tauriInvoke<number>('get_workspace_count');
+    return backendCall<number>('get_workspace_count');
   },
 
   get: async (attemptId: string): Promise<Workspace> => {
-    return tauriInvoke<Workspace>('get_workspace', {
+    return backendCall<Workspace>('get_workspace', {
       workspaceId: attemptId,
     });
   },
@@ -118,7 +118,7 @@ export const attemptsApi = {
     attemptId: string,
     data: { archived?: boolean; pinned?: boolean; name?: string }
   ): Promise<Workspace> => {
-    return tauriInvoke<Workspace>('update_workspace', {
+    return backendCall<Workspace>('update_workspace', {
       workspaceId: attemptId,
       payload: data,
     });
@@ -134,7 +134,7 @@ export const attemptsApi = {
   },
 
   create: async (data: CreateTaskAttemptBody): Promise<Workspace> => {
-    return tauriInvoke<Workspace>('create_workspace', {
+    return backendCall<Workspace>('create_workspace', {
       payload: {
         task_id: data.task_id,
         executor_profile_id: data.executor_profile_id,
@@ -144,7 +144,7 @@ export const attemptsApi = {
   },
 
   stop: async (attemptId: string): Promise<void> => {
-    return tauriInvoke<void>('stop_workspace_execution', {
+    return backendCall<void>('stop_workspace_execution', {
       workspaceId: attemptId,
     });
   },
@@ -153,7 +153,7 @@ export const attemptsApi = {
     attemptId: string,
     deleteBranches?: boolean
   ): Promise<void> => {
-    return tauriInvoke<void>('delete_workspace', {
+    return backendCall<void>('delete_workspace', {
       workspaceId: attemptId,
       deleteBranches: deleteBranches ?? null,
     });
@@ -163,7 +163,7 @@ export const attemptsApi = {
     attemptId: string,
     data: OpenEditorRequest
   ): Promise<OpenEditorResponse> => {
-    return tauriInvoke<OpenEditorResponse>('open_workspace_in_editor', {
+    return backendCall<OpenEditorResponse>('open_workspace_in_editor', {
       workspaceId: attemptId,
       editorType: data.editor_type ?? null,
       filePath: data.file_path ?? null,
@@ -171,19 +171,19 @@ export const attemptsApi = {
   },
 
   getBranchStatus: async (attemptId: string): Promise<RepoBranchStatus[]> => {
-    return tauriInvoke<RepoBranchStatus[]>('get_workspace_branch_status', {
+    return backendCall<RepoBranchStatus[]>('get_workspace_branch_status', {
       workspaceId: attemptId,
     });
   },
 
   getRepos: async (attemptId: string): Promise<RepoWithTargetBranch[]> => {
-    return tauriInvoke<RepoWithTargetBranch[]>('get_workspace_repos', {
+    return backendCall<RepoWithTargetBranch[]>('get_workspace_repos', {
       workspaceId: attemptId,
     });
   },
 
   getFirstUserMessage: async (attemptId: string): Promise<string | null> => {
-    return tauriInvoke<string | null>('get_first_user_message', {
+    return backendCall<string | null>('get_first_user_message', {
       workspaceId: attemptId,
     });
   },
@@ -192,7 +192,7 @@ export const attemptsApi = {
     attemptId: string,
     data: MergeTaskAttemptRequest
   ): Promise<void> => {
-    return tauriInvoke<void>('merge_workspace', {
+    return backendCall<void>('merge_workspace', {
       workspaceId: attemptId,
       repoId: data.repo_id,
     });
@@ -224,7 +224,7 @@ export const attemptsApi = {
     attemptId: string,
     data: RebaseTaskAttemptRequest
   ): Promise<RebaseResult> => {
-    return tauriInvoke<RebaseResult>('rebase_workspace', {
+    return backendCall<RebaseResult>('rebase_workspace', {
       workspaceId: attemptId,
       repoId: data.repo_id,
       oldBaseBranch: data.old_base_branch ?? null,
@@ -236,7 +236,7 @@ export const attemptsApi = {
     attemptId: string,
     data: ChangeTargetBranchRequest
   ): Promise<ChangeTargetBranchResponse> => {
-    return tauriInvoke<ChangeTargetBranchResponse>(
+    return backendCall<ChangeTargetBranchResponse>(
       'change_workspace_target_branch',
       {
         workspaceId: attemptId,
@@ -250,7 +250,7 @@ export const attemptsApi = {
     attemptId: string,
     newBranchName: string
   ): Promise<RenameBranchResponse> => {
-    return tauriInvoke<RenameBranchResponse>('rename_workspace_branch', {
+    return backendCall<RenameBranchResponse>('rename_workspace_branch', {
       workspaceId: attemptId,
       newBranchName,
     });
@@ -260,7 +260,7 @@ export const attemptsApi = {
     attemptId: string,
     repoId: string
   ): Promise<RebaseResult> => {
-    return tauriInvoke<RebaseResult>('rebase_back_workspace', {
+    return backendCall<RebaseResult>('rebase_back_workspace', {
       workspaceId: attemptId,
       repoId,
     });
@@ -270,7 +270,7 @@ export const attemptsApi = {
     attemptId: string,
     data: AbortConflictsRequest
   ): Promise<void> => {
-    return tauriInvoke<void>('abort_conflicts_workspace', {
+    return backendCall<void>('abort_conflicts_workspace', {
       workspaceId: attemptId,
       repoId: data.repo_id,
     });
@@ -280,7 +280,7 @@ export const attemptsApi = {
     attemptId: string,
     data: ContinueRebaseRequest
   ): Promise<void> => {
-    return tauriInvoke<void>('continue_rebase_workspace', {
+    return backendCall<void>('continue_rebase_workspace', {
       workspaceId: attemptId,
       repoId: data.repo_id,
     });
@@ -302,13 +302,13 @@ export const attemptsApi = {
   },
 
   startDevServer: async (attemptId: string): Promise<ExecutionProcess[]> => {
-    return tauriInvoke<ExecutionProcess[]>('start_workspace_dev_server', {
+    return backendCall<ExecutionProcess[]>('start_workspace_dev_server', {
       workspaceId: attemptId,
     });
   },
 
   setupGhCli: async (attemptId: string): Promise<ExecutionProcess> => {
-    return tauriInvoke<ExecutionProcess>('gh_cli_setup', {
+    return backendCall<ExecutionProcess>('gh_cli_setup', {
       workspaceId: attemptId,
     });
   },
@@ -344,7 +344,7 @@ export const attemptsApi = {
     attemptId: string,
     repoId: string
   ): Promise<PrCommentsResponse> => {
-    return tauriInvoke<PrCommentsResponse>('get_workspace_pr_comments', {
+    return backendCall<PrCommentsResponse>('get_workspace_pr_comments', {
       workspaceId: attemptId,
       repoId,
     });
@@ -354,7 +354,7 @@ export const attemptsApi = {
     workspaceId: string,
     repoId: string
   ): Promise<{ message: string }[]> => {
-    return tauriInvoke<{ message: string }[]>('get_workspace_commit_history', {
+    return backendCall<{ message: string }[]>('get_workspace_commit_history', {
       workspaceId,
       repoId,
     });
@@ -365,7 +365,7 @@ export const attemptsApi = {
     repoId: string,
     maxCommits?: number
   ): Promise<CommitGraphResult> => {
-    return tauriInvoke<CommitGraphResult>('get_workspace_commit_graph', {
+    return backendCall<CommitGraphResult>('get_workspace_commit_graph', {
       workspaceId,
       repoId,
       maxCommits: maxCommits ?? 100,
@@ -378,7 +378,7 @@ export const attemptsApi = {
     workspaceId: string,
     repoId: string
   ): Promise<DetailedGitStatus> => {
-    return tauriInvoke<DetailedGitStatus>('get_workspace_git_status', {
+    return backendCall<DetailedGitStatus>('get_workspace_git_status', {
       workspaceId,
       repoId,
     });
@@ -389,7 +389,7 @@ export const attemptsApi = {
     repoId: string,
     filePath: string
   ): Promise<void> => {
-    return tauriInvoke<void>('stage_workspace_file', {
+    return backendCall<void>('stage_workspace_file', {
       workspaceId,
       repoId,
       filePath,
@@ -397,7 +397,7 @@ export const attemptsApi = {
   },
 
   stageAll: async (workspaceId: string, repoId: string): Promise<void> => {
-    return tauriInvoke<void>('stage_workspace_all', { workspaceId, repoId });
+    return backendCall<void>('stage_workspace_all', { workspaceId, repoId });
   },
 
   unstageFile: async (
@@ -405,7 +405,7 @@ export const attemptsApi = {
     repoId: string,
     filePath: string
   ): Promise<void> => {
-    return tauriInvoke<void>('unstage_workspace_file', {
+    return backendCall<void>('unstage_workspace_file', {
       workspaceId,
       repoId,
       filePath,
@@ -417,7 +417,7 @@ export const attemptsApi = {
     repoId: string,
     filePath: string
   ): Promise<void> => {
-    return tauriInvoke<void>('revert_workspace_file', {
+    return backendCall<void>('revert_workspace_file', {
       workspaceId,
       repoId,
       filePath,
@@ -425,14 +425,14 @@ export const attemptsApi = {
   },
 
   revertAll: async (workspaceId: string, repoId: string): Promise<void> => {
-    return tauriInvoke<void>('revert_workspace_all', { workspaceId, repoId });
+    return backendCall<void>('revert_workspace_all', { workspaceId, repoId });
   },
 
   getFileDiffs: async (
     workspaceId: string,
     repoId: string
   ): Promise<GitFileDiffEntry[]> => {
-    return tauriInvoke<GitFileDiffEntry[]>('get_workspace_file_diffs', {
+    return backendCall<GitFileDiffEntry[]>('get_workspace_file_diffs', {
       workspaceId,
       repoId,
     });
@@ -443,7 +443,7 @@ export const attemptsApi = {
     repoId: string,
     message: string
   ): Promise<void> => {
-    return tauriInvoke<void>('commit_workspace_changes', {
+    return backendCall<void>('commit_workspace_changes', {
       workspaceId,
       repoId,
       message,
@@ -454,7 +454,7 @@ export const attemptsApi = {
     workspaceId: string,
     repoId: string
   ): Promise<GitLogStatus> => {
-    return tauriInvoke<GitLogStatus>('get_workspace_git_log', {
+    return backendCall<GitLogStatus>('get_workspace_git_log', {
       workspaceId,
       repoId,
     });
@@ -465,7 +465,7 @@ export const attemptsApi = {
     repoId: string,
     sha: string
   ): Promise<CommitDetail> => {
-    return tauriInvoke<CommitDetail>('get_workspace_commit_detail', {
+    return backendCall<CommitDetail>('get_workspace_commit_detail', {
       workspaceId,
       repoId,
       sha,
@@ -477,7 +477,7 @@ export const attemptsApi = {
     repoId: string,
     sha: string
   ): Promise<Diff[]> => {
-    return tauriInvoke<Diff[]>('get_workspace_commit_diffs', {
+    return backendCall<Diff[]>('get_workspace_commit_diffs', {
       workspaceId,
       repoId,
       sha,
@@ -489,7 +489,7 @@ export const attemptsApi = {
     repoId: string,
     sha: string
   ): Promise<void> => {
-    return tauriInvoke<void>('git_cherry_pick', { workspaceId, repoId, sha });
+    return backendCall<void>('git_cherry_pick', { workspaceId, repoId, sha });
   },
 
   stash: async (
@@ -498,7 +498,7 @@ export const attemptsApi = {
     message: string | null,
     includeUntracked: boolean
   ): Promise<boolean> => {
-    return tauriInvoke<boolean>('stash_workspace', {
+    return backendCall<boolean>('stash_workspace', {
       workspaceId,
       repoId,
       message,
@@ -510,7 +510,7 @@ export const attemptsApi = {
     workspaceId: string,
     repoId: string
   ): Promise<StashEntry[]> => {
-    return tauriInvoke<StashEntry[]>('list_workspace_stashes', {
+    return backendCall<StashEntry[]>('list_workspace_stashes', {
       workspaceId,
       repoId,
     });
@@ -521,7 +521,7 @@ export const attemptsApi = {
     repoId: string,
     index: number
   ): Promise<void> => {
-    return tauriInvoke<void>('apply_workspace_stash', {
+    return backendCall<void>('apply_workspace_stash', {
       workspaceId,
       repoId,
       index,
@@ -533,7 +533,7 @@ export const attemptsApi = {
     repoId: string,
     index: number
   ): Promise<void> => {
-    return tauriInvoke<void>('pop_workspace_stash', {
+    return backendCall<void>('pop_workspace_stash', {
       workspaceId,
       repoId,
       index,
@@ -545,7 +545,7 @@ export const attemptsApi = {
     repoId: string,
     index: number
   ): Promise<void> => {
-    return tauriInvoke<void>('drop_workspace_stash', {
+    return backendCall<void>('drop_workspace_stash', {
       workspaceId,
       repoId,
       index,
@@ -557,7 +557,7 @@ export const attemptsApi = {
     repoId: string,
     sha: string
   ): Promise<void> => {
-    return tauriInvoke<void>('git_revert_commit', { workspaceId, repoId, sha });
+    return backendCall<void>('git_revert_commit', { workspaceId, repoId, sha });
   },
 
   resetToCommit: async (
@@ -566,7 +566,7 @@ export const attemptsApi = {
     sha: string,
     mode: ResetMode
   ): Promise<void> => {
-    return tauriInvoke<void>('git_reset_to_commit', {
+    return backendCall<void>('git_reset_to_commit', {
       workspaceId,
       repoId,
       sha,
@@ -580,7 +580,7 @@ export const attemptsApi = {
     branchName: string,
     sha: string
   ): Promise<void> => {
-    return tauriInvoke<void>('git_create_branch_at_commit', {
+    return backendCall<void>('git_create_branch_at_commit', {
       workspaceId,
       repoId,
       branchName,
@@ -592,14 +592,14 @@ export const attemptsApi = {
     workspaceId: string,
     repoId: string
   ): Promise<PullResult> => {
-    return tauriInvoke<PullResult>('pull_workspace_branch', {
+    return backendCall<PullResult>('pull_workspace_branch', {
       workspaceId,
       repoId,
     });
   },
 
   fetchRemote: async (workspaceId: string, repoId: string): Promise<void> => {
-    return tauriInvoke<void>('fetch_workspace', { workspaceId, repoId });
+    return backendCall<void>('fetch_workspace', { workspaceId, repoId });
   },
 
   checkoutBranch: async (
@@ -607,7 +607,7 @@ export const attemptsApi = {
     repoId: string,
     branchName: string
   ): Promise<void> => {
-    return tauriInvoke<void>('checkout_workspace_branch', {
+    return backendCall<void>('checkout_workspace_branch', {
       workspaceId,
       repoId,
       branchName,
@@ -620,7 +620,7 @@ export const attemptsApi = {
     branchName: string,
     fromRef?: string
   ): Promise<void> => {
-    return tauriInvoke<void>('create_workspace_branch', {
+    return backendCall<void>('create_workspace_branch', {
       workspaceId,
       repoId,
       branchName,
@@ -633,7 +633,7 @@ export const attemptsApi = {
     repoId: string,
     branchName: string
   ): Promise<void> => {
-    return tauriInvoke<void>('delete_workspace_branch', {
+    return backendCall<void>('delete_workspace_branch', {
       workspaceId,
       repoId,
       branchName,
@@ -644,7 +644,7 @@ export const attemptsApi = {
 
   /** Mark all coding agent turns for a workspace as seen */
   markSeen: async (attemptId: string): Promise<void> => {
-    return tauriInvoke<void>('mark_workspace_seen', {
+    return backendCall<void>('mark_workspace_seen', {
       workspaceId: attemptId,
     });
   },

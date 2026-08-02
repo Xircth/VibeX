@@ -4,6 +4,10 @@ import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import { getSlashCommandPresentation } from '@/lib/slashCommandPresentation';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
+import {
+  serializeAgentMention,
+  type AgentMentionCandidate,
+} from './AgentMention';
 
 export type ComposerTypeaheadOption = {
   key: string;
@@ -14,6 +18,28 @@ export type ComposerTypeaheadOption = {
 
 export const MAX_TYPEAHEAD_OPTIONS = 50;
 export const MAX_REFERENCE_OPTIONS = 10;
+
+export function agentMentionsToTypeaheadOptions(
+  candidates: AgentMentionCandidate[],
+  query: string
+): ComposerTypeaheadOption[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  return candidates
+    .filter((candidate) => {
+      if (!normalized) return true;
+      return (
+        candidate.display_name.toLocaleLowerCase().includes(normalized) ||
+        candidate.agent_kind.toLocaleLowerCase().includes(normalized)
+      );
+    })
+    .slice(0, MAX_REFERENCE_OPTIONS)
+    .map((candidate) => ({
+      key: `agent-${candidate.agent_kind}`,
+      label: `&${candidate.display_name}`,
+      description: candidate.description ?? candidate.agent_kind,
+      insertText: serializeAgentMention(candidate),
+    }));
+}
 
 export function filterSlashCommands(
   all: SlashCommandDescription[],
@@ -61,8 +87,8 @@ export function slashCommandsToTypeaheadOptions(
     ...filtered.filter(
       (command) => !getSlashCommandPresentation(command, executor).isSkill
     ),
-    ...filtered.filter((command) =>
-      getSlashCommandPresentation(command, executor).isSkill
+    ...filtered.filter(
+      (command) => getSlashCommandPresentation(command, executor).isSkill
     ),
   ].slice(0, MAX_TYPEAHEAD_OPTIONS);
 
@@ -71,8 +97,7 @@ export function slashCommandsToTypeaheadOptions(
     return {
       key: `slash-${command.name}`,
       label: `/${presentation.label}`,
-      description:
-        presentation.description ?? command.description ?? undefined,
+      description: presentation.description ?? command.description ?? undefined,
       insertText: formatSessionComposerCommand({
         type: '/',
         key: command.name,

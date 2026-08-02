@@ -1,4 +1,4 @@
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import type {
   BrowserEvent,
   BrowserIntent,
@@ -9,22 +9,22 @@ import type {
 
 export const browserApi = {
   createTab(request: CreateBrowserTab): Promise<BrowserTab> {
-    return tauriInvoke<BrowserTab>('browser_create_tab', { request });
+    return backendCall<BrowserTab>('browser_create_tab', { request });
   },
 
   applyIntent(tabId: BrowserTabId, intent: BrowserIntent): Promise<void> {
-    return tauriInvoke<void>('browser_apply_intent', { tabId, intent });
+    return backendCall<void>('browser_apply_intent', { tabId, intent });
   },
 
   closeTab(tabId: BrowserTabId): Promise<void> {
-    return tauriInvoke<void>('browser_close_tab', { tabId });
+    return backendCall<void>('browser_close_tab', { tabId });
   },
 
   getTab(tabId: BrowserTabId): Promise<BrowserTab | null> {
-    return tauriInvoke<BrowserTab | null>('browser_get_tab', { tabId });
+    return backendCall<BrowserTab | null>('browser_get_tab', { tabId });
   },
 
   listen(listener: (event: BrowserEvent) => void) {
-    return tauriListen<BrowserEvent>('browser://event', listener);
+    return backendListen<BrowserEvent>('browser://event', listener);
   },
 };

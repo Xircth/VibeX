@@ -7,7 +7,8 @@ use agent_client_protocol::{
 use agents::{
     AcpAuthStatusAdapter, AgentAutoApproveMode, AgentConnectionId, AgentConnectionLaunch,
     AgentConnectionManager, AgentError, AgentId, AgentSessionId, AuthenticationObservationState,
-    InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport, SessionLaunchLock,
+    CompanionInjection, CompanionInjectionContext, InjectedRemoteMcpServer,
+    InjectedRemoteMcpTransport, SessionLaunchLock,
 };
 use tokio::{process::Command, sync::mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -235,13 +236,10 @@ async fn fixture_additional_directories_manager(
 struct FixtureRemoteMcpInjector;
 
 impl agents::DelegationInjector for FixtureRemoteMcpInjector {
-    fn companion(
-        &self,
-        _parent_connection_id: &str,
-        _agent_id: &AgentId,
-        _working_dir: &std::path::Path,
-    ) -> Option<InjectedMcpServer> {
-        None
+    fn companion(&self, _context: CompanionInjectionContext<'_>) -> CompanionInjection {
+        CompanionInjection::Unsupported {
+            code: "fixture_companion_disabled",
+        }
     }
 
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {

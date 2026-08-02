@@ -29,7 +29,7 @@ use db::models::{
     conversation_side_effects::ConversationPermissionRecord,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     repo::Repo,
-    session::{Session, SessionStatus},
+    session::{CreateSession, Session, SessionStatus},
     session_checkpoint::SessionCheckpoint,
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
@@ -87,6 +87,51 @@ impl From<services::services::container::ContainerError> for ConversationService
     fn from(e: services::services::container::ContainerError) -> Self {
         ConversationServiceError::Internal(e.to_string())
     }
+}
+
+pub struct CreateDelegatedConversation {
+    pub id: Uuid,
+    pub parent_conversation_id: Uuid,
+    pub parent_tool_call_id: String,
+    pub delegation_id: String,
+    pub agent_id: AgentId,
+    pub prompt: String,
+}
+
+/// Create the durable one-shot child Conversation before launching its first
+/// turn. The link is committed in the same insert as the child identity so
+/// projection rebuild and DB fallback never observe an unlinked child.
+pub async fn create_delegated_conversation(
+    pool: &SqlitePool,
+    input: CreateDelegatedConversation,
+) -> Result<Uuid, ConversationServiceError> {
+    let parent = ConversationRecord::find_by_id(pool, input.parent_conversation_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::NotFound(format!(
+                "Parent Conversation {} not found",
+                input.parent_conversation_id
+            ))
+        })?;
+    Session::create_with_delegation(
+        pool,
+        &CreateSession {
+            executor: None,
+            agent_id: Some(input.agent_id),
+            task_id: parent.task_id,
+            name: None,
+            initial_prompt: Some(input.prompt),
+            status: Some(SessionStatus::InProgress),
+        },
+        input.id,
+        parent.workspace_id,
+        input.parent_conversation_id,
+        &input.parent_tool_call_id,
+        &input.delegation_id,
+    )
+    .await
+    .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    Ok(input.id)
 }
 
 /// Injected src-tauri-coupled operations the turn lifecycle needs but that don't
@@ -973,6 +1018,8 @@ impl ConversationSessionService {
         let acp_session_id = known_acp_session_id
             .clone()
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
+        let session_capabilities_json = serde_json::to_string(&AcpCapabilitySnapshot::default())
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
 
         // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
         // process ended (host restart, or the conversation was closed), the runtime has
@@ -1006,7 +1053,7 @@ impl ConversationSessionService {
                 terminal_supported: true,
                 additional_directories_supported: false,
                 prompt_capabilities_json: r#"{"text":true,"image":true,"resource":false}"#,
-                session_capabilities_json: "{}",
+                session_capabilities_json: &session_capabilities_json,
                 client_capabilities_json: "{}",
                 mcp_servers_json: "[]",
                 modes_json: "[]",

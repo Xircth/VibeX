@@ -27,6 +27,8 @@ interface SettingsSectionProps {
   className?: string;
   /** Optional action rendered on the right side of the group label. */
   action?: ReactNode;
+  /** Optional contrast override for the explanatory copy. */
+  descriptionClassName?: string;
 }
 
 /**
@@ -41,6 +43,7 @@ export function SettingsSection({
   children,
   className,
   action,
+  descriptionClassName,
 }: SettingsSectionProps) {
   return (
     <section className="settings-section space-y-3">
@@ -51,7 +54,11 @@ export function SettingsSection({
             <span>{title}</span>
           </h3>
           {description ? (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            <p
+              className={`mt-1 text-xs leading-5 ${
+                descriptionClassName ?? 'text-muted-foreground'
+              }`}
+            >
               {description}
             </p>
           ) : null}

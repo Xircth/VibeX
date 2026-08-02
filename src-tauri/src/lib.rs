@@ -16,8 +16,9 @@ mod delegation;
 mod error;
 mod events;
 mod logging;
-mod office_watch;
+mod office_runtime;
 mod prompt_enhancement;
+mod remote_desktop;
 mod state;
 mod tray;
 mod workspace_paths;
@@ -294,22 +295,9 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             );
             commands::chat_channel::start_inbound_manager(app.handle().clone());
 
-            // Automations (P0-3): recover orphaned runs, then start the cron poller.
-            {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let pool = handle
-                        .state::<state::AppState>()
-                        .deployment
-                        .db()
-                        .pool
-                        .clone();
-                    if let Err(error) = commands::automation::recover_automation_runs(&pool).await {
-                        tracing::warn!("automation run recovery failed: {error}");
-                    }
-                });
-                commands::automation::start_automation_scheduler(app.handle().clone());
-            }
+            // One durable Automation v2 Engine owns this data directory. Startup
+            // reconciliation and catch-up happen behind the owner lease.
+            commands::automation::start_automation_engine(app.handle().clone());
 
             // Plugins: seed the built-in presets (disabled until the user
             // enables them in Settings → Plugins). Best-effort.
@@ -328,12 +316,27 @@ pub fn run(cef_bootstrap: CefBootstrap) {
                 });
             }
 
-            // Office preview: reap crashed/orphaned `officecli watch` servers.
-            if let Some(idle_timeout) = office_watch::idle_timeout_from_env() {
-                tauri::async_runtime::spawn(office_watch::office_watch_idle_sweep_task(
-                    idle_timeout,
-                    std::time::Duration::from_secs(office_watch::SWEEP_INTERVAL_SECS),
-                ));
+            // Artifact providers own their child-process lifecycle. Reap expired
+            // preview leases, crashed children, and idle watches periodically.
+            {
+                let office = app.state::<state::AppState>().office_runtime.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
+                        let reaped = office.reap_idle().await;
+                        if reaped > 0 {
+                            tracing::info!("[office-provider] reaped {reaped} preview process(es)");
+                        }
+                        let delivered = office.flush_artifact_events().await;
+                        if delivered > 0 {
+                            tracing::info!(
+                                "[artifact-service] delivered {delivered} pending event(s)"
+                            );
+                        }
+                    }
+                });
             }
 
             if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
@@ -490,6 +493,8 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::conversations::conversation_detail,
             commands::conversations::conversation_ensure_session_controls,
             commands::conversations::conversation_list,
+            commands::conversations::application_call,
+            commands::conversations::conversation_attach,
             commands::conversations::conversation_start_turn,
             commands::conversations::conversation_events_since,
             commands::conversations::conversation_timeline_page,
@@ -508,15 +513,24 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::conversations::conversation_import,
             commands::conversations::conversation_fork,
             commands::automation::automation_list,
+            commands::automation::automation_engine_status,
             commands::automation::automation_create,
             commands::automation::automation_update,
             commands::automation::automation_set_enabled,
             commands::automation::automation_delete,
             commands::automation::automation_run_now,
+            commands::automation::automation_cancel_run,
+            commands::automation::automation_preview_next_runs,
+            commands::automation::automation_templates,
             commands::automation::automation_runs,
             commands::automation::automation_unseen_failures,
             commands::automation::automation_mark_seen,
+            commands::remote_desktop::remote_desktop_connect,
+            commands::remote_desktop::remote_desktop_disconnect,
+            commands::remote_desktop::remote_desktop_call,
+            commands::remote_desktop::remote_desktop_capabilities,
             commands::plugin::plugin_list,
+            commands::plugin::plugin_legacy_migration_list,
             commands::plugin::plugin_create,
             commands::plugin::plugin_update,
             commands::plugin::plugin_delete,
@@ -743,8 +757,13 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::file_tree::create_directory,
             commands::file_tree::search_workspace_text,
             // Office preview (OfficeCLI) commands
+            commands::office_tools::plugin_action_catalog,
+            commands::office_tools::office_plugin_set_enabled,
             commands::office_tools::officecli_detect,
             commands::office_tools::officecli_install,
+            commands::office_tools::officecli_cancel_install,
+            commands::office_tools::artifact_open_preview,
+            commands::office_tools::artifact_close_preview,
             commands::office_tools::officecli_uninstall,
             commands::office_tools::start_office_watch,
             commands::office_tools::stop_office_watch,
@@ -768,12 +787,38 @@ pub fn run(cef_bootstrap: CefBootstrap) {
         .expect("error while building tauri application")
         .run(move |_app_handle, event| {
             pump_cef_session();
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                let remote_desktop = _app_handle
+                    .state::<state::AppState>()
+                    .remote_desktop
+                    .clone();
+                let label = label.clone();
+                tauri::async_runtime::spawn(async move {
+                    remote_desktop.disconnect_window(&label).await;
+                });
+            }
             // Flush the non-blocking log writer on exit before the process leaves.
             if let tauri::RunEvent::Exit = event {
                 shutdown_cef_session();
-                let reaped = office_watch::stop_all_office_watches();
-                if reaped > 0 {
-                    tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
+                let shutdown = tauri::async_runtime::block_on(
+                    _app_handle
+                        .state::<state::AppState>()
+                        .office_runtime
+                        .shutdown(),
+                );
+                match shutdown {
+                    Ok(reaped) if reaped > 0 => {
+                        tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::error!("[office-watch] shutdown failed: {error}");
+                    }
                 }
                 log_guard.take();
             }

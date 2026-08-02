@@ -1,6 +1,6 @@
 {
   "name": "no-assistant-output-error",
-  "projectionVersion": 3,
+  "projectionVersion": 4,
   "conversation": {
     "id": "00000000-0000-0000-0000-000000000002",
     "title": "No output",

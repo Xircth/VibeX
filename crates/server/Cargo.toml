@@ -1,0 +1,43 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { path = "../application" }
+agents = { path = "../agents" }
+artifacts = { path = "../artifacts" }
+async-trait = { workspace = true }
+automation = { path = "../automation" }
+axum = { workspace = true }
+base64 = "0.22"
+chrono = { workspace = true }
+conversations = { path = "../conversations" }
+db = { path = "../db" }
+delegation = { path = "../delegation" }
+deployment = { path = "../deployment" }
+dirs = { workspace = true }
+futures = { workspace = true }
+local-deployment = { path = "../local-deployment" }
+office-runtime = { path = "../office-runtime" }
+plugins = { path = "../plugins" }
+remote-protocol = { path = "../remote-protocol" }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+services = { path = "../services" }
+sha2 = "0.10"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+tool-runtime = { path = "../tool-runtime" }
+uuid = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+tempfile = { workspace = true }
+tokio-tungstenite = "0.29"
+tower = { version = "0.5", features = ["util"] }

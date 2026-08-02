@@ -12,7 +12,7 @@ import { useAttempt } from '@/hooks/useAttempt';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { fileTreeApi } from '@/lib/api';
 import type { DirectoryChildrenResponse } from '@/lib/api';
-import { tauriInvoke, tauriListen } from '@/lib/tauriApi';
+import { backendCall, backendListen } from '@/lib/backendTransport';
 import { FileTreePanel } from '@/components/file-tree/FileTreePanel';
 import {
   deriveWorkspaceRootPath,
@@ -38,7 +38,9 @@ function stripWindowsExtendedPathPrefix(path: string): string {
 }
 
 function normalizePathForComparison(path: string): string {
-  return stripWindowsExtendedPathPrefix(path).replace(/\\/g, '/').replace(/\/+$/, '');
+  return stripWindowsExtendedPathPrefix(path)
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
 }
 
 function deriveRelativeFileTreePath(
@@ -326,13 +328,13 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       }
     };
 
-    void tauriInvoke('subscribe_file_tree_stream', { rootPath }).catch(
+    void backendCall('subscribe_file_tree_stream', { rootPath }).catch(
       (error) => {
         console.error('Failed to subscribe file tree stream:', error);
       }
     );
 
-    void tauriListen<{ root_path: string }>('file-tree-stream', (payload) => {
+    void backendListen<{ root_path: string }>('file-tree-stream', (payload) => {
       if (cancelled) {
         return;
       }
@@ -410,7 +412,10 @@ function DockviewFileTreePanel(_props: IDockviewPanelProps) {
       return null;
     }
 
-    const relativePath = deriveRelativeFileTreePath(rootPath, revealTarget.path);
+    const relativePath = deriveRelativeFileTreePath(
+      rootPath,
+      revealTarget.path
+    );
     if (relativePath === null) {
       return null;
     }

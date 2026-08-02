@@ -578,6 +578,31 @@ pub enum ConversationDelegationResult {
     },
 }
 
+/// Durable reference to one Artifact revision. The file remains the content
+/// source of truth; this event payload intentionally carries no file bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationArtifactReference {
+    pub artifact_id: Uuid,
+    pub workspace_id: Option<Uuid>,
+    pub relative_path: String,
+    pub media_type: String,
+    pub content_hash: String,
+    pub revision: u64,
+    pub plugin_id: String,
+    pub plugin_version: String,
+    pub provider_id: String,
+    pub tool_lock_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ConversationArtifactPreviewReference {
+    pub artifact_id: Uuid,
+    pub provider_id: String,
+    pub lease_id: Uuid,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export)]
@@ -657,6 +682,20 @@ pub enum ConversationEvent {
     },
     FileChangeSummaryUpdated {
         summary: ConversationFileChangeSummary,
+    },
+    ArtifactRevisionRecorded {
+        artifact: ConversationArtifactReference,
+    },
+    ArtifactPreviewOpened {
+        preview: ConversationArtifactPreviewReference,
+    },
+    ArtifactPreviewClosed {
+        preview: ConversationArtifactPreviewReference,
+    },
+    ArtifactPreviewFailed {
+        artifact_id: Uuid,
+        provider_id: String,
+        message: String,
     },
     TurnBlocked {
         reason: TurnBlockedReason,
@@ -825,6 +864,9 @@ pub enum ConversationTimelineRow {
         /// timeline can anchor the card at the end of its own turn.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn_id: Option<Uuid>,
+    },
+    ArtifactRevision {
+        artifact: ConversationArtifactReference,
     },
     TurnError {
         error: ConversationErrorView,

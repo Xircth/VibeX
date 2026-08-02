@@ -12,7 +12,9 @@ use crate::types::DelegationOutcome;
 /// Fired once after the child is spawned and its first prompt sent.
 #[derive(Debug, Clone)]
 pub struct DelegationStartedEvent {
+    pub delegation_id: String,
     pub parent_connection_id: String,
+    pub parent_conversation_id: Uuid,
     pub parent_tool_use_id: String,
     pub child_session_id: Uuid,
     pub agent_type: AgentId,
@@ -22,7 +24,9 @@ pub struct DelegationStartedEvent {
 /// Fired for every terminal resolution (success, error, cancel).
 #[derive(Debug, Clone)]
 pub struct DelegationCompletedEvent {
+    pub delegation_id: String,
     pub parent_connection_id: String,
+    pub parent_conversation_id: Uuid,
     pub parent_tool_use_id: String,
     pub child_session_id: Uuid,
     pub agent_type: AgentId,

@@ -1,4 +1,12 @@
 {
+  "artifact": {
+    "openPreview": "打开预览",
+    "openPreviewAria": "打开 {{name}} 预览",
+    "closePreviewAria": "关闭 {{name}} 预览",
+    "previewTitle": "{{name}} 预览",
+    "revision": "修订 {{revision}}",
+    "invalidPreviewLease": "Artifact Provider 返回了无效的预览租约"
+  },
   "loadingCard": {
     "thinking": "AI 正在思考...",
     "copy": "复制"
@@ -80,8 +88,12 @@
     "openChildSession": "打开子会话",
     "duration": "耗时 {{duration}}",
     "running": "运行中",
+    "cancel": "取消委派",
+    "canceling": "正在取消…",
+    "cancelFailed": "无法取消：{{error}}",
     "completed": "已完成",
-    "failed": "失败"
+    "failed": "失败",
+    "canceled": "已取消"
   },
   "commandTool": {
     "commandLabel": "命令",

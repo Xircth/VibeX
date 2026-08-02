@@ -86,10 +86,10 @@ describe('GeneralSettings Agent model catalogs', () => {
 
   it('uses the explicit verified catalog refresh before exposing new models', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels
-      .mockResolvedValueOnce({ models: [] })
-      .mockResolvedValueOnce({ models: ['openai/gpt-5.6-sol'] });
-    configApiMock.refreshPromptEnhancementModels.mockResolvedValue(true);
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
+    configApiMock.refreshPromptEnhancementModels.mockResolvedValue({
+      models: ['openai/gpt-5.6-sol'],
+    });
 
     renderSettings();
     await waitFor(() => {
@@ -105,7 +105,7 @@ describe('GeneralSettings Agent model catalogs', () => {
         configApiMock.refreshPromptEnhancementModels
       ).toHaveBeenCalledTimes(1);
       expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
-        2
+        1
       );
     });
 

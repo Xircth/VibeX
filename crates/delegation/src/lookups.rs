@@ -20,6 +20,7 @@ pub trait DepthLookup: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct ChildStatusRecord {
     pub child_session_id: Uuid,
+    pub parent_conversation_id: Option<Uuid>,
     pub status: TaskStatus,
     pub agent_type: Option<AgentId>,
 }
@@ -31,9 +32,10 @@ pub trait ChildStatusLookup: Send + Sync {
     async fn status_by_call_id(&self, call_id: &str) -> Option<ChildStatusRecord>;
 }
 
-/// Resolves the session a delegation is being issued from: the parent
-/// connection's currently-active `sessions.id`.
+/// Confirms that a token's durable Conversation belongs to the live parent
+/// connection. Connections may host more than one session, so callers must not
+/// infer authority from the most recently updated session.
 #[async_trait]
 pub trait ParentSessionLookup: Send + Sync {
-    async fn current_session_id(&self, parent_connection_id: &str) -> Option<Uuid>;
+    async fn contains_session(&self, parent_connection_id: &str, conversation_id: Uuid) -> bool;
 }

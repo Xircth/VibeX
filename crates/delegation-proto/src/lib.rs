@@ -8,10 +8,12 @@
 //! followed by that many bytes of JSON. Length prefixing (rather than
 //! newline-delimiting) keeps embedded newlines in a delegated `task` intact.
 
+mod report;
 mod transport;
 
+pub use report::{DelegationTaskReport, TaskStatus};
 pub use transport::{
     BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerStatusRequest,
-    MAX_FRAME_BYTES, read_frame, write_frame,
+    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, MAX_FRAME_BYTES, read_frame, write_frame,
 };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -134,6 +134,8 @@ export function GeneralSettings() {
 
   const [agentModels, setAgentModels] = useState<string[]>([]);
   const [agentModelsLoading, setAgentModelsLoading] = useState(false);
+  const agentModelsRequestIdRef = useRef(0);
+  const startupCatalogRetriesEnabledRef = useRef(true);
 
   useEffect(() => {
     if (config && !dirty) {
@@ -173,9 +175,12 @@ export function GeneralSettings() {
   }, []);
 
   const readPersistedAgentModels = useCallback(async () => {
+    const requestId = ++agentModelsRequestIdRef.current;
     try {
       const result = await configApi.listPromptEnhancementModels();
-      setAgentModels(result.models);
+      if (requestId === agentModelsRequestIdRef.current) {
+        setAgentModels(result.models);
+      }
       return result.models;
     } catch {
       return null;
@@ -193,9 +198,11 @@ export function GeneralSettings() {
     const maxStartupCatalogRetries = 10;
 
     const loadCatalog = async () => {
+      if (disposed || !startupCatalogRetriesEnabledRef.current) return;
       const models = await readPersistedAgentModels();
       if (
         !disposed &&
+        startupCatalogRetriesEnabledRef.current &&
         models?.length === 0 &&
         retryAttempts < maxStartupCatalogRetries
       ) {
@@ -215,19 +222,18 @@ export function GeneralSettings() {
 
   const refreshAgentModels = useCallback(async () => {
     setAgentModelsLoading(true);
+    startupCatalogRetriesEnabledRef.current = false;
+    const requestId = ++agentModelsRequestIdRef.current;
     try {
       // This is the only user-initiated path allowed to refresh discovery. The
       // backend uses each eligible Agent's verified local Runtime/ACP pair.
       const refreshed = await configApi.refreshPromptEnhancementModels();
-      if (!refreshed) {
+      if (!refreshed.models.length) {
         toast.error(t('general.modelsRefreshFailed'));
         return;
       }
-
-      const models = await readPersistedAgentModels();
-      if (!models?.length) {
-        toast.error(t('general.modelsRefreshFailed'));
-        return;
+      if (requestId === agentModelsRequestIdRef.current) {
+        setAgentModels(refreshed.models);
       }
       toast.success(t('general.modelsRefreshed'));
     } catch (error) {
@@ -239,7 +245,7 @@ export function GeneralSettings() {
     } finally {
       setAgentModelsLoading(false);
     }
-  }, [readPersistedAgentModels, t]);
+  }, [t]);
 
   const promptEnhancementModels = useMemo(() => {
     const uniqueModels: string[] = [];

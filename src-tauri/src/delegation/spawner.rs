@@ -14,7 +14,7 @@ use agents::{
     runtime::{AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
 };
 use async_trait::async_trait;
-use db::models::session::{CreateSession, Session, SessionStatus};
+use conversations::{CreateDelegatedConversation, create_delegated_conversation};
 use delegation::{ConnectionSpawner, DelegationLink, SpawnerError};
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
@@ -82,27 +82,17 @@ impl ConnectionSpawner for RuntimeSpawner {
         let conn = AgentConnectionId::from(
             Uuid::parse_str(child_connection_id).map_err(|e| SpawnerError::Other(e.to_string()))?,
         );
-        let parent = Session::find_by_id(&self.pool, link.parent_session_id)
-            .await
-            .map_err(|e| SpawnerError::Other(e.to_string()))?
-            .ok_or(SpawnerError::ParentGone)?;
-
         let child_id = Uuid::new_v4();
-        Session::create_with_delegation(
+        create_delegated_conversation(
             &self.pool,
-            &CreateSession {
-                executor: None,
-                agent_id: Some(link.agent_type.clone()),
-                task_id: parent.task_id,
-                name: None,
-                initial_prompt: Some(task.clone()),
-                status: Some(SessionStatus::InProgress),
+            CreateDelegatedConversation {
+                id: child_id,
+                parent_conversation_id: link.parent_session_id,
+                parent_tool_call_id: link.parent_tool_use_id.clone(),
+                delegation_id: link.delegation_call_id.clone(),
+                agent_id: link.agent_type.clone(),
+                prompt: task.clone(),
             },
-            child_id,
-            parent.workspace_id,
-            link.parent_session_id,
-            &link.parent_tool_use_id,
-            &link.delegation_call_id,
         )
         .await
         .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
@@ -111,12 +101,16 @@ impl ConnectionSpawner for RuntimeSpawner {
         self.runtime
             .new_session_with_id(conn, session_id, child_id.to_string())
             .await
-            .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
+            .map_err(|error| SpawnerError::SendPromptAfterLink {
+                child_session_id: child_id,
+                message: error.to_string(),
+            })?;
         self.map
             .lock()
             .await
             .insert(child_id, (link.delegation_call_id.clone(), link.agent_type));
-        self.runtime
+        if let Err(error) = self
+            .runtime
             .send_prompt(SendAgentPromptInput {
                 connection_id: conn,
                 session_id,
@@ -125,7 +119,13 @@ impl ConnectionSpawner for RuntimeSpawner {
                 config_overrides: Vec::new(),
             })
             .await
-            .map_err(|e| SpawnerError::SendPrompt(e.to_string()))?;
+        {
+            self.map.lock().await.remove(&child_id);
+            return Err(SpawnerError::SendPromptAfterLink {
+                child_session_id: child_id,
+                message: error.to_string(),
+            });
+        }
         Ok(child_id)
     }
 
@@ -146,6 +146,11 @@ impl ConnectionSpawner for RuntimeSpawner {
                 })
                 .await;
         }
+        Ok(())
+    }
+
+    async fn release_child(&self, child_session_id: Uuid) -> Result<(), SpawnerError> {
+        self.map.lock().await.remove(&child_session_id);
         Ok(())
     }
 

@@ -28,6 +28,14 @@ const INVALID_DISPLAY_MS = 400;
 const VALID_SEQUENCES = new Set(
   sequentialBindings.map((b) => b.keys.join(','))
 );
+const BINDING_BY_SEQUENCE = new Map(
+  sequentialBindings.map((binding) => [binding.keys.join(','), binding])
+);
+
+export const SHORTCUT_ACTION_EVENT = 'vibex:shortcut-action';
+export interface ShortcutActionEventDetail {
+  actionId: string;
+}
 
 function isValidPartialSequence(buffer: string[]): boolean {
   if (buffer.length === 0) return false;
@@ -42,8 +50,8 @@ interface SequenceTrackerProviderProps {
 }
 
 /**
- * Visual feedback for sequential shortcuts (g>s, v>c).
- * Display-only - execution handled by react-hotkeys-hook.
+ * Tracks and dispatches sequential shortcuts (g>s, v>c) while exposing the
+ * current sequence for visual feedback.
  *
  * IMPORTANT: Uses refs alongside state because React setState is async.
  * Without synchronous ref updates, rapid keypresses read stale state.
@@ -131,6 +139,16 @@ export function SequenceTrackerProvider({
       } else if (newBuffer.length === 2) {
         isActiveRef.current = false;
         if (isValidPartialSequence(newBuffer)) {
+          event.preventDefault();
+          const binding = BINDING_BY_SEQUENCE.get(newBuffer.join(','));
+          if (binding) {
+            window.dispatchEvent(
+              new CustomEvent<ShortcutActionEventDetail>(
+                SHORTCUT_ACTION_EVENT,
+                { detail: { actionId: binding.actionId } }
+              )
+            );
+          }
           bufferRef.current = newBuffer;
           setBuffer(newBuffer);
           timeoutRef.current = setTimeout(clearBuffer, 200);

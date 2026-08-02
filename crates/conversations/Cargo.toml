@@ -9,6 +9,7 @@ edition = "2024"
 [dependencies]
 db = { path = "../db" }
 agents = { path = "../agents" }
+base64 = "0.22"
 deployment = { path = "../deployment" }
 executors = { path = "../executors" }
 git = { path = "../git" }
@@ -28,3 +29,4 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs",
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = { workspace = true }

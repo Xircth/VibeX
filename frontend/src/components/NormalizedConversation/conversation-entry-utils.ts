@@ -165,6 +165,9 @@ const VERBOSE_ERROR_PATTERNS = [
   /\bCannot find module\b/i,
   /\bfailed to load config\b/i,
 ];
+const COMMAND_OUTPUT_MARKER_PATTERN = /\bCommand output:\s*/i;
+const SHELL_OUTPUT_ENVELOPE_PATTERN =
+  /^\s*(?:(?:Exit code|Wall time):[\s\S]*?)?\bOutput:\s*/i;
 const AGENT_LAUNCH_SENTENCE_PATTERN =
   /(?:^|\n)\s*(?:[一二三四五六七八九十两\d]+\s*个)?(?:子代理|智能体|agent|Agent)\s*(?:已启动|启动|已创建|创建完成|created|started)\s*[：:]\s*([^\n。.!！？]+)[。.!！？]?/i;
 const AGENT_LAUNCH_SPLIT_PATTERN = /[，,；;、]+/;
@@ -311,6 +314,47 @@ function stripPowerShellProfileNoise(content: string): string {
       );
     })
     .join('\n');
+}
+
+export interface AssistantCommandOutputSplit {
+  prefix: string;
+  output: string;
+}
+
+function stripCommandOutputPrefixNoise(content: string): string {
+  const withoutProfileNoise = stripPowerShellProfileNoise(content);
+  return (withoutProfileNoise.trim() || content.trim()).trim();
+}
+
+/**
+ * Splits the noisy command envelope from the result users need to read. This
+ * preserves the pre-unified-timeline behavior of the AI-message collapse
+ * preference while keeping the final answer visible.
+ */
+export function splitAssistantCommandOutput(
+  content: string
+): AssistantCommandOutputSplit | null {
+  const cleaned = sanitizeConversationContent(content);
+  if (!cleaned) return null;
+
+  const markerMatch = cleaned.match(COMMAND_OUTPUT_MARKER_PATTERN);
+  if (markerMatch?.index != null) {
+    const markerEnd = markerMatch.index + markerMatch[0].length;
+    const output = stripCommandOutputPrefixNoise(cleaned.slice(markerEnd));
+    if (!output) return null;
+    return {
+      prefix: cleaned.slice(0, markerMatch.index).trim(),
+      output,
+    };
+  }
+
+  const shellEnvelopeMatch = cleaned.match(SHELL_OUTPUT_ENVELOPE_PATTERN);
+  if (!shellEnvelopeMatch) return null;
+  const output = stripCommandOutputPrefixNoise(
+    cleaned.slice(shellEnvelopeMatch[0].length)
+  );
+  if (!output) return null;
+  return { prefix: shellEnvelopeMatch[0].trim(), output };
 }
 
 export function getCompactVerboseErrorText(content: string): string | null {

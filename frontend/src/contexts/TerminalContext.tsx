@@ -9,8 +9,7 @@ import {
 } from 'react';
 import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
-import { tauriInvoke, tauriListen } from '../lib/tauriApi';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import { backendCall, backendListen } from '../lib/backendTransport';
 
 export interface TerminalInstance {
   terminal: Terminal;
@@ -26,7 +25,7 @@ export interface TerminalTab {
 
 interface TerminalConnection {
   sessionId: string;
-  unlisten: UnlistenFn;
+  unlisten: () => void;
   send: (data: string) => void;
   resize: (cols: number, rows: number) => void;
 }
@@ -249,7 +248,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       conn.unlisten();
       // Close the PTY session on the backend
       try {
-        await tauriInvoke('close_terminal', { sessionId: conn.sessionId });
+        await backendCall('close_terminal', { sessionId: conn.sessionId });
       } catch (err) {
         console.error(
           `Failed to close terminal session ${conn.sessionId}:`,
@@ -335,7 +334,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       if (existing) {
         existing.unlisten();
         try {
-          await tauriInvoke('close_terminal', {
+          await backendCall('close_terminal', {
             sessionId: existing.sessionId,
           });
         } catch {
@@ -352,14 +351,14 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       const rows = termInstance?.terminal.rows ?? 24;
 
       // Create a PTY session via Tauri command
-      const sessionId = await tauriInvoke<string>('create_terminal', {
+      const sessionId = await backendCall<string>('create_terminal', {
         workspaceId,
         cols,
         rows,
       });
 
       // Listen for terminal output events from the backend
-      const unlisten = await tauriListen<string>(
+      const unlisten = await backendListen<string>(
         `terminal-output:${sessionId}`,
         (payload) => {
           const callbacks = connectionCallbacksRef.current.get(tabId);
@@ -370,7 +369,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       );
 
       const send = (data: string) => {
-        tauriInvoke('write_terminal', {
+        backendCall('write_terminal', {
           sessionId,
           data: encodeBase64(data),
         }).catch((err) => {
@@ -379,7 +378,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       };
 
       const resize = (newCols: number, newRows: number) => {
-        tauriInvoke('resize_terminal', {
+        backendCall('resize_terminal', {
           sessionId,
           cols: newCols,
           rows: newRows,

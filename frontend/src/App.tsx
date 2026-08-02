@@ -26,9 +26,10 @@ import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import {
   configApi,
+  settingsWindowApi,
   type LocalToolStatus,
 } from '@/lib/api';
-import { tauriListen } from '@/lib/tauriApi';
+import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import {
   getLocalDependencyUpdatePromptTools,
@@ -45,6 +46,13 @@ import {
 } from '@/mainWindowCloseBehavior';
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
+import { useBackendTransport } from '@/lib/transport';
+import {
+  SequenceIndicator,
+  SequenceTrackerProvider,
+  SHORTCUT_ACTION_EVENT,
+  type ShortcutActionEventDetail,
+} from '@/keyboard';
 
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
@@ -69,7 +77,7 @@ function MainWindowCloseToastBridge() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
-    tauriListen<void>('main-window-close-requested', () => {
+    backendListen<void>('main-window-close-requested', () => {
       const savedBehavior = getSavedMainWindowCloseBehavior();
       if (savedBehavior) {
         void performMainWindowCloseBehavior(savedBehavior);
@@ -168,16 +176,19 @@ function MainAppContent() {
   const location = useLocation();
   const maintenanceStartedRef = useRef(false);
   const crashPromptShownRef = useRef(false);
+  const transport = useBackendTransport();
+  const isDesktop = transport.environment === 'desktop';
 
   // Track previous path for back navigation
   usePreviousPath();
 
-  // Sync UI preferences with server scratch storage
-  useUiPreferencesScratch();
+  // Scratch streams are desktop-only; Web keeps UI preferences local.
+  useUiPreferencesScratch(isDesktop);
 
   useLegacyDesignBodyClass();
 
   useEffect(() => {
+    if (!isDesktop) return;
     const startupPromptStep = getStartupPromptStep({
       config,
       pathname: location.pathname,
@@ -226,12 +237,13 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, location.pathname, navigate, updateAndSaveConfig]);
+  }, [config, isDesktop, location.pathname, navigate, updateAndSaveConfig]);
 
   // Opt-in crash reporting: once the startup prompt chain is idle, surface the
   // newest locally captured crash report (full content, user decides whether to
   // file it). Runs at most once per app session.
   useEffect(() => {
+    if (!isDesktop) return;
     if (!config?.crash_reports_enabled || crashPromptShownRef.current) return;
     const startupPromptStep = getStartupPromptStep({
       config,
@@ -255,9 +267,10 @@ function MainAppContent() {
         console.error('Crash report check failed:', error);
       }
     })();
-  }, [config, location.pathname]);
+  }, [config, isDesktop, location.pathname]);
 
   useEffect(() => {
+    if (!isDesktop) return;
     if (
       !shouldStartSystemMaintenance({
         config,
@@ -380,15 +393,15 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, t]);
+  }, [config, isDesktop, t]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
         <AgentWorkbenchProvider>
-          <ProjectWindowManager />
-          <TrayBadgeSync />
-          <MainWindowCloseToastBridge />
+          {isDesktop ? <ProjectWindowManager /> : null}
+          {isDesktop ? <TrayBadgeSync /> : null}
+          {isDesktop ? <MainWindowCloseToastBridge /> : null}
           <ThemedToaster />
           <MainAppRoutes />
         </AgentWorkbenchProvider>
@@ -420,6 +433,22 @@ function AppContent() {
   return <MainAppContent />;
 }
 
+function GlobalShortcutActionBridge() {
+  useEffect(() => {
+    const handleShortcut = (event: Event) => {
+      const { actionId } = (event as CustomEvent<ShortcutActionEventDetail>)
+        .detail;
+      if (actionId === 'settings') {
+        void settingsWindowApi.open();
+      }
+    };
+    window.addEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
+    return () =>
+      window.removeEventListener(SHORTCUT_ACTION_EVENT, handleShortcut);
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <AppErrorBoundary>
@@ -435,7 +464,11 @@ function App() {
                   'projects',
                 ]}
               >
-                <AppContent />
+                <SequenceTrackerProvider>
+                  <GlobalShortcutActionBridge />
+                  <AppContent />
+                  <SequenceIndicator />
+                </SequenceTrackerProvider>
               </HotkeysProvider>
             </ProjectProvider>
           </ClickedElementsProvider>

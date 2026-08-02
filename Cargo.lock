@@ -231,6 +231,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "application"
+version = "0.1.0"
+dependencies = [
+ "agents",
+ "async-trait",
+ "chrono",
+ "conversations",
+ "db",
+ "executors",
+ "remote-protocol",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -249,6 +268,22 @@ dependencies = [
  "blake2",
  "cpufeatures",
  "password-hash",
+]
+
+[[package]]
+name = "artifacts"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tool-runtime",
+ "uuid",
 ]
 
 [[package]]
@@ -425,6 +460,24 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
+
+[[package]]
+name = "automation"
+version = "0.1.0"
+dependencies = [
+ "agents",
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "executors",
+ "plugins",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "aws-lc-rs"
@@ -948,6 +1001,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf 0.12.1",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1111,6 +1174,7 @@ version = "0.1.8"
 dependencies = [
  "agents",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "db",
  "deployment",
@@ -1121,6 +1185,7 @@ dependencies = [
  "serde_json",
  "services",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -1473,8 +1538,11 @@ version = "0.1.8"
 dependencies = [
  "anyhow",
  "api-types",
+ "async-trait",
+ "automation",
  "chrono",
  "executors",
+ "iana-time-zone",
  "serde",
  "serde_json",
  "serde_with",
@@ -1482,6 +1550,7 @@ dependencies = [
  "sqlx",
  "strum 0.27.2",
  "strum_macros 0.27.2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -1499,6 +1568,7 @@ dependencies = [
  "delegation-proto",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2236,6 +2306,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b91aa448ca50d7e79433bdf3ee8d99215430d2ec02ade5aefab2a073a1822e8a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -4439,6 +4519,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "office-runtime"
+version = "0.1.0"
+dependencies = [
+ "agents",
+ "anyhow",
+ "artifacts",
+ "async-trait",
+ "conversations",
+ "db",
+ "plugins",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tool-runtime",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4692,6 +4796,15 @@ dependencies = [
 
 [[package]]
 name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared 0.12.1",
+]
+
+[[package]]
+name = "phf"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
@@ -4840,6 +4953,15 @@ dependencies = [
 
 [[package]]
 name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher 1.0.2",
+]
+
+[[package]]
+name = "phf_shared"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
@@ -4934,6 +5056,21 @@ dependencies = [
  "quick-xml 0.38.4",
  "serde",
  "time",
+]
+
+[[package]]
+name = "plugins"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tool-runtime",
+ "url",
 ]
 
 [[package]]
@@ -5404,6 +5541,18 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "schemars 1.2.1",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ts-rs",
+ "uuid",
+]
 
 [[package]]
 name = "reqwest"
@@ -6143,6 +6292,46 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "agents",
+ "application",
+ "artifacts",
+ "async-trait",
+ "automation",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "conversations",
+ "db",
+ "delegation",
+ "deployment",
+ "dirs 5.0.1",
+ "futures",
+ "local-deployment",
+ "office-runtime",
+ "plugins",
+ "remote-protocol",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "services",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.29.0",
+ "tool-runtime",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -7683,6 +7872,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
+name = "tool-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "fs2",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8226,8 +8433,11 @@ dependencies = [
  "agents",
  "anyhow",
  "api-types",
+ "application",
  "argon2",
+ "artifacts",
  "async-trait",
+ "automation",
  "axum",
  "base64 0.22.1",
  "browser-cef",
@@ -8243,13 +8453,17 @@ dependencies = [
  "futures",
  "git",
  "git2",
+ "iana-time-zone",
  "ignore",
  "local-deployment",
+ "office-runtime",
  "os_info",
+ "plugins",
  "prost",
  "rand 0.8.6",
  "raw-window-handle",
  "regex",
+ "remote-protocol",
  "reqwest 0.12.28",
  "rustls",
  "serde",
@@ -8274,6 +8488,7 @@ dependencies = [
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "toml 0.8.2",
+ "tool-runtime",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

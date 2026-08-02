@@ -15,7 +15,7 @@ import { type Config, type SendMessageShortcut } from 'shared/types';
 import { chordFromEvent, formatChord } from '@/keyboard/chord';
 import {
   formatSequentialKeys,
-  getEffectiveKeyBindings,
+  getConfigurableKeyBindings,
   findChordConflicts,
   sequentialBindings,
   type EffectiveKeyBinding,
@@ -219,7 +219,7 @@ export function ShortcutSettings() {
   }, [capturingId, setOverride]);
 
   const effective = useMemo(
-    () => getEffectiveKeyBindings(overrides),
+    () => getConfigurableKeyBindings(overrides),
     [overrides]
   );
   const groupedBindings = useMemo(

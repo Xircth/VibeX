@@ -62,7 +62,10 @@ use crate::{
     SessionLaunchLock,
     conversation::SessionLoadFailureReason,
     decide_auto_permission_response,
-    delegation_inject::{DelegationInjector, InjectedRemoteMcpTransport},
+    delegation_inject::{
+        CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
+        InjectedRemoteMcpTransport,
+    },
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
@@ -1427,6 +1430,13 @@ impl AgentConnectionRunner {
                     .session_capabilities
                     .fork
                     .is_some();
+                // ACP v1 models stdio MCP servers directly on `session/new`;
+                // completing the ACP handshake is therefore the negotiated
+                // capability evidence for accepting a session-scoped companion.
+                // Keep this explicit so non-ACP adapters can fail closed.
+                let companion_capabilities = CompanionCapabilities {
+                    accepts_session_mcp_servers: true,
+                };
                 let supports_list = initialize_response
                     .agent_capabilities
                     .session_capabilities
@@ -1451,7 +1461,12 @@ impl AgentConnectionRunner {
                             result_tx,
                         } => {
                             let result = match runner
-                                .ensure_acp_session(&conn, &working_dir, session_id)
+                                .ensure_acp_session(
+                                    &conn,
+                                    &working_dir,
+                                    session_id,
+                                    companion_capabilities,
+                                )
                                 .await
                             {
                                 Ok(acp_session_id) => {
@@ -1516,6 +1531,7 @@ impl AgentConnectionRunner {
                                     external_session_id,
                                     supports_load_session,
                                     supports_resume_session,
+                                    companion_capabilities,
                                 )
                                 .await
                                 .map_err(|error| {
@@ -1538,7 +1554,12 @@ impl AgentConnectionRunner {
                             config_overrides,
                         } => {
                             let acp_session_id = runner
-                                .ensure_acp_session(&conn, &working_dir, session_id)
+                                .ensure_acp_session(
+                                    &conn,
+                                    &working_dir,
+                                    session_id,
+                                    companion_capabilities,
+                                )
                                 .await?;
                             runner
                                 .run_prompt(
@@ -1561,7 +1582,12 @@ impl AgentConnectionRunner {
                         } => {
                             let result = if supports_fork {
                                 runner
-                                    .fork_acp_session(&conn, &working_dir, session_id)
+                                    .fork_acp_session(
+                                        &conn,
+                                        &working_dir,
+                                        session_id,
+                                        companion_capabilities,
+                                    )
                                     .await
                                     .map_err(|error| {
                                         AgentError::Runtime(format!(
@@ -1714,12 +1740,14 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         working_dir: &Path,
         session_id: AgentSessionId,
+        companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
             return Ok(existing);
         }
 
-        self.new_acp_session(conn, working_dir, session_id).await
+        self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .await
     }
 
     async fn load_or_new_acp_session(
@@ -1730,6 +1758,7 @@ impl AgentConnectionRunner {
         external_session_id: String,
         supports_load_session: bool,
         supports_resume_session: bool,
+        companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
             return Ok(existing);
@@ -1783,7 +1812,8 @@ impl AgentConnectionRunner {
             self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
         }
 
-        self.new_acp_session(conn, working_dir, session_id).await
+        self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
+            .await
     }
 
     /// Fork the live ACP session for `session_id`, returning the new (forked)
@@ -1794,9 +1824,10 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         working_dir: &Path,
         session_id: AgentSessionId,
+        companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         let acp_session_id = self
-            .ensure_acp_session(conn, working_dir, session_id)
+            .ensure_acp_session(conn, working_dir, session_id, companion_capabilities)
             .await?;
         let response = conn
             .send_request(ForkSessionRequest::new(
@@ -1813,12 +1844,41 @@ impl AgentConnectionRunner {
         conn: &ConnectionTo<Agent>,
         working_dir: &Path,
         session_id: AgentSessionId,
+        companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         let mut request = NewSessionRequest::new(working_dir.to_path_buf());
         if self.capabilities.read().await.additional_directories {
             request = request.additional_directories(self.snapshot.additional_directories.clone());
         }
         request.mcp_servers = self.session_mcp_servers(working_dir).await;
+        // Splice in the delegation companion (so the agent's LLM gets the
+        // delegate_to_agent tools) when the host installed an injector.
+        if let Some(injector) = &self.delegation_injector {
+            match injector.companion(CompanionInjectionContext {
+                parent_connection_id: &self.snapshot.connection_id.0.to_string(),
+                parent_conversation_id: session_id.0,
+                agent_id: &self.snapshot.agent_id,
+                working_root: working_dir,
+                capabilities: companion_capabilities,
+            }) {
+                CompanionInjection::Injected(server) => {
+                    request.mcp_servers.push(acp::schema::v1::McpServer::Stdio(
+                        acp::schema::v1::McpServerStdio::new(server.name, server.command)
+                            .args(server.args),
+                    ));
+                }
+                CompanionInjection::Unsupported { code } => self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::RawAcpDiagnostic {
+                        raw: serde_json::json!({
+                            "kind": "companion_capability",
+                            "code": code,
+                        }),
+                    },
+                ),
+            }
+        }
         let response = conn.send_request(request).block_task().await?;
         let acp_session_id = response.session_id.0.to_string();
         self.session_map
@@ -1839,19 +1899,8 @@ impl AgentConnectionRunner {
         Ok(acp_session_id)
     }
 
-    async fn session_mcp_servers(&self, working_dir: &Path) -> Vec<acp::schema::v1::McpServer> {
+    async fn session_mcp_servers(&self, _working_dir: &Path) -> Vec<acp::schema::v1::McpServer> {
         let mut servers = Vec::new();
-        if let Some(injector) = &self.delegation_injector
-            && let Some(server) = injector.companion(
-                &self.snapshot.connection_id.0.to_string(),
-                &self.snapshot.agent_id,
-                working_dir,
-            )
-        {
-            servers.push(acp::schema::v1::McpServer::Stdio(
-                acp::schema::v1::McpServerStdio::new(server.name, server.command).args(server.args),
-            ));
-        }
         if let Some(injector) = &self.delegation_injector {
             let capabilities = self.capabilities.read().await.clone();
             for server in injector.remote_servers() {

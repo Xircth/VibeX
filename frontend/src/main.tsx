@@ -9,13 +9,14 @@ import {
   QueryCache,
 } from '@tanstack/react-query';
 import { isBinaryContentError } from '@/utils/filePreviewKind';
-import { isCanceledError } from '@/lib/tauriApi';
+import { isCanceledError } from '@/lib/errors';
 import { initUiZoom } from '@/lib/uiZoom';
 import { initMonoFont } from '@/lib/uiFont';
 // Initialize the i18n runtime (module side-effect) before first render.
 import '@/i18n';
 // Import modal type definitions
 import './types/modals';
+import { isTauriRuntime, WebTransportBootstrap } from './WebTransportBootstrap';
 
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -61,9 +62,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <React.Suspense fallback={null}>
-        <App />
-        {/*<TanStackDevtools plugins={[FormDevtoolsPlugin()]} />*/}
-        {/* <ReactQueryDevtools initialIsOpen={false} /> */}
+        {isTauriRuntime() ? (
+          <App />
+        ) : (
+          <WebTransportBootstrap>
+            <App />
+          </WebTransportBootstrap>
+        )}
       </React.Suspense>
     </QueryClientProvider>
   </React.StrictMode>

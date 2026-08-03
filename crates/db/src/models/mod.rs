@@ -18,7 +18,6 @@ pub mod execution_process_repo_state;
 pub mod image;
 pub mod merge;
 pub mod migration_state;
-pub mod plugin;
 pub mod plugin_v2;
 pub mod project;
 pub mod project_repo;

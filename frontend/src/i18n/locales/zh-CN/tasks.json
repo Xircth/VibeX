@@ -46,7 +46,6 @@
     "savingAgentDefaults": "正在保存默认值…",
     "agentDefaultsSaved": "已保存 Agent 默认值。",
     "agentDefaultsSaveFailed": "无法保存 Agent 默认值。",
-    "staleDefaults": "以下已保存选项不再由 Agent 提供，已忽略：{{options}}",
     "catalogRefreshing": "正在显示缓存选项，并在后台刷新…",
     "catalogRefreshFailed": "当前显示缓存选项；后台刷新失败。",
     "importAgentSession": "导入 Agent 会话",

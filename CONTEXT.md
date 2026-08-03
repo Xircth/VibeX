@@ -94,7 +94,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **PluginAction（插件动作）** — Composer 与 Automation 共用的结构化工作流意图，由 prompt blocks、所需 Skill/Tool 与可选 Artifact intent 组成；插入动作不等于自动发送或执行。
 - **Tool dependency（工具依赖）** — Plugin v2 manifest 中的声明式、精确版本、确定性平台分发；分发必须是无凭据的公网 HTTPS URL，并在执行前通过 SHA-256。
 - **Tool installation lock（工具安装锁）** — 版本化托管目录中当前可执行文件、版本、平台、来源 URL 与 hash 的持久证据。Provider 只能从该 lock 获得绝对执行路径，不能把 PATH 查询作为最终语义。
-- **Legacy plugin evidence（旧插件证据）** — v1 manifest 的完整只读保存；其 `install_command` 永远不能执行。只有固定 ID 且明确映射的内置插件可自动建立 v2 membership，并仍保持 disabled。
+- **Legacy plugin evidence（旧插件证据）** — v1 manifest 的完整只读保存；其 `install_command` 永远不能执行。启动迁移会在保存证据后删除所有 v1 运行时行与历史占位 membership；产品只暴露真实 Plugin v2 manifest。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
 - **Artifact preview lease（产物预览租约）** — 对一个已解析 Tool lock、文件、provider 进程和短期 capability 的引用计数租约；最后一个 lease 关闭、过期或进程崩溃时可回收。
 

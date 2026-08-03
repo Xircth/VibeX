@@ -8,7 +8,6 @@ use crate::{ApplicationError, Principal};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DomainCommand {
     PluginActionCatalog,
-    PluginLegacyMigrationList,
     ProjectList,
     ProjectRepositories,
     RepoBranches,
@@ -41,7 +40,6 @@ impl DomainCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PluginActionCatalog => "plugin_action_catalog",
-            Self::PluginLegacyMigrationList => "plugin_legacy_migration_list",
             Self::ProjectList => "get_projects",
             Self::ProjectRepositories => "get_project_repositories",
             Self::RepoBranches => "get_repo_branches",
@@ -73,7 +71,7 @@ impl DomainCommand {
 
     pub const fn required_scope(self) -> &'static str {
         match self {
-            Self::PluginActionCatalog | Self::PluginLegacyMigrationList => "plugin.read",
+            Self::PluginActionCatalog => "plugin.read",
             Self::ProjectList
             | Self::ProjectRepositories
             | Self::RepoBranches
@@ -109,7 +107,6 @@ impl FromStr for DomainCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         [
             Self::PluginActionCatalog,
-            Self::PluginLegacyMigrationList,
             Self::ProjectList,
             Self::ProjectRepositories,
             Self::RepoBranches,

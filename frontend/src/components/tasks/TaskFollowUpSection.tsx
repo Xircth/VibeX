@@ -86,7 +86,6 @@ import { useSessionComposerDraftHydration } from './follow-up/useSessionComposer
 import { useSessionComposerHotkeys } from './follow-up/useSessionComposerHotkeys';
 import { useSessionComposerEditorChange } from './follow-up/useSessionComposerEditorChange';
 import { useSessionComposerPreviewElementInsertion } from './follow-up/useSessionComposerPreviewElementInsertion';
-import { useSessionComposerPluginHookInsertion } from './follow-up/useSessionComposerPluginHookInsertion';
 import { useSessionComposerSubmitActions } from './follow-up/useSessionComposerSubmitActions';
 import { useSessionComposerImageRemoval } from './follow-up/useSessionComposerImageRemoval';
 import { useSessionComposerFocus } from './follow-up/useSessionComposerFocus';
@@ -247,7 +246,6 @@ export function TaskFollowUpSection({
     attachedImagePaths,
     executorProfileRef,
   } = useSessionComposerLocalState();
-  const [isPluginActionReady, setIsPluginActionReady] = useState(true);
   const {
     createdSessionProfiles,
     handleSelectSession,
@@ -562,7 +560,6 @@ export function TaskFollowUpSection({
 
   const canSendFollowUp = useMemo(
     () =>
-      isPluginActionReady &&
       getCanSendFollowUp({
         canType: canTypeFollowUp,
         hasExecutor: !!effectiveExecutorProfile?.executor,
@@ -582,7 +579,6 @@ export function TaskFollowUpSection({
       conflictResolutionInstructions,
       reviewMarkdown,
       attachedImages.length,
-      isPluginActionReady,
     ]
   );
   const canEnhancePrompt = useMemo(
@@ -649,13 +645,6 @@ export function TaskFollowUpSection({
 
   useSessionComposerPreviewElementInsertion({
     enabled: isEditable,
-    getMessage: getPreviewInsertionMessage,
-    onChange: handleEditorChange,
-  });
-
-  useSessionComposerPluginHookInsertion({
-    workspaceId: workspaceIdValue,
-    isAttemptRunning: isComposerExecutionRunning,
     getMessage: getPreviewInsertionMessage,
     onChange: handleEditorChange,
   });
@@ -796,9 +785,6 @@ export function TaskFollowUpSection({
           <ComposerPluginActions
             key={sessionId ?? workspaceId}
             transport={tauriBackendTransport}
-            message={localMessage}
-            onMessageChange={handleEditorChange}
-            onReadyChange={setIsPluginActionReady}
           />
           <AgentMentionProvider
             transport={tauriBackendTransport}
@@ -819,11 +805,7 @@ export function TaskFollowUpSection({
                 sessionId,
               }}
               images={attachedImages}
-              onSubmit={() => {
-                if (isPluginActionReady) {
-                  handleSubmitShortcut();
-                }
-              }}
+              onSubmit={handleSubmitShortcut}
               onAttachImages={handleAttachImages}
               onRemoveImage={handleRemoveImage}
             />

@@ -514,6 +514,14 @@
     background: var(--surface-content);
   }
 
+  .settings-page .conversation-bundle-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    padding-top: 0.5rem;
+  }
+
   .settings-page .settings-action-bar {
     position: sticky;
     right: 0;
@@ -1177,7 +1185,7 @@
   .workspace-toolbar-button[aria-pressed='true'],
   .workspace-toolbar-button.is-active {
     color: var(--text-strong);
-    border-color: hsl(var(--primary) / 0.3);
+    border-color: transparent;
     background: var(--surface-active);
   }
 

@@ -104,8 +104,12 @@ describe('BranchInfoHeader', () => {
     expect(glass).toHaveAttribute('data-mode', 'prominent');
     expect(glass).toContainElement(toolbar);
     expect(screen.getByRole('button', { name: 'Git Actions' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Rebase' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Rebase Back' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Rebase' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Rebase Back' })
+    ).not.toBeInTheDocument();
     expect(screen.queryByText('目标')).not.toBeInTheDocument();
     expect(screen.getByText('main')).toBeVisible();
     expect(screen.queryByText('当前')).not.toBeInTheDocument();

@@ -37,7 +37,7 @@ async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
                 models::agent_management::conversation_migration::LegacyConversationAgentMigration::run(pool)
                     .await
                     .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-                models::plugin_v2::PluginV1Migration::migrate_all(pool).await?;
+                models::plugin_v2::PluginV1Migration::retire_all(pool).await?;
                 resolve_legacy_automation_timezones(pool).await?;
                 return Ok(());
             }

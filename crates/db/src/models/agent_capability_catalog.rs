@@ -46,11 +46,11 @@ impl AgentCapabilityCatalogRecord {
             r#"INSERT INTO agent_capability_catalog (
                     agent_type, fingerprint, generation, controls_json,
                     retrieved_at, refresh_error_code
-                ) VALUES (?, ?, 1, ?, datetime('now'), NULL)
+                ) VALUES (?, ?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL)
                 ON CONFLICT(agent_type, fingerprint) DO UPDATE SET
                     generation = agent_capability_catalog.generation + 1,
                     controls_json = excluded.controls_json,
-                    retrieved_at = datetime('now'),
+                    retrieved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     refresh_error_code = NULL
                 RETURNING agent_type, fingerprint, generation, controls_json,
                           retrieved_at, refresh_error_code"#,
@@ -78,11 +78,11 @@ impl AgentCapabilityCatalogRecord {
                     r#"INSERT INTO agent_capability_catalog (
                             agent_type, fingerprint, generation, controls_json,
                             retrieved_at, refresh_error_code
-                        ) VALUES (?, ?, 1, ?, datetime('now'), NULL)
+                        ) VALUES (?, ?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL)
                         ON CONFLICT(agent_type, fingerprint) DO UPDATE SET
                             generation = agent_capability_catalog.generation + 1,
                             controls_json = excluded.controls_json,
-                            retrieved_at = datetime('now'),
+                            retrieved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                             refresh_error_code = NULL
                         WHERE agent_capability_catalog.generation = ?
                         RETURNING agent_type, fingerprint, generation, controls_json,
@@ -100,7 +100,7 @@ impl AgentCapabilityCatalogRecord {
                     r#"INSERT INTO agent_capability_catalog (
                             agent_type, fingerprint, generation, controls_json,
                             retrieved_at, refresh_error_code
-                        ) VALUES (?, ?, 1, ?, datetime('now'), NULL)
+                        ) VALUES (?, ?, 1, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), NULL)
                         ON CONFLICT(agent_type, fingerprint) DO NOTHING
                         RETURNING agent_type, fingerprint, generation, controls_json,
                                   retrieved_at, refresh_error_code"#,
@@ -175,6 +175,45 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn freshly_replaced_catalog_is_fresh() {
+        let pool = SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_capability_catalog (
+                agent_type TEXT NOT NULL, fingerprint TEXT NOT NULL,
+                generation INTEGER NOT NULL DEFAULT 0, controls_json TEXT NOT NULL,
+                retrieved_at TEXT NOT NULL, refresh_error_code TEXT,
+                PRIMARY KEY (agent_type, fingerprint)
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let first = AgentCapabilityCatalogRecord::replace_if_generation(
+            &pool,
+            "codex",
+            "current-runtime",
+            r#"{"modes":[],"config_options":[]}"#,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("a first refresh should commit the catalog");
+        let catalog = AgentCapabilityCatalogRecord::replace_if_generation(
+            &pool,
+            "codex",
+            "current-runtime",
+            r#"{"modes":[],"config_options":[]}"#,
+            Some(first.generation),
+        )
+        .await
+        .unwrap()
+        .expect("a current refresh should replace the catalog");
+
+        assert!(!catalog.is_stale_at(Utc::now(), Duration::minutes(10)));
     }
 
     #[tokio::test]

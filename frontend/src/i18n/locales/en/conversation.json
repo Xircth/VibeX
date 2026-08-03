@@ -218,11 +218,14 @@
     "importFailed": "Failed to import conversation bundle",
     "title": "Conversation Bundle Import/Export",
     "description": "Export a VibeX event-sourced conversation, or restore one from a bundle into a renderable timeline.",
+    "exportGroupTitle": "Export bundle",
+    "importGroupTitle": "Import bundle",
     "conversationIdPlaceholder": "Conversation ID",
     "destinationPathPlaceholder": "Optional export path",
     "exportButton": "Export bundle",
     "workspaceIdPlaceholder": "Target workspace ID for import",
     "importButton": "Import",
+    "jsonLabel": "Conversation bundle JSON",
     "textareaPlaceholder": "The exported conversation bundle JSON appears here; you can also paste bundle JSON to import."
   },
   "questionRequestCard": {

@@ -90,23 +90,22 @@ Migration `20260729100000_plugin_v2_runtime.sql` creates separate v2 registry,
 activation, dependency, skill, and provider tables plus
 `plugin_legacy_evidence`.
 
-`PluginV1Migration::migrate_all` serializes the complete original v1 row,
+`PluginV1Migration::retire_all` serializes the complete original v1 row,
 including `install_command`, into evidence. The adapter deliberately has no
 process/executor dependency. Ordinary and unknown rows become
-`migration_required`. Only the three fixed VibeX builtin UUIDs have explicit
-stable-id mappings, and those mappings are inserted disabled.
+`migration_required`. The three historical builtin UUIDs remain identifiable
+in evidence, but their placeholder memberships and all v1 runtime rows are
+removed before product code can observe them.
 
-Evidence capture runs after database migrations on every application startup.
-Freshly seeded legacy builtins are captured in the same seeding operation, so a
-user does not need to click the removed install endpoint to trigger migration.
+Evidence capture and retirement run after database migrations on every
+application startup. VibeX no longer seeds legacy builtins.
 
-The legacy Tauri `plugin_install_skill` endpoint now captures migration evidence
-and returns a failed `plugin_migration_required` state. It never interprets or
-executes `install_command`.
+The legacy Tauri CRUD, activation, install, probe, migration-list and dev-kit
+endpoints have been removed, together with the sidebar/composer hook runtime.
+No product surface can reactivate a v1 plugin or interpret `install_command`.
 
-The Plugin v2 domain service and DB migration/adapter are delivered here.
-Application command/page cutover is part of the later T1.11 slice and is not
-implemented in this T1.1–T1.6 backend branch.
+Plugin v2 and its managed Tool Runtime are the only active plugin product
+surface. Immutable v1 evidence is retained solely for migration auditability.
 
 ## RED/GREEN record
 

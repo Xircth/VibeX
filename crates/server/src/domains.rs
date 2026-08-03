@@ -13,7 +13,6 @@ use conversations::{ConversationContext, ConversationSessionService};
 use db::models::{
     agent_capability_catalog::AgentCapabilityCatalogRecord,
     automation_v2::{AutomationRecord, AutomationRunRecord, SqliteAutomationStore},
-    plugin::PluginV1Migration,
     project::Project,
     project_repo::ProjectRepo,
 };
@@ -74,7 +73,6 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog(),
-            DomainCommand::PluginLegacyMigrationList => self.legacy_plugins().await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -171,26 +169,6 @@ impl ServerApplicationDomains {
                 },
             },
         }))
-    }
-
-    async fn legacy_plugins(&self) -> Result<Value, ApplicationError> {
-        let evidence = PluginV1Migration::migrate_all(&self.pool)
-            .await
-            .map_err(internal_error)?;
-        Ok(Value::Array(
-            evidence
-                .into_iter()
-                .map(|item| {
-                    json!({
-                        "legacyPluginId": item.legacy_plugin_id,
-                        "name": item.original_manifest.get("name")
-                            .and_then(Value::as_str).unwrap_or("Legacy plugin"),
-                        "status": item.status,
-                        "mappedPluginId": item.mapped_plugin_id,
-                    })
-                })
-                .collect(),
-        ))
     }
 
     async fn project_list(&self) -> Result<Value, ApplicationError> {

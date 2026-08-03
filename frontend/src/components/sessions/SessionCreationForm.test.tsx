@@ -299,7 +299,69 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     );
   });
 
-  it('loads raw Agent defaults, warns about stale values, and saves current choices', async () => {
+  it('shows a matching default pill only while session controls differ from their initial values', async () => {
+    renderForm('claude_code', vi.fn());
+    const user = userEvent.setup();
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    expect(summary).toHaveClass('rounded-full');
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.saveAgentDefaults',
+      })
+    ).not.toBeInTheDocument();
+
+    await user.click(summary);
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus' }));
+
+    const saveDefaults = await screen.findByRole('button', {
+      name: 'sessionCreation.saveAgentDefaults',
+    });
+    expect(saveDefaults).toHaveClass('rounded-full');
+
+    await user.click(saveDefaults);
+    await waitFor(() =>
+      expect(setSessionDefaults).toHaveBeenCalledWith('claude_code', {
+        model: 'opus',
+        fast: false,
+      })
+    );
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.saveAgentDefaults',
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides the default pill when the user restores the initial session controls', async () => {
+    renderForm('claude_code', vi.fn());
+    const user = userEvent.setup();
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    await user.click(summary);
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus' }));
+    expect(
+      await screen.findByRole('button', {
+        name: 'sessionCreation.saveAgentDefaults',
+      })
+    ).toBeInTheDocument();
+
+    await user.click(summary);
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Sonnet' }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: 'sessionCreation.saveAgentDefaults',
+        })
+      ).not.toBeInTheDocument()
+    );
+  });
+
+  it('loads raw Agent defaults without exposing stale option diagnostics', async () => {
     sessionDefaults.mockResolvedValue({
       values: { model: 'opus' },
       staleIds: ['removed-option'],
@@ -307,9 +369,12 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     renderForm('claude_code', vi.fn());
     const user = userEvent.setup();
 
+    await screen.findByTestId('session-settings-summary');
     expect(
-      await screen.findByText('sessionCreation.staleDefaults')
-    ).toBeInTheDocument();
+      screen.queryByText('sessionCreation.staleDefaults')
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('Fast mode'));
     await user.click(
       screen.getByRole('button', { name: 'sessionCreation.saveAgentDefaults' })
     );
@@ -317,7 +382,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     await waitFor(() =>
       expect(setSessionDefaults).toHaveBeenCalledWith('claude_code', {
         model: 'opus',
-        fast: false,
+        fast: true,
       })
     );
   });

@@ -34,9 +34,6 @@ describe('PluginsSettings', () => {
           },
         };
       }
-      if (command === 'plugin_legacy_migration_list') {
-        return [];
-      }
       throw new Error(`unexpected command: ${command}`);
     });
     const transport: BackendTransport = {
@@ -78,8 +75,6 @@ describe('PluginsSettings', () => {
           },
         };
       }
-      if (command === 'plugin_legacy_migration_list')
-        throw new Error('legacy settings API must not be called');
       throw new Error(`unexpected command: ${command}`);
     });
     const transport: BackendTransport = {
@@ -90,7 +85,6 @@ describe('PluginsSettings', () => {
     render(<PluginsSettings transport={transport} />);
 
     expect(await screen.findByText('VibeX Office')).toBeVisible();
-    expect(call).not.toHaveBeenCalledWith('plugin_legacy_migration_list');
     expect(screen.queryByText('Old PPT Plugin')).not.toBeInTheDocument();
     expect(screen.queryByText('Mapped builtin')).not.toBeInTheDocument();
     expect(screen.queryByText('migration_required')).not.toBeInTheDocument();
@@ -123,7 +117,6 @@ describe('PluginsSettings', () => {
     const call = vi.fn(
       async (command: string, args?: Record<string, unknown>) => {
         if (command === 'plugin_action_catalog') return catalog;
-        if (command === 'plugin_legacy_migration_list') return [];
         if (command === 'office_plugin_set_enabled') {
           enableTaskId = String(args?.taskId);
           return new Promise((resolve) => {

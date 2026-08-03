@@ -46,7 +46,6 @@
     "savingAgentDefaults": "Saving defaults…",
     "agentDefaultsSaved": "Agent defaults saved.",
     "agentDefaultsSaveFailed": "Could not save Agent defaults.",
-    "staleDefaults": "Saved options are no longer advertised and were ignored: {{options}}",
     "catalogRefreshing": "Showing cached options while refreshing in the background…",
     "catalogRefreshFailed": "Cached options are shown; background refresh failed.",
     "importAgentSession": "Import Agent session",

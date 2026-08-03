@@ -633,11 +633,7 @@ export function useTauriTerminal({
           pendingInitObserverRef.current?.disconnect();
           pendingInitObserverRef.current = null;
           void initialize(container);
-          return;
         }
-
-        pendingInitFrameRef.current =
-          window.requestAnimationFrame(tryInitialize);
       };
 
       pendingInitObserverRef.current = new ResizeObserver(tryInitialize);

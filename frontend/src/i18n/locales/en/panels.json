@@ -177,12 +177,7 @@
     "tauriInspectorInstalled": "Inspector installed. Restart the Tauri dev App, then click this button again",
     "tauriInspectorActivated": "Inspector activated in the running Tauri App",
     "tauriInspectorCaptured": "Added {{count}} Tauri App element(s) to the Agent input",
-    "tauriInspectorFailed": "Tauri inspector failed: {{error}}",
-    "pluginHookBlocked": "This plugin can't insert its hook right now — finish the current turn or clear the composer first",
-    "pluginStartFailed": "Failed to activate the plugin: {{error}}",
-    "pluginExpired": "{{name}} (expired)",
-    "pluginConsoleUrlUnknown": "(not specified — start the console and tell me its address)",
-    "pluginConsoleOpened": "\"{{name}}\" console is ready — opened in the Web Preview"
+    "tauriInspectorFailed": "Tauri inspector failed: {{error}}"
   },
   "projectActivity": {
     "statusSuccessUnread": "A recently finished session hasn't been viewed",

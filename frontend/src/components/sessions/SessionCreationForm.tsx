@@ -177,6 +177,12 @@ export function SessionCreationForm({
   const [defaultsSaveState, setDefaultsSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
+  const [savedControlsFingerprint, setSavedControlsFingerprint] = useState<
+    string | null
+  >(null);
+  const [defaultsHydratedAgent, setDefaultsHydratedAgent] = useState<
+    string | null
+  >(null);
   const [catalogRefreshFailed, setCatalogRefreshFailed] = useState(false);
   const [remoteSessionsOpen, setRemoteSessionsOpen] = useState(false);
   const [remoteSessionAction, setRemoteSessionAction] = useState<string | null>(
@@ -189,6 +195,8 @@ export function SessionCreationForm({
     setSelectedMode(null);
     setSelectedConfigValues({});
     setDefaultsSaveState('idle');
+    setSavedControlsFingerprint(null);
+    setDefaultsHydratedAgent(null);
     setCatalogRefreshFailed(false);
     setRemoteSessionsOpen(false);
     setRemoteSessionAction(null);
@@ -218,21 +226,24 @@ export function SessionCreationForm({
       .catch(() => setCatalogRefreshFailed(true));
   }, [catalogFreshnessQuery, controlsQuery, executor]);
   useEffect(() => {
-    if (!defaultsQuery.data) return;
-    setSelectedConfigValues(
-      Object.fromEntries(
-        Object.entries(defaultsQuery.data.values).flatMap(([key, value]) => {
-          const serialized =
-            value === null
-              ? ''
-              : typeof value === 'string'
-                ? value
-                : JSON.stringify(value);
-          return serialized ? [[key, serialized]] : [];
-        })
-      )
-    );
-  }, [defaultsQuery.data]);
+    if (!executor || !defaultsQuery.isFetched) return;
+    if (defaultsQuery.data) {
+      setSelectedConfigValues(
+        Object.fromEntries(
+          Object.entries(defaultsQuery.data.values).flatMap(([key, value]) => {
+            const serialized =
+              value === null
+                ? ''
+                : typeof value === 'string'
+                  ? value
+                  : JSON.stringify(value);
+            return serialized ? [[key, serialized]] : [];
+          })
+        )
+      );
+    }
+    setDefaultsHydratedAgent(executor);
+  }, [defaultsQuery.data, defaultsQuery.isFetched, executor]);
 
   const activeControls = controlsQuery.data ?? null;
   const supportsRemoteSessionList =
@@ -292,6 +303,37 @@ export function SessionCreationForm({
     activeControls?.current_mode ?? null
   );
   const modeOverride = selectedMode ?? defaultMode;
+  const currentControlsPreset = activeControls
+    ? { modeOverride, configOverrides }
+    : null;
+  const currentControlsFingerprint = currentControlsPreset
+    ? JSON.stringify([
+        currentControlsPreset.modeOverride,
+        Object.entries(currentControlsPreset.configOverrides).sort(
+          ([left], [right]) => left.localeCompare(right)
+        ),
+      ])
+    : null;
+  useEffect(() => {
+    if (
+      !currentControlsFingerprint ||
+      savedControlsFingerprint ||
+      defaultsHydratedAgent !== executor
+    ) {
+      return;
+    }
+    setSavedControlsFingerprint(currentControlsFingerprint);
+  }, [
+    currentControlsFingerprint,
+    defaultsHydratedAgent,
+    executor,
+    savedControlsFingerprint,
+  ]);
+  const sessionControlsChanged = Boolean(
+    currentControlsFingerprint &&
+      savedControlsFingerprint &&
+      currentControlsFingerprint !== savedControlsFingerprint
+  );
   const saveAgentDefaults = async () => {
     if (!executor) return;
     const rawDefaults = Object.fromEntries(
@@ -314,6 +356,9 @@ export function SessionCreationForm({
     try {
       await agentsApi.setSessionDefaults(executor, rawDefaults);
       setDefaultsSaveState('saved');
+      if (currentControlsFingerprint) {
+        setSavedControlsFingerprint(currentControlsFingerprint);
+      }
     } catch {
       setDefaultsSaveState('error');
     }
@@ -508,29 +553,22 @@ export function SessionCreationForm({
                 disabled={isSubmitting}
                 dropdownSide={dropdownSide}
               />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 text-[11px]"
-                disabled={isSubmitting || defaultsSaveState === 'saving'}
-                onClick={() => void saveAgentDefaults()}
-              >
-                {defaultsSaveState === 'saving'
-                  ? t('sessionCreation.savingAgentDefaults')
-                  : t('sessionCreation.saveAgentDefaults')}
-              </Button>
+              {sessionControlsChanged ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 rounded-full text-[11px]"
+                  disabled={isSubmitting || defaultsSaveState === 'saving'}
+                  onClick={() => void saveAgentDefaults()}
+                >
+                  {defaultsSaveState === 'saving'
+                    ? t('sessionCreation.savingAgentDefaults')
+                    : t('sessionCreation.saveAgentDefaults')}
+                </Button>
+              ) : null}
             </div>
-            {defaultsQuery.data?.staleIds.length ? (
-              <p
-                className="text-[11px] text-[hsl(var(--warning))]"
-                role="status"
-              >
-                {t('sessionCreation.staleDefaults', {
-                  options: defaultsQuery.data.staleIds.join(', '),
-                })}
-              </p>
-            ) : defaultsSaveState === 'saved' ? (
+            {defaultsSaveState === 'saved' ? (
               <p className="text-[11px] text-muted-foreground" role="status">
                 {t('sessionCreation.agentDefaultsSaved')}
               </p>

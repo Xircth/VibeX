@@ -9,7 +9,7 @@ import { SessionComposerInput } from './SessionComposerInput';
 import { ComposerPluginActions } from './ComposerPluginActions';
 
 describe('ComposerPluginActions', () => {
-  it('inserts an editable PluginAction into the composer without sending', async () => {
+  it('does not expose enabled plugin actions as composer shortcut buttons', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     const call = vi.fn(async (command: string) => {
@@ -56,11 +56,7 @@ describe('ComposerPluginActions', () => {
       const [message, setMessage] = useState('保留我的开场。');
       return (
         <QueryClientProvider client={queryClient}>
-          <ComposerPluginActions
-            transport={transport}
-            message={message}
-            onMessageChange={setMessage}
-          />
+          <ComposerPluginActions transport={transport} />
           <SessionComposerInput
             value={message}
             images={[]}
@@ -74,14 +70,13 @@ describe('ComposerPluginActions', () => {
     }
 
     render(<Harness />);
-    await user.click(await screen.findByRole('button', { name: '创建 PPT' }));
+    await user.click(screen.getByRole('textbox'));
 
-    expect(screen.getByRole('textbox').textContent).toBe(
-      '保留我的开场。\n\n澄清受众与目标后，创建新的 PPTX 并验证输出。'
-    );
-    expect(screen.getByText('Skill · office-pptx')).toBeVisible();
-    expect(screen.getByText('Tool · officecli')).toBeVisible();
-    expect(screen.getByText('Artifact · PPTX')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '创建 PPT' })
+    ).not.toBeInTheDocument();
+    expect(call).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox').textContent).toBe('保留我的开场。');
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

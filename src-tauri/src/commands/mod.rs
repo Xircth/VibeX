@@ -19,7 +19,6 @@ pub mod instructions;
 pub mod local_usage;
 pub mod logs;
 pub mod office_tools;
-pub mod plugin;
 pub mod projects;
 pub mod remote_desktop;
 pub mod repos;

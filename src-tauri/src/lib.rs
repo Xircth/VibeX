@@ -299,23 +299,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             // reconciliation and catch-up happen behind the owner lease.
             commands::automation::start_automation_engine(app.handle().clone());
 
-            // Plugins: seed the built-in presets (disabled until the user
-            // enables them in Settings → Plugins). Best-effort.
-            {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let pool = handle
-                        .state::<state::AppState>()
-                        .deployment
-                        .db()
-                        .pool
-                        .clone();
-                    if let Err(error) = commands::plugin::ensure_builtin_plugins(&pool).await {
-                        tracing::warn!("builtin plugin seeding failed: {error}");
-                    }
-                });
-            }
-
             // Artifact providers own their child-process lifecycle. Reap expired
             // preview leases, crashed children, and idle watches periodically.
             {
@@ -529,16 +512,6 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::remote_desktop::remote_desktop_disconnect,
             commands::remote_desktop::remote_desktop_call,
             commands::remote_desktop::remote_desktop_capabilities,
-            commands::plugin::plugin_list,
-            commands::plugin::plugin_legacy_migration_list,
-            commands::plugin::plugin_create,
-            commands::plugin::plugin_update,
-            commands::plugin::plugin_delete,
-            commands::plugin::plugin_set_enabled,
-            commands::plugin::plugin_install_skill,
-            commands::plugin::plugin_activate,
-            commands::plugin::plugin_probe_console,
-            commands::plugin::plugin_download_dev_kit,
             commands::events::subscribe_diff_stream,
             commands::events::subscribe_conversation_stream,
             commands::events::subscribe_log_stream,

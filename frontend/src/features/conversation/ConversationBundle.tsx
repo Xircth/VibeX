@@ -31,7 +31,9 @@ export function ConversationBundlePanel() {
       setBundleText(JSON.stringify(result.bundle, null, 2));
       toast.success(t('bundle.exported'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('bundle.exportFailed'));
+      toast.error(
+        error instanceof Error ? error.message : t('bundle.exportFailed')
+      );
     } finally {
       setBusy(false);
     }
@@ -46,72 +48,109 @@ export function ConversationBundlePanel() {
     setBusy(true);
     try {
       const bundle = JSON.parse(bundleText) as ConversationBundlePayload;
-      const result = await conversationApi.import({ workspaceId: workspace, bundle });
+      const result = await conversationApi.import({
+        workspaceId: workspace,
+        bundle,
+      });
       setConversationId(result.conversationId);
       toast.success(t('bundle.imported'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('bundle.importFailed'));
+      toast.error(
+        error instanceof Error ? error.message : t('bundle.importFailed')
+      );
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="settings-inline-group space-y-3 p-3">
-      <div>
-        <div className="text-xs font-semibold">{t('bundle.title')}</div>
+    <section
+      className="conversation-bundle-panel"
+      aria-labelledby="conversation-bundle-title"
+    >
+      <div className="space-y-1">
+        <div id="conversation-bundle-title" className="text-xs font-semibold">
+          {t('bundle.title')}
+        </div>
         <div className="mt-1 text-[11px] text-muted-foreground">
           {t('bundle.description')}
         </div>
       </div>
-      <div className="grid gap-2 md:grid-cols-2">
-        <Input
-          value={conversationId}
-          placeholder={t('bundle.conversationIdPlaceholder')}
-          onChange={(event) => setConversationId(event.target.value)}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <fieldset className="min-w-0 space-y-2 border-0 p-0">
+          <legend className="mb-2 text-[11px] font-medium text-foreground">
+            {t('bundle.exportGroupTitle')}
+          </legend>
+          <Input
+            value={conversationId}
+            aria-label={t('bundle.conversationIdPlaceholder')}
+            placeholder={t('bundle.conversationIdPlaceholder')}
+            onChange={(event) => setConversationId(event.target.value)}
+            disabled={busy}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={destinationPath}
+              aria-label={t('bundle.destinationPathPlaceholder')}
+              placeholder={t('bundle.destinationPathPlaceholder')}
+              onChange={(event) => setDestinationPath(event.target.value)}
+              disabled={busy}
+            />
+            <Button
+              size="sm"
+              className="h-8 shrink-0 text-xs"
+              onClick={() => void exportBundle()}
+              disabled={busy}
+            >
+              <Download className="mr-1 h-3.5 w-3.5" />
+              {t('bundle.exportButton')}
+            </Button>
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0 space-y-2 border-0 p-0">
+          <legend className="mb-2 text-[11px] font-medium text-foreground">
+            {t('bundle.importGroupTitle')}
+          </legend>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={workspaceId}
+              aria-label={t('bundle.workspaceIdPlaceholder')}
+              placeholder={t('bundle.workspaceIdPlaceholder')}
+              onChange={(event) => setWorkspaceId(event.target.value)}
+              disabled={busy}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 text-xs"
+              onClick={() => void importBundle()}
+              disabled={busy || !bundleText.trim()}
+            >
+              <Upload className="mr-1 h-3.5 w-3.5" />
+              {t('bundle.importButton')}
+            </Button>
+          </div>
+        </fieldset>
+      </div>
+
+      <div className="space-y-2">
+        <label
+          htmlFor="conversation-bundle-json"
+          className="text-[11px] font-medium text-foreground"
+        >
+          {t('bundle.jsonLabel')}
+        </label>
+        <Textarea
+          id="conversation-bundle-json"
+          value={bundleText}
+          placeholder={t('bundle.textareaPlaceholder')}
+          onChange={(event) => setBundleText(event.target.value)}
           disabled={busy}
-        />
-        <Input
-          value={destinationPath}
-          placeholder={t('bundle.destinationPathPlaceholder')}
-          onChange={(event) => setDestinationPath(event.target.value)}
-          disabled={busy}
+          className="min-h-36 w-full font-mono text-xs"
         />
       </div>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="h-8 text-xs"
-          onClick={() => void exportBundle()}
-          disabled={busy}
-        >
-          <Download className="mr-1 h-3.5 w-3.5" />
-          {t('bundle.exportButton')}
-        </Button>
-        <Input
-          value={workspaceId}
-          placeholder={t('bundle.workspaceIdPlaceholder')}
-          onChange={(event) => setWorkspaceId(event.target.value)}
-          disabled={busy}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 shrink-0 text-xs"
-          onClick={() => void importBundle()}
-          disabled={busy || !bundleText.trim()}
-        >
-          <Upload className="mr-1 h-3.5 w-3.5" />
-          {t('bundle.importButton')}
-        </Button>
-      </div>
-      <Textarea
-        value={bundleText}
-        placeholder={t('bundle.textareaPlaceholder')}
-        onChange={(event) => setBundleText(event.target.value)}
-        disabled={busy}
-        className="min-h-28 text-xs"
-      />
-    </div>
+    </section>
   );
 }

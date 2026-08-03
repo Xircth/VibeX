@@ -218,11 +218,14 @@
     "importFailed": "会话包导入失败",
     "title": "会话包导入导出",
     "description": "导出 VibeX 事件源会话，或从会话包恢复为可渲染时间线。",
+    "exportGroupTitle": "导出会话包",
+    "importGroupTitle": "导入会话包",
     "conversationIdPlaceholder": "会话 ID",
     "destinationPathPlaceholder": "可选导出路径",
     "exportButton": "导出会话包",
     "workspaceIdPlaceholder": "导入目标工作区 ID",
     "importButton": "导入",
+    "jsonLabel": "会话包 JSON",
     "textareaPlaceholder": "导出的会话包 JSON 会显示在这里，也可以粘贴会话包 JSON 后导入。"
   },
   "questionRequestCard": {

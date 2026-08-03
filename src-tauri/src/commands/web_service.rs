@@ -644,16 +644,16 @@ pub async fn get_web_server_status() -> Result<WebServerStatus, AppError> {
 #[tauri::command]
 pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
     let config = load_config().await?;
-    let app = router(WebServiceRouterState {
+    let service_router = router(WebServiceRouterState {
         app,
         token: config.token.clone(),
     });
-    start_web_server_with_router(config, app).await
+    start_web_server_with_router(config, service_router).await
 }
 
 async fn start_web_server_with_router(
     config: WebServiceConfig,
-    app: Router,
+    service_router: Router,
 ) -> Result<WebServerStatus, AppError> {
     validate_port(config.port)?;
 
@@ -679,7 +679,7 @@ async fn start_web_server_with_router(
     let address = format!("http://{}", local_addr);
     let started_at = Utc::now().to_rfc3339();
     let handle = tokio::spawn(async move {
-        if let Err(error) = axum::serve(listener, app).await {
+        if let Err(error) = axum::serve(listener, service_router).await {
             tracing::warn!("VibeX web service stopped with error: {}", error);
         }
     });
@@ -699,12 +699,16 @@ async fn start_web_server_with_router(
 #[tauri::command]
 pub async fn stop_web_server() -> Result<WebServerStatus, AppError> {
     let config = load_config().await?;
+    Ok(stop_web_server_with_config(config).await)
+}
+
+async fn stop_web_server_with_config(config: WebServiceConfig) -> WebServerStatus {
     let mut runtime = WEB_SERVICE_RUNTIME.lock().await;
     if let Some(runtime) = runtime.take() {
         runtime.handle.abort();
     }
     drop(runtime);
-    Ok(status_from_runtime(config).await)
+    status_from_runtime(config).await
 }
 
 #[tauri::command]
@@ -749,7 +753,7 @@ mod tests {
 
     use axum::Router;
 
-    use super::{WebServiceConfig, start_web_server_with_router, stop_web_server};
+    use super::{WebServiceConfig, start_web_server_with_router, stop_web_server_with_config};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn starting_web_service_returns_the_running_status_without_hanging() {
@@ -766,13 +770,13 @@ mod tests {
 
         let outcome = tokio::time::timeout(
             Duration::from_secs(2),
-            start_web_server_with_router(config, Router::new()),
+            start_web_server_with_router(config.clone(), Router::new()),
         )
         .await;
 
         // Always release a listener that may have been created before the
         // command stalled, so this regression test remains deterministic.
-        let _ = stop_web_server().await;
+        let _ = stop_web_server_with_config(config).await;
 
         let status = outcome
             .expect("start_web_server should return instead of hanging")

@@ -128,7 +128,10 @@ function kindLabel(kind: string, t: Translate): string {
   }
 }
 
-function cfgStr(config: Record<string, unknown> | undefined, key: string): string {
+function cfgStr(
+  config: Record<string, unknown> | undefined,
+  key: string
+): string {
   const value = config?.[key];
   return typeof value === 'string' ? value : '';
 }
@@ -138,7 +141,9 @@ function cfgSendersText(config: Record<string, unknown> | undefined): string {
   const value = config?.authorized_senders;
   if (!Array.isArray(value)) return '';
   return value
-    .map((item) => (typeof item === 'number' ? String(item) : String(item ?? '')))
+    .map((item) =>
+      typeof item === 'number' ? String(item) : String(item ?? '')
+    )
     .filter((item) => item.trim().length > 0)
     .join('\n');
 }
@@ -289,7 +294,9 @@ export function ChatChannelSettings() {
 
   // Create / edit dialog state.
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingChannel, setEditingChannel] = useState<ChatChannel | null>(null);
+  const [editingChannel, setEditingChannel] = useState<ChatChannel | null>(
+    null
+  );
   const [draft, setDraft] = useState<ChannelDraft>(() => emptyDraft());
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -335,12 +342,13 @@ export function ChatChannelSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelList, filter, commandPrefix, promptText] = await Promise.all([
-        chatChannelApi.list(),
-        chatChannelApi.getEventFilter(),
-        chatChannelApi.getCommandPrefix(),
-        chatChannelApi.getIncludePromptText(),
-      ]);
+      const [channelList, filter, commandPrefix, promptText] =
+        await Promise.all([
+          chatChannelApi.list(),
+          chatChannelApi.getEventFilter(),
+          chatChannelApi.getCommandPrefix(),
+          chatChannelApi.getIncludePromptText(),
+        ]);
       setChannels(channelList);
       setEventFilter(filter.enabled_events);
       setPrefix(commandPrefix.prefix);
@@ -409,7 +417,10 @@ export function ChatChannelSettings() {
       )
     );
     try {
-      await chatChannelApi.update(channel.id, payloadFromChannel(channel, enabled));
+      await chatChannelApi.update(
+        channel.id,
+        payloadFromChannel(channel, enabled)
+      );
     } catch (error) {
       setChannels((previous) =>
         previous.map((item) =>
@@ -553,7 +564,9 @@ export function ChatChannelSettings() {
         <SettingsSection
           icon={SendHorizontal}
           title={t('chatChannels.channelsTitle')}
-          description={t('chatChannels.channelsCount', { count: channels.length })}
+          description={t('chatChannels.channelsCount', {
+            count: channels.length,
+          })}
           action={
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <Plus className="mr-1 h-3.5 w-3.5" />
@@ -597,102 +610,100 @@ export function ChatChannelSettings() {
                 ) : (
                   visibleChannels.map((channel) => (
                     <div key={channel.id}>
-                    <div
-                      className="group flex items-center gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-[var(--surface-control-hover)]"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => openEdit(channel)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {channel.name}
-                          </span>
-                          <span className="settings-status-pill-neutral shrink-0 px-1.5 py-0.5 text-[10px] font-medium">
-                            {kindLabel(channel.kind, t)}
-                          </span>
-                          {channel.has_token ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-                              <KeyRound className="h-3 w-3" />
-                              {t('chatChannels.secretBadge')}
+                      <div className="group flex items-center gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-[var(--surface-control-hover)]">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(channel)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {channel.name}
                             </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                          {channelSummary(channel, t)}
-                        </div>
-                      </button>
+                            <span className="settings-status-pill-neutral shrink-0 px-1.5 py-0.5 text-[10px] font-medium">
+                              {kindLabel(channel.kind, t)}
+                            </span>
+                            {channel.has_token ? (
+                              <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+                                <KeyRound className="h-3 w-3" />
+                                {t('chatChannels.secretBadge')}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                            {channelSummary(channel, t)}
+                          </div>
+                        </button>
 
-                      <Switch
-                        className="settings-switch shrink-0"
-                        checked={channel.enabled}
-                        onCheckedChange={(checked: boolean) =>
-                          void toggleEnabled(channel, checked)
-                        }
-                        aria-label={
-                          channel.enabled
-                            ? t('chatChannels.disableChannel')
-                            : t('chatChannels.enableChannel')
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                        onClick={() => void toggleLogs(channel.id)}
-                        title={t('chatChannels.deliveryLogs')}
-                        aria-label={t('chatChannels.deliveryLogs')}
-                      >
-                        <History className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-                        onClick={() => deleteChannel(channel)}
-                        title={t('chatChannels.deleteChannel')}
-                        aria-label={t('chatChannels.deleteChannel')}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    {logChannelId === channel.id ? (
-                      <div className="mb-1 ml-2.5 space-y-1 border-l border-border pl-2.5">
-                        {logs.length === 0 ? (
-                          <p className="py-1 text-[11px] text-muted-foreground">
-                            {t('chatChannels.noLogs')}
-                          </p>
-                        ) : (
-                          logs.map((log) => (
-                            <div
-                              key={log.id}
-                              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
-                            >
-                              <span className="truncate">
-                                {log.direction === 'inbound' ? '⬇' : '⬆'}{' '}
-                                {log.event ?? '—'}
-                              </span>
-                              <span
-                                className={
-                                  log.status === 'failed' ||
-                                  log.status === 'rejected'
-                                    ? 'shrink-0 text-destructive'
-                                    : 'shrink-0'
-                                }
-                              >
-                                {log.status}
-                                {log.detail
-                                  ? t('chatChannels.logDetail', {
-                                      detail: log.detail,
-                                    })
-                                  : ''}
-                              </span>
-                            </div>
-                          ))
-                        )}
+                        <Switch
+                          className="settings-switch shrink-0"
+                          checked={channel.enabled}
+                          onCheckedChange={(checked: boolean) =>
+                            void toggleEnabled(channel, checked)
+                          }
+                          aria-label={
+                            channel.enabled
+                              ? t('chatChannels.disableChannel')
+                              : t('chatChannels.enableChannel')
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          onClick={() => void toggleLogs(channel.id)}
+                          title={t('chatChannels.deliveryLogs')}
+                          aria-label={t('chatChannels.deliveryLogs')}
+                        >
+                          <History className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                          onClick={() => deleteChannel(channel)}
+                          title={t('chatChannels.deleteChannel')}
+                          aria-label={t('chatChannels.deleteChannel')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                    ) : null}
+                      {logChannelId === channel.id ? (
+                        <div className="mb-1 ml-2.5 space-y-1 border-l border-border pl-2.5">
+                          {logs.length === 0 ? (
+                            <p className="py-1 text-[11px] text-muted-foreground">
+                              {t('chatChannels.noLogs')}
+                            </p>
+                          ) : (
+                            logs.map((log) => (
+                              <div
+                                key={log.id}
+                                className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
+                              >
+                                <span className="truncate">
+                                  {log.direction === 'inbound' ? '⬇' : '⬆'}{' '}
+                                  {log.event ?? '—'}
+                                </span>
+                                <span
+                                  className={
+                                    log.status === 'failed' ||
+                                    log.status === 'rejected'
+                                      ? 'shrink-0 text-destructive'
+                                      : 'shrink-0'
+                                  }
+                                >
+                                  {log.status}
+                                  {log.detail
+                                    ? t('chatChannels.logDetail', {
+                                        detail: log.detail,
+                                      })
+                                    : ''}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   ))
                 )}
@@ -727,15 +738,24 @@ export function ChatChannelSettings() {
               {EVENT_OPTIONS.map((event) => {
                 const checked = eventFilter.includes(event.value);
                 return (
-                  <button
+                  <div
                     key={event.value}
-                    type="button"
-                    onClick={() => toggleEvent(event.value, !checked)}
                     className="flex items-center gap-2 rounded-md border border-[var(--border-content)] px-2.5 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-control-hover)]"
                   >
-                    <Checkbox checked={checked} className="pointer-events-none" />
-                    <span>{t(event.labelKey)}</span>
-                  </button>
+                    <Checkbox
+                      id={`chat-event-${event.value}`}
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        toggleEvent(event.value, value === true)
+                      }
+                    />
+                    <Label
+                      htmlFor={`chat-event-${event.value}`}
+                      className="cursor-pointer text-xs font-normal"
+                    >
+                      {t(event.labelKey)}
+                    </Label>
+                  </div>
                 );
               })}
             </div>
@@ -799,19 +819,25 @@ export function ChatChannelSettings() {
         </SettingsSection>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogHeader>
-          <DialogTitle>
-            {editingChannel
-              ? t('chatChannels.editChannel')
-              : t('chatChannels.newChannel')}
-          </DialogTitle>
-          <DialogDescription>
-            {t('chatChannels.dialogDescription')}
-          </DialogDescription>
-        </DialogHeader>
-
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chat-channel-dialog-title"
+      >
         <DialogContent>
+          <DialogHeader>
+            <DialogTitle id="chat-channel-dialog-title">
+              {editingChannel
+                ? t('chatChannels.editChannel')
+                : t('chatChannels.newChannel')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('chatChannels.dialogDescription')}
+            </DialogDescription>
+          </DialogHeader>
+
           <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="channel-name" className="text-xs">
@@ -853,7 +879,9 @@ export function ChatChannelSettings() {
               <Input
                 id="tg-chat"
                 value={draft.chat_id}
-                onChange={(event) => updateDraft({ chat_id: event.target.value })}
+                onChange={(event) =>
+                  updateDraft({ chat_id: event.target.value })
+                }
                 placeholder={t('chatChannels.telegramChatPlaceholder')}
               />
             </div>
@@ -869,7 +897,9 @@ export function ChatChannelSettings() {
                 <Input
                   id="fs-app"
                   value={draft.app_id}
-                  onChange={(event) => updateDraft({ app_id: event.target.value })}
+                  onChange={(event) =>
+                    updateDraft({ app_id: event.target.value })
+                  }
                   placeholder="cli_xxxxxxxx"
                 />
               </div>
@@ -880,7 +910,9 @@ export function ChatChannelSettings() {
                 <Input
                   id="fs-chat"
                   value={draft.chat_id}
-                  onChange={(event) => updateDraft({ chat_id: event.target.value })}
+                  onChange={(event) =>
+                    updateDraft({ chat_id: event.target.value })
+                  }
                   placeholder="oc_xxxxxxxx"
                 />
               </div>
@@ -910,7 +942,9 @@ export function ChatChannelSettings() {
                 <Input
                   id="qq-ws"
                   value={draft.ws_url}
-                  onChange={(event) => updateDraft({ ws_url: event.target.value })}
+                  onChange={(event) =>
+                    updateDraft({ ws_url: event.target.value })
+                  }
                   placeholder={t('chatChannels.qqWsPlaceholder')}
                 />
               </div>
@@ -1074,33 +1108,32 @@ export function ChatChannelSettings() {
               {t('chatChannels.testSend')}
             </Button>
           ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setDialogOpen(false)}
+            >
+              {t('common:cancel')}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => void saveChannel()}
+              disabled={saving}
+            >
+              {saving ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1 h-3.5 w-3.5" />
+              )}
+              {editingChannel ? t('common:save') : t('common:create')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setDialogOpen(false)}
-          >
-            {t('common:cancel')}
-          </Button>
-          <Button
-            type="submit"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => void saveChannel()}
-            disabled={saving}
-          >
-            {saving ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-1 h-3.5 w-3.5" />
-            )}
-            {editingChannel ? t('common:save') : t('common:create')}
-          </Button>
-        </DialogFooter>
       </Dialog>
     </div>
   );

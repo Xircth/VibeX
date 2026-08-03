@@ -76,10 +76,7 @@ type Selection =
 
 type AppsDraft = Record<McpAppType, boolean>;
 
-function emptyApps(
-  options: ManagedAgentOption[],
-  value = false
-): AppsDraft {
+function emptyApps(options: ManagedAgentOption[], value = false): AppsDraft {
   return Object.fromEntries(options.map((option) => [option.value, value]));
 }
 
@@ -96,9 +93,7 @@ function selectedApps(
   options: ManagedAgentOption[],
   draft: AppsDraft
 ): McpAppType[] {
-  return options.filter((item) => draft[item.value]).map(
-    (item) => item.value
-  );
+  return options.filter((item) => draft[item.value]).map((item) => item.value);
 }
 
 const DRAFT_SPEC_TEMPLATE = `{
@@ -210,7 +205,7 @@ function TargetSelector({
           >
             <input
               type="checkbox"
-              checked={global || apps[app.value]}
+              checked={global || Boolean(apps[app.value])}
               disabled={global}
               onChange={(event) => onToggleApp(app.value, event.target.checked)}
             />
@@ -542,10 +537,7 @@ export function McpSettings() {
       setError(errorMessage(err));
       return;
     }
-    if (
-      !draftGlobal &&
-      selectedApps(agentOptions, draftApps).length === 0
-    ) {
+    if (!draftGlobal && selectedApps(agentOptions, draftApps).length === 0) {
       setError(t('mcp.selectTargetOrGlobal'));
       return;
     }

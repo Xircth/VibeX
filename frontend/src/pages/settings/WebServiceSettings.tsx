@@ -5,10 +5,8 @@ import {
   Globe,
   KeyRound,
   Loader2,
-  Play,
   RefreshCw,
   Shield,
-  Square,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
@@ -74,7 +72,9 @@ export function WebServiceSettings({
       setStatus(currentStatus);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.configLoadFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.configLoadFailed')
       );
     } finally {
       setLoading(false);
@@ -91,7 +91,9 @@ export function WebServiceSettings({
       setStatus(await webServiceApi.getStatus());
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.statusLoadFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.statusLoadFailed')
       );
     } finally {
       setStatusBusy(false);
@@ -108,7 +110,9 @@ export function WebServiceSettings({
       toast.success(t('webService.configSaved'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.configSaveFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.configSaveFailed')
       );
     } finally {
       setSaving(false);
@@ -177,11 +181,13 @@ export function WebServiceSettings({
     try {
       const saved = await webServiceApi.generateToken();
       setConfig(saved);
-      setDraft(saved);
+      setDraft((previous) => ({ ...previous, token: saved.token }));
       toast.success(t('webService.tokenGenerated'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.tokenGenerateFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.tokenGenerateFailed')
       );
     } finally {
       setSaving(false);
@@ -255,19 +261,6 @@ export function WebServiceSettings({
                   className={`h-3.5 w-3.5 ${statusBusy ? 'animate-spin' : ''}`}
                 />
               </Button>
-            </div>
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <Label className="text-xs">
-                {t('webService.serviceControlLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {t('webService.serviceControlDescription')}
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
               {status?.address ? (
                 <Button
                   variant="outline"
@@ -279,25 +272,21 @@ export function WebServiceSettings({
                   {t('webService.open')}
                 </Button>
               ) : null}
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() =>
-                  status?.running ? void stopServer() : void startServer()
-                }
+              <Switch
+                className="settings-switch"
+                checked={Boolean(status?.running)}
+                onCheckedChange={(checked: boolean) => {
+                  if (checked) {
+                    void startServer();
+                  } else {
+                    void stopServer();
+                  }
+                }}
                 disabled={statusBusy}
-              >
-                {statusBusy ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : status?.running ? (
-                  <Square className="mr-1 h-3.5 w-3.5" />
-                ) : (
-                  <Play className="mr-1 h-3.5 w-3.5" />
-                )}
-                {status?.running
-                  ? t('webService.stop')
-                  : t('webService.start')}
-              </Button>
+                aria-label={
+                  status?.running ? t('webService.stop') : t('webService.start')
+                }
+              />
             </div>
           </div>
         </SettingsSection>

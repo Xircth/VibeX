@@ -63,7 +63,6 @@ type Selection =
   | { kind: 'market'; id: string }
   | null;
 
-
 type AgentsDraft = Record<string, boolean>;
 
 function emptyAgents(
@@ -152,7 +151,7 @@ function SkillTargetSelector({
           >
             <input
               type="checkbox"
-              checked={global || agents[agent.value]}
+              checked={global || Boolean(agents[agent.value])}
               disabled={global}
               onChange={(event) =>
                 onToggleAgent(agent.value, event.target.checked)
@@ -174,9 +173,7 @@ export function SkillsSettings() {
   const agentOptions = useManagedAgentOptions();
   const agentLabels = useMemo(
     () =>
-      Object.fromEntries(
-        agentOptions.map((item) => [item.value, item.label])
-      ),
+      Object.fromEntries(agentOptions.map((item) => [item.value, item.label])),
     [agentOptions]
   );
   const [leftTab, setLeftTab] = useState<LeftTab>('local');

@@ -104,7 +104,7 @@ export function LogsSettings() {
             </div>
           }
         >
-          <div className="settings-card overflow-hidden rounded-lg border">
+          <div className="overflow-hidden">
             {lines.length === 0 ? (
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                 {t('logs.empty')}

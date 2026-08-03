@@ -39,16 +39,18 @@ function promptEnhancementConfig(model: string): Config {
     prompt_enhancement_enabled: true,
     prompt_enhancement_model: model,
     prompt_enhancement_prompt: null,
+    crash_reports_enabled: false,
   } as Config;
 }
 
 function renderSettings(model = 'opencode/minimax-m2.5-free') {
+  const updateAndSaveConfig = vi.fn().mockResolvedValue(true);
   userSystemMock.useUserSystem.mockReturnValue({
     config: promptEnhancementConfig(model),
     loading: false,
-    updateAndSaveConfig: vi.fn(),
+    updateAndSaveConfig,
   });
-  return render(<GeneralSettings />);
+  return { ...render(<GeneralSettings />), updateAndSaveConfig };
 }
 
 describe('GeneralSettings Agent model catalogs', () => {
@@ -112,5 +114,24 @@ describe('GeneralSettings Agent model catalogs', () => {
     expect(
       screen.getByRole('combobox', { name: 'Agent 模型' })
     ).not.toBeDisabled();
+  });
+
+  it('persists a changed general preference through the shared config boundary', async () => {
+    const user = userEvent.setup();
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
+    const { updateAndSaveConfig } = renderSettings();
+
+    await user.click(
+      await screen.findByRole('switch', {
+        name: '启动时提示未处理的崩溃报告',
+      })
+    );
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ crash_reports_enabled: true })
+      );
+    });
   });
 });

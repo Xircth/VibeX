@@ -644,6 +644,17 @@ pub async fn get_web_server_status() -> Result<WebServerStatus, AppError> {
 #[tauri::command]
 pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
     let config = load_config().await?;
+    let app = router(WebServiceRouterState {
+        app,
+        token: config.token.clone(),
+    });
+    start_web_server_with_router(config, app).await
+}
+
+async fn start_web_server_with_router(
+    config: WebServiceConfig,
+    app: Router,
+) -> Result<WebServerStatus, AppError> {
     validate_port(config.port)?;
 
     {
@@ -667,10 +678,6 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
     })?;
     let address = format!("http://{}", local_addr);
     let started_at = Utc::now().to_rfc3339();
-    let app = router(WebServiceRouterState {
-        app,
-        token: config.token.clone(),
-    });
     let handle = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, app).await {
             tracing::warn!("VibeX web service stopped with error: {}", error);
@@ -684,6 +691,7 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         started_at,
         handle,
     });
+    drop(runtime);
 
     Ok(status_from_runtime(config).await)
 }
@@ -733,4 +741,43 @@ pub async fn ensure_web_service_autostart(app: tauri::AppHandle) -> Result<(), A
         let _ = start_web_server(app).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{net::TcpListener as StdTcpListener, time::Duration};
+
+    use axum::Router;
+
+    use super::{WebServiceConfig, start_web_server_with_router, stop_web_server};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn starting_web_service_returns_the_running_status_without_hanging() {
+        let port = StdTcpListener::bind(("127.0.0.1", 0))
+            .expect("an ephemeral test port should be available")
+            .local_addr()
+            .expect("test listener should expose its address")
+            .port();
+        let config = WebServiceConfig {
+            port,
+            token: None,
+            auto_start: false,
+        };
+
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(2),
+            start_web_server_with_router(config, Router::new()),
+        )
+        .await;
+
+        // Always release a listener that may have been created before the
+        // command stalled, so this regression test remains deterministic.
+        let _ = stop_web_server().await;
+
+        let status = outcome
+            .expect("start_web_server should return instead of hanging")
+            .expect("start_web_server should succeed on an available port");
+        assert!(status.running);
+        assert!(status.address.is_some());
+    }
 }

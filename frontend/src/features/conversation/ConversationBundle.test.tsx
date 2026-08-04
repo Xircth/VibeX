@@ -8,10 +8,6 @@ const legacyStyles = readFileSync(
   resolve(process.cwd(), 'src/styles/legacy/index.css'),
   'utf8'
 );
-const inlineGroupRule =
-  legacyStyles.match(
-    /\.settings-page\s+\.settings-inline-group\s*\{[^}]+\}/u
-  )?.[0] ?? '';
 const bundlePanelRule =
   legacyStyles.match(
     /\.settings-page\s+\.conversation-bundle-panel\s*\{[^}]+\}/u
@@ -40,17 +36,24 @@ describe('ConversationBundlePanel', () => {
   it('places the JSON workspace below the conversation controls', () => {
     render(
       <div className="legacy-design settings-page">
-        <style>{`${inlineGroupRule}\n${bundlePanelRule}`}</style>
+        <style>{bundlePanelRule}</style>
         <ConversationBundlePanel />
       </div>
     );
 
     const panel = screen.getByRole('region', { name: '会话包导入导出' });
+    const importControls = screen.getByRole('group', {
+      name: '导入会话包',
+    });
     const jsonWorkspace = screen.getByPlaceholderText(/导出的会话包/);
 
     expect(getComputedStyle(panel).display).toBe('flex');
     expect(getComputedStyle(panel).flexDirection).toBe('column');
     expect(panel).toContainElement(jsonWorkspace);
+    expect(
+      importControls.compareDocumentPosition(jsonWorkspace) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('exports and displays a portable conversation bundle', async () => {

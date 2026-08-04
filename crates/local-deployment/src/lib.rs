@@ -54,13 +54,39 @@ impl LocalDeployment {
     // Inherent constructor: `new` is intentionally not on the `Deployment` trait (it
     // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
     pub async fn new() -> Result<Self, DeploymentError> {
-        Self::new_at(asset_dir()).await
+        Self::new_with_settings_paths(
+            asset_dir(),
+            utils::assets::settings_path(),
+            Some(utils::assets::config_path()),
+        )
+        .await
     }
 
     pub async fn new_at(data_dir: impl AsRef<std::path::Path>) -> Result<Self, DeploymentError> {
+        let settings_file = data_dir.as_ref().join("settings.json");
+        let legacy_config_file = data_dir.as_ref().join("config.json");
+        Self::new_with_settings_paths(data_dir, settings_file, Some(legacy_config_file)).await
+    }
+
+    async fn new_with_settings_paths(
+        data_dir: impl AsRef<std::path::Path>,
+        settings_file: std::path::PathBuf,
+        legacy_config_file: Option<std::path::PathBuf>,
+    ) -> Result<Self, DeploymentError> {
         std::fs::create_dir_all(data_dir.as_ref())?;
-        let config_file = data_dir.as_ref().join("config.json");
-        let mut raw_config = load_config_from_file(&config_file).await;
+        if !settings_file.exists()
+            && let Some(legacy_config_file) = legacy_config_file.as_ref()
+            && legacy_config_file.exists()
+        {
+            let legacy_config = load_config_from_file(legacy_config_file).await;
+            save_config_to_file(&legacy_config, &settings_file).await?;
+            tracing::info!(
+                from = %legacy_config_file.display(),
+                to = %settings_file.display(),
+                "Migrated application settings"
+            );
+        }
+        let mut raw_config = load_config_from_file(&settings_file).await;
 
         // Check if app version has changed and set release notes flag
         {
@@ -75,7 +101,7 @@ impl LocalDeployment {
         }
 
         // Always save config (may have been migrated or version updated)
-        save_config_to_file(&raw_config, &config_file).await?;
+        save_config_to_file(&raw_config, &settings_file).await?;
 
         let workspace_dir_override = raw_config
             .workspace_dir
@@ -124,6 +150,7 @@ impl LocalDeployment {
             git.clone(),
             image.clone(),
             approvals.clone(),
+            settings_file.clone(),
         )
         .await;
 

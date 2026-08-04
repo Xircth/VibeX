@@ -17,6 +17,7 @@ import {
   useManagedAgentOptions,
 } from '@/features/agent-management';
 import { useTranslation } from 'react-i18next';
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import {
   AlertCircle,
   BookOpenText,
@@ -62,7 +63,6 @@ type Selection =
   | { kind: 'local'; id: string }
   | { kind: 'market'; id: string }
   | null;
-
 
 type AgentsDraft = Record<string, boolean>;
 
@@ -174,9 +174,7 @@ export function SkillsSettings() {
   const agentOptions = useManagedAgentOptions();
   const agentLabels = useMemo(
     () =>
-      Object.fromEntries(
-        agentOptions.map((item) => [item.value, item.label])
-      ),
+      Object.fromEntries(agentOptions.map((item) => [item.value, item.label])),
     [agentOptions]
   );
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
@@ -194,12 +192,31 @@ export function SkillsSettings() {
       (localStorage.getItem('vibex.skills.hostMode') as HostMode | null) ??
       'copy'
   );
+  const updateGrouping = (next: boolean) => {
+    setGrouping(next);
+    localStorage.setItem('vibex.skills.grouping', String(next));
+    persistFrontendPreference('vibex.skills.grouping', next);
+  };
+  const updateHostMode = (next: HostMode) => {
+    setHostMode(next);
+    localStorage.setItem('vibex.skills.hostMode', next);
+    persistFrontendPreference('vibex.skills.hostMode', next);
+  };
+
   useEffect(() => {
-    localStorage.setItem('vibex.skills.grouping', String(grouping));
-  }, [grouping]);
-  useEffect(() => {
-    localStorage.setItem('vibex.skills.hostMode', hostMode);
-  }, [hostMode]);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'vibex.skills.grouping') {
+        setGrouping(localStorage.getItem(event.key) !== 'false');
+      }
+      if (event.key === 'vibex.skills.hostMode') {
+        setHostMode(
+          (localStorage.getItem(event.key) as HostMode | null) ?? 'copy'
+        );
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   // Local skills
   const [skills, setSkills] = useState<LocalSkill[]>([]);
@@ -490,9 +507,9 @@ export function SkillsSettings() {
             activeId={selection?.kind === 'local' ? selection.id : null}
             onSelect={(id) => setSelection({ kind: 'local', id })}
             onRefresh={() => void refreshLocal()}
-            onToggleGrouping={setGrouping}
+            onToggleGrouping={updateGrouping}
             hostMode={hostMode}
-            onHostModeChange={setHostMode}
+            onHostModeChange={updateHostMode}
           />
         ) : (
           <MarketListPanel

@@ -1,3 +1,5 @@
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
+
 /**
  * UI zoom (P3): a frontend-only, localStorage-persisted scale applied to the
  * document root so the whole app can be zoomed for readability. Uses the CSS
@@ -22,6 +24,7 @@ export function applyUiZoom(scale: number): void {
 
 export function setUiZoom(scale: number): void {
   localStorage.setItem(ZOOM_KEY, String(scale));
+  persistFrontendPreference(ZOOM_KEY, scale);
   applyUiZoom(scale);
 }
 

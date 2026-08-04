@@ -1,3 +1,5 @@
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
+
 /**
  * Monospace font selection (P3-2). Frontend-only, localStorage-persisted (mirrors
  * {@link ./uiZoom}). Sets the `--font-mono` CSS variable on the document root so
@@ -26,7 +28,11 @@ export const MONO_FONT_OPTIONS: MonoFontOption[] = [
     label: 'JetBrains Mono',
     stack: `'JetBrains Mono', ${BUNDLED_FALLBACK}`,
   },
-  { id: 'fira-code', label: 'Fira Code', stack: `'Fira Code', ${BUNDLED_FALLBACK}` },
+  {
+    id: 'fira-code',
+    label: 'Fira Code',
+    stack: `'Fira Code', ${BUNDLED_FALLBACK}`,
+  },
   {
     id: 'cascadia-code',
     label: 'Cascadia Code',
@@ -57,6 +63,7 @@ export function applyMonoFont(id: string): void {
 
 export function setMonoFont(id: string): void {
   localStorage.setItem(FONT_KEY, id);
+  persistFrontendPreference(FONT_KEY, id);
   applyMonoFont(id);
   // Let live consumers (open xterm terminals) re-read the variable.
   window.dispatchEvent(new CustomEvent('vibex:mono-font-changed'));

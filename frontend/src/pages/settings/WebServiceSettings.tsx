@@ -23,6 +23,7 @@ import {
   type WebServiceConfig,
   webServiceApi,
 } from '@/lib/api';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 import {
   SettingsActionBar,
@@ -65,7 +66,9 @@ export function WebServiceSettings() {
       setStatus(currentStatus);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.configLoadFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.configLoadFailed')
       );
     } finally {
       setLoading(false);
@@ -76,13 +79,24 @@ export function WebServiceSettings() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const reloadFromJson = () => {
+      if (!dirty) void load();
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+    return () =>
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+  }, [dirty, load]);
+
   const refreshStatus = useCallback(async () => {
     setStatusBusy(true);
     try {
       setStatus(await webServiceApi.getStatus());
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.statusLoadFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.statusLoadFailed')
       );
     } finally {
       setStatusBusy(false);
@@ -99,7 +113,9 @@ export function WebServiceSettings() {
       toast.success(t('webService.configSaved'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.configSaveFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.configSaveFailed')
       );
     } finally {
       setSaving(false);
@@ -172,7 +188,9 @@ export function WebServiceSettings() {
       toast.success(t('webService.tokenGenerated'));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('webService.tokenGenerateFailed')
+        error instanceof Error
+          ? error.message
+          : t('webService.tokenGenerateFailed')
       );
     } finally {
       setSaving(false);
@@ -283,9 +301,7 @@ export function WebServiceSettings() {
                 ) : (
                   <Play className="mr-1 h-3.5 w-3.5" />
                 )}
-                {status?.running
-                  ? t('webService.stop')
-                  : t('webService.start')}
+                {status?.running ? t('webService.stop') : t('webService.start')}
               </Button>
             </div>
           </div>

@@ -47,6 +47,7 @@ use crate::{
 };
 
 const SETTINGS_FILE_NAME: &str = "chat-channel-settings.json";
+const SETTINGS_SECTION: &str = "chat_channels";
 
 const DEFAULT_EVENTS: &[&str] = &[
     "prompt_started",
@@ -210,7 +211,7 @@ fn default_command_prefix() -> String {
     "/vibex".to_string()
 }
 
-fn settings_path() -> PathBuf {
+fn legacy_settings_path() -> PathBuf {
     utils::assets::asset_dir().join(SETTINGS_FILE_NAME)
 }
 
@@ -231,24 +232,21 @@ where
         .map_err(|error| AppError::Internal(format!("Invalid {}: {error}", path.display())))
 }
 
-async fn write_json<T>(path: PathBuf, value: &T) -> Result<(), AppError>
-where
-    T: Serialize,
-{
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!("Failed to create {}: {error}", parent.display()))
-        })?;
-    }
-    let content = serde_json::to_string_pretty(value)
-        .map_err(|error| AppError::Internal(format!("Failed to serialize JSON: {error}")))?;
-    tokio::fs::write(&path, content)
-        .await
-        .map_err(|error| AppError::Internal(format!("Failed to write {}: {error}", path.display())))
-}
-
 async fn load_store() -> Result<ChatChannelStore, AppError> {
-    let mut store: ChatChannelStore = read_json(settings_path()).await?;
+    let mut store: ChatChannelStore = match services::services::settings_store::read_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
+    {
+        Some(store) => store,
+        None => {
+            let store = read_json(legacy_settings_path()).await?;
+            save_store(&store).await?;
+            store
+        }
+    };
     if store.event_filter.is_empty() {
         store.event_filter = default_event_filter();
     }
@@ -283,7 +281,13 @@ async fn load_store() -> Result<ChatChannelStore, AppError> {
 }
 
 async fn save_store(store: &ChatChannelStore) -> Result<(), AppError> {
-    write_json(settings_path(), store).await
+    services::services::settings_store::write_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+        store,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 fn config_str(config: &Value, key: &str) -> String {

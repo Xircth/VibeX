@@ -231,6 +231,13 @@ fn collect_sources() -> Result<Vec<BackupSource>, AppError> {
     }
 
     let vibex_root = vibex_root()?;
+    let settings_path = vibex_root.join("settings.json");
+    if settings_path.exists() {
+        sources.push(BackupSource {
+            logical_path: "vibex/settings.json".to_string(),
+            file_path: settings_path,
+        });
+    }
     let mcp_path = vibex_root.join("mcp.json");
     if mcp_path.exists() {
         sources.push(BackupSource {

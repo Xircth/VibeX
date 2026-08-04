@@ -4,7 +4,6 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { withNativeBuildEnv } = require('./cargo-path');
-const { resetCargoDebugTarget } = require('./cargo-dev-target');
 const { getPorts } = require('./setup-dev-environment');
 
 const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
@@ -197,13 +196,6 @@ async function runTauriDesktopDev() {
   clearRelocatedCargoBuildCache();
   clearIncrementalCacheIfDisabled(env);
   terminateStaleDesktopProcess();
-  const debugTarget = path.join(process.cwd(), 'target', 'debug');
-  if (fs.existsSync(debugTarget)) {
-    console.warn('Removing previous Cargo debug artifacts before Tauri dev.');
-  }
-  if (resetCargoDebugTarget(process.cwd())) {
-    console.warn('Removed previous Cargo debug artifacts.');
-  }
 
   const userArgs = process.argv.slice(2);
   const runnerArgs =

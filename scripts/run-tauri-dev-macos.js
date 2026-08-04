@@ -12,6 +12,8 @@ const HELPER_NAMES = [
   'vibex Helper (Renderer)',
 ];
 
+class DevRunnerTerminated extends Error {}
+
 function parseCargoRunArgs(args) {
   if (args[0] !== 'run') {
     throw new Error(
@@ -64,6 +66,7 @@ function resolveMacosDevPaths(workspaceRoot, sourceAppExecutable, targetRoot) {
       ),
       name,
     })),
+    devCommandPidFile: path.join(stageRoot, 'dev-command.pid.json'),
     manifest: path.join(stageRoot, 'cef-runtime-manifest.json'),
     pidFile: path.join(stageRoot, 'dev-app.pid'),
     sourceAppExecutable,
@@ -152,23 +155,190 @@ function findExistingCefRoot(profileDirectory) {
   return null;
 }
 
-function runSync(command, args, options) {
-  const result = spawnSync(command, args, {
-    ...options,
-    stdio: 'inherit',
-    windowsHide: true,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `${command} exited with code ${result.status ?? 'unknown'}`
-    );
+function terminateProcessGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
   }
 }
 
-function stageRuntime(workspaceRoot, profileDirectory, profile, env) {
+function readProcessStartTime(pid) {
+  const result = spawnSync('/bin/ps', ['-p', String(pid), '-o', 'lstart='], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  return result.status === 0 ? result.stdout.trim() : '';
+}
+
+function writeTrackedCommand(pidFile, child, args) {
+  const startedAt = readProcessStartTime(child.pid);
+  if (!startedAt) {
+    return;
+  }
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+  const temporary = `${pidFile}.next-${process.pid}`;
+  try {
+    fs.writeFileSync(
+      temporary,
+      `${JSON.stringify({
+        argsSuffix: args.join(' '),
+        pid: child.pid,
+        startedAt,
+      })}\n`
+    );
+    fs.renameSync(temporary, pidFile);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+}
+
+function removeTrackedCommand(pidFile, expectedPid) {
+  if (!fs.existsSync(pidFile)) {
+    return;
+  }
+  try {
+    const tracked = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
+    if (tracked.pid !== expectedPid) {
+      return;
+    }
+    fs.unlinkSync(pidFile);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+function isProcessGroupRunning(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function waitForProcessGroupExit(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessGroupRunning(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return !isProcessGroupRunning(pid);
+}
+
+async function terminateTrackedDevCommand(pidFile) {
+  if (!fs.existsSync(pidFile)) {
+    return;
+  }
+
+  let tracked;
+  try {
+    tracked = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
+  } catch {
+    fs.rmSync(pidFile, { force: true });
+    return;
+  }
+
+  try {
+    if (
+      !Number.isInteger(tracked.pid) ||
+      tracked.pid <= 0 ||
+      typeof tracked.argsSuffix !== 'string' ||
+      tracked.argsSuffix.length === 0
+    ) {
+      return;
+    }
+    const currentStartedAt = readProcessStartTime(tracked.pid);
+    if (!currentStartedAt || currentStartedAt !== tracked.startedAt) {
+      return;
+    }
+    const currentProcess = spawnSync(
+      '/bin/ps',
+      ['-p', String(tracked.pid), '-o', 'command='],
+      { encoding: 'utf8', windowsHide: true }
+    );
+    const currentCommand =
+      currentProcess.status === 0 ? currentProcess.stdout.trim() : '';
+    if (!currentCommand.endsWith(tracked.argsSuffix)) {
+      return;
+    }
+
+    terminateProcessGroup({ pid: tracked.pid }, 'SIGTERM');
+    if (!(await waitForProcessGroupExit(tracked.pid, 1000))) {
+      terminateProcessGroup({ pid: tracked.pid }, 'SIGKILL');
+      await waitForProcessGroupExit(tracked.pid, 1000);
+    }
+  } finally {
+    removeTrackedCommand(pidFile, tracked.pid);
+  }
+}
+
+function runCommand(command, args, options) {
+  return new Promise((resolve, reject) => {
+    const { trackedPidFile, ...spawnOptions } = options;
+    const child = spawn(command, args, {
+      ...spawnOptions,
+      detached: true,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    let terminationSignal = null;
+
+    if (trackedPidFile) {
+      writeTrackedCommand(trackedPidFile, child, args);
+    }
+
+    const cleanup = () => {
+      process.removeListener('SIGINT', handleSignal);
+      process.removeListener('SIGTERM', handleSignal);
+      if (trackedPidFile) {
+        removeTrackedCommand(trackedPidFile, child.pid);
+      }
+    };
+    const handleSignal = (signal) => {
+      terminationSignal = signal;
+      terminateProcessGroup(child, signal);
+    };
+
+    process.once('SIGINT', handleSignal);
+    process.once('SIGTERM', handleSignal);
+    child.once('error', (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.once('exit', (code, signal) => {
+      cleanup();
+      if (terminationSignal) {
+        reject(new DevRunnerTerminated());
+        return;
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            `${command} exited with ${signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`}`
+          )
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function stageRuntime(
+  workspaceRoot,
+  profileDirectory,
+  profile,
+  env,
+  trackedPidFile
+) {
   const stageEnv = {
     ...env,
     TAURI_ENV_DEBUG: profile === 'debug' ? 'true' : 'false',
@@ -177,7 +347,7 @@ function stageRuntime(workspaceRoot, profileDirectory, profile, env) {
   if (cefRoot && !stageEnv.CEF_PATH) {
     stageEnv.CEF_PATH = cefRoot;
   }
-  runSync(
+  await runCommand(
     env.CARGO || 'cargo',
     [
       'run',
@@ -190,7 +360,7 @@ function stageRuntime(workspaceRoot, profileDirectory, profile, env) {
       '--',
       profile,
     ],
-    { cwd: workspaceRoot, env: stageEnv }
+    { cwd: workspaceRoot, env: stageEnv, trackedPidFile }
   );
 }
 
@@ -267,7 +437,7 @@ function terminateTrackedDevApp(paths) {
   }
 }
 
-function run() {
+async function run() {
   if (process.platform !== 'darwin') {
     throw new Error('the CEF app-bundle development runner is macOS-only');
   }
@@ -275,11 +445,6 @@ function run() {
   const workspaceRoot = path.resolve(__dirname, '..');
   const parsed = parseCargoRunArgs(process.argv.slice(2));
   const env = process.env;
-  runSync(env.CARGO || 'cargo', parsed.buildArgs, {
-    cwd: workspaceRoot,
-    env,
-  });
-
   const targetRoot = resolveTargetRoot(workspaceRoot, env);
   const profileDirectory = resolveProfileDirectory(
     targetRoot,
@@ -291,8 +456,21 @@ function run() {
     path.join(profileDirectory, 'vibex'),
     targetRoot
   );
+  await terminateTrackedDevCommand(paths.devCommandPidFile);
+  await runCommand(env.CARGO || 'cargo', parsed.buildArgs, {
+    cwd: workspaceRoot,
+    env,
+    trackedPidFile: paths.devCommandPidFile,
+  });
+
   if (!isStagedBundleReady(paths)) {
-    stageRuntime(workspaceRoot, profileDirectory, parsed.profile, env);
+    await stageRuntime(
+      workspaceRoot,
+      profileDirectory,
+      parsed.profile,
+      env,
+      paths.devCommandPidFile
+    );
   }
   terminateTrackedDevApp(paths);
   refreshBundleExecutables(paths);
@@ -325,10 +503,11 @@ module.exports = {
 };
 
 if (require.main === module) {
-  try {
-    run();
-  } catch (error) {
+  run().catch((error) => {
+    if (error instanceof DevRunnerTerminated) {
+      process.exit(0);
+    }
     console.error(error);
     process.exit(1);
-  }
+  });
 }

@@ -7,6 +7,7 @@ import {
   Clock,
   FileText,
   GitBranch,
+  GitFork,
   Globe,
   Keyboard,
   MessageSquareText,
@@ -77,6 +78,12 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     capability: 'desktop.tauri',
   },
   {
+    path: '/settings/worktrees',
+    labelKey: 'worktrees',
+    icon: GitFork,
+    capability: 'desktop.tauri',
+  },
+  {
     path: '/settings/chat-channels',
     labelKey: 'chatChannels',
     icon: SendHorizontal,
@@ -131,7 +138,7 @@ export function SettingsLayout() {
   return (
     <div className="settings-page settings-shell flex h-screen flex-col overflow-hidden text-foreground">
       <div className="flex min-h-0 flex-1">
-        <aside className="settings-sidebar m-3 w-56 shrink-0 p-2.5">
+        <aside className="settings-sidebar m-3 w-56 shrink-0 overflow-y-auto p-2.5 [scrollbar-gutter:stable]">
           <nav className="space-y-1" aria-busy={capabilities === null}>
             {SETTINGS_NAV_ITEMS.filter(
               (item) => !item.capability || supports(item.capability)

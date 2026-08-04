@@ -9,7 +9,7 @@ use services::services::{
     config::{
         Config, SoundFile,
         editor::{EditorConfig, EditorType},
-        save_config_to_file,
+        load_config_from_file, save_config_to_file,
     },
     worktree_manager::WorktreeManager,
 };
@@ -97,7 +97,19 @@ pub struct CheckEditorAvailabilityResponse {
 pub async fn get_user_system_info(
     state: tauri::State<'_, AppState>,
 ) -> Result<UserSystemInfo, AppError> {
-    let config = state.deployment.config().read().await.clone();
+    // Re-read on every public settings query so direct edits made by a user or
+    // agent become visible without restarting VibeX.
+    let config = load_config_from_file(&utils::assets::settings_path()).await;
+    {
+        let mut current = state.deployment.config().write().await;
+        *current = config.clone();
+    }
+    WorktreeManager::set_workspace_dir_override(
+        config
+            .workspace_dir
+            .as_ref()
+            .map(|workspace_dir| utils::path::expand_tilde(workspace_dir)),
+    );
 
     let profiles = ExecutorConfigs::get_cached();
     let capabilities = {
@@ -123,7 +135,7 @@ pub async fn update_config(
     state: tauri::State<'_, AppState>,
     new_config: Config,
 ) -> Result<Config, AppError> {
-    let config_path = utils::assets::config_path();
+    let config_path = utils::assets::settings_path();
     let previous_theme = state.deployment.config().read().await.theme.clone();
 
     if !git::is_valid_branch_prefix(&new_config.git_branch_prefix) {
@@ -247,7 +259,8 @@ pub async fn clear_local_app_data(
     let _ = sqlx::query("VACUUM").execute(pool).await;
 
     let default_config = Config::default();
-    save_config_to_file(&default_config, &utils::assets::config_path()).await?;
+    remove_path_if_exists(&utils::assets::settings_path())?;
+    save_config_to_file(&default_config, &utils::assets::settings_path()).await?;
     {
         let mut config = state.deployment.config().write().await;
         *config = default_config;

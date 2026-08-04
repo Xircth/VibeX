@@ -3,6 +3,7 @@ import {
   ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +14,17 @@ import {
   type AgentCapability,
   type UserSystemInfo,
 } from '../lib/api';
+import {
+  SETTINGS_CHANGED_EVENT,
+  syncFrontendPreferences,
+} from '@/lib/frontendPreferences';
+import { initUiZoom } from '@/lib/uiZoom';
+import { initMonoFont } from '@/lib/uiFont';
+import { getUiLanguage } from '@/lib/uiLanguage';
+import i18n from '@/i18n';
+import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
+import { useKeyBindingOverridesStore } from '@/keyboard/useKeyBindingOverrides';
+import { backendListen } from '@/lib/backendTransport';
 
 interface UserSystemState {
   config: Config | null;
@@ -57,10 +69,49 @@ interface UserSystemProviderProps {
 export function UserSystemProvider({ children }: UserSystemProviderProps) {
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    let unlisten: () => void = () => undefined;
+    let disposed = false;
+    const sync = async () => {
+      try {
+        await syncFrontendPreferences();
+        initUiZoom();
+        initMonoFont();
+        await i18n.changeLanguage(getUiLanguage());
+        await Promise.all([
+          useEditorSettingsStore.persist.rehydrate(),
+          useKeyBindingOverridesStore.persist.rehydrate(),
+        ]);
+      } catch (error) {
+        console.error('Failed to synchronize JSON frontend settings', error);
+      }
+    };
+    const handleSettingsChanged = () => {
+      void sync();
+      void queryClient.invalidateQueries({ queryKey: ['user-system'] });
+      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
+    };
+
+    void sync();
+    window.addEventListener('focus', sync);
+    void backendListen(SETTINGS_CHANGED_EVENT, handleSettingsChanged).then(
+      (stopListening) => {
+        if (disposed) stopListening();
+        else unlisten = stopListening;
+      }
+    );
+    return () => {
+      disposed = true;
+      unlisten();
+      window.removeEventListener('focus', sync);
+    };
+  }, [queryClient]);
+
   const { data: userSystemInfo, isLoading } = useQuery({
     queryKey: ['user-system'],
     queryFn: configApi.getConfig,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: 'always',
   });
 
   const config = userSystemInfo?.config || null;

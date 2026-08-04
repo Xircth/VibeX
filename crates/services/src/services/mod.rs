@@ -24,7 +24,9 @@ pub mod provider_config;
 #[cfg(feature = "qa-mode")]
 pub mod qa_repos;
 pub mod repo;
+pub mod settings_store;
 pub mod usage;
 pub mod workspace_manager;
 pub mod workspace_paths;
 pub mod worktree_manager;
+pub mod worktree_settings;

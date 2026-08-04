@@ -26,6 +26,7 @@ mod error;
 pub use error::ProviderConfigError;
 
 const SETTINGS_FILE_NAME: &str = "model-provider-settings.json";
+const SETTINGS_SECTION: &str = "model_providers";
 const SECRETS_FILE_NAME: &str = "model-provider-secrets.json";
 const STORE_VERSION: u32 = 2;
 const BACKUP_KEEP: usize = 10;
@@ -227,7 +228,7 @@ struct OpenAiModel {
 // Store IO (VibeX-owned settings + secrets)
 // ---------------------------------------------------------------------------
 
-fn settings_path() -> PathBuf {
+fn legacy_settings_path() -> PathBuf {
     utils::assets::asset_dir().join(SETTINGS_FILE_NAME)
 }
 
@@ -269,7 +270,13 @@ where
 }
 
 async fn save_store(store: &ProviderStore) -> Result<(), ProviderConfigError> {
-    write_store_json(settings_path(), store).await
+    crate::services::settings_store::write_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+        store,
+    )
+    .await
+    .map_err(|error| ProviderConfigError::Internal(error.to_string()))
 }
 
 async fn load_secrets() -> Result<ProviderSecrets, ProviderConfigError> {
@@ -283,24 +290,39 @@ async fn save_secrets(secrets: &ProviderSecrets) -> Result<(), ProviderConfigErr
 /// Load the store, migrating a legacy (v1) file to the per-agent layout on the
 /// fly (and persisting the migration + remapped secrets).
 async fn load_store() -> Result<ProviderStore, ProviderConfigError> {
-    let path = settings_path();
-    if !path.exists() {
-        return Ok(ProviderStore::default());
-    }
-    let content = tokio::fs::read_to_string(&path).await.map_err(|e| {
-        ProviderConfigError::Internal(format!("Failed to read {}: {e}", path.display()))
-    })?;
-    if content.trim().is_empty() {
-        return Ok(ProviderStore::default());
-    }
-    let value: Value = serde_json::from_str(&content)
-        .map_err(|e| ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display())))?;
+    let settings_path = utils::assets::settings_path();
+    let section_value =
+        crate::services::settings_store::read_section::<Value>(&settings_path, SETTINGS_SECTION)
+            .await
+            .map_err(|error| ProviderConfigError::Internal(error.to_string()))?;
+    let imported_legacy = section_value.is_none();
+    let value = match section_value {
+        Some(value) => value,
+        None => {
+            let legacy_path = legacy_settings_path();
+            if !legacy_path.exists() {
+                return Ok(ProviderStore::default());
+            }
+            let content = tokio::fs::read_to_string(&legacy_path).await.map_err(|e| {
+                ProviderConfigError::Internal(format!(
+                    "Failed to read {}: {e}",
+                    legacy_path.display()
+                ))
+            })?;
+            if content.trim().is_empty() {
+                return Ok(ProviderStore::default());
+            }
+            serde_json::from_str(&content).map_err(|e| {
+                ProviderConfigError::Internal(format!("Invalid {}: {e}", legacy_path.display()))
+            })?
+        }
+    };
 
     if value.get("agents").is_some() {
         let mut store: ProviderStore = serde_json::from_value(value).map_err(|e| {
-            ProviderConfigError::Internal(format!("Invalid {}: {e}", path.display()))
+            ProviderConfigError::Internal(format!("Invalid {}: {e}", settings_path.display()))
         })?;
-        if canonicalize_store_agent_keys(&mut store) {
+        if canonicalize_store_agent_keys(&mut store) || imported_legacy {
             save_store(&store).await?;
         }
         return Ok(store);

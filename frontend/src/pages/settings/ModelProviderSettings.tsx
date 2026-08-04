@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 
 import { useManagedAgentOptions } from '@/features/agent-management';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
 import { Button } from '@/components/ui/button';
 import {
@@ -159,6 +160,15 @@ export function ModelProviderSettings() {
   useEffect(() => {
     void load(selectedAgent);
   }, [load, selectedAgent]);
+
+  useEffect(() => {
+    const reloadFromJson = () => {
+      if (!dialogOpen && !previewOpen) void load(selectedAgent);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+    return () =>
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+  }, [dialogOpen, load, previewOpen, selectedAgent]);
 
   const providers = view?.providers ?? [];
   const supportsApply = view?.supports_apply ?? true;

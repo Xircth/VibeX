@@ -8446,6 +8446,7 @@ dependencies = [
  "iana-time-zone",
  "ignore",
  "local-deployment",
+ "notify",
  "office-runtime",
  "os_info",
  "plugins",

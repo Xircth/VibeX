@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::services::settings_store::{read_section, write_section};
+
+const APPLICATION_SETTINGS_SECTION: &str = "application";
+
 pub mod editor;
 mod versions;
 
@@ -57,10 +61,18 @@ pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
-    match std::fs::read_to_string(config_path) {
-        Ok(raw_config) => Config::from(raw_config),
-        Err(_) => {
-            tracing::info!("No config file found, creating one");
+    match read_section::<serde_json::Value>(config_path, APPLICATION_SETTINGS_SECTION).await {
+        Ok(Some(raw_config)) => Config::from(raw_config.to_string()),
+        Ok(None) => match std::fs::read_to_string(config_path) {
+            // Backward compatibility for the former standalone config.json.
+            Ok(raw_config) => Config::from(raw_config),
+            Err(_) => {
+                tracing::info!("No settings file found, creating one");
+                Config::default()
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error, "Failed to read application settings; using defaults");
             Config::default()
         }
     }
@@ -71,7 +83,55 @@ pub async fn save_config_to_file(
     config: &Config,
     config_path: &PathBuf,
 ) -> Result<(), ConfigError> {
-    let raw_config = serde_json::to_string_pretty(config)?;
-    std::fs::write(config_path, raw_config)?;
+    write_section(config_path, APPLICATION_SETTINGS_SECTION, config)
+        .await
+        .map_err(|error| match error {
+            crate::services::settings_store::SettingsStoreError::Io(error) => {
+                ConfigError::Io(error)
+            }
+            crate::services::settings_store::SettingsStoreError::Json(error) => {
+                ConfigError::Json(error)
+            }
+            crate::services::settings_store::SettingsStoreError::InvalidDocument => {
+                ConfigError::ValidationError("Settings document must be a JSON object".to_string())
+            }
+        })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Config, load_config_from_file, save_config_to_file};
+
+    #[tokio::test]
+    async fn application_config_roundtrips_inside_the_unified_settings_document() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("settings.json");
+        tokio::fs::write(
+            &path,
+            r#"{"worktrees":{"project-a":{"cleanup_prompt_enabled":true}}}"#,
+        )
+        .await
+        .expect("seed settings");
+        let mut config = Config::default();
+        config.workspace_dir = Some("~/Worktrees".to_string());
+
+        save_config_to_file(&config, &path)
+            .await
+            .expect("save application settings");
+        let loaded = load_config_from_file(&path).await;
+        assert_eq!(loaded.workspace_dir.as_deref(), Some("~/Worktrees"));
+
+        let document: serde_json::Value = serde_json::from_str(
+            &tokio::fs::read_to_string(&path)
+                .await
+                .expect("read settings"),
+        )
+        .expect("valid JSON");
+        assert_eq!(
+            document["worktrees"]["project-a"]["cleanup_prompt_enabled"],
+            true
+        );
+        assert_eq!(document["application"]["workspace_dir"], "~/Worktrees");
+    }
 }

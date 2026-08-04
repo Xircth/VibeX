@@ -4,6 +4,7 @@ import {
   useManagedAgentOptions,
 } from '@/features/agent-management';
 import {
+  Check,
   ChevronDown,
   Loader2,
   MessageSquareText,
@@ -45,7 +46,6 @@ interface InstructionDraft {
   content: string;
   agentTypes: string[];
 }
-
 
 function emptyDraft(allAgentTypes: string[] = []): InstructionDraft {
   return {
@@ -92,8 +92,7 @@ function AgentMultiSelect({
 }) {
   const { t } = useTranslation(['settings', 'common']);
   const allAgentTypes = options.map((agent) => agent.value);
-  const allSelected =
-    options.length > 0 && value.length === options.length;
+  const allSelected = options.length > 0 && value.length === options.length;
   const label = allSelected
     ? t('instructions.allAgents')
     : t('instructions.agentCount', { count: value.length });
@@ -406,8 +405,9 @@ export function InstructionsSettings() {
         <button
           key={`${leftTab}:${item.id}`}
           type="button"
+          aria-pressed={active}
           className={cn(
-            'w-full rounded-lg border px-2.5 py-2 text-left transition-colors',
+            '!h-auto !min-h-0 block w-full rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0',
             active
               ? 'border-primary/60 bg-primary/5'
               : 'border-transparent hover:bg-foreground/[0.05]'
@@ -427,6 +427,13 @@ export function InstructionsSettings() {
               >
                 {t('instructions.officialBadge')}
               </Badge>
+            ) : null}
+            {active ? (
+              <Check
+                data-selection-indicator
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 text-primary"
+              />
             ) : null}
           </div>
           <p className="mt-1 line-clamp-1 text-[10px] leading-4 text-muted-foreground">
@@ -482,7 +489,15 @@ export function InstructionsSettings() {
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5">
+          <div
+            role="group"
+            aria-label={
+              leftTab === 'local'
+                ? t('instructions.localListLabel')
+                : t('instructions.marketListLabel')
+            }
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5"
+          >
             {renderList()}
           </div>
 

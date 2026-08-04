@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use services::services::settings_store::{read_section, write_section};
 
 use crate::error::AppError;
 
 const SETTINGS_FILE_NAME: &str = "system-settings.json";
+const SETTINGS_SECTION: &str = "system";
 
 /// Env vars that carry the proxy URL. Setting these is what actually routes
 /// traffic through the proxy: reqwest reads them when a client is built, and the
@@ -54,11 +56,18 @@ fn settings_path() -> PathBuf {
 }
 
 async fn load_store() -> Result<SystemSettingsStore, AppError> {
+    let unified_path = utils::assets::settings_path();
+    if let Some(store) = read_section(&unified_path, SETTINGS_SECTION)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+    {
+        return Ok(store);
+    }
+
     let path = settings_path();
     if !path.exists() {
         return Ok(SystemSettingsStore::default());
     }
-
     let content = tokio::fs::read_to_string(&path).await.map_err(|error| {
         AppError::Internal(format!(
             "Failed to read system settings {}: {error}",
@@ -66,35 +75,22 @@ async fn load_store() -> Result<SystemSettingsStore, AppError> {
         ))
     })?;
 
-    serde_json::from_str(&content).map_err(|error| {
+    let store = serde_json::from_str(&content).map_err(|error| {
         AppError::Internal(format!(
             "Invalid system settings {}: {error}",
             path.display()
         ))
-    })
+    })?;
+    write_section(&unified_path, SETTINGS_SECTION, &store)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(store)
 }
 
 async fn save_store(store: &SystemSettingsStore) -> Result<(), AppError> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!(
-                "Failed to create system settings directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-    }
-
-    let content = serde_json::to_string_pretty(store).map_err(|error| {
-        AppError::Internal(format!("Failed to serialize system settings: {error}"))
-    })?;
-
-    tokio::fs::write(&path, content).await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to write system settings {}: {error}",
-            path.display()
-        ))
-    })
+    write_section(&utils::assets::settings_path(), SETTINGS_SECTION, store)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 fn normalize_proxy_settings(

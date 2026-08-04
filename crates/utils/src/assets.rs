@@ -28,6 +28,14 @@ pub fn config_path() -> std::path::PathBuf {
     asset_dir().join("config.json")
 }
 
+/// Canonical, user-editable settings document shared by the UI and agents.
+pub fn settings_path() -> std::path::PathBuf {
+    dirs::home_dir()
+        .expect("OS didn't give us a home directory")
+        .join(".vibex")
+        .join("settings.json")
+}
+
 /// Directory for rotating application log files (P2-8). Created on first use.
 pub fn logs_dir() -> std::path::PathBuf {
     let path = asset_dir().join("logs");

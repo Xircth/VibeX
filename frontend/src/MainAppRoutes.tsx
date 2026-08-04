@@ -25,6 +25,7 @@ import {
   SkillsSettings,
   SystemSettings,
   VersionControlSettings,
+  WorktreeSettings,
   WebServiceSettings,
 } from '@/pages/settings/';
 
@@ -97,6 +98,7 @@ export function MainAppRoutes() {
         <Route path="shortcuts" element={<ShortcutSettings />} />
         <Route path="editor" element={<EditorSettings />} />
         <Route path="version-control" element={<VersionControlSettings />} />
+        <Route path="worktrees" element={<WorktreeSettings />} />
         <Route path="chat-channels" element={<ChatChannelSettings />} />
         <Route path="automations" element={<AutomationsSettings />} />
         <Route path="plugins" element={<PluginsSettings />} />

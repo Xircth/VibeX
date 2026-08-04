@@ -70,7 +70,7 @@ jobs:
             --names "lint,i18n,fmt,build,test" \
             --timings \
             "cd frontend && npm run lint" \
-            "GITHUB_BASE_REF=${{ github.base_ref || 'main' }} ./scripts/check-i18n.sh" \
+            "GITHUB_BASE_REF=${{ github.base_ref || 'master' }} ./scripts/check-i18n.sh" \
             "cd frontend && npm run format:check" \
             "cd frontend && npm run build" \
             "cd frontend && npm run test"

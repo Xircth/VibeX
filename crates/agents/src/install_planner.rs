@@ -6,9 +6,31 @@ use sha2::{Digest, Sha256, Sha512};
 use uuid::Uuid;
 
 use crate::{
-    ProfileComponent, ProfileInstallSource, RegistryAddTarget, RegistryPackageDistribution,
-    profiles::BuiltInProfileCatalog,
+    ProfileComponent, ProfileInstallSource, RegistryAddTarget, RegistryBinaryTarget,
+    RegistryPackageDistribution, profiles::BuiltInProfileCatalog,
 };
+
+struct BinaryPackagingAdvisory {
+    platform: &'static str,
+    source_archive: &'static str,
+    source_sha256: &'static str,
+    replacement_archive: &'static str,
+    replacement_sha256: &'static str,
+    replacement_command: &'static str,
+}
+
+// Immutable compatibility advisories are keyed by the exact upstream artifact
+// identity, never by Agent name. The selected replacement is another signed
+// asset from the same upstream release, and the frozen plan records its real
+// URL, command, and digest. This avoids a failure-time, untracked fallback.
+const BINARY_PACKAGING_ADVISORIES: &[BinaryPackagingAdvisory] = &[BinaryPackagingAdvisory {
+    platform: "darwin-aarch64",
+    source_archive: "https://github.com/MoonshotAI/kimi-cli/releases/download/1.49.0/kimi-1.49.0-aarch64-apple-darwin.tar.gz",
+    source_sha256: "15018b20b203aee09658fdc64840c4846fc17c108d8dba1a19a95581d3ce2921",
+    replacement_archive: "https://github.com/MoonshotAI/kimi-cli/releases/download/1.49.0/kimi-1.49.0-aarch64-apple-darwin-onedir.tar.gz",
+    replacement_sha256: "3533d7197a3cf807d7ba3b67d54637180544565f6277870f9bcf639ef21754fb",
+    replacement_command: "./kimi/kimi",
+}];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallCandidateSource {
@@ -173,6 +195,7 @@ impl InstallPlanner {
             .and_then(|targets| targets.get(&input.platform))
             .cloned()
         {
+            let binary = apply_binary_packaging_advisory(&input.platform, binary);
             let trust = binary
                 .sha256
                 .as_ref()
@@ -221,6 +244,24 @@ impl InstallPlanner {
             platform: input.platform,
         })
     }
+}
+
+fn apply_binary_packaging_advisory(
+    platform: &str,
+    mut binary: RegistryBinaryTarget,
+) -> RegistryBinaryTarget {
+    let source_sha256 = binary.sha256.as_deref().map(str::to_ascii_lowercase);
+    let Some(advisory) = BINARY_PACKAGING_ADVISORIES.iter().find(|advisory| {
+        advisory.platform == platform
+            && advisory.source_archive == binary.archive
+            && source_sha256.as_deref() == Some(advisory.source_sha256)
+    }) else {
+        return binary;
+    };
+    binary.archive = advisory.replacement_archive.to_string();
+    binary.sha256 = Some(advisory.replacement_sha256.to_string());
+    binary.cmd = advisory.replacement_command.to_string();
+    binary
 }
 
 fn registry_plan(

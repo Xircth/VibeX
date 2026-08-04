@@ -27,6 +27,92 @@ fn generic_target(distributions: RegistryDistributions) -> RegistryAddTarget {
 }
 
 #[test]
+fn planner_applies_immutable_macos_packaging_advisory_before_freezing_plan() {
+    let planner = InstallPlanner::bundled();
+    let mut binary = BTreeMap::new();
+    binary.insert(
+        "darwin-aarch64".to_string(),
+        RegistryBinaryTarget {
+            archive: "https://github.com/MoonshotAI/kimi-cli/releases/download/1.49.0/kimi-1.49.0-aarch64-apple-darwin.tar.gz".to_string(),
+            sha256: Some(
+                "15018b20b203aee09658fdc64840c4846fc17c108d8dba1a19a95581d3ce2921"
+                    .to_string(),
+            ),
+            cmd: "./kimi".to_string(),
+            args: vec!["acp".to_string()],
+            env: BTreeMap::new(),
+        },
+    );
+    let target = RegistryAddTarget {
+        snapshot_id: Uuid::new_v4(),
+        agent_id: AgentId::parse("registry-agent").unwrap(),
+        registry_id: "registry-agent".to_string(),
+        version: "1.49.0".to_string(),
+        distributions: RegistryDistributions {
+            binary: Some(binary),
+            npx: None,
+            uvx: None,
+        },
+    };
+
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::Registry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .unwrap();
+    let component = &plan.components[0];
+
+    assert_eq!(
+        component.resolved_source,
+        "https://github.com/MoonshotAI/kimi-cli/releases/download/1.49.0/kimi-1.49.0-aarch64-apple-darwin-onedir.tar.gz"
+    );
+    assert_eq!(component.command, "./kimi/kimi");
+    assert_eq!(
+        component.trust,
+        ArtifactTrust::ExpectedSha256 {
+            sha256: "3533d7197a3cf807d7ba3b67d54637180544565f6277870f9bcf639ef21754fb".to_string(),
+        }
+    );
+}
+
+#[test]
+fn planner_does_not_apply_packaging_advisory_to_an_unrecognized_hash() {
+    let planner = InstallPlanner::bundled();
+    let original_archive = "https://github.com/MoonshotAI/kimi-cli/releases/download/1.49.0/kimi-1.49.0-aarch64-apple-darwin.tar.gz";
+    let mut binary = BTreeMap::new();
+    binary.insert(
+        "darwin-aarch64".to_string(),
+        RegistryBinaryTarget {
+            archive: original_archive.to_string(),
+            sha256: Some("ab".repeat(32)),
+            cmd: "./kimi".to_string(),
+            args: vec!["acp".to_string()],
+            env: BTreeMap::new(),
+        },
+    );
+    let target = generic_target(RegistryDistributions {
+        binary: Some(binary),
+        npx: None,
+        uvx: None,
+    });
+
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::Registry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .unwrap();
+
+    assert_eq!(plan.components[0].resolved_source, original_archive);
+    assert_eq!(plan.components[0].command, "./kimi");
+}
+
+#[test]
 fn planner_accepts_official_uv_at_version_syntax_and_preserves_environment() {
     let planner = InstallPlanner::bundled();
     let mut distribution = package("minion-code@0.1.44");

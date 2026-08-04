@@ -94,6 +94,12 @@ const PROXY_ENV_KEYS: [&str; 8] = [
     "no_proxy",
 ];
 
+#[derive(Debug, Clone, Copy)]
+struct SessionRestoreSupport {
+    load: bool,
+    resume: bool,
+}
+
 #[derive(Debug)]
 struct StderrRingBuffer {
     capacity: usize,
@@ -1529,8 +1535,10 @@ impl AgentConnectionRunner {
                                     &working_dir,
                                     session_id,
                                     external_session_id,
-                                    supports_load_session,
-                                    supports_resume_session,
+                                    SessionRestoreSupport {
+                                        load: supports_load_session,
+                                        resume: supports_resume_session,
+                                    },
                                     companion_capabilities,
                                 )
                                 .await
@@ -1756,15 +1764,14 @@ impl AgentConnectionRunner {
         working_dir: &Path,
         session_id: AgentSessionId,
         external_session_id: String,
-        supports_load_session: bool,
-        supports_resume_session: bool,
+        support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
     ) -> Result<String, acp::Error> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
             return Ok(existing);
         }
 
-        if supports_load_session {
+        if support.load {
             let mut request = LoadSessionRequest::new(
                 SessionId::new(external_session_id.clone()),
                 working_dir.to_path_buf(),
@@ -1790,7 +1797,7 @@ impl AgentConnectionRunner {
                 }
             }
         } else {
-            if supports_resume_session {
+            if support.resume {
                 let mut request = ResumeSessionRequest::new(
                     SessionId::new(external_session_id.clone()),
                     working_dir.to_path_buf(),

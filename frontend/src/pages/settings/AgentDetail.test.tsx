@@ -33,14 +33,18 @@ const preflight: AgentPreflightView = {
       id: 'runtime',
       label: '本地 Runtime',
       status: 'pass',
-      detail: '版本 1.0.0',
+      detail: '',
+      version: '1.0.0',
+      path: '/opt/vibex/bin/codex',
       repairable: false,
     },
     {
       id: 'acp',
       label: 'ACP 适配器',
-      status: 'fail',
-      detail: '未通过 ACP 探测。',
+      status: 'pass',
+      detail: '',
+      version: '1.1.0',
+      path: '/opt/vibex/bin/codex-acp',
       repairable: true,
     },
   ],
@@ -61,6 +65,7 @@ describe('AgentDetail', () => {
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={onPreflight}
+        onInstall={vi.fn()}
         onRepair={onRepair}
         onCheckUpdate={vi.fn()}
         onApplyUpdate={vi.fn()}
@@ -75,6 +80,26 @@ describe('AgentDetail', () => {
     expect(screen.getByText('已通过 API Key 登录')).toBeInTheDocument();
     expect(screen.getByText('本地 Runtime')).toBeInTheDocument();
     expect(screen.getByText('ACP 适配器')).toBeInTheDocument();
+    const runtimeResult = screen.getByRole('listitem', {
+      name: '本地 Runtime 检查结果',
+    });
+    expect(within(runtimeResult).getByText('版本')).toBeInTheDocument();
+    expect(within(runtimeResult).getByText('位置')).toBeInTheDocument();
+    expect(within(runtimeResult).getByTitle('1.0.0')).toHaveClass(
+      'agent-preflight-evidence-value'
+    );
+    expect(
+      within(runtimeResult).getByTitle('/opt/vibex/bin/codex')
+    ).toHaveClass('agent-preflight-evidence-value');
+
+    const acpResult = screen.getByRole('listitem', {
+      name: 'ACP 适配器 检查结果',
+    });
+    expect(within(acpResult).getByTitle('1.1.0')).toBeInTheDocument();
+    expect(
+      within(acpResult).getByTitle('/opt/vibex/bin/codex-acp')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/握手成功/)).not.toBeInTheDocument();
     expect(screen.queryByText('安装管理')).not.toBeInTheDocument();
     expect(screen.queryByText('登录状态')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -104,6 +129,7 @@ describe('AgentDetail', () => {
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
+        onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={vi.fn()}
         onApplyUpdate={vi.fn()}
@@ -115,6 +141,15 @@ describe('AgentDetail', () => {
       />
     );
 
+    const progress = screen.getByRole('progressbar', {
+      name: '正在安装本地 Runtime 与 ACP',
+    });
+    expect(progress).toHaveAttribute('aria-valuenow', '25');
+    expect(progress).toHaveAttribute('aria-valuetext', '安装 · 25%');
+    expect(screen.getByText('准备')).toHaveAttribute('data-state', 'complete');
+    expect(screen.getByText('安装')).toHaveAttribute('data-state', 'current');
+    expect(screen.getByText('验证')).toHaveAttribute('data-state', 'upcoming');
+    expect(screen.getByText('完成')).toHaveAttribute('data-state', 'upcoming');
     await userEvent.click(screen.getByRole('button', { name: '取消操作' }));
     expect(onCancelOperation).toHaveBeenCalledOnce();
   });
@@ -139,6 +174,7 @@ describe('AgentDetail', () => {
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
+        onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
         onApplyUpdate={vi.fn()}
@@ -201,6 +237,7 @@ describe('AgentDetail', () => {
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
+        onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
         onApplyUpdate={onApplyUpdate}
@@ -235,6 +272,7 @@ describe('AgentDetail', () => {
         onSetEnabled={vi.fn()}
         onMove={vi.fn()}
         onPreflight={vi.fn()}
+        onInstall={vi.fn()}
         onRepair={vi.fn()}
         onCheckUpdate={onCheckUpdate}
         onApplyUpdate={onApplyUpdate}

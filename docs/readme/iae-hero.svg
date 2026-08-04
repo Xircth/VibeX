@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Integrated Agent Environment</title>
+  <desc id="desc">Claude Code, Codex, OpenCode, Pi and ACP Registry agents connect to one environment with worktrees, multi-agent collaboration, browser, Git and session board capabilities.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071426" />
+      <stop offset="0.52" stop-color="#0c2850" />
+      <stop offset="1" stop-color="#102f5c" />
+    </linearGradient>
+    <radialGradient id="glowA" cx="0" cy="0" r="1" gradientTransform="translate(313 127) rotate(35) scale(390 260)">
+      <stop stop-color="#38bdf8" stop-opacity="0.28" />
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowB" cx="0" cy="0" r="1" gradientTransform="translate(905 377) rotate(-150) scale(420 260)">
+      <stop stop-color="#818cf8" stop-opacity="0.28" />
+      <stop offset="1" stop-color="#818cf8" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="hub" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#2563eb" />
+      <stop offset="1" stop-color="#4f46e5" />
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#bfdbfe" stroke-opacity="0.07" />
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#020617" flood-opacity="0.4" />
+    </filter>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="520" rx="28" fill="url(#bg)" />
+  <rect width="1200" height="520" rx="28" fill="url(#glowA)" />
+  <rect width="1200" height="520" rx="28" fill="url(#glowB)" />
+  <rect width="1200" height="520" rx="28" fill="url(#grid)" />
+
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="64" y="65" fill="#7dd3fc" font-size="13" font-weight="700" letter-spacing="3">INTEGRATED AGENT ENVIRONMENT</text>
+    <text x="64" y="108" fill="#f8fafc" font-size="34" font-weight="750">One environment. Many agents.</text>
+    <text x="64" y="139" fill="#a8c5e7" font-size="15">统一接入 · 隔离执行 · 协作交付</text>
+
+    <g fill="none" stroke-linecap="round">
+      <path d="M251 236C360 236 398 265 485 265" stroke="#38bdf8" stroke-opacity="0.7" stroke-width="2" />
+      <path d="M251 322C360 322 398 283 485 283" stroke="#60a5fa" stroke-opacity="0.6" stroke-width="2" />
+      <path d="M949 236C840 236 802 265 715 265" stroke="#818cf8" stroke-opacity="0.7" stroke-width="2" />
+      <path d="M949 322C840 322 802 283 715 283" stroke="#a78bfa" stroke-opacity="0.6" stroke-width="2" />
+      <path d="M600 332V383" stroke="#93c5fd" stroke-opacity="0.75" stroke-width="2" />
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="64" y="202" width="187" height="68" rx="17" fill="#0f2542" stroke="#38bdf8" stroke-opacity="0.45" />
+      <circle cx="95" cy="236" r="13" fill="#38bdf8" fill-opacity="0.2" stroke="#7dd3fc" />
+      <path d="M89 236h12M95 230v12" stroke="#bae6fd" stroke-width="2" stroke-linecap="round" />
+      <text x="119" y="232" fill="#f8fafc" font-size="15" font-weight="650">Claude Code</text>
+      <text x="119" y="251" fill="#82a9d3" font-size="11">Built-in profile</text>
+
+      <rect x="64" y="288" width="187" height="68" rx="17" fill="#0f2542" stroke="#60a5fa" stroke-opacity="0.45" />
+      <circle cx="95" cy="322" r="13" fill="#60a5fa" fill-opacity="0.2" stroke="#93c5fd" />
+      <path d="M89 318h12M89 323h8M89 328h5" stroke="#dbeafe" stroke-width="2" stroke-linecap="round" />
+      <text x="119" y="318" fill="#f8fafc" font-size="15" font-weight="650">Codex</text>
+      <text x="119" y="337" fill="#82a9d3" font-size="11">Built-in profile</text>
+
+      <rect x="949" y="202" width="187" height="68" rx="17" fill="#142345" stroke="#818cf8" stroke-opacity="0.48" />
+      <circle cx="980" cy="236" r="13" fill="#818cf8" fill-opacity="0.2" stroke="#a5b4fc" />
+      <rect x="974" y="230" width="12" height="12" rx="2" fill="none" stroke="#e0e7ff" stroke-width="2" />
+      <text x="1004" y="232" fill="#f8fafc" font-size="15" font-weight="650">OpenCode · Pi</text>
+      <text x="1004" y="251" fill="#9caee3" font-size="11">Built-in profiles</text>
+
+      <rect x="949" y="288" width="187" height="68" rx="17" fill="#142345" stroke="#a78bfa" stroke-opacity="0.48" />
+      <circle cx="980" cy="322" r="13" fill="#a78bfa" fill-opacity="0.2" stroke="#c4b5fd" />
+      <circle cx="976" cy="322" r="3" fill="#ede9fe" />
+      <circle cx="985" cy="316" r="3" fill="#ede9fe" />
+      <circle cx="985" cy="328" r="3" fill="#ede9fe" />
+      <path d="M979 320l4-3M979 324l4 3" stroke="#ede9fe" stroke-width="1.5" />
+      <text x="1004" y="318" fill="#f8fafc" font-size="15" font-weight="650">ACP Registry</text>
+      <text x="1004" y="337" fill="#9caee3" font-size="11">Extensible catalog</text>
+
+      <rect x="485" y="211" width="230" height="121" rx="26" fill="url(#hub)" stroke="#bfdbfe" stroke-opacity="0.42" />
+      <rect x="505" y="231" width="42" height="42" rx="12" fill="#fff" fill-opacity="0.14" />
+      <path d="M517 252h18M526 243v18" stroke="#fff" stroke-width="2.4" stroke-linecap="round" />
+      <text x="563" y="249" fill="#dbeafe" font-size="12" font-weight="700" letter-spacing="1.5">IAE CONTROL PLANE</text>
+      <text x="555" y="275" fill="#fff" font-size="18" font-weight="750">Unified Agent Core</text>
+      <text x="505" y="307" fill="#dbeafe" font-size="12">Detect · Install · Configure · Run</text>
+    </g>
+
+    <g>
+      <rect x="199" y="383" width="802" height="80" rx="22" fill="#091a32" fill-opacity="0.86" stroke="#7dd3fc" stroke-opacity="0.22" />
+      <g fill="#e2e8f0" font-size="13" font-weight="620" text-anchor="middle">
+        <text x="294" y="425">WORKTREES</text>
+        <text x="446" y="425">MULTI-AGENT</text>
+        <text x="600" y="425">SESSION BOARD</text>
+        <text x="754" y="425">BROWSER</text>
+        <text x="906" y="425">GIT + DIFF</text>
+      </g>
+      <g fill="#60a5fa">
+        <circle cx="294" cy="405" r="3" />
+        <circle cx="446" cy="405" r="3" />
+        <circle cx="600" cy="405" r="3" />
+        <circle cx="754" cy="405" r="3" />
+        <circle cx="906" cy="405" r="3" />
+      </g>
+    </g>
+  </g>
+</svg>

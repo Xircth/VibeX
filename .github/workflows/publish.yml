@@ -19,7 +19,7 @@ concurrency:
 permissions:
   contents: write
   packages: write
-  id-token: write  # Required for OIDC trusted publishing
+  id-token: write # Required for OIDC trusted publishing
 
 env:
   NODE_VERSION: 22
@@ -28,8 +28,11 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Only run for main app releases that were converted from pre-release
-    if: github.event.release.prerelease == false
+    # Desktop installer releases do not contain the npm CLI tarball.
+    # Keep them independent from the npm publication lifecycle.
+    if: >-
+      github.event.release.prerelease == false &&
+      !startsWith(github.event.release.tag_name, 'desktop-v')
     steps:
       - uses: actions/checkout@v6
         with:
@@ -63,15 +66,15 @@ jobs:
               repo: context.repo.repo,
               release_id: releaseId
             });
-            
+
             // Find the .tgz file
             const tgzAsset = release.data.assets.find(asset => asset.name.endsWith('.tgz'));
-            
+
             if (!tgzAsset) {
               core.setFailed('No .tgz file found in release assets');
               return;
             }
-            
+
             // Download the asset
             const response = await github.rest.repos.getReleaseAsset({
               owner: context.repo.owner,
@@ -81,13 +84,13 @@ jobs:
                 Accept: 'application/octet-stream'
               }
             });
-            
+
             // Save to npx-cli directory
             const filePath = path.join('npx-cli', tgzAsset.name);
             fs.writeFileSync(filePath, Buffer.from(response.data));
-            
+
             console.log(`Downloaded ${tgzAsset.name} to ${filePath}`);
-            
+
             // Set output for next step
             core.setOutput('package-file', filePath);
             core.setOutput('package-name', tgzAsset.name);
@@ -96,13 +99,13 @@ jobs:
         id: verify
         run: |
           cd npx-cli
-          
+
           # List files to confirm download
           ls -la *.tgz
-          
+
           # Verify the package can be read
           npm pack --dry-run || echo "Note: This is expected to show differences since we're using the pre-built package"
-          
+
           # Extract package name from the downloaded file
           PACKAGE_FILE=$(ls *.tgz | head -n1)
           echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT

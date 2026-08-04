@@ -27,6 +27,14 @@ const ALLOWED_LICENSES = new Set([
 // exact so an upgrade must be reviewed again.
 const REVIEWED_UNKNOWN_PACKAGES = new Set(["khroma@2.1.0"]);
 
+// GSAP publishes its license as a human-readable Standard License rather than
+// an SPDX expression. The upstream license permits no-charge commercial use.
+// Keep these exceptions version-specific so upgrades require another review.
+const REVIEWED_NON_SPDX_PACKAGES = new Set([
+  "@gsap/react@2.1.2",
+  "gsap@3.15.0",
+]);
+
 function licenseExpressionIsAllowed(expression) {
   const tokens = expression
     .replace(/\s+WITH\s+[A-Za-z0-9.-]+/g, "")
@@ -81,7 +89,10 @@ export function auditPnpmLicenses(report) {
         const identity = `${dependency.name}@${version}`;
         if (expression === "Unknown") {
           if (!REVIEWED_UNKNOWN_PACKAGES.has(identity)) failures.push(identity);
-        } else if (!licenseExpressionIsAllowed(expression)) {
+        } else if (
+          !licenseExpressionIsAllowed(expression) &&
+          !REVIEWED_NON_SPDX_PACKAGES.has(identity)
+        ) {
           failures.push(`${identity} (${expression})`);
         }
       }

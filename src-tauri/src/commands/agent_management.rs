@@ -1,17 +1,99 @@
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, path::Path};
+    use std::{collections::BTreeMap, io::Cursor, path::Path};
 
     use api_types::{
         AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentOperationEvent,
-        AgentOperationKind, AgentOperationStatus,
+        AgentOperationKind, AgentOperationStatus, AgentPreflightItemView,
     };
 
     use super::{
         OperationCancellationRegistry, bind_profile_runtime_executable, build_launch_environment,
+        clear_macos_quarantine, configure_uv_tool_install_command, extract_binary_archive,
         install_locked_plan, managed_install_root, management_error, operation_event,
         resolve_npm_package_executable, resolve_uv_tool_executable, verify_acp_handshake,
     };
+
+    fn zip_with_symlink(link_target: &str) -> Vec<u8> {
+        use std::io::Write;
+
+        use zip::{ZipWriter, write::SimpleFileOptions};
+
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file(
+                "runtime/Python.framework/Versions/3.14/Python",
+                SimpleFileOptions::default().unix_permissions(0o755),
+            )
+            .unwrap();
+        archive.write_all(b"python runtime").unwrap();
+        archive
+            .add_symlink(
+                "runtime/Python.framework/Versions/Current",
+                link_target,
+                SimpleFileOptions::default(),
+            )
+            .unwrap();
+        archive.finish().unwrap().into_inner()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn zip_install_preserves_framework_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let destination = tempfile::tempdir().unwrap();
+
+        extract_binary_archive(
+            &zip_with_symlink("3.14"),
+            "https://example.test/runtime.zip",
+            destination.path(),
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        let link = destination
+            .path()
+            .join("runtime/Python.framework/Versions/Current");
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_link(link).unwrap(), Path::new("3.14"));
+        let runtime = destination
+            .path()
+            .join("runtime/Python.framework/Versions/3.14/Python");
+        assert_ne!(
+            std::fs::metadata(runtime).unwrap().permissions().mode() & 0o111,
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn zip_install_rejects_framework_symlinks_that_escape_the_destination() {
+        let destination = tempfile::tempdir().unwrap();
+        let result = extract_binary_archive(
+            &zip_with_symlink("../../../../../outside"),
+            "https://example.test/runtime.zip",
+            destination.path(),
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(
+            !destination
+                .path()
+                .parent()
+                .unwrap()
+                .join("outside")
+                .exists()
+        );
+    }
 
     #[test]
     fn agent_management_commands_serialize_snapshots_and_errors() {
@@ -49,6 +131,24 @@ mod tests {
                 .status,
             AgentOperationStatus::Running
         );
+    }
+
+    #[test]
+    fn preflight_component_evidence_is_structured() {
+        let item = AgentPreflightItemView {
+            id: "acp".to_string(),
+            label: "ACP 适配器".to_string(),
+            status: "pass".to_string(),
+            detail: String::new(),
+            version: Some("1.2.3".to_string()),
+            path: Some("/opt/vibex/bin/agent-acp".to_string()),
+            repairable: true,
+        };
+        let value = serde_json::to_value(item).unwrap();
+
+        assert_eq!(value["version"], "1.2.3");
+        assert_eq!(value["path"], "/opt/vibex/bin/agent-acp");
+        assert_eq!(value["detail"], "");
     }
 
     #[test]
@@ -210,6 +310,53 @@ mod tests {
             .unwrap();
 
         assert_eq!(executable, bin_dir.join("minion-code"));
+    }
+
+    #[test]
+    fn uv_tool_install_keeps_python_and_cache_inside_the_staging_component() {
+        let component_root = Path::new("/managed/.staging/0-combined_runtime");
+        let mut command = tokio::process::Command::new("uv");
+
+        configure_uv_tool_install_command(&mut command, component_root, "kimi-cli==1.2.3");
+
+        let command = command.as_std();
+        let env = command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            env.get(std::ffi::OsStr::new("UV_PYTHON_INSTALL_DIR")),
+            Some(&component_root.join("python").as_os_str())
+        );
+        assert_eq!(
+            env.get(std::ffi::OsStr::new("UV_CACHE_DIR")),
+            Some(&component_root.join("cache").as_os_str())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn managed_uv_component_is_dequarantined_before_its_runtime_is_launched() {
+        let temp = tempfile::tempdir().unwrap();
+        let framework = temp.path().join("python/Python.framework");
+        std::fs::create_dir_all(&framework).unwrap();
+        let runtime = framework.join("Python");
+        std::fs::write(&runtime, b"runtime").unwrap();
+        xattr::set(temp.path(), "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+        xattr::set(&runtime, "com.apple.quarantine", b"0081;0;VibeX;").unwrap();
+
+        clear_macos_quarantine(temp.path()).unwrap();
+
+        assert!(
+            xattr::get(temp.path(), "com.apple.quarantine")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            xattr::get(&runtime, "com.apple.quarantine")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1251,17 +1398,23 @@ pub async fn agent_management_preflight(
         }
         checked_components.push((kind, path, version, healthy));
     }
-    let component_available = |kinds: &[&str]| {
+    let find_component = |kinds: &[&str]| {
+        checked_components
+            .iter()
+            .find(|(kind, _, _, _)| kinds.contains(&kind.as_str()))
+    };
+    let find_healthy_component = |kinds: &[&str]| {
         checked_components
             .iter()
             .find(|(kind, _, _, healthy)| kinds.contains(&kind.as_str()) && *healthy)
     };
-    let runtime = component_available(&["agent_runtime", "combined_runtime"]);
-    let acp = component_available(&["acp_adapter", "combined_runtime"]);
-    let runtime_ok = runtime.is_some();
+    let runtime = find_component(&["agent_runtime", "combined_runtime"]);
+    let acp = find_component(&["acp_adapter", "combined_runtime"]);
+    let runtime_ok = find_healthy_component(&["agent_runtime", "combined_runtime"]).is_some();
+    let healthy_acp = find_healthy_component(&["acp_adapter", "combined_runtime"]);
     let mut acp_ok = false;
     let mut authentication_observation = None;
-    if let (Some((_, resolved_json)), Some(_)) = (&lock, acp) {
+    if let (Some((_, resolved_json)), Some(_)) = (&lock, healthy_acp) {
         #[derive(serde::Deserialize)]
         struct LockedPayload {
             absolute_acp_program: PathBuf,
@@ -1360,25 +1513,34 @@ pub async fn agent_management_preflight(
                 } else {
                     "Agent 已加入本地列表。".to_string()
                 },
+                version: None,
+                path: None,
                 repairable: false,
             },
             AgentPreflightItemView {
                 id: "runtime".to_string(),
                 label: "本地 Runtime".to_string(),
                 status: status(runtime_ok),
-                detail: runtime
-                    .map(|(_, _, version, _)| format!("版本 {version}"))
-                    .unwrap_or_else(|| "未发现有效的当前安装锁。".to_string()),
+                detail: if runtime.is_none() {
+                    "未发现有效的当前安装锁。".to_string()
+                } else {
+                    String::new()
+                },
+                version: runtime.map(|(_, _, version, _)| version.clone()),
+                path: runtime.map(|(_, path, _, _)| path.display().to_string()),
                 repairable: true,
             },
             AgentPreflightItemView {
                 id: "acp".to_string(),
                 label: "ACP 适配器".to_string(),
                 status: status(acp_ok),
-                detail: acp
-                    .filter(|_| acp_ok)
-                    .map(|(_, _, version, _)| format!("版本 {version}，握手成功"))
-                    .unwrap_or_else(|| "未通过 ACP 探测。".to_string()),
+                detail: if acp.is_none() {
+                    "未发现 ACP 安装组件。".to_string()
+                } else {
+                    String::new()
+                },
+                version: acp.map(|(_, _, version, _)| version.clone()),
+                path: acp.map(|(_, path, _, _)| path.display().to_string()),
                 repairable: true,
             },
         ],
@@ -2128,6 +2290,12 @@ async fn install_locked_plan(
     for (index, component) in plan.components.iter().enumerate() {
         let component_root = staging.join(format!("{index}-{}", component.component_id));
         tokio::fs::create_dir_all(&component_root).await?;
+        clear_macos_quarantine(&component_root).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to prepare managed runtime directory {}: {error}",
+                component_root.display()
+            )
+        })?;
         let (absolute_path, mut sha256, trust_state) = match component.distribution_kind {
             PlannedDistributionKind::Npx => {
                 verify_npm_integrity(&component.resolved_source, &component.trust, cancellation)
@@ -2162,16 +2330,13 @@ async fn install_locked_plan(
                 )
             }
             PlannedDistributionKind::Uvx => {
-                let tool_dir = component_root.join("tools");
                 let bin_dir = component_root.join("bin");
                 let mut command = tokio::process::Command::new("uv");
-                command
-                    .arg("tool")
-                    .arg("install")
-                    .arg("--force")
-                    .arg(&component.resolved_source)
-                    .env("UV_TOOL_DIR", &tool_dir)
-                    .env("UV_TOOL_BIN_DIR", &bin_dir);
+                configure_uv_tool_install_command(
+                    &mut command,
+                    &component_root,
+                    &component.resolved_source,
+                );
                 let output = cancellable_command_output(command, cancellation).await?;
                 ensure_success("uv tool install", &output)?;
                 path_entries.push(bin_dir.clone());
@@ -2218,6 +2383,21 @@ async fn install_locked_plan(
                 )
             }
         };
+        #[cfg(target_os = "macos")]
+        {
+            let quarantine_root = component_root.clone();
+            tokio::task::spawn_blocking(move || clear_macos_quarantine(&quarantine_root))
+                .await
+                .map_err(|error| {
+                    anyhow::anyhow!("managed runtime quarantine task failed: {error}")
+                })?
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "failed to clear quarantine from managed runtime {}: {error}",
+                        component_root.display()
+                    )
+                })?;
+        }
         if !absolute_path.is_absolute() || tokio::fs::metadata(&absolute_path).await.is_err() {
             anyhow::bail!(
                 "installed component `{}` has no executable at {}",
@@ -2268,6 +2448,48 @@ async fn install_locked_plan(
         },
         components,
     })
+}
+
+fn configure_uv_tool_install_command(
+    command: &mut tokio::process::Command,
+    component_root: &Path,
+    package: &str,
+) {
+    command
+        .arg("tool")
+        .arg("install")
+        .arg("--force")
+        .arg("--no-config")
+        .arg(package)
+        .env("UV_TOOL_DIR", component_root.join("tools"))
+        .env("UV_TOOL_BIN_DIR", component_root.join("bin"))
+        .env("UV_PYTHON_INSTALL_DIR", component_root.join("python"))
+        .env("UV_CACHE_DIR", component_root.join("cache"));
+}
+
+#[cfg(target_os = "macos")]
+fn clear_macos_quarantine(root: &Path) -> std::io::Result<()> {
+    fn visit(path: &Path) -> std::io::Result<()> {
+        let quarantine = std::ffi::OsStr::new("com.apple.quarantine");
+        if xattr::list_deref(path)?.any(|attribute| attribute == quarantine) {
+            xattr::remove_deref(path, quarantine)?;
+        }
+
+        let metadata = std::fs::symlink_metadata(path)?;
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(path)? {
+                visit(&entry?.path())?;
+            }
+        }
+        Ok(())
+    }
+
+    visit(root)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clear_macos_quarantine(_root: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 fn build_launch_environment(
@@ -2588,28 +2810,11 @@ async fn extract_binary_archive(
         tokio::select! {
             result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;
-            for index in 0..archive.len() {
-                let mut file = archive.by_index(index)?;
-                let Some(relative) = file.enclosed_name() else {
-                    anyhow::bail!("binary archive contains an unsafe path");
-                };
-                let output = destination.join(relative);
-                if file.is_dir() {
-                    std::fs::create_dir_all(&output)?;
-                    continue;
-                }
-                if let Some(parent) = output.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                let mut bytes = Vec::new();
-                file.read_to_end(&mut bytes)?;
-                std::fs::write(&output, bytes)?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o755))?;
-                }
-            }
+            validate_zip_symlinks(&mut archive)?;
+            // The registry includes Python onedir releases whose Framework layout relies on
+            // relative symlinks. zip's extractor preserves those links and rejects links or
+            // archive paths that can escape the managed installation root.
+            archive.extract(&destination)?;
             Ok(())
             }) => result??,
             () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
@@ -2622,6 +2827,55 @@ async fn extract_binary_archive(
     command.arg("-xf").arg(&archive).arg("-C").arg(destination);
     let output = cancellable_command_output(command, cancellation).await?;
     ensure_success("binary archive extraction", &output)
+}
+
+fn validate_zip_symlinks<R>(archive: &mut zip::ZipArchive<R>) -> anyhow::Result<()>
+where
+    R: Read + std::io::Seek,
+{
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index)?;
+        if !file.is_symlink() {
+            continue;
+        }
+        let link = file
+            .enclosed_name()
+            .ok_or_else(|| anyhow::anyhow!("binary archive contains an unsafe symlink path"))?;
+        let mut target = Vec::with_capacity(file.size() as usize);
+        file.read_to_end(&mut target)?;
+        let target = std::str::from_utf8(&target)
+            .map_err(|_| anyhow::anyhow!("binary archive contains a non-UTF-8 symlink target"))?;
+        validate_zip_symlink_target(&link, Path::new(target))?;
+    }
+    Ok(())
+}
+
+fn validate_zip_symlink_target(link: &Path, target: &Path) -> anyhow::Result<()> {
+    use std::path::Component;
+
+    if target.is_absolute() {
+        anyhow::bail!("binary archive contains an absolute symlink target");
+    }
+    let mut depth = link
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+        .filter(|component| matches!(component, Component::Normal(_)))
+        .count();
+    for component in target.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir if depth > 0 => depth -= 1,
+            Component::ParentDir => {
+                anyhow::bail!("binary archive symlink target escapes the installation root")
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                anyhow::bail!("binary archive contains an absolute symlink target")
+            }
+        }
+    }
+    Ok(())
 }
 
 fn safe_archive_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf> {

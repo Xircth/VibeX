@@ -24,6 +24,31 @@ test("accepts the reviewed khroma MIT license-file exception", () => {
   );
 });
 
+test("accepts the reviewed GSAP Standard License versions", () => {
+  assert.doesNotThrow(() =>
+    auditPnpmLicenses({
+      "Standard 'no charge' license: https://gsap.com/standard-license.": [
+        { name: "gsap", versions: ["3.15.0"] },
+      ],
+      "SEE LICENSE AT https://gsap.com/standard-license": [
+        { name: "@gsap/react", versions: ["2.1.2"] },
+      ],
+    }),
+  );
+});
+
+test("requires a new review when a GSAP dependency changes version", () => {
+  assert.throws(
+    () =>
+      auditPnpmLicenses({
+        "Standard 'no charge' license: https://gsap.com/standard-license.": [
+          { name: "gsap", versions: ["3.16.0"] },
+        ],
+      }),
+    /gsap@3.16.0/,
+  );
+});
+
 test("rejects a registry Rust dependency without license metadata", () => {
   assert.throws(
     () =>

@@ -180,9 +180,21 @@ export function AgentSettings() {
     if (!selectedAgentId) return;
     try {
       await agentManagementApi.repair(selectedAgentId);
+      setPreflight(null);
       toast.success('已开始修复');
     } catch (error) {
       toast.error(errorMessage(error, '无法开始操作'));
+    }
+  }, [selectedAgentId]);
+
+  const queueInstall = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      await agentManagementApi.addAndInstall(selectedAgentId);
+      setPreflight(null);
+      toast.success('已开始安装 Runtime 与 ACP');
+    } catch (error) {
+      toast.error(errorMessage(error, '无法开始安装'));
     }
   }, [selectedAgentId]);
 
@@ -413,6 +425,7 @@ export function AgentSettings() {
             onSetEnabled={(enabled) => void setEnabled(enabled)}
             onMove={(direction) => void move(direction)}
             onPreflight={() => void runPreflight()}
+            onInstall={() => void queueInstall()}
             onRepair={() => void queueRepair()}
             onCheckUpdate={() => void checkUpdate()}
             onApplyUpdate={() => void applyUpdate()}

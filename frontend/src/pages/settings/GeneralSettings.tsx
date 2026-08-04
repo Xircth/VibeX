@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle,
   Bell,
   Bug,
-  Check,
   Code2,
   Eye,
   Lightbulb,
@@ -15,14 +13,9 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
-import {
-  EditorType,
-  SoundFile,
-  type Config,
-  type LinkOpenBehavior,
-} from 'shared/types';
+import { SoundFile, type Config, type LinkOpenBehavior } from 'shared/types';
 
-import { IdeIcon } from '@/components/ide/IdeIcon';
+import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,16 +37,6 @@ import {
 import { useEditorSettingsStore } from '@/stores/useEditorSettingsStore';
 import { toPrettyCase } from '@/utils/string';
 import { SettingsActionBar, SettingsSection } from './SettingsUi';
-
-const isMac =
-  typeof navigator !== 'undefined' &&
-  navigator.platform.toLowerCase().includes('mac');
-
-interface EditorOption {
-  value: EditorType;
-  label: string;
-  hint: string;
-}
 
 const DEFAULT_PROMPT_ENHANCEMENT_PROMPT = `You are PromptEnhance (PE).
 
@@ -82,39 +65,6 @@ export function GeneralSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const { config, loading, updateAndSaveConfig } = useUserSystem();
 
-  const editorOptions = useMemo<EditorOption[]>(
-    () => [
-      { value: EditorType.VS_CODE, label: 'Visual Studio Code', hint: 'code' },
-      {
-        value: EditorType.VS_CODE_INSIDERS,
-        label: 'VS Code Insiders',
-        hint: 'code-insiders',
-      },
-      { value: EditorType.CURSOR, label: 'Cursor', hint: 'cursor' },
-      { value: EditorType.WINDSURF, label: 'Windsurf', hint: 'windsurf' },
-      { value: EditorType.INTELLI_J, label: 'IntelliJ IDEA', hint: 'idea' },
-      { value: EditorType.ZED, label: 'Zed', hint: 'zed' },
-      { value: EditorType.XCODE, label: 'Xcode', hint: 'xed' },
-      {
-        value: EditorType.GOOGLE_ANTIGRAVITY,
-        label: 'Google Antigravity',
-        hint: 'antigravity',
-      },
-      {
-        value: EditorType.FILE_MANAGER,
-        label: isMac
-          ? t('general.editorFinder')
-          : t('general.editorFileExplorer'),
-        hint: t('general.editorFileManagerHint'),
-      },
-      {
-        value: EditorType.CUSTOM,
-        label: t('general.editorCustomCommand'),
-        hint: t('general.editorCustomCommand'),
-      },
-    ],
-    [t]
-  );
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? cloneConfig(config) : null
   );
@@ -127,11 +77,6 @@ export function GeneralSettings() {
     (state) => state.setPreviewFontSize
   );
 
-  // Availability per editor option (file manager included; custom isn't checked).
-  const [editorAvailability, setEditorAvailability] = useState<
-    Partial<Record<EditorType, boolean>>
-  >({});
-
   const [agentModels, setAgentModels] = useState<string[]>([]);
   const [agentModelsLoading, setAgentModelsLoading] = useState(false);
   const agentModelsRequestIdRef = useRef(0);
@@ -142,29 +87,6 @@ export function GeneralSettings() {
       setDraft(cloneConfig(config));
     }
   }, [config, dirty]);
-
-  useEffect(() => {
-    let alive = true;
-    void Promise.all(
-      editorOptions
-        .filter((option) => option.value !== EditorType.CUSTOM)
-        .map(async (option) => {
-          try {
-            const result = await configApi.checkEditorAvailability(
-              option.value
-            );
-            return [option.value, result.available] as const;
-          } catch {
-            return [option.value, false] as const;
-          }
-        })
-    ).then((entries) => {
-      if (alive) setEditorAvailability(Object.fromEntries(entries));
-    });
-    return () => {
-      alive = false;
-    };
-  }, [editorOptions]);
 
   const updateDraft = useCallback((patch: Partial<Config>) => {
     setDraft((prev) => {
@@ -314,13 +236,6 @@ export function GeneralSettings() {
     return null;
   }
 
-  const selectedEditor = editorOptions.find(
-    (option) => option.value === draft.editor.editor_type
-  );
-  const selectedAvailability =
-    draft.editor.editor_type === EditorType.CUSTOM
-      ? null
-      : editorAvailability[draft.editor.editor_type];
   const terminalShellOptions = getTerminalShellOptions();
 
   return (
@@ -363,95 +278,10 @@ export function GeneralSettings() {
           title={t('general.externalEditorTitle')}
           description={t('general.externalEditorDescription')}
         >
-          <div className="space-y-4">
-            <div className="settings-row">
-              <div>
-                <Label>{t('general.externalEditorLabel')}</Label>
-                <p className="settings-row__description">
-                  {selectedAvailability === false
-                    ? t('general.editorNotInPath')
-                    : t('general.editorSelectHint')}
-                </p>
-              </div>
-              <Select
-                value={draft.editor.editor_type}
-                onValueChange={(value) =>
-                  updateDraft({
-                    editor: {
-                      ...draft.editor,
-                      editor_type: value as EditorType,
-                    },
-                  })
-                }
-              >
-                <SelectTrigger className="!w-64">
-                  <SelectValue
-                    placeholder={t('general.selectEditorPlaceholder')}
-                  />
-                </SelectTrigger>
-                <SelectContent align="start" className="max-h-80">
-                  {editorOptions.map((option) => {
-                    const available =
-                      option.value === EditorType.CUSTOM
-                        ? null
-                        : editorAvailability[option.value];
-                    return (
-                      <SelectItem key={option.value} value={option.value}>
-                        <span className="flex min-w-0 items-center gap-2">
-                          <IdeIcon
-                            editorType={option.value}
-                            className="h-4 w-4 shrink-0"
-                          />
-                          <span className="truncate">{option.label}</span>
-                          {available === true ? (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
-                          ) : available === false ? (
-                            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning" />
-                          ) : null}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedEditor &&
-            draft.editor.editor_type !== EditorType.CUSTOM ? (
-              <p className="text-[11px] text-muted-foreground">
-                {t('general.commandLabel')}
-                <code className="font-mono">{selectedEditor.hint}</code>
-                {selectedAvailability === true
-                  ? t('general.editorReadySuffix')
-                  : selectedAvailability === false
-                    ? t('general.editorNotFoundSuffix')
-                    : ''}
-              </p>
-            ) : null}
-
-            {draft.editor.editor_type === EditorType.CUSTOM ? (
-              <div className="settings-row settings-row--stacked">
-                <div>
-                  <Label>{t('general.customEditorCommand')}</Label>
-                  <p className="settings-row__description">
-                    {t('general.customEditorCommandHint')}
-                  </p>
-                </div>
-                <Input
-                  placeholder={t('general.customEditorCommandPlaceholder')}
-                  value={draft.editor.custom_command || ''}
-                  onChange={(event) =>
-                    updateDraft({
-                      editor: {
-                        ...draft.editor,
-                        custom_command: event.target.value || null,
-                      },
-                    })
-                  }
-                />
-              </div>
-            ) : null}
-          </div>
+          <ExternalEditorPicker
+            value={draft.editor}
+            onChange={(editor) => updateDraft({ editor })}
+          />
         </SettingsSection>
 
         <SettingsSection

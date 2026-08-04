@@ -1,5 +1,17 @@
 # Third-Party Notices
 
+## GSAP
+
+VibeX uses GSAP and its React integration to animate the onboarding
+experience.
+
+- Projects: GreenSock/GSAP and GreenSock/react
+- Versions: GSAP `3.15.0`, @gsap/react `2.1.2`
+- Sources: https://github.com/greensock/GSAP and
+  https://github.com/greensock/react
+- License: GreenSock Standard "No Charge" License
+- License terms: https://gsap.com/standard-license
+
 ## Codeg
 
 Portions of the Office watch lifecycle, delegation companion behavior, and

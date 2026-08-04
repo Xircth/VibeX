@@ -18,17 +18,12 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
 
-import { DisclaimerDialog } from '@/components/dialogs/global/DisclaimerDialog';
-import { OnboardingDialog } from '@/components/dialogs/global/OnboardingDialog';
+import { FirstRunExperience } from '@/components/onboarding/FirstRunExperience';
 import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog';
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import {
-  configApi,
-  settingsWindowApi,
-  type LocalToolStatus,
-} from '@/lib/api';
+import { configApi, settingsWindowApi, type LocalToolStatus } from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import {
@@ -178,6 +173,43 @@ function MainAppContent() {
   const crashPromptShownRef = useRef(false);
   const transport = useBackendTransport();
   const isDesktop = transport.environment === 'desktop';
+  const startupPromptStep = getStartupPromptStep({
+    config,
+    pathname: location.pathname,
+  });
+
+  const persistFirstRun = useCallback(
+    async ({
+      editor,
+      defaultAgentId,
+      skipped,
+    }: {
+      editor: NonNullable<typeof config>['editor'];
+      defaultAgentId: NonNullable<
+        typeof config
+      >['executor_profile']['executor'];
+      skipped: boolean;
+    }) => {
+      await updateAndSaveConfig({
+        disclaimer_acknowledged: true,
+        onboarding_acknowledged: true,
+        ...(skipped
+          ? {}
+          : {
+              editor,
+              executor_profile: {
+                executor: defaultAgentId,
+                variant: null,
+              },
+            }),
+      });
+    },
+    [updateAndSaveConfig]
+  );
+
+  const finishFirstRun = useCallback(() => {
+    navigate('/local-projects', { replace: true });
+  }, [navigate]);
 
   // Track previous path for back navigation
   usePreviousPath();
@@ -189,46 +221,12 @@ function MainAppContent() {
 
   useEffect(() => {
     if (!isDesktop) return;
-    const startupPromptStep = getStartupPromptStep({
-      config,
-      pathname: location.pathname,
-    });
-    if (startupPromptStep === 'none') return;
+    if (startupPromptStep !== 'dismiss-release-notes') return;
     let cancelled = false;
 
     const showNextStep = async () => {
-      // 1) Disclaimer - first step
-      if (startupPromptStep === 'disclaimer') {
-        await DisclaimerDialog.show();
-        if (!cancelled) {
-          await updateAndSaveConfig({ disclaimer_acknowledged: true });
-          navigate('/local-projects', { replace: true });
-        }
-        DisclaimerDialog.hide();
-        return;
-      }
-
-      // 2) Onboarding - configure executor and editor
-      if (startupPromptStep === 'onboarding') {
-        const result = await OnboardingDialog.show();
-        if (!cancelled) {
-          await updateAndSaveConfig({
-            onboarding_acknowledged: true,
-            executor_profile: result.profile,
-            editor: result.editor,
-          });
-          navigate('/local-projects', { replace: true });
-        }
-        OnboardingDialog.hide();
-        return;
-      }
-
-      // 3) Release notes - silently dismiss legacy update announcement
-      if (startupPromptStep === 'dismiss-release-notes') {
-        if (!cancelled) {
-          await updateAndSaveConfig({ show_release_notes: false });
-        }
-        return;
+      if (!cancelled) {
+        await updateAndSaveConfig({ show_release_notes: false });
       }
     };
 
@@ -237,7 +235,7 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, isDesktop, location.pathname, navigate, updateAndSaveConfig]);
+  }, [isDesktop, startupPromptStep, updateAndSaveConfig]);
 
   // Opt-in crash reporting: once the startup prompt chain is idle, surface the
   // newest locally captured crash report (full content, user decides whether to
@@ -404,6 +402,15 @@ function MainAppContent() {
           {isDesktop ? <MainWindowCloseToastBridge /> : null}
           <ThemedToaster />
           <MainAppRoutes />
+          {config ? (
+            <FirstRunExperience
+              open={isDesktop && startupPromptStep === 'first-run'}
+              initialEditor={config.editor}
+              initialDefaultAgentId={config.executor_profile.executor}
+              onPersist={persistFirstRun}
+              onFinish={finishFirstRun}
+            />
+          ) : null}
         </AgentWorkbenchProvider>
       </SearchProvider>
     </ThemeProvider>

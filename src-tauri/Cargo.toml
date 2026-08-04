@@ -1,6 +1,6 @@
 [package]
 name = "vibex"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 default-run = "vibex"
 
@@ -85,6 +85,9 @@ deployment = { path = "../crates/deployment" }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 # Note: review crate is binary-only (no lib target), cannot be used as dependency
+
+[target.'cfg(target_os = "macos")'.dependencies]
+xattr = "1.6.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }

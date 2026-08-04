@@ -4,8 +4,9 @@
  * `useTranslation()` works app-wide with no provider component and no change to
  * the three app roots in App.tsx. Import once in main.tsx before render.
  *
- * Bilingual zh-CN / en, default + fallback zh-CN. Language selection persists to
- * localStorage via {@link @/lib/uiLanguage}; changing it re-renders subscribers.
+ * Bilingual zh-CN / en, with the initial language derived from the saved choice
+ * or primary system locale. Language selection persists to localStorage via
+ * {@link @/lib/uiLanguage}; changing it re-renders subscribers.
  *
  * Coverage is progressive (see docs): only converted screens read from here;
  * everything else stays as literal zh-CN, which matches the default language.

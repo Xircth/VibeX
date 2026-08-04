@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use thiserror::Error;
 
@@ -60,7 +60,7 @@ pub type SendMessageShortcut = versions::v9::SendMessageShortcut;
 pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
 
 /// Will always return config, trying old schemas or eventually returning default
-pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
+pub async fn load_config_from_file(config_path: &Path) -> Config {
     match read_section::<serde_json::Value>(config_path, APPLICATION_SETTINGS_SECTION).await {
         Ok(Some(raw_config)) => Config::from(raw_config.to_string()),
         Ok(None) => match std::fs::read_to_string(config_path) {
@@ -79,10 +79,7 @@ pub async fn load_config_from_file(config_path: &PathBuf) -> Config {
 }
 
 /// Saves the config to the given path
-pub async fn save_config_to_file(
-    config: &Config,
-    config_path: &PathBuf,
-) -> Result<(), ConfigError> {
+pub async fn save_config_to_file(config: &Config, config_path: &Path) -> Result<(), ConfigError> {
     write_section(config_path, APPLICATION_SETTINGS_SECTION, config)
         .await
         .map_err(|error| match error {
@@ -113,8 +110,10 @@ mod tests {
         )
         .await
         .expect("seed settings");
-        let mut config = Config::default();
-        config.workspace_dir = Some("~/Worktrees".to_string());
+        let config = Config {
+            workspace_dir: Some("~/Worktrees".to_string()),
+            ..Config::default()
+        };
 
         save_config_to_file(&config, &path)
             .await

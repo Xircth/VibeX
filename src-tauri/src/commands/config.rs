@@ -188,6 +188,91 @@ fn remove_path_if_exists(path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+async fn clear_database_rows(pool: &sqlx::SqlitePool) -> Result<(), AppError> {
+    let mut connection = pool.acquire().await?;
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *connection)
+        .await?;
+
+    let clear_result: Result<(), AppError> = async {
+        let mut tx = connection.begin().await?;
+
+        // Virtual tables are derived indexes, and deleting their shadow tables directly can
+        // corrupt them before SQLite gets a chance to clear the virtual table itself. Capture
+        // their schemas, remove them first, then recreate them after the authoritative tables
+        // have been cleared.
+        let virtual_tables: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, sql FROM sqlite_master \
+             WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for (table_name, create_sql) in &virtual_tables {
+            let escaped_name = table_name.replace('"', "\"\"");
+
+            // Older reset attempts could empty the FTS5 config shadow table before failing.
+            // SQLite refuses to drop such an index until its format version is restored.
+            if create_sql.to_ascii_lowercase().contains("using fts5") {
+                let config_name = format!("{table_name}_config").replace('"', "\"\"");
+                let version_query =
+                    format!("SELECT v FROM \"{config_name}\" WHERE k = 'version'");
+                let version = sqlx::query_scalar::<_, i64>(&version_query)
+                    .fetch_optional(&mut *tx)
+                    .await;
+
+                if !matches!(version, Ok(Some(4 | 5))) {
+                    let repair_query = format!(
+                        "INSERT OR REPLACE INTO \"{config_name}\"(k, v) VALUES('version', 4)"
+                    );
+                    sqlx::query(&repair_query).execute(&mut *tx).await?;
+                }
+            }
+
+            let statement = format!("DROP TABLE \"{escaped_name}\"");
+            sqlx::query(&statement).execute(&mut *tx).await?;
+        }
+
+        let table_names: Vec<String> = sqlx::query_scalar::<_, String>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_sqlx_migrations'",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        for table_name in table_names {
+            let escaped: String = table_name.replace('"', "\"\"");
+            let statement = format!("DELETE FROM \"{escaped}\"");
+            sqlx::query(&statement).execute(&mut *tx).await?;
+        }
+
+        let _ = sqlx::query("DELETE FROM sqlite_sequence")
+            .execute(&mut *tx)
+            .await;
+
+        for (_, create_sql) in virtual_tables {
+            sqlx::query(&create_sql).execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+
+    let restore_result = sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *connection)
+        .await;
+    if restore_result.is_err() {
+        connection.close_on_drop();
+    }
+    restore_result
+        .map_err(|error| AppError::Internal(format!("Failed to restore foreign keys: {error}")))?;
+    clear_result?;
+    drop(connection);
+
+    let _ = sqlx::query("VACUUM").execute(pool).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn clear_local_app_data(
     state: tauri::State<'_, AppState>,
@@ -216,46 +301,7 @@ pub async fn clear_local_app_data(
     }
     ExecutorConfigs::reload();
 
-    let mut connection = pool.acquire().await?;
-    sqlx::query("PRAGMA foreign_keys = OFF")
-        .execute(&mut *connection)
-        .await?;
-
-    let clear_result: Result<(), AppError> = async {
-        let mut tx = connection.begin().await?;
-
-        let table_names: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '_sqlx_migrations'",
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-
-        for table_name in table_names {
-            let escaped: String = table_name.replace('"', "\"\"");
-            let statement = format!("DELETE FROM \"{escaped}\"");
-            sqlx::query(&statement).execute(&mut *tx).await?;
-        }
-
-        let _ = sqlx::query("DELETE FROM sqlite_sequence")
-            .execute(&mut *tx)
-            .await;
-        tx.commit().await?;
-        Ok(())
-    }
-    .await;
-
-    let restore_result = sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&mut *connection)
-        .await;
-    if restore_result.is_err() {
-        connection.close_on_drop();
-    }
-    restore_result
-        .map_err(|error| AppError::Internal(format!("Failed to restore foreign keys: {error}")))?;
-    clear_result?;
-    drop(connection);
-
-    let _ = sqlx::query("VACUUM").execute(pool).await;
+    clear_database_rows(pool).await?;
 
     let default_config = Config::default();
     remove_path_if_exists(&utils::assets::settings_path())?;
@@ -459,4 +505,107 @@ pub async fn mcp_upsert_local_server(
 #[tauri::command]
 pub async fn mcp_uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, AppError> {
     Ok(services::services::mcp::uninstall_server(server_id).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{
+        SqlitePool,
+        sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    };
+
+    use super::clear_database_rows;
+
+    async fn seeded_pool() -> (tempfile::TempDir, SqlitePool) {
+        let temp = tempfile::tempdir().unwrap();
+        let options = SqliteConnectOptions::new()
+            .filename(temp.path().join("reset.sqlite"))
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE durable_data(id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO durable_data(value) VALUES('must be cleared')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE VIRTUAL TABLE conversation_fts USING fts5(\
+             body, conversation_id UNINDEXED, workspace_id UNINDEXED, \
+             title UNINDEXED, tokenize = 'trigram')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO conversation_fts(body, conversation_id, workspace_id, title) \
+             VALUES('searchable text', 'conversation', 'workspace', 'title')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        (temp, pool)
+    }
+
+    async fn assert_database_was_cleared(pool: &SqlitePool) {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM durable_data")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM conversation_fts")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            "ok"
+        );
+    }
+
+    #[tokio::test]
+    async fn local_data_clear_rebuilds_an_intact_fts_index() {
+        let (_temp, pool) = seeded_pool().await;
+
+        clear_database_rows(&pool).await.unwrap();
+
+        assert_database_was_cleared(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn local_data_clear_recovers_a_partially_cleared_fts_index() {
+        let (_temp, pool) = seeded_pool().await;
+
+        // Reproduces the state left by the previous reset implementation: it deleted FTS
+        // shadow rows before asking the virtual table to clear itself.
+        sqlx::query("DELETE FROM conversation_fts_content")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM conversation_fts_docsize")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM conversation_fts_config")
+            .execute(&pool)
+            .await
+            .unwrap();
+        clear_database_rows(&pool).await.unwrap();
+
+        assert_database_was_cleared(&pool).await;
+    }
 }

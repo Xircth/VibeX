@@ -185,6 +185,8 @@ pub struct AgentPreflightItemView {
     pub label: String,
     pub status: String,
     pub detail: String,
+    pub version: Option<String>,
+    pub path: Option<String>,
     pub repairable: bool,
 }
 

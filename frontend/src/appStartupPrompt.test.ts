@@ -30,7 +30,7 @@ describe('getStartupPromptStep', () => {
     ).toBe('none');
   });
 
-  it('prioritizes the disclaimer before onboarding and release notes', () => {
+  it('uses one full-screen first-run experience for disclaimer and onboarding', () => {
     expect(
       getStartupPromptStep({
         config: config({
@@ -40,10 +40,10 @@ describe('getStartupPromptStep', () => {
         }),
         pathname: '/local-projects',
       })
-    ).toBe('disclaimer');
+    ).toBe('first-run');
   });
 
-  it('shows onboarding after the disclaimer is acknowledged', () => {
+  it('keeps first-run open until both acknowledgements are persisted', () => {
     expect(
       getStartupPromptStep({
         config: config({
@@ -52,7 +52,14 @@ describe('getStartupPromptStep', () => {
         }),
         pathname: '/local-projects',
       })
-    ).toBe('onboarding');
+    ).toBe('first-run');
+
+    expect(
+      getStartupPromptStep({
+        config: config({ disclaimer_acknowledged: false }),
+        pathname: '/local-projects',
+      })
+    ).toBe('first-run');
   });
 
   it('dismisses release notes after onboarding is acknowledged', () => {

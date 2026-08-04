@@ -1,103 +1,134 @@
 # VibeX
 
-**一个本地优先的 AI 编程 Agent 协作工作台。**
+<p align="center">
+  <strong>IAE · Integrated Agent Environment</strong><br />
+  集成 Agent 平台，为 Vibe Coding 提供统一的 Agent、环境与协作入口。
+</p>
 
-[下载最新版本](https://github.com/Xircth/VibeX/releases/latest) ·
-[反馈问题](https://github.com/Xircth/VibeX/issues) ·
-[Apache-2.0 License](./LICENSE)
+<p align="center">
+  <a href="https://github.com/Xircth/VibeX/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_Release-2563EB?style=flat-square" alt="Download latest release" /></a>
+  <img src="https://img.shields.io/badge/macOS-Intel_%7C_Apple_Silicon-111827?style=flat-square" alt="macOS support" />
+  <img src="https://img.shields.io/badge/Windows-x64-2563EB?style=flat-square" alt="Windows x64 support" />
+  <img src="https://img.shields.io/badge/Linux-x64-F59E0B?style=flat-square" alt="Linux x64 support" />
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-16A34A?style=flat-square" alt="Apache 2.0 License" /></a>
+</p>
 
-[图片描述：VibeX 主界面总览，展示项目导航、Agent 会话、文件树、终端、Diff 与浏览器预览]
+<p align="center">
+  <a href="https://github.com/Xircth/VibeX/releases/latest">下载</a> ·
+  <a href="https://github.com/Xircth/VibeX/issues">反馈问题</a> ·
+  <a href="#本地开发">本地开发</a>
+</p>
 
-VibeX 将 AI Agent、项目工作区、Git、终端、文件预览和代码审查放进同一个桌面应用。你可以同时推进多个开发任务，持续观察 Agent 的执行过程，并在接受、继续或合并改动前保留人工判断。
+![VibeX IAE：多种 Agent 接入统一开发环境](./docs/readme/iae-hero.svg)
 
-VibeX 使用 Tauri、Rust 与 React 构建，支持 macOS、Windows 和 Linux。目前项目仍在快速迭代，适合希望尝试本地 AI 编程工作流的开发者。
+VibeX 将 Claude Code、Codex、OpenCode、Pi 与 ACP Registry Agent 接入同一套桌面环境。每种 Agent 共用统一的检测、安装、认证、配置、更新和会话管线。
 
-## 支持的 Agent
+项目围绕三个核心目标构建：接入更多 Agent、隔离并行任务、集中完成开发交付。开发者可以在一个应用中组织会话、创建 worktree、委派子任务、检查代码，并使用浏览器、Git、终端和会话看板持续推进工作。
 
-VibeX 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 接入本地 Agent Runtime。
+> VibeX 仍处于快速迭代阶段。建议在重要仓库中启用版本控制，并在提交前检查 Agent 产生的变更。
 
-| 类型 | Agent |
-| --- | --- |
-| 重点适配 | Claude Code、Codex、OpenCode |
-| 当前可配置 | Gemini CLI、Cline、OpenClaw、Hermes |
+## IAE 核心能力
 
-VibeX 不会把这些 Agent 的可执行文件直接捆绑进安装包。实际可用性取决于本机的 Runtime、ACP 适配器、版本和认证状态；应用会在设置中检测这些条件并显示修复入口。
+![VibeX Agent 接入与能力分发架构](./docs/readme/agent-fabric.svg)
 
-## 多 Agent 协作
+### 多种 Agent，统一接入
 
-你可以为同一项目创建多个独立会话，让不同 Agent 分别处理实现、测试、审查或修复任务。每个会话保留自己的消息、工具调用、权限请求、文件变更和执行状态。
+- **内置 Agent 档案**：优先支持 Claude Code、Codex、OpenCode 与 Pi。
+- **ACP Registry**：从官方 Registry 浏览并添加更多兼容 Agent。
+- **统一生命周期**：集中展示 Runtime、ACP 适配器、版本、位置、认证、配置与诊断状态。
+- **本地 Runtime 复用**：检测并验证本机已有 CLI，兼容时直接接入。
+- **托管安装**：按版本安装缺失组件，记录安装锁，并提供更新、修复和卸载入口。
+- **认证状态分离**：安装完成后，由用户在对应 Agent 中完成登录或 API 配置。
 
-支持委派的 Agent 还可以把子任务交给其他 Agent。VibeX 会在父会话中展示子任务的执行状态、目标 Agent 和最终结果，并允许继续查看对应的子会话。
+Agent 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 进入统一会话管线。Agent 的模型、模式与推理选项会根据其实际能力显示，VibeX 会保留各 Agent 的差异。
 
-[图片描述：多 Agent 并行工作与子任务委派界面，展示父会话、子 Agent 状态和执行结果]
+### Worktree 与 Multi-Agent 协作
 
-## 一体化工作区
+![VibeX 从任务到交付的多 Agent 协作流程](./docs/readme/collaboration-flow.svg)
 
-### 会话与任务
+- 为不同任务创建独立 Git worktree，让并行会话拥有清晰的文件边界。
+- 同一项目可以同时运行多个 Agent 会话，分别承担实现、测试、审查与排错。
+- 使用 `&Agent` 在消息中表达委派目标。父 Agent 具备对应 MCP 能力时，可以异步创建子会话并汇总结果。
+- 子任务拥有独立状态、会话记录和终止控制，父会话可以继续工作或等待结果。
+- 会话支持分叉、恢复、取消、重试、导入与导出，执行过程通过持久事件记录保留。
 
-- 使用项目、工作区和看板组织多个开发任务。
-- 实时查看 Agent 消息、思考过程、工具调用、权限请求和运行状态。
-- 支持继续对话、取消、重试、搜索、导入、导出和会话分叉。
-- 应用异常退出后恢复会话上下文，但不会自动重放可能产生副作用的在途任务。
+## Vibe Coding 配套组件
 
-### 文件、Diff 与 Git
-
-- 在文件树中浏览代码、文本、图片、PDF 和常见 Office 文件。
-- 按文件查看 Diff、变更统计和提交历史，并为代码审查添加评论。
-- 管理分支、暂存区、提交、stash、rebase、Pull Request 等常用 Git 操作。
-- 使用 Git worktree 隔离任务，降低多个 Agent 同时修改项目时的相互影响。
-
-### 终端与浏览器
-
-- 在工作区中创建和管理终端，持续观察开发服务器与脚本输出。
-- 使用内置 Chromium 浏览器访问本地开发服务，支持标签页、设备尺寸模拟和 DevTools。
-- 选取页面元素并把 DOM 与源文件线索带回会话，缩短“发现问题—定位代码—继续修改”的路径。
-
-### Office 文件预览
-
-VibeX 可以预览 `.docx`、`.xlsx` 和 `.pptx` 文件。安装 `officecli` 后可获得实时预览；未安装时，`.docx` 仍提供只读内容预览。
-
-[图片描述：VibeX 工作区组合视图，展示会话、代码 Diff、终端、浏览器和 Office 文件预览]
-
-## 核心特点
-
-- **本地优先**：项目路径、工作区状态、会话记录和应用配置主要保存在本机。
-- **过程可检查**：Agent 输出、工具调用、权限请求、终端日志和文件变更都有明确的查看入口。
-- **任务相互隔离**：通过独立工作区和 Git worktree 管理并行开发任务。
-- **保持人工控制**：VibeX 负责组织和加速工作流，代码审查、测试与发布决策仍由开发者完成。
-- **桌面端自动更新**：发布版本通过签名清单检查、下载并安装更新。
+| 组件                       | 能力                                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------------------- |
+| **会话看板**               | 按项目和状态组织会话，集中查看并行任务、Agent 状态与资源用量。                                      |
+| **内置浏览器**             | 基于独立 Chromium/CEF Runtime，支持多标签、导航、设备尺寸、DevTools、元素检查、Console 与 Network。 |
+| **Git 面板**               | 查看变更、Diff、提交记录、分支、stash、Issue 与 Pull Request，完成暂存和提交操作。                  |
+| **文件与 Diff**            | 浏览文件树、预览常见文件、查看统一或并排 Diff，并添加代码审查评论。                                 |
+| **集成终端**               | 管理多个终端会话，运行开发服务器、测试和项目脚本。                                                  |
+| **MCP、Skills 与 Plugins** | 管理 Agent 工具、技能和结构化工作流动作，扩展会话能力。                                             |
+| **自动化**                 | 保存 Agent、工作区、分支和动作配置，按计划启动隔离任务并保留运行记录。                              |
+| **消息渠道与远程设备**     | 将会话通知接入外部渠道，并通过授权设备查看或处理受支持的远程流程。                                  |
+| **Office 产物预览**        | 通过托管的 OfficeCLI 能力预览 `.docx`、`.xlsx` 与 `.pptx` 产物。                                    |
 
 ## 下载与安装
 
-前往 [GitHub Releases](https://github.com/Xircth/VibeX/releases/latest) 下载适合系统的安装包。
+从 [GitHub Releases](https://github.com/Xircth/VibeX/releases/latest) 下载对应平台的桌面安装包。
 
-| 平台 | 架构 | 安装包 |
-| --- | --- | --- |
-| Windows | x64 | `.exe`、`.msi` |
-| macOS | Intel、Apple Silicon | `.dmg` |
-| Linux | x64 | `.deb`、`.AppImage` |
+| 平台    | 架构          | 安装包               | 安装方式                                    |
+| ------- | ------------- | -------------------- | ------------------------------------------- |
+| macOS   | Apple Silicon | `.dmg`               | 打开镜像，将 `VibeX.app` 拖入“应用程序”。   |
+| macOS   | Intel         | `.dmg`               | 打开镜像，将 `VibeX.app` 拖入“应用程序”。   |
+| Windows | x64           | `.exe` / `.msi`      | 运行安装程序并按向导完成安装。              |
+| Linux   | x64           | `.AppImage` / `.deb` | 运行 AppImage，或使用系统包管理器安装 deb。 |
 
-Windows 与 macOS 安装包目前可能未经过平台代码签名或公证，因此系统可能显示未知开发者或安全警告。请只从本仓库的 Releases 页面下载安装包，并自行确认文件来源。
+首次启动时，VibeX 会检查本地 Agent Runtime 与 ACP Registry。选择需要启用的 Agent、默认 Agent 和外部编辑器后即可进入首页；缺失的托管组件会在后台安装。
 
-首次启动后，请前往 Agent 设置检查所需 CLI、ACP 适配器和登录状态。不同 Agent 可能还需要各自的账号或 API 配置。
+兼容的本地 Runtime 会被复用。安装完成后的账号登录、浏览器授权和 API 配置需要在对应 Agent 的官方流程中完成。
+
+### macOS 提示“App 已损坏”
+
+当前发布包可能尚未完成 Apple 公证。Gatekeeper 有时会将从网络下载的 VibeX 标记为“已损坏”或“无法验证开发者”。
+
+请先确认安装包来自 [VibeX 官方 Releases](https://github.com/Xircth/VibeX/releases/latest)，然后退出 VibeX，在终端执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/VibeX.app
+```
+
+如果终端提示权限不足，执行：
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/VibeX.app
+```
+
+命令只清除 `/Applications/VibeX.app` 的下载隔离属性。VibeX 安装在其他目录时，请将命令中的路径替换为实际位置。完成后重新打开应用。
+
+仍被系统拦截时，可以前往“系统设置 → 隐私与安全性”，在安全提示区域确认打开 VibeX。无需全局关闭 Gatekeeper。
+
+### 首次 Agent 配置
+
+1. 在初始化页面选择需要启用的 Agent。
+2. 从已启用的 Agent 中指定创建会话时使用的默认项。
+3. 选择外部编辑器。
+4. 等待后台安装通知，并在“设置 → Agent”查看预检查结果。
+5. 按 Agent 的官方方式完成登录或 API 配置。
+
+Runtime 或 ACP 适配器异常时，“设置 → Agent”会展示版本、位置、诊断信息和可用的安装或修复操作。
 
 ## 本地开发
 
 ### 环境要求
 
-- [Rust](https://rustup.rs/) 最新稳定版
 - [Node.js](https://nodejs.org/) 18 或更高版本
 - [pnpm](https://pnpm.io/) 8 或更高版本
-- 至少一个已安装并完成认证的 Agent CLI
+- [Rust](https://rustup.rs/)；仓库会通过 `rust-toolchain.toml` 选择所需工具链
+- 当前平台所需的 [Tauri 系统依赖](https://v2.tauri.app/start/prerequisites/)
+- 至少一个可供联调的 Agent CLI
 
-### 启动项目
+### 启动桌面应用
 
 ```bash
 pnpm install
 pnpm run dev
 ```
 
-`pnpm run dev` 会启动 Tauri 桌面应用和支持热更新的 Vite 开发服务器。
+开发命令会启动 React/Vite 前端、Tauri 桌面壳和 Rust 服务。
 
 ### 检查与测试
 
@@ -108,44 +139,42 @@ cd frontend && pnpm test
 cargo test --workspace
 ```
 
-### 构建桌面安装包
+### 构建安装包
 
 ```bash
 pnpm run tauri:build
 ```
 
-该命令会根据当前操作系统生成原生安装包。需要通过 GitHub Actions 构建全部桌面平台时，可以运行：
+也可以按平台选择打包命令：
 
 ```bash
-pnpm run tauri:build:all
+pnpm run tauri:build:macos
+pnpm run tauri:build:windows
+pnpm run tauri:build:linux
 ```
 
-## 项目结构
+## 技术架构
 
 ```text
-crates/        Rust workspace：Agent、数据库、Git、服务与执行模块
-frontend/      React + TypeScript + Vite 前端
-src-tauri/     Tauri 桌面壳、系统集成与 IPC 命令
-shared/        由 Rust 生成的共享 TypeScript 类型
-scripts/       开发、检查、打包与发布脚本
+frontend/        React + TypeScript + Vite 用户界面
+src-tauri/       Tauri 桌面壳、系统集成与 IPC 命令
+crates/agents/   Agent 档案、ACP、安装与会话运行时
+crates/git/      Git 与 worktree 能力
+crates/browser-* Chromium/CEF 浏览器运行时
+crates/          会话、自动化、插件、产物与服务模块
+shared/          从 Rust 生成的 TypeScript 类型
 ```
 
-`shared/types.ts` 是生成文件。修改共享 Rust 类型后，请运行 `pnpm run generate-types`，不要直接编辑该文件。
+VibeX 使用 Tauri、Rust 和 React 构建。应用数据主要保存在本机；Agent 请求的网络连接、模型数据处理和账户策略由所选 Agent 与其服务提供方决定。
 
-## 隐私与安全
-
-VibeX 是本地优先应用，但不是离线模型。Agent 请求由你配置的本地 CLI 或 ACP Runtime 发起，网络连接、数据处理和账号策略取决于相应的模型供应商。
-
-请在执行前确认 Agent 的权限模式，并在提交或发布前检查终端输出与代码 Diff。IM 渠道密钥目前以权限为 `0600` 的明文文件保存在 `~/.vibex/.env`，请妥善保护和备份该目录。
+`shared/types.ts` 属于生成文件。修改共享 Rust 类型后请运行 `pnpm run generate-types`。
 
 ## 参与贡献
 
-欢迎通过 [Issues](https://github.com/Xircth/VibeX/issues) 报告问题或提出建议，也欢迎提交 Pull Request。提交代码前请运行与改动范围对应的检查和测试。
+欢迎通过 [Issues](https://github.com/Xircth/VibeX/issues) 提交缺陷与功能建议，也欢迎发起 Pull Request。提交代码前，请运行与改动范围对应的检查和测试。
+
+项目采用 [Apache License 2.0](./LICENSE)。
 
 ## 致谢
 
-VibeX 基于 [Tauri](https://tauri.app/)、[React](https://react.dev/)、[Rust](https://www.rust-lang.org/) 和 [Agent Client Protocol](https://agentclientprotocol.com/) 构建。
-
-## License
-
-VibeX 使用 [Apache License 2.0](./LICENSE) 开源。
+VibeX 的桌面体验与 Agent 接入能力建立在 [Tauri](https://tauri.app/)、[React](https://react.dev/)、[Rust](https://www.rust-lang.org/) 和 [Agent Client Protocol](https://agentclientprotocol.com/) 之上。

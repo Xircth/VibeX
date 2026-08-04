@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
-// Initialize the i18n runtime (default zh-CN) so components using useTranslation
-// render real strings in tests instead of raw keys.
-import '@/i18n';
+// Initialize the i18n runtime so components using useTranslation render real
+// strings instead of raw keys. Tests use a deterministic Chinese locale even
+// though production now derives its initial locale from the host system.
+import i18n from '@/i18n';
 
 const localStorageStore = new Map<string, string>();
 const localStorageMock: Storage = {
@@ -35,8 +36,9 @@ Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorageMock.clear();
+  if (i18n.language !== 'zh-CN') await i18n.changeLanguage('zh-CN');
 });
 
 // Mock Tauri API - all invoke calls return undefined by default

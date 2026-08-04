@@ -1195,7 +1195,7 @@ export type AgentOperationReceipt = { operation_id: string, agent_id: AgentId, k
 
 export type AgentOperationStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "interrupted";
 
-export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, repairable: boolean, };
+export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, version: string | null, path: string | null, repairable: boolean, };
 
 export type AgentPreflightView = { agent_id: AgentId, checked_at: string, items: Array<AgentPreflightItemView>, };
 

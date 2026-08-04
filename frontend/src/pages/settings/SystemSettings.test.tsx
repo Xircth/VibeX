@@ -251,4 +251,21 @@ describe('SystemSettings', () => {
       screen.getByText('/Users/test/.vibex/settings.json')
     ).toBeInTheDocument();
   });
+
+  it('shows the backend detail when clearing local data fails', async () => {
+    const user = userEvent.setup();
+    mocks.clearLocalData.mockRejectedValue(
+      'invalid fts5 file format (found 0, expected 4 or 5)'
+    );
+    render(<SystemSettings />);
+
+    await user.click(await screen.findByRole('button', { name: '清除' }));
+    const clearOptions = mocks.toastWarning.mock.calls.at(-1)?.[1];
+    await act(async () => clearOptions.action.onClick());
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'invalid fts5 file format (found 0, expected 4 or 5)',
+      { id: 'toast-id' }
+    );
+  });
 });

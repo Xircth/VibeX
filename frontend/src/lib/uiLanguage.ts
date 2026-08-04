@@ -2,8 +2,9 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 /**
  * UI language (P3-1, i18n): a frontend-only, localStorage-persisted interface
- * language. Bilingual zh-CN / en, defaulting to zh-CN so existing users see no
- * change. Mirrors the storage pattern of {@link ./uiZoom}.
+ * language. Bilingual zh-CN / en. An explicit preference wins; otherwise the
+ * primary system language selects Chinese and every other locale uses English.
+ * Mirrors the storage pattern of {@link ./uiZoom}.
  *
  * Deliberately NOT wired to the backend `Config.language` field yet — a later
  * slice can sync the two once backend user-visible strings (IM templates,
@@ -19,16 +20,22 @@ export const LANGUAGE_LABELS: Record<UiLanguage, string> = {
 };
 
 export const LANGUAGE_KEY = 'vibex:ui-language';
-export const DEFAULT_LANGUAGE: UiLanguage = 'zh-CN';
+export const DEFAULT_LANGUAGE: UiLanguage = 'en';
 
 function isSupported(value: string | null): value is UiLanguage {
   return value !== null && SUPPORTED_LANGUAGES.includes(value as UiLanguage);
 }
 
 export function getUiLanguage(): UiLanguage {
-  return isSupported(localStorage.getItem(LANGUAGE_KEY))
-    ? (localStorage.getItem(LANGUAGE_KEY) as UiLanguage)
-    : DEFAULT_LANGUAGE;
+  const stored =
+    typeof localStorage === 'undefined'
+      ? null
+      : localStorage.getItem(LANGUAGE_KEY);
+  if (isSupported(stored)) return stored;
+
+  if (typeof navigator === 'undefined') return DEFAULT_LANGUAGE;
+  const systemLanguage = navigator.languages?.[0] ?? navigator.language;
+  return /^zh(?:-|$)/i.test(systemLanguage) ? 'zh-CN' : 'en';
 }
 
 export function persistUiLanguage(language: UiLanguage): void {

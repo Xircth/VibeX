@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
+  <title id="title">VibeX multi-agent collaboration flow</title>
+  <desc id="desc">A task moves from session planning through isolated worktrees and asynchronous agent delegation into review and delivery.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0b1220" />
+      <stop offset="1" stop-color="#111f38" />
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#38bdf8" />
+      <stop offset="0.5" stop-color="#60a5fa" />
+      <stop offset="1" stop-color="#a78bfa" />
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="9" stdDeviation="11" flood-color="#020617" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="330" rx="26" fill="url(#bg)" />
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="52" y="54" fill="#7dd3fc" font-size="12" font-weight="750" letter-spacing="2.5">COLLABORATION FLOW</text>
+    <text x="52" y="86" fill="#f8fafc" font-size="25" font-weight="750">从一个目标，展开多条可检查的执行路径</text>
+
+    <path d="M139 176H1061" fill="none" stroke="url(#line)" stroke-width="3" stroke-linecap="round" />
+
+    <g filter="url(#shadow)">
+      <g>
+        <circle cx="139" cy="176" r="40" fill="#102d4e" stroke="#38bdf8" stroke-width="2" />
+        <path d="M126 165h26v22h-26zM132 159h14" fill="none" stroke="#bae6fd" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+        <text x="139" y="242" fill="#f8fafc" font-size="14" font-weight="680" text-anchor="middle">创建会话</text>
+        <text x="139" y="263" fill="#7f9dbf" font-size="11" text-anchor="middle">Goal &amp; Agent</text>
+      </g>
+
+      <g>
+        <circle cx="369" cy="176" r="40" fill="#112c50" stroke="#60a5fa" stroke-width="2" />
+        <path d="M354 164h12v24h-12zM372 164h12v24h-12zM366 176h6" fill="none" stroke="#dbeafe" stroke-width="2" stroke-linejoin="round" />
+        <text x="369" y="242" fill="#f8fafc" font-size="14" font-weight="680" text-anchor="middle">隔离 Worktree</text>
+        <text x="369" y="263" fill="#7f9dbf" font-size="11" text-anchor="middle">Branch Isolation</text>
+      </g>
+
+      <g>
+        <circle cx="600" cy="176" r="48" fill="#263067" stroke="#818cf8" stroke-width="2" />
+        <circle cx="587" cy="169" r="7" fill="#c7d2fe" />
+        <circle cx="614" cy="161" r="7" fill="#c7d2fe" />
+        <circle cx="614" cy="188" r="7" fill="#c7d2fe" />
+        <path d="M594 167l13-4M594 173l13 12" stroke="#c7d2fe" stroke-width="2" />
+        <text x="600" y="246" fill="#f8fafc" font-size="14" font-weight="680" text-anchor="middle">异步 Multi-Agent</text>
+        <text x="600" y="267" fill="#9aa9dd" font-size="11" text-anchor="middle">Delegate &amp; Fan-out</text>
+      </g>
+
+      <g>
+        <circle cx="831" cy="176" r="40" fill="#242956" stroke="#a78bfa" stroke-width="2" />
+        <path d="M817 177l9 9 19-21M817 164h18M817 193h28" fill="none" stroke="#ede9fe" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="831" y="242" fill="#f8fafc" font-size="14" font-weight="680" text-anchor="middle">检查与审查</text>
+        <text x="831" y="263" fill="#a8a2d3" font-size="11" text-anchor="middle">Git · Diff · Test</text>
+      </g>
+
+      <g>
+        <circle cx="1061" cy="176" r="40" fill="#342450" stroke="#c084fc" stroke-width="2" />
+        <path d="M1047 176h28M1064 165l11 11-11 11" fill="none" stroke="#f3e8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="1061" y="242" fill="#f8fafc" font-size="14" font-weight="680" text-anchor="middle">合并与交付</text>
+        <text x="1061" y="263" fill="#b4a1cc" font-size="11" text-anchor="middle">Commit &amp; Ship</text>
+      </g>
+    </g>
+
+    <g fill="#0b1220" stroke="#93c5fd">
+      <circle cx="254" cy="176" r="7" />
+      <circle cx="484" cy="176" r="7" />
+      <circle cx="716" cy="176" r="7" />
+      <circle cx="946" cy="176" r="7" />
+    </g>
+  </g>
+</svg>

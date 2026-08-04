@@ -495,14 +495,15 @@ export function SystemSettings() {
         window.setTimeout(() => window.location.reload(), 700);
       }
     } catch (error) {
-      toast.error(
+      const message =
         error instanceof Error
           ? error.message
-          : t('system.clearLocalDataFailed'),
-        {
-          id: toastId,
-        }
-      );
+          : typeof error === 'string'
+            ? error
+            : t('system.clearLocalDataFailed');
+      toast.error(message, {
+        id: toastId,
+      });
     } finally {
       setIsClearingLocalData(false);
     }

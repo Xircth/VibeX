@@ -23,6 +23,10 @@ env:
   RUST_TOOLCHAIN: nightly-2025-12-04
   RUNNER_LABEL: &runner_label ubuntu-24.04
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   dependency-audit:
     runs-on: *runner_label
@@ -50,6 +54,10 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # SQLx records its inactive PostgreSQL backend in Cargo.lock. The
+          # vulnerable rsa crate has no patched release and is absent from the
+          # resolved dependency graph for every target (`cargo tree --target all`).
+          ignore: RUSTSEC-2023-0071
 
       - name: Check JavaScript advisories
         run: pnpm audit --prod --audit-level high

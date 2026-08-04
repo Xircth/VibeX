@@ -35,7 +35,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/cargo-checks-common-setup
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          toolchain: stable
           cache-key: dependency-audit-${{ runner.os }}-${{ runner.arch }}-${{ env.RUNNER_LABEL }}
 
       - name: Install dependencies

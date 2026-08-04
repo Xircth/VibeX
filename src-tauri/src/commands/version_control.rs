@@ -5,11 +5,13 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use services::services::settings_store::{read_section, write_section};
 use tokio::time::timeout;
 
 use crate::error::AppError;
 
 const SETTINGS_FILE_NAME: &str = "version-control-settings.json";
+const SETTINGS_SECTION: &str = "version_control";
 const DEFAULT_GITHUB_HOST: &str = "github.com";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -45,11 +47,18 @@ fn settings_path() -> PathBuf {
 }
 
 async fn load_settings() -> Result<VersionControlCliSettings, AppError> {
+    let unified_path = utils::assets::settings_path();
+    if let Some(settings) = read_section(&unified_path, SETTINGS_SECTION)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+    {
+        return Ok(settings);
+    }
+
     let path = settings_path();
     if !path.exists() {
         return Ok(VersionControlCliSettings::default());
     }
-
     let content = tokio::fs::read_to_string(&path).await.map_err(|error| {
         AppError::Internal(format!(
             "Failed to read version control settings {}: {error}",
@@ -57,35 +66,24 @@ async fn load_settings() -> Result<VersionControlCliSettings, AppError> {
         ))
     })?;
 
-    serde_json::from_str(&content).map_err(|error| {
+    let settings = serde_json::from_str(&content).map_err(|error| {
         AppError::Internal(format!(
             "Invalid version control settings {}: {error}",
             path.display()
         ))
-    })
+    })?;
+    write_section(&unified_path, SETTINGS_SECTION, &settings)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(settings)
 }
 
 async fn save_settings(
     settings: &VersionControlCliSettings,
 ) -> Result<VersionControlCliSettings, AppError> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!(
-                "Failed to create settings directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-    }
-
-    let content = serde_json::to_string_pretty(settings)
-        .map_err(|error| AppError::Internal(format!("Failed to serialize settings: {error}")))?;
-    tokio::fs::write(&path, content).await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to write version control settings {}: {error}",
-            path.display()
-        ))
-    })?;
+    write_section(&utils::assets::settings_path(), SETTINGS_SECTION, settings)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
     Ok(settings.clone())
 }
 

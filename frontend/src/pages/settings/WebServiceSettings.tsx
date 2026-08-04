@@ -23,6 +23,7 @@ import {
   type WebServiceConfig,
   webServiceApi,
 } from '@/lib/api';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 import {
   SettingsActionBar,
@@ -84,6 +85,15 @@ export function WebServiceSettings({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const reloadFromJson = () => {
+      if (!dirty) void load();
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+    return () =>
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+  }, [dirty, load]);
 
   const refreshStatus = useCallback(async () => {
     setStatusBusy(true);

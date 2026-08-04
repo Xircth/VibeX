@@ -3,6 +3,7 @@ import {
   Archive,
   Download,
   ExternalLink,
+  FileJson2,
   Gauge,
   Loader2,
   Network,
@@ -38,6 +39,7 @@ import {
 } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 import { SettingsSection } from './SettingsUi';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
@@ -158,6 +160,7 @@ export function SystemSettings() {
   const [backupPreviewPath, setBackupPreviewPath] = useState('');
   const [backupBusy, setBackupBusy] = useState(false);
   const [restoreBusy, setRestoreBusy] = useState(false);
+  const [settingsPath, setSettingsPath] = useState('~/.vibex/settings.json');
 
   useEffect(() => {
     if (!config || dirty) {
@@ -174,7 +177,9 @@ export function SystemSettings() {
       setMaintenanceStatus(status);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('system.maintenanceCheckFailed')
+        error instanceof Error
+          ? error.message
+          : t('system.maintenanceCheckFailed')
       );
     } finally {
       setMaintenanceLoading(false);
@@ -212,6 +217,21 @@ export function SystemSettings() {
     void refreshSystemSettings();
   }, [refreshSystemSettings]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void configApi
+      .getSettingsPath()
+      .then((path) => {
+        if (!cancelled) setSettingsPath(path);
+      })
+      .catch(() => {
+        // Keep the canonical fallback visible if path resolution fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const hasUnsavedChanges = useMemo(() => {
     if (!draft || !config) {
       return false;
@@ -229,6 +249,18 @@ export function SystemSettings() {
     () => !deepEqual(renderingDraft, renderingSettings),
     [renderingDraft, renderingSettings]
   );
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (!proxyDirty && !renderingDirty) void refreshSystemSettings();
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, refreshOnFocus);
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, refreshOnFocus);
+    };
+  }, [proxyDirty, refreshSystemSettings, renderingDirty]);
 
   const updateDraft = useCallback(
     (patch: Partial<SystemSettingsConfig>) => {
@@ -375,7 +407,9 @@ export function SystemSettings() {
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('system.backupRestoreFailed'),
+        error instanceof Error
+          ? error.message
+          : t('system.backupRestoreFailed'),
         {
           id: toastId,
         }
@@ -462,7 +496,9 @@ export function SystemSettings() {
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('system.clearLocalDataFailed'),
+        error instanceof Error
+          ? error.message
+          : t('system.clearLocalDataFailed'),
         {
           id: toastId,
         }
@@ -504,6 +540,18 @@ export function SystemSettings() {
   return (
     <div className="settings-content">
       <div className="space-y-7">
+        <SettingsSection
+          icon={FileJson2}
+          title={t('system.jsonTitle')}
+          description={t('system.jsonDescription')}
+        >
+          <div className="settings-row block px-4 py-3">
+            <code className="select-all break-all font-mono text-xs text-foreground">
+              {settingsPath}
+            </code>
+          </div>
+        </SettingsSection>
+
         <AppUpdaterSection />
         <SettingsSection
           icon={PackageCheck}

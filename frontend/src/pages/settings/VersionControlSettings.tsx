@@ -44,6 +44,7 @@ import {
   SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);
@@ -218,6 +219,40 @@ export function VersionControlSettings() {
       cancelled = true;
     };
   }, [refreshGit, t]);
+
+  useEffect(() => {
+    const refreshSettingsOnFocus = () => {
+      if (
+        cliSettings &&
+        customGitPath !== (cliSettings.git_custom_path ?? '')
+      ) {
+        return;
+      }
+      void versionControlApi
+        .getSettings()
+        .then((settings) => {
+          setCliSettings(settings);
+          setCustomGitPath(settings.git_custom_path ?? '');
+        })
+        .catch((error) => {
+          toast.error(t('versionControl.settingsLoadFailed'), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t('versionControl.settingsLoadFailedDesc'),
+          });
+        });
+    };
+    window.addEventListener('focus', refreshSettingsOnFocus);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, refreshSettingsOnFocus);
+    return () => {
+      window.removeEventListener('focus', refreshSettingsOnFocus);
+      window.removeEventListener(
+        SETTINGS_CHANGED_EVENT,
+        refreshSettingsOnFocus
+      );
+    };
+  }, [cliSettings, customGitPath, t]);
 
   const handleBrowseWorkspaceDir = async () => {
     const result = await FolderPickerDialog.show({
@@ -636,8 +671,7 @@ export function VersionControlSettings() {
                 {githubStatus?.authenticated
                   ? (githubStatus.username ?? t('versionControl.loggedIn'))
                   : githubStatus?.gh_installed
-                    ? (githubStatus.message ??
-                      t('versionControl.notLoggedIn'))
+                    ? (githubStatus.message ?? t('versionControl.notLoggedIn'))
                     : t('versionControl.ghNotInstalled')}
               </StatusLine>
             </div>

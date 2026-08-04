@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   } as Config,
   updateAndSaveConfig: vi.fn(),
   getMaintenance: vi.fn(),
+  getSettingsPath: vi.fn(),
   clearLocalData: vi.fn(),
   getProxy: vi.fn(),
   updateProxy: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('@/components/ConfigProvider', () => ({
 vi.mock('@/lib/api', () => ({
   configApi: {
     getSystemMaintenanceStatus: mocks.getMaintenance,
+    getSettingsPath: mocks.getSettingsPath,
     clearLocalData: mocks.clearLocalData,
   },
   systemSettingsApi: {
@@ -109,6 +111,7 @@ describe('SystemSettings', () => {
         value.mockReset();
     }
     mocks.updateAndSaveConfig.mockResolvedValue(true);
+    mocks.getSettingsPath.mockResolvedValue('/Users/test/.vibex/settings.json');
     mocks.getMaintenance.mockResolvedValue({
       app: {
         current_version: '1.0.0',
@@ -236,5 +239,16 @@ describe('SystemSettings', () => {
     });
     await act(async () => clearOptions.action.onClick());
     expect(mocks.clearLocalData).toHaveBeenCalledOnce();
+  });
+
+  it('shows the shared JSON settings source on the system page', async () => {
+    render(<SystemSettings />);
+
+    expect(
+      await screen.findByText(/JSON 设置源|JSON source/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('/Users/test/.vibex/settings.json')
+    ).toBeInTheDocument();
   });
 });

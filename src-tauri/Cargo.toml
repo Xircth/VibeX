@@ -30,6 +30,7 @@ uuid = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
+notify = "8.2.0"
 rustls = { workspace = true }
 base64 = "0.22"
 futures = { workspace = true }

@@ -92,6 +92,8 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-system' }),
     VersionControlSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-version-control' }),
+    WorktreeSettings: () =>
+      React.createElement('div', { 'data-testid': 'settings-worktrees' }),
     WebServiceSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-web-service' }),
   };

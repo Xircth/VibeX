@@ -1,3 +1,5 @@
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
+
 /**
  * UI language (P3-1, i18n): a frontend-only, localStorage-persisted interface
  * language. Bilingual zh-CN / en, defaulting to zh-CN so existing users see no
@@ -20,9 +22,7 @@ export const LANGUAGE_KEY = 'vibex:ui-language';
 export const DEFAULT_LANGUAGE: UiLanguage = 'zh-CN';
 
 function isSupported(value: string | null): value is UiLanguage {
-  return (
-    value !== null && SUPPORTED_LANGUAGES.includes(value as UiLanguage)
-  );
+  return value !== null && SUPPORTED_LANGUAGES.includes(value as UiLanguage);
 }
 
 export function getUiLanguage(): UiLanguage {
@@ -33,4 +33,5 @@ export function getUiLanguage(): UiLanguage {
 
 export function persistUiLanguage(language: UiLanguage): void {
   localStorage.setItem(LANGUAGE_KEY, language);
+  persistFrontendPreference(LANGUAGE_KEY, language);
 }

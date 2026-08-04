@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { desktopApi } from '@/lib/api/misc';
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
 
 const MAIN_WINDOW_CLOSE_BEHAVIOR_KEY = 'vibex.mainWindowCloseBehavior';
 
@@ -11,10 +12,9 @@ export function getSavedMainWindowCloseBehavior(): MainWindowCloseBehavior | nul
   return value === 'exit' || value === 'minimize' ? value : null;
 }
 
-export function saveMainWindowCloseBehavior(
-  behavior: MainWindowCloseBehavior
-) {
+export function saveMainWindowCloseBehavior(behavior: MainWindowCloseBehavior) {
   window.localStorage.setItem(MAIN_WINDOW_CLOSE_BEHAVIOR_KEY, behavior);
+  persistFrontendPreference(MAIN_WINDOW_CLOSE_BEHAVIOR_KEY, behavior);
 }
 
 export async function performMainWindowCloseBehavior(

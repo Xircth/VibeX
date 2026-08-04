@@ -12,6 +12,8 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
+
 export type LayoutZone = 'dock' | 'workspace' | 'session' | 'terminal';
 export type LayoutSlot = 'left' | 'center' | 'right' | 'bottom';
 export type LayoutArrangement = Record<LayoutSlot, LayoutZone>;
@@ -92,8 +94,12 @@ interface ArrangementPreference<S extends string, Z extends string> {
   subscribe: (listener: () => void) => () => void;
 }
 
+type ArrangementStorageKey =
+  | 'vibex:layout-arrangement'
+  | 'vibex:kanban-layout-arrangement';
+
 function createArrangementPreference<S extends string, Z extends string>(
-  storageKey: string,
+  storageKey: ArrangementStorageKey,
   slots: readonly S[],
   zones: readonly Z[],
   defaultValue: Record<S, Z>
@@ -165,6 +171,7 @@ function createArrangementPreference<S extends string, Z extends string>(
 
       try {
         localStorage.setItem(storageKey, JSON.stringify(arrangement));
+        persistFrontendPreference(storageKey, arrangement);
       } catch {
         // Keep the in-memory value even when persistence is unavailable.
       }
@@ -176,6 +183,7 @@ function createArrangementPreference<S extends string, Z extends string>(
     reset: () => {
       try {
         localStorage.setItem(storageKey, JSON.stringify(defaultValue));
+        persistFrontendPreference(storageKey, defaultValue);
       } catch {
         // Keep the in-memory value even when persistence is unavailable.
       }

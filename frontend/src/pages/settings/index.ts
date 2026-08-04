@@ -15,3 +15,4 @@ export { ShortcutSettings } from './ShortcutSettings';
 export { SystemSettings } from './SystemSettings';
 export { VersionControlSettings } from './VersionControlSettings';
 export { WebServiceSettings } from './WebServiceSettings';
+export { WorktreeSettings } from './WorktreeSettings';

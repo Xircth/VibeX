@@ -38,6 +38,7 @@ use services::services::{
     notification::NotificationService,
     workspace_manager::{RepoWorkspaceInput, WorkspaceManager},
     workspace_paths,
+    worktree_settings::{run_project_worktree_create_command, run_project_worktree_delete_command},
 };
 use tokio::{sync::RwLock, task::JoinHandle};
 use tokio_util::io::ReaderStream;
@@ -65,6 +66,7 @@ pub struct LocalContainerService {
     image_service: ImageService,
     approvals: Approvals,
     notification_service: NotificationService,
+    settings_path: PathBuf,
 }
 
 impl LocalContainerService {
@@ -178,6 +180,7 @@ impl LocalContainerService {
         git: GitService,
         image_service: ImageService,
         approvals: Approvals,
+        settings_path: PathBuf,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
         let cancellation_tokens = Arc::new(RwLock::new(HashMap::new()));
@@ -197,6 +200,7 @@ impl LocalContainerService {
             image_service,
             approvals,
             notification_service,
+            settings_path,
         };
 
         if let Err(error) = container.cleanup_orphan_executions().await {
@@ -364,15 +368,29 @@ impl LocalContainerService {
         Ok(())
     }
 
-    pub async fn cleanup_workspace(db: &DBService, workspace: &Workspace) {
+    pub async fn cleanup_workspace(
+        db: &DBService,
+        workspace: &Workspace,
+        settings_path: &Path,
+    ) -> Result<(), services::services::worktree_settings::WorktreeSettingsError> {
         let Some(container_ref) = &workspace.container_ref else {
-            return;
+            return Ok(());
         };
         let workspace_dir = PathBuf::from(container_ref);
 
         if !workspace.use_worktree {
             let _ = Workspace::clear_container_ref(&db.pool, workspace.id).await;
-            return;
+            return Ok(());
+        }
+
+        if workspace_dir.exists() {
+            run_project_worktree_delete_command(
+                settings_path,
+                workspace.project_id,
+                workspace.id,
+                &workspace_dir,
+            )
+            .await?;
         }
 
         let repositories = WorkspaceRepo::find_repos_for_workspace(&db.pool, workspace.id)
@@ -408,9 +426,13 @@ impl LocalContainerService {
 
         // Clear container_ref so this workspace won't be picked up again
         let _ = Workspace::clear_container_ref(&db.pool, workspace.id).await;
+        Ok(())
     }
 
-    pub async fn cleanup_expired_workspaces(db: &DBService) -> Result<(), DeploymentError> {
+    pub async fn cleanup_expired_workspaces(
+        db: &DBService,
+        settings_path: &Path,
+    ) -> Result<(), DeploymentError> {
         if std::env::var("DISABLE_WORKTREE_CLEANUP").is_ok() {
             tracing::info!(
                 "Expired workspace cleanup is disabled via DISABLE_WORKTREE_CLEANUP environment variable"
@@ -428,14 +450,20 @@ impl LocalContainerService {
             expired_workspaces.len()
         );
         for workspace in &expired_workspaces {
-            Self::cleanup_workspace(db, workspace).await;
+            if let Err(error) = Self::cleanup_workspace(db, workspace, settings_path).await {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    %error,
+                    "Expired worktree cleanup cancelled"
+                );
+            }
         }
         Ok(())
     }
 
     pub fn spawn_workspace_cleanup(&self) {
         let db = self.db.clone();
-        let cleanup_expired = Self::cleanup_expired_workspaces;
+        let settings_path = self.settings_path.clone();
         tokio::spawn(async move {
             WorkspaceManager::cleanup_orphan_workspaces(&db.pool).await;
 
@@ -444,9 +472,11 @@ impl LocalContainerService {
             loop {
                 cleanup_interval.tick().await;
                 tracing::info!("Starting periodic workspace cleanup...");
-                cleanup_expired(&db).await.unwrap_or_else(|e| {
-                    tracing::error!("Failed to clean up expired workspaces: {}", e)
-                });
+                Self::cleanup_expired_workspaces(&db, &settings_path)
+                    .await
+                    .unwrap_or_else(|e| {
+                        tracing::error!("Failed to clean up expired workspaces: {}", e)
+                    });
             }
         });
     }
@@ -1054,6 +1084,22 @@ impl ContainerService for LocalContainerService {
         )
         .await?;
 
+        if let Err(error) = run_project_worktree_create_command(
+            &self.settings_path,
+            workspace.project_id,
+            workspace.id,
+            &created_workspace.workspace_dir,
+        )
+        .await
+        {
+            let _ = WorkspaceManager::cleanup_workspace(
+                &created_workspace.workspace_dir,
+                &repositories,
+            )
+            .await;
+            return Err(ContainerError::Other(anyhow!(error)));
+        }
+
         Workspace::update_container_ref(
             &self.db.pool,
             workspace.id,
@@ -1069,7 +1115,9 @@ impl ContainerService for LocalContainerService {
 
     async fn delete(&self, workspace: &Workspace) -> Result<(), ContainerError> {
         self.try_stop(workspace, true).await;
-        Self::cleanup_workspace(&self.db, workspace).await;
+        Self::cleanup_workspace(&self.db, workspace, &self.settings_path)
+            .await
+            .map_err(|error| ContainerError::Other(anyhow!(error)))?;
         Ok(())
     }
 
@@ -1172,12 +1220,33 @@ impl ContainerService for LocalContainerService {
             })
             .collect();
 
+        let workspace_existed = workspace_dir.exists();
         WorkspaceManager::ensure_workspace_exists(
             &workspace_dir,
             &workspace_inputs,
             &workspace.branch,
         )
         .await?;
+
+        // Copy project files and images (fast no-op if already exist)
+        self.copy_files_and_images(&workspace_dir, &workspace)
+            .await?;
+
+        Self::create_workspace_config_files(&workspace_dir, &repositories, workspace.use_worktree)
+            .await?;
+
+        if !workspace_existed
+            && let Err(error) = run_project_worktree_create_command(
+                &self.settings_path,
+                workspace.project_id,
+                workspace.id,
+                &workspace_dir,
+            )
+            .await
+        {
+            let _ = WorkspaceManager::cleanup_workspace(&workspace_dir, &repositories).await;
+            return Err(ContainerError::Other(anyhow!(error)));
+        }
 
         if workspace.container_ref.is_none() {
             Workspace::update_container_ref(
@@ -1187,13 +1256,6 @@ impl ContainerService for LocalContainerService {
             )
             .await?;
         }
-
-        // Copy project files and images (fast no-op if already exist)
-        self.copy_files_and_images(&workspace_dir, &workspace)
-            .await?;
-
-        Self::create_workspace_config_files(&workspace_dir, &repositories, workspace.use_worktree)
-            .await?;
 
         Ok(workspace_dir.to_string_lossy().to_string())
     }
@@ -1864,6 +1926,8 @@ mod tests {
             image_service: ImageService::new(pool).unwrap(),
             approvals: Approvals::new(msg_stores),
             notification_service: NotificationService::new(config),
+            settings_path: std::env::temp_dir()
+                .join(format!("vibex-test-settings-{}.json", Uuid::new_v4())),
         }
     }
 
@@ -2073,6 +2137,7 @@ mod tests {
         .await
         .unwrap();
 
+        let settings_dir = TempDir::new().unwrap();
         let msg_stores = Arc::new(RwLock::new(HashMap::<Uuid, Arc<MsgStore>>::new()));
         let _container = LocalContainerService::new(
             DBService { pool: pool.clone() },
@@ -2081,6 +2146,7 @@ mod tests {
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
             Approvals::new(msg_stores),
+            settings_dir.path().join("settings.json"),
         )
         .await;
 
@@ -2636,6 +2702,7 @@ mod tests {
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
             Approvals::new(msg_stores),
+            temp_root.path().join("settings.json"),
         )
         .await;
 

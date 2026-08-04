@@ -34,6 +34,7 @@ use crate::{
 };
 
 const SETTINGS_FILE_NAME: &str = "web-service-settings.json";
+const SETTINGS_SECTION: &str = "web_service";
 const DEFAULT_PORT: u16 = 17891;
 
 static WEB_SERVICE_RUNTIME: LazyLock<Mutex<Option<WebServiceRuntime>>> =
@@ -132,7 +133,7 @@ struct EventsQuery {
     after_sequence: Option<i64>,
 }
 
-fn settings_path() -> PathBuf {
+fn legacy_settings_path() -> PathBuf {
     utils::assets::asset_dir().join(SETTINGS_FILE_NAME)
 }
 
@@ -157,47 +158,54 @@ fn normalize_config(mut config: WebServiceConfig) -> Result<WebServiceConfig, Ap
 }
 
 async fn load_config() -> Result<WebServiceConfig, AppError> {
-    let path = settings_path();
-    if !path.exists() {
-        return Ok(WebServiceConfig::default());
+    if let Some(config) = services::services::settings_store::read_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
+    {
+        return normalize_config(config);
     }
 
-    let content = tokio::fs::read_to_string(&path).await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to read web service settings {}: {error}",
-            path.display()
-        ))
-    })?;
-
-    let config = serde_json::from_str(&content).map_err(|error| {
-        AppError::Internal(format!(
-            "Invalid web service settings {}: {error}",
-            path.display()
-        ))
-    })?;
+    let legacy_path = legacy_settings_path();
+    let config = if legacy_path.exists() {
+        let content = tokio::fs::read_to_string(&legacy_path)
+            .await
+            .map_err(|error| {
+                AppError::Internal(format!(
+                    "Failed to read web service settings {}: {error}",
+                    legacy_path.display()
+                ))
+            })?;
+        serde_json::from_str(&content).map_err(|error| {
+            AppError::Internal(format!(
+                "Invalid web service settings {}: {error}",
+                legacy_path.display()
+            ))
+        })?
+    } else {
+        WebServiceConfig::default()
+    };
+    services::services::settings_store::write_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+        &config,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?;
     normalize_config(config)
 }
 
 async fn save_config(config: &WebServiceConfig) -> Result<WebServiceConfig, AppError> {
     let config = normalize_config(config.clone())?;
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|error| {
-            AppError::Internal(format!(
-                "Failed to create web service settings directory {}: {error}",
-                parent.display()
-            ))
-        })?;
-    }
-
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|error| AppError::Internal(format!("Failed to serialize settings: {error}")))?;
-    tokio::fs::write(&path, content).await.map_err(|error| {
-        AppError::Internal(format!(
-            "Failed to write web service settings {}: {error}",
-            path.display()
-        ))
-    })?;
+    services::services::settings_store::write_section(
+        &utils::assets::settings_path(),
+        SETTINGS_SECTION,
+        &config,
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?;
     Ok(config)
 }
 

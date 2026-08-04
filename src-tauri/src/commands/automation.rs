@@ -686,16 +686,19 @@ impl WorkspacePreparerPort for TauriWorkspacePreparer {
                 workspace
             }
         };
-        if let Err(error) = state
+        match state
             .deployment
             .container()
             .ensure_container_exists(&workspace)
             .await
         {
-            if shared_root_leased {
-                let _ = automation_store.release_shared_root(request.run_id).await;
+            Ok(_) => {}
+            Err(error) => {
+                if shared_root_leased {
+                    let _ = automation_store.release_shared_root(request.run_id).await;
+                }
+                return Err(workspace_adapter_error(error));
             }
-            return Err(workspace_adapter_error(error));
         }
         let workspace = match Workspace::find_by_id(&state.deployment.db().pool, workspace.id).await
         {

@@ -40,6 +40,7 @@ import {
   type ChatChannel,
   type ChatChannelPayload,
 } from '@/lib/api';
+import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import type { ChatChannelMessageLog } from 'shared/types';
 
 import { SettingsPageHeader, SettingsSection } from './SettingsUi';
@@ -324,7 +325,9 @@ export function ChatChannelSettings() {
 
   // App-level notification settings.
   const [eventFilter, setEventFilter] = useState<string[]>([]);
+  const [savedEventFilter, setSavedEventFilter] = useState<string[]>([]);
   const [prefix, setPrefix] = useState('/vibex');
+  const [savedPrefix, setSavedPrefix] = useState('/vibex');
   const [includePromptText, setIncludePromptText] = useState(false);
   const [savingEvents, setSavingEvents] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
@@ -351,7 +354,9 @@ export function ChatChannelSettings() {
         ]);
       setChannels(channelList);
       setEventFilter(filter.enabled_events);
+      setSavedEventFilter(filter.enabled_events);
       setPrefix(commandPrefix.prefix);
+      setSavedPrefix(commandPrefix.prefix);
       setIncludePromptText(promptText);
     } catch (error) {
       toast.error(t('chatChannels.loadFailed'), {
@@ -365,6 +370,18 @@ export function ChatChannelSettings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const reloadFromJson = () => {
+      const notificationDraftDirty =
+        JSON.stringify(eventFilter) !== JSON.stringify(savedEventFilter) ||
+        prefix !== savedPrefix;
+      if (!dialogOpen && !notificationDraftDirty) void refresh();
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+    return () =>
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, reloadFromJson);
+  }, [dialogOpen, eventFilter, prefix, refresh, savedEventFilter, savedPrefix]);
 
   const openCreate = () => {
     setEditingChannel(null);
@@ -513,6 +530,7 @@ export function ChatChannelSettings() {
         enabled_events: eventFilter,
       });
       setEventFilter(saved.enabled_events);
+      setSavedEventFilter(saved.enabled_events);
       toast.success(t('chatChannels.eventFilterSaved'));
     } catch (error) {
       toast.error(t('chatChannels.eventFilterSaveFailed'), {
@@ -528,6 +546,7 @@ export function ChatChannelSettings() {
     try {
       const saved = await chatChannelApi.setCommandPrefix({ prefix });
       setPrefix(saved.prefix);
+      setSavedPrefix(saved.prefix);
       toast.success(t('chatChannels.prefixSaved'));
     } catch (error) {
       toast.error(t('chatChannels.prefixSaveFailed'), {

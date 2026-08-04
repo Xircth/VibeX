@@ -138,6 +138,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn published_migration_versions_remain_in_the_manifest() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("initial migrations");
+
+        let versions: Vec<i64> = sqlx::query_scalar(
+            "SELECT version FROM _sqlx_migrations \
+             WHERE version IN (20260730010000, 20260730020000, 20260730030000, 20260731100000) \
+             ORDER BY version",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("published migration versions");
+
+        assert_eq!(
+            versions,
+            [
+                20260730010000,
+                20260730020000,
+                20260730030000,
+                20260731100000,
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn startup_migrations_capture_legacy_plugin_evidence() {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
             .expect("sqlite options")

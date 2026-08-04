@@ -19,6 +19,7 @@ mod logging;
 mod office_runtime;
 mod prompt_enhancement;
 mod remote_desktop;
+mod settings_watcher;
 mod state;
 mod tray;
 mod workspace_paths;
@@ -250,6 +251,7 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             events::start_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_event_forwarding(&app.handle().clone(), &state);
             events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
+            settings_watcher::start(app.handle().clone());
 
             // Backfill the conversation full-text index for any conversation not
             // yet indexed (first run after the FTS migration, imported histories).
@@ -406,6 +408,10 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::workspaces::create_workspace,
             commands::workspaces::update_workspace,
             commands::workspaces::delete_workspace,
+            commands::worktree_settings::get_project_worktree_settings,
+            commands::worktree_settings::update_project_worktree_settings,
+            commands::worktree_settings::get_worktree_cleanup_status,
+            commands::worktree_settings::get_settings_file_path,
             commands::workspaces::stop_workspace_execution,
             commands::workspaces::get_workspace_branch_status,
             commands::workspaces::merge_workspace,
@@ -579,6 +585,8 @@ pub fn run(cef_bootstrap: CefBootstrap) {
             commands::repos::delete_repo_branch,
             // Config commands
             commands::config::get_user_system_info,
+            commands::frontend_preferences::get_frontend_preferences,
+            commands::frontend_preferences::update_frontend_preferences,
             commands::config::update_config,
             commands::config::clear_local_app_data,
             commands::config::get_profiles,

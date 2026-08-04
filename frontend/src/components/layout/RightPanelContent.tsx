@@ -43,6 +43,7 @@ import {
 } from 'shared/types';
 import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { paths } from '@/lib/paths';
+import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 
 const MAINLINE_BRANCH_NAMES = new Set(['main', 'master']);
@@ -160,6 +161,7 @@ function CreateSessionOverlay({
 }
 
 export function RightPanelContent() {
+  const { t } = useTranslation(['panels', 'common', 'settings']);
   const navigate = useNavigateWithSearch();
   const {
     projectId: routeProjectId,
@@ -534,7 +536,16 @@ export function RightPanelContent() {
     canCreateSession,
     isCreatePending: createSessionMutation.isPending,
     createError: createSessionMutation.error,
-    onSubmitCreate: () => createSessionMutation.mutate(undefined),
+    onSubmitCreate: async () => {
+      if (
+        createMode === 'new_workspace' &&
+        effectiveProjectId &&
+        !(await confirmWorktreeCreation(effectiveProjectId, t))
+      ) {
+        return;
+      }
+      createSessionMutation.mutate(undefined);
+    },
     onClose: () => handleCreateOverlayOpenChange(false),
     onSessionControlsPresetChange: handleSessionControlsPresetChange,
   };

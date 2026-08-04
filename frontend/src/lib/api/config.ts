@@ -108,6 +108,9 @@ export const configApi = {
   getConfig: async (): Promise<UserSystemInfo> => {
     return backendCall<UserSystemInfo>('get_user_system_info');
   },
+  getSettingsPath: async (): Promise<string> => {
+    return backendCall<string>('get_settings_file_path');
+  },
   saveConfig: async (config: Config): Promise<Config> => {
     return backendCall<Config>('update_config', { newConfig: config });
   },
@@ -222,6 +225,59 @@ export const versionControlApi = {
     return backendCall<GitHubCliStatus>('logout_github_cli', {
       host: host ?? null,
       username: username ?? null,
+    });
+  },
+};
+
+export interface ProjectWorktreeSettings {
+  create_command: string | null;
+  delete_command: string | null;
+  cleanup_prompt_enabled: boolean;
+  cleanup_prompt_threshold: number;
+}
+
+export interface WorktreeCleanupStatus {
+  current_count: number;
+  threshold: number;
+  should_prompt: boolean;
+}
+
+export const worktreeSettingsApi = {
+  get: async (projectId: string): Promise<ProjectWorktreeSettings> => {
+    return backendCall<ProjectWorktreeSettings>(
+      'get_project_worktree_settings',
+      { projectId }
+    );
+  },
+  update: async (
+    projectId: string,
+    settings: ProjectWorktreeSettings
+  ): Promise<ProjectWorktreeSettings> => {
+    return backendCall<ProjectWorktreeSettings>(
+      'update_project_worktree_settings',
+      { projectId, settings }
+    );
+  },
+  getCleanupStatus: async (
+    projectId: string
+  ): Promise<WorktreeCleanupStatus> => {
+    return backendCall<WorktreeCleanupStatus>('get_worktree_cleanup_status', {
+      projectId,
+    });
+  },
+};
+
+export type FrontendPreferences = Record<string, JsonValue>;
+
+export const frontendPreferencesApi = {
+  get: async (): Promise<FrontendPreferences> => {
+    return backendCall<FrontendPreferences>('get_frontend_preferences');
+  },
+  update: async (
+    preferences: FrontendPreferences
+  ): Promise<FrontendPreferences> => {
+    return backendCall<FrontendPreferences>('update_frontend_preferences', {
+      preferences,
     });
   },
 };

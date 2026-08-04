@@ -153,12 +153,12 @@ pub async fn create_workspace(
     )
     .await?;
 
+    let container_ref = state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
     let agent_result = async {
-        let container_ref = state
-            .deployment
-            .container()
-            .ensure_container_exists(&workspace)
-            .await?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
         let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
             .unwrap_or_else(|| container_ref.clone());
@@ -311,6 +311,21 @@ pub async fn delete_workspace(
                 e
             );
         }
+    }
+
+    if workspace.use_worktree
+        && let Some(container_ref) = workspace.container_ref.as_deref()
+        && PathBuf::from(container_ref).exists()
+    {
+        let worktree_path = PathBuf::from(container_ref);
+        services::services::worktree_settings::run_project_worktree_delete_command(
+            &utils::assets::settings_path(),
+            workspace.project_id,
+            workspace.id,
+            &worktree_path,
+        )
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
     }
 
     // Gather data needed for background cleanup

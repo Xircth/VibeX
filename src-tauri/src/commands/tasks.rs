@@ -639,6 +639,21 @@ pub async fn delete_task(state: tauri::State<'_, AppState>, task_id: Uuid) -> Re
 
     let repositories = WorkspaceRepo::find_unique_repos_for_task(pool, task.id).await?;
 
+    for workspace in attempts.iter().filter(|attempt| attempt.use_worktree) {
+        if let Some(container_ref) = workspace.container_ref.as_deref()
+            && PathBuf::from(container_ref).exists()
+        {
+            services::services::worktree_settings::run_project_worktree_delete_command(
+                &utils::assets::settings_path(),
+                workspace.project_id,
+                workspace.id,
+                std::path::Path::new(container_ref),
+            )
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        }
+    }
+
     // Collect workspace directories and branch names that need cleanup
     let workspace_dirs: Vec<PathBuf> = attempts
         .iter()

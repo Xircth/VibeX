@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
 import { type ExecutorProfileId } from 'shared/types';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -991,15 +992,22 @@ export function KanbanSessionHub({
       onResizeMouseDown={handleSessionListResizeMouseDown}
       onArchiveViewChange={handleArchiveViewChange}
       onCreatePopoverOpenChange={handleCreatePopoverOpenChange}
-      onCreateSession={() =>
+      onCreateSession={async () => {
+        if (
+          createMode === 'new_workspace' &&
+          projectId &&
+          !(await confirmWorktreeCreation(projectId, t))
+        ) {
+          return;
+        }
         createSessionMutation.mutate({
           workspaceValue: createWorkspaceValueRef.current,
           sessionName: createSessionNameRef.current,
           executorProfile: selectedExecutorProfileRef.current,
           mode: createMode,
           sessionControls: sessionControlsPresetRef.current,
-        })
-      }
+        });
+      }}
       onSessionControlsPresetChange={(preset) => {
         sessionControlsPresetRef.current = preset;
       }}

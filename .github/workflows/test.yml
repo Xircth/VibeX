@@ -3,25 +3,25 @@ name: Test
 on:
   pull_request:
     branches:
-      - main
+      - master
     paths-ignore:
       - .github/workflows/**
       - "!.github/workflows/test.yml"
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
-  RUNNER_LABEL: &runner_label blacksmith-16vcpu-ubuntu-2404
+  RUNNER_LABEL: &runner_label ubuntu-24.04
 
 jobs:
   dependency-audit:

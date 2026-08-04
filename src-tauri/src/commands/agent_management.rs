@@ -7,11 +7,13 @@ mod tests {
         AgentOperationKind, AgentOperationStatus, AgentPreflightItemView,
     };
 
+    #[cfg(target_os = "macos")]
+    use super::clear_macos_quarantine;
     use super::{
         OperationCancellationRegistry, bind_profile_runtime_executable, build_launch_environment,
-        clear_macos_quarantine, configure_uv_tool_install_command, extract_binary_archive,
-        install_locked_plan, managed_install_root, management_error, operation_event,
-        resolve_npm_package_executable, resolve_uv_tool_executable, verify_acp_handshake,
+        configure_uv_tool_install_command, extract_binary_archive, install_locked_plan,
+        managed_install_root, management_error, operation_event, resolve_npm_package_executable,
+        resolve_uv_tool_executable, verify_acp_handshake,
     };
 
     fn zip_with_symlink(link_target: &str) -> Vec<u8> {

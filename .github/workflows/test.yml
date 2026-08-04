@@ -46,6 +46,8 @@ jobs:
 
       - name: Check Rust advisories
         uses: rustsec/audit-check@v2
+        env:
+          RUSTUP_TOOLCHAIN: stable
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 

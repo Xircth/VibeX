@@ -34,11 +34,7 @@ describe('useSessionComposerPromptEnhancement', () => {
     });
 
     const { result, rerender } = renderHook(
-      ({
-        draftPrompt,
-      }: {
-        draftPrompt: string;
-      }) =>
+      ({ draftPrompt }: { draftPrompt: string }) =>
         useSessionComposerPromptEnhancement({
           draftPrompt,
           sessionId: 'session-1',
@@ -76,7 +72,9 @@ describe('useSessionComposerPromptEnhancement', () => {
     const applyEnhancedPrompt = vi.fn();
     const setFollowUpError = vi.fn();
     enhancePromptMock.mockRejectedValue(
-      new Error('Bad request: Prompt enhancement is disabled in system settings')
+      new Error(
+        'Bad request: Prompt enhancement is disabled in system settings'
+      )
     );
 
     const { result } = renderHook(() =>

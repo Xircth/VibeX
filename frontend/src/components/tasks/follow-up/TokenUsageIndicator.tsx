@@ -26,10 +26,7 @@ export function TokenUsageIndicator({
   const contextWindow = tokenUsageInfo.model_context_window;
   const percentage = Math.min(
     100,
-    Math.max(
-      0,
-      Math.round((usedTokens / contextWindow) * 100)
-    )
+    Math.max(0, Math.round((usedTokens / contextWindow) * 100))
   );
   const ringStyle = {
     background: [
@@ -39,8 +36,7 @@ export function TokenUsageIndicator({
     ].join(''),
   };
   const coreStyle = {
-    backgroundColor:
-      'var(--composer-token-usage-core, hsl(var(--background)))',
+    backgroundColor: 'var(--composer-token-usage-core, hsl(var(--background)))',
   };
   const usedLabel = usedTokens.toLocaleString();
   const windowLabel = contextWindow.toLocaleString();

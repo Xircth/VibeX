@@ -130,7 +130,9 @@ export const CommitDetailPanel = memo(function CommitDetailPanel({
           </span>
           <div className="flex-1" />
           <span className="flex items-center gap-1 font-mono font-normal normal-case">
-            <span className="text-[hsl(var(--success))]">+{totalAdditions}</span>
+            <span className="text-[hsl(var(--success))]">
+              +{totalAdditions}
+            </span>
             <span className="text-muted-foreground/40">/</span>
             <span className="text-destructive">-{totalDeletions}</span>
           </span>

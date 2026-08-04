@@ -14,8 +14,18 @@ type AgentCommandDefinition = SlashCommandDescription & {
 };
 
 const CLAUDE_COMMANDS: AgentCommandDefinition[] = [
-  ['compact', 'Compact conversation with an optional focus', 'Compact', 'compact'],
-  ['goal', 'Set, inspect, pause, resume, or clear a long-running goal', 'Goal', 'goal'],
+  [
+    'compact',
+    'Compact conversation with an optional focus',
+    'Compact',
+    'compact',
+  ],
+  [
+    'goal',
+    'Set, inspect, pause, resume, or clear a long-running goal',
+    'Goal',
+    'goal',
+  ],
   ['init', 'Initialize a CLAUDE.md file', 'Init', 'init'],
   ['resume', 'Resume a Claude Code conversation', 'Resume', 'command'],
   ['review', 'Review a pull request', 'Review', 'review'],
@@ -29,9 +39,24 @@ const CLAUDE_COMMANDS: AgentCommandDefinition[] = [
 }));
 
 const CODEX_COMMANDS: AgentCommandDefinition[] = [
-  ['compact', 'Compact conversation with an optional focus', 'Compact', 'compact'],
-  ['goal', 'Set, inspect, pause, resume, or clear a long-running goal', 'Goal', 'goal'],
-  ['init', 'Create an AGENTS.md file with repository instructions', 'Init', 'init'],
+  [
+    'compact',
+    'Compact conversation with an optional focus',
+    'Compact',
+    'compact',
+  ],
+  [
+    'goal',
+    'Set, inspect, pause, resume, or clear a long-running goal',
+    'Goal',
+    'goal',
+  ],
+  [
+    'init',
+    'Create an AGENTS.md file with repository instructions',
+    'Init',
+    'init',
+  ],
   ['plan', 'Switch to planning-oriented Codex behavior', 'Plan', 'command'],
   ['review', 'Review code with optional instructions', 'Review', 'review'],
 ].map(([name, description, label, iconKey]) => ({

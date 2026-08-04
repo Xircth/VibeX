@@ -252,9 +252,7 @@ describe('AutomationsSettings', () => {
     const { transport } = createTransport();
     renderSettings(transport);
 
-    expect(
-      await screen.findByText('让任务按需或定时自动运行。')
-    ).toBeVisible();
+    expect(await screen.findByText('让任务按需或定时自动运行。')).toBeVisible();
     expect(screen.queryByText(/worktree|IANA|后端/)).not.toBeInTheDocument();
   });
 

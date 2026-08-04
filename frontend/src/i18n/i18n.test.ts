@@ -21,11 +21,14 @@ describe('i18n resources', () => {
   // Every string that exists in one language MUST exist in the other, or a
   // switch to that language silently falls back / shows a raw key. This guards
   // the progressive-migration invariant: converted screens stay fully bilingual.
-  it.each(NAMESPACES)('has identical key sets across languages for "%s"', (ns) => {
-    const zh = keyPaths(resources['zh-CN'][ns]).sort();
-    const en = keyPaths(resources.en[ns]).sort();
-    expect(en).toEqual(zh);
-  });
+  it.each(NAMESPACES)(
+    'has identical key sets across languages for "%s"',
+    (ns) => {
+      const zh = keyPaths(resources['zh-CN'][ns]).sort();
+      const en = keyPaths(resources.en[ns]).sort();
+      expect(en).toEqual(zh);
+    }
+  );
 
   it('resolves a known key in both languages', async () => {
     await i18n.changeLanguage('zh-CN');

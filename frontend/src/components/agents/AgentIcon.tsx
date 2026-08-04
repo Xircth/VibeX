@@ -46,9 +46,7 @@ function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {
   return theme === ThemeMode.DARK ? 'dark' : 'light';
 }
 
-export function getAgentName(
-  agent: string | null | undefined
-): string {
+export function getAgentName(agent: string | null | undefined): string {
   if (!agent) return 'Agent';
   return BUILT_IN_DISPLAY_NAMES[agent] ?? agent;
 }

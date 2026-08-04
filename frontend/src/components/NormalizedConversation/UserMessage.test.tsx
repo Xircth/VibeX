@@ -93,7 +93,9 @@ describe('UserMessage', () => {
       value: '$plan',
     });
 
-    render(<UserMessage content={`Review ${fileCommand} with ${dollarCommand}`} />);
+    render(
+      <UserMessage content={`Review ${fileCommand} with ${dollarCommand}`} />
+    );
 
     expect(screen.queryByTestId('readonly-wysiwyg')).not.toBeInTheDocument();
     expect(
@@ -131,8 +133,8 @@ describe('UserMessage', () => {
     expect(screen.getByText('SaveButton')).toBeInTheDocument();
     expect(
       screen
-      .getByText('SaveButton')
-      .closest('[data-testid="session-composer-token-chip"]')
+        .getByText('SaveButton')
+        .closest('[data-testid="session-composer-token-chip"]')
     ).toHaveAttribute('title', elementContext);
   });
 

@@ -18,14 +18,8 @@ describe('session composer git summary helpers', () => {
   it('counts changed paths once across staged and unstaged files', () => {
     expect(
       getChangedFileCount({
-        stagedFiles: [
-          { path: 'src/a.ts' },
-          { path: 'src/shared.ts' },
-        ],
-        unstagedFiles: [
-          { path: 'src/shared.ts' },
-          { path: 'src/b.ts' },
-        ],
+        stagedFiles: [{ path: 'src/a.ts' }, { path: 'src/shared.ts' }],
+        unstagedFiles: [{ path: 'src/shared.ts' }, { path: 'src/b.ts' }],
       })
     ).toBe(3);
 

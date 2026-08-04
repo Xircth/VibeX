@@ -42,8 +42,9 @@ export function useExecutorSelection({
   scratchVariant,
   configExecutorProfile,
 }: UseExecutorSelectionOptions): UseExecutorSelectionResult {
-  const [selectedExecutor, setSelectedExecutor] =
-    useState<AgentId | null>(null);
+  const [selectedExecutor, setSelectedExecutor] = useState<AgentId | null>(
+    null
+  );
 
   const executorOptions = useMemo(
     () => Object.keys(profiles ?? {}) as AgentId[],

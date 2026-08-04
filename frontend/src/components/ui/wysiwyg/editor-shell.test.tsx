@@ -14,7 +14,10 @@ vi.mock('@lexical/react/LexicalComposer', () => ({
     initialConfig: { namespace: string };
     children: ReactNode;
   }) => (
-    <div data-testid="lexical-composer" data-namespace={initialConfig.namespace}>
+    <div
+      data-testid="lexical-composer"
+      data-namespace={initialConfig.namespace}
+    >
       {children}
     </div>
   ),
@@ -316,9 +319,7 @@ describe('WysiwygEditorShell', () => {
       'aria-label',
       'Markdown content'
     );
-    expect(screen.getByTestId('wysiwyg-drop-zone')).toHaveClass(
-      'text-[13px]'
-    );
+    expect(screen.getByTestId('wysiwyg-drop-zone')).toHaveClass('text-[13px]');
   });
 
   it('keeps content editable drag capture stops and runtime handlers', () => {

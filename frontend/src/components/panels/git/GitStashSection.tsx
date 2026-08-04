@@ -161,7 +161,11 @@ export function GitStashSection({
                       onClick={() =>
                         run(
                           () =>
-                            attemptsApi.applyStash(workspaceId, repoId, s.index),
+                            attemptsApi.applyStash(
+                              workspaceId,
+                              repoId,
+                              s.index
+                            ),
                           t('gitStash.applied')
                         )
                       }

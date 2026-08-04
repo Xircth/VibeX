@@ -30,9 +30,8 @@ export function SearchProvider({ children }: SearchProviderProps) {
   const { projectId } = useParams<{ projectId: string }>();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const isProjectWorkspaceRoute = /^\/local-projects\/[^/]+\/(?:sessions|workspaces)/.test(
-    location.pathname
-  );
+  const isProjectWorkspaceRoute =
+    /^\/local-projects\/[^/]+\/(?:sessions|workspaces)/.test(location.pathname);
 
   useEffect(() => {
     if (!isProjectWorkspaceRoute && query !== '') {

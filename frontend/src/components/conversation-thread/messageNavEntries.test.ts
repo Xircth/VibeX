@@ -49,12 +49,9 @@ describe('message nav entries', () => {
         changes: [
           {
             action: 'edit',
-            unified_diff: [
-              '@@ -1,3 +1,4 @@',
-              '-old',
-              '+new',
-              '+extra',
-            ].join('\n'),
+            unified_diff: ['@@ -1,3 +1,4 @@', '-old', '+new', '+extra'].join(
+              '\n'
+            ),
             has_line_numbers: true,
           },
         ],

@@ -1,11 +1,7 @@
 import { useMemo, useState } from 'react';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
 import { AlertTriangle, Copy, SendHorizonal } from 'lucide-react';
-import type {
-  AgentKind,
-  ConflictOp,
-  ExecutorProfileId,
-} from 'shared/types';
+import type { AgentKind, ConflictOp, ExecutorProfileId } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

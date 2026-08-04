@@ -4,7 +4,9 @@ import { normalizeDisplayPath } from '@/utils/displayPath';
 export function DisplayTruncatedPath({ path }: { path: string }) {
   const normalizedPath = normalizeDisplayPath(path);
   const isWindows = normalizedPath.includes('\\');
-  const parts = isWindows ? normalizedPath.split('\\') : normalizedPath.split('/');
+  const parts = isWindows
+    ? normalizedPath.split('\\')
+    : normalizedPath.split('/');
 
   return (
     <div className="h-[1lh] overflow-hidden">

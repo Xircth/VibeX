@@ -47,7 +47,9 @@ export function getExecutorActionPrompt(
 export function isContextCompactPrompt(
   prompt: string | null | undefined
 ): boolean {
-  return typeof prompt === 'string' && /^\/compact(?:\s|$)/i.test(prompt.trim());
+  return (
+    typeof prompt === 'string' && /^\/compact(?:\s|$)/i.test(prompt.trim())
+  );
 }
 
 export function isContextCompactProcess(
@@ -57,7 +59,9 @@ export function isContextCompactProcess(
     | null
     | undefined
 ): boolean {
-  return isContextCompactPrompt(getExecutorActionPrompt(process?.executor_action));
+  return isContextCompactPrompt(
+    getExecutorActionPrompt(process?.executor_action)
+  );
 }
 
 export function getContextCompactStatusText(

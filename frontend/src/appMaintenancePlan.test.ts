@@ -64,9 +64,9 @@ describe('app maintenance plan', () => {
     expect(
       shouldStartSystemMaintenance({ config: null, hasStarted: false })
     ).toBe(false);
-    expect(
-      shouldStartSystemMaintenance({ config, hasStarted: true })
-    ).toBe(false);
+    expect(shouldStartSystemMaintenance({ config, hasStarted: true })).toBe(
+      false
+    );
     expect(
       shouldStartSystemMaintenance({
         config: { ...config, disclaimer_acknowledged: false },
@@ -83,9 +83,9 @@ describe('app maintenance plan', () => {
         hasStarted: false,
       })
     ).toBe(false);
-    expect(
-      shouldStartSystemMaintenance({ config, hasStarted: false })
-    ).toBe(true);
+    expect(shouldStartSystemMaintenance({ config, hasStarted: false })).toBe(
+      true
+    );
   });
 
   it('shows the app update toast only when update checks are enabled and an update is available', () => {

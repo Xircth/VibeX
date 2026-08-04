@@ -47,8 +47,7 @@ export function getWysiwygEditingPluginPolicy({
     markdownHelpers: !isSessionInputMinimal,
     typeahead: true,
     slashCommandTypeahead: Boolean(executorProfile),
-    dollarCommandTypeahead:
-      executorProfile?.executor === 'codex',
+    dollarCommandTypeahead: executorProfile?.executor === 'codex',
     keyboardCommands: true,
     imageKeyboard: true,
     codeBlockShortcut: !isSessionInputMinimal,

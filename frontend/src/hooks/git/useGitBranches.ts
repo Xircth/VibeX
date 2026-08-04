@@ -37,7 +37,9 @@ export function useGitBranches({
       const sorted = [...result].sort((a, b) => {
         if (a.is_current && !b.is_current) return -1;
         if (!a.is_current && b.is_current) return 1;
-        return dateTimestamp(b.last_commit_date) - dateTimestamp(a.last_commit_date);
+        return (
+          dateTimestamp(b.last_commit_date) - dateTimestamp(a.last_commit_date)
+        );
       });
       setBranches(sorted);
     } catch (e) {

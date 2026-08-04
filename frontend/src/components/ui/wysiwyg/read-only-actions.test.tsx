@@ -16,9 +16,7 @@ describe('WysiwygReadOnlyActions', () => {
 
     rerender(<WysiwygReadOnlyActions copied onCopy={onCopy} />);
 
-    expect(
-      screen.getByRole('button', { name: 'Copied!' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copied!' })).toBeInTheDocument();
   });
 
   it('calls the copy handler when copy is clicked', () => {

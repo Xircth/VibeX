@@ -657,9 +657,7 @@ describe('KanbanSessionConversationView', () => {
     );
     const originalConversationNode = screen.getByTestId('virtualized-list');
 
-    expect(originalConversationNode).toHaveTextContent(
-      'workspace-1:session-1'
-    );
+    expect(originalConversationNode).toHaveTextContent('workspace-1:session-1');
 
     rerender(<PlacementHarness placement="monitor" />);
 

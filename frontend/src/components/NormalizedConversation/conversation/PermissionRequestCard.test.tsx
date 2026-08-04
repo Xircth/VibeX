@@ -34,10 +34,7 @@ function fileEditRequest(
 describe('PermissionRequestCard', () => {
   it('renders the real file path from the ACP diff detail', () => {
     render(
-      <PermissionRequestCard
-        request={fileEditRequest()}
-        onRespond={vi.fn()}
-      />
+      <PermissionRequestCard request={fileEditRequest()} onRespond={vi.fn()} />
     );
 
     expect(screen.getByText('Edit README.md')).toBeInTheDocument();
@@ -48,7 +45,10 @@ describe('PermissionRequestCard', () => {
   it('answers with the selected option id', () => {
     const onRespond = vi.fn();
     render(
-      <PermissionRequestCard request={fileEditRequest()} onRespond={onRespond} />
+      <PermissionRequestCard
+        request={fileEditRequest()}
+        onRespond={onRespond}
+      />
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
@@ -62,7 +62,10 @@ describe('PermissionRequestCard', () => {
   it('cancels the request via the cancel action', () => {
     const onRespond = vi.fn();
     render(
-      <PermissionRequestCard request={fileEditRequest()} onRespond={onRespond} />
+      <PermissionRequestCard
+        request={fileEditRequest()}
+        onRespond={onRespond}
+      />
     );
 
     fireEvent.click(screen.getByRole('button', { name: '取消' }));

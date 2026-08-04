@@ -1,9 +1,6 @@
 import type { DockviewApi } from 'dockview-react';
 import { GROUP_IDS, MIN_RIGHT_PANEL_WIDTH } from '@/stores/useLayoutStore';
-import {
-  isLeftGroup,
-  isSessionGroup,
-} from '@/utils/dockviewGroupPolicy';
+import { isLeftGroup, isSessionGroup } from '@/utils/dockviewGroupPolicy';
 
 export const MIN_LEFT_PANEL_WIDTH = 200;
 

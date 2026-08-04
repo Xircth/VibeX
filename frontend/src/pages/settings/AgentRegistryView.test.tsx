@@ -100,9 +100,7 @@ describe('AgentRegistryViewPanel', () => {
 
     await userEvent.clear(search);
     await userEvent.type(search, 'OpenAI');
-    expect(
-      screen.getByText('Codex', { selector: 'span' })
-    ).toBeInTheDocument();
+    expect(screen.getByText('Codex', { selector: 'span' })).toBeInTheDocument();
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
   });
 
@@ -117,8 +115,9 @@ describe('AgentRegistryViewPanel', () => {
       />
     );
 
-    expect(screen.getByRole('status', { name: '注册表缓存已过期' }))
-      .toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: '注册表缓存已过期' })
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: /未安装/ }));
     expect(screen.getByRole('button', { name: '安装 Zeta' })).toBeDisabled();
   });

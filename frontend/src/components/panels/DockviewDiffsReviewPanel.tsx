@@ -423,9 +423,7 @@ function DockviewDiffsReviewPanel() {
               <span className="font-mono text-[hsl(var(--success))]">
                 +{added}
               </span>
-              <span className="font-mono text-destructive">
-                -{deleted}
-              </span>
+              <span className="font-mono text-destructive">-{deleted}</span>
             </span>
             <div className="ml-auto flex items-center gap-1">
               <DiffViewSwitch />
@@ -573,7 +571,9 @@ function DockviewDiffsReviewPanel() {
                   {t('diffsReviewPanel.filesCount', { count: fileCount })}
                 </span>
                 <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono text-[hsl(var(--success))]">+{added}</span>
+                <span className="font-mono text-[hsl(var(--success))]">
+                  +{added}
+                </span>
                 <span className="font-mono text-destructive">-{deleted}</span>
               </div>
             </>

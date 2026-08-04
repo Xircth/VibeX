@@ -21,9 +21,7 @@ describe('DevicePairingPanel', () => {
     };
 
     render(<DevicePairingPanel transport={transport} />);
-    await user.click(
-      screen.getByRole('button', { name: '创建设备配对' })
-    );
+    await user.click(screen.getByRole('button', { name: '创建设备配对' }));
 
     expect(createDevicePairing).toHaveBeenCalledWith({
       requested_scopes: ['conversation.read', 'conversation.question'],

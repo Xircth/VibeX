@@ -10,7 +10,10 @@ export type PendingAgentPermission = {
 type AgentPermissionPanelProps = {
   permissions: PendingAgentPermission[];
   respondingPermissionId: string | null;
-  onRespond: (permission: PendingAgentPermission, optionId: string | null) => void;
+  onRespond: (
+    permission: PendingAgentPermission,
+    optionId: string | null
+  ) => void;
 };
 
 export function AgentPermissionPanel({

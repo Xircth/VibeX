@@ -79,7 +79,8 @@ export function uiPreferencesScratchDataToStore(
       (data.context_bar_position as ContextBarPosition) ?? 'middle-right',
     paneSizes: (data.pane_sizes ?? {}) as Record<string, number | string>,
     collapsedPaths: (data.collapsed_paths ?? {}) as Record<string, string[]>,
-    fileSearchRepoId: data.file_search_repo_id ?? legacyFileSearchRepoId ?? null,
+    fileSearchRepoId:
+      data.file_search_repo_id ?? legacyFileSearchRepoId ?? null,
     isLeftSidebarVisible: data.is_left_sidebar_visible ?? true,
     isRightSidebarVisible: data.is_right_sidebar_visible ?? true,
     isTerminalVisible: data.is_terminal_visible ?? true,

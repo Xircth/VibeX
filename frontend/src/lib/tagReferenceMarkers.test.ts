@@ -25,7 +25,9 @@ describe('tagReferenceMarkers', () => {
   it('builds markdown links for history rendering', () => {
     const marker = serializeTagReferenceMarker(payload);
 
-    expect(replaceTagReferenceMarkersWithMarkdownLinks(`请执行 ${marker}`)).toBe(
+    expect(
+      replaceTagReferenceMarkersWithMarkdownLinks(`请执行 ${marker}`)
+    ).toBe(
       `请执行 [#${payload.tagName}](tag-ref://${encodeURIComponent(
         JSON.stringify(payload)
       )})`

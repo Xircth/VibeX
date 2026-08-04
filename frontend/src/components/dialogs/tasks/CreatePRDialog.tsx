@@ -266,9 +266,7 @@ const CreatePRDialogImpl = NiceModal.create<CreatePRDialogProps>(
           <DialogContent className="sm:max-w-[525px]">
             <DialogHeader>
               <DialogTitle>{t('createPr.title')}</DialogTitle>
-              <DialogDescription>
-                {t('createPr.description')}
-              </DialogDescription>
+              <DialogDescription>{t('createPr.description')}</DialogDescription>
             </DialogHeader>
             {!isLoaded ? (
               <div className="flex justify-center py-8">

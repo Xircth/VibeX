@@ -88,7 +88,9 @@ function resolveSingleRepoWorktreeRootPath(
     return containerRef;
   }
 
-  const [firstWorkingDirSegment] = splitPathSegments(workspace.agent_working_dir);
+  const [firstWorkingDirSegment] = splitPathSegments(
+    workspace.agent_working_dir
+  );
   if (!firstWorkingDirSegment) {
     return containerRef;
   }
@@ -107,7 +109,10 @@ export function deriveWorkspaceRootPathCandidates(
     return [];
   }
 
-  const singleRepoRootPath = resolveSingleRepoRootPath(workspace, workspaceRepos);
+  const singleRepoRootPath = resolveSingleRepoRootPath(
+    workspace,
+    workspaceRepos
+  );
   if (singleRepoRootPath) {
     return [...new Set([singleRepoRootPath, containerRef])];
   }
@@ -120,16 +125,15 @@ export function deriveWorkspaceRootPathCandidates(
   if (singleRepoWorktreeRootPath) {
     const repoRootName = inferSingleRepoRootName(workspace, workspaceRepos);
     const repoNamedChild =
-      repoRootName && !containerAlreadyPointsAtRepoRoot(containerRef, repoRootName)
+      repoRootName &&
+      !containerAlreadyPointsAtRepoRoot(containerRef, repoRootName)
         ? joinPath(containerRef, repoRootName)
         : null;
     return [
       ...new Set(
-        [
-          singleRepoWorktreeRootPath,
-          containerRef,
-          repoNamedChild,
-        ].filter((value): value is string => Boolean(value))
+        [singleRepoWorktreeRootPath, containerRef, repoNamedChild].filter(
+          (value): value is string => Boolean(value)
+        )
       ),
     ];
   }

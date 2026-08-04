@@ -79,12 +79,8 @@ export function SessionComposerTopbar({
           </TooltipTrigger>
           <TooltipContent>
             <div className="flex items-center gap-2 font-mono">
-              <span className="text-[hsl(var(--success))]">
-                +{added}
-              </span>
-              <span className="text-destructive">
-                -{deleted}
-              </span>
+              <span className="text-[hsl(var(--success))]">+{added}</span>
+              <span className="text-destructive">-{deleted}</span>
             </div>
           </TooltipContent>
         </Tooltip>

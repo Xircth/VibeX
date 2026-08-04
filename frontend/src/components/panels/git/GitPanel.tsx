@@ -189,7 +189,9 @@ export function GitPanel() {
         {(totalAdditions > 0 || totalDeletions > 0) && (
           <span className="text-[10px] font-mono shrink-0">
             {totalAdditions > 0 && (
-              <span className="text-[hsl(var(--success))]">+{totalAdditions}</span>
+              <span className="text-[hsl(var(--success))]">
+                +{totalAdditions}
+              </span>
             )}
             {totalAdditions > 0 && totalDeletions > 0 && (
               <span className="text-muted-foreground">/</span>

@@ -93,10 +93,7 @@ export function RetryEditorInline({
           onChange={setMessage}
           disabled={isSending}
           onCmdEnter={handleCmdEnter}
-          className={cn(
-            SESSION_INPUT_EDITOR_CLASS_NAME,
-            'retry-editor-input'
-          )}
+          className={cn(SESSION_INPUT_EDITOR_CLASS_NAME, 'retry-editor-input')}
           markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
           taskAttemptId={attemptId}
         />

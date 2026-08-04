@@ -83,7 +83,9 @@ export function ReasoningEffortSelector({
         avoidCollisions={false}
         className="min-w-[200px]"
       >
-        <DropdownMenuLabel>{t('reasoningEffortSelector.title')}</DropdownMenuLabel>
+        <DropdownMenuLabel>
+          {t('reasoningEffortSelector.title')}
+        </DropdownMenuLabel>
         {CODEX_REASONING_EFFORT_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}

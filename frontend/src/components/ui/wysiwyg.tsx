@@ -7,9 +7,7 @@ import {
   useRef,
 } from 'react';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
-import {
-  type ClickedElementData,
-} from './wysiwyg/nodes/clicked-element-node';
+import { type ClickedElementData } from './wysiwyg/nodes/clicked-element-node';
 import type { LocalImageMetadata } from './wysiwyg/context/task-attempt-context';
 import {
   getWysiwygMarkdownShortcutTransformers,
@@ -19,10 +17,7 @@ import { WysiwygReadOnlyActions } from './wysiwyg/read-only-actions';
 import { EditorState, type LexicalEditor } from 'lexical';
 import { cn } from '@/lib/utils';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
-import {
-  type ExecutorProfileId,
-  type SendMessageShortcut,
-} from 'shared/types';
+import { type ExecutorProfileId, type SendMessageShortcut } from 'shared/types';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { getWysiwygEditingPluginPolicy } from './wysiwyg/editing-plugin-policy';
 import { getWysiwygInitialConfig } from './wysiwyg/editor-config-policy';

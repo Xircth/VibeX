@@ -42,9 +42,9 @@ describe('resolveFileTreeAbsolutePath', () => {
   });
 
   it('joins Windows workspace paths and normalizes relative separators', () => {
-    expect(
-      resolveFileTreeAbsolutePath('C:\\repo\\', 'src/index.ts')
-    ).toBe('C:\\repo\\src\\index.ts');
+    expect(resolveFileTreeAbsolutePath('C:\\repo\\', 'src/index.ts')).toBe(
+      'C:\\repo\\src\\index.ts'
+    );
   });
 
   it('returns existing absolute paths without workspace joining', () => {
@@ -444,8 +444,12 @@ describe('deriveFileTreeKeyboardAction', () => {
     expect(
       deriveFileTreeKeyboardAction({ ...base, selectedNodeType: null })
     ).toBeNull();
-    expect(deriveFileTreeKeyboardAction({ ...base, ctrlKey: false })).toBeNull();
-    expect(deriveFileTreeKeyboardAction({ ...base, shiftKey: true })).toBeNull();
+    expect(
+      deriveFileTreeKeyboardAction({ ...base, ctrlKey: false })
+    ).toBeNull();
+    expect(
+      deriveFileTreeKeyboardAction({ ...base, shiftKey: true })
+    ).toBeNull();
     expect(deriveFileTreeKeyboardAction({ ...base, key: 'x' })).toBeNull();
   });
 });
@@ -670,7 +674,11 @@ describe('buildNewFileTreeItemRelativePath', () => {
       'index.ts'
     );
     expect(
-      buildNewFileTreeItemRelativePath('src/components', 'Button.tsx', 'untitled')
+      buildNewFileTreeItemRelativePath(
+        'src/components',
+        'Button.tsx',
+        'untitled'
+      )
     ).toBe('src/components/Button.tsx');
   });
 

@@ -176,9 +176,7 @@ describe('useFileReferenceDropHandlers', () => {
       result.current.handleDrop(event);
     });
 
-    const { getByTestId } = render(
-      <DropZone disabled onInsert={onInsert} />
-    );
+    const { getByTestId } = render(<DropZone disabled onInsert={onInsert} />);
     act(() => {
       getByTestId('drop-zone').dispatchEvent(
         new CustomEvent('vibe-file-reference-drop', {

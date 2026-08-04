@@ -9,7 +9,11 @@ type TestData = {
 };
 
 function exportNode(transformer: TextMatchTransformer, node: LexicalNode) {
-  return transformer.export?.(node, () => '', () => '');
+  return transformer.export?.(
+    node,
+    () => '',
+    () => ''
+  );
 }
 
 function readExport(

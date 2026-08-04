@@ -47,9 +47,7 @@ describe('Markdown block-level memoization', () => {
 
   it('does not re-parse completed blocks while the tail block grows', () => {
     const firstBlock = 'first paragraph\n\n';
-    const { rerender } = render(
-      <Markdown value={`${firstBlock}second par`} />
-    );
+    const { rerender } = render(<Markdown value={`${firstBlock}second par`} />);
 
     rerender(<Markdown value={`${firstBlock}second paragraph grows`} />);
     rerender(<Markdown value={`${firstBlock}second paragraph grows more`} />);

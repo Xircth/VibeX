@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import type {
-  ExecutorProfileId,
-  SlashCommandDescription,
-} from 'shared/types';
+import type { ExecutorProfileId, SlashCommandDescription } from 'shared/types';
 import { useTauriPatchStream } from '@/hooks/useTauriPatchStream';
 import {
   isCoreSlashCommand,

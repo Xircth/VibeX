@@ -50,8 +50,9 @@ describe('session composer textarea typeahead', () => {
     }).value;
     const segments = getSessionComposerStructuredTokenSegments(value);
 
-    expect(getTextareaTypeaheadState(value, value.trimEnd().length, segments))
-      .toBeNull();
+    expect(
+      getTextareaTypeaheadState(value, value.trimEnd().length, segments)
+    ).toBeNull();
   });
 
   it('replaces only the active trigger range', () => {

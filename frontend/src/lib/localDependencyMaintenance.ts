@@ -33,7 +33,9 @@ export function getAgentDependencyTool(
     return null;
   }
 
-  return tools.find((tool) => tool.user_visible && tool.group_id === groupId) ?? null;
+  return (
+    tools.find((tool) => tool.user_visible && tool.group_id === groupId) ?? null
+  );
 }
 
 export function getLocalDependencyVersionSummary(

@@ -13,17 +13,15 @@ const draftData: DraftFollowUpData = {
   config_overrides: {},
 };
 
-function renderDraftHydrationHook(
-  initialProps: {
-    scratchId: string | undefined;
-    isScratchLoading: boolean;
-    scratchData: DraftFollowUpData | undefined;
-    initialMessage?: string;
-    initialImages?: SessionComposerImageAttachment[];
-    cancelDebouncedSave?: () => void;
-    deleteScratch?: () => Promise<void>;
-  }
-) {
+function renderDraftHydrationHook(initialProps: {
+  scratchId: string | undefined;
+  isScratchLoading: boolean;
+  scratchData: DraftFollowUpData | undefined;
+  initialMessage?: string;
+  initialImages?: SessionComposerImageAttachment[];
+  cancelDebouncedSave?: () => void;
+  deleteScratch?: () => Promise<void>;
+}) {
   return renderHook(
     (props: typeof initialProps) => {
       const [message, setMessage] = useState(props.initialMessage ?? '');

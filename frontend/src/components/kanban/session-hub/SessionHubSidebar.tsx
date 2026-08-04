@@ -876,34 +876,34 @@ export function SessionHubSidebar({
               </Tooltip>
 
               <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className={cn(
-                        SESSION_LIST_ACTION_BUTTON_CLASS,
-                        'order-1',
-                        isDeleteMode
-                          ? 'text-destructive hover:text-destructive'
-                          : undefined
-                      )}
-                      aria-label={
-                        isDeleteMode
-                          ? t('hubSidebar.exitDeleteMode')
-                          : t('hubSidebar.bulkDelete')
-                      }
-                      onClick={onToggleDeleteMode}
-                    >
-                      <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isDeleteMode
-                      ? t('hubSidebar.exitDeleteMode')
-                      : t('hubSidebar.bulkDelete')}
-                  </TooltipContent>
-                </Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className={cn(
+                      SESSION_LIST_ACTION_BUTTON_CLASS,
+                      'order-1',
+                      isDeleteMode
+                        ? 'text-destructive hover:text-destructive'
+                        : undefined
+                    )}
+                    aria-label={
+                      isDeleteMode
+                        ? t('hubSidebar.exitDeleteMode')
+                        : t('hubSidebar.bulkDelete')
+                    }
+                    onClick={onToggleDeleteMode}
+                  >
+                    <Trash2 className={SESSION_LIST_ACTION_ICON_CLASS} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isDeleteMode
+                    ? t('hubSidebar.exitDeleteMode')
+                    : t('hubSidebar.bulkDelete')}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 

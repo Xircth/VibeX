@@ -29,9 +29,9 @@ describe('chordFromEvent', () => {
   it('derives the base key from the physical code, not the shifted key', () => {
     // Shift + `/` yields key '?' but code 'Slash' — must produce shift+slash
     // to match the registry (Action.SHOW_HELP uses shift+slash).
-    expect(chordFromEvent(evt({ key: '?', code: 'Slash', shiftKey: true }))).toBe(
-      'shift+slash'
-    );
+    expect(
+      chordFromEvent(evt({ key: '?', code: 'Slash', shiftKey: true }))
+    ).toBe('shift+slash');
   });
 
   it('orders modifiers meta, ctrl, alt, shift', () => {
@@ -47,7 +47,9 @@ describe('chordFromEvent', () => {
   });
 
   it('returns null for a modifier-only press', () => {
-    expect(chordFromEvent(evt({ key: 'Meta', code: 'MetaLeft', metaKey: true }))).toBeNull();
+    expect(
+      chordFromEvent(evt({ key: 'Meta', code: 'MetaLeft', metaKey: true }))
+    ).toBeNull();
   });
 
   it('returns null for an unsupported key', () => {
@@ -57,9 +59,9 @@ describe('chordFromEvent', () => {
   it('maps Backquote to the react-hotkeys-hook token "backquote"', () => {
     // The library derives this token from event.code at match time; any other
     // spelling (e.g. "backtick") would register but never fire.
-    expect(chordFromEvent(evt({ key: '`', code: 'Backquote', metaKey: true }))).toBe(
-      'meta+backquote'
-    );
+    expect(
+      chordFromEvent(evt({ key: '`', code: 'Backquote', metaKey: true }))
+    ).toBe('meta+backquote');
   });
 });
 
@@ -117,7 +119,9 @@ describe('getKeysFor with overrides', () => {
   it('replaces the default keys with the override chord', () => {
     const id = bindingKey(Action.CREATE, [Scope.KANBAN]);
     expect(getKeysFor(Action.CREATE, Scope.KANBAN)).toEqual(['c']);
-    expect(getKeysFor(Action.CREATE, Scope.KANBAN, { [id]: 'n' })).toEqual(['n']);
+    expect(getKeysFor(Action.CREATE, Scope.KANBAN, { [id]: 'n' })).toEqual([
+      'n',
+    ]);
   });
 
   it('leaves other bindings untouched', () => {

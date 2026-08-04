@@ -253,9 +253,7 @@ export function SearchPalette() {
                 type="button"
                 data-active={index === paletteSelectedIndex}
                 className={`workspace-command-row flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-                  index === paletteSelectedIndex
-                    ? 'is-active'
-                    : ''
+                  index === paletteSelectedIndex ? 'is-active' : ''
                 }`}
                 onClick={() => handleSelect(result)}
               >
@@ -282,7 +280,9 @@ export function SearchPalette() {
         {/* Footer */}
         <div className="flex items-center gap-4 border-t border-[var(--border-content)] px-3 py-1.5 text-[10px] text-muted-foreground">
           <span>
-            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">↑↓</kbd>{' '}
+            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">
+              ↑↓
+            </kbd>{' '}
             {t('searchPalette.navigate')}
           </span>
           <span>
@@ -292,7 +292,9 @@ export function SearchPalette() {
             {t('searchPalette.open')}
           </span>
           <span>
-            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">Esc</kbd>{' '}
+            <kbd className="workspace-command-kbd px-1 py-0.5 text-[10px]">
+              Esc
+            </kbd>{' '}
             {t('common:close')}
           </span>
         </div>

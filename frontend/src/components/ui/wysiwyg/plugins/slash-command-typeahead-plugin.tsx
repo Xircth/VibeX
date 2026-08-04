@@ -130,8 +130,8 @@ export function SlashCommandTypeaheadPlugin({
       ...filtered.filter(
         (command) => !getSlashCommandPresentation(command, executor).isSkill
       ),
-      ...filtered.filter((command) =>
-        getSlashCommandPresentation(command, executor).isSkill
+      ...filtered.filter(
+        (command) => getSlashCommandPresentation(command, executor).isSkill
       ),
     ].slice(0, 50);
     return ordered.map((command) => new SlashCommandOption(command));
@@ -153,12 +153,9 @@ export function SlashCommandTypeaheadPlugin({
     return commandOptions;
   }, [commandOptions, executor, isDiscovering, isLoading]);
 
-  const updateOptions = useCallback(
-    (query: string | null) => {
-      setActiveQuery(query);
-    },
-    []
-  );
+  const updateOptions = useCallback((query: string | null) => {
+    setActiveQuery(query);
+  }, []);
 
   const hasVisibleResults = useMemo(() => {
     if (!executor) return false;

@@ -48,9 +48,7 @@ describe('WYSIWYG markdown policy', () => {
   });
 
   it('limits session input transformers to structured chips and images', () => {
-    expect(
-      getWysiwygMarkdownTransformers('session-input-minimal')
-    ).toEqual([
+    expect(getWysiwygMarkdownTransformers('session-input-minimal')).toEqual([
       IMAGE_TRANSFORMER,
       TAG_REFERENCE_TRANSFORMER,
       SLASH_COMMAND_DISPLAY_TRANSFORMER,

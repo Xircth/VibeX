@@ -213,7 +213,9 @@ function QuestionField({
                 key={choice.value}
                 type="button"
                 size="sm"
-                variant={selected.includes(choice.value) ? 'default' : 'outline'}
+                variant={
+                  selected.includes(choice.value) ? 'default' : 'outline'
+                }
                 disabled={disabled}
                 title={choice.description ?? undefined}
                 onClick={() => toggle(choice.value)}
@@ -303,7 +305,8 @@ type SchemaField = {
 function initialValues(fields: SchemaField[]): Record<string, FieldValue> {
   const values: Record<string, FieldValue> = {};
   for (const field of fields) {
-    if (field.defaultValue !== undefined) values[field.name] = field.defaultValue;
+    if (field.defaultValue !== undefined)
+      values[field.name] = field.defaultValue;
   }
   return values;
 }

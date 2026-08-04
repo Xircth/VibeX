@@ -36,4 +36,3 @@ export function LiveTurnStats({
 
   return <TurnStats {...props} stats={liveStats} live />;
 }
-

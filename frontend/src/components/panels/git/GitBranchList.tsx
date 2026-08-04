@@ -73,7 +73,9 @@ function getScopeIcon(scope: string): React.ReactNode {
     case 'release':
       return <Tag className={`${cls} text-[hsl(var(--success))]`} />;
     case 'merge':
-      return <GitMerge className={`${cls} text-[hsl(var(--status-running))]`} />;
+      return (
+        <GitMerge className={`${cls} text-[hsl(var(--status-running))]`} />
+      );
     default:
       return <FolderOpen className={`${cls} text-muted-foreground/60`} />;
   }

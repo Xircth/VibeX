@@ -30,8 +30,9 @@ describe('resolveResendExecutorProfile', () => {
       variant: 'OPUS',
     };
 
-    expect(resolveResendExecutorProfile(active, 'codex' as const)).toEqual(
-      { executor: 'codex' as const, variant: null }
-    );
+    expect(resolveResendExecutorProfile(active, 'codex' as const)).toEqual({
+      executor: 'codex' as const,
+      variant: null,
+    });
   });
 });

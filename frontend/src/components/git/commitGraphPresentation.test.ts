@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { COMMIT_GRAPH_LABELS, formatCommitTimeAgo } from './commitGraphPresentation';
+import {
+  COMMIT_GRAPH_LABELS,
+  formatCommitTimeAgo,
+} from './commitGraphPresentation';
 
 describe('commit graph presentation', () => {
   afterEach(() => {
@@ -9,7 +12,9 @@ describe('commit graph presentation', () => {
 
   it('uses readable graph labels', () => {
     expect(COMMIT_GRAPH_LABELS.title).toBe('\u63d0\u4ea4\u56fe');
-    expect(COMMIT_GRAPH_LABELS.loading).toBe('\u52a0\u8f7d\u63d0\u4ea4\u56fe...');
+    expect(COMMIT_GRAPH_LABELS.loading).toBe(
+      '\u52a0\u8f7d\u63d0\u4ea4\u56fe...'
+    );
   });
 
   it('formats recent commit timestamps as relative Chinese text', () => {

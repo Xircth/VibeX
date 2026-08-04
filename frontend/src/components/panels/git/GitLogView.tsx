@@ -358,13 +358,14 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             label: 'Soft (keep changes staged)',
             icon: <RotateCcw className="h-3 w-3" />,
             onClick: () =>
-              executeAction(() =>
-                attemptsApi.resetToCommit(
-                  workspaceId!,
-                  repoId!,
-                  entry.sha,
-                  'soft'
-                ),
+              executeAction(
+                () =>
+                  attemptsApi.resetToCommit(
+                    workspaceId!,
+                    repoId!,
+                    entry.sha,
+                    'soft'
+                  ),
                 {
                   success: 'Soft reset completed',
                   error: 'Soft reset failed',
@@ -375,13 +376,14 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
             label: 'Mixed (keep changes unstaged)',
             icon: <RotateCcw className="h-3 w-3" />,
             onClick: () =>
-              executeAction(() =>
-                attemptsApi.resetToCommit(
-                  workspaceId!,
-                  repoId!,
-                  entry.sha,
-                  'mixed'
-                ),
+              executeAction(
+                () =>
+                  attemptsApi.resetToCommit(
+                    workspaceId!,
+                    repoId!,
+                    entry.sha,
+                    'mixed'
+                  ),
                 {
                   success: 'Mixed reset completed',
                   error: 'Mixed reset failed',
@@ -406,13 +408,14 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
                   return;
                 }
 
-                executeAction(() =>
-                  attemptsApi.resetToCommit(
-                    workspaceId!,
-                    repoId!,
-                    entry.sha,
-                    'hard'
-                  ),
+                executeAction(
+                  () =>
+                    attemptsApi.resetToCommit(
+                      workspaceId!,
+                      repoId!,
+                      entry.sha,
+                      'hard'
+                    ),
                   {
                     success: 'Hard reset completed',
                     error: 'Hard reset failed',
@@ -431,10 +434,13 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() => attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha), {
-            success: 'Cherry-pick completed',
-            error: 'Cherry-pick failed',
-          }),
+          executeAction(
+            () => attemptsApi.cherryPick(workspaceId!, repoId!, entry.sha),
+            {
+              success: 'Cherry-pick completed',
+              error: 'Cherry-pick failed',
+            }
+          ),
       });
       actions.push({
         label: 'Revert',
@@ -442,10 +448,13 @@ export const GitLogView = memo(function GitLogView(props: GitLogViewProps) {
         group: 'write',
         disabled: !canOperate,
         onClick: () =>
-          executeAction(() => attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha), {
-            success: 'Revert completed',
-            error: 'Revert failed',
-          }),
+          executeAction(
+            () => attemptsApi.revertCommit(workspaceId!, repoId!, entry.sha),
+            {
+              success: 'Revert completed',
+              error: 'Revert failed',
+            }
+          ),
       });
 
       return actions;

@@ -29,9 +29,7 @@ export function useSessionComposerDraftHydration({
   isScratchLoading: boolean;
   scratchData: DraftFollowUpData | undefined;
   setLocalMessage: Dispatch<SetStateAction<string>>;
-  setAttachedImages: Dispatch<
-    SetStateAction<SessionComposerImageAttachment[]>
-  >;
+  setAttachedImages: Dispatch<SetStateAction<SessionComposerImageAttachment[]>>;
   /** Pending ACP session-mode state, seeded from a create-form preset. */
   setSelectedMode?: Dispatch<SetStateAction<string | null>>;
   /** Pending ACP config-option state, seeded from a create-form preset. */

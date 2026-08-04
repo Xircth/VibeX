@@ -174,9 +174,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
       />
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      '配置字段已被外部修改'
-    );
+    expect(screen.getByRole('alert')).toHaveTextContent('配置字段已被外部修改');
     await userEvent.click(screen.getByRole('button', { name: '重新加载' }));
     await userEvent.click(screen.getByRole('button', { name: '采用外部值' }));
     await userEvent.click(screen.getByRole('button', { name: '覆盖外部修改' }));

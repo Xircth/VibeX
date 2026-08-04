@@ -57,10 +57,7 @@ export type ShikiTokenCssProperties = CSSProperties & {
 
 let highlighterPromise: Promise<Highlighter> | null = null;
 let shikiRuntimePromise: Promise<ShikiRuntime> | null = null;
-const loadedLanguages = new Set<string>([
-  ...INITIAL_LANGUAGES,
-  PLAIN_LANGUAGE,
-]);
+const loadedLanguages = new Set<string>([...INITIAL_LANGUAGES, PLAIN_LANGUAGE]);
 const tokenCache = new Map<string, ShikiTokenLines>();
 
 export function languageFromPath(path?: string | null) {

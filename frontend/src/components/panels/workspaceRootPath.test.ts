@@ -20,7 +20,9 @@ describe('workspaceRootPath', () => {
     expect(deriveWorkspaceRootPath(workspace, workspaceRepos)).toBe(
       'C:\\worktrees\\repo-feature-b'
     );
-    expect(deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)).toEqual([
+    expect(
+      deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
+    ).toEqual([
       'C:\\worktrees\\repo-feature-b',
       'C:\\worktrees\\repo-feature-b\\repo-feature-a',
     ]);
@@ -58,7 +60,9 @@ describe('workspaceRootPath', () => {
     expect(deriveWorkspaceRootPath(workspace, workspaceRepos)).toBe(
       '/worktrees/repo-feature-b'
     );
-    expect(deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)).toEqual([
+    expect(
+      deriveWorkspaceRootPathCandidates(workspace, workspaceRepos)
+    ).toEqual([
       '/worktrees/repo-feature-b',
       '/worktrees/repo-feature-b/repo-feature-a',
     ]);

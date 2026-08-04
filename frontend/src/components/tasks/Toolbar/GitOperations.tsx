@@ -485,8 +485,8 @@ function GitOperations({
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-            {t('gitOperations.targetBranch')}
-          </TooltipContent>
+              {t('gitOperations.targetBranch')}
+            </TooltipContent>
           </Tooltip>
         </TooltipProvider>
 

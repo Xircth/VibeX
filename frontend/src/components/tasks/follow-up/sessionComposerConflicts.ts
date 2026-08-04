@@ -9,9 +9,9 @@ type ComposerConflictRepo = {
   conflicted_files: string[];
 };
 
-export function getComposerRepoWithConflicts<
-  T extends ComposerConflictRepo,
->(repos: readonly T[] | null | undefined): T | undefined {
+export function getComposerRepoWithConflicts<T extends ComposerConflictRepo>(
+  repos: readonly T[] | null | undefined
+): T | undefined {
   return repos?.find(
     (repo) =>
       repo.is_rebase_in_progress || (repo.conflicted_files?.length ?? 0) > 0

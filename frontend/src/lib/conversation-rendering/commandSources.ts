@@ -103,4 +103,3 @@ export function createComposerCommandSource<TOption>(
 ): ComposerCommandSource<TOption> {
   return source;
 }
-

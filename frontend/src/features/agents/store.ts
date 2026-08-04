@@ -63,7 +63,10 @@ export function stateFromAgentSnapshot(
     ),
   };
   const snapshotPermissions = Object.fromEntries(
-    (snapshot.permissions ?? []).map((permission) => [permission.id, permission])
+    (snapshot.permissions ?? []).map((permission) => [
+      permission.id,
+      permission,
+    ])
   );
   const state = snapshot.events.reduce(reduceAgentEvent, {
     ...emptyAgentWorkbenchState(),

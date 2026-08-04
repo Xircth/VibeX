@@ -47,9 +47,7 @@ export function MessageQueueIndicator({
           aria-expanded={expanded}
         >
           <div className="flex items-center gap-1 font-medium">
-            <span className="truncate">
-              {t('messageQueue.description')}
-            </span>
+            <span className="truncate">{t('messageQueue.description')}</span>
             <ChevronDown
               className={cn(
                 'h-3.5 w-3.5 flex-none transition-transform',
@@ -73,7 +71,9 @@ export function MessageQueueIndicator({
           <button
             type="button"
             className="rounded p-1 hover:bg-background/80 disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => queuedMessage && onEditQueuedMessage?.(queuedMessage)}
+            onClick={() =>
+              queuedMessage && onEditQueuedMessage?.(queuedMessage)
+            }
             disabled={!queuedMessage || !onEditQueuedMessage}
             aria-label={t('messageQueue.editMessage')}
             title={t('messageQueue.editMessage')}
@@ -135,4 +135,3 @@ export function MessageQueueIndicator({
     </div>
   );
 }
-

@@ -64,13 +64,14 @@ describe('useSessionComposerSessionCallbacks', () => {
       sessionId: 'session-1',
       workspaceId: 'workspace-1',
     });
-
   });
 
   it('suppresses selected-session parent notification without workspace', () => {
-    const { result, selectSession, onSessionSelected } = renderSessionCallbacks({
-      workspaceId: null,
-    });
+    const { result, selectSession, onSessionSelected } = renderSessionCallbacks(
+      {
+        workspaceId: null,
+      }
+    );
 
     act(() => {
       result.current.handleSelectSession('session-1');

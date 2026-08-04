@@ -44,8 +44,10 @@ export function optimisticAddRegistryAgent(
     return { ...state, selectedAgentId: row.agent_id };
   }
   const position =
-    state.agents.reduce((highest, agent) => Math.max(highest, agent.position), -1) +
-    1;
+    state.agents.reduce(
+      (highest, agent) => Math.max(highest, agent.position),
+      -1
+    ) + 1;
   const optimistic: AgentManagementView = {
     agent_id: row.agent_id,
     display_name: row.display_name,

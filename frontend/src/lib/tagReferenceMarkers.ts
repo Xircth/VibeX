@@ -69,14 +69,17 @@ export function parseTagReferenceHref(
 }
 
 export function replaceTagReferenceMarkersWithMarkdownLinks(input: string) {
-  return input.replace(getTagReferenceMarkerRegex('g'), (fullMatch, encoded) => {
-    const payload = parseEncodedPayload(encoded);
-    if (!payload) {
-      return fullMatch;
-    }
+  return input.replace(
+    getTagReferenceMarkerRegex('g'),
+    (fullMatch, encoded) => {
+      const payload = parseEncodedPayload(encoded);
+      if (!payload) {
+        return fullMatch;
+      }
 
-    return `[#${payload.tagName}](tag-ref://${encoded})`;
-  });
+      return `[#${payload.tagName}](tag-ref://${encoded})`;
+    }
+  );
 }
 
 export function extractTagReferencePayloads(

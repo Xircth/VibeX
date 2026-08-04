@@ -284,9 +284,7 @@ export const GitStagingArea = memo(function GitStagingArea({
           <SectionHeader
             label="Changes"
             count={unstagedFiles.length}
-            icon={
-              <SquarePen className="h-3 w-3 text-[hsl(var(--warning))]" />
-            }
+            icon={<SquarePen className="h-3 w-3 text-[hsl(var(--warning))]" />}
             actions={
               <>
                 <button

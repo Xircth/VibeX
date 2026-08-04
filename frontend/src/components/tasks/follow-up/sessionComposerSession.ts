@@ -47,7 +47,9 @@ export function getComposerScratchTargetId({
   workspaceId: string | null | undefined;
   sessionId: string | null | undefined;
 }): string | undefined {
-  return isNewSessionMode ? (workspaceId ?? undefined) : (sessionId ?? undefined);
+  return isNewSessionMode
+    ? (workspaceId ?? undefined)
+    : (sessionId ?? undefined);
 }
 
 export function getComposerTopbarVisibility({

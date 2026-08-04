@@ -15,14 +15,18 @@ export function getContinuityActionCopy(mode: SessionContinuityMode) {
       return {
         shortLabel: i18n.t('app:sessionContinuity.resumeInPlace.shortLabel'),
         retryLabel: i18n.t('app:sessionContinuity.resumeInPlace.retryLabel'),
-        retryDescription: i18n.t('app:sessionContinuity.resumeInPlace.retryDescription'),
+        retryDescription: i18n.t(
+          'app:sessionContinuity.resumeInPlace.retryDescription'
+        ),
       };
     case 'new_session':
     default:
       return {
         shortLabel: i18n.t('app:sessionContinuity.newSession.shortLabel'),
         retryLabel: i18n.t('app:sessionContinuity.newSession.retryLabel'),
-        retryDescription: i18n.t('app:sessionContinuity.newSession.retryDescription'),
+        retryDescription: i18n.t(
+          'app:sessionContinuity.newSession.retryDescription'
+        ),
       };
   }
 }

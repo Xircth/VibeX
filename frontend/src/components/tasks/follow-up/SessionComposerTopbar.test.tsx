@@ -76,11 +76,15 @@ describe('SessionComposerTopbar', () => {
       changedFileCount: 3,
       added: 12,
       deleted: 4,
-      todos: [{ content: 'Review topbar', status: 'completed', priority: null }],
+      todos: [
+        { content: 'Review topbar', status: 'completed', priority: null },
+      ],
       onJumpToPreviousUserMessage: onJump,
     });
 
-    expect(screen.getByText('3 \u4e2a\u6587\u4ef6\u66f4\u6539')).toBeInTheDocument();
+    expect(
+      screen.getByText('3 \u4e2a\u6587\u4ef6\u66f4\u6539')
+    ).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
 
     fireEvent.click(

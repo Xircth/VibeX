@@ -50,9 +50,7 @@ function workspaceOption(
   };
 }
 
-function executorProfile(
-  executor: AgentKind
-): ExecutorProfileId {
+function executorProfile(executor: AgentKind): ExecutorProfileId {
   return { executor } as ExecutorProfileId;
 }
 

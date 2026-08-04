@@ -54,9 +54,7 @@ export const ExpandChevron: React.FC<{
   variant: CollapsibleVariant;
 }> = ({ expanded, onClick, variant }) => {
   const color =
-    variant === 'system'
-      ? 'text-foreground/70'
-      : 'text-destructive';
+    variant === 'system' ? 'text-foreground/70' : 'text-destructive';
 
   return (
     <ChevronDown
@@ -173,12 +171,7 @@ export const AssistantCommandOutputEntry: React.FC<{
   output: string;
   expansionKey: string;
   markdownContext?: MarkdownRenderContext;
-}> = ({
-  prefix,
-  output,
-  expansionKey,
-  markdownContext,
-}) => {
+}> = ({ prefix, output, expansionKey, markdownContext }) => {
   const [expanded, toggle] = useExpandable(
     `assistant-command-output:${expansionKey}`,
     false
@@ -193,7 +186,11 @@ export const AssistantCommandOutputEntry: React.FC<{
           className="mb-1 inline-flex h-4 w-4 items-center justify-center text-foreground/70 transition-transform"
           onClick={() => toggle()}
           aria-expanded={expanded}
-          aria-label={expanded ? 'Collapse previous AI content' : 'Expand previous AI content'}
+          aria-label={
+            expanded
+              ? 'Collapse previous AI content'
+              : 'Expand previous AI content'
+          }
         >
           <ChevronDown
             className={`h-3.5 w-3.5 transition-transform ${

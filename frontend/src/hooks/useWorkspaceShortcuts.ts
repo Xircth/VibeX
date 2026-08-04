@@ -93,10 +93,7 @@ export function useWorkspaceShortcuts() {
     };
     window.addEventListener(SHORTCUT_ACTION_EVENT, handleShortcutAction);
     return () =>
-      window.removeEventListener(
-        SHORTCUT_ACTION_EVENT,
-        handleShortcutAction
-      );
+      window.removeEventListener(SHORTCUT_ACTION_EVENT, handleShortcutAction);
   }, [
     openDiffPreview,
     openLogs,

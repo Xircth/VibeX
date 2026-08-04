@@ -17,28 +17,25 @@ const scratchProfile = {
   variant: 'REVIEW',
 };
 
-function renderProfileHook(
-  initialProps: {
-    scratchId: string | undefined;
-    scratchExecutorProfile: ExecutorProfileId | null;
-    defaultExecutorProfile: ExecutorProfileId | null;
-    initialSelectedExecutorProfile: ExecutorProfileId | null;
-    isScratchLoading: boolean;
-    localMessage: string;
-    saveToScratch: (
-      message: string,
-      executorProfileId: ExecutorProfileId | null
-    ) => Promise<void>;
-  }
-) {
+function renderProfileHook(initialProps: {
+  scratchId: string | undefined;
+  scratchExecutorProfile: ExecutorProfileId | null;
+  defaultExecutorProfile: ExecutorProfileId | null;
+  initialSelectedExecutorProfile: ExecutorProfileId | null;
+  isScratchLoading: boolean;
+  localMessage: string;
+  saveToScratch: (
+    message: string,
+    executorProfileId: ExecutorProfileId | null
+  ) => Promise<void>;
+}) {
   return renderHook(
     (props: typeof initialProps) => {
       const [selectedExecutorProfile, setSelectedExecutorProfile] =
         useState<ExecutorProfileId | null>(
           props.initialSelectedExecutorProfile
         );
-      const executorProfileRef =
-        useRef<ExecutorProfileId | null>(null);
+      const executorProfileRef = useRef<ExecutorProfileId | null>(null);
       const effectiveExecutorProfile =
         selectedExecutorProfile ?? props.defaultExecutorProfile;
 

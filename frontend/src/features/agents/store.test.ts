@@ -292,7 +292,9 @@ describe('agent workbench store', () => {
     expect(state.sessionConfigOptionsByScope.session?.[0]?.value).toBe(
       'gpt-5-codex'
     );
-    expect(state.availableCommandsByScope.session).toEqual([{ name: 'review' }]);
+    expect(state.availableCommandsByScope.session).toEqual([
+      { name: 'review' },
+    ]);
   });
 
   it('tracks permission requests until a response arrives', () => {

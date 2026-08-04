@@ -10,8 +10,7 @@ const toneClasses = {
     'border-[hsl(var(--warning)/0.25)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.1)]',
   success:
     'border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.1)]',
-  muted:
-    'border-border bg-muted/50 text-muted-foreground hover:bg-muted/50',
+  muted: 'border-border bg-muted/50 text-muted-foreground hover:bg-muted/50',
 } as const;
 
 export function LocalDependencyStatusBadge({

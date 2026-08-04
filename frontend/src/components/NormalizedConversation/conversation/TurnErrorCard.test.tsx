@@ -9,7 +9,9 @@ function err(overrides: Partial<ConversationError> = {}): ConversationError {
 
 describe('TurnErrorCard', () => {
   it('treats a cancellation as a neutral notice without a reload action', () => {
-    render(<TurnErrorCard error={err({ code: 'cancelled' })} onReload={vi.fn()} />);
+    render(
+      <TurnErrorCard error={err({ code: 'cancelled' })} onReload={vi.fn()} />
+    );
 
     expect(screen.getByText('已取消')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /重新加载/ })).toBeNull();

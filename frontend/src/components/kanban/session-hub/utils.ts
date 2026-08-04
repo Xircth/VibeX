@@ -82,9 +82,7 @@ export const SESSION_STATUS_SECTION_STYLES: Record<
 };
 
 export type SortField = 'name' | 'time' | 'status';
-export type KanbanSessionCreationMode =
-  | 'existing_workspace'
-  | 'new_workspace';
+export type KanbanSessionCreationMode = 'existing_workspace' | 'new_workspace';
 
 export interface SessionMarker {
   bar: string;
@@ -178,9 +176,7 @@ export function getExecutorFilterOptions(
   sessions: KanbanProjectSessionRecord[]
 ): ExecutorFilterOption[] {
   const values = Array.from(
-    new Set(
-      sessions.map((session) => getExecutorFilterValue(session.executor))
-    )
+    new Set(sessions.map((session) => getExecutorFilterValue(session.executor)))
   );
 
   return values
@@ -281,10 +277,9 @@ export function getCanCreateKanbanSession({
   mode: KanbanSessionCreationMode;
   selectedWorkspaceOption: WorkspaceBranchOption | null;
   projectRepoCount: number;
-  repoBranchConfigs: Array<{ targetBranch?: string | null } & Record<
-    string,
-    unknown
-  >>;
+  repoBranchConfigs: Array<
+    { targetBranch?: string | null } & Record<string, unknown>
+  >;
 }): boolean {
   if (!executorProfile?.executor || isPending) {
     return false;

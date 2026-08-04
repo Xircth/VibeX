@@ -25,7 +25,10 @@ export function deduplicateDevServersByWorkingDir(
   for (const process of processes) {
     const workingDir = getDevServerWorkingDir(process) ?? 'unknown';
     const existing = byWorkingDir.get(workingDir);
-    if (!existing || dateTimestamp(process.started_at) > dateTimestamp(existing.started_at)) {
+    if (
+      !existing ||
+      dateTimestamp(process.started_at) > dateTimestamp(existing.started_at)
+    ) {
       byWorkingDir.set(workingDir, process);
     }
   }

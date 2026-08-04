@@ -99,6 +99,9 @@ const TOKEN_DISPLAY: Record<string, string> = {
 export function formatChord(chord: string): string {
   return chord
     .split('+')
-    .map((part) => TOKEN_DISPLAY[part] ?? (part.length === 1 ? part.toUpperCase() : part))
+    .map(
+      (part) =>
+        TOKEN_DISPLAY[part] ?? (part.length === 1 ? part.toUpperCase() : part)
+    )
     .join(' ');
 }

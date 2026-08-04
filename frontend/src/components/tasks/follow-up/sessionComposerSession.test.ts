@@ -56,10 +56,12 @@ describe('session composer session helpers', () => {
   });
 
   it('suppresses the active session id while creating a new session', () => {
-    expect(getComposerSessionId({ isNewSessionMode: true, sessionId: 's1' }))
-      .toBeUndefined();
-    expect(getComposerSessionId({ isNewSessionMode: false, sessionId: 's1' }))
-      .toBe('s1');
+    expect(
+      getComposerSessionId({ isNewSessionMode: true, sessionId: 's1' })
+    ).toBeUndefined();
+    expect(
+      getComposerSessionId({ isNewSessionMode: false, sessionId: 's1' })
+    ).toBe('s1');
     expect(
       getComposerSessionId({ isNewSessionMode: false, sessionId: undefined })
     ).toBeUndefined();

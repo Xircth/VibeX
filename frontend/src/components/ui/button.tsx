@@ -21,8 +21,7 @@ const buttonVariants = cva(
         ghost:
           'bg-transparent text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
         link: 'h-auto p-0 text-primary underline-offset-4 hover:underline',
-        icon:
-          'bg-transparent p-0 text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
+        icon: 'bg-transparent p-0 text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
       },
       size: {
         default: 'h-8 px-3',

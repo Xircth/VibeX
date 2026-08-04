@@ -101,34 +101,13 @@ function Harness({
     <QueryClientProvider client={queryClient}>
       <SessionHubSidebar
         width={320}
-      isLoading={false}
-      sessions={[]}
-      archivedSessions={archivedSessions}
-      groupedSessions={{}}
-      flatSessions={[]}
-      workspaces={[
-        {
-          id: 'workspace-1',
-          project_id: 'project-1',
-          task_id: 'task-1',
-          parent_workspace_id: null,
-          container_ref: null,
-          branch: 'main',
-          use_worktree: true,
-          agent_working_dir: null,
-          setup_completed_at: null,
-          created_at: '2026-04-15T00:00:00.000Z',
-          updated_at: '2026-04-15T00:00:00.000Z',
-          archived: false,
-          pinned: false,
-          name: 'Main',
-        },
-      ]}
-      workspaceBranchOptions={[
-        {
-          value: 'workspace:workspace-1',
-          branch: 'main',
-          workspace: {
+        isLoading={false}
+        sessions={[]}
+        archivedSessions={archivedSessions}
+        groupedSessions={{}}
+        flatSessions={[]}
+        workspaces={[
+          {
             id: 'workspace-1',
             project_id: 'project-1',
             task_id: 'task-1',
@@ -144,60 +123,81 @@ function Harness({
             pinned: false,
             name: 'Main',
           },
-          existingWorkspaceId: 'workspace-1',
-          directWorkspaceId: 'workspace-1',
-          useWorktree: true,
-          isCurrentProjectBranch: true,
-        },
-      ]}
-      profiles={null}
-      createMode="existing_workspace"
-      createWorkspaceValue="workspace:workspace-1"
-      createSessionName=""
-      selectedExecutorProfile={null}
-      repoBranchConfigs={[]}
-      isLoadingRepoBranches={false}
-      isCreatePopoverOpen={isCreatePopoverOpen}
-      sortField={null}
-      workspaceFilterIds={[]}
-      executorFilterValues={[]}
-      executorFilterOptions={[]}
-      expandedSections={{}}
-      isDeleteMode={false}
-      selectedSessionIdSet={new Set()}
-      deleteErrorMessage={null}
-      deleteSuccessMessage={null}
-      isDeletingSessions={false}
-      canCreateSession={true}
-      isCreatePending={false}
-      createError={null}
-      displayedCount={0}
-      monitorPlacements={[]}
-      currentExecutionPlacement={null}
-      isArchiveView={isArchiveView}
-      onResizeMouseDown={vi.fn()}
-      onArchiveViewChange={onArchiveViewChange}
-      onCreatePopoverOpenChange={setIsCreatePopoverOpen}
-      onCreateSession={vi.fn()}
-      onCreateModeChange={vi.fn()}
-      onCreateWorkspaceValueChange={vi.fn()}
-      onCreateSessionNameChange={vi.fn()}
-      onSelectedExecutorProfileChange={vi.fn()}
-      onRepoBranchChange={vi.fn()}
-      onSortFieldChange={vi.fn()}
-      onWorkspaceFilterIdsChange={vi.fn()}
-      onExecutorFilterValuesChange={vi.fn()}
-      onResetViewState={vi.fn()}
-      onToggleDeleteMode={vi.fn()}
-      onCancelDeleteMode={vi.fn()}
-      onDeleteSelectedSessions={vi.fn(async () => undefined)}
-      onSessionClick={vi.fn()}
-      onToggleSessionSelection={vi.fn()}
-      onRenameSession={vi.fn(async () => undefined)}
-      onSessionStatusChange={vi.fn()}
-      onRestoreArchivedSession={onRestoreArchivedSession}
-      onExpandedChange={vi.fn()}
-    />
+        ]}
+        workspaceBranchOptions={[
+          {
+            value: 'workspace:workspace-1',
+            branch: 'main',
+            workspace: {
+              id: 'workspace-1',
+              project_id: 'project-1',
+              task_id: 'task-1',
+              parent_workspace_id: null,
+              container_ref: null,
+              branch: 'main',
+              use_worktree: true,
+              agent_working_dir: null,
+              setup_completed_at: null,
+              created_at: '2026-04-15T00:00:00.000Z',
+              updated_at: '2026-04-15T00:00:00.000Z',
+              archived: false,
+              pinned: false,
+              name: 'Main',
+            },
+            existingWorkspaceId: 'workspace-1',
+            directWorkspaceId: 'workspace-1',
+            useWorktree: true,
+            isCurrentProjectBranch: true,
+          },
+        ]}
+        profiles={null}
+        createMode="existing_workspace"
+        createWorkspaceValue="workspace:workspace-1"
+        createSessionName=""
+        selectedExecutorProfile={null}
+        repoBranchConfigs={[]}
+        isLoadingRepoBranches={false}
+        isCreatePopoverOpen={isCreatePopoverOpen}
+        sortField={null}
+        workspaceFilterIds={[]}
+        executorFilterValues={[]}
+        executorFilterOptions={[]}
+        expandedSections={{}}
+        isDeleteMode={false}
+        selectedSessionIdSet={new Set()}
+        deleteErrorMessage={null}
+        deleteSuccessMessage={null}
+        isDeletingSessions={false}
+        canCreateSession={true}
+        isCreatePending={false}
+        createError={null}
+        displayedCount={0}
+        monitorPlacements={[]}
+        currentExecutionPlacement={null}
+        isArchiveView={isArchiveView}
+        onResizeMouseDown={vi.fn()}
+        onArchiveViewChange={onArchiveViewChange}
+        onCreatePopoverOpenChange={setIsCreatePopoverOpen}
+        onCreateSession={vi.fn()}
+        onCreateModeChange={vi.fn()}
+        onCreateWorkspaceValueChange={vi.fn()}
+        onCreateSessionNameChange={vi.fn()}
+        onSelectedExecutorProfileChange={vi.fn()}
+        onRepoBranchChange={vi.fn()}
+        onSortFieldChange={vi.fn()}
+        onWorkspaceFilterIdsChange={vi.fn()}
+        onExecutorFilterValuesChange={vi.fn()}
+        onResetViewState={vi.fn()}
+        onToggleDeleteMode={vi.fn()}
+        onCancelDeleteMode={vi.fn()}
+        onDeleteSelectedSessions={vi.fn(async () => undefined)}
+        onSessionClick={vi.fn()}
+        onToggleSessionSelection={vi.fn()}
+        onRenameSession={vi.fn(async () => undefined)}
+        onSessionStatusChange={vi.fn()}
+        onRestoreArchivedSession={onRestoreArchivedSession}
+        onExpandedChange={vi.fn()}
+      />
     </QueryClientProvider>
   );
 }
@@ -246,11 +246,7 @@ describe('SessionHubSidebar', () => {
     expect(deleteButton).not.toBeNull();
     expect(deleteButton).toHaveClass('order-1');
     expect(archiveButton).not.toBeNull();
-    expect(archiveButton).toHaveClass(
-      'order-2',
-      'border',
-      'border-border/60'
-    );
+    expect(archiveButton).toHaveClass('order-2', 'border', 'border-border/60');
   });
 
   it('restores archived sessions from the archive context menu', async () => {

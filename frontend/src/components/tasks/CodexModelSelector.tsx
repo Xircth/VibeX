@@ -92,7 +92,9 @@ export function CodexModelSelector({
         avoidCollisions={false}
         className="min-w-[220px]"
       >
-        <DropdownMenuLabel>{t('codexModelSelector.modelLabel')}</DropdownMenuLabel>
+        <DropdownMenuLabel>
+          {t('codexModelSelector.modelLabel')}
+        </DropdownMenuLabel>
         {fastMode ? (
           <div className="px-1 pb-1">
             <TooltipProvider delayDuration={200}>
@@ -118,8 +120,7 @@ export function CodexModelSelector({
                     <Zap
                       className={cn(
                         'h-3.5 w-3.5',
-                        fastMode.checked &&
-                          'fill-primary text-primary'
+                        fastMode.checked && 'fill-primary text-primary'
                       )}
                     />
                     <span>{fastMode.label}</span>

@@ -82,9 +82,9 @@ describe('ActionBarUtilityButtons', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: '提示词优化' }).querySelector(
-        '.animate-spin'
-      )
+      screen
+        .getByRole('button', { name: '提示词优化' })
+        .querySelector('.animate-spin')
     ).toBeInTheDocument();
   });
 

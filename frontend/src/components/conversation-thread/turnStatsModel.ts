@@ -86,7 +86,8 @@ export function buildTurnStatsByAssistantKey(
     if (entryType.type === 'assistant_message') {
       latestAssistantKey = entry.patchKey;
       const stats = ensureStats(statsByKey, entry.patchKey);
-      const model = options.modelByExecutionProcessId?.[entry.executionProcessId];
+      const model =
+        options.modelByExecutionProcessId?.[entry.executionProcessId];
 
       stats.startedAt = latestUserStartedAt;
 
@@ -94,11 +95,7 @@ export function buildTurnStatsByAssistantKey(
         stats.model = model;
       }
 
-      setCompletedTime(
-        stats,
-        entry.content.timestamp,
-        latestUserStartedAtMs
-      );
+      setCompletedTime(stats, entry.content.timestamp, latestUserStartedAtMs);
       continue;
     }
 
@@ -108,11 +105,7 @@ export function buildTurnStatsByAssistantKey(
 
       stats.totalTokens = usage.totalTokens;
       stats.contextWindow = usage.contextWindow;
-      setCompletedTime(
-        stats,
-        entry.content.timestamp,
-        latestUserStartedAtMs
-      );
+      setCompletedTime(stats, entry.content.timestamp, latestUserStartedAtMs);
       continue;
     }
 
@@ -124,11 +117,7 @@ export function buildTurnStatsByAssistantKey(
       if (turnCompletedMatch) {
         const stats = ensureStats(statsByKey, latestAssistantKey);
         stats.stopReason = turnCompletedMatch[1]?.trim() || null;
-        setCompletedTime(
-          stats,
-          entry.content.timestamp,
-          latestUserStartedAtMs
-        );
+        setCompletedTime(stats, entry.content.timestamp, latestUserStartedAtMs);
       }
     }
   }

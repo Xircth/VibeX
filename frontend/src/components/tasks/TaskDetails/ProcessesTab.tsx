@@ -292,9 +292,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 }`}
               >
-                {copied
-                  ? t('processesTab.copied')
-                  : t('processesTab.copyLogs')}
+                {copied ? t('processesTab.copied') : t('processesTab.copyLogs')}
               </button>
               <button
                 onClick={() => setSelectedProcessId(null)}

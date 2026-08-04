@@ -33,9 +33,7 @@ export function AgentTerminalPanel({
                 <span
                   className={cn(
                     'shrink-0 rounded border px-1.5 py-0.5 text-[11px]',
-                    snapshot?.exit
-                      ? 'text-muted-foreground'
-                      : 'text-primary'
+                    snapshot?.exit ? 'text-muted-foreground' : 'text-primary'
                   )}
                 >
                   {snapshot?.exit ? 'closed' : 'live'}

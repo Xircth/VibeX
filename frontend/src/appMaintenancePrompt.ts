@@ -28,8 +28,8 @@ export function localToolNeedsUpdatePrompt(tool: LocalToolStatus): boolean {
   if (!tool.installed) return true;
   if (!tool.minimum_supported_version || !tool.installed_version) return false;
 
-  return compareVersionLike(
-    tool.installed_version,
-    tool.minimum_supported_version
-  ) < 0;
+  return (
+    compareVersionLike(tool.installed_version, tool.minimum_supported_version) <
+    0
+  );
 }

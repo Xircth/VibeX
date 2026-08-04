@@ -91,7 +91,9 @@ function TreeNodeView({
         {hasStats && (
           <span className="text-[10px] shrink-0 font-mono opacity-70 group-hover:opacity-100">
             {(node.file.additions ?? 0) > 0 && (
-              <span className="text-[hsl(var(--success))]">+{node.file.additions}</span>
+              <span className="text-[hsl(var(--success))]">
+                +{node.file.additions}
+              </span>
             )}
             {(node.file.deletions ?? 0) > 0 && (
               <span className="ml-0.5 text-destructive">

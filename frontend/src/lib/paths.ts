@@ -45,7 +45,9 @@ export function normalizeProjectRoute(route: string) {
     return `${paths.projectWorkspace(attemptMatch[1], attemptMatch[2])}${search}${hash}`;
   }
 
-  const taskMatch = pathname.match(/^\/local-projects\/([^/]+)\/tasks(?:\/[^/]+)?$/);
+  const taskMatch = pathname.match(
+    /^\/local-projects\/([^/]+)\/tasks(?:\/[^/]+)?$/
+  );
   if (taskMatch) {
     return `${paths.projectSessions(taskMatch[1])}${search}${hash}`;
   }

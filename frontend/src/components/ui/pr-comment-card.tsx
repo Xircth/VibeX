@@ -43,7 +43,8 @@ function DiffHunk({ diffHunk }: { diffHunk: string }) {
       {lines.map((line, i) => {
         let lineClass = 'block';
         if (line.startsWith('+') && !line.startsWith('+++')) {
-          lineClass = 'block bg-[var(--diff-added-bg)] text-[var(--diff-added-fg)]';
+          lineClass =
+            'block bg-[var(--diff-added-bg)] text-[var(--diff-added-fg)]';
         } else if (line.startsWith('-') && !line.startsWith('---')) {
           lineClass =
             'block bg-[var(--diff-removed-bg)] text-[var(--diff-removed-fg)]';

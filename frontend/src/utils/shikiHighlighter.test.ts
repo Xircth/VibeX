@@ -40,7 +40,9 @@ describe('getShikiTokenStyle', () => {
   });
 
   it('treats the unset (-1) font style as no style', () => {
-    const style = getShikiTokenStyle(token({ fontStyle: -1 }, { fontStyle: 1 }));
+    const style = getShikiTokenStyle(
+      token({ fontStyle: -1 }, { fontStyle: 1 })
+    );
 
     expect(style.fontStyle).toBeUndefined();
   });

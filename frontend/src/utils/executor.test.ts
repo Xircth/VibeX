@@ -172,5 +172,4 @@ describe('executor utilities', () => {
       })
     ).toBe('GPT_5_4');
   });
-
 });

@@ -272,6 +272,4 @@ const MenuItem: React.FC<{ label: string; onClick: () => void }> = ({
   </button>
 );
 
-const Divider: React.FC = () => (
-  <div className="my-1 h-px bg-border" />
-);
+const Divider: React.FC = () => <div className="my-1 h-px bg-border" />;

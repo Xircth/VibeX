@@ -45,13 +45,9 @@ export interface AgentWorkbench extends AgentWorkbenchState {
   newSession: (
     request: AgentNewSessionRequest
   ) => Promise<AgentSessionSnapshot>;
-  sendPrompt: (
-    request: AgentSendPromptRequest
-  ) => Promise<AgentPromptSnapshot>;
+  sendPrompt: (request: AgentSendPromptRequest) => Promise<AgentPromptSnapshot>;
   cancelPrompt: (request: AgentCancelPromptRequest) => Promise<void>;
-  respondPermission: (
-    request: AgentRespondPermissionRequest
-  ) => Promise<void>;
+  respondPermission: (request: AgentRespondPermissionRequest) => Promise<void>;
 }
 
 function agentWorkbenchReducer(

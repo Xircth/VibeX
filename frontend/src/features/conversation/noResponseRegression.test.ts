@@ -44,7 +44,10 @@ function detail(): DbConversationDetail {
   };
 }
 
-function batch(rows: TimelineRow[], lastSequence: bigint): ConversationRowOpBatch {
+function batch(
+  rows: TimelineRow[],
+  lastSequence: bigint
+): ConversationRowOpBatch {
   return {
     conversation_id: CONVERSATION_ID,
     last_sequence: lastSequence,

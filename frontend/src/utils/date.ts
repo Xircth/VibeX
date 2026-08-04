@@ -30,16 +30,24 @@ export function formatRelativeTime(value: string | number | Date): string {
   if (seconds < 60) return i18n.t('app:date.justNow');
   const minutes = Math.round(seconds / 60);
   if (minutes < 60)
-    return i18n.t(future ? 'app:date.minutesLater' : 'app:date.minutesAgo', { value: minutes });
+    return i18n.t(future ? 'app:date.minutesLater' : 'app:date.minutesAgo', {
+      value: minutes,
+    });
   const hours = Math.round(minutes / 60);
   if (hours < 24)
-    return i18n.t(future ? 'app:date.hoursLater' : 'app:date.hoursAgo', { value: hours });
+    return i18n.t(future ? 'app:date.hoursLater' : 'app:date.hoursAgo', {
+      value: hours,
+    });
   const days = Math.round(hours / 24);
   if (days < 30)
-    return i18n.t(future ? 'app:date.daysLater' : 'app:date.daysAgo', { value: days });
+    return i18n.t(future ? 'app:date.daysLater' : 'app:date.daysAgo', {
+      value: days,
+    });
   const months = Math.round(days / 30);
   if (months < 12)
-    return i18n.t(future ? 'app:date.monthsLater' : 'app:date.monthsAgo', { value: months });
+    return i18n.t(future ? 'app:date.monthsLater' : 'app:date.monthsAgo', {
+      value: months,
+    });
   return i18n.t(future ? 'app:date.yearsLater' : 'app:date.yearsAgo', {
     value: Math.round(months / 12),
   });

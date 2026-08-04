@@ -89,9 +89,9 @@ function buildDefaultLayout(api: DockviewApi) {
   });
 
   // IDELayout's normalizeGroupIds runs this after renaming group ids.
-  syncDockviewGroupRegistry(api as unknown as Parameters<
-    typeof syncDockviewGroupRegistry
-  >[0]);
+  syncDockviewGroupRegistry(
+    api as unknown as Parameters<typeof syncDockviewGroupRegistry>[0]
+  );
 
   return api;
 }
@@ -126,8 +126,9 @@ describe('arrangeSerializedLayout against dockview-core', () => {
     const before = api.toJSON();
     // Width of the center compound column (workspace + terminal) before the
     // swap; the workspace zone must keep it after moving to the right slot.
-    const centerWidthBefore = ((before.grid.root as AnyNode).data as AnyNode[])
-      .find((column) => column.type === 'branch')?.size;
+    const centerWidthBefore = (
+      (before.grid.root as AnyNode).data as AnyNode[]
+    ).find((column) => column.type === 'branch')?.size;
     expect(centerWidthBefore).toBeGreaterThan(0);
 
     const transformed = arrangeSerializedLayout(before, {
@@ -160,9 +161,7 @@ describe('arrangeSerializedLayout against dockview-core', () => {
     expect((centerRows[1].data as { views: string[] }).views).toEqual([
       'terminal',
     ]);
-    expect((columns[2].data as { views: string[] }).views).toEqual([
-      'welcome',
-    ]);
+    expect((columns[2].data as { views: string[] }).views).toEqual(['welcome']);
   });
 
   it('migrates a layout that has no session group yet', () => {
@@ -179,9 +178,9 @@ describe('arrangeSerializedLayout against dockview-core', () => {
       direction: 'left',
       initialWidth: 220,
     });
-    syncDockviewGroupRegistry(api as unknown as Parameters<
-      typeof syncDockviewGroupRegistry
-    >[0]);
+    syncDockviewGroupRegistry(
+      api as unknown as Parameters<typeof syncDockviewGroupRegistry>[0]
+    );
 
     const transformed = arrangeSerializedLayout(
       api.toJSON(),

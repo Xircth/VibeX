@@ -32,7 +32,12 @@ export async function exportConversation(
     const ext = format === 'markdown' ? 'md' : 'html';
     const path = await save({
       defaultPath: `${fileStem(title)}.${ext}`,
-      filters: [{ name: format === 'markdown' ? 'Markdown' : 'HTML', extensions: [ext] }],
+      filters: [
+        {
+          name: format === 'markdown' ? 'Markdown' : 'HTML',
+          extensions: [ext],
+        },
+      ],
     });
     if (!path) return;
     await writeTextFile(path, content);

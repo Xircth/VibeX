@@ -215,9 +215,7 @@ function DiffsPanelContent({
               aria-live="polite"
             >
               {t('diffsPanel.filesChanged', { count: fileCount })}{' '}
-              <span className="text-[hsl(var(--success))]">
-                +{added}
-              </span>{' '}
+              <span className="text-[hsl(var(--success))]">+{added}</span>{' '}
               <span className="text-destructive">-{deleted}</span>
             </span>
           </div>

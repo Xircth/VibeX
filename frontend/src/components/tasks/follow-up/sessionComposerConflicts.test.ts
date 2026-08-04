@@ -61,7 +61,9 @@ describe('session composer conflict helpers', () => {
       },
     });
 
-    expect(instructions).toContain("Merge conflicts while merging into 'feature/a'");
+    expect(instructions).toContain(
+      "Merge conflicts while merging into 'feature/a'"
+    );
     expect(instructions).toContain("in repository 'repo-a'");
     expect(instructions).toContain('- src/a.ts');
     expect(instructions).toContain('- src/b.ts');

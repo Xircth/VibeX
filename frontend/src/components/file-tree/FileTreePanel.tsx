@@ -572,16 +572,14 @@ export function FileTreePanel({
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [isDragSelecting]);
 
-  const {
-    loading: effectivePreviewLoading,
-    error: effectivePreviewError,
-  } = deriveFilePreviewDisplayState({
-    previewKind,
-    textLoading: previewLoading,
-    textError: previewError,
-    imageLoading: isLoadingPreviewImage,
-    imageError: previewImageError,
-  });
+  const { loading: effectivePreviewLoading, error: effectivePreviewError } =
+    deriveFilePreviewDisplayState({
+      previewKind,
+      textLoading: previewLoading,
+      textError: previewError,
+      imageLoading: isLoadingPreviewImage,
+      imageError: previewImageError,
+    });
 
   const selectRangeFromAnchor = useCallback((anchor: number, index: number) => {
     setPreviewSelection(deriveFilePreviewSelectionRange(anchor, index));

@@ -442,7 +442,14 @@ diffs-container [data-code] {
 }
 
 diffs-container {
-  font-family: var(--font-mono, 'IBM Plex Mono', 'SF Mono', Monaco, Consolas, monospace);
+  font-family: var(
+    --font-mono,
+    'IBM Plex Mono',
+    'SF Mono',
+    Monaco,
+    Consolas,
+    monospace
+  );
   font-size: 12px;
   line-height: 18px;
 }

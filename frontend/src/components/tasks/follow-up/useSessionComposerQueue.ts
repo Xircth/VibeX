@@ -31,16 +31,18 @@ export function useSessionComposerQueue({
     queryKey: getQueueStatusQueryKey(sessionId),
     queryFn: () =>
       Promise.resolve(
-        queryClient.getQueryData<QueueStatus>(getQueueStatusQueryKey(sessionId)) ??
-          EMPTY_QUEUE_STATUS
+        queryClient.getQueryData<QueueStatus>(
+          getQueueStatusQueryKey(sessionId)
+        ) ?? EMPTY_QUEUE_STATUS
       ),
     enabled: Boolean(sessionId),
   });
   const refreshQueueStatus = useCallback(async () => {
     if (!sessionId) return { data: EMPTY_QUEUE_STATUS } as const;
     const status =
-      queryClient.getQueryData<QueueStatus>(getQueueStatusQueryKey(sessionId)) ??
-      EMPTY_QUEUE_STATUS;
+      queryClient.getQueryData<QueueStatus>(
+        getQueueStatusQueryKey(sessionId)
+      ) ?? EMPTY_QUEUE_STATUS;
     return { data: status } as const;
   }, [queryClient, sessionId]);
 
@@ -155,7 +157,10 @@ export function useSessionComposerQueue({
           },
         },
       };
-      queryClient.setQueryData(getQueueStatusQueryKey(message.sessionId), status);
+      queryClient.setQueryData(
+        getQueueStatusQueryKey(message.sessionId),
+        status
+      );
     },
   });
 

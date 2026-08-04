@@ -58,7 +58,12 @@ function getContainedSize(natural: Size, viewport: Size) {
   };
 }
 
-function clampOffset(offset: Offset, scale: number, fitted: Size, viewport: Size) {
+function clampOffset(
+  offset: Offset,
+  scale: number,
+  fitted: Size,
+  viewport: Size
+) {
   const scaledWidth = fitted.width * scale;
   const scaledHeight = fitted.height * scale;
   const maxOffsetX = Math.max(0, (scaledWidth - viewport.width) / 2);
@@ -85,7 +90,10 @@ export function ZoomableImagePreview({
 }: ZoomableImagePreviewProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
-  const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 });
+  const [viewportSize, setViewportSize] = useState<Size>({
+    width: 0,
+    height: 0,
+  });
   const [naturalSize, setNaturalSize] = useState<Size>({ width: 0, height: 0 });
   const [scale, setScale] = useState(MIN_SCALE);
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
@@ -172,7 +180,9 @@ export function ZoomableImagePreview({
     };
 
     setScale(normalizedScale);
-    setOffset(clampOffset(nextOffset, normalizedScale, fittedSize, viewportSize));
+    setOffset(
+      clampOffset(nextOffset, normalizedScale, fittedSize, viewportSize)
+    );
   };
 
   const resetView = () => {
@@ -306,7 +316,9 @@ export function ZoomableImagePreview({
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
         onDoubleClick={() =>
-          applyScale(scale > MIN_SCALE ? MIN_SCALE : Math.min(actualSizeScale, 2))
+          applyScale(
+            scale > MIN_SCALE ? MIN_SCALE : Math.min(actualSizeScale, 2)
+          )
         }
       >
         <img

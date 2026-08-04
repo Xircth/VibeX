@@ -18,8 +18,7 @@ const MERGE_BASE_RADIUS = 6;
 
 const COLORS = {
   currentBranch: 'var(--commit-graph-current, hsl(var(--primary)))',
-  targetBranch:
-    'var(--commit-graph-target, hsl(var(--muted-foreground)))',
+  targetBranch: 'var(--commit-graph-target, hsl(var(--muted-foreground)))',
   mergeBase: 'var(--commit-graph-merge-base, hsl(var(--warning)))',
 };
 

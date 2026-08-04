@@ -236,7 +236,10 @@ describe('session composer image helpers', () => {
         current,
       ],
       imageToRevoke: replacedCurrent,
-      scratchImagePaths: ['.vibe-images/shared.png', '.vibe-images/current.png'],
+      scratchImagePaths: [
+        '.vibe-images/shared.png',
+        '.vibe-images/current.png',
+      ],
     });
   });
 });

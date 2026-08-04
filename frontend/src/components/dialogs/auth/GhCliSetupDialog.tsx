@@ -139,8 +139,7 @@ const GhCliSetupDialogImpl = NiceModal.create<GhCliSetupDialogProps>(
         modal.resolve(null);
         modal.hide();
       } catch (err: unknown) {
-        const rawMessage =
-          getErrorMessage(err) || t('ghCliSetup.runFailed');
+        const rawMessage = getErrorMessage(err) || t('ghCliSetup.runFailed');
 
         const maybeErrorData =
           typeof err === 'object' && err !== null && 'error_data' in err

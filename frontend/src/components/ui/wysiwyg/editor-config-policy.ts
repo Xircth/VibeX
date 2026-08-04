@@ -14,9 +14,7 @@ import { SlashCommandNode } from './nodes/slash-command-node';
 import { TagReferenceNode } from './nodes/tag-reference-node';
 import type { WysiwygMarkdownPreset } from '../wysiwyg';
 
-export function getWysiwygInitialConfig(
-  markdownPreset: WysiwygMarkdownPreset
-) {
+export function getWysiwygInitialConfig(markdownPreset: WysiwygMarkdownPreset) {
   const isSessionInputMinimalPreset =
     markdownPreset === 'session-input-minimal';
 

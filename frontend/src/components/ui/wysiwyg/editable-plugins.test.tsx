@@ -16,9 +16,7 @@ vi.mock('@lexical/react/LexicalMarkdownShortcutPlugin', () => ({
     transformers,
   }: {
     transformers: Transformer[];
-  }) => (
-    <div data-testid="markdown-shortcut-plugin">{transformers.length}</div>
-  ),
+  }) => <div data-testid="markdown-shortcut-plugin">{transformers.length}</div>,
 }));
 
 vi.mock('./plugins/paste-markdown-plugin', () => ({
@@ -159,9 +157,7 @@ describe('WysiwygEditablePlugins', () => {
         projectId="project-1"
         repoIds={['repo-a', 'repo-b']}
         repoId="repo-1"
-        executorProfile={
-          { executor: 'codex' as const } as ExecutorProfileId
-        }
+        executorProfile={{ executor: 'codex' as const } as ExecutorProfileId}
         onCmdEnter={onCmdEnter}
         onShiftCmdEnter={onShiftCmdEnter}
         onChange={onChange}

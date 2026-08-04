@@ -47,7 +47,9 @@ describe('local dependency maintenance helpers', () => {
       }),
     ];
 
-    expect(getAgentDependencyTool('claude_code' as const, tools)?.id).toBe('claude_cli');
+    expect(getAgentDependencyTool('claude_code' as const, tools)?.id).toBe(
+      'claude_cli'
+    );
     expect(getAgentDependencyTool('codex' as const, tools)).toBeNull();
     expect(getAgentDependencyTool('opencode' as const, tools)?.id).toBe(
       'opencode_cli_acp'

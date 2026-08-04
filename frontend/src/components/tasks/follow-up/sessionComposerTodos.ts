@@ -18,9 +18,7 @@ export function getComposerTodoListState(
   };
 }
 
-export function getComposerTodoItemView(
-  status: string
-): ComposerTodoItemView {
+export function getComposerTodoItemView(status: string): ComposerTodoItemView {
   const isRunning = status === 'in_progress' || status === 'in-progress';
 
   if (status === 'completed') {

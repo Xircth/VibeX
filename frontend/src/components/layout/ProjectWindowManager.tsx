@@ -337,7 +337,10 @@ function ProjectActivityTracker({
                 durationMs: 15000,
               }),
           }).catch((error) => {
-            console.error('Failed to deliver session completion notification:', error);
+            console.error(
+              'Failed to deliver session completion notification:',
+              error
+            );
           });
         })
         .catch((error) => {

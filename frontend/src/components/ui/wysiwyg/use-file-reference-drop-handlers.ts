@@ -56,9 +56,7 @@ export function useFileReferenceDropHandlers({
 
       const payload = getFileReferenceDropPayload({
         disabled,
-        serializedPayload: event.dataTransfer.getData(
-          FILE_REFERENCE_DRAG_MIME
-        ),
+        serializedPayload: event.dataTransfer.getData(FILE_REFERENCE_DRAG_MIME),
         currentDraggedPayload: getCurrentDraggedFileReference(),
       });
       if (!payload) {

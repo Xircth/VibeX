@@ -33,7 +33,6 @@ async-trait = { workspace = true }
 enum_dispatch = "0.3.13"
 rust-embed = "8.2"
 ignore = "0.4"
-notify-rust = "4.11"
 json-patch = { workspace = true }
 backon = "1.5.1"
 thiserror = { workspace = true }

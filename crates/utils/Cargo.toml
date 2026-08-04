@@ -21,7 +21,7 @@ directories = "6.0.0"
 open = "5.3.2"
 regex = { workspace = true }
 json-patch = { workspace = true }
-jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10.3.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 tokio = { workspace = true }
 futures = { workspace = true }
 tokio-stream = { version = "0.1.17", features = ["sync"] }

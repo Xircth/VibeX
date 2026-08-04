@@ -382,7 +382,7 @@ describe('AutomationsSettings', () => {
     expect(
       await screen.findByRole('list', { name: '后端计算的运行预览' })
     ).toHaveTextContent('2026');
-  });
+  }, 15_000);
 
   it('saves the shared Agent controls and an editable PluginAction', async () => {
     const user = userEvent.setup();

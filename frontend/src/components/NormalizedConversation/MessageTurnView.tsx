@@ -485,7 +485,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   task,
   onRetry,
   onEditRetry,
-  collapseProcess = false,
+  collapseProcess = true,
   workspacePath,
   showInterruptedNotice = true,
 }: {

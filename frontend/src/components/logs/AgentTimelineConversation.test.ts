@@ -5,6 +5,7 @@ import {
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
+  resolveConversationCollapsePreferences,
 } from './AgentTimelineConversation';
 
 function row(
@@ -75,5 +76,26 @@ describe('AgentTimelineConversation composer runtime bridge', () => {
       { content: 'Repair queue state', status: 'in_progress' },
       { content: 'Verify the composer', status: 'pending' },
     ]);
+  });
+});
+
+describe('AgentTimelineConversation collapse preferences', () => {
+  it('keeps both conversation surfaces collapsed before config loads', () => {
+    expect(resolveConversationCollapsePreferences(null)).toEqual({
+      collapseAiMessages: true,
+      expandFileChanges: false,
+    });
+  });
+
+  it('honors an explicit opt-out for both preferences', () => {
+    expect(
+      resolveConversationCollapsePreferences({
+        ai_message_default_collapsed: false,
+        files_changed_default_collapsed: false,
+      })
+    ).toEqual({
+      collapseAiMessages: false,
+      expandFileChanges: true,
+    });
   });
 });

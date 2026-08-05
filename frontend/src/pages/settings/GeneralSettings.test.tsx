@@ -135,6 +135,34 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
+  it('enables conversation collapse preferences by default and persists opt-out', async () => {
+    const user = userEvent.setup();
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
+    const { updateAndSaveConfig } = renderSettings();
+
+    const filesChangedToggle = await screen.findByRole('switch', {
+      name: '`files changed` 默认折叠',
+    });
+    const aiMessageToggle = screen.getByRole('switch', {
+      name: 'AI 消息默认折叠',
+    });
+    expect(filesChangedToggle).toBeChecked();
+    expect(aiMessageToggle).toBeChecked();
+
+    await user.click(filesChangedToggle);
+    await user.click(aiMessageToggle);
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          files_changed_default_collapsed: false,
+          ai_message_default_collapsed: false,
+        })
+      );
+    });
+  });
+
   it('keeps previous-session continuation opt-in and persists it when enabled', async () => {
     const user = userEvent.setup();
     configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });

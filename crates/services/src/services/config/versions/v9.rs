@@ -34,11 +34,11 @@ fn default_prompt_enhancement_prompt() -> Option<String> {
 }
 
 fn default_files_changed_default_collapsed() -> bool {
-    false
+    true
 }
 
 fn default_ai_message_default_collapsed() -> bool {
-    false
+    true
 }
 
 fn default_auto_update_enabled() -> bool {
@@ -246,6 +246,27 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::Config;
+
+    #[test]
+    fn conversation_content_defaults_to_collapsed() {
+        let config = Config::default();
+
+        assert!(config.files_changed_default_collapsed);
+        assert!(config.ai_message_default_collapsed);
+    }
+
+    #[test]
+    fn missing_conversation_collapse_preferences_use_enabled_defaults() {
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        let saved_object = saved.as_object_mut().expect("config object");
+        saved_object.remove("files_changed_default_collapsed");
+        saved_object.remove("ai_message_default_collapsed");
+
+        let loaded: Config = serde_json::from_value(saved).expect("load older v9 config");
+
+        assert!(loaded.files_changed_default_collapsed);
+        assert!(loaded.ai_message_default_collapsed);
+    }
 
     #[test]
     fn previous_session_continuation_remains_off_when_absent_from_saved_config() {

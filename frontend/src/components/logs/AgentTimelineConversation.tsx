@@ -77,6 +77,20 @@ import {
 const ESTIMATED_ROW_HEIGHT = 128;
 const OVERSCAN = 10;
 
+type ConversationCollapsePreferences = {
+  ai_message_default_collapsed?: boolean;
+  files_changed_default_collapsed?: boolean;
+};
+
+export function resolveConversationCollapsePreferences(
+  config: ConversationCollapsePreferences | null | undefined
+): { collapseAiMessages: boolean; expandFileChanges: boolean } {
+  return {
+    collapseAiMessages: config?.ai_message_default_collapsed ?? true,
+    expandFileChanges: !(config?.files_changed_default_collapsed ?? true),
+  };
+}
+
 interface AgentTimelineConversationProps {
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
@@ -355,7 +369,8 @@ const AgentTimelineConversation = forwardRef<
   const { t } = useTranslation(['panels', 'conversation', 'common']);
   const queryClient = useQueryClient();
   const { config } = useUserSystem();
-  const collapseProcess = config?.ai_message_default_collapsed ?? false;
+  const { collapseAiMessages: collapseProcess, expandFileChanges } =
+    resolveConversationCollapsePreferences(config);
   const prefersReducedMotion = useMediaQuery(
     '(prefers-reduced-motion: reduce)'
   );
@@ -1081,12 +1096,7 @@ const AgentTimelineConversation = forwardRef<
                             <TurnFileChangesCard
                               summary={fileChanges.summary}
                               expansionKey={`turn-files:${turnId}`}
-                              defaultExpanded={
-                                !(
-                                  config?.files_changed_default_collapsed ??
-                                  false
-                                )
-                              }
+                              defaultExpanded={expandFileChanges}
                               onUndo={() => void handleUndoTurnChanges(turnId)}
                               undoDisabled={isTurnInFlight}
                             />

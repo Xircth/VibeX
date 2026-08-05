@@ -139,7 +139,7 @@ describe('MessageTurnView', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('collapses command prelude text when AI messages default to collapsed', () => {
+  it('collapses command prelude text by default', () => {
     render(
       <MessageTurnView
         turn={
@@ -158,7 +158,6 @@ describe('MessageTurnView', () => {
         phase="settled"
         attempt={{ id: 'attempt-1', container_ref: null } as never}
         task={null}
-        collapseProcess
       />
     );
 

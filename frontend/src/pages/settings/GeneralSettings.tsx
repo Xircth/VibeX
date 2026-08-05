@@ -610,7 +610,8 @@ export function GeneralSettings() {
               </div>
               <Switch
                 className="settings-switch"
-                checked={draft.files_changed_default_collapsed ?? false}
+                aria-label={t('general.filesChangedCollapsed')}
+                checked={draft.files_changed_default_collapsed ?? true}
                 onCheckedChange={(checked) =>
                   updateDraft({ files_changed_default_collapsed: checked })
                 }
@@ -653,7 +654,8 @@ export function GeneralSettings() {
               </div>
               <Switch
                 className="settings-switch"
-                checked={draft.ai_message_default_collapsed ?? false}
+                aria-label={t('general.aiMessageCollapsed')}
+                checked={draft.ai_message_default_collapsed ?? true}
                 onCheckedChange={(checked) =>
                   updateDraft({ ai_message_default_collapsed: checked })
                 }

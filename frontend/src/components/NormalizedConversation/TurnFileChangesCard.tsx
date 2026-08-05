@@ -42,7 +42,7 @@ function changeKindIcon(changeKind: string) {
 export function TurnFileChangesCard({
   summary,
   expansionKey,
-  defaultExpanded = true,
+  defaultExpanded = false,
   onUndo,
   undoDisabled = false,
 }: {

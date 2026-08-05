@@ -65,7 +65,12 @@ impl NativeFileSystem for MemoryNativeFileSystem {
         Ok(self.files.lock().unwrap().get(path).cloned())
     }
 
-    async fn write_atomic(&self, path: &Path, bytes: &[u8]) -> Result<(), BoundaryError> {
+    async fn write_atomic(
+        &self,
+        path: &Path,
+        bytes: &[u8],
+        _sensitive: bool,
+    ) -> Result<(), BoundaryError> {
         self.files
             .lock()
             .unwrap()

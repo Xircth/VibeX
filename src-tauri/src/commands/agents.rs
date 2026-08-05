@@ -5,15 +5,17 @@ use std::{
 
 use agents::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot,
-    AgentContentBlock, AgentManagementSnapshot, AgentPermissionId, AgentPermissionResponse,
-    AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot, AgentSessionControlsSnapshot,
-    AgentSessionId, AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot,
-    CancelAgentPromptInput, ConnectAgentInput, LaunchComponentEvidence, LaunchGate,
+    AgentContentBlock, AgentHistoryError, AgentListedSession, AgentManagementSnapshot,
+    AgentPermissionId, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
+    AgentPromptSnapshot, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage,
+    AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput,
+    ConnectAgentInput, ImportedAgentSession, LaunchComponentEvidence, LaunchGate,
     RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput,
     SessionAuthenticationEvidence, SessionGate, SessionGateInput, SessionLaunchLock,
-    resolve_session_authentication_evidence, terminal::agent_terminal_registry,
+    configured_history_sources, import_history_source, resolve_session_authentication_evidence,
+    terminal::agent_terminal_registry,
 };
-use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
+use api_types::{AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState};
 use db::models::{
     agent_capability_catalog::AgentCapabilityCatalogRecord,
     agent_management::{SessionDefaultRecord, SessionDefaultRepository},
@@ -685,6 +687,154 @@ pub async fn agent_runtime_snapshot(
 }
 
 #[tauri::command]
+pub async fn agent_list_local_history(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<AgentSessionListPage, AppError> {
+    let sessions = scan_local_history_sessions(&state.deployment.db().pool, &agent_id).await?;
+    Ok(AgentSessionListPage {
+        sessions: sessions
+            .into_iter()
+            .map(|session| AgentListedSession {
+                acp_session_id: session.external_session_id,
+                cwd: session
+                    .workspace_path
+                    .map(|path| path.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                additional_directories: Vec::new(),
+                title: session.title,
+                updated_at: session
+                    .messages
+                    .iter()
+                    .filter_map(|message| message.created_at)
+                    .max()
+                    .map(|timestamp| timestamp.to_rfc3339()),
+                meta: Some(serde_json::json!({
+                    "source": "local_history",
+                    "messageCount": session.messages.len(),
+                })),
+            })
+            .collect(),
+        next_cursor: None,
+        meta: Some(serde_json::json!({ "source": "local_history" })),
+    })
+}
+
+#[tauri::command]
+pub async fn agent_import_local_history(
+    state: tauri::State<'_, AppState>,
+    request: AgentImportRemoteSessionRequest,
+) -> Result<Session, AppError> {
+    let workspace_id = parse_uuid("workspace_id", &request.workspace_id)?;
+    let pool = &state.deployment.db().pool;
+    Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {workspace_id} not found")))?;
+    if let Some(existing) =
+        DbConversationSummary::find_by_external_id(pool, &request.acp_session_id, &request.agent_id)
+            .await?
+    {
+        return Session::find_by_id(pool, existing.id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Session {} not found", existing.id)));
+    }
+
+    let mut imported = scan_local_history_sessions(pool, &request.agent_id)
+        .await?
+        .into_iter()
+        .find(|session| session.external_session_id == request.acp_session_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "Local Agent history session {} was not found",
+                request.acp_session_id
+            ))
+        })?;
+    if request
+        .title
+        .as_deref()
+        .is_some_and(|title| !title.trim().is_empty())
+    {
+        imported.title = request.title;
+    }
+    let conversation_id =
+        crate::commands::conversations::import_agent_session_to_conversation_events(
+            pool,
+            workspace_id,
+            &imported,
+        )
+        .await?;
+    Session::find_by_id(pool, conversation_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {conversation_id} not found")))
+}
+
+async fn scan_local_history_sessions(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<Vec<ImportedAgentSession>, AppError> {
+    let agent_kind = AgentKind::from_lenient(agent_id.as_str()).ok_or_else(|| {
+        AppError::BadRequest(format!("Agent {} has no local history parser", agent_id))
+    })?;
+    let configured_env = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
+    .unwrap_or_default();
+    let sources = configured_history_sources(agent_kind, &configured_env);
+    tokio::task::spawn_blocking(move || {
+        let mut by_id = BTreeMap::<String, ImportedAgentSession>::new();
+        let mut first_error = None;
+        for source in sources {
+            match import_history_source(&source) {
+                Ok(sessions) => {
+                    for session in sessions {
+                        let replace =
+                            by_id
+                                .get(&session.external_session_id)
+                                .is_none_or(|existing| {
+                                    session.messages.len() > existing.messages.len()
+                                });
+                        if replace {
+                            by_id.insert(session.external_session_id.clone(), session);
+                        }
+                    }
+                }
+                Err(AgentHistoryError::MissingSource(_)) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "failed to scan a local Agent history source");
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        if by_id.is_empty()
+            && let Some(error) = first_error
+        {
+            return Err(AppError::Internal(error.to_string()));
+        }
+        let mut sessions = by_id.into_values().collect::<Vec<_>>();
+        sessions.sort_by(|left, right| {
+            let latest = |session: &ImportedAgentSession| {
+                session
+                    .messages
+                    .iter()
+                    .filter_map(|message| message.created_at)
+                    .max()
+            };
+            latest(right)
+                .cmp(&latest(left))
+                .then_with(|| left.external_session_id.cmp(&right.external_session_id))
+        });
+        Ok(sessions)
+    })
+    .await
+    .map_err(|error| AppError::Internal(format!("local history scan failed: {error}")))?
+}
+
+#[tauri::command]
 pub async fn agent_list_remote_sessions(
     state: tauri::State<'_, AppState>,
     request: AgentListSessionsRequest,
@@ -956,7 +1106,8 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
                   COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
                   COALESCE(probe.authentication, 'not_logged_in') AS authentication,
                   lock.resolved_json,
-                  lock.id
+                  lock.id,
+                  setting.env_json
            FROM agent_membership membership
            LEFT JOIN agent_installation installation
              ON installation.agent_id = membership.agent_id
@@ -964,6 +1115,8 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
              ON lock.id = installation.current_lock_id
            LEFT JOIN agent_probe probe
              ON probe.agent_id = membership.agent_id
+           LEFT JOIN agent_setting setting
+             ON setting.agent_type = membership.agent_id
            WHERE membership.agent_id = ?"#,
     )
     .bind(agent_id.as_str())
@@ -1087,7 +1240,7 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
             })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()?;
-    let launch_lock = match LaunchGate::verify(launch_lock, &components).await {
+    let mut launch_lock = match LaunchGate::verify(launch_lock, &components).await {
         Ok(lock) => lock,
         Err(error) => {
             sqlx::query(
@@ -1116,9 +1269,17 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
             )));
         }
     };
+    let mut env = row
+        .try_get::<Option<String>, _>("env_json")?
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
+        .transpose()
+        .map_err(|error| AppError::Internal(format!("invalid Agent environment: {error}")))?
+        .unwrap_or_default();
+    agents::apply_built_in_launch_policy(agent_id, &mut env, &mut launch_lock.args);
     Ok(conversations::AgentRuntimeLaunchSettings {
         auto_approve_mode: AgentAutoApproveMode::Off,
-        env: HashMap::new(),
+        env,
         launch_lock,
     })
 }

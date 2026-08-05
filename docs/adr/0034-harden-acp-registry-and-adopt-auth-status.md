@@ -50,8 +50,9 @@ ADR-0022、ADR-0023、ADR-0026 与 ADR-0027 的落实和细化，不改变这些
    自动接管任意 Agent，也不增加自定义 Registry。
 4. Built-in Agent 只在默认展示、不可移除、主动探测和声明式本地补缺方面特殊，
    安装、配置、状态与会话运行仍使用统一管线。
-5. VibeX 只读认证状态，不启动浏览器、CLI、设备码登录或注销。API Key 仍由已适配
-   Agent 原生配置文件持有，可在本机明文保存；VibeX 不验证 API Key 的远程有效性。
+5. VibeX 观察认证状态；账号动作按 ADR-0037 仅从 Built-in Agent Profile 白名单启动。
+   API Key 仍由已适配 Agent 原生配置文件持有，可在本机明文保存；VibeX 不验证
+   API Key 的远程有效性。
 6. 功能与不变量优先于保留当前代码。若现有模块边界妨碍正确实现，应替换或删除，
    不保留双轨兼容路径。
 
@@ -667,7 +668,7 @@ cargo test --workspace
 - **只在安装时验证 SHA-256。** 否决：安装后的文件替换正是启动信任边界。
 - **继续用 `session/new` 猜认证状态。** 否决：ACP 官方 `auth/status` RFD 明确指出该
   方法既不可靠又可能产生 session 副作用。
-- **等待 `auth/status` 稳定后再集成。** 否决：当前需求需要只读认证状态，且能力协商、
+- **等待 `auth/status` 稳定后再集成。** 否决：当前需求需要可靠认证状态，且能力协商、
   隔离 adapter、tolerant decoder 与 fallback 足以控制草案漂移风险。
 - **把 `authenticated: true` 一律显示为账号登录。** 否决：草案有意移除了认证方法，
   这样做会制造错误信息。

@@ -531,6 +531,8 @@ export interface AgentSkillLocation {
 
 export interface AgentSkillsListResult {
   supported: boolean;
+  global_supported: boolean;
+  project_supported: boolean;
   locations: AgentSkillLocation[];
   skills: AgentSkillItem[];
 }

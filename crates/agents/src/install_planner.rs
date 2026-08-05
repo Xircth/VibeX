@@ -237,7 +237,6 @@ impl InstallPlanner {
             ));
         }
         if input.environment.uv_verified
-            && input.environment.python_verified
             && let Some(uvx) = target.distributions.uvx.clone()
         {
             ensure_package_version(&uvx, &target.version, true)?;
@@ -304,10 +303,8 @@ impl InstallPlanner {
                 component
             }
             UserAgentDistributionKind::Uvx => {
-                if !input.environment.uv_verified || !input.environment.python_verified {
-                    return Err(InstallPlanningError::RuntimeUnavailable {
-                        runtime: "uv/python",
-                    });
+                if !input.environment.uv_verified {
+                    return Err(InstallPlanningError::RuntimeUnavailable { runtime: "uv" });
                 }
                 let package = target.distributions.uvx.as_ref().ok_or_else(|| {
                     InstallPlanningError::UnsupportedPlatform {
@@ -419,12 +416,35 @@ fn plan_profile_component(
                 },
             })
         }
+        ProfileInstallSource::Uvx {
+            component,
+            package,
+            version,
+            command,
+            args,
+            ..
+        } => {
+            if !input.environment.uv_verified {
+                return Err(InstallPlanningError::RuntimeUnavailable { runtime: "uv" });
+            }
+            Ok(PlannedInstallComponent {
+                component_id: component_id(*component).to_string(),
+                distribution_kind: PlannedDistributionKind::Uvx,
+                version: (*version).to_string(),
+                resolved_source: (*package).to_string(),
+                command: (*command).to_string(),
+                args: args.iter().map(ToString::to_string).collect(),
+                env: Default::default(),
+                trust: ArtifactTrust::EcosystemIntegrityRequired,
+            })
+        }
         ProfileInstallSource::Binary {
             component,
             version,
             command,
             args,
             artifacts,
+            entry,
         } => {
             let artifact = artifacts
                 .iter()
@@ -438,12 +458,23 @@ fn plan_profile_component(
                 distribution_kind: PlannedDistributionKind::Binary,
                 version: (*version).to_string(),
                 resolved_source: artifact.archive_url.to_string(),
-                command: (*command).to_string(),
+                command: entry.as_ref().map_or_else(
+                    || (*command).to_string(),
+                    |entry| {
+                        if input.platform.starts_with("windows-") {
+                            entry.windows.to_string()
+                        } else {
+                            entry.unix.to_string()
+                        }
+                    },
+                ),
                 args: args.iter().map(ToString::to_string).collect(),
                 env: Default::default(),
-                trust: ArtifactTrust::ExpectedSha256 {
-                    sha256: artifact.sha256.to_string(),
-                },
+                trust: artifact.sha256.map_or(ArtifactTrust::Tofu, |sha256| {
+                    ArtifactTrust::ExpectedSha256 {
+                        sha256: sha256.to_string(),
+                    }
+                }),
             })
         }
     }

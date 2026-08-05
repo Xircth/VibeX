@@ -443,9 +443,52 @@ pub async fn update_claude_settings(
 
 // ── MCP marketplace + global hosting ───────────────────────────────────────
 
+async fn saved_mcp_agent_environment(
+    state: &AppState,
+) -> Result<HashMap<String, String>, AppError> {
+    let documents = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT env_json FROM agent_setting WHERE env_json IS NOT NULL",
+    )
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let mut merged = HashMap::new();
+    for document in documents.into_iter().flatten() {
+        let values: HashMap<String, String> = serde_json::from_str(&document)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        for (key, value) in values {
+            if matches!(
+                key.as_str(),
+                "CLAUDE_CONFIG_DIR"
+                    | "CODEX_HOME"
+                    | "GEMINI_CLI_HOME"
+                    | "OPENCLAW_HOME"
+                    | "XDG_CONFIG_HOME"
+                    | "XDG_DATA_HOME"
+                    | "XDG_CACHE_HOME"
+                    | "CLINE_DIR"
+                    | "HERMES_HOME"
+                    | "CODEBUDDY_CONFIG_DIR"
+                    | "KIMI_CODE_HOME"
+                    | "GROK_HOME"
+                    | "CURSOR_CONFIG_DIR"
+            ) && !value.trim().is_empty()
+            {
+                merged.insert(key, value);
+            }
+        }
+    }
+    Ok(merged)
+}
+
 #[tauri::command]
-pub async fn mcp_scan_local() -> Result<Vec<LocalMcpServer>, AppError> {
-    Ok(services::services::mcp::scan_local().await?)
+pub async fn mcp_scan_local(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<LocalMcpServer>, AppError> {
+    Ok(services::services::mcp::with_saved_agent_environment(
+        saved_mcp_agent_environment(&state).await?,
+        services::services::mcp::scan_local(),
+    )
+    .await?)
 }
 
 #[tauri::command]
@@ -471,7 +514,11 @@ pub async fn mcp_get_marketplace_server_detail(
 }
 
 #[tauri::command]
+// Tauri exposes these marketplace fields as a stable named IPC payload; the
+// AppState argument is injected by Tauri and is not part of the wire contract.
+#[allow(clippy::too_many_arguments)]
 pub async fn mcp_install_marketplace_server(
+    state: tauri::State<'_, AppState>,
     provider_id: String,
     server_id: String,
     global: bool,
@@ -480,31 +527,46 @@ pub async fn mcp_install_marketplace_server(
     parameter_values: Option<serde_json::Value>,
     spec_override: Option<serde_json::Value>,
 ) -> Result<Vec<LocalMcpServer>, AppError> {
-    Ok(services::services::mcp::install_marketplace_server(
-        provider_id,
-        server_id,
-        global,
-        apps,
-        option_id,
-        parameter_values,
-        spec_override,
+    Ok(services::services::mcp::with_saved_agent_environment(
+        saved_mcp_agent_environment(&state).await?,
+        services::services::mcp::install_marketplace_server(
+            provider_id,
+            server_id,
+            global,
+            apps,
+            option_id,
+            parameter_values,
+            spec_override,
+        ),
     )
     .await?)
 }
 
 #[tauri::command]
 pub async fn mcp_upsert_local_server(
+    state: tauri::State<'_, AppState>,
     server_id: String,
     spec: serde_json::Value,
     global: bool,
     apps: Vec<McpAppType>,
 ) -> Result<Vec<LocalMcpServer>, AppError> {
-    Ok(services::services::mcp::upsert_local_server(server_id, spec, global, apps).await?)
+    Ok(services::services::mcp::with_saved_agent_environment(
+        saved_mcp_agent_environment(&state).await?,
+        services::services::mcp::upsert_local_server(server_id, spec, global, apps),
+    )
+    .await?)
 }
 
 #[tauri::command]
-pub async fn mcp_uninstall_server(server_id: String) -> Result<Vec<LocalMcpServer>, AppError> {
-    Ok(services::services::mcp::uninstall_server(server_id).await?)
+pub async fn mcp_uninstall_server(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> Result<Vec<LocalMcpServer>, AppError> {
+    Ok(services::services::mcp::with_saved_agent_environment(
+        saved_mcp_agent_environment(&state).await?,
+        services::services::mcp::uninstall_server(server_id),
+    )
+    .await?)
 }
 
 #[cfg(test)]

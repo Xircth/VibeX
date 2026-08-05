@@ -1,5 +1,6 @@
 export { agentManagementApi } from './api';
 export { useAgentManagement } from './useAgentManagement';
+export { agentManagementErrorMessage } from './errorMessage';
 export {
   useManagedAgentOptions,
   type ManagedAgentOption,

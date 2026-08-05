@@ -171,7 +171,7 @@ function SkillTargetSelector({
 
 export function SkillsSettings() {
   const { t } = useTranslation(['settings', 'common']);
-  const agentOptions = useManagedAgentOptions();
+  const agentOptions = useManagedAgentOptions('native_skills');
   const agentLabels = useMemo(
     () =>
       Object.fromEntries(agentOptions.map((item) => [item.value, item.label])),

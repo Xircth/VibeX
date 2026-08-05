@@ -4,7 +4,8 @@
 //! directory containing `SKILL.md` (or, for Codex, a flat `{id}.md` file).
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
+    future::Future,
     path::{Path, PathBuf},
 };
 
@@ -13,7 +14,21 @@ use tokio::fs;
 use ts_rs::TS;
 use workspace_utils::path::normalize_windows_extended_path_prefix;
 
-use crate::{AgentKind, codex_home};
+use crate::AgentKind;
+
+tokio::task_local! {
+    static SAVED_AGENT_ENVIRONMENT: HashMap<String, String>;
+}
+
+pub async fn with_saved_agent_environment<F>(
+    environment: HashMap<String, String>,
+    future: F,
+) -> F::Output
+where
+    F: Future,
+{
+    SAVED_AGENT_ENVIRONMENT.scope(environment, future).await
+}
 
 /// Error surface for the per-agent skills logic. Command handlers map this onto
 /// their own `AppError`.
@@ -55,34 +70,51 @@ pub struct AgentSkillsSurface {
 
 pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
     match agent_type {
-        AgentKind::ClaudeCode | AgentKind::Codex | AgentKind::Opencode => AgentSkillsSurface {
+        AgentKind::ClaudeCode
+        | AgentKind::Codex
+        | AgentKind::Gemini
+        | AgentKind::Openclaw
+        | AgentKind::Opencode
+        | AgentKind::Cline
+        | AgentKind::Codebuddy
+        | AgentKind::KimiCode
+        | AgentKind::Pi
+        | AgentKind::Grok
+        | AgentKind::Cursor => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
             project_supported: true,
         },
-        AgentKind::Gemini
-        | AgentKind::Openclaw
-        | AgentKind::Cline
-        | AgentKind::Hermes
-        | AgentKind::QaMock => AgentSkillsSurface {
+        AgentKind::Hermes => AgentSkillsSurface {
             agent_type,
-            strategy: AgentSkillsStrategy::AgentCommand,
+            strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
+            project_supported: false,
+        },
+        AgentKind::QaMock => AgentSkillsSurface {
+            agent_type,
+            strategy: AgentSkillsStrategy::Unsupported,
+            global_supported: false,
             project_supported: false,
         },
     }
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 7] = [
+const ALL_AGENTS: [AgentKind; 12] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
-    AgentKind::Opencode,
     AgentKind::Gemini,
     AgentKind::Openclaw,
+    AgentKind::Opencode,
     AgentKind::Cline,
     AgentKind::Hermes,
+    AgentKind::Codebuddy,
+    AgentKind::KimiCode,
+    AgentKind::Pi,
+    AgentKind::Grok,
+    AgentKind::Cursor,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,8 +144,20 @@ pub struct AgentSkillLocation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSkillsListResult {
     pub supported: bool,
+    pub global_supported: bool,
+    pub project_supported: bool,
     pub locations: Vec<AgentSkillLocation>,
     pub skills: Vec<AgentSkillItem>,
+}
+
+/// User-declared skills storage for an arbitrary ACP Agent. Unknown Agents are
+/// intentionally excluded until the user declares either the shared
+/// `.agents/skills` convention, a dedicated absolute directory, or both.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomAgentSkillStorage {
+    pub agent_id: String,
+    pub shared_store: bool,
+    pub directory: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,14 +173,51 @@ struct SkillDir {
 }
 
 fn hermes_home() -> Option<PathBuf> {
-    std::env::var_os("HERMES_HOME")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".hermes")))
+    configured_dir(
+        "HERMES_HOME",
+        dirs::home_dir().map(|home| home.join(".hermes")),
+    )
+}
+
+fn configured_value(variable: &str) -> Option<String> {
+    SAVED_AGENT_ENVIRONMENT
+        .try_with(|environment| environment.get(variable).cloned())
+        .ok()
+        .flatten()
+        .or_else(|| std::env::var(variable).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn configured_dir(variable: &str, fallback: Option<PathBuf>) -> Option<PathBuf> {
+    let value = configured_value(variable);
+    match value {
+        Some(value) if value == "~" => dirs::home_dir(),
+        Some(value) if value.starts_with("~/") => {
+            dirs::home_dir().map(|home| home.join(value.trim_start_matches("~/")))
+        }
+        Some(value) => Some(PathBuf::from(value)),
+        None => fallback,
+    }
+}
+
+fn cline_skills_root(home: Option<PathBuf>) -> Option<PathBuf> {
+    let configured = configured_dir("CLINE_DIR", None);
+    configured
+        .and_then(|data_root| data_root.parent().map(Path::to_path_buf))
+        .or_else(|| home.map(|home| home.join(".cline")))
+}
+
+fn codex_skills_home() -> Option<PathBuf> {
+    configured_dir(
+        "CODEX_HOME",
+        dirs::home_dir().map(|home| home.join(".codex")),
+    )
 }
 
 /// Whether the agent also supports a flat `{id}.md` skill layout (Codex only).
 fn allows_markdown_file(agent: AgentKind) -> bool {
-    matches!(agent, AgentKind::Codex)
+    matches!(agent, AgentKind::Codex | AgentKind::Pi)
 }
 
 /// All skill directories for an agent, tagged by scope and read-only status.
@@ -146,13 +227,16 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
     let mut out: Vec<SkillDir> = Vec::new();
 
     let globals: Vec<(PathBuf, bool)> = match agent {
-        AgentKind::ClaudeCode => home
-            .iter()
-            .map(|h| (h.join(".claude").join("skills"), false))
-            .collect(),
+        AgentKind::ClaudeCode => configured_dir(
+            "CLAUDE_CONFIG_DIR",
+            home.as_ref().map(|home| home.join(".claude")),
+        )
+        .into_iter()
+        .map(|home| (home.join("skills"), false))
+        .collect(),
         AgentKind::Codex => {
             let mut dirs = Vec::new();
-            if let Some(codex) = codex_home() {
+            if let Some(codex) = codex_skills_home() {
                 dirs.push((codex.join("skills"), false));
                 dirs.push((codex.join("skills").join(".system"), true));
             }
@@ -161,41 +245,92 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             }
             dirs
         }
-        AgentKind::Opencode => home
-            .iter()
-            .flat_map(|h| {
-                vec![
-                    (h.join(".config").join("opencode").join("skills"), false),
-                    (h.join(".agents").join("skills"), false),
-                ]
-            })
+        AgentKind::Opencode => configured_dir(
+            "XDG_CONFIG_HOME",
+            home.as_ref().map(|home| home.join(".config")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("opencode").join("skills"), false))
+        .chain(
+            home.iter()
+                .map(|home| (home.join(".agents").join("skills"), false)),
+        )
+        .collect(),
+        AgentKind::Gemini => configured_dir("GEMINI_CLI_HOME", home.clone())
+            .into_iter()
+            .map(|dir| (dir.join(".gemini").join("skills"), false))
+            .chain(
+                home.iter()
+                    .map(|home| (home.join(".agents").join("skills"), false)),
+            )
             .collect(),
-        AgentKind::Gemini => home
-            .iter()
-            .flat_map(|h| {
-                vec![
-                    (h.join(".gemini").join("skills"), false),
-                    (h.join(".agents").join("skills"), false),
-                ]
-            })
-            .collect(),
-        AgentKind::Openclaw => home
-            .iter()
-            .map(|h| (h.join(".openclaw").join("skills"), false))
-            .collect(),
+        AgentKind::Openclaw => configured_dir(
+            "OPENCLAW_HOME",
+            home.as_ref().map(|home| home.join(".openclaw")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .collect(),
         AgentKind::Cline => home
             .iter()
-            .flat_map(|h| {
-                vec![
-                    (h.join(".agents").join("skills"), false),
-                    (h.join(".cline").join("skills"), false),
-                ]
-            })
+            .map(|home| (home.join(".agents").join("skills"), false))
+            .chain(
+                cline_skills_root(home.clone())
+                    .into_iter()
+                    .map(|dir| (dir.join("skills"), false)),
+            )
             .collect(),
         AgentKind::Hermes => hermes_home()
             .into_iter()
             .map(|h| (h.join("skills"), false))
             .collect(),
+        AgentKind::Codebuddy => configured_dir(
+            "CODEBUDDY_CONFIG_DIR",
+            home.as_ref().map(|home| home.join(".codebuddy")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .collect(),
+        AgentKind::KimiCode => configured_dir(
+            "KIMI_CODE_HOME",
+            home.as_ref().map(|home| home.join(".kimi-code")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .collect(),
+        AgentKind::Pi => configured_dir(
+            "PI_CODING_AGENT_DIR",
+            home.as_ref().map(|home| home.join(".pi").join("agent")),
+        )
+        .into_iter()
+        .map(|dir| (dir.join("skills"), false))
+        .chain(
+            home.iter()
+                .map(|home| (home.join(".agents").join("skills"), false)),
+        )
+        .collect(),
+        AgentKind::Grok => {
+            configured_dir("GROK_HOME", home.as_ref().map(|home| home.join(".grok")))
+                .into_iter()
+                .map(|dir| (dir.join("skills"), false))
+                .collect()
+        }
+        AgentKind::Cursor => configured_dir(
+            "CURSOR_CONFIG_DIR",
+            home.as_ref().map(|home| home.join(".cursor")),
+        )
+        .iter()
+        .flat_map(|cursor_root| {
+            let mut directories = vec![
+                (cursor_root.join("skills"), false),
+                (cursor_root.join("skills-cursor"), true),
+            ];
+            if let Some(home) = dirs::home_dir() {
+                directories.push((home.join(".agents").join("skills"), false));
+            }
+            directories
+        })
+        .collect(),
         // In-process mock agent: no skill directories.
         AgentKind::QaMock => Vec::new(),
     };
@@ -221,6 +356,11 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
                 ".claude/skills",
             ],
             AgentKind::Hermes => &[],
+            AgentKind::Codebuddy => &[".codebuddy/skills"],
+            AgentKind::KimiCode => &[".kimi-code/skills"],
+            AgentKind::Pi => &[".pi/skills", ".agents/skills"],
+            AgentKind::Grok => &[".grok/skills"],
+            AgentKind::Cursor => &[".cursor/skills", ".agents/skills"],
             AgentKind::QaMock => &[],
         };
         for relative in relatives {
@@ -237,6 +377,66 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
     }
 
     out
+}
+
+fn custom_skill_dirs(storage: &CustomAgentSkillStorage, workspace: Option<&Path>) -> Vec<SkillDir> {
+    let mut dirs = Vec::new();
+    if let Some(directory) = storage
+        .directory
+        .as_ref()
+        .filter(|directory| directory.is_absolute())
+    {
+        dirs.push(SkillDir {
+            scope: AgentSkillScope::Global,
+            path: directory.clone(),
+            read_only: false,
+        });
+    }
+    if storage.shared_store {
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(SkillDir {
+                scope: AgentSkillScope::Global,
+                path: home.join(".agents").join("skills"),
+                read_only: false,
+            });
+        }
+        if let Some(workspace) = workspace {
+            dirs.push(SkillDir {
+                scope: AgentSkillScope::Project,
+                path: workspace.join(".agents").join("skills"),
+                read_only: false,
+            });
+        }
+    }
+    dirs
+}
+
+fn declared_custom_storage<'a>(
+    agent_type: &str,
+    storage: Option<&'a CustomAgentSkillStorage>,
+) -> Option<&'a CustomAgentSkillStorage> {
+    storage.filter(|storage| {
+        storage.agent_id == agent_type
+            && (storage.shared_store
+                || storage
+                    .directory
+                    .as_ref()
+                    .is_some_and(|directory| directory.is_absolute()))
+    })
+}
+
+fn resolved_skill_dirs(
+    agent_type: &str,
+    storage: Option<&CustomAgentSkillStorage>,
+    workspace: Option<&Path>,
+) -> Result<(Vec<SkillDir>, bool), SkillError> {
+    if let Some(agent) = AgentKind::from_lenient(agent_type) {
+        return Ok((skill_dirs(agent, workspace), allows_markdown_file(agent)));
+    }
+    let storage = declared_custom_storage(agent_type, storage).ok_or_else(|| {
+        SkillError::Validation(format!("Unknown or undeclared agent: {agent_type}"))
+    })?;
+    Ok((custom_skill_dirs(storage, workspace), false))
 }
 
 fn display_path(path: &Path) -> String {
@@ -369,11 +569,6 @@ fn scope_rank(scope: AgentSkillScope) -> u8 {
     }
 }
 
-fn parse_agent(agent_type: &str) -> Result<AgentKind, SkillError> {
-    AgentKind::from_lenient(agent_type)
-        .ok_or_else(|| SkillError::Validation(format!("Unknown agent type: {agent_type}")))
-}
-
 fn workspace_dir(workspace_path: Option<String>) -> Option<PathBuf> {
     workspace_path
         .map(|p| p.trim().to_string())
@@ -385,10 +580,26 @@ pub async fn list_agent_skills(
     agent_type: String,
     workspace_path: Option<String>,
 ) -> Result<AgentSkillsListResult, SkillError> {
-    let agent = parse_agent(&agent_type)?;
+    list_agent_skills_with_storage(agent_type, workspace_path, None).await
+}
+
+pub async fn list_agent_skills_with_storage(
+    agent_type: String,
+    workspace_path: Option<String>,
+    storage: Option<CustomAgentSkillStorage>,
+) -> Result<AgentSkillsListResult, SkillError> {
     let workspace = workspace_dir(workspace_path);
-    let dirs = skill_dirs(agent, workspace.as_deref());
-    let allow_md = allows_markdown_file(agent);
+    let Some((dirs, allow_md)) =
+        resolved_skill_dirs(&agent_type, storage.as_ref(), workspace.as_deref()).ok()
+    else {
+        return Ok(AgentSkillsListResult {
+            supported: false,
+            global_supported: false,
+            project_supported: false,
+            locations: Vec::new(),
+            skills: Vec::new(),
+        });
+    };
 
     let locations = dirs
         .iter()
@@ -415,8 +626,21 @@ pub async fn list_agent_skills(
             .then_with(|| a.id.cmp(&b.id))
     });
 
+    let (global_supported, project_supported) =
+        if let Some(agent) = AgentKind::from_lenient(&agent_type) {
+            let surface = skills_surface(agent);
+            (surface.global_supported, surface.project_supported)
+        } else {
+            let storage = storage.as_ref().expect("resolved custom storage");
+            (
+                storage.directory.is_some() || storage.shared_store,
+                storage.shared_store,
+            )
+        };
     Ok(AgentSkillsListResult {
         supported: true,
+        global_supported,
+        project_supported,
         locations,
         skills,
     })
@@ -443,15 +667,22 @@ pub async fn read_agent_skill(
     skill_id: String,
     workspace_path: Option<String>,
 ) -> Result<AgentSkillContent, SkillError> {
-    let agent = parse_agent(&agent_type)?;
+    read_agent_skill_with_storage(agent_type, scope, skill_id, workspace_path, None).await
+}
+
+pub async fn read_agent_skill_with_storage(
+    agent_type: String,
+    scope: AgentSkillScope,
+    skill_id: String,
+    workspace_path: Option<String>,
+    storage: Option<CustomAgentSkillStorage>,
+) -> Result<AgentSkillContent, SkillError> {
     let id = validate_skill_id(&skill_id)?;
     let workspace = workspace_dir(workspace_path);
-    let allow_md = allows_markdown_file(agent);
+    let (dirs, allow_md) =
+        resolved_skill_dirs(&agent_type, storage.as_ref(), workspace.as_deref())?;
 
-    for dir in skill_dirs(agent, workspace.as_deref())
-        .into_iter()
-        .filter(|dir| dir.scope == scope)
-    {
+    for dir in dirs.into_iter().filter(|dir| dir.scope == scope) {
         if let Some(entry) = resolve_skill_entry(&dir, &id, allow_md) {
             let content_path = skill_content_path(&entry)
                 .ok_or_else(|| SkillError::Other(format!("Skill content file missing for {id}")))?;
@@ -481,12 +712,23 @@ pub async fn save_agent_skill(
     content: String,
     workspace_path: Option<String>,
 ) -> Result<AgentSkillItem, SkillError> {
-    let agent = parse_agent(&agent_type)?;
+    save_agent_skill_with_storage(agent_type, scope, skill_id, content, workspace_path, None).await
+}
+
+pub async fn save_agent_skill_with_storage(
+    agent_type: String,
+    scope: AgentSkillScope,
+    skill_id: String,
+    content: String,
+    workspace_path: Option<String>,
+    storage: Option<CustomAgentSkillStorage>,
+) -> Result<AgentSkillItem, SkillError> {
     let id = validate_skill_id(&skill_id)?;
     let workspace = workspace_dir(workspace_path);
-    let allow_md = allows_markdown_file(agent);
+    let (dirs, allow_md) =
+        resolved_skill_dirs(&agent_type, storage.as_ref(), workspace.as_deref())?;
 
-    let target = skill_dirs(agent, workspace.as_deref())
+    let target = dirs
         .into_iter()
         .find(|dir| dir.scope == scope && !dir.read_only)
         .ok_or_else(|| SkillError::Validation("当前作用域没有可写的技能目录".to_string()))?;
@@ -534,15 +776,22 @@ pub async fn delete_agent_skill(
     skill_id: String,
     workspace_path: Option<String>,
 ) -> Result<(), SkillError> {
-    let agent = parse_agent(&agent_type)?;
+    delete_agent_skill_with_storage(agent_type, scope, skill_id, workspace_path, None).await
+}
+
+pub async fn delete_agent_skill_with_storage(
+    agent_type: String,
+    scope: AgentSkillScope,
+    skill_id: String,
+    workspace_path: Option<String>,
+    storage: Option<CustomAgentSkillStorage>,
+) -> Result<(), SkillError> {
     let id = validate_skill_id(&skill_id)?;
     let workspace = workspace_dir(workspace_path);
-    let allow_md = allows_markdown_file(agent);
+    let (dirs, allow_md) =
+        resolved_skill_dirs(&agent_type, storage.as_ref(), workspace.as_deref())?;
 
-    for dir in skill_dirs(agent, workspace.as_deref())
-        .into_iter()
-        .filter(|dir| dir.scope == scope)
-    {
+    for dir in dirs.into_iter().filter(|dir| dir.scope == scope) {
         if let Some(entry) = resolve_skill_entry(&dir, &id, allow_md) {
             if dir.read_only {
                 return Err(SkillError::Validation(
@@ -637,13 +886,44 @@ fn vibex_skills_dir() -> PathBuf {
 fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
     let home = dirs::home_dir();
     match agent {
-        AgentKind::ClaudeCode => home.map(|h| h.join(".claude").join("skills")),
-        AgentKind::Codex => codex_home().map(|c| c.join("skills")),
-        AgentKind::Opencode => home.map(|h| h.join(".config").join("opencode").join("skills")),
-        AgentKind::Gemini => home.map(|h| h.join(".gemini").join("skills")),
-        AgentKind::Openclaw => home.map(|h| h.join(".openclaw").join("skills")),
-        AgentKind::Cline => home.map(|h| h.join(".cline").join("skills")),
+        AgentKind::ClaudeCode => {
+            configured_dir("CLAUDE_CONFIG_DIR", home.map(|home| home.join(".claude")))
+                .map(|home| home.join("skills"))
+        }
+        AgentKind::Codex => codex_skills_home().map(|c| c.join("skills")),
+        AgentKind::Opencode => {
+            configured_dir("XDG_CONFIG_HOME", home.map(|home| home.join(".config")))
+                .map(|dir| dir.join("opencode").join("skills"))
+        }
+        AgentKind::Gemini => {
+            configured_dir("GEMINI_CLI_HOME", home).map(|dir| dir.join(".gemini").join("skills"))
+        }
+        AgentKind::Openclaw => {
+            configured_dir("OPENCLAW_HOME", home.map(|home| home.join(".openclaw")))
+                .map(|dir| dir.join("skills"))
+        }
+        AgentKind::Cline => home.map(|home| home.join(".agents").join("skills")),
         AgentKind::Hermes => hermes_home().map(|h| h.join("skills")),
+        AgentKind::Codebuddy => configured_dir(
+            "CODEBUDDY_CONFIG_DIR",
+            home.map(|home| home.join(".codebuddy")),
+        )
+        .map(|dir| dir.join("skills")),
+        AgentKind::KimiCode => {
+            configured_dir("KIMI_CODE_HOME", home.map(|home| home.join(".kimi-code")))
+                .map(|dir| dir.join("skills"))
+        }
+        AgentKind::Pi => configured_dir(
+            "PI_CODING_AGENT_DIR",
+            home.map(|home| home.join(".pi").join("agent")),
+        )
+        .map(|dir| dir.join("skills")),
+        AgentKind::Grok => configured_dir("GROK_HOME", home.map(|home| home.join(".grok")))
+            .map(|dir| dir.join("skills")),
+        AgentKind::Cursor => {
+            configured_dir("CURSOR_CONFIG_DIR", home.map(|home| home.join(".cursor")))
+                .map(|home| home.join("skills"))
+        }
         AgentKind::QaMock => None,
     }
 }
@@ -657,7 +937,7 @@ fn skill_group(name: &str) -> String {
 }
 
 /// Every global skill directory across all agents, plus the global store.
-fn global_scan_dirs() -> Vec<SkillDir> {
+fn global_scan_dirs(custom_targets: &[CustomAgentSkillStorage]) -> Vec<SkillDir> {
     let mut dirs: Vec<SkillDir> = Vec::new();
     for agent in ALL_AGENTS {
         for dir in skill_dirs(agent, None) {
@@ -665,6 +945,13 @@ fn global_scan_dirs() -> Vec<SkillDir> {
                 dirs.push(dir);
             }
         }
+    }
+    for target in custom_targets {
+        dirs.extend(
+            custom_skill_dirs(target, None)
+                .into_iter()
+                .filter(|dir| dir.scope == AgentSkillScope::Global),
+        );
     }
     dirs.push(SkillDir {
         scope: AgentSkillScope::Global,
@@ -674,11 +961,11 @@ fn global_scan_dirs() -> Vec<SkillDir> {
     dirs
 }
 
-async fn scan_all_skills() -> Vec<LocalSkill> {
+async fn scan_all_skills(custom_targets: &[CustomAgentSkillStorage]) -> Vec<LocalSkill> {
     #[derive(Default)]
     struct Agg {
         description: Option<String>,
-        apps: BTreeSet<&'static str>,
+        apps: BTreeSet<String>,
         global: bool,
         path: String,
     }
@@ -694,7 +981,25 @@ async fn scan_all_skills() -> Vec<LocalSkill> {
         {
             for item in list_skills_in_dir(&dir, allow_md).await {
                 let entry = map.entry(item.id.clone()).or_default();
-                entry.apps.insert(agent.as_str());
+                entry.apps.insert(agent.as_str().to_string());
+                if entry.description.is_none() {
+                    entry.description = item.description.clone();
+                }
+                if entry.path.is_empty() {
+                    entry.path = item.path.clone();
+                }
+            }
+        }
+    }
+
+    for target in custom_targets {
+        for dir in custom_skill_dirs(target, None)
+            .into_iter()
+            .filter(|dir| dir.scope == AgentSkillScope::Global)
+        {
+            for item in list_skills_in_dir(&dir, false).await {
+                let entry = map.entry(item.id.clone()).or_default();
+                entry.apps.insert(target.agent_id.clone());
                 if entry.description.is_none() {
                     entry.description = item.description.clone();
                 }
@@ -729,7 +1034,7 @@ async fn scan_all_skills() -> Vec<LocalSkill> {
             name,
             description: agg.description,
             global: agg.global,
-            apps: agg.apps.into_iter().map(str::to_string).collect(),
+            apps: agg.apps.into_iter().collect(),
             path: agg.path,
         })
         .collect();
@@ -739,8 +1044,11 @@ async fn scan_all_skills() -> Vec<LocalSkill> {
 
 /// Find an existing on-disk instance of a skill (dir with SKILL.md, or a flat
 /// `{id}.md`) across every global scan dir.
-fn locate_skill_entry(skill_id: &str) -> Option<PathBuf> {
-    for dir in global_scan_dirs() {
+fn locate_skill_entry(
+    skill_id: &str,
+    custom_targets: &[CustomAgentSkillStorage],
+) -> Option<PathBuf> {
+    for dir in global_scan_dirs(custom_targets) {
         let entry = dir.path.join(skill_id);
         if skill_content_path(&entry).is_some() {
             return Some(entry);
@@ -803,6 +1111,58 @@ fn place_skill(src: &Path, dest: &Path, link: bool) -> Result<(), SkillError> {
         .map_err(|e| SkillError::Other(format!("复制技能到 {} 失败: {e}", display_path(dest))))
 }
 
+fn merge_hosting_destination(
+    destinations: &mut BTreeMap<PathBuf, bool>,
+    destination: PathBuf,
+    selected: bool,
+) {
+    let destination = physical_path_key(&destination);
+    destinations
+        .entry(destination)
+        .and_modify(|existing| *existing |= selected)
+        .or_insert(selected);
+}
+
+fn physical_path_key(path: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut lexical = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                lexical.pop();
+            }
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    // Resolve the physical parent directory, but deliberately do not
+    // canonicalize the final Skill entry. That entry may already be a managed
+    // symlink to the VibeX central store; following it would turn the
+    // destination key into the source itself and a subsequent replace would
+    // delete the central copy.
+    let Some(name) = lexical.file_name().map(|name| name.to_os_string()) else {
+        return std::fs::canonicalize(&lexical).unwrap_or(lexical);
+    };
+    let mut ancestor = lexical.parent().unwrap_or_else(|| Path::new(""));
+    let mut suffix = Vec::new();
+    while !ancestor.exists() {
+        let Some(name) = ancestor.file_name() else {
+            break;
+        };
+        suffix.push(name.to_os_string());
+        let Some(parent) = ancestor.parent() else {
+            break;
+        };
+        ancestor = parent;
+    }
+    let mut normalized = std::fs::canonicalize(ancestor).unwrap_or_else(|_| ancestor.to_path_buf());
+    for component in suffix.into_iter().rev() {
+        normalized.push(component);
+    }
+    normalized.join(name)
+}
+
 /// Apply an exact hosting target set: present in selected agents (or all when
 /// global), absent from the rest; recorded in the global store iff `global`.
 ///
@@ -817,6 +1177,7 @@ fn apply_hosting(
     global: bool,
     agents: &BTreeSet<String>,
     link: bool,
+    custom_targets: &[CustomAgentSkillStorage],
 ) -> Result<(), SkillError> {
     let vibex = vibex_skills_dir().join(skill_id);
     let (agent_src, agent_link) = if global {
@@ -826,12 +1187,33 @@ fn apply_hosting(
         (src.to_path_buf(), false)
     };
 
+    // Multiple adapters can intentionally share a physical store (for
+    // example Cline and a custom Agent using ~/.agents/skills). Collapse by
+    // destination and OR the requested state so an unselected adapter can
+    // never remove a skill that a selected adapter needs at the same path.
+    let mut destinations: BTreeMap<PathBuf, bool> = BTreeMap::new();
     for agent in ALL_AGENTS {
         let Some(dir) = agent_primary_skill_dir(agent) else {
             continue;
         };
         let dest = dir.join(skill_id);
-        if global || agents.contains(agent.as_str()) {
+        let selected = global || agents.contains(agent.as_str());
+        merge_hosting_destination(&mut destinations, dest, selected);
+    }
+    for target in custom_targets {
+        let Some(dir) = custom_skill_dirs(target, None)
+            .into_iter()
+            .find(|dir| dir.scope == AgentSkillScope::Global && !dir.read_only)
+            .map(|dir| dir.path)
+        else {
+            continue;
+        };
+        let dest = dir.join(skill_id);
+        let selected = global || agents.contains(&target.agent_id);
+        merge_hosting_destination(&mut destinations, dest, selected);
+    }
+    for (dest, selected) in destinations {
+        if selected {
             place_skill(&agent_src, &dest, agent_link)?;
         } else {
             remove_if_exists(&dest)?;
@@ -843,12 +1225,19 @@ fn apply_hosting(
     Ok(())
 }
 
-fn parse_agent_keys(keys: &[String]) -> Result<BTreeSet<String>, SkillError> {
+fn parse_agent_keys(
+    keys: &[String],
+    custom_targets: &[CustomAgentSkillStorage],
+) -> Result<BTreeSet<String>, SkillError> {
     let mut set = BTreeSet::new();
     for key in keys {
-        let agent = AgentKind::from_lenient(key)
-            .ok_or_else(|| SkillError::Validation(format!("Unknown agent type: {key}")))?;
-        set.insert(agent.as_str().to_string());
+        if let Some(agent) = AgentKind::from_lenient(key) {
+            set.insert(agent.as_str().to_string());
+        } else if custom_targets.iter().any(|target| target.agent_id == *key) {
+            set.insert(key.clone());
+        } else {
+            return Err(SkillError::Validation(format!("Unknown agent type: {key}")));
+        }
     }
     Ok(set)
 }
@@ -936,12 +1325,25 @@ async fn run_skills_add(source: &str, skill_id: &str, staging: &Path) -> Result<
 }
 
 pub async fn scan_local_skills() -> Result<Vec<LocalSkill>, SkillError> {
-    Ok(scan_all_skills().await)
+    scan_local_skills_with_custom_targets(Vec::new()).await
+}
+
+pub async fn scan_local_skills_with_custom_targets(
+    custom_targets: Vec<CustomAgentSkillStorage>,
+) -> Result<Vec<LocalSkill>, SkillError> {
+    Ok(scan_all_skills(&custom_targets).await)
 }
 
 pub async fn read_local_skill(skill_id: String) -> Result<LocalSkillContent, SkillError> {
+    read_local_skill_with_custom_targets(skill_id, Vec::new()).await
+}
+
+pub async fn read_local_skill_with_custom_targets(
+    skill_id: String,
+    custom_targets: Vec<CustomAgentSkillStorage>,
+) -> Result<LocalSkillContent, SkillError> {
     let id = validate_skill_id(&skill_id)?;
-    let entry = locate_skill_entry(&id)
+    let entry = locate_skill_entry(&id, &custom_targets)
         .ok_or_else(|| SkillError::NotFound(format!("Skill not found: {id}")))?;
     let content_path = skill_content_path(&entry)
         .ok_or_else(|| SkillError::Other(format!("Skill content file missing for {id}")))?;
@@ -1125,6 +1527,17 @@ pub async fn install_market_skill(
     apps: Vec<String>,
     link: bool,
 ) -> Result<Vec<LocalSkill>, SkillError> {
+    install_market_skill_with_custom_targets(source, skill_id, global, apps, link, Vec::new()).await
+}
+
+pub async fn install_market_skill_with_custom_targets(
+    source: String,
+    skill_id: String,
+    global: bool,
+    apps: Vec<String>,
+    link: bool,
+    custom_targets: Vec<CustomAgentSkillStorage>,
+) -> Result<Vec<LocalSkill>, SkillError> {
     let id = validate_skill_id(&skill_id)?;
     if source.trim().is_empty() {
         return Err(SkillError::Validation("缺少技能来源".to_string()));
@@ -1134,7 +1547,7 @@ pub async fn install_market_skill(
             "请至少选择一个 Agent，或勾选「全局」".to_string(),
         ));
     }
-    let agents = parse_agent_keys(&apps)?;
+    let agents = parse_agent_keys(&apps, &custom_targets)?;
     let staging = staging_dir();
     std::fs::create_dir_all(&staging)
         .map_err(|e| SkillError::Other(format!("创建暂存目录失败: {e}")))?;
@@ -1143,13 +1556,13 @@ pub async fn install_market_skill(
         run_skills_add(source.trim(), &id, &staging).await?;
         let installed = find_installed_skill_dir(&staging, &id)
             .ok_or_else(|| SkillError::Other("安装后未找到技能目录".to_string()))?;
-        apply_hosting(&installed, &id, global, &agents, link)
+        apply_hosting(&installed, &id, global, &agents, link, &custom_targets)
     }
     .await;
 
     let _ = std::fs::remove_dir_all(&staging);
     result?;
-    Ok(scan_all_skills().await)
+    Ok(scan_all_skills(&custom_targets).await)
 }
 
 pub async fn set_skill_hosting(
@@ -1158,9 +1571,19 @@ pub async fn set_skill_hosting(
     apps: Vec<String>,
     link: bool,
 ) -> Result<Vec<LocalSkill>, SkillError> {
+    set_skill_hosting_with_custom_targets(skill_id, global, apps, link, Vec::new()).await
+}
+
+pub async fn set_skill_hosting_with_custom_targets(
+    skill_id: String,
+    global: bool,
+    apps: Vec<String>,
+    link: bool,
+    custom_targets: Vec<CustomAgentSkillStorage>,
+) -> Result<Vec<LocalSkill>, SkillError> {
     let id = validate_skill_id(&skill_id)?;
-    let agents = parse_agent_keys(&apps)?;
-    let located = locate_skill_entry(&id)
+    let agents = parse_agent_keys(&apps, &custom_targets)?;
+    let located = locate_skill_entry(&id, &custom_targets)
         .ok_or_else(|| SkillError::NotFound(format!("Skill not found: {id}")))?;
 
     // Snapshot the source into staging first so re-hosting never reads from a
@@ -1177,20 +1600,27 @@ pub async fn set_skill_hosting(
 
     let result = snapshot
         .map_err(|e| SkillError::Other(format!("快照技能失败: {e}")))
-        .and_then(|_| apply_hosting(&src, &id, global, &agents, link));
+        .and_then(|_| apply_hosting(&src, &id, global, &agents, link, &custom_targets));
 
     let _ = std::fs::remove_dir_all(&staging);
     result?;
-    Ok(scan_all_skills().await)
+    Ok(scan_all_skills(&custom_targets).await)
 }
 
 pub async fn uninstall_skill(skill_id: String) -> Result<Vec<LocalSkill>, SkillError> {
+    uninstall_skill_with_custom_targets(skill_id, Vec::new()).await
+}
+
+pub async fn uninstall_skill_with_custom_targets(
+    skill_id: String,
+    custom_targets: Vec<CustomAgentSkillStorage>,
+) -> Result<Vec<LocalSkill>, SkillError> {
     let id = validate_skill_id(&skill_id)?;
-    for dir in global_scan_dirs() {
+    for dir in global_scan_dirs(&custom_targets) {
         remove_if_exists(&dir.path.join(&id))?;
         remove_if_exists(&dir.path.join(format!("{id}.md")))?;
     }
-    Ok(scan_all_skills().await)
+    Ok(scan_all_skills(&custom_targets).await)
 }
 
 #[cfg(test)]
@@ -1204,7 +1634,7 @@ mod tests {
             .map(skills_surface)
             .collect::<Vec<_>>();
 
-        assert_eq!(surfaces.len(), 7);
+        assert_eq!(surfaces.len(), ALL_AGENTS.len());
         assert!(surfaces.iter().any(|surface| {
             surface.agent_type == AgentKind::Codex
                 && surface.strategy == AgentSkillsStrategy::Directory
@@ -1236,8 +1666,9 @@ mod tests {
     }
 
     #[test]
-    fn codex_is_the_only_markdown_file_agent() {
+    fn codex_and_pi_support_markdown_file_skills() {
         assert!(allows_markdown_file(AgentKind::Codex));
+        assert!(allows_markdown_file(AgentKind::Pi));
         assert!(!allows_markdown_file(AgentKind::ClaudeCode));
     }
 
@@ -1291,15 +1722,7 @@ mod tests {
 
     #[test]
     fn every_agent_has_a_writable_global_skill_dir() {
-        for agent in [
-            AgentKind::ClaudeCode,
-            AgentKind::Codex,
-            AgentKind::Opencode,
-            AgentKind::Gemini,
-            AgentKind::Openclaw,
-            AgentKind::Cline,
-            AgentKind::Hermes,
-        ] {
+        for agent in ALL_AGENTS {
             let dirs = skill_dirs(agent, None);
             assert!(
                 dirs.iter()
@@ -1307,5 +1730,155 @@ mod tests {
                 "{agent:?} should have a writable global skills dir"
             );
         }
+    }
+
+    #[test]
+    fn custom_agent_skills_require_an_explicit_storage_declaration() {
+        assert!(resolved_skill_dirs("local-reviewer", None, None).is_err());
+
+        let directory = std::env::temp_dir().join("vibex-custom-agent-skills");
+        let storage = CustomAgentSkillStorage {
+            agent_id: "local-reviewer".to_string(),
+            shared_store: true,
+            directory: Some(directory.clone()),
+        };
+        let workspace = std::env::temp_dir().join("vibex-custom-agent-workspace");
+        let (dirs, allow_markdown) =
+            resolved_skill_dirs("local-reviewer", Some(&storage), Some(&workspace)).unwrap();
+
+        assert!(!allow_markdown);
+        assert_eq!(dirs.first().map(|dir| &dir.path), Some(&directory));
+        assert!(dirs.iter().any(|dir| {
+            dir.scope == AgentSkillScope::Project
+                && dir.path == workspace.join(".agents").join("skills")
+        }));
+    }
+
+    #[tokio::test]
+    async fn saved_cline_data_root_resolves_the_sibling_skills_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let cline_root = root.path().join(".cline");
+        let data_root = cline_root.join("data");
+        let environment =
+            HashMap::from([("CLINE_DIR".to_string(), data_root.display().to_string())]);
+
+        let paths = with_saved_agent_environment(environment, async {
+            skill_dirs(AgentKind::Cline, None)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>()
+        })
+        .await;
+
+        assert!(paths.contains(&cline_root.join("skills")));
+        assert!(!paths.contains(&data_root.join("skills")));
+    }
+
+    #[test]
+    fn physical_skill_paths_normalize_parent_segments_and_symlinked_ancestors() {
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let lexical = real.join("nested").join("..").join("skill");
+        let expected = physical_path_key(&real.join("skill"));
+
+        assert_eq!(physical_path_key(&lexical), expected);
+
+        #[cfg(unix)]
+        {
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            assert_eq!(physical_path_key(&link.join("skill")), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_managed_skill_symlink_never_collapses_into_the_central_source() {
+        let root = tempfile::tempdir().unwrap();
+        let central = root.path().join("central").join("example");
+        let destination = root.path().join("agent").join("skills").join("example");
+        std::fs::create_dir_all(&central).unwrap();
+        std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&central, &destination).unwrap();
+
+        let mut destinations = BTreeMap::new();
+        merge_hosting_destination(&mut destinations, destination.clone(), true);
+
+        let key = destinations.keys().next().unwrap();
+        assert_eq!(key, &physical_path_key(&destination));
+        assert_ne!(key, &std::fs::canonicalize(&central).unwrap());
+        place_skill(&central, key, true).unwrap();
+        assert!(central.is_dir());
+        assert_eq!(
+            std::fs::canonicalize(key).unwrap(),
+            std::fs::canonicalize(&central).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn saved_hermes_home_expands_tilde_for_skills() {
+        let environment = HashMap::from([(
+            "HERMES_HOME".to_string(),
+            "~/.hermes-vibex-test".to_string(),
+        )]);
+        let paths = with_saved_agent_environment(environment, async {
+            skill_dirs(AgentKind::Hermes, None)
+                .into_iter()
+                .map(|dir| dir.path)
+                .collect::<Vec<_>>()
+        })
+        .await;
+
+        assert!(
+            paths.contains(
+                &dirs::home_dir()
+                    .unwrap()
+                    .join(".hermes-vibex-test")
+                    .join("skills")
+            )
+        );
+    }
+
+    #[test]
+    fn hermes_and_fixed_custom_storage_report_only_supported_scopes() {
+        let hermes = skills_surface(AgentKind::Hermes);
+        assert!(hermes.global_supported);
+        assert!(!hermes.project_supported);
+
+        let storage = CustomAgentSkillStorage {
+            agent_id: "fixed-reviewer".to_string(),
+            shared_store: false,
+            directory: Some(PathBuf::from("/tmp/fixed-reviewer-skills")),
+        };
+        let (dirs, _) = resolved_skill_dirs("fixed-reviewer", Some(&storage), None).unwrap();
+        assert!(dirs.iter().all(|dir| dir.scope == AgentSkillScope::Global));
+    }
+
+    #[test]
+    fn marketplace_target_validation_accepts_declared_custom_agents() {
+        let storage = CustomAgentSkillStorage {
+            agent_id: "local-reviewer".to_string(),
+            shared_store: true,
+            directory: None,
+        };
+        assert_eq!(
+            parse_agent_keys(&["local-reviewer".to_string()], &[storage])
+                .unwrap()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["local-reviewer"]
+        );
+    }
+
+    #[test]
+    fn shared_hosting_destinations_keep_a_selected_owner() {
+        let shared = PathBuf::from("/tmp/shared-skills/example");
+        let mut destinations = BTreeMap::new();
+
+        merge_hosting_destination(&mut destinations, shared.clone(), true);
+        merge_hosting_destination(&mut destinations, shared.clone(), false);
+
+        assert_eq!(destinations.get(&physical_path_key(&shared)), Some(&true));
     }
 }

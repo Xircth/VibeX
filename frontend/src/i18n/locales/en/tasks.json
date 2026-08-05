@@ -52,9 +52,11 @@
     "remoteSessionsLoading": "Loading Agent sessions…",
     "remoteSessionsLoadFailed": "Could not load Agent sessions.",
     "connectThisSession": "Connect",
+    "importThisSession": "Import",
+    "localHistoryBadge": "Local history",
     "untitledPreviousSession": "Untitled previous session",
     "noRemoteSessions": "No previous Agent sessions were reported.",
-    "remoteSessionConnected": "Connected to the previous Agent session.",
+    "remoteSessionConnected": "The previous Agent session is ready.",
     "remoteSessionActionFailed": "The Agent session operation failed.",
     "creating": "Creating..."
   },

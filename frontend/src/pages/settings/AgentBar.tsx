@@ -1,4 +1,5 @@
 import { Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { AgentManagementView } from 'shared/types';
 
 import {
@@ -26,13 +27,21 @@ export function AgentBar({
   onSelect,
   onOpenRegistry,
 }: AgentBarProps) {
+  const { t } = useTranslation('settings');
   return (
     <TooltipProvider delayDuration={180}>
-      <nav aria-label="Agent 列表" className="agent-management-bar">
+      <nav
+        aria-label={t('agents.agentListAria')}
+        className="agent-management-bar"
+      >
         <div className="agent-management-bar-scroll">
           {agents.map((agent) => {
             const selected =
               !registryOpen && selectedAgentId === agent.agent_id;
+            const status = t(
+              `agents.lifecycleStatus.${agent.enabled ? agent.lifecycle : 'disabled'}`
+            );
+            const statusDescriptionId = `agent-status-${agent.agent_id}`;
             return (
               <Tooltip key={agent.agent_id}>
                 <TooltipTrigger asChild>
@@ -40,6 +49,7 @@ export function AgentBar({
                     type="button"
                     aria-current={selected ? 'true' : undefined}
                     aria-label={agent.display_name}
+                    aria-describedby={statusDescriptionId}
                     className={cn(
                       'agent-management-bar-item',
                       selected && 'is-selected',
@@ -49,9 +59,14 @@ export function AgentBar({
                   >
                     <AgentManagementIcon agent={agent} className="h-6 w-6" />
                     <StatusMark agent={agent} />
+                    <span id={statusDescriptionId} className="sr-only">
+                      {status}
+                    </span>
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>{agent.display_name}</TooltipContent>
+                <TooltipContent>
+                  {agent.display_name} · {status}
+                </TooltipContent>
               </Tooltip>
             );
           })}
@@ -61,7 +76,7 @@ export function AgentBar({
             <button
               type="button"
               aria-current={registryOpen ? 'page' : undefined}
-              aria-label="添加 Agent"
+              aria-label={t('agents.addAgent')}
               className={cn(
                 'agent-management-bar-item agent-management-bar-add',
                 registryOpen && 'is-selected'
@@ -71,7 +86,7 @@ export function AgentBar({
               <Plus aria-hidden="true" className="h-5 w-5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>ACP 注册表</TooltipContent>
+          <TooltipContent>{t('agents.acpRegistry')}</TooltipContent>
         </Tooltip>
       </nav>
     </TooltipProvider>

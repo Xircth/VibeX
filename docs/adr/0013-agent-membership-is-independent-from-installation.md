@@ -8,7 +8,7 @@ decision-makers:
 # Agent 纳入关系独立于安装状态与 Registry 可用性
 
 VibeX 用“已添加”表达 Agent 已经进入用户的 Agent 集合，而不用“已安装”代替这一
-关系。四个内置 Agent 默认已添加；其他 Registry Agent 在用户确认“添加并安装”时
+关系。Built-in Agent 默认已添加；其他 Registry Agent 在用户确认“添加并安装”时
 立即成为已添加 Agent、进入统一 Agent 导航带，并在其详情页继续安装、预检查、
 认证和修复。
 
@@ -22,14 +22,15 @@ Agent 启用状态同样独立于纳入、安装与认证。禁用的 Agent 继�
 自然结束。禁用不卸载 Runtime、不注销账户、不删除凭据，重新启用且就绪后既有会话
 可以继续使用。
 
-全新安装时，Claude Code、Codex、OpenCode 与 Pi 四个 Built-in Agent 默认启用；
+全新安装时，Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、Hermes、
+CodeBuddy、Kimi Code、Pi、Grok 与 Cursor 默认启用；
 用户从 Registry 执行“添加并安装”的普通 Agent 也默认启用。默认启用只表达用户
 允许其在就绪后接受执行，不绕过安装、认证、配置或预检查形成的就绪门槛。
 
 Agent 导航带采用一套完全由用户维护的扁平顺序，内置 Agent 可以与普通 Agent
-自由交错。全新安装的初始顺序为 Claude Code、Codex、OpenCode、Pi；新添加的
+自由交错。全新安装的初始顺序与上述 Built-in Agent 顺序一致；新添加的
 普通 Agent 追加到末位固定添加入口之前。迁移保留仍存在 Agent 的原相对顺序，再
-补入 Pi。Registry 两个 Tab 的独立排序不改变导航带顺序。
+补入尚未存在的内置成员。Registry 两个 Tab 的独立排序不改变导航带顺序。
 
 用户取消安装、安装失败或应用退出导致安装中断，都不撤销已经完成的添加操作。
 Agent 继续保留在导航带，并保留配置与启用状态；失败显示为需要修复，中断显示为

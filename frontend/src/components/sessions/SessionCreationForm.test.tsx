@@ -16,6 +16,8 @@ const sessionDefaults = vi.fn();
 const setSessionDefaults = vi.fn();
 const listRemoteSessions = vi.fn();
 const importRemoteSession = vi.fn();
+const listLocalHistory = vi.fn();
+const importLocalHistory = vi.fn();
 const agentManagementBar = vi.fn();
 const userSystemConfig = vi.hoisted(() => ({
   previousSessionContinuationEnabled: false,
@@ -55,6 +57,8 @@ vi.mock('@/features/agents/api', () => ({
     setSessionDefaults: (...args: unknown[]) => setSessionDefaults(...args),
     listRemoteSessions: (...args: unknown[]) => listRemoteSessions(...args),
     importRemoteSession: (...args: unknown[]) => importRemoteSession(...args),
+    listLocalHistory: (...args: unknown[]) => listLocalHistory(...args),
+    importLocalHistory: (...args: unknown[]) => importLocalHistory(...args),
   },
 }));
 
@@ -159,6 +163,8 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     setSessionDefaults.mockReset();
     listRemoteSessions.mockReset();
     importRemoteSession.mockReset();
+    listLocalHistory.mockReset();
+    importLocalHistory.mockReset();
     agentManagementBar.mockReset();
     userSystemConfig.previousSessionContinuationEnabled = false;
     capabilityCatalog.mockResolvedValue(CONTROLS);
@@ -175,6 +181,12 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       meta: null,
     });
     importRemoteSession.mockResolvedValue({ id: 'conversation-imported' });
+    listLocalHistory.mockResolvedValue({
+      sessions: [],
+      next_cursor: null,
+      meta: { source: 'local_history' },
+    });
+    importLocalHistory.mockResolvedValue({ id: 'conversation-imported-local' });
     agentManagementBar.mockResolvedValue([
       {
         agent_id: 'codex',
@@ -619,7 +631,7 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps previous-session continuation hidden until the preference is enabled', async () => {
+  it('keeps local Agent history reachable when remote continuation is disabled', async () => {
     capabilityCatalog.mockResolvedValue({
       ...CONTROLS,
       capabilities: {
@@ -628,13 +640,17 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     });
 
     renderForm('gemini', vi.fn());
+    const user = userEvent.setup();
 
-    await screen.findByTestId('session-settings-summary');
-    expect(
-      screen.queryByRole('button', {
-        name: 'sessionCreation.continuePreviousSession',
-      })
-    ).not.toBeInTheDocument();
+    const button = await screen.findByRole('button', {
+      name: 'sessionCreation.continuePreviousSession',
+    });
+    expect(button).toBeVisible();
+    await user.click(button);
+    await waitFor(() =>
+      expect(listLocalHistory).toHaveBeenCalledWith('gemini')
+    );
+    expect(listRemoteSessions).not.toHaveBeenCalled();
   });
 
   it('connects a listed previous session without exposing its path or deletion', async () => {
@@ -689,5 +705,51 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         'Fixture session'
       )
     );
+  });
+
+  it('imports local history even when the Agent does not advertise session listing', async () => {
+    capabilityCatalog.mockResolvedValue({
+      ...CONTROLS,
+      capabilities: { list_sessions: false, delete_session: false },
+    });
+    listLocalHistory.mockResolvedValue({
+      sessions: [
+        {
+          acp_session_id: 'local-session-1',
+          cwd: '/private/workspace',
+          additional_directories: [],
+          title: 'Imported local session',
+          updated_at: '2026-07-30T00:00:00Z',
+          meta: { source: 'local_history', messageCount: 4 },
+        },
+      ],
+      next_cursor: null,
+      meta: { source: 'local_history' },
+    });
+    renderForm('gemini', vi.fn());
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'sessionCreation.continuePreviousSession',
+      })
+    );
+    expect(
+      await screen.findByText('Imported local session')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('/private/workspace')).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole('button', { name: 'sessionCreation.importThisSession' })
+    );
+
+    await waitFor(() =>
+      expect(importLocalHistory).toHaveBeenCalledWith(
+        'gemini',
+        'workspace-1',
+        'local-session-1',
+        'Imported local session'
+      )
+    );
+    expect(listRemoteSessions).not.toHaveBeenCalled();
   });
 });

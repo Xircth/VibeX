@@ -110,6 +110,9 @@ export const agentsApi = {
       request: { agentId, workspaceId, cursor: cursor ?? null },
     }),
 
+  listLocalHistory: (agentId: string): Promise<AgentSessionListPage> =>
+    backendCall('agent_list_local_history', { agentId }),
+
   deleteRemoteSession: (
     agentId: string,
     workspaceId: string,
@@ -126,6 +129,21 @@ export const agentsApi = {
     title?: string | null
   ): Promise<{ id: string }> =>
     backendCall('agent_import_remote_session', {
+      request: {
+        agentId,
+        workspaceId,
+        acpSessionId,
+        title: title ?? null,
+      },
+    }),
+
+  importLocalHistory: (
+    agentId: string,
+    workspaceId: string,
+    acpSessionId: string,
+    title?: string | null
+  ): Promise<{ id: string }> =>
+    backendCall('agent_import_local_history', {
       request: {
         agentId,
         workspaceId,

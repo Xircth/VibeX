@@ -3,15 +3,27 @@ import {
   ArrowUp,
   CheckCircle2,
   CircleAlert,
+  CreditCard,
   Download,
+  ExternalLink,
   FileDown,
   Loader2,
+  LogIn,
+  LogOut,
   RefreshCw,
+  Settings2,
   ShieldCheck,
+  Stethoscope,
   Trash2,
   Wrench,
 } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
+  AgentDiagnosticView,
+  AgentManagementActionKind,
+  AgentManagementActionsView,
   AgentManagementView,
   AgentPreflightItemView,
   AgentPreflightView,
@@ -25,11 +37,15 @@ import type { AgentOperationState } from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from './AgentManagementIcon';
+import { CodexDeviceLogin } from './CodexDeviceLogin';
 
 type AgentDetailProps = {
   agent: AgentManagementView;
   operation: AgentOperationState | null;
   preflight: AgentPreflightView | null;
+  actions?: AgentManagementActionsView | null;
+  diagnostics?: AgentDiagnosticView[];
+  actionRunning?: string | null;
   checking: boolean;
   checkingUpdate: boolean;
   updateCheck: AgentUpdateCheckView | null;
@@ -37,6 +53,7 @@ type AgentDetailProps = {
   onMove: (direction: -1 | 1) => void;
   onPreflight: () => void;
   onInstall: () => void;
+  onInstallVersion?: (version: string) => void;
   onRepair: () => void;
   onCheckUpdate: () => void;
   onApplyUpdate: () => void;
@@ -45,19 +62,26 @@ type AgentDetailProps = {
   onUninstall: () => void;
   onRemove: () => void;
   onExportDiagnostics: () => void;
+  onEnvironmentDiagnostics?: () => void;
+  onRunAction?: (actionId: string) => void;
 };
 
 const operationStages: Record<
   AgentOperationState['kind'],
   readonly [string, string, string, string]
 > = {
-  install: ['准备', '安装', '验证', '完成'],
-  update: ['准备', '更新', '验证', '完成'],
-  repair: ['准备', '修复', '验证', '完成'],
-  rollback: ['准备', '回滚', '验证', '完成'],
-  uninstall: ['准备', '卸载', '清理', '完成'],
-  remove: ['准备', '移除', '清理', '完成'],
-  check: ['准备', '检查', '汇总', '完成'],
+  install: ['stagePrepare', 'stageInstall', 'stageVerify', 'stageComplete'],
+  update: ['stagePrepare', 'stageUpdate', 'stageVerify', 'stageComplete'],
+  repair: ['stagePrepare', 'stageRepair', 'stageVerify', 'stageComplete'],
+  rollback: ['stagePrepare', 'stageRollback', 'stageVerify', 'stageComplete'],
+  uninstall: [
+    'stagePrepare',
+    'stageUninstall',
+    'stageCleanup',
+    'stageComplete',
+  ],
+  remove: ['stagePrepare', 'stageRemove', 'stageCleanup', 'stageComplete'],
+  check: ['stagePrepare', 'stageCheck', 'stageSummary', 'stageComplete'],
 };
 
 function stageIndexForProgress(progress: number) {
@@ -71,6 +95,9 @@ export function AgentDetail({
   agent,
   operation,
   preflight,
+  actions = null,
+  diagnostics = [],
+  actionRunning = null,
   checking,
   checkingUpdate,
   updateCheck,
@@ -78,6 +105,7 @@ export function AgentDetail({
   onMove,
   onPreflight,
   onInstall,
+  onInstallVersion,
   onRepair,
   onCheckUpdate,
   onApplyUpdate,
@@ -86,9 +114,12 @@ export function AgentDetail({
   onUninstall,
   onRemove,
   onExportDiagnostics,
+  onEnvironmentDiagnostics,
+  onRunAction,
 }: AgentDetailProps) {
+  const { t, i18n } = useTranslation('settings');
   const busy = operation != null || agent.active_operation != null;
-  const items = preflight?.items ?? fallbackPreflight(agent);
+  const items = preflight?.items ?? fallbackPreflight(t, agent);
   const hasRepairableFailure = items.some(
     (item) => item.status === 'fail' && item.repairable
   );
@@ -101,8 +132,18 @@ export function AgentDetail({
     (agent.lifecycle === 'needs_repair' ||
       (hasRepairableFailure && !needsInstall));
   const progress = Math.min(100, Math.max(0, operation?.progressPercent ?? 0));
-  const stages = operation ? operationStages[operation.kind] : null;
+  const stages = operation
+    ? operationStages[operation.kind].map((stage) => t(`agents.${stage}`))
+    : null;
   const currentStageIndex = stageIndexForProgress(progress);
+  const localizedOperationMessage = operation
+    ? operationMessage(t, i18n.resolvedLanguage, operation)
+    : null;
+  const [customVersion, setCustomVersion] = useState('');
+  useEffect(() => setCustomVersion(''), [agent.agent_id]);
+  const customVersionValid = isValidCustomVersion(customVersion);
+  const supportsCustomVersion =
+    agent.built_in && agent.agent_id !== 'hermes' && onInstallVersion != null;
 
   return (
     <div className="space-y-4">
@@ -122,7 +163,7 @@ export function AgentDetail({
                   authenticationTone(agent.authentication)
                 )}
               >
-                {authenticationLabel(agent.authentication)}
+                {authenticationLabel(t, agent.authentication)}
               </span>
             </div>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -135,7 +176,7 @@ export function AgentDetail({
             size="sm"
             variant="outline"
             className="h-8 w-8 p-0"
-            aria-label="向前移动"
+            aria-label={t('agents.moveForward')}
             disabled={busy}
             onClick={() => onMove(-1)}
           >
@@ -145,16 +186,16 @@ export function AgentDetail({
             size="sm"
             variant="outline"
             className="h-8 w-8 p-0"
-            aria-label="向后移动"
+            aria-label={t('agents.moveBackward')}
             disabled={busy}
             onClick={() => onMove(1)}
           >
             <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
           </Button>
           <label className="agent-detail-enable">
-            <span>启用</span>
+            <span>{t('agents.enable')}</span>
             <Switch
-              aria-label="启用 Agent"
+              aria-label={t('agents.enableAgent')}
               checked={agent.enabled}
               disabled={busy || agent.retired}
               onCheckedChange={onSetEnabled}
@@ -167,7 +208,7 @@ export function AgentDetail({
             disabled={busy || agent.retired || checkingUpdate}
             onClick={onCheckUpdate}
           >
-            {checkingUpdate ? '正在检查…' : '检查更新'}
+            {checkingUpdate ? t('agents.checking') : t('agents.checkUpdates')}
           </Button>
           <Button
             size="sm"
@@ -176,7 +217,7 @@ export function AgentDetail({
             disabled={busy || agent.lifecycle === 'uninstalled'}
             onClick={onUninstall}
           >
-            卸载
+            {t('agents.fixUninstall')}
           </Button>
           {!agent.built_in ? (
             <Button
@@ -187,7 +228,7 @@ export function AgentDetail({
               onClick={onRemove}
             >
               <Trash2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              移除
+              {t('agents.remove')}
             </Button>
           ) : null}
         </div>
@@ -195,19 +236,23 @@ export function AgentDetail({
 
       {updateCheck ? (
         <section
-          aria-label="更新比较"
+          aria-label={t('agents.updateComparison')}
           className="settings-surface flex flex-wrap items-center justify-between gap-3 px-4 py-3"
         >
           <div>
             <p className="text-sm font-medium text-foreground">
               {updateCheck.update_available
-                ? `可更新：${updateCheck.current_version ?? '未知'} → ${updateCheck.available_version}`
-                : '当前已是最新版本'}
+                ? t('agents.updateVersions', {
+                    current:
+                      updateCheck.current_version ?? t('agents.versionUnknown'),
+                    available: updateCheck.available_version,
+                  })
+                : t('agents.upToDate')}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {updateCheck.fresh
-                ? '比较基于当前有效的 Registry 快照。'
-                : '比较基于离线缓存；刷新 Registry 后才能安装更新。'}
+                ? t('agents.updateFreshSnapshot')
+                : t('agents.updateOfflineSnapshot')}
             </p>
           </div>
           {updateCheck.update_available ? (
@@ -217,9 +262,80 @@ export function AgentDetail({
               disabled={busy || !updateCheck.fresh}
               onClick={onApplyUpdate}
             >
-              安装更新
+              {t('agents.installUpdate')}
             </Button>
           ) : null}
+        </section>
+      ) : null}
+
+      {actions && actions.actions.length > 0 ? (
+        <section
+          aria-labelledby="agent-account-heading"
+          className="settings-surface agent-account-surface"
+        >
+          <div className="agent-section-heading">
+            <div className="flex items-center gap-2">
+              <LogIn aria-hidden="true" className="h-4 w-4" />
+              <div>
+                <h3 id="agent-account-heading">{t('agents.accountTitle')}</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t('agents.accountCaption')}
+                </p>
+              </div>
+            </div>
+          </div>
+          {agent.agent_id === 'codex' ? (
+            <CodexDeviceLogin onAuthenticated={onPreflight} />
+          ) : null}
+          <ul className="agent-account-actions">
+            {actions.actions.map((action) => {
+              const Icon = managementActionIcon(action.kind);
+              const localizedLabel = t(action.label_key, {
+                defaultValue: action.label,
+              });
+              const localizedDescription = action.available
+                ? t(action.description_key, {
+                    defaultValue: action.description,
+                  })
+                : t('agents.actionUnavailable');
+              return (
+                <li key={action.id}>
+                  <div className="agent-account-action-copy">
+                    <span className="agent-account-action-icon">
+                      <Icon aria-hidden="true" className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <strong>{localizedLabel}</strong>
+                      <p>{localizedDescription}</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={action.kind === 'login' ? 'default' : 'outline'}
+                    className="h-8 shrink-0"
+                    aria-label={localizedLabel}
+                    disabled={
+                      busy || !action.available || actionRunning !== null
+                    }
+                    onClick={() => onRunAction?.(action.id)}
+                  >
+                    {actionRunning === action.id ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                      />
+                    ) : action.kind === 'subscription' ? (
+                      <ExternalLink
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5"
+                      />
+                    ) : null}
+                    {localizedLabel}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 
@@ -230,9 +346,34 @@ export function AgentDetail({
         <div className="agent-section-heading">
           <div className="flex items-center gap-2">
             <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-            <h3 id="agent-preflight-heading">预检查</h3>
+            <div>
+              <h3 id="agent-preflight-heading">{t('agents.preflightTitle')}</h3>
+              <p className="agent-section-caption" aria-live="polite">
+                {preflightSummary(
+                  t,
+                  i18n.language,
+                  items,
+                  preflight?.checked_at
+                )}
+              </p>
+            </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {onEnvironmentDiagnostics ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                disabled={busy}
+                onClick={onEnvironmentDiagnostics}
+              >
+                <Stethoscope
+                  aria-hidden="true"
+                  className="mr-1.5 h-3.5 w-3.5"
+                />
+                {t('agents.environmentDiagnosticsAction')}
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="outline"
@@ -240,7 +381,7 @@ export function AgentDetail({
               onClick={onExportDiagnostics}
             >
               <FileDown aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              导出诊断记录
+              {t('agents.exportDiagnostics')}
             </Button>
             {needsInstall ? (
               <Button
@@ -251,7 +392,7 @@ export function AgentDetail({
                 onClick={onInstall}
               >
                 <Download aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                安装 Runtime 与 ACP
+                {t('agents.installRuntimeAcp')}
               </Button>
             ) : needsRepair ? (
               <Button
@@ -262,7 +403,7 @@ export function AgentDetail({
                 onClick={onRepair}
               >
                 <Wrench aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-                修复安装
+                {t('agents.repairInstallation')}
               </Button>
             ) : null}
             <Button
@@ -280,10 +421,48 @@ export function AgentDetail({
               ) : (
                 <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
               )}
-              立即检查
+              {t('agents.checkNow')}
             </Button>
           </div>
         </div>
+
+        {supportsCustomVersion ? (
+          <details className="agent-custom-version">
+            <summary>{t('agents.customVersionInstall')}</summary>
+            <div className="agent-custom-version-body">
+              <label>
+                <span>{t('agents.customVersionLabel')}</span>
+                <input
+                  aria-label={t('agents.customVersionLabel')}
+                  aria-invalid={Boolean(customVersion && !customVersionValid)}
+                  autoComplete="off"
+                  disabled={busy || agent.retired}
+                  placeholder={
+                    agent.runtime_version ??
+                    t('agents.customVersionPlaceholder')
+                  }
+                  spellCheck={false}
+                  value={customVersion}
+                  onChange={(event) => setCustomVersion(event.target.value)}
+                />
+              </label>
+              <Button
+                className="h-8 shrink-0"
+                disabled={busy || agent.retired || !customVersionValid}
+                size="sm"
+                variant="outline"
+                onClick={() => onInstallVersion?.(customVersion.trim())}
+              >
+                <Download aria-hidden="true" className="h-3.5 w-3.5" />
+                {t('agents.installSpecifiedVersion')}
+              </Button>
+            </div>
+            {customVersion && !customVersionValid ? (
+              <p role="alert">{t('agents.customVersionInvalid')}</p>
+            ) : null}
+            <small>{t('agents.customVersionTrustHint')}</small>
+          </details>
+        ) : null}
 
         {operation ? (
           <div
@@ -300,10 +479,12 @@ export function AgentDetail({
                 <div className="min-w-0">
                   <strong>
                     {progress >= 100
-                      ? '操作已完成'
-                      : `${stages?.[currentStageIndex]}进行中`}
+                      ? t('agents.operationComplete')
+                      : t('agents.stageInProgress', {
+                          stage: stages?.[currentStageIndex],
+                        })}
                   </strong>
-                  <span>{operation.message ?? '正在处理 Agent 安装'}</span>
+                  <span>{localizedOperationMessage}</span>
                 </div>
               </div>
               <span className="agent-operation-progress-value">
@@ -311,7 +492,9 @@ export function AgentDetail({
               </span>
             </div>
             <Progress
-              aria-label={operation.message ?? '正在处理 Agent 安装'}
+              aria-label={
+                localizedOperationMessage ?? t('agents.processingInstallation')
+              }
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={progress}
@@ -319,8 +502,24 @@ export function AgentDetail({
               className="agent-operation-track"
               value={progress}
             />
+            {operation.logs && operation.logs.length > 1 ? (
+              <div
+                aria-label={t('agents.installLog')}
+                className="agent-operation-log"
+                role="log"
+              >
+                {operation.logs.map((line, index) => (
+                  <div key={`${index}:${line}`}>
+                    {localizedOperationLogLine(t, i18n.resolvedLanguage, line)}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="agent-operation-progress-footer">
-              <ol aria-label="操作阶段" className="agent-operation-stages">
+              <ol
+                aria-label={t('agents.operationStages')}
+                className="agent-operation-stages"
+              >
                 {stages?.map((stage, index) => {
                   const state =
                     index < currentStageIndex
@@ -342,7 +541,7 @@ export function AgentDetail({
                 className="h-8 shrink-0"
                 onClick={onCancelOperation}
               >
-                取消操作
+                {t('agents.cancelOperation')}
               </Button>
             </div>
           </div>
@@ -363,40 +562,252 @@ export function AgentDetail({
               disabled={busy}
               onClick={onRollback}
             >
-              回滚上一版本
+              {t('agents.rollbackPrevious')}
             </Button>
           </div>
         ) : null}
       </section>
+
+      {diagnostics.length > 0 ? (
+        <details className="settings-surface">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+            {t('agents.diagnosticsTitle')} · {diagnostics.length}
+          </summary>
+          <ul className="space-y-2 border-t px-4 py-3">
+            {diagnostics.slice(0, 20).map((diagnostic) => (
+              <li className="rounded-md border px-3 py-2" key={diagnostic.id}>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <strong>
+                    {humanizePreflightId(diagnostic.operation_kind)} ·{' '}
+                    {diagnosticSeverity(t, diagnostic.severity)}
+                  </strong>
+                  <time className="text-muted-foreground">
+                    {formatDiagnosticTime(i18n.language, diagnostic.created_at)}
+                  </time>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {localizedDiagnosticMessage(
+                    t,
+                    i18n.resolvedLanguage,
+                    diagnostic
+                  )}
+                </p>
+                {diagnostic.redacted_output ? (
+                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
+                    {diagnostic.redacted_output}
+                  </pre>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </div>
   );
 }
 
-function PreflightCard({ item }: { item: AgentPreflightItemView }) {
-  const passed = item.status === 'pass';
-  const Icon = passed ? CheckCircle2 : CircleAlert;
+export function isValidCustomVersion(value: string): boolean {
+  const normalized = value.trim().replace(/^[vV]/, '');
   return (
-    <li aria-label={`${item.label} 检查结果`}>
+    normalized.length <= 128 &&
+    normalized.includes('.') &&
+    /^[0-9][0-9A-Za-z.+-]*$/u.test(normalized)
+  );
+}
+
+function PreflightCard({ item }: { item: AgentPreflightItemView }) {
+  const { t, i18n } = useTranslation('settings');
+  const passed = item.status === 'pass';
+  const warning = item.status === 'warning';
+  const Icon = passed ? CheckCircle2 : CircleAlert;
+  const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
+  const label = english ? humanizePreflightId(item.id) : item.label;
+  const detail =
+    english && item.detail && /[\u3400-\u9fff]/u.test(item.detail)
+      ? passed
+        ? t('agents.preflightDetailPass', { label })
+        : warning
+          ? t('agents.preflightDetailWarning', { label })
+          : item.repairable
+            ? t('agents.preflightDetailRepairable', { label })
+            : t('agents.preflightDetailFail', { label })
+      : item.detail;
+  return (
+    <li aria-label={t('agents.preflightResultAria', { label })}>
       <div className="agent-preflight-card-heading">
         <Icon
           aria-hidden="true"
           className={cn(
             'h-4 w-4 shrink-0',
-            passed ? 'text-success' : 'text-warning'
+            passed
+              ? 'text-success'
+              : warning
+                ? 'text-warning'
+                : 'text-destructive'
           )}
         />
-        <strong>{item.label}</strong>
-        <span className={passed ? 'is-pass' : 'is-fail'}>
-          {passed ? '可用' : '需处理'}
+        <strong>{label}</strong>
+        <span
+          className={passed ? 'is-pass' : warning ? 'is-warning' : 'is-fail'}
+        >
+          {passed
+            ? t('agents.available')
+            : warning
+              ? t('agents.optionalWarning')
+              : t('agents.needsAction')}
         </span>
       </div>
-      {item.version || item.path ? (
-        <PreflightEvidence version={item.version} path={item.path} />
-      ) : item.detail ? (
-        <p>{item.detail}</p>
-      ) : null}
+      <div className="agent-preflight-card-detail">
+        {item.version || item.path ? (
+          <PreflightEvidence version={item.version} path={item.path} />
+        ) : null}
+        {detail ? <p>{detail}</p> : null}
+      </div>
     </li>
   );
+}
+
+function humanizePreflightId(value: string): string {
+  const known: Record<string, string> = {
+    runtime: 'Runtime',
+    acp: 'ACP adapter',
+    node: 'Node.js',
+    npm: 'npm',
+    uv: 'uv',
+    python: 'Python',
+    archive: 'Archive support',
+    authentication: 'Authentication',
+  };
+  const leaf = value.split('.').at(-1) ?? value;
+  if (known[leaf]) return known[leaf];
+  return leaf
+    .split(/[_-]+/u)
+    .filter(Boolean)
+    .map((word) => `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`)
+    .join(' ');
+}
+
+function preflightSummary(
+  t: TFunction<'settings'>,
+  language: string,
+  items: AgentPreflightItemView[],
+  checkedAt: string | null | undefined
+): string {
+  const failed = items.filter((item) => item.status === 'fail').length;
+  const warnings = items.filter((item) => item.status === 'warning').length;
+  const passed = items.length - failed - warnings;
+  const parts = [
+    t('agents.preflightAvailableCount', { passed, total: items.length }),
+  ];
+  if (failed) parts.push(t('agents.preflightFailedCount', { count: failed }));
+  if (warnings) {
+    parts.push(t('agents.preflightWarningCount', { count: warnings }));
+  }
+  if (checkedAt) {
+    const date = new Date(checkedAt);
+    if (!Number.isNaN(date.getTime())) {
+      parts.push(
+        t('agents.preflightCheckedAt', {
+          time: new Intl.DateTimeFormat(language, {
+            hour: '2-digit',
+            minute: '2-digit',
+          }).format(date),
+        })
+      );
+    }
+  }
+  return parts.join(' · ');
+}
+
+function managementActionIcon(kind: AgentManagementActionKind) {
+  switch (kind) {
+    case 'login':
+      return LogIn;
+    case 'logout':
+      return LogOut;
+    case 'setup':
+      return Settings2;
+    case 'subscription':
+      return CreditCard;
+  }
+}
+
+function operationMessage(
+  t: TFunction<'settings'>,
+  language: string | undefined,
+  operation: AgentOperationState
+): string {
+  if (!language?.startsWith('en') && operation.message?.trim()) {
+    return operation.message;
+  }
+  if (operation.status === 'succeeded') return t('agents.operationComplete');
+  if (operation.status === 'failed') return t('agents.operationFailed');
+  if (operation.status === 'canceled') return t('agents.operationCanceled');
+  if (operation.status === 'interrupted') {
+    return t('agents.operationInterrupted');
+  }
+  if (operation.status === 'queued') return t('agents.operationQueued');
+  return t(`agents.operationProgress.${operation.kind}`);
+}
+
+function localizedOperationLogLine(
+  t: TFunction<'settings'>,
+  language: string | undefined,
+  line: string
+): string {
+  if (!language?.startsWith('en')) return line;
+  const key = {
+    正在解析已锁定的安装方案: 'resolvePlan',
+    '正在安装本地 Runtime 与 ACP': 'installRuntime',
+    '正在验证 ACP 握手': 'verifyAcp',
+    正在发布本地终端命令: 'publishCommand',
+    '安装与 ACP 验证完成': 'complete',
+    操作已取消: 'canceled',
+    正在取消操作: 'canceling',
+  }[line] as
+    | 'resolvePlan'
+    | 'installRuntime'
+    | 'verifyAcp'
+    | 'publishCommand'
+    | 'complete'
+    | 'canceled'
+    | 'canceling'
+    | undefined;
+  return key ? t(`agents.operationLog.${key}`) : line;
+}
+
+function localizedDiagnosticMessage(
+  t: TFunction<'settings'>,
+  language: string | undefined,
+  diagnostic: AgentDiagnosticView
+): string {
+  if (
+    language?.startsWith('en') &&
+    /[\u3400-\u9fff]/u.test(diagnostic.message)
+  ) {
+    return t('agents.diagnosticFallback', {
+      operation: humanizePreflightId(diagnostic.operation_kind),
+    });
+  }
+  return diagnostic.message;
+}
+
+function diagnosticSeverity(
+  t: TFunction<'settings'>,
+  severity: string
+): string {
+  if (severity === 'error') return t('agents.diagnosticError');
+  if (severity === 'warning') return t('agents.diagnosticWarning');
+  return t('agents.diagnosticInfo');
+}
+
+function formatDiagnosticTime(language: string, value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(language, {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(date);
 }
 
 function PreflightEvidence({
@@ -406,11 +817,12 @@ function PreflightEvidence({
   version: string | null;
   path: string | null;
 }) {
+  const { t } = useTranslation('settings');
   return (
     <dl className="agent-preflight-evidence">
       {version ? (
         <div className="agent-preflight-evidence-row">
-          <dt>版本</dt>
+          <dt>{t('agents.version')}</dt>
           <dd>
             <code className="agent-preflight-evidence-value" title={version}>
               {version}
@@ -420,7 +832,7 @@ function PreflightEvidence({
       ) : null}
       {path ? (
         <div className="agent-preflight-evidence-row">
-          <dt>位置</dt>
+          <dt>{t('agents.location')}</dt>
           <dd>
             <code className="agent-preflight-evidence-value" title={path}>
               {path}
@@ -433,38 +845,39 @@ function PreflightEvidence({
 }
 
 function fallbackPreflight(
+  t: TFunction<'settings'>,
   agent: AgentManagementView
 ): AgentPreflightItemView[] {
   return [
     {
       id: 'membership',
-      label: '运行入口',
+      label: t('agents.runtimeEntry'),
       status: agent.retired ? 'fail' : 'pass',
       detail: agent.retired
-        ? '此 Agent 仅保留历史记录。'
-        : 'Agent 已加入本地列表。',
+        ? t('agents.retiredHistoryOnly')
+        : t('agents.agentAdded'),
       version: null,
       path: null,
       repairable: false,
     },
     {
       id: 'runtime',
-      label: '本地 Runtime',
+      label: t('agents.localRuntime'),
       status: agent.runtime_version ? 'pass' : 'fail',
       detail: agent.runtime_version
-        ? `版本 ${agent.runtime_version}`
-        : '未发现本地 Runtime。',
+        ? t('agents.versionValue', { version: agent.runtime_version })
+        : t('agents.localRuntimeMissing'),
       version: agent.runtime_version,
       path: null,
       repairable: true,
     },
     {
       id: 'acp',
-      label: 'ACP 适配器',
+      label: t('agents.runtimeAcp'),
       status: agent.acp_version ? 'pass' : 'fail',
       detail: agent.acp_version
-        ? `版本 ${agent.acp_version}`
-        : '尚未完成 ACP 探测。',
+        ? t('agents.versionValue', { version: agent.acp_version })
+        : t('agents.acpProbePending'),
       version: agent.acp_version,
       path: null,
       repairable: true,
@@ -473,19 +886,20 @@ function fallbackPreflight(
 }
 
 function authenticationLabel(
+  t: TFunction<'settings'>,
   authentication: AgentManagementView['authentication']
 ): string {
   switch (authentication) {
     case 'account':
-      return '已通过账号登录';
+      return t('agents.authAccount');
     case 'api_key':
-      return '已通过 API Key 登录';
+      return t('agents.authApiKey');
     case 'not_logged_in':
-      return '暂未登录';
+      return t('agents.authNotLoggedIn');
     case 'multiple_unknown':
-      return '登录来源待确认';
+      return t('agents.authUnknown');
     case 'not_required':
-      return '无需登录';
+      return t('agents.authNotRequired');
   }
 }
 

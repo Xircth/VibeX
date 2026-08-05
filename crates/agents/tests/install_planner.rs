@@ -75,6 +75,32 @@ fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
 }
 
 #[test]
+fn hermes_install_requires_uv_but_not_a_system_python() {
+    let plan = InstallPlanner::bundled()
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("hermes").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "linux-x86_64".to_string(),
+            environment: InstallEnvironment {
+                uv_verified: true,
+                python_verified: false,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+    assert_eq!(plan.components.len(), 1);
+    assert_eq!(
+        plan.components[0].distribution_kind,
+        PlannedDistributionKind::Uvx
+    );
+    assert_eq!(
+        plan.components[0].resolved_source,
+        "hermes-agent[acp,mcp]==0.19.0"
+    );
+}
+
+#[test]
 fn user_definition_freezes_the_explicit_distribution_without_registry_provenance() {
     let planner = InstallPlanner::bundled();
     let agent_id = AgentId::parse("local-reviewer").unwrap();
@@ -239,7 +265,6 @@ fn planner_accepts_official_uv_at_version_syntax_and_preserves_environment() {
             platform: "darwin-aarch64".to_string(),
             environment: InstallEnvironment {
                 uv_verified: true,
-                python_verified: true,
                 ..Default::default()
             },
         })

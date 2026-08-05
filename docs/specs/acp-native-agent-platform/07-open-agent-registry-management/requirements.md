@@ -8,13 +8,14 @@ official ACP Registry, install its local Runtime and ACP process under a
 repeatable installation lock, and manage it through the same settings and
 session pipeline as a built-in Agent.
 
-Codex, Claude Code, OpenCode, and Pi are Built-in Agents only in presentation
-and default-membership policy: they are visible by default, pinned in the
+Claude Code, Codex, Gemini, OpenClaw, OpenCode, Cline, Hermes, CodeBuddy,
+Kimi Code, Pi, Grok and Cursor are Built-in Agents only in presentation and
+default-membership policy: they are visible by default, pinned in the
 Registry's installed/uninstalled lists, cannot be removed, and proactively
-inspect official local Runtime candidates. They do not receive a different state machine,
-settings page, installer, or session runner. OpenClaw and Hermes are retired:
-their historical identity remains readable, but they are not offered for new
-installation or sessions.
+inspect official local Runtime candidates. They do not receive a different
+installation or session state machine. Profile-declared configuration,
+dependency checks and account actions are capability-driven sections of the
+shared settings page.
 
 This specification is the implementation authority for Agent management. It
 applies ADR-0010 through ADR-0029 and replaces the closed Agent-setting and
@@ -35,15 +36,18 @@ hard-coded settings contracts described in the earlier registry/install phase.
    temporary package execution.
 4. **Built-in is declarative, not bespoke.** Built-in Profiles supply only
    extra data unavailable in the Registry: Runtime topology, verified hashes,
-   official path candidates, and recognized configuration-file fields.
+   official path candidates, dependencies, recognized configuration-file
+   fields, and fixed official account/subscription actions.
 5. **The Agent owns persistent configuration.** VibeX edits only profile-known
-   Agent-native configuration files. It never runs browser/CLI login, device
-   code, logout, or ACP persistent-configuration writes. API Key values are
+   Agent-native configuration files. After an explicit user action, it may
+   launch Profile-whitelisted official browser/CLI login, device-code or logout
+   flows; it never accepts arbitrary commands or sends ACP persistent-
+   configuration writes. API Key values are
    local plaintext in the native file, masked in the UI and redacted from logs.
-   The configuration surface shows the complete on-disk source below its
-   structured fields; credential-bearing previews reveal only while hovered or
-   keyboard-focused. Field edits and removals share the page-level bottom save
-   action.
+   The configuration surface offers a version-checked, format-validating raw
+   editor for non-sensitive Profile-known files. Credential-bearing files never
+   cross IPC and remain editable only through masked structured fields. Field
+   edits and removals share the page-level bottom save action.
 6. **The Registry is discovery, not runtime authority.** A cached official
    snapshot supports browsing while offline; adding or updating a generic Agent
    requires a successful current refresh. Existing locks and sessions work
@@ -54,7 +58,8 @@ hard-coded settings contracts described in the earlier registry/install phase.
 ### Agent bar and detail view
 
 - Settings → Agent has one flat, user-orderable horizontal Agent bar. It starts
-  as Claude Code → Codex → OpenCode → Pi, accepts added generic Agents before a
+  as Claude Code → Codex → Gemini → OpenClaw → OpenCode → Cline → Hermes →
+  CodeBuddy → Kimi Code → Pi → Grok → Cursor, accepts added generic Agents before a
   permanently visible `+`, and lets built-in and generic Agents intermix.
 - The bar scrolls only Agent icons; `+` is sticky at the right edge. Focused
   items are scrolled into view. While the icons fit, their available horizontal
@@ -115,22 +120,46 @@ hard-coded settings contracts described in the earlier registry/install phase.
 - Uninstall/remove is unavailable while the Agent has an active ACP process,
   in-flight turn, or installation attempt, with the exact explanation “此 Agent
   还有正在执行的进程，暂时无法卸载／移除”. No operation implicitly kills a process.
-- Account status is read-only: account, API Key, or not logged in. Presence of a
+- Account status reports account, API Key, or not logged in. Built-in Profiles
+  may expose explicit login, logout and subscription actions. Presence of a
   profile-known API Key displays “已通过 API Key 登录”; the user is responsible
   for its validity. If account and key coexist, Profile-defined official
   precedence determines status; an unknown precedence blocks new sessions.
+- Codex device authorization can complete inside the settings page. OAuth tokens
+  never cross IPC and are written only to the official Codex credential file.
+  OpenCode Provider selection uses the full cached `models.dev` catalog, writes
+  SDK/API adapter/endpoint/model configuration, controls enabled/disabled lists,
+  and its plugin section reconciles declared plugins with the OpenCode package cache.
+- Claude Code, Codex, Gemini, Grok and Cursor expose explicit authentication
+  modes matching their official subscription/OAuth, API-key, Vertex, custom
+  endpoint and Model Provider choices. Preflight reports the selected mode and
+  missing dependencies or credentials; launch scrubs conflicting inherited
+  credential variables before the child process starts.
 - Only Built-in Profiles with known file schemas expose persistent configuration
   fields. VibeX reads latest state, writes user-submitted known fields
   atomically, preserves unknown data, detects same-field external conflicts,
   and applies saved values only to future/newly rebound sessions.
+- Non-sensitive raw-file saves are restricted to the exact resolved Profile
+  path, capped at 1 MiB, parsed as the declared JSON/TOML/YAML/dotenv format,
+  guarded by an exact file revision and committed atomically. Sensitive mixed
+  configuration/authentication files cannot be read or written through this API.
+- Profile fields include the complete Codeg structured surfaces that map to
+  stable native schemas: Claude advanced model/traffic flags; Codex transport,
+  Skills and workspace-write details; Kimi reasoning/provider environment;
+  Pi custom providers; Grok documented UI/model/session keys; and the full
+  Hermes provider registry. Provider-specific Hermes credentials are disclosed
+  only for the selected provider. Cursor, Grok and OpenClaw launch-only choices
+  are translated to their required CLI argument positions at session startup.
 
 ### Migration and session eligibility
 
-- Claude Code, Codex and OpenCode migrate to the Built-in membership; Pi is
-  newly added. Gemini and Cline migrate only when actual-use evidence exists;
-  default rows, `enabled = true`, and old ordering are not evidence.
-- Existing OpenClaw/Hermes sessions retain a read-only retired identity. Their
-  Runtime, credentials and config files are not deleted.
+- The migration idempotently promotes/adds the complete twelve-Agent Built-in
+  catalog while preserving existing enabled state and relative order.
+- Existing sessions for all migrated Agent identities retain their history.
+  Runtime, credentials and config files are not deleted by membership migration.
+- Every built-in declares a read-only official history source. SQLite and
+  agent-specific event-stream formats use dedicated adapters instead of being
+  silently treated as generic JSON files.
 - An Agent may be disabled while remaining fully manageable. Disabled Agents
   cannot start a new session or submit a new turn, while an in-flight turn
   finishes naturally. Ready and enabled are both required at the session gate.
@@ -218,16 +247,17 @@ for the named behavior tests.
   changing the official Registry source, or altering existing conversation data
   outside the stated migration.
 - Never: reintroduce a fixed Agent enum into new management/session APIs;
-  accept custom commands, custom Registry URLs, PATH auto-takeover, remote ACP
-  endpoints, browser/CLI login, implicit process termination, or ACP persistent
-  configuration writes.
+  accept user-supplied commands, custom Registry URLs, PATH auto-takeover,
+  remote ACP endpoints, implicit process termination, or ACP persistent
+  configuration writes. Interactive account actions must remain Profile-
+  whitelisted and user-initiated per ADR-0037.
 
 ## Success criteria
 
 1. The product has no user-visible hard-coded seven-Agent list; a compatible
    official Registry Agent can be added, installed, repaired, updated and
    removed through the universal pipeline.
-2. The four built-ins exhibit only their approved display/default-detection
+2. The twelve built-ins exhibit only their approved Profile/default-detection
    differences and remain on the universal implementation path.
 3. A current local Runtime plus ACP lock is required for every new session;
    all lifecycle and migration edge cases above are covered by red-green tests.

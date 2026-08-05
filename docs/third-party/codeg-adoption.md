@@ -144,6 +144,49 @@ and Eclipse Temurin JRE into ignored `target/tools` cache directories, verifies
 both archives by SHA-256, and does not package either tool with VibeX. This adds
 no Codeg attribution obligation and no mobile product source.
 
+## Agent settings parity
+
+The Agent settings implementation was audited separately against Codeg commit
+`fa230248d285c3f4fa541a737fc93f209820512e` (2026-08-05). The review covered:
+
+- `src/components/settings/acp-agent-settings.tsx`
+- `src/components/settings/agent-diagnostics-dialog.tsx`
+- `src/components/settings/{pi,kimi-code,codebuddy,cursor}-config-panel.tsx`
+- `src/components/settings/{opencode-connect-dialog,opencode-plugins-modal}.tsx`
+- `src/components/settings/{model-provider-settings,codex-model-list-editor}.tsx`
+- `src/components/settings/{mcp-settings,custom-skills-settings}.tsx`
+- `src-tauri/src/acp/{registry,preflight,manager,codex_model_catalog}.rs`
+- `src-tauri/src/acp/{opencode_catalog,opencode_plugins}.rs`
+- `src-tauri/src/commands/{acp,mcp,custom_skills,model_provider}.rs`
+- `src-tauri/src/parsers/{opencode,kimi_code,grok,pi,cursor}.rs`
+
+VibeX adopted the complete default Agent catalog and the observable settings
+capabilities: pinned installation plans, validated specific-version installs,
+bounded redacted live installation logs, dependency preflight, official account
+actions, subscription links, authentication modes, native configuration,
+Codex device authentication and model catalogs, reusable Model Providers,
+OpenCode Provider/plugin management, Pi configuration, MCP, Skills, and local
+history import. The final surface audit also covered Codeg's generic per-Agent
+environment editor and install-log/diagnostics dialog. VibeX exposes equivalent
+environment overrides with secret redaction and compare-and-set revisions, and
+bootstraps Codeg's pinned uv release from official archives with per-platform
+SHA-256 verification when Hermes cannot use a system uv. It also
+shows bounded redacted operation diagnostics directly in Agent details while
+retaining full diagnostic export. Its separate read-only environment report
+compares the GUI process PATH with the login shell, probes the profile's exact
+dependencies and launch target, and copies only a safe environment whitelist.
+The final OpenCode audit added structured per-model ID/name editing and rename-safe
+preservation of unknown model fields without returning saved credentials to the UI.
+VibeX retains its own open `AgentId`, managed-install lock,
+event-sourced Conversation model, optimistic native-file revisions, structured
+Tauri DTOs, and fixed action whitelist. No Codeg command string is accepted from
+the UI or configuration. Sensitive native files and credentials remain redacted
+at the IPC boundary.
+
+The capability contract and the exact pinned baseline are recorded in ADR-0037.
+The implementation is reorganized around VibeX's `agents`, `services`, `db`, and
+Tauri adapter layers; Codeg source files were not copied byte-for-byte.
+
 ## Verification
 
 - `node --test scripts/check-third-party-adoption.test.js`
@@ -165,6 +208,10 @@ no Codeg attribution obligation and no mobile product source.
 - `cd frontend && pnpm test -- src/lib/transport/remoteDesktopTransport.test.ts`
 - `pnpm run frontend:build`
 - `pnpm run test:web:e2e`
+- `cargo test -p agents`
+- `cargo test -p services agent_management`
+- `cargo test -p vibex --features qa-mode agent_management::tests`
+- `cd frontend && pnpm exec vitest run src/pages/settings/Agent*.test.tsx`
 
 ## Apache-2.0 obligations
 

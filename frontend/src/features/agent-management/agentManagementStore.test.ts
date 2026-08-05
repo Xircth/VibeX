@@ -70,15 +70,25 @@ describe('agentManagementStore', () => {
     };
     const running = reduceOperationEvent(optimistic, event);
     expect(running.operations['vendor.agent']?.progressPercent).toBe(30);
+    const withLog = reduceOperationEvent(running, {
+      ...event,
+      sequence: 8,
+      progress_percent: null,
+      message: 'downloaded package',
+    });
+    expect(withLog.operations['vendor.agent']).toMatchObject({
+      progressPercent: 30,
+      logs: ['installing', 'downloaded package'],
+    });
     expect(running.agents[1].lifecycle).toBe('installing');
 
-    const stale = reduceOperationEvent(running, { ...event, sequence: 6 });
-    expect(stale).toBe(running);
+    const stale = reduceOperationEvent(withLog, { ...event, sequence: 6 });
+    expect(stale).toBe(withLog);
 
-    const refreshed = mergeManagementSnapshot(running, [
+    const refreshed = mergeManagementSnapshot(withLog, [
       codex,
       {
-        ...running.agents[1],
+        ...withLog.agents[1],
         lifecycle: 'needs_auth',
         authentication: 'not_logged_in',
         active_operation: null,
@@ -87,5 +97,36 @@ describe('agentManagementStore', () => {
     expect(refreshed.agents[1].lifecycle).toBe('needs_auth');
     expect(refreshed.operations['vendor.agent']).toBeUndefined();
     expect(refreshed.snapshotRevision).toBe(initial.snapshotRevision + 1);
+  });
+
+  it('clears recovered interrupted operations instead of leaving the Agent busy', () => {
+    const initial = createAgentManagementState([
+      { ...codex, active_operation: 'install', lifecycle: 'installing' },
+    ]);
+    const running = reduceOperationEvent(initial, {
+      sequence: 1,
+      agent_id: 'codex',
+      operation_id: 'interrupted-operation',
+      kind: 'install',
+      status: 'running',
+      progress_percent: 20,
+      message: 'installing',
+    });
+
+    const interrupted = reduceOperationEvent(running, {
+      sequence: 2,
+      agent_id: 'codex',
+      operation_id: 'interrupted-operation',
+      kind: 'install',
+      status: 'interrupted',
+      progress_percent: null,
+      message: 'recovered after restart',
+    });
+
+    expect(interrupted.operations.codex).toBeUndefined();
+    expect(interrupted.agents[0]).toMatchObject({
+      active_operation: null,
+      lifecycle: 'needs_repair',
+    });
   });
 });

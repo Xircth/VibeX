@@ -8,7 +8,7 @@
 //! release-pinned trust evidence, official local candidates and known native
 //! configuration fields.
 
-use api_types::AgentId;
+use api_types::{AgentId, AgentSettingsFeature};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileTopology {
@@ -27,7 +27,15 @@ pub enum ProfileComponent {
 pub struct ProfileBinaryArtifact {
     pub platform: &'static str,
     pub archive_url: &'static str,
-    pub sha256: &'static str,
+    /// `None` mirrors upstream distributions that do not publish a digest;
+    /// those artifacts enter the existing trust-on-first-use path.
+    pub sha256: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileBinaryEntry {
+    pub unix: &'static str,
+    pub windows: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,12 +49,22 @@ pub enum ProfileInstallSource {
         node_requirement: &'static str,
         integrity: &'static str,
     },
+    Uvx {
+        component: ProfileComponent,
+        package: &'static str,
+        version: &'static str,
+        command: &'static str,
+        args: &'static [&'static str],
+        uv_requirement: &'static str,
+        python_requirement: &'static str,
+    },
     Binary {
         component: ProfileComponent,
         version: &'static str,
         command: &'static str,
         args: &'static [&'static str],
         artifacts: Vec<ProfileBinaryArtifact>,
+        entry: Option<ProfileBinaryEntry>,
     },
 }
 
@@ -68,10 +86,42 @@ pub struct ProfileExternalCandidate {
     pub version_args: &'static [&'static str],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileDependency {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub executable: &'static str,
+    pub version_args: &'static [&'static str],
+    pub requirement: &'static str,
+    pub required: bool,
+    pub repairable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileManagementActionKind {
+    Login,
+    Logout,
+    Setup,
+    Subscription,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileManagementAction {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub kind: ProfileManagementActionKind,
+    pub program: Option<&'static str>,
+    pub args: &'static [&'static str],
+    pub url: Option<&'static str>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeConfigFormat {
     Json,
     Toml,
+    Yaml,
+    Dotenv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +131,7 @@ pub enum NativeConfigFieldKind {
     Select,
     Boolean,
     Number,
+    Json,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +175,9 @@ pub enum AccountEvidenceKind {
 pub struct AccountEvidence {
     pub home_relative_directory: &'static str,
     pub directory_override_env: Option<&'static str>,
+    /// Path below an override directory. Some CLIs define an override as a
+    /// parent directory rather than the native configuration directory.
+    pub override_relative_directory: &'static str,
     pub relative_file: &'static str,
     pub kind: AccountEvidenceKind,
 }
@@ -169,11 +223,14 @@ pub struct BuiltInProfile {
     pub supported_platforms: &'static [&'static str],
     pub install_sources: Vec<ProfileInstallSource>,
     pub external_candidates: &'static [ProfileExternalCandidate],
+    pub dependencies: &'static [ProfileDependency],
+    pub management_actions: &'static [ProfileManagementAction],
     /// Adapter-specific environment variable that must point to the separately
     /// installed local Runtime. `None` means the ACP executable is the Runtime,
     /// or the adapter contract resolves the Runtime from the lock-owned PATH.
     pub runtime_executable_env: Option<&'static str>,
     pub native_config: &'static [NativeConfigBinding],
+    pub settings_features: &'static [AgentSettingsFeature],
     pub authentication_precedence: AuthenticationPrecedence,
     pub authentication_required_by_default: bool,
     pub account_evidence: Option<AccountEvidence>,
@@ -196,8 +253,16 @@ impl BuiltInProfileCatalog {
             profiles: vec![
                 claude_code_profile(),
                 codex_profile(),
+                gemini_profile(),
+                openclaw_profile(),
                 opencode_profile(),
+                cline_profile(),
+                hermes_profile(),
+                codebuddy_profile(),
+                kimi_code_profile(),
                 pi_profile(),
+                grok_profile(),
+                cursor_profile(),
             ],
         }
     }
@@ -272,6 +337,298 @@ const PI_CANDIDATES: &[ProfileExternalCandidate] = &[
         version_args: &["--version"],
     },
 ];
+const GEMINI_CANDIDATES: &[ProfileExternalCandidate] = &[external("gemini")];
+const OPENCLAW_CANDIDATES: &[ProfileExternalCandidate] = &[external("openclaw")];
+const CLINE_CANDIDATES: &[ProfileExternalCandidate] = &[external("cline")];
+const HERMES_CANDIDATES: &[ProfileExternalCandidate] = &[external("hermes-acp")];
+const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] = &[external("codebuddy")];
+const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
+const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
+const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
+
+const fn external(executable: &'static str) -> ProfileExternalCandidate {
+    ProfileExternalCandidate {
+        component: ProfileComponent::CombinedRuntime,
+        executable,
+        version_args: &["--version"],
+    }
+}
+
+const NODE_20_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=20", true),
+    dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
+];
+const NODE_22_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=22", true),
+    dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
+];
+const NODE_22_19_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=22.19", true),
+    dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
+];
+const NODE_22_22_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("node", "Node.js", "node", &["--version"], ">=22.22.3", true),
+    dependency("npm", "npm", "npm", &["--version"], "随 Node.js 安装", true),
+];
+const UV_DEPENDENCIES: &[ProfileDependency] = &[
+    dependency("uv", "uv", "uv", &["--version"], ">=0.5", true),
+    dependency(
+        "python",
+        "系统 Python（可选）",
+        "python3",
+        &["--version"],
+        "uv 将自动安装 Python 3.13",
+        false,
+    ),
+];
+const ARCHIVE_DEPENDENCIES: &[ProfileDependency] = &[dependency(
+    "archive",
+    "归档解压工具",
+    "tar",
+    &["--version"],
+    "系统自带（Windows ZIP 无需）",
+    false,
+)];
+
+const fn dependency(
+    id: &'static str,
+    label: &'static str,
+    executable: &'static str,
+    version_args: &'static [&'static str],
+    requirement: &'static str,
+    required: bool,
+) -> ProfileDependency {
+    ProfileDependency {
+        id,
+        label,
+        executable,
+        version_args,
+        requirement,
+        required,
+        repairable: false,
+    }
+}
+
+const CLAUDE_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Claude",
+        "启动 Claude Code 官方账号登录",
+        ProfileManagementActionKind::Login,
+        "claude",
+        &["auth", "login"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Claude Code 本地账号",
+        ProfileManagementActionKind::Logout,
+        "claude",
+        &["auth", "logout"],
+    ),
+    url_action(
+        "subscription",
+        "管理订阅",
+        "打开 Claude 套餐与账单页面",
+        "https://claude.ai/settings/billing",
+    ),
+];
+const CODEX_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 ChatGPT",
+        "启动 Codex 官方设备码登录",
+        ProfileManagementActionKind::Login,
+        "codex",
+        &["login", "--device-auth"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Codex 本地账号",
+        ProfileManagementActionKind::Logout,
+        "codex",
+        &["logout"],
+    ),
+    url_action(
+        "subscription",
+        "管理订阅",
+        "打开 ChatGPT 套餐管理页面",
+        "https://chatgpt.com/#pricing",
+    ),
+];
+const GEMINI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 Google",
+    "启动 Gemini CLI 并完成 Google OAuth",
+    ProfileManagementActionKind::Login,
+    "gemini",
+    &[],
+)];
+const OPENCLAW_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "onboard",
+    "初始化 OpenClaw",
+    "运行官方引导并配置 Gateway",
+    ProfileManagementActionKind::Setup,
+    "openclaw",
+    &["onboard"],
+)];
+const OPENCODE_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "连接 Provider",
+        "启动 OpenCode 官方认证流程",
+        ProfileManagementActionKind::Login,
+        "opencode",
+        &["auth", "login"],
+    ),
+    terminal_action(
+        "logout",
+        "断开 Provider",
+        "启动 OpenCode 官方注销流程",
+        ProfileManagementActionKind::Logout,
+        "opencode",
+        &["auth", "logout"],
+    ),
+];
+const CLINE_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 Cline",
+    "启动 Cline 官方认证流程",
+    ProfileManagementActionKind::Login,
+    "cline",
+    &["auth"],
+)];
+const HERMES_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "setup",
+        "运行 Hermes Setup",
+        "配置 Provider 与凭据",
+        ProfileManagementActionKind::Setup,
+        "hermes-acp",
+        &["--setup"],
+    ),
+    terminal_action(
+        "model",
+        "配置模型",
+        "打开 Hermes 模型配置流程",
+        ProfileManagementActionKind::Setup,
+        "hermes",
+        &["model"],
+    ),
+];
+const CODEBUDDY_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "登录 CodeBuddy",
+    "启动 CodeBuddy 官方登录",
+    ProfileManagementActionKind::Login,
+    "codebuddy",
+    &["login"],
+)];
+const KIMI_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Kimi",
+        "切换到 Kimi Code 订阅账号并启动设备码登录",
+        ProfileManagementActionKind::Login,
+        "kimi",
+        &["acp", "--login"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Kimi Code 本地账号",
+        ProfileManagementActionKind::Logout,
+        "kimi",
+        &["logout"],
+    ),
+];
+const PI_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "login",
+    "配置 Pi Provider",
+    "启动 Pi，在终端中使用 /login",
+    ProfileManagementActionKind::Login,
+    "pi",
+    &[],
+)];
+const GROK_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Grok",
+        "使用 SuperGrok / X Premium+ 账号登录",
+        ProfileManagementActionKind::Login,
+        "grok",
+        &["login"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Grok 本地账号",
+        ProfileManagementActionKind::Logout,
+        "grok",
+        &["logout"],
+    ),
+];
+const CURSOR_ACTIONS: &[ProfileManagementAction] = &[
+    terminal_action(
+        "login",
+        "登录 Cursor",
+        "使用 Cursor 订阅账号登录",
+        ProfileManagementActionKind::Login,
+        "cursor-agent",
+        &["login"],
+    ),
+    terminal_action(
+        "logout",
+        "退出登录",
+        "注销 Cursor Agent 本地账号",
+        ProfileManagementActionKind::Logout,
+        "cursor-agent",
+        &["logout"],
+    ),
+    url_action(
+        "subscription",
+        "管理订阅",
+        "打开 Cursor 套餐管理页面",
+        "https://www.cursor.com/settings",
+    ),
+];
+
+const fn terminal_action(
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    kind: ProfileManagementActionKind,
+    program: &'static str,
+    args: &'static [&'static str],
+) -> ProfileManagementAction {
+    ProfileManagementAction {
+        id,
+        label,
+        description,
+        kind,
+        program: Some(program),
+        args,
+        url: None,
+    }
+}
+
+const fn url_action(
+    id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    url: &'static str,
+) -> ProfileManagementAction {
+    ProfileManagementAction {
+        id,
+        label,
+        description,
+        kind: ProfileManagementActionKind::Subscription,
+        program: None,
+        args: &[],
+        url: Some(url),
+    }
+}
 
 const EMPTY_OPTIONS: &[(&str, &str)] = &[];
 const EFFORT_OPTIONS: &[(&str, &str)] = &[
@@ -304,7 +661,13 @@ const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         "model",
         "主模型",
         "新会话默认使用的模型或模型别名",
-        &["model"],
+        &["env", "ANTHROPIC_MODEL"],
+    ),
+    text_field(
+        "reasoning_model",
+        "推理模型",
+        "Claude Code 处理扩展思考时使用的模型",
+        &["env", "ANTHROPIC_REASONING_MODEL"],
     ),
     text_field(
         "haiku_model",
@@ -323,6 +686,24 @@ const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         "Opus 默认模型",
         "opus 别名解析到的模型",
         &["env", "ANTHROPIC_DEFAULT_OPUS_MODEL"],
+    ),
+    text_field(
+        "custom_model_option",
+        "自定义模型 ID",
+        "在模型选择器中增加一个自定义模型",
+        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION"],
+    ),
+    text_field(
+        "custom_model_option_name",
+        "自定义模型名称",
+        "自定义模型在选择器中的显示名称",
+        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"],
+    ),
+    text_field(
+        "custom_model_option_description",
+        "自定义模型说明",
+        "自定义模型在选择器中的说明",
+        &["env", "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"],
     ),
     select_field(
         "effort_level",
@@ -343,6 +724,20 @@ const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
         "提交署名",
         "在提交和 Pull Request 中加入 Claude 署名",
         &["includeCoAuthoredBy"],
+    ),
+    select_field(
+        "claude_send_attribution_header",
+        "发送归因请求头",
+        "控制 CLAUDE_CODE_ATTRIBUTION_HEADER",
+        &["env", "CLAUDE_CODE_ATTRIBUTION_HEADER"],
+        &[("0", "关闭"), ("1", "开启")],
+    ),
+    select_field(
+        "claude_disable_nonessential_traffic",
+        "禁用非必要流量",
+        "控制遥测与非必要网络请求",
+        &["env", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"],
+        &[("0", "关闭"), ("1", "开启")],
     ),
     select_field(
         "auto_updates_channel",
@@ -385,6 +780,7 @@ const CODEX_APPROVAL_OPTIONS: &[(&str, &str)] = &[
     ("untrusted", "仅信任安全命令"),
     ("on-request", "按需确认"),
     ("never", "从不确认"),
+    ("granular", "按能力分别确认"),
 ];
 const CODEX_SANDBOX_OPTIONS: &[(&str, &str)] = &[
     ("read-only", "只读"),
@@ -447,6 +843,36 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
         &["approval_policy"],
         CODEX_APPROVAL_OPTIONS,
     ),
+    boolean_field(
+        "codex_approval_sandbox",
+        "沙箱命令确认",
+        "允许 Codex 针对沙箱外命令发起确认",
+        &["approval_policy", "granular", "sandbox_approval"],
+    ),
+    boolean_field(
+        "codex_approval_rules",
+        "规则确认",
+        "允许 Codex 针对规则匹配结果发起确认",
+        &["approval_policy", "granular", "rules"],
+    ),
+    boolean_field(
+        "codex_approval_skills",
+        "Skill 确认",
+        "允许 Codex 在运行 Skill 前发起确认",
+        &["approval_policy", "granular", "skill_approval"],
+    ),
+    boolean_field(
+        "codex_approval_permissions",
+        "权限请求确认",
+        "允许 Codex 请求额外文件或系统权限",
+        &["approval_policy", "granular", "request_permissions"],
+    ),
+    boolean_field(
+        "codex_approval_mcp",
+        "MCP 交互确认",
+        "允许 MCP server 通过 Codex 发起交互确认",
+        &["approval_policy", "granular", "mcp_elicitations"],
+    ),
     select_field(
         "codex_sandbox_mode",
         "文件访问",
@@ -466,6 +892,36 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
         "WebSocket 传输",
         "使用 Responses API WebSocket 传输",
         &["features", "responses_websockets_v2"],
+    ),
+    boolean_field(
+        "codex_skills",
+        "Skills",
+        "启用 Codex 原生 Skills 支持",
+        &["features", "skills"],
+    ),
+    json_field(
+        "codex_writable_roots",
+        "额外可写目录",
+        "workspace-write 沙箱额外允许写入的绝对路径数组",
+        &["sandbox_workspace_write", "writable_roots"],
+    ),
+    boolean_field(
+        "codex_network_access",
+        "沙箱网络访问",
+        "允许 workspace-write 沙箱访问网络",
+        &["sandbox_workspace_write", "network_access"],
+    ),
+    boolean_field(
+        "codex_exclude_tmpdir",
+        "排除 TMPDIR",
+        "从默认可写目录中排除用户 TMPDIR",
+        &["sandbox_workspace_write", "exclude_tmpdir_env_var"],
+    ),
+    boolean_field(
+        "codex_exclude_slash_tmp",
+        "排除 /tmp",
+        "从默认可写目录中排除 /tmp",
+        &["sandbox_workspace_write", "exclude_slash_tmp"],
     ),
 ];
 const CODEX_CONFIG: &[NativeConfigBinding] = &[
@@ -520,6 +976,12 @@ const OPENCODE_AUTH_FIELDS: &[NativeConfigField] = &[
 const OPENCODE_SHARE_OPTIONS: &[(&str, &str)] =
     &[("manual", "手动"), ("auto", "自动"), ("disabled", "关闭")];
 const OPENCODE_SETTINGS_FIELDS: &[NativeConfigField] = &[
+    json_field(
+        "opencode_providers",
+        "Provider 连接",
+        "完整的 provider 连接、npm 适配器、端点与模型定义（JSON）",
+        &["provider"],
+    ),
     text_field(
         "opencode_model",
         "主模型",
@@ -679,7 +1141,707 @@ const PI_CONFIG: &[NativeConfigBinding] = &[
         format: NativeConfigFormat::Json,
         fields: PI_SETTINGS_FIELDS,
     },
+    NativeConfigBinding {
+        binding_id: "models",
+        home_relative_path: ".pi/agent/models.json",
+        directory_override_env: Some("PI_CODING_AGENT_DIR"),
+        override_relative_path: "models.json",
+        format: NativeConfigFormat::Json,
+        fields: &[json_field(
+            "pi_custom_providers",
+            "自定义 Provider",
+            "Pi models.json 的 providers 对象",
+            &["providers"],
+        )],
+    },
 ];
+
+const GEMINI_AUTH_OPTIONS: &[(&str, &str)] = &[
+    ("oauth-personal", "Google OAuth"),
+    ("gemini-api-key", "Gemini API Key"),
+    ("vertex-ai", "Vertex AI"),
+];
+const GEMINI_VERTEX_USE_OPTIONS: &[(&str, &str)] = &[("true", "开启"), ("false", "关闭")];
+const GEMINI_FIELDS: &[NativeConfigField] = &[
+    select_field(
+        "gemini_auth",
+        "认证方式",
+        "Gemini CLI 使用的认证来源",
+        &["security", "auth", "selectedType"],
+        GEMINI_AUTH_OPTIONS,
+    ),
+    text_field(
+        "gemini_base_url",
+        "API URL",
+        "Google Gemini 兼容端点",
+        &["env", "GOOGLE_GEMINI_BASE_URL"],
+    ),
+    secret_field(
+        "gemini_api_key",
+        "Gemini API Key",
+        "写入 GEMINI_API_KEY",
+        &["env", "GEMINI_API_KEY"],
+    ),
+    secret_field(
+        "gemini_google_api_key",
+        "Vertex API Key",
+        "写入 GOOGLE_API_KEY",
+        &["env", "GOOGLE_API_KEY"],
+    ),
+    text_field(
+        "gemini_cloud_project",
+        "Google Cloud Project",
+        "Vertex AI 项目标识",
+        &["env", "GOOGLE_CLOUD_PROJECT"],
+    ),
+    text_field(
+        "gemini_cloud_location",
+        "Google Cloud Location",
+        "Vertex AI 区域，例如 global 或 us-central1",
+        &["env", "GOOGLE_CLOUD_LOCATION"],
+    ),
+    text_field(
+        "gemini_application_credentials",
+        "Service Account JSON",
+        "GOOGLE_APPLICATION_CREDENTIALS 文件路径",
+        &["env", "GOOGLE_APPLICATION_CREDENTIALS"],
+    ),
+    select_field(
+        "gemini_use_vertex_ai",
+        "使用 Vertex AI",
+        "通过 Application Default Credentials 或 Service Account 认证",
+        &["env", "GOOGLE_GENAI_USE_VERTEXAI"],
+        GEMINI_VERTEX_USE_OPTIONS,
+    ),
+    text_field(
+        "gemini_model",
+        "模型",
+        "Gemini 默认模型",
+        &["env", "GEMINI_MODEL"],
+    ),
+];
+const GEMINI_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "settings",
+    home_relative_path: ".gemini/settings.json",
+    directory_override_env: Some("GEMINI_CLI_HOME"),
+    override_relative_path: ".gemini/settings.json",
+    format: NativeConfigFormat::Json,
+    fields: GEMINI_FIELDS,
+}];
+
+const OPENCLAW_FIELDS: &[NativeConfigField] = &[
+    text_field(
+        "openclaw_gateway_url",
+        "Gateway URL",
+        "OpenClaw 远程 Gateway 地址",
+        &["gateway", "remote", "url"],
+    ),
+    secret_field(
+        "openclaw_gateway_token",
+        "Gateway Token",
+        "Gateway 认证 Token",
+        &["gateway", "auth", "token"],
+    ),
+    text_field(
+        "openclaw_session",
+        "Session Key",
+        "复用的 OpenClaw 会话键",
+        &["acp", "sessionKey"],
+    ),
+    text_field(
+        "openclaw_model",
+        "默认模型",
+        "OpenClaw 默认模型",
+        &["agents", "defaults", "model", "primary"],
+    ),
+];
+const OPENCLAW_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "config",
+    home_relative_path: ".openclaw/openclaw.json",
+    directory_override_env: Some("OPENCLAW_HOME"),
+    override_relative_path: "openclaw.json",
+    format: NativeConfigFormat::Json,
+    fields: OPENCLAW_FIELDS,
+}];
+
+const CLINE_PROVIDER_OPTIONS: &[(&str, &str)] = &[
+    ("anthropic", "Anthropic"),
+    ("openai", "OpenAI"),
+    ("openai-native", "OpenAI Native"),
+    ("openrouter", "OpenRouter"),
+    ("gemini", "Gemini"),
+    ("deepseek", "DeepSeek"),
+    ("bedrock", "AWS Bedrock"),
+    ("vertex", "GCP Vertex"),
+    ("ollama", "Ollama"),
+    ("lmstudio", "LM Studio"),
+];
+const CLINE_STATE_FIELDS: &[NativeConfigField] = &[
+    select_field(
+        "cline_provider",
+        "Provider",
+        "Cline API Provider",
+        &["apiProvider"],
+        CLINE_PROVIDER_OPTIONS,
+    ),
+    text_field("cline_model", "模型", "Cline 模型 ID", &["apiModelId"]),
+    text_field(
+        "cline_base_url",
+        "API URL",
+        "OpenAI 兼容端点",
+        &["openAiBaseUrl"],
+    ),
+];
+const CLINE_SECRET_FIELDS: &[NativeConfigField] = &[
+    secret_field(
+        "cline_anthropic_key",
+        "Anthropic API Key",
+        "Cline Anthropic 凭据",
+        &["apiKey"],
+    ),
+    secret_field(
+        "cline_openai_key",
+        "OpenAI API Key",
+        "Cline OpenAI 凭据",
+        &["openAiApiKey"],
+    ),
+    secret_field(
+        "cline_openrouter_key",
+        "OpenRouter API Key",
+        "Cline OpenRouter 凭据",
+        &["openRouterApiKey"],
+    ),
+    secret_field(
+        "cline_gemini_key",
+        "Gemini API Key",
+        "Cline Gemini 凭据",
+        &["geminiApiKey"],
+    ),
+];
+const CLINE_CONFIG: &[NativeConfigBinding] = &[
+    NativeConfigBinding {
+        binding_id: "state",
+        home_relative_path: ".cline/data/globalState.json",
+        directory_override_env: Some("CLINE_DIR"),
+        override_relative_path: "globalState.json",
+        format: NativeConfigFormat::Json,
+        fields: CLINE_STATE_FIELDS,
+    },
+    NativeConfigBinding {
+        binding_id: "secrets",
+        home_relative_path: ".cline/data/secrets.json",
+        directory_override_env: Some("CLINE_DIR"),
+        override_relative_path: "secrets.json",
+        format: NativeConfigFormat::Json,
+        fields: CLINE_SECRET_FIELDS,
+    },
+];
+
+const HERMES_PROVIDER_OPTIONS: &[(&str, &str)] = &[
+    ("openrouter", "OpenRouter"),
+    ("openai-api", "OpenAI / Compatible"),
+    ("custom", "自定义 OpenAI 兼容端点"),
+    ("anthropic", "Anthropic"),
+    ("gemini", "Google AI Studio"),
+    ("deepseek", "DeepSeek"),
+    ("xai", "xAI Grok"),
+    ("zai", "Z.AI / GLM"),
+    ("minimax", "MiniMax"),
+    ("minimax-cn", "MiniMax（中国）"),
+    ("kimi-coding", "Kimi / Moonshot"),
+    ("kimi-coding-cn", "Kimi / Moonshot（中国）"),
+    ("nvidia", "NVIDIA NIM"),
+    ("alibaba", "Qwen / DashScope"),
+    ("alibaba-coding-plan", "Alibaba Coding Plan"),
+    ("copilot", "GitHub Copilot"),
+    ("lmstudio", "LM Studio"),
+    ("azure-foundry", "Azure Foundry"),
+    ("stepfun", "StepFun"),
+    ("arcee", "Arcee AI"),
+    ("gmi", "GMI Cloud"),
+    ("huggingface", "Hugging Face"),
+    ("kilocode", "Kilo Code"),
+    ("opencode-zen", "OpenCode Zen"),
+    ("opencode-go", "OpenCode Go"),
+    ("xiaomi", "Xiaomi MiMo"),
+    ("tencent-tokenhub", "Tencent TokenHub"),
+    ("ollama-cloud", "Ollama Cloud"),
+    ("novita", "Novita AI"),
+    ("nous", "Nous Portal（OAuth）"),
+    ("openai-codex", "OpenAI Codex（OAuth）"),
+    ("minimax-oauth", "MiniMax（OAuth）"),
+    ("xai-oauth", "xAI Grok（OAuth）"),
+    ("qwen-oauth", "Qwen（OAuth）"),
+    ("google-gemini-cli", "Gemini CLI（OAuth）"),
+    ("copilot-acp", "GitHub Copilot ACP（OAuth）"),
+    ("bedrock", "AWS Bedrock"),
+];
+const HERMES_YAML_FIELDS: &[NativeConfigField] = &[
+    select_field(
+        "hermes_provider",
+        "Provider",
+        "Hermes 模型 Provider",
+        &["model", "provider"],
+        HERMES_PROVIDER_OPTIONS,
+    ),
+    text_field(
+        "hermes_model",
+        "模型",
+        "Hermes 默认模型",
+        &["model", "default"],
+    ),
+    text_field(
+        "hermes_base_url",
+        "API URL",
+        "Provider 自定义端点",
+        &["model", "base_url"],
+    ),
+    secret_field(
+        "hermes_inline_key",
+        "自定义 API Key",
+        "custom Provider 的内联凭据",
+        &["model", "api_key"],
+    ),
+];
+const HERMES_ENV_FIELDS: &[NativeConfigField] = &[
+    secret_field(
+        "hermes_anthropic_key",
+        "Anthropic API Key",
+        "ANTHROPIC_API_KEY",
+        &["ANTHROPIC_API_KEY"],
+    ),
+    secret_field(
+        "hermes_openai_key",
+        "OpenAI API Key",
+        "OPENAI_API_KEY",
+        &["OPENAI_API_KEY"],
+    ),
+    text_field(
+        "hermes_openai_base_url",
+        "OpenAI API URL",
+        "OPENAI_BASE_URL",
+        &["OPENAI_BASE_URL"],
+    ),
+    secret_field(
+        "hermes_openrouter_key",
+        "OpenRouter API Key",
+        "OPENROUTER_API_KEY",
+        &["OPENROUTER_API_KEY"],
+    ),
+    secret_field(
+        "hermes_kimi_key",
+        "Kimi API Key",
+        "KIMI_API_KEY",
+        &["KIMI_API_KEY"],
+    ),
+    secret_field(
+        "hermes_gemini_key",
+        "Google AI Studio API Key",
+        "GOOGLE_API_KEY",
+        &["GOOGLE_API_KEY"],
+    ),
+    secret_field(
+        "hermes_deepseek_key",
+        "DeepSeek API Key",
+        "DEEPSEEK_API_KEY",
+        &["DEEPSEEK_API_KEY"],
+    ),
+    secret_field(
+        "hermes_xai_key",
+        "xAI API Key",
+        "XAI_API_KEY",
+        &["XAI_API_KEY"],
+    ),
+    secret_field(
+        "hermes_zai_key",
+        "Z.AI API Key",
+        "GLM_API_KEY",
+        &["GLM_API_KEY"],
+    ),
+    secret_field(
+        "hermes_minimax_key",
+        "MiniMax API Key",
+        "MINIMAX_API_KEY",
+        &["MINIMAX_API_KEY"],
+    ),
+    secret_field(
+        "hermes_minimax_cn_key",
+        "MiniMax 中国 API Key",
+        "MINIMAX_CN_API_KEY",
+        &["MINIMAX_CN_API_KEY"],
+    ),
+    secret_field(
+        "hermes_kimi_cn_key",
+        "Kimi 中国 API Key",
+        "KIMI_CN_API_KEY",
+        &["KIMI_CN_API_KEY"],
+    ),
+    secret_field(
+        "hermes_nvidia_key",
+        "NVIDIA API Key",
+        "NVIDIA_API_KEY",
+        &["NVIDIA_API_KEY"],
+    ),
+    secret_field(
+        "hermes_alibaba_key",
+        "DashScope API Key",
+        "DASHSCOPE_API_KEY",
+        &["DASHSCOPE_API_KEY"],
+    ),
+    secret_field(
+        "hermes_alibaba_coding_plan_key",
+        "Alibaba Coding Plan API Key",
+        "ALIBABA_CODING_PLAN_API_KEY",
+        &["ALIBABA_CODING_PLAN_API_KEY"],
+    ),
+    secret_field(
+        "hermes_copilot_key",
+        "GitHub Copilot Token",
+        "COPILOT_GITHUB_TOKEN",
+        &["COPILOT_GITHUB_TOKEN"],
+    ),
+    secret_field(
+        "hermes_lmstudio_key",
+        "LM Studio API Key",
+        "LM_API_KEY",
+        &["LM_API_KEY"],
+    ),
+    text_field(
+        "hermes_lmstudio_base_url",
+        "LM Studio API URL",
+        "LM_BASE_URL",
+        &["LM_BASE_URL"],
+    ),
+    secret_field(
+        "hermes_azure_foundry_key",
+        "Azure Foundry API Key",
+        "AZURE_FOUNDRY_API_KEY",
+        &["AZURE_FOUNDRY_API_KEY"],
+    ),
+    text_field(
+        "hermes_azure_foundry_base_url",
+        "Azure Foundry API URL",
+        "AZURE_FOUNDRY_BASE_URL",
+        &["AZURE_FOUNDRY_BASE_URL"],
+    ),
+    secret_field(
+        "hermes_stepfun_key",
+        "StepFun API Key",
+        "STEPFUN_API_KEY",
+        &["STEPFUN_API_KEY"],
+    ),
+    secret_field(
+        "hermes_arcee_key",
+        "Arcee AI API Key",
+        "ARCEEAI_API_KEY",
+        &["ARCEEAI_API_KEY"],
+    ),
+    secret_field(
+        "hermes_gmi_key",
+        "GMI API Key",
+        "GMI_API_KEY",
+        &["GMI_API_KEY"],
+    ),
+    secret_field(
+        "hermes_huggingface_key",
+        "Hugging Face Token",
+        "HF_TOKEN",
+        &["HF_TOKEN"],
+    ),
+    secret_field(
+        "hermes_kilocode_key",
+        "Kilo Code API Key",
+        "KILOCODE_API_KEY",
+        &["KILOCODE_API_KEY"],
+    ),
+    secret_field(
+        "hermes_opencode_zen_key",
+        "OpenCode Zen API Key",
+        "OPENCODE_ZEN_API_KEY",
+        &["OPENCODE_ZEN_API_KEY"],
+    ),
+    secret_field(
+        "hermes_opencode_go_key",
+        "OpenCode Go API Key",
+        "OPENCODE_GO_API_KEY",
+        &["OPENCODE_GO_API_KEY"],
+    ),
+    secret_field(
+        "hermes_xiaomi_key",
+        "Xiaomi MiMo API Key",
+        "XIAOMI_API_KEY",
+        &["XIAOMI_API_KEY"],
+    ),
+    secret_field(
+        "hermes_tencent_tokenhub_key",
+        "Tencent TokenHub API Key",
+        "TOKENHUB_API_KEY",
+        &["TOKENHUB_API_KEY"],
+    ),
+    secret_field(
+        "hermes_ollama_cloud_key",
+        "Ollama Cloud API Key",
+        "OLLAMA_API_KEY",
+        &["OLLAMA_API_KEY"],
+    ),
+    secret_field(
+        "hermes_novita_key",
+        "Novita API Key",
+        "NOVITA_API_KEY",
+        &["NOVITA_API_KEY"],
+    ),
+];
+const HERMES_CONFIG: &[NativeConfigBinding] = &[
+    NativeConfigBinding {
+        binding_id: "config",
+        home_relative_path: ".hermes/config.yaml",
+        directory_override_env: Some("HERMES_HOME"),
+        override_relative_path: "config.yaml",
+        format: NativeConfigFormat::Yaml,
+        fields: HERMES_YAML_FIELDS,
+    },
+    NativeConfigBinding {
+        binding_id: "env",
+        home_relative_path: ".hermes/.env",
+        directory_override_env: Some("HERMES_HOME"),
+        override_relative_path: ".env",
+        format: NativeConfigFormat::Dotenv,
+        fields: HERMES_ENV_FIELDS,
+    },
+];
+
+const CODEBUDDY_FIELDS: &[NativeConfigField] = &[
+    secret_field(
+        "codebuddy_api_key",
+        "API Key",
+        "CodeBuddy API Key",
+        &["CODEBUDDY_API_KEY"],
+    ),
+    select_field(
+        "codebuddy_environment",
+        "环境",
+        "公网、内网或私有部署",
+        &["CODEBUDDY_INTERNET_ENVIRONMENT"],
+        &[
+            ("overseas", "海外公网"),
+            ("internal", "中国内网"),
+            ("ioa", "iOA"),
+            ("self_hosted", "私有部署"),
+        ],
+    ),
+    text_field(
+        "codebuddy_base_url",
+        "私有部署 URL",
+        "CodeBuddy 自托管服务地址",
+        &["CODEBUDDY_BASE_URL"],
+    ),
+];
+const CODEBUDDY_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "env",
+    home_relative_path: ".codebuddy/.env",
+    directory_override_env: Some("CODEBUDDY_CONFIG_DIR"),
+    override_relative_path: ".env",
+    format: NativeConfigFormat::Dotenv,
+    fields: CODEBUDDY_FIELDS,
+}];
+
+const KIMI_INTERFACE_OPTIONS: &[(&str, &str)] = &[
+    ("kimi", "Kimi"),
+    ("openai", "OpenAI Chat Completions"),
+    ("openai_responses", "OpenAI Responses"),
+    ("anthropic", "Anthropic"),
+    ("google-genai", "Google GenAI"),
+    ("vertexai", "Vertex AI"),
+];
+const KIMI_FIELDS: &[NativeConfigField] = &[
+    select_field(
+        "kimi_interface",
+        "接口类型",
+        "Provider 使用的 API 协议",
+        &["providers", "vibex", "type"],
+        KIMI_INTERFACE_OPTIONS,
+    ),
+    text_field(
+        "kimi_base_url",
+        "API URL",
+        "Provider 基础地址",
+        &["providers", "vibex", "base_url"],
+    ),
+    secret_field(
+        "kimi_api_key",
+        "内联 API Key",
+        "直接写入 Provider 的 API Key",
+        &["providers", "vibex", "api_key"],
+    ),
+    json_field(
+        "kimi_provider_env",
+        "Provider 环境变量",
+        "env 鉴权或 Vertex ADC 使用的环境变量对象",
+        &["providers", "vibex", "env"],
+    ),
+    tagged_text_field(
+        "kimi_model",
+        "模型 ID",
+        "Kimi Code 默认模型",
+        &["models", "vibex", "model"],
+        ("provider", "vibex"),
+    ),
+    number_field(
+        "kimi_context",
+        "上下文长度",
+        "模型最大上下文 Token",
+        &["models", "vibex", "max_context_size"],
+    ),
+    json_field(
+        "kimi_capabilities",
+        "模型能力",
+        "Kimi capabilities 数组，例如 [\"tool_use\", \"thinking\"]",
+        &["models", "vibex", "capabilities"],
+    ),
+    json_field(
+        "kimi_support_efforts",
+        "可选推理强度",
+        "Kimi ACP 暴露给会话的 support_efforts 数组",
+        &["models", "vibex", "support_efforts"],
+    ),
+    text_field(
+        "kimi_default_effort",
+        "默认推理强度",
+        "必须是 support_efforts 中的一个值",
+        &["models", "vibex", "default_effort"],
+    ),
+];
+const KIMI_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "config",
+    home_relative_path: ".kimi-code/config.toml",
+    directory_override_env: Some("KIMI_CODE_HOME"),
+    override_relative_path: "config.toml",
+    format: NativeConfigFormat::Toml,
+    fields: KIMI_FIELDS,
+}];
+
+const GROK_PERMISSION_OPTIONS: &[(&str, &str)] = &[
+    ("default", "默认询问"),
+    ("acceptEdits", "自动接受编辑"),
+    ("auto", "自动执行"),
+    ("dontAsk", "不主动询问"),
+    ("bypassPermissions", "跳过权限确认"),
+    ("plan", "计划模式"),
+];
+const GROK_FIELDS: &[NativeConfigField] = &[
+    select_field(
+        "grok_permission",
+        "权限模式",
+        "Grok 工具权限策略",
+        &["ui", "permission_mode"],
+        GROK_PERMISSION_OPTIONS,
+    ),
+    select_field(
+        "grok_effort",
+        "推理强度",
+        "默认 reasoning effort",
+        &["models", "default_reasoning_effort"],
+        EFFORT_OPTIONS,
+    ),
+    text_field(
+        "grok_model",
+        "默认模型",
+        "Grok 默认模型 ID",
+        &["models", "default"],
+    ),
+    text_field(
+        "grok_custom_model_id",
+        "自定义模型 ID",
+        "VibeX 管理的自定义模型标识",
+        &["model", "vibex", "model"],
+    ),
+    text_field(
+        "grok_base_url",
+        "API URL",
+        "自定义模型端点",
+        &["model", "vibex", "base_url"],
+    ),
+    secret_field(
+        "grok_api_key",
+        "xAI API Key",
+        "自定义模型凭据",
+        &["model", "vibex", "api_key"],
+    ),
+    select_field(
+        "grok_api_backend",
+        "API 协议",
+        "自定义模型使用的请求协议",
+        &["model", "vibex", "api_backend"],
+        &[
+            ("responses", "OpenAI Responses"),
+            ("chat_completions", "OpenAI Chat Completions"),
+            ("messages", "Anthropic Messages"),
+        ],
+    ),
+    number_field(
+        "grok_context_window",
+        "上下文长度",
+        "自定义模型的 context_window",
+        &["model", "vibex", "context_window"],
+    ),
+    number_field(
+        "grok_auto_compact_threshold",
+        "自动压缩阈值",
+        "session.auto_compact_threshold_percent（0–100）",
+        &["session", "auto_compact_threshold_percent"],
+    ),
+];
+const GROK_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "config",
+    home_relative_path: ".grok/config.toml",
+    directory_override_env: Some("GROK_HOME"),
+    override_relative_path: "config.toml",
+    format: NativeConfigFormat::Toml,
+    fields: GROK_FIELDS,
+}];
+
+const CURSOR_SANDBOX_OPTIONS: &[(&str, &str)] = &[("enabled", "启用"), ("disabled", "关闭")];
+const CURSOR_FIELDS: &[NativeConfigField] = &[
+    text_field(
+        "cursor_model",
+        "默认模型",
+        "作为 Cursor 根级 --model 启动参数传入",
+        &["vibex", "model"],
+    ),
+    boolean_field(
+        "cursor_force",
+        "Run Everything",
+        "作为 Cursor 根级 --force 启动参数传入",
+        &["vibex", "force"],
+    ),
+    select_field(
+        "cursor_sandbox_mode",
+        "沙箱",
+        "Cursor CLI sandbox.mode",
+        &["sandbox", "mode"],
+        CURSOR_SANDBOX_OPTIONS,
+    ),
+    json_field(
+        "cursor_allow_rules",
+        "允许规则",
+        "命令与工具 allow 规则（JSON）",
+        &["permissions", "allow"],
+    ),
+    json_field(
+        "cursor_deny_rules",
+        "拒绝规则",
+        "命令与工具 deny 规则（JSON）",
+        &["permissions", "deny"],
+    ),
+];
+const CURSOR_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
+    binding_id: "config",
+    home_relative_path: ".cursor/cli-config.json",
+    directory_override_env: Some("CURSOR_CONFIG_DIR"),
+    override_relative_path: "cli-config.json",
+    format: NativeConfigFormat::Json,
+    fields: CURSOR_FIELDS,
+}];
 
 const fn text_field(
     field_id: &'static str,
@@ -695,6 +1857,24 @@ const fn text_field(
         kind: NativeConfigFieldKind::Text,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+    }
+}
+
+const fn tagged_text_field(
+    field_id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    path: &'static [&'static str],
+    object_discriminator: (&'static str, &'static str),
+) -> NativeConfigField {
+    NativeConfigField {
+        field_id,
+        label,
+        description,
+        path,
+        kind: NativeConfigFieldKind::Text,
+        options: EMPTY_OPTIONS,
+        object_discriminator: Some(object_discriminator),
     }
 }
 
@@ -785,6 +1965,23 @@ const fn number_field(
     }
 }
 
+const fn json_field(
+    field_id: &'static str,
+    label: &'static str,
+    description: &'static str,
+    path: &'static [&'static str],
+) -> NativeConfigField {
+    NativeConfigField {
+        field_id,
+        label,
+        description,
+        path,
+        kind: NativeConfigFieldKind::Json,
+        options: EMPTY_OPTIONS,
+        object_discriminator: None,
+    }
+}
+
 fn npx(
     component: ProfileComponent,
     package: &'static str,
@@ -804,6 +2001,73 @@ fn npx(
     }
 }
 
+fn native_npx(
+    package: &'static str,
+    version: &'static str,
+    command: &'static str,
+    args: &'static [&'static str],
+    node_requirement: &'static str,
+    integrity: &'static str,
+) -> ProfileInstallSource {
+    ProfileInstallSource::Npx {
+        component: ProfileComponent::CombinedRuntime,
+        package,
+        version,
+        command,
+        args,
+        node_requirement,
+        integrity,
+    }
+}
+
+const NATIVE_SKILLS_SETTINGS: &[AgentSettingsFeature] = &[AgentSettingsFeature::NativeSkills];
+const AUTH_MODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const CLAUDE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const CODEX_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ModelCatalog,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::CodexModelCatalog,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const GEMINI_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ReusableModelProviders,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const OPENCODE_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::OpenCodeProviders,
+    AgentSettingsFeature::OpenCodePlugins,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const KIMI_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::ModelCatalog,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const PI_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::PiConfiguration,
+    AgentSettingsFeature::NativeSkills,
+];
+const CURSOR_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::ModelCatalog,
+    AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+
 fn claude_code_profile() -> BuiltInProfile {
     BuiltInProfile {
         agent_id: AgentId::parse("claude_code").expect("bundled AgentId"),
@@ -822,28 +2086,32 @@ fn claude_code_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AgentRuntime,
                 "@anthropic-ai/claude-code",
-                "2.1.220",
+                "2.1.222",
                 "claude",
                 ">=20",
-                "sha512-ogBrvwkqF9f8okmnXKxmRNHuvtFxFEffe5pWdqOV3iQDxlUOKirFqnyWC7NGXXnDA4WkkbPH8pvSbwyCR2Auyw==",
+                "sha512-T8i+1SvOIL6rWEE7g7Of4xJ5MTwP7sT7O5fFFD1zlWL54XkKhshZWFQhz0reANbziBIV0AEkI5QdSXZkTgSBwA==",
             ),
             npx(
                 ProfileComponent::AcpAdapter,
                 "@agentclientprotocol/claude-agent-acp",
-                "0.63.0",
+                "0.64.1",
                 "claude-agent-acp",
-                ">=20",
-                "sha512-/Ylytz6KPGkih1sZd2sJAmWIGMh59T+FCJhlsfW9zpB1Lrg0/Njgk/7TplRfX2f7dELx0FeN+SBG+Uju12XwlA==",
+                ">=22",
+                "sha512-JUwtmECBGa7696YX79quxxSZ6Ud4tQkAtvxcG6VU2+cTOiWqc/QicsYjObdfHRDOg4oGFp7D8fUJCs/WJLGsaw==",
             ),
         ],
         external_candidates: CLAUDE_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: CLAUDE_ACTIONS,
         runtime_executable_env: Some("CLAUDE_CODE_EXECUTABLE"),
         native_config: CLAUDE_CONFIG,
-        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        settings_features: CLAUDE_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::ApiKeyThenAccount,
         authentication_required_by_default: true,
         account_evidence: Some(AccountEvidence {
             home_relative_directory: ".claude",
             directory_override_env: Some("CLAUDE_CONFIG_DIR"),
+            override_relative_directory: "",
             relative_file: ".credentials.json",
             kind: AccountEvidenceKind::NonEmptyObject,
         }),
@@ -876,23 +2144,101 @@ fn codex_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AcpAdapter,
                 "@agentclientprotocol/codex-acp",
-                "1.1.7",
+                "1.1.9",
                 "codex-acp",
                 ">=20",
-                "sha512-bhFLbGtOMEw6+PAp33vNERb6dXlULOfV3mWbRdps4v7sY7PHha/C2T1dnlG0yVcvBu9W+NYPzL0CAupnVoFTiQ==",
+                "sha512-T78vetAQJ+XpP+0zT18ceEPTD10tqYvouDh0ht7mpCQjXuW3Vm5MzcuMRJMVBA2MwfCvGFXfOhGA7ogMSeOpFQ==",
             ),
         ],
         external_candidates: CODEX_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: CODEX_ACTIONS,
         runtime_executable_env: Some("CODEX_PATH"),
         native_config: CODEX_CONFIG,
+        settings_features: CODEX_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
         authentication_required_by_default: true,
         account_evidence: Some(AccountEvidence {
             home_relative_directory: ".codex",
             directory_override_env: Some("CODEX_HOME"),
+            override_relative_directory: "",
             relative_file: "auth.json",
             kind: AccountEvidenceKind::NonEmptyObjectAt(&["tokens"]),
         }),
+    }
+}
+
+fn gemini_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("gemini").expect("bundled AgentId"),
+        display_name: "Gemini CLI",
+        description: "Google Gemini CLI with native ACP support",
+        icon: ProfileIcon {
+            light: "/agents/gemini-light.svg",
+            dark: "/agents/gemini-dark.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "gemini",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@google/gemini-cli",
+            "0.53.1",
+            "gemini",
+            &["--acp", "--skip-trust"],
+            ">=20",
+            "sha512-xBGdD/tl05gsTpD2oV1Bq0NCb4BBeTnjSbKxHtwOB7nt1QMaqWYJ9WsOEsQQhQ2P1v0UJth1F17SAXvdZ5mASw==",
+        )],
+        external_candidates: GEMINI_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: GEMINI_ACTIONS,
+        runtime_executable_env: None,
+        native_config: GEMINI_CONFIG,
+        settings_features: GEMINI_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".gemini",
+            directory_override_env: Some("GEMINI_CLI_HOME"),
+            override_relative_directory: ".gemini",
+            relative_file: "oauth_creds.json",
+            kind: AccountEvidenceKind::NonEmptyObject,
+        }),
+    }
+}
+
+fn openclaw_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("openclaw").expect("bundled AgentId"),
+        display_name: "OpenClaw",
+        description: "OpenClaw Gateway agent with native ACP support",
+        icon: ProfileIcon {
+            light: "/agents/openclaw.svg",
+            dark: "/agents/openclaw.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "openclaw-acp",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "openclaw",
+            "2026.7.1",
+            "openclaw",
+            &["acp"],
+            ">=22.22.3",
+            "sha512-ge/Xss99CHAjPL/ikmH/UFoiOrjcxDB4sW3y9mhyCD+dYW3wzV7TKbAVdkrXFgAG2d2BjpJofP97zUZ+umxo8g==",
+        )],
+        external_candidates: OPENCLAW_CANDIDATES,
+        dependencies: NODE_22_22_DEPENDENCIES,
+        management_actions: OPENCLAW_ACTIONS,
+        runtime_executable_env: None,
+        native_config: OPENCLAW_CONFIG,
+        settings_features: NATIVE_SKILLS_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: false,
+        account_evidence: None,
     }
 }
 
@@ -912,7 +2258,7 @@ fn opencode_profile() -> BuiltInProfile {
         supported_platforms: DESKTOP_PLATFORMS,
         install_sources: vec![ProfileInstallSource::Binary {
             component: ProfileComponent::CombinedRuntime,
-            version: "1.18.9",
+            version: "1.18.11",
             command: "opencode",
             args: &["acp"],
             artifacts: vec![
@@ -947,17 +2293,180 @@ fn opencode_profile() -> BuiltInProfile {
                     "1becf92ceb23edd7d951e7e3d8efcbe9c9808f5cc728f1b75277d5f951ada5c2",
                 ),
             ],
+            entry: None,
         }],
         external_candidates: OPENCODE_CANDIDATES,
+        dependencies: ARCHIVE_DEPENDENCIES,
+        management_actions: OPENCODE_ACTIONS,
         runtime_executable_env: None,
         native_config: OPENCODE_CONFIG,
+        settings_features: OPENCODE_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: false,
         account_evidence: Some(AccountEvidence {
             home_relative_directory: ".local/share",
             directory_override_env: Some("XDG_DATA_HOME"),
+            override_relative_directory: "",
             relative_file: "opencode/auth.json",
             kind: AccountEvidenceKind::ProviderEntryNotApiKey,
+        }),
+    }
+}
+
+fn cline_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("cline").expect("bundled AgentId"),
+        display_name: "Cline",
+        description: "Cline's official CLI agent with native ACP support",
+        icon: ProfileIcon {
+            light: "/agents/cline.svg",
+            dark: "/agents/cline.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "cline",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "cline",
+            "3.0.49",
+            "cline",
+            &["--acp"],
+            ">=22",
+            "sha512-yZj+L/gGORrb/5YBCUwOEmwgwExdlTU0hEcBA9a+es7Usd0iuAWAHwrWCPwMfHdBwvvuw9qxpwqdMa2v7KbisQ==",
+        )],
+        external_candidates: CLINE_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: CLINE_ACTIONS,
+        runtime_executable_env: None,
+        native_config: CLINE_CONFIG,
+        settings_features: &[
+            AgentSettingsFeature::NativeMcp,
+            AgentSettingsFeature::NativeSkills,
+        ],
+        authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".cline/data",
+            directory_override_env: Some("CLINE_DIR"),
+            override_relative_directory: "",
+            relative_file: "secrets.json",
+            kind: AccountEvidenceKind::NonEmptyObject,
+        }),
+    }
+}
+
+fn hermes_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("hermes").expect("bundled AgentId"),
+        display_name: "Hermes Agent",
+        description: "Nous Research Hermes self-improving agent via ACP",
+        icon: ProfileIcon {
+            light: "/agents/hermes.svg",
+            dark: "/agents/hermes.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "hermes",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![ProfileInstallSource::Uvx {
+            component: ProfileComponent::CombinedRuntime,
+            package: "hermes-agent[acp,mcp]==0.19.0",
+            version: "0.19.0",
+            command: "hermes-acp",
+            args: &[],
+            uv_requirement: ">=0.5",
+            python_requirement: ">=3.11,<3.14",
+        }],
+        external_candidates: HERMES_CANDIDATES,
+        dependencies: UV_DEPENDENCIES,
+        management_actions: HERMES_ACTIONS,
+        runtime_executable_env: None,
+        native_config: HERMES_CONFIG,
+        settings_features: &[
+            AgentSettingsFeature::NativeMcp,
+            AgentSettingsFeature::NativeSkills,
+        ],
+        authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn codebuddy_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("codebuddy").expect("bundled AgentId"),
+        display_name: "CodeBuddy",
+        description: "Tencent Cloud CodeBuddy official coding assistant via ACP",
+        icon: ProfileIcon {
+            light: "/agents/codebuddy.svg",
+            dark: "/agents/codebuddy.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "codebuddy-code",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@tencent-ai/codebuddy-code",
+            "2.132.0",
+            "codebuddy",
+            &["--acp"],
+            ">=22",
+            "sha512-JFa1q0ZXK+TUmqW3X7zgg9RLCHb5dAInLKrTZtEdtAjfhIDwQeBXjYlyPNDLYJg6Y2Ic3p4SGhbXaE+slnjP1Q==",
+        )],
+        external_candidates: CODEBUDDY_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: CODEBUDDY_ACTIONS,
+        runtime_executable_env: None,
+        native_config: CODEBUDDY_CONFIG,
+        settings_features: &[
+            AgentSettingsFeature::NativeMcp,
+            AgentSettingsFeature::NativeSkills,
+        ],
+        authentication_precedence: AuthenticationPrecedence::SingleSource,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn kimi_code_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("kimi_code").expect("bundled AgentId"),
+        display_name: "Kimi Code",
+        description: "Moonshot AI's official CLI coding assistant via ACP",
+        icon: ProfileIcon {
+            light: "/agents/kimi.svg",
+            dark: "/agents/kimi.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "kimi-code",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@moonshot-ai/kimi-code",
+            "0.31.1",
+            "kimi",
+            &["acp"],
+            ">=22.19",
+            "sha512-Hyly4EjzemSjla479jC47h+K98wNvRKOqGwu6mBncI/MlIafqEByUXeGl/9+DsOKdiE6fQTxkxiAcgusBay56Q==",
+        )],
+        external_candidates: KIMI_CANDIDATES,
+        dependencies: NODE_22_19_DEPENDENCIES,
+        management_actions: KIMI_ACTIONS,
+        runtime_executable_env: None,
+        native_config: KIMI_CONFIG,
+        settings_features: KIMI_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".kimi-code",
+            directory_override_env: Some("KIMI_CODE_HOME"),
+            override_relative_directory: "",
+            relative_file: "credentials/kimi-code.json",
+            kind: AccountEvidenceKind::NonEmptyObject,
         }),
     }
 }
@@ -971,26 +2480,26 @@ fn artifact(
         platform,
         archive_url: match filename {
             "opencode-darwin-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-darwin-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-darwin-arm64.zip"
             }
             "opencode-darwin-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-darwin-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-darwin-x64.zip"
             }
             "opencode-linux-arm64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-linux-arm64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-arm64.tar.gz"
             }
             "opencode-linux-x64.tar.gz" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-linux-x64.tar.gz"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-linux-x64.tar.gz"
             }
             "opencode-windows-arm64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-windows-arm64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-windows-arm64.zip"
             }
             "opencode-windows-x64.zip" => {
-                "https://github.com/anomalyco/opencode/releases/download/v1.18.9/opencode-windows-x64.zip"
+                "https://github.com/anomalyco/opencode/releases/download/v1.18.11/opencode-windows-x64.zip"
             }
             _ => unreachable!("bundled OpenCode artifact"),
         },
-        sha256,
+        sha256: Some(sha256),
     }
 }
 
@@ -1012,30 +2521,155 @@ fn pi_profile() -> BuiltInProfile {
             npx(
                 ProfileComponent::AgentRuntime,
                 "@earendil-works/pi-coding-agent",
-                "0.82.1",
+                "0.83.0",
                 "pi",
                 ">=22",
-                "sha512-zbkAhoIuDPMF3pKuja0ajZabrMWU29FUMV9A/XMXT/XC1yXs5xt6t6t13GogQFsDrDqbFP4DkZQO1w8rWRAzYA==",
+                "sha512-uYhF+FsZxogoSX/AxBcUdiY+ZklubwaXyAoEGA2eQwsHcyEAhUYIKh/WLXe/a8+k8eTCmxb+ZN2Zo9mzQtzbWw==",
             ),
             npx(
                 ProfileComponent::AcpAdapter,
                 "pi-acp",
-                "0.0.32",
+                "0.0.33",
                 "pi-acp",
                 ">=22",
-                "sha512-2/0dfoVhkDTHDQ0R8wwb1ykwlSJm46VEoUyMllzc9hNbEuzUleZXqUwzGScf6+GvepU/4qA4v7hRgGTLgFp5Mw==",
+                "sha512-vX9kY1tK14E72G4dBAx+RGCk/k7XPjTHls6dLUxA8WSkBav6B6JHuSBv3eusp50LCR/GTRsR2kIKsG0Z5jANzw==",
             ),
         ],
         external_candidates: PI_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: PI_ACTIONS,
         runtime_executable_env: None,
         native_config: PI_CONFIG,
+        settings_features: PI_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: true,
         account_evidence: Some(AccountEvidence {
             home_relative_directory: ".pi/agent",
             directory_override_env: Some("PI_CODING_AGENT_DIR"),
+            override_relative_directory: "",
             relative_file: "auth.json",
             kind: AccountEvidenceKind::ProviderEntryNotApiKey,
         }),
+    }
+}
+
+fn grok_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("grok").expect("bundled AgentId"),
+        display_name: "Grok",
+        description: "xAI's official coding agent via grok agent stdio",
+        icon: ProfileIcon {
+            light: "/agents/grok.svg",
+            dark: "/agents/grok.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "grok-build",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "@xai-official/grok",
+            "0.2.118",
+            "grok",
+            &["agent", "stdio"],
+            ">=20",
+            "sha512-51BumA66Y9Xp1Qv2HCphEE/lTmMF4DPPueX945b3nH30/VN0T3QsbxBQLVrRtv0Q6FmDAR3bns4T9fRebpCBbg==",
+        )],
+        external_candidates: GROK_CANDIDATES,
+        dependencies: NODE_20_DEPENDENCIES,
+        management_actions: GROK_ACTIONS,
+        runtime_executable_env: None,
+        native_config: GROK_CONFIG,
+        settings_features: AUTH_MODE_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: Some(AccountEvidence {
+            home_relative_directory: ".grok",
+            directory_override_env: Some("GROK_HOME"),
+            override_relative_directory: "",
+            relative_file: "auth.json",
+            kind: AccountEvidenceKind::NonEmptyObject,
+        }),
+    }
+}
+
+fn cursor_profile() -> BuiltInProfile {
+    const VERSION: &str = "2026.07.23-e383d2b";
+    BuiltInProfile {
+        agent_id: AgentId::parse("cursor").expect("bundled AgentId"),
+        display_name: "Cursor",
+        description: "Cursor's coding agent via cursor-agent acp",
+        icon: ProfileIcon {
+            light: "/agents/cursor-light.svg",
+            dark: "/agents/cursor-dark.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "cursor",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![ProfileInstallSource::Binary {
+            component: ProfileComponent::CombinedRuntime,
+            version: VERSION,
+            command: "cursor-agent",
+            args: &["acp"],
+            artifacts: vec![
+                binary_artifact(
+                    "darwin-aarch64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/darwin/arm64/agent-cli-package.tar.gz",
+                    "f2eb25851f2079dcdf0558a816e06c402d187abfca93255d35167020439ebbf2",
+                ),
+                binary_artifact(
+                    "darwin-x86_64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/darwin/x64/agent-cli-package.tar.gz",
+                    "f44194dfcb41468f85bfb4e53978ac098a2a78ce629806490c32b80b40975aa2",
+                ),
+                binary_artifact(
+                    "linux-aarch64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/linux/arm64/agent-cli-package.tar.gz",
+                    "f40b99647cb24e0da885e97620a2048034f1fe8961910d573d827d77c4d26dcb",
+                ),
+                binary_artifact(
+                    "linux-x86_64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/linux/x64/agent-cli-package.tar.gz",
+                    "702ad595213bee5df0268be9f80a19f29fcceaa2a42fc55e39f2b5199051f0c4",
+                ),
+                binary_artifact(
+                    "windows-aarch64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/windows/arm64/agent-cli-package.zip",
+                    "1d94e23b6901c3ab3092ed4094d77843d7a4978df24a873cc8c6421026f5efdc",
+                ),
+                binary_artifact(
+                    "windows-x86_64",
+                    "https://downloads.cursor.com/lab/2026.07.23-e383d2b/windows/x64/agent-cli-package.zip",
+                    "96c7b739eaf2fc68869341f2e0781ccbefd631a7493d373728bf14141749035f",
+                ),
+            ],
+            entry: Some(ProfileBinaryEntry {
+                unix: "dist-package/cursor-agent",
+                windows: "dist-package/cursor-agent.cmd",
+            }),
+        }],
+        external_candidates: CURSOR_CANDIDATES,
+        dependencies: ARCHIVE_DEPENDENCIES,
+        management_actions: CURSOR_ACTIONS,
+        runtime_executable_env: None,
+        native_config: CURSOR_CONFIG,
+        settings_features: CURSOR_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+const fn binary_artifact(
+    platform: &'static str,
+    archive_url: &'static str,
+    sha256: &'static str,
+) -> ProfileBinaryArtifact {
+    ProfileBinaryArtifact {
+        platform,
+        archive_url,
+        sha256: Some(sha256),
     }
 }

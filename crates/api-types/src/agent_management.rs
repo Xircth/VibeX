@@ -31,6 +31,14 @@ pub struct UserAgentDefinitionRequest {
     pub version: String,
     pub distribution_kind: UserAgentDistributionKind,
     pub distribution_json: String,
+    /// Declares that the custom Agent reads the cross-agent
+    /// `~/.agents/skills` / project `.agents/skills` convention.
+    #[serde(default)]
+    pub skills_shared_store: bool,
+    /// Optional dedicated global skills directory. The service expands `~`
+    /// and rejects relative paths before persisting this value.
+    #[serde(default)]
+    pub skills_directory: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -76,6 +84,8 @@ pub struct UserAgentDefinitionView {
     pub definition_sha256: String,
     pub installed_definition_sha256: Option<String>,
     pub reinstall_required: bool,
+    pub skills_shared_store: bool,
+    pub skills_directory: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -167,6 +177,9 @@ pub struct AgentManagementView {
     pub acp_version: Option<String>,
     pub active_operation: Option<AgentOperationKind>,
     pub rollback_available: bool,
+    #[serde(default)]
+    #[ts(optional)]
+    pub settings_features: Option<Vec<AgentSettingsFeature>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -267,6 +280,350 @@ pub struct AgentPreflightView {
     pub items: Vec<AgentPreflightItemView>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentManagementActionKind {
+    Login,
+    Logout,
+    Setup,
+    Subscription,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentManagementActionView {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub label_key: String,
+    pub description_key: String,
+    pub kind: AgentManagementActionKind,
+    pub available: bool,
+    pub unavailable_reason: Option<String>,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentManagementActionsView {
+    pub agent_id: AgentId,
+    pub actions: Vec<AgentManagementActionView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentManagementActionReceipt {
+    pub agent_id: AgentId,
+    pub action_id: String,
+    pub launched: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderModelView {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderConnectionView {
+    pub provider_id: String,
+    pub name: String,
+    pub npm: Option<String>,
+    pub api: Option<String>,
+    pub base_url: Option<String>,
+    pub models: Vec<OpenCodeProviderModelView>,
+    pub credential_present: bool,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderConnectionsView {
+    pub providers: Vec<OpenCodeProviderConnectionView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderModelRequest {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderConnectRequest {
+    pub provider_id: String,
+    pub name: String,
+    pub npm: Option<String>,
+    pub api: Option<String>,
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    pub models: Vec<OpenCodeProviderModelRequest>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum OpenCodeProviderCatalogSource {
+    Live,
+    Cache,
+    Bundled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeCatalogModelView {
+    pub id: String,
+    pub name: String,
+    pub reasoning: bool,
+    pub tool_call: bool,
+    pub context: Option<u32>,
+    pub cost_in: Option<f64>,
+    pub cost_out: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeCatalogProviderView {
+    pub id: String,
+    pub name: String,
+    pub npm: Option<String>,
+    pub env: Vec<String>,
+    pub doc: Option<String>,
+    pub auth_kind: String,
+    pub models: Vec<OpenCodeCatalogModelView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodeProviderCatalogView {
+    pub source: OpenCodeProviderCatalogSource,
+    pub providers: Vec<OpenCodeCatalogProviderView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CodexDeviceCodeView {
+    pub user_code: String,
+    pub verification_url: String,
+    pub device_auth_id: String,
+    pub interval: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CodexDeviceCodePollView {
+    pub status: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentModelCatalogSource {
+    Live,
+    Cache,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelCatalogItemView {
+    pub id: String,
+    pub label: String,
+    pub context_window: Option<u32>,
+    pub reasoning_levels: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelCatalogView {
+    pub agent_id: AgentId,
+    pub source: AgentModelCatalogSource,
+    pub models: Vec<AgentModelCatalogItemView>,
+    pub default_model: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CodexCustomModelRequest {
+    pub slug: String,
+    #[serde(alias = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(alias = "contextWindow")]
+    pub context_window: Option<u32>,
+    pub base: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CodexModelCatalogConfigRequest {
+    #[serde(default)]
+    pub customs: Vec<CodexCustomModelRequest>,
+    #[serde(default, alias = "excludedOfficials")]
+    pub excluded_officials: Vec<String>,
+    #[serde(default, alias = "default")]
+    pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CodexModelCatalogConfigView {
+    pub customs: Vec<CodexCustomModelRequest>,
+    pub excluded_officials: Vec<String>,
+    pub default_model: Option<String>,
+    pub catalog_path: String,
+    pub source_path: String,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProviderView {
+    pub id: String,
+    pub name: String,
+    pub agent_id: AgentId,
+    pub api_url: String,
+    pub model: String,
+    pub credential_present: bool,
+    pub bound: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProvidersView {
+    pub agent_id: AgentId,
+    pub providers: Vec<AgentModelProviderView>,
+    pub bound_provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiCustomProviderView {
+    pub id: String,
+    pub base_url: String,
+    pub api: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiRuntimeConfigurationView {
+    pub mode: String,
+    pub command: String,
+    pub config_dir: String,
+    pub session_dir: String,
+    pub trust_workspace: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiConfigurationView {
+    pub default_provider: String,
+    pub default_model: String,
+    pub thinking_level: String,
+    pub credential_present: bool,
+    pub auth_providers: Vec<String>,
+    pub custom_providers: Vec<PiCustomProviderView>,
+    pub runtime: PiRuntimeConfigurationView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiCredentialsSaveRequest {
+    pub provider: String,
+    pub model: String,
+    pub thinking_level: Option<String>,
+    pub api_key: Option<String>,
+    pub custom_base_url: Option<String>,
+    pub custom_api: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiRuntimeSaveRequest {
+    pub mode: String,
+    pub command: String,
+    pub config_dir: String,
+    pub session_dir: String,
+    pub trust_workspace: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PiCommandValidationView {
+    pub found: bool,
+    pub resolved_path: Option<String>,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentModelProviderSaveRequest {
+    pub id: Option<String>,
+    pub name: String,
+    pub agent_id: AgentId,
+    pub api_url: String,
+    pub api_key: Option<String>,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum OpenCodePluginStatus {
+    Installed,
+    Missing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodePluginView {
+    pub name: String,
+    pub declared_spec: String,
+    pub installed_version: Option<String>,
+    pub status: OpenCodePluginStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct OpenCodePluginSummaryView {
+    pub config_path: String,
+    pub cache_dir: String,
+    pub plugins: Vec<OpenCodePluginView>,
+    pub has_project_config_hint: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentAuthModeOptionView {
+    pub value: String,
+    pub label_key: String,
+    pub description_key: String,
+    pub credential_env: Option<String>,
+    pub credential_required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentAuthModeView {
+    pub agent_id: AgentId,
+    pub mode: String,
+    pub modes: Vec<String>,
+    pub options: Vec<AgentAuthModeOptionView>,
+    pub credential_env: String,
+    pub credential_present: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentNativeConfigOptionView {
@@ -283,6 +640,7 @@ pub enum AgentNativeConfigFieldKind {
     Select,
     Boolean,
     Number,
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -291,6 +649,8 @@ pub enum AgentNativeConfigFieldKind {
 pub enum AgentNativeConfigFormat {
     Json,
     Toml,
+    Yaml,
+    Dotenv,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -301,6 +661,7 @@ pub struct AgentNativeConfigFileView {
     pub content: String,
     pub sensitive: bool,
     pub exists: bool,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -319,11 +680,30 @@ pub struct AgentNativeConfigFieldView {
     pub revision: String,
 }
 
+/// First-class settings surfaces contributed by an Agent profile. The frontend
+/// renders these capabilities instead of maintaining a second fixed Agent list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentSettingsFeature {
+    AuthenticationMode,
+    ModelCatalog,
+    ReusableModelProviders,
+    CodexModelCatalog,
+    PiConfiguration,
+    OpenCodeProviders,
+    OpenCodePlugins,
+    NativeMcp,
+    NativeSkills,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentNativeConfigView {
     pub agent_id: AgentId,
     pub available: bool,
+    #[serde(default)]
+    pub settings_features: Vec<AgentSettingsFeature>,
     pub path: Option<String>,
     pub paths: Vec<String>,
     pub fields: Vec<AgentNativeConfigFieldView>,
@@ -333,10 +713,84 @@ pub struct AgentNativeConfigView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct AgentEnvironmentEntryView {
+    pub name: String,
+    pub value: Option<String>,
+    pub secret: bool,
+    pub present: bool,
+    pub masked_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentEnvironmentView {
+    pub agent_id: AgentId,
+    pub entries: Vec<AgentEnvironmentEntryView>,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentEnvironmentPatchRequest {
+    pub agent_id: AgentId,
+    pub base_revision: String,
+    pub values: std::collections::BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentEnvironmentDiagnosticLevel {
+    Ok,
+    Warning,
+    Error,
+    Info,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentEnvironmentDiagnosticCheckView {
+    pub id: String,
+    pub label_key: String,
+    pub value: String,
+    pub level: AgentEnvironmentDiagnosticLevel,
+    pub detail_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentEnvironmentDiagnosticSectionView {
+    pub id: String,
+    pub title_key: String,
+    pub checks: Vec<AgentEnvironmentDiagnosticCheckView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentEnvironmentDiagnosticsView {
+    pub agent_id: AgentId,
+    pub verdict_code: String,
+    pub verdict_level: AgentEnvironmentDiagnosticLevel,
+    pub sections: Vec<AgentEnvironmentDiagnosticSectionView>,
+    pub generated_at: String,
+    pub plain_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentNativeConfigPatchRequest {
     pub agent_id: AgentId,
     pub base_field_revisions: std::collections::BTreeMap<String, String>,
     pub fields: std::collections::BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentNativeConfigFileWriteRequest {
+    pub agent_id: AgentId,
+    pub path: String,
+    pub base_revision: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

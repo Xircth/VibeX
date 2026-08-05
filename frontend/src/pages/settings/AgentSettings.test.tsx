@@ -23,8 +23,16 @@ const api = vi.hoisted(() => ({
   remove: vi.fn(),
   readConfig: vi.fn(),
   writeConfig: vi.fn(),
+  writeConfigFile: vi.fn(),
   diagnostics: vi.fn(),
+  actions: vi.fn(),
+  runAction: vi.fn(),
   clearDiagnostics: vi.fn(),
+}));
+const confirmShow = vi.hoisted(() => vi.fn());
+
+vi.mock('@/components/dialogs/shared/ConfirmDialog', () => ({
+  ConfirmDialog: { show: confirmShow },
 }));
 
 vi.mock('@/features/agent-management/api', () => ({
@@ -39,6 +47,8 @@ vi.mock('@/lib/tauriApi', async (importOriginal) => {
 describe('AgentSettings', () => {
   beforeEach(() => {
     Object.values(api).forEach((mock) => mock.mockReset());
+    confirmShow.mockReset();
+    confirmShow.mockResolvedValue('cancelled');
     api.bar.mockResolvedValue([
       {
         agent_id: 'codex',
@@ -63,11 +73,15 @@ describe('AgentSettings', () => {
     api.readConfig.mockResolvedValue({
       agent_id: 'codex',
       available: false,
+      settings_features: ['authentication_mode'],
       path: null,
+      paths: [],
       fields: [],
+      files: [],
       applies_to_next_session: true,
     });
     api.diagnostics.mockResolvedValue([]);
+    api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
   });
 
   it('renders the management projection as the only Agent settings source', async () => {
@@ -75,6 +89,41 @@ describe('AgentSettings', () => {
     expect(await screen.findByRole('button', { name: 'Codex' })).toBeVisible();
     await waitFor(() => expect(api.readConfig).toHaveBeenCalledWith('codex'));
     expect(screen.getByText('已通过账号登录')).toBeInTheDocument();
+  });
+
+  it('requires destructive confirmation before uninstalling an Agent', async () => {
+    const user = userEvent.setup();
+    api.uninstall.mockResolvedValue({
+      agent_id: 'codex',
+      display_name: 'Codex',
+      description: 'Codex ACP',
+      icon_light: null,
+      icon_dark: null,
+      icon_svg: null,
+      source: 'built_in_profile',
+      built_in: true,
+      retired: false,
+      enabled: true,
+      position: 0,
+      lifecycle: 'uninstalled',
+      authentication: 'account',
+      runtime_version: null,
+      acp_version: null,
+      active_operation: null,
+      rollback_available: false,
+    });
+    render(<AgentSettings />);
+    const uninstall = await screen.findByRole('button', { name: '卸载' });
+
+    await user.click(uninstall);
+    expect(confirmShow).toHaveBeenCalledWith(
+      expect.objectContaining({ variant: 'destructive' })
+    );
+    expect(api.uninstall).not.toHaveBeenCalled();
+
+    confirmShow.mockResolvedValueOnce('confirmed');
+    await user.click(uninstall);
+    await waitFor(() => expect(api.uninstall).toHaveBeenCalledWith('codex'));
   });
 
   it('lets the user install an added Agent when preflight finds no valid installation', async () => {
@@ -103,8 +152,11 @@ describe('AgentSettings', () => {
     api.readConfig.mockResolvedValue({
       agent_id: 'kimi',
       available: false,
+      settings_features: [],
       path: null,
+      paths: [],
       fields: [],
+      files: [],
       applies_to_next_session: true,
     });
     api.preflight.mockResolvedValue({
@@ -183,8 +235,11 @@ describe('AgentSettings', () => {
     api.readConfig.mockResolvedValue({
       agent_id: 'local-reviewer',
       available: false,
+      settings_features: [],
       path: null,
+      paths: [],
       fields: [],
+      files: [],
       applies_to_next_session: true,
     });
     api.userDefinition.mockResolvedValue({

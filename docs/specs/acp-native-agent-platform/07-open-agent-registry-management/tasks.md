@@ -57,22 +57,22 @@ task that replaces that seam, not a later compatibility layer.
   - Verify: `cargo test -p db agent_management`; `pnpm run prepare-db:check`.
   - Files: one migration set, `crates/db/src/models/agent_management/**`, tests.
 
-- [x] B2. Implement evidence-based legacy migration.
-  - RED: `cargo test -p db migrates_only_agents_with_actual_use_evidence` fails
-    for default rows, explicit disable, config/runtime/history evidence, Pi and
-    retired OpenClaw/Hermes fixtures.
-  - GREEN: Implement the one-time transaction and migration-complete marker;
-    preserve required ordering and histories without accessing the network.
+- [x] B2. Implement idempotent legacy migration.
+  - RED: `cargo test -p db migration_seeds_and_promotes_the_current_built_in_agent_catalog`
+    fails for a fresh database, already-migrated databases, enabled state and
+    relative ordering across the twelve Built-in Profiles.
+  - GREEN: Implement the transaction and migration-complete marker, then always
+    reconcile the current Built-in catalog without accessing the network.
   - Refactor/delete: remove `ensure_defaults` and the seven-row seed after the
     migration tests cover all legacy inputs.
   - Verify: `cargo test -p db legacy_agent_migration`; upgrade an existing test DB.
   - Files: migration, DB migration service/tests, old `agent_setting` removal.
 
-- [x] B3. Migrate conversation references and retired identities.
-  - RED: `cargo test -p db retired_agent_history_is_read_only_but_retrievable`
-    fails for legacy OpenClaw/Hermes and a generic migrated conversation.
-  - GREEN: Move conversation/delegation references to `AgentId`, retain version
-    provenance, and introduce a read-only retired binding.
+- [x] B3. Migrate conversation references and historical identities.
+  - RED: conversation migration tests fail for legacy Built-in names and a
+    generic migrated conversation.
+  - GREEN: Move conversation/delegation references to `AgentId` and retain
+    version provenance independently of current membership.
   - Refactor/delete: delete closed-type casts from conversation persistence.
   - Verify: `cargo test -p db conversation_agent`; `cargo test -p agents history`.
   - Files: conversation models/migrations, API DTOs, migration tests.
@@ -81,12 +81,12 @@ task that replaces that seam, not a later compatibility layer.
 
 - [x] C1. Add bundled Built-in Profiles and explicit Registry bindings.
   - RED: `cargo test -p agents built_in_profiles_are_declarative_and_bind_explicitly`
-    fails for the four built-ins, an unbound similar Registry name, and a renamed
+    fails for the twelve built-ins, an unbound similar Registry name, and a renamed
     binding.
   - GREEN: Implement profile data, platform/topology/hash/config declarations,
     icons and Registry binding resolver.
   - Refactor/delete: delete hard-coded product Agent registry matches; profiles
-    contain no JSX, command string override, or login runner.
+    contain no JSX or user-supplied command override.
   - Verify: `cargo test -p agents built_in_profile`.
   - Files: `crates/agents/src/{profiles,catalog}.rs`, profile fixtures/tests.
 
@@ -152,9 +152,17 @@ task that replaces that seam, not a later compatibility layer.
     next-session-only effects.
   - GREEN: Implement version-aware configuration providers with
     read/patch/reread, explicit field-conflict DTOs, and unknown-field
-    preservation across every Profile-declared official file.
+    preservation across every Profile-declared official file. Cover Codeg's
+    advanced Claude/Codex/Kimi/Pi/Grok/Cursor fields, the complete Hermes
+    provider registry, Provider-specific UI disclosure, and launch-argument
+    synchronization for Cursor, Grok and OpenClaw.
+  - GREEN: Add Profile-whitelisted raw editing for non-sensitive files with
+    format/size validation, exact file revisions, conflict recovery and atomic
+    writes; sensitive documents remain structured-field-only and backend-only.
+    Implement Claude/Codex/Gemini/Grok/Cursor authentication-mode exclusivity
+    and Provider projection rollback.
   - Refactor/delete: remove hard-coded React configuration maps, env JSON mirrors,
-    raw config editors, browser/CLI login/logout commands and ACP persistent writes.
+    arbitrary file/command inputs and ACP persistent writes.
   - Verify: `cargo test -p agents config`; native file fixtures; redaction tests.
   - Files: `crates/agents/src/{profiles,native_config}.rs`, Tauri projection,
     local provider adapter, tests.
@@ -197,7 +205,7 @@ task that replaces that seam, not a later compatibility layer.
 
 - [x] F1. Deliver the accessible Agent bar.
   - RED: `pnpm --dir frontend exec vitest run src/pages/settings/AgentBar.test.tsx`
-    fails for four default icons, generic insertion before sticky `+`, drag/button
+    fails for twelve default icons, generic insertion before sticky `+`, drag/button
     reorder, distributed horizontal spacing, scroll/focus behavior,
     state badge/disabled overlay and aria labels.
   - GREEN: Build the tokenized bar and persist order through management commands.

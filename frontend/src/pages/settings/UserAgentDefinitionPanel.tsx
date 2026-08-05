@@ -1,5 +1,7 @@
 import { AlertTriangle, Pencil, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import type {
   UserAgentDefinitionRequest,
   UserAgentDefinitionView,
@@ -16,6 +18,7 @@ type UserAgentDefinitionPanelProps = {
   operationActive: boolean;
   onSave: (request: UserAgentDefinitionRequest) => Promise<boolean>;
   onReinstall: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 export function UserAgentDefinitionPanel({
@@ -24,13 +27,15 @@ export function UserAgentDefinitionPanel({
   operationActive,
   onSave,
   onReinstall,
+  onDirtyChange,
 }: UserAgentDefinitionPanelProps) {
+  const { i18n, t } = useTranslation('settings');
   const [editing, setEditing] = useState(false);
 
   if (!definition) {
     return (
       <section className="settings-surface px-4 py-5 text-xs text-muted-foreground">
-        正在读取手动 Agent 定义…
+        {t('agents.userDefinitionLoading')}
       </section>
     );
   }
@@ -43,10 +48,10 @@ export function UserAgentDefinitionPanel({
             className="text-[15px] font-semibold text-foreground"
             id="user-agent-definition-title"
           >
-            编辑手动 Agent 定义
+            {t('agents.userDefinitionEditTitle')}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Agent ID 是持久身份，创建后不可修改。发行变更需重新安装后才会生效。
+            {t('agents.userDefinitionEditDescription')}
           </p>
         </div>
         <UserAgentDefinitionEditor
@@ -54,7 +59,8 @@ export function UserAgentDefinitionPanel({
           currentPlatform={definition.distribution.platform}
           initial={definition}
           loading={loading}
-          submitLabel="保存定义"
+          submitLabel={t('agents.userDefinitionSave')}
+          onDirtyChange={onDirtyChange}
           onCancel={() => setEditing(false)}
           onSubmit={(request) => {
             void onSave(request).then((saved) => {
@@ -79,7 +85,7 @@ export function UserAgentDefinitionPanel({
               className="text-[15px] font-semibold text-foreground"
               id="user-agent-definition-title"
             >
-              手动 Agent 定义
+              {t('agents.userDefinitionTitle')}
             </h2>
             <span
               className={cn(
@@ -90,11 +96,13 @@ export function UserAgentDefinitionPanel({
               )}
               role="status"
             >
-              {definition.reinstall_required ? '定义待应用' : '定义已同步'}
+              {definition.reinstall_required
+                ? t('agents.userDefinitionPending')
+                : t('agents.userDefinitionSynced')}
             </span>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            注册定义决定 VibeX 安装什么，以及新会话如何启动该 Agent。
+            {t('agents.userDefinitionDescription')}
           </p>
         </div>
         <Button
@@ -105,7 +113,7 @@ export function UserAgentDefinitionPanel({
           onClick={() => setEditing(true)}
         >
           <Pencil aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-          编辑定义
+          {t('agents.userDefinitionEdit')}
         </Button>
       </div>
 
@@ -116,9 +124,7 @@ export function UserAgentDefinitionPanel({
               aria-hidden="true"
               className="mt-0.5 h-3.5 w-3.5 shrink-0"
             />
-            <span>
-              当前安装仍使用旧定义。正在运行的会话不受影响；重新安装后，新会话才使用本页定义。
-            </span>
+            <span>{t('agents.userDefinitionReinstallWarning')}</span>
           </div>
           <Button
             className="h-8 shrink-0"
@@ -127,7 +133,7 @@ export function UserAgentDefinitionPanel({
             onClick={onReinstall}
           >
             <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-            重新安装定义
+            {t('agents.userDefinitionReinstall')}
           </Button>
         </div>
       ) : null}
@@ -135,17 +141,17 @@ export function UserAgentDefinitionPanel({
       <div className="grid divide-y divide-border/70 md:grid-cols-[minmax(0,1.45fr)_minmax(14rem,1fr)] md:divide-x md:divide-y-0">
         <div className="space-y-4 px-4 py-4">
           <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              发行证据
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('agents.distributionEvidence')}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-              <Evidence value="用户定义" />
+              <Evidence value={t('agents.userDefined')} />
               <Separator />
               <Evidence value={distribution.kind} mono />
               <Separator />
               <Evidence value={distribution.platform} mono />
               <Separator />
-              <Evidence value={integrityLabel(distribution.integrity)} />
+              <Evidence value={integrityLabel(t, distribution.integrity)} />
             </div>
           </div>
 
@@ -155,31 +161,41 @@ export function UserAgentDefinitionPanel({
               value={definition.agent_id}
               mono
             />
-            <DefinitionValue label="版本" value={definition.version} mono />
+            <DefinitionValue
+              label={t('agents.version')}
+              value={definition.version}
+              mono
+            />
             <DefinitionValue
               className="sm:col-span-2"
-              label={distribution.package ? '软件包' : '归档地址'}
+              label={
+                distribution.package
+                  ? t('agents.package')
+                  : t('agents.archiveUrl')
+              }
               value={distribution.package ?? distribution.archive_url ?? '—'}
               mono
             />
             <DefinitionValue
-              label="启动命令"
+              label={t('agents.launchCommand')}
               value={distribution.command}
               mono
             />
             <DefinitionValue
-              label="平台支持"
+              label={t('agents.platformSupport')}
               value={
                 distribution.platform_supported
-                  ? '当前平台可用'
-                  : '当前平台不支持'
+                  ? t('agents.platformAvailable')
+                  : t('agents.platformUnsupported')
               }
             />
             <DefinitionValue
               className="sm:col-span-2"
-              label="启动参数"
+              label={t('agents.launchArguments')}
               value={
-                distribution.args.length ? distribution.args.join(' ') : '无'
+                distribution.args.length
+                  ? distribution.args.join(' ')
+                  : t('agents.none')
               }
               mono
             />
@@ -188,39 +204,46 @@ export function UserAgentDefinitionPanel({
 
         <div className="space-y-4 px-4 py-4">
           <DefinitionValue
-            label="定义摘要"
+            label={t('agents.definitionDigest')}
             value={shortDigest(definition.definition_sha256)}
             title={definition.definition_sha256}
             mono
           />
           <DefinitionValue
-            label="已安装摘要"
+            label={t('agents.installedDigest')}
             value={
               definition.installed_definition_sha256
                 ? shortDigest(definition.installed_definition_sha256)
-                : '尚未安装'
+                : t('agents.notInstalledYet')
             }
             title={definition.installed_definition_sha256 ?? undefined}
             mono={Boolean(definition.installed_definition_sha256)}
           />
           <DefinitionValue
-            label="最后更新"
-            value={formatDate(definition.updated_at ?? definition.created_at)}
+            label={t('agents.lastUpdated')}
+            value={formatDate(
+              definition.updated_at ?? definition.created_at,
+              i18n.language
+            )}
           />
           <div>
-            <dt className="text-[11px] text-muted-foreground">环境变量</dt>
+            <dt className="text-xs text-muted-foreground">
+              {t('agents.environmentVariables')}
+            </dt>
             <dd className="mt-1 space-y-1">
               {distribution.environment.length ? (
                 distribution.environment.map((entry) => (
                   <code
-                    className="block break-all text-[11px] text-foreground"
+                    className="block break-all text-xs text-foreground"
                     key={entry.name}
                   >
-                    {entry.name}={maskEnvironmentValue(entry.value)}
+                    {entry.name}={maskEnvironmentValue(t, entry.value)}
                   </code>
                 ))
               ) : (
-                <span className="text-xs text-foreground">无</span>
+                <span className="text-xs text-foreground">
+                  {t('agents.none')}
+                </span>
               )}
             </dd>
           </div>
@@ -255,7 +278,7 @@ function DefinitionValue({
 }) {
   return (
     <div className={className}>
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd
         className={cn(
           'mt-1 break-all text-xs text-foreground',
@@ -270,15 +293,16 @@ function DefinitionValue({
 }
 
 function integrityLabel(
+  t: TFunction<'settings'>,
   integrity: UserAgentDefinitionView['distribution']['integrity']
 ): string {
   switch (integrity) {
     case 'sha256':
-      return 'SHA-256 校验';
+      return t('agents.sha256Verification');
     case 'trust_on_first_use':
-      return '首次信任后锁定';
+      return t('agents.trustOnFirstUse');
     case 'ecosystem_lock':
-      return '生态锁文件';
+      return t('agents.ecosystemLock');
   }
 }
 
@@ -286,10 +310,10 @@ function shortDigest(value: string): string {
   return `${value.slice(0, 12)}…${value.slice(-8)}`;
 }
 
-function maskEnvironmentValue(value: string): string {
-  return value ? '••••••' : '(空)';
+function maskEnvironmentValue(t: TFunction<'settings'>, value: string): string {
+  return value ? '••••••' : t('agents.emptyValue');
 }
 
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : '—';
+function formatDate(value: string | null, language: string): string {
+  return value ? new Date(value).toLocaleString(language) : '—';
 }

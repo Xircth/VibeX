@@ -52,9 +52,11 @@
     "remoteSessionsLoading": "正在加载 Agent 会话…",
     "remoteSessionsLoadFailed": "无法加载 Agent 会话。",
     "connectThisSession": "连接",
+    "importThisSession": "导入",
+    "localHistoryBadge": "本地历史",
     "untitledPreviousSession": "未命名的先前会话",
     "noRemoteSessions": "Agent 未返回可继续的会话。",
-    "remoteSessionConnected": "已连接先前的 Agent 会话。",
+    "remoteSessionConnected": "先前的 Agent 会话已就绪。",
     "remoteSessionActionFailed": "Agent 会话操作失败。",
     "creating": "创建中..."
   },

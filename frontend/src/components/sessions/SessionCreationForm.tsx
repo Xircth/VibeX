@@ -42,6 +42,16 @@ export interface SessionControlsPreset {
   configOverrides: Record<string, string>;
 }
 
+function isLocalHistoryMeta(meta: unknown): boolean {
+  return (
+    typeof meta === 'object' &&
+    meta !== null &&
+    !Array.isArray(meta) &&
+    'source' in meta &&
+    meta.source === 'local_history'
+  );
+}
+
 function preferredCreationMode(
   executor: ExecutorProfileId['executor'] | null,
   modes: Array<{ id: string }>,
@@ -256,14 +266,30 @@ export function SessionCreationForm({
     config?.previous_session_continuation_enabled === true;
   const remoteSessionsQuery = useQuery({
     queryKey: ['agentRemoteSessions', executor, controlsWorkspaceId],
-    queryFn: () =>
-      agentsApi.listRemoteSessions(executor!, controlsWorkspaceId!, null),
-    enabled: Boolean(
-      remoteSessionsOpen &&
-        supportsRemoteSessionList &&
-        executor &&
-        controlsWorkspaceId
-    ),
+    queryFn: async () => {
+      const [local, remote] = await Promise.all([
+        agentsApi.listLocalHistory(executor!).catch(() => null),
+        previousSessionContinuationEnabled && supportsRemoteSessionList
+          ? agentsApi
+              .listRemoteSessions(executor!, controlsWorkspaceId!, null)
+              .catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (!local && !remote) {
+        throw new Error('No Agent history source could be read');
+      }
+      const seen = new Set<string>();
+      const sessions = [
+        ...(remote?.sessions ?? []),
+        ...(local?.sessions ?? []),
+      ].filter((session) => {
+        if (seen.has(session.acp_session_id)) return false;
+        seen.add(session.acp_session_id);
+        return true;
+      });
+      return { sessions, next_cursor: null, meta: null };
+    },
+    enabled: Boolean(remoteSessionsOpen && executor && controlsWorkspaceId),
     staleTime: 0,
     retry: false,
   });
@@ -414,20 +440,28 @@ export function SessionCreationForm({
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
     selectedWorkspaceOption
   );
-  const connectRemoteSession = async (
+  const importPreviousSession = async (
     acpSessionId: string,
-    title: string | null
+    title: string | null,
+    localHistory: boolean
   ) => {
     if (!executor || !controlsWorkspaceId) return;
     setRemoteSessionAction(acpSessionId);
     setRemoteSessionStatus('idle');
     try {
-      const conversation = await agentsApi.importRemoteSession(
-        executor,
-        controlsWorkspaceId,
-        acpSessionId,
-        title
-      );
+      const conversation = localHistory
+        ? await agentsApi.importLocalHistory(
+            executor,
+            controlsWorkspaceId,
+            acpSessionId,
+            title
+          )
+        : await agentsApi.importRemoteSession(
+            executor,
+            controlsWorkspaceId,
+            acpSessionId,
+            title
+          );
       setRemoteSessionStatus('imported');
       onRemoteSessionImported?.(conversation.id);
     } catch {
@@ -584,9 +618,7 @@ export function SessionCreationForm({
             {t('sessionCreation.controlsLoading')}
           </p>
         ) : null}
-        {previousSessionContinuationEnabled &&
-        supportsRemoteSessionList &&
-        controlsWorkspaceId ? (
+        {controlsWorkspaceId ? (
           <div className="space-y-1">
             <Button
               type="button"
@@ -629,10 +661,17 @@ export function SessionCreationForm({
                       key={remote.acp_session_id}
                       className="flex items-center justify-between gap-3 px-1 py-2"
                     >
-                      <p className="line-clamp-2 min-w-0 text-xs leading-5 text-foreground">
-                        {remote.title?.trim() ||
-                          t('sessionCreation.untitledPreviousSession')}
-                      </p>
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-xs leading-5 text-foreground">
+                          {remote.title?.trim() ||
+                            t('sessionCreation.untitledPreviousSession')}
+                        </p>
+                        {isLocalHistoryMeta(remote.meta) ? (
+                          <p className="text-[10px] leading-4 text-muted-foreground">
+                            {t('sessionCreation.localHistoryBadge')}
+                          </p>
+                        ) : null}
+                      </div>
                       <Button
                         type="button"
                         variant="ghost"
@@ -640,13 +679,16 @@ export function SessionCreationForm({
                         className="h-7 shrink-0 px-2 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
                         disabled={remoteSessionAction !== null}
                         onClick={() =>
-                          void connectRemoteSession(
+                          void importPreviousSession(
                             remote.acp_session_id,
-                            remote.title ?? null
+                            remote.title ?? null,
+                            isLocalHistoryMeta(remote.meta)
                           )
                         }
                       >
-                        {t('sessionCreation.connectThisSession')}
+                        {isLocalHistoryMeta(remote.meta)
+                          ? t('sessionCreation.importThisSession')
+                          : t('sessionCreation.connectThisSession')}
                       </Button>
                     </div>
                   ))}

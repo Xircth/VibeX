@@ -1,5 +1,5 @@
 use api_types::{
-    AgentId, AgentLifecycleState, AgentSource, UserAgentDefinitionRequest,
+    AgentId, AgentLifecycleState, AgentSettingsFeature, AgentSource, UserAgentDefinitionRequest,
     UserAgentDistributionKind, UserAgentIntegrityKind,
 };
 use db::models::agent_management::{AgentMembershipRepository, NewAgentMembership};
@@ -144,6 +144,8 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
             distribution_kind: UserAgentDistributionKind::Npx,
             distribution_json: r#"{"npx":{"package":"local-reviewer@1.2.3","args":["--acp"]}}"#
                 .to_string(),
+            skills_shared_store: true,
+            skills_directory: Some("~/.local-reviewer/skills".to_string()),
         })
         .await
         .unwrap();
@@ -152,6 +154,10 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
     assert_eq!(view.source, AgentSource::UserDefinition);
     assert_eq!(view.display_name, "Local Reviewer");
     assert_eq!(view.description, "Reviews the workspace");
+    assert_eq!(
+        view.settings_features,
+        Some(vec![AgentSettingsFeature::NativeSkills])
+    );
 
     let definition = service
         .user_definition_view(&agent_id)
@@ -169,6 +175,40 @@ async fn user_definition_is_added_without_an_official_registry_snapshot() {
         UserAgentIntegrityKind::EcosystemLock
     );
     assert!(!definition.reinstall_required);
+    assert!(definition.skills_shared_store);
+    assert!(
+        definition
+            .skills_directory
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/.local-reviewer/skills"))
+    );
+}
+
+#[tokio::test]
+async fn user_definition_rejects_a_relative_skills_directory() {
+    let pool = migrated_pool().await;
+    let service = AgentManagementApplicationService::new(pool);
+
+    let error = service
+        .add_user_definition(UserAgentDefinitionRequest {
+            agent_id: AgentId::parse("relative-skills-agent").unwrap(),
+            display_name: "Relative Skills Agent".to_string(),
+            description: "Invalid storage fixture".to_string(),
+            version: "1.0.0".to_string(),
+            distribution_kind: UserAgentDistributionKind::Npx,
+            distribution_json:
+                r#"{"npx":{"package":"relative-skills-agent@1.0.0","args":["--acp"]}}"#.to_string(),
+            skills_shared_store: false,
+            skills_directory: Some("relative/skills".to_string()),
+        })
+        .await
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("skills directory must be an absolute path")
+    );
 }
 
 #[tokio::test]
@@ -184,6 +224,8 @@ async fn updating_a_user_definition_preserves_identity_and_marks_an_installed_lo
         distribution_kind: UserAgentDistributionKind::Npx,
         distribution_json: r#"{"npx":{"package":"local-reviewer@1.2.3","args":["--acp"]}}"#
             .to_string(),
+        skills_shared_store: false,
+        skills_directory: None,
     };
     service.add_user_definition(initial).await.unwrap();
     let before = service
@@ -230,6 +272,8 @@ async fn updating_a_user_definition_preserves_identity_and_marks_an_installed_lo
             distribution_json:
                 r#"{"npx":{"package":"local-reviewer@1.3.0","args":["--acp","--strict"]}}"#
                     .to_string(),
+            skills_shared_store: true,
+            skills_directory: None,
         })
         .await
         .unwrap();
@@ -238,6 +282,7 @@ async fn updating_a_user_definition_preserves_identity_and_marks_an_installed_lo
     assert_eq!(updated.display_name, "Local Reviewer Pro");
     assert_eq!(updated.distribution.args, ["--acp", "--strict"]);
     assert!(updated.reinstall_required);
+    assert!(updated.skills_shared_store);
     assert_eq!(
         updated.installed_definition_sha256,
         Some(before.definition_sha256)

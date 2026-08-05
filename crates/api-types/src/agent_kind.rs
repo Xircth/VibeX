@@ -9,7 +9,8 @@
 //! ## Serialized form (canonical): snake_case
 //!
 //! `claude_code`, `codex`, `opencode`, `gemini`, `openclaw`, `cline`, `hermes`,
-//! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
+//! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `qa_mock` — the
+//! `executor_key` form already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //!
 //! ## Read leniency (zero data migration, ADR-0002)
@@ -25,7 +26,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use ts_rs::TS;
 
-/// The stable, system-wide agent identity (ADR-0002). `QaMock` is a permanent 8th
+/// The stable, system-wide agent identity (ADR-0002). `QaMock` is a permanent
 /// variant — the `qa-mode` feature gates the mock executor's *availability*, not the
 /// identity (feature-gating a variant only complicates serde / TS export).
 ///
@@ -43,19 +44,29 @@ pub enum AgentKind {
     Openclaw,
     Cline,
     Hermes,
+    Codebuddy,
+    KimiCode,
+    Pi,
+    Grok,
+    Cursor,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in a stable order (registry / picker ordering).
-    pub const ALL: [AgentKind; 8] = [
+    pub const ALL: [AgentKind; 13] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
-        AgentKind::Opencode,
         AgentKind::Gemini,
         AgentKind::Openclaw,
+        AgentKind::Opencode,
         AgentKind::Cline,
         AgentKind::Hermes,
+        AgentKind::Codebuddy,
+        AgentKind::KimiCode,
+        AgentKind::Pi,
+        AgentKind::Grok,
+        AgentKind::Cursor,
         AgentKind::QaMock,
     ];
 
@@ -69,6 +80,11 @@ impl AgentKind {
             AgentKind::Openclaw => "openclaw",
             AgentKind::Cline => "cline",
             AgentKind::Hermes => "hermes",
+            AgentKind::Codebuddy => "codebuddy",
+            AgentKind::KimiCode => "kimi_code",
+            AgentKind::Pi => "pi",
+            AgentKind::Grok => "grok",
+            AgentKind::Cursor => "cursor",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -90,6 +106,11 @@ impl AgentKind {
             "openclaw" => AgentKind::Openclaw,
             "cline" => AgentKind::Cline,
             "hermes" => AgentKind::Hermes,
+            "codebuddy" => AgentKind::Codebuddy,
+            "kimicode" => AgentKind::KimiCode,
+            "pi" => AgentKind::Pi,
+            "grok" => AgentKind::Grok,
+            "cursor" => AgentKind::Cursor,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -146,11 +167,16 @@ mod tests {
         let expected = [
             (AgentKind::ClaudeCode, "claude_code"),
             (AgentKind::Codex, "codex"),
-            (AgentKind::Opencode, "opencode"),
             (AgentKind::Gemini, "gemini"),
             (AgentKind::Openclaw, "openclaw"),
+            (AgentKind::Opencode, "opencode"),
             (AgentKind::Cline, "cline"),
             (AgentKind::Hermes, "hermes"),
+            (AgentKind::Codebuddy, "codebuddy"),
+            (AgentKind::KimiCode, "kimi_code"),
+            (AgentKind::Pi, "pi"),
+            (AgentKind::Grok, "grok"),
+            (AgentKind::Cursor, "cursor"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         for (kind, key) in expected {
@@ -183,6 +209,12 @@ mod tests {
             ("GEMINI", AgentKind::Gemini),
             ("CLINE", AgentKind::Cline),
             ("HERMES", AgentKind::Hermes),
+            ("CODEBUDDY", AgentKind::Codebuddy),
+            ("KIMI_CODE", AgentKind::KimiCode),
+            ("KimiCode", AgentKind::KimiCode),
+            ("PI", AgentKind::Pi),
+            ("GROK", AgentKind::Grok),
+            ("CURSOR", AgentKind::Cursor),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

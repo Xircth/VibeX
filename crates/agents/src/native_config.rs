@@ -1,6 +1,10 @@
 //! Profile-bound native configuration editing.
 
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use api_types::{AgentAuthenticationStatus, AgentId};
 use serde_json::{Map, Number, Value};
@@ -8,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AuthenticationPrecedence, BuiltInProfileCatalog, NativeConfigBinding, NativeConfigField,
-    NativeConfigFieldKind, NativeConfigFormat, NativeFileSystem,
+    NativeConfigFieldKind, NativeConfigFormat, NativeFileMutation, NativeFileSystem,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +37,7 @@ pub struct NativeConfigFileSnapshot {
     pub content: String,
     pub sensitive: bool,
     pub exists: bool,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +56,13 @@ pub struct NativeConfigSnapshot {
 pub struct NativeConfigPatch {
     pub base_field_revisions: BTreeMap<String, String>,
     pub values: BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeConfigFilePatch {
+    pub path: PathBuf,
+    pub base_revision: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,19 +94,35 @@ pub enum NativeConfigSaveError {
     FieldConflicts { fields: Vec<String> },
     #[error("unknown native configuration field `{0}`")]
     UnknownField(String),
+    #[error("unknown native configuration file `{0}`")]
+    UnknownFile(PathBuf),
+    #[error("sensitive native configuration file `{0}` must use structured credential fields")]
+    SensitiveFile(PathBuf),
+    #[error("native configuration file changed externally: `{path}`")]
+    FileConflict { path: PathBuf },
 }
 
 pub struct NativeConfigProvider {
     filesystem: Arc<dyn NativeFileSystem>,
     home: PathBuf,
+    environment: BTreeMap<String, String>,
     profiles: BuiltInProfileCatalog,
 }
 
 impl NativeConfigProvider {
     pub fn bundled(filesystem: Arc<dyn NativeFileSystem>, home: PathBuf) -> Self {
+        Self::with_environment(filesystem, home, BTreeMap::new())
+    }
+
+    pub fn with_environment(
+        filesystem: Arc<dyn NativeFileSystem>,
+        home: PathBuf,
+        environment: BTreeMap<String, String>,
+    ) -> Self {
         Self {
             filesystem,
             home,
+            environment,
             profiles: BuiltInProfileCatalog::bundled(),
         }
     }
@@ -141,6 +169,7 @@ impl NativeConfigProvider {
                     .iter()
                     .any(|field| field.kind == NativeConfigFieldKind::Secret),
                 exists: file_exists,
+                revision: file_revision(bytes.as_deref()),
             });
             paths.push(path);
         }
@@ -187,7 +216,8 @@ impl NativeConfigProvider {
                 .read(&path)
                 .await
                 .map_err(|error| NativeConfigError::FileSystem(error.to_string()))?;
-            documents.push((binding, path, parse_document(binding, bytes.as_deref())?));
+            let document = parse_document(binding, bytes.as_deref())?;
+            documents.push((binding, path, bytes, document));
         }
 
         for field_id in patch.values.keys() {
@@ -202,7 +232,7 @@ impl NativeConfigProvider {
         }
 
         let mut conflicts = Vec::new();
-        for (binding, _, document) in &documents {
+        for (binding, _, _, document) in &documents {
             for field in binding
                 .fields
                 .iter()
@@ -223,7 +253,8 @@ impl NativeConfigProvider {
         }
 
         let mut writes = Vec::with_capacity(documents.len());
-        for (binding, path, document) in &mut documents {
+        for (binding, path, original, document) in &mut documents {
+            prepare_special_native_shape(document, &patch)?;
             for field in binding
                 .fields
                 .iter()
@@ -231,6 +262,14 @@ impl NativeConfigProvider {
             {
                 match patch.values.get(field.field_id).cloned().flatten() {
                     Some(value) => {
+                        if field.field_id == "codex_approval_policy" && value == "granular" {
+                            continue;
+                        }
+                        if field.field_id == "codebuddy_environment"
+                            && matches!(value.as_str(), "overseas" | "self_hosted")
+                        {
+                            continue;
+                        }
                         let value = parse_field_value(field, &value)?;
                         set_value_at_path(document, field.path, value)?;
                         if let Some((key, value)) = field.object_discriminator {
@@ -240,17 +279,92 @@ impl NativeConfigProvider {
                     None => remove_value_at_path(document, field.path),
                 }
             }
-            let bytes = serialize_document(binding, document)?;
-            writes.push((path.clone(), bytes));
+            finalize_special_native_shape(document, &patch)?;
+            let bytes = if binding.format == NativeConfigFormat::Dotenv {
+                serialize_dotenv_preserving(original.as_deref(), binding, document, &patch)?
+            } else {
+                serialize_document(binding, document)?
+            };
+            writes.push(NativeFileMutation {
+                path: path.clone(),
+                expected: original.clone(),
+                replacement: Some(bytes),
+                sensitive: binding
+                    .fields
+                    .iter()
+                    .any(|field| field.kind == NativeConfigFieldKind::Secret),
+            });
         }
         self.filesystem
-            .write_many_atomic(&writes)
+            .apply_many_atomic(&writes)
             .await
             .map_err(|error| NativeConfigError::FileSystem(error.to_string()))?;
 
         let snapshot = self.read(agent_id, account_logged_in).await?;
         Ok(NativeConfigSaveResult {
             snapshot,
+            effect: ConfigApplyEffect::NextSessionOnly,
+        })
+    }
+
+    pub async fn save_file(
+        &self,
+        agent_id: &AgentId,
+        patch: NativeConfigFilePatch,
+        account_logged_in: bool,
+    ) -> Result<NativeConfigSaveResult, NativeConfigSaveError> {
+        let profile = self.profile(agent_id)?;
+        let Some(binding) = profile
+            .native_config
+            .iter()
+            .find(|binding| self.binding_path(binding) == patch.path)
+        else {
+            return Err(NativeConfigSaveError::UnknownFile(patch.path));
+        };
+        if binding
+            .fields
+            .iter()
+            .any(|field| field.kind == NativeConfigFieldKind::Secret)
+        {
+            return Err(NativeConfigSaveError::SensitiveFile(patch.path));
+        }
+
+        let path = patch.path;
+        let current = self
+            .filesystem
+            .read(&path)
+            .await
+            .map_err(|error| NativeConfigError::FileSystem(error.to_string()))?;
+        if file_revision(current.as_deref()) != patch.base_revision {
+            return Err(NativeConfigSaveError::FileConflict { path });
+        }
+
+        let replacement = patch.content.into_bytes();
+        if replacement.len() > 1024 * 1024 {
+            return Err(NativeConfigError::Invalid(
+                "native configuration file exceeds the 1 MiB editor limit".to_string(),
+            )
+            .into());
+        }
+        parse_document(binding, Some(&replacement))?;
+        if let Err(error) = self
+            .filesystem
+            .apply_many_atomic(&[NativeFileMutation {
+                path: path.clone(),
+                expected: current,
+                replacement: Some(replacement),
+                sensitive: false,
+            }])
+            .await
+        {
+            if error.to_string().contains("changed on disk") {
+                return Err(NativeConfigSaveError::FileConflict { path });
+            }
+            return Err(NativeConfigError::FileSystem(error.to_string()).into());
+        }
+
+        Ok(NativeConfigSaveResult {
+            snapshot: self.read(agent_id, account_logged_in).await?,
             effect: ConfigApplyEffect::NextSessionOnly,
         })
     }
@@ -263,20 +377,45 @@ impl NativeConfigProvider {
     }
 
     fn binding_path(&self, binding: &NativeConfigBinding) -> PathBuf {
-        binding
+        let override_directory = binding
             .directory_override_env
-            .and_then(std::env::var_os)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
+            .and_then(|name| {
+                self.environment
+                    .get(name)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| PathBuf::from(value.trim()))
+                    .or_else(|| {
+                        std::env::var_os(name)
+                            .filter(|value| !value.is_empty())
+                            .map(PathBuf::from)
+                    })
+            })
+            .map(|directory| expand_home_path(&self.home, directory));
+        override_directory
             .map(|directory| directory.join(binding.override_relative_path))
             .unwrap_or_else(|| self.home.join(binding.home_relative_path))
     }
+}
+
+fn expand_home_path(home: &std::path::Path, path: PathBuf) -> PathBuf {
+    if path == Path::new("~") {
+        return home.to_path_buf();
+    }
+    if let Ok(relative) = path.strip_prefix("~/") {
+        return home.join(relative);
+    }
+    if path.is_relative() {
+        return home.join(path);
+    }
+    path
 }
 
 const fn empty_document_preview(format: NativeConfigFormat) -> &'static str {
     match format {
         NativeConfigFormat::Json => "{}",
         NativeConfigFormat::Toml => "",
+        NativeConfigFormat::Yaml => "{}\n",
+        NativeConfigFormat::Dotenv => "",
     }
 }
 
@@ -298,6 +437,9 @@ fn parse_document(
             serde_json::to_value(value)
                 .map_err(|error| NativeConfigError::Invalid(error.to_string()))?
         }
+        NativeConfigFormat::Yaml => serde_yaml::from_slice(bytes)
+            .map_err(|error| NativeConfigError::Invalid(error.to_string()))?,
+        NativeConfigFormat::Dotenv => parse_dotenv(bytes)?,
     };
     if value.is_object() {
         Ok(value)
@@ -322,6 +464,10 @@ fn serialize_document(
                 .map(String::into_bytes)
                 .map_err(|error| NativeConfigError::Invalid(error.to_string()))
         }
+        NativeConfigFormat::Yaml => serde_yaml::to_string(document)
+            .map(String::into_bytes)
+            .map_err(|error| NativeConfigError::Invalid(error.to_string())),
+        NativeConfigFormat::Dotenv => serialize_dotenv(document),
     }
 }
 
@@ -331,7 +477,24 @@ fn field_snapshot(
     path: PathBuf,
 ) -> NativeConfigFieldSnapshot {
     let raw = value_at_path(document, field.path);
-    let value = scalar_string(raw);
+    let value = if field.field_id == "codebuddy_environment" {
+        if value_at_path(document, &["CODEBUDDY_BASE_URL"])
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            Some("self_hosted".to_string())
+        } else {
+            scalar_string(raw).or_else(|| Some("overseas".to_string()))
+        }
+    } else if field.field_id == "codex_approval_policy"
+        && raw
+            .and_then(|value| value.get("granular"))
+            .is_some_and(Value::is_object)
+    {
+        Some("granular".to_string())
+    } else {
+        scalar_string(raw)
+    };
     let present = value
         .as_deref()
         .is_some_and(|value| !value.trim().is_empty());
@@ -355,11 +518,407 @@ fn field_snapshot(
     }
 }
 
+fn prepare_special_native_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if patch
+        .values
+        .get("openai_api_key")
+        .and_then(|value| value.as_deref())
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        remove_value_at_path(document, &["auth_mode"]);
+    }
+    prepare_codebuddy_shape(document, patch)?;
+    let granular_selected = patch
+        .values
+        .get("codex_approval_policy")
+        .and_then(|value| value.as_deref())
+        == Some("granular");
+    if !granular_selected {
+        return Ok(());
+    }
+
+    set_value_at_path(
+        document,
+        &["approval_policy"],
+        serde_json::json!({
+            "granular": {
+                "sandbox_approval": true,
+                "rules": true,
+                "skill_approval": true,
+                "request_permissions": true,
+                "mcp_elicitations": true
+            }
+        }),
+    )
+}
+
+fn finalize_special_native_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    validate_object_field(document, patch, "opencode_providers", &["provider"])?;
+    validate_object_field(document, patch, "pi_custom_providers", &["providers"])?;
+    finalize_codex_shape(document, patch)?;
+    finalize_grok_shape(document, patch)?;
+    finalize_cursor_shape(document, patch)?;
+    finalize_kimi_shape(document, patch)
+}
+
+fn validate_object_field(
+    document: &Value,
+    patch: &NativeConfigPatch,
+    field_id: &str,
+    path: &[&str],
+) -> Result<(), NativeConfigError> {
+    if !patch.values.contains_key(field_id) {
+        return Ok(());
+    }
+    if value_at_path(document, path).is_some_and(|value| !value.is_object()) {
+        return Err(NativeConfigError::Invalid(format!(
+            "{field_id} must be a JSON object"
+        )));
+    }
+    Ok(())
+}
+
+fn finalize_codex_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if !patch.values.contains_key("codex_writable_roots") {
+        return Ok(());
+    }
+    let Some(value) = value_at_path(document, &["sandbox_workspace_write", "writable_roots"])
+    else {
+        return Ok(());
+    };
+    let roots = value.as_array().ok_or_else(|| {
+        NativeConfigError::Invalid("codex_writable_roots must be a JSON string array".to_string())
+    })?;
+    let mut normalized = Vec::new();
+    for root in roots {
+        let root = root.as_str().ok_or_else(|| {
+            NativeConfigError::Invalid(
+                "codex_writable_roots must be a JSON string array".to_string(),
+            )
+        })?;
+        let root = root.trim();
+        if root.is_empty() {
+            continue;
+        }
+        if !is_portable_absolute_path(root) {
+            return Err(NativeConfigError::Invalid(format!(
+                "codex writable_roots entries must be absolute paths: {root}"
+            )));
+        }
+        if !normalized.iter().any(|existing| existing == root) {
+            normalized.push(root.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        remove_value_at_path(document, &["sandbox_workspace_write", "writable_roots"]);
+    } else {
+        set_value_at_path(
+            document,
+            &["sandbox_workspace_write", "writable_roots"],
+            Value::Array(normalized.into_iter().map(Value::String).collect()),
+        )?;
+    }
+    Ok(())
+}
+
+fn is_portable_absolute_path(value: &str) -> bool {
+    value.starts_with('/')
+        || value.starts_with("\\\\")
+        || (value.as_bytes().get(1) == Some(&b':')
+            && value
+                .as_bytes()
+                .get(2)
+                .is_some_and(|separator| matches!(separator, b'/' | b'\\'))
+            && value
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphabetic))
+}
+
+fn finalize_grok_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if !patch.values.keys().any(|field| field.starts_with("grok_")) {
+        return Ok(());
+    }
+    for (field, path) in [
+        ("grok_base_url", &["model", "vibex", "base_url"][..]),
+        ("grok_api_key", &["model", "vibex", "api_key"][..]),
+    ] {
+        if value_at_path(document, path)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.contains(['\n', '\r']))
+        {
+            return Err(NativeConfigError::Invalid(format!(
+                "{field} must not contain newlines"
+            )));
+        }
+    }
+    if value_at_path(document, &["model", "vibex", "context_window"])
+        .and_then(Value::as_i64)
+        .is_some_and(|value| value <= 0)
+    {
+        remove_value_at_path(document, &["model", "vibex", "context_window"]);
+    }
+    let custom_model = value_at_path(document, &["model", "vibex", "model"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(custom_model) = custom_model {
+        set_value_at_path(
+            document,
+            &["model", "vibex", "model"],
+            Value::String(custom_model),
+        )?;
+        set_value_at_path(
+            document,
+            &["models", "default"],
+            Value::String("vibex".to_string()),
+        )?;
+    } else if value_at_path(document, &["models", "default"]).and_then(Value::as_str)
+        == Some("vibex")
+    {
+        remove_value_at_path(document, &["models", "default"]);
+    }
+    Ok(())
+}
+
+fn finalize_cursor_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    for (field, path) in [
+        ("cursor_allow_rules", &["permissions", "allow"][..]),
+        ("cursor_deny_rules", &["permissions", "deny"][..]),
+    ] {
+        if !patch.values.contains_key(field) {
+            continue;
+        }
+        normalize_json_string_array(document, path, field)?;
+    }
+    Ok(())
+}
+
+fn normalize_json_string_array(
+    document: &mut Value,
+    path: &[&str],
+    field_id: &str,
+) -> Result<Vec<String>, NativeConfigError> {
+    let Some(value) = value_at_path(document, path) else {
+        return Ok(Vec::new());
+    };
+    let values = value.as_array().ok_or_else(|| {
+        NativeConfigError::Invalid(format!("{field_id} must be a JSON string array"))
+    })?;
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.as_str().ok_or_else(|| {
+            NativeConfigError::Invalid(format!("{field_id} must be a JSON string array"))
+        })?;
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if value.contains(['\n', '\r']) {
+            return Err(NativeConfigError::Invalid(format!(
+                "{field_id} entries must not contain newlines"
+            )));
+        }
+        if !normalized.iter().any(|existing| existing == value) {
+            normalized.push(value.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        remove_value_at_path(document, path);
+    } else {
+        set_value_at_path(
+            document,
+            path,
+            Value::Array(normalized.iter().cloned().map(Value::String).collect()),
+        )?;
+    }
+    Ok(normalized)
+}
+
+fn finalize_kimi_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if !patch.values.keys().any(|field| field.starts_with("kimi_")) {
+        return Ok(());
+    }
+
+    for (field, path) in [
+        ("kimi_base_url", &["providers", "vibex", "base_url"][..]),
+        ("kimi_api_key", &["providers", "vibex", "api_key"][..]),
+    ] {
+        if value_at_path(document, path)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.contains(['\n', '\r']))
+        {
+            return Err(NativeConfigError::Invalid(format!(
+                "{field} must not contain newlines"
+            )));
+        }
+    }
+    if value_at_path(document, &["providers", "vibex", "env"])
+        .is_some_and(|value| !value.is_object())
+    {
+        return Err(NativeConfigError::Invalid(
+            "kimi_provider_env must be a JSON object".to_string(),
+        ));
+    }
+
+    let model = value_at_path(document, &["models", "vibex", "model"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let Some(model) = model else {
+        if value_at_path(document, &["default_model"]).and_then(Value::as_str) == Some("vibex") {
+            remove_value_at_path(document, &["default_model"]);
+        }
+        return Ok(());
+    };
+
+    set_value_at_path(
+        document,
+        &["models", "vibex", "model"],
+        Value::String(model),
+    )?;
+    set_value_at_path(
+        document,
+        &["models", "vibex", "provider"],
+        Value::String("vibex".to_string()),
+    )?;
+    set_value_at_path(
+        document,
+        &["default_model"],
+        Value::String("vibex".to_string()),
+    )?;
+
+    let context = value_at_path(document, &["models", "vibex", "max_context_size"])
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .unwrap_or(262_144);
+    set_value_at_path(
+        document,
+        &["models", "vibex", "max_context_size"],
+        Value::Number(Number::from(context)),
+    )?;
+
+    normalize_kimi_string_array(document, &["models", "vibex", "capabilities"])?;
+    let efforts = normalize_kimi_string_array(document, &["models", "vibex", "support_efforts"])?;
+    let default_effort = value_at_path(document, &["models", "vibex", "default_effort"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if default_effort
+        .as_ref()
+        .is_some_and(|value| efforts.iter().any(|effort| effort == value))
+    {
+        set_value_at_path(
+            document,
+            &["models", "vibex", "default_effort"],
+            Value::String(default_effort.expect("checked above")),
+        )?;
+    } else {
+        remove_value_at_path(document, &["models", "vibex", "default_effort"]);
+    }
+    Ok(())
+}
+
+fn normalize_kimi_string_array(
+    document: &mut Value,
+    path: &[&str],
+) -> Result<Vec<String>, NativeConfigError> {
+    normalize_json_string_array(document, path, &path.join("."))
+}
+
+fn prepare_codebuddy_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    let environment = patch
+        .values
+        .get("codebuddy_environment")
+        .and_then(|value| value.as_deref());
+    let base_url_patch = patch
+        .values
+        .get("codebuddy_base_url")
+        .and_then(|value| value.as_deref())
+        .map(str::trim);
+
+    match environment {
+        Some("overseas") => {
+            remove_value_at_path(document, &["CODEBUDDY_INTERNET_ENVIRONMENT"]);
+            remove_value_at_path(document, &["CODEBUDDY_BASE_URL"]);
+        }
+        Some("internal" | "ioa") => {
+            remove_value_at_path(document, &["CODEBUDDY_BASE_URL"]);
+        }
+        Some("self_hosted") => {
+            let base_url = base_url_patch
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    value_at_path(document, &["CODEBUDDY_BASE_URL"])
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                })
+                .ok_or_else(|| {
+                    NativeConfigError::Invalid(
+                        "self-hosted CodeBuddy requires CODEBUDDY_BASE_URL".to_string(),
+                    )
+                })?;
+            validate_codebuddy_url(base_url)?;
+            remove_value_at_path(document, &["CODEBUDDY_INTERNET_ENVIRONMENT"]);
+        }
+        _ => {
+            if let Some(base_url) = base_url_patch.filter(|value| !value.is_empty()) {
+                validate_codebuddy_url(base_url)?;
+                remove_value_at_path(document, &["CODEBUDDY_INTERNET_ENVIRONMENT"]);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_codebuddy_url(value: &str) -> Result<(), NativeConfigError> {
+    let url = url::Url::parse(value).map_err(|error| {
+        NativeConfigError::Invalid(format!("invalid CodeBuddy Base URL: {error}"))
+    })?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(NativeConfigError::Invalid(
+            "CodeBuddy Base URL must be an http(s) URL without embedded credentials".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn scalar_string(value: Option<&Value>) -> Option<String> {
     match value? {
         Value::String(value) => Some(value.clone()),
         Value::Bool(value) => Some(value.to_string()),
         Value::Number(value) => Some(value.to_string()),
+        complex @ (Value::Array(_) | Value::Object(_)) => {
+            serde_json::to_string_pretty(complex).ok()
+        }
         _ => None,
     }
 }
@@ -387,7 +946,201 @@ fn parse_field_value(field: &NativeConfigField, value: &str) -> Result<Value, Na
             .map(Number::from)
             .map(Value::Number)
             .map_err(|_| NativeConfigError::Invalid(format!("`{value}` is not an integer"))),
+        NativeConfigFieldKind::Json => serde_json::from_str(value)
+            .map_err(|error| NativeConfigError::Invalid(format!("invalid JSON: {error}"))),
     }
+}
+
+fn parse_dotenv(bytes: &[u8]) -> Result<Value, NativeConfigError> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|error| NativeConfigError::Invalid(error.to_string()))?;
+    let mut object = Map::new();
+    for (index, raw_line) in text.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let Some((key, raw_value)) = line.split_once('=') else {
+            return Err(NativeConfigError::Invalid(format!(
+                "invalid dotenv line {}",
+                index + 1
+            )));
+        };
+        let key = key.trim();
+        if key.is_empty() || key.contains(char::is_whitespace) {
+            return Err(NativeConfigError::Invalid(format!(
+                "invalid dotenv key on line {}",
+                index + 1
+            )));
+        }
+        let value = raw_value.trim();
+        let value = if value.len() >= 2
+            && ((value.starts_with('"') && value.ends_with('"'))
+                || (value.starts_with('\'') && value.ends_with('\'')))
+        {
+            &value[1..value.len() - 1]
+        } else {
+            value
+        };
+        object.insert(key.to_string(), Value::String(value.to_string()));
+    }
+    Ok(Value::Object(object))
+}
+
+fn serialize_dotenv(document: &Value) -> Result<Vec<u8>, NativeConfigError> {
+    let object = document.as_object().ok_or_else(|| {
+        NativeConfigError::Invalid("dotenv document must be an object".to_string())
+    })?;
+    let mut output = String::new();
+    for (key, value) in object {
+        let value = value.as_str().ok_or_else(|| {
+            NativeConfigError::Invalid(format!("dotenv value `{key}` must be text"))
+        })?;
+        if value.contains(['\n', '\r']) {
+            return Err(NativeConfigError::Invalid(format!(
+                "dotenv value `{key}` must not contain newlines"
+            )));
+        }
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+        output.push_str(key);
+        output.push_str("=\"");
+        output.push_str(&escaped);
+        output.push_str("\"\n");
+    }
+    Ok(output.into_bytes())
+}
+
+fn serialize_dotenv_preserving(
+    original: Option<&[u8]>,
+    binding: &NativeConfigBinding,
+    document: &Value,
+    patch: &NativeConfigPatch,
+) -> Result<Vec<u8>, NativeConfigError> {
+    let Some(original) = original else {
+        return serialize_dotenv(document);
+    };
+    let text = std::str::from_utf8(original)
+        .map_err(|error| NativeConfigError::Invalid(error.to_string()))?;
+    let mut changed = binding
+        .fields
+        .iter()
+        .filter(|field| patch.values.contains_key(field.field_id))
+        .filter_map(|field| (field.path.len() == 1).then_some(field.path[0]))
+        .collect::<std::collections::BTreeSet<_>>();
+    if patch.values.contains_key("codebuddy_environment") {
+        changed.insert("CODEBUDDY_BASE_URL");
+    }
+    if patch.values.contains_key("codebuddy_base_url") {
+        changed.insert("CODEBUDDY_INTERNET_ENVIRONMENT");
+    }
+    let object = document.as_object().ok_or_else(|| {
+        NativeConfigError::Invalid("dotenv document must be an object".to_string())
+    })?;
+    let mut found = std::collections::BTreeSet::new();
+    let mut output = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let Some((key, equals)) = dotenv_line_key(line) else {
+            output.push_str(line);
+            continue;
+        };
+        if !changed.contains(key) {
+            output.push_str(line);
+            continue;
+        }
+        found.insert(key.to_string());
+        let Some(value) = object.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        if value.contains(['\n', '\r']) {
+            return Err(NativeConfigError::Invalid(format!(
+                "dotenv value `{key}` must not contain newlines"
+            )));
+        }
+        output.push_str(&replace_dotenv_value(line, equals, value));
+    }
+    for key in changed {
+        if found.contains(key) {
+            continue;
+        }
+        let Some(value) = object.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push_str(key);
+        output.push('=');
+        output.push_str(&quote_dotenv_value(value, Some('"')));
+        output.push('\n');
+    }
+    Ok(output.into_bytes())
+}
+
+fn dotenv_line_key(line: &str) -> Option<(&str, usize)> {
+    let body = line.trim_end_matches(['\r', '\n']);
+    let leading = body.len() - body.trim_start().len();
+    let mut candidate = &body[leading..];
+    if candidate.starts_with('#') || candidate.is_empty() {
+        return None;
+    }
+    let export_len = candidate
+        .strip_prefix("export ")
+        .map(|stripped| candidate.len() - stripped.len())
+        .unwrap_or(0);
+    candidate = &candidate[export_len..];
+    let relative_equals = candidate.find('=')?;
+    let key = candidate[..relative_equals].trim();
+    if key.is_empty() || key.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((key, leading + export_len + relative_equals))
+}
+
+fn replace_dotenv_value(line: &str, equals: usize, value: &str) -> String {
+    let newline = if line.ends_with("\r\n") {
+        "\r\n"
+    } else if line.ends_with('\n') {
+        "\n"
+    } else {
+        ""
+    };
+    let body = line.trim_end_matches(['\r', '\n']);
+    let after_equals = &body[equals + 1..];
+    let leading_spaces = after_equals.len() - after_equals.trim_start().len();
+    let raw_value = after_equals.trim_start();
+    let quote = raw_value
+        .chars()
+        .next()
+        .filter(|quote| matches!(quote, '\'' | '"'));
+    let trailing = quote
+        .and_then(|quote| raw_value[1..].find(quote).map(|index| index + 2))
+        .map(|end| &raw_value[end..])
+        .or_else(|| raw_value.find(" #").map(|comment| &raw_value[comment..]))
+        .unwrap_or("");
+    format!(
+        "{}{}{}{}{}",
+        &body[..equals + 1],
+        &after_equals[..leading_spaces],
+        quote_dotenv_value(value, quote),
+        trailing,
+        newline
+    )
+}
+
+fn quote_dotenv_value(value: &str, preferred_quote: Option<char>) -> String {
+    if preferred_quote == Some('\'') && !value.contains('\'') {
+        return format!("'{value}'");
+    }
+    if preferred_quote.is_none()
+        && !value.is_empty()
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '#' | '\'' | '"'))
+    {
+        return value.to_string();
+    }
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn field_revision(value: Option<&Value>) -> String {
@@ -395,6 +1148,18 @@ fn field_revision(value: Option<&Value>) -> String {
         .and_then(|value| serde_json::to_vec(value).ok())
         .unwrap_or_else(|| b"null".to_vec());
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn file_revision(bytes: Option<&[u8]>) -> String {
+    let mut digest = Sha256::new();
+    match bytes {
+        Some(bytes) => {
+            digest.update([1]);
+            digest.update(bytes);
+        }
+        None => digest.update([0]),
+    }
+    format!("{:x}", digest.finalize())
 }
 
 fn value_at_path<'a>(document: &'a Value, path: &[&str]) -> Option<&'a Value> {

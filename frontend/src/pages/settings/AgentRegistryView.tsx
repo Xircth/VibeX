@@ -1,5 +1,6 @@
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   AgentRegistryView,
   AgentRegistryViewRow,
@@ -29,6 +30,7 @@ export function AgentRegistryViewPanel({
   onAdd,
   onAddUserDefinition,
 }: AgentRegistryViewProps) {
+  const { t, i18n } = useTranslation('settings');
   const [source, setSource] = useState<'official' | 'manual'>('official');
   const [tab, setTab] = useState<'installed' | 'uninstalled'>('installed');
   const [query, setQuery] = useState('');
@@ -63,13 +65,13 @@ export function AgentRegistryViewPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2
-            className="text-[15px] font-semibold text-foreground"
+            className="text-base font-semibold text-foreground"
             id="agent-registry-title"
           >
-            ACP 注册表
+            {t('agents.acpRegistry')}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            从官方注册表添加 Agent；安装仍使用本地 Runtime 与本地 ACP。
+            {t('agents.registryDescription')}
           </p>
         </div>
         {source === 'official' ? (
@@ -88,13 +90,13 @@ export function AgentRegistryViewPanel({
             ) : (
               <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
             )}
-            刷新
+            {t('agents.refresh')}
           </Button>
         ) : null}
       </div>
 
       <div
-        aria-label="Agent 来源"
+        aria-label={t('agents.agentSourceAria')}
         className="agent-registry-tabs w-fit"
         role="tablist"
       >
@@ -108,7 +110,7 @@ export function AgentRegistryViewPanel({
           role="tab"
           onClick={() => setSource('official')}
         >
-          官方注册表
+          {t('agents.officialRegistry')}
         </button>
         <button
           type="button"
@@ -120,7 +122,7 @@ export function AgentRegistryViewPanel({
           role="tab"
           onClick={() => setSource('manual')}
         >
-          手动添加
+          {t('agents.manualAdd')}
         </button>
       </div>
 
@@ -128,14 +130,18 @@ export function AgentRegistryViewPanel({
         <UserAgentDefinitionEditor
           currentPlatform={view?.current_platform ?? 'unknown'}
           loading={addingAgentId !== null}
-          submitLabel="添加并安装"
+          submitLabel={t('agents.addAndInstall')}
           onSubmit={onAddUserDefinition}
         />
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span
-              aria-label={view?.fresh ? '注册表快照有效' : '注册表缓存已过期'}
+              aria-label={
+                view?.fresh
+                  ? t('agents.registrySnapshotFreshAria')
+                  : t('agents.registrySnapshotStaleAria')
+              }
               className={cn(
                 'agent-registry-status',
                 view?.fresh
@@ -144,12 +150,18 @@ export function AgentRegistryViewPanel({
               )}
               role="status"
             >
-              {view?.fresh ? '快照有效' : '离线缓存'}
+              {view?.fresh
+                ? t('agents.snapshotFresh')
+                : t('agents.offlineCache')}
             </span>
             <span>
               {view?.fetched_at
-                ? `获取于 ${new Date(view.fetched_at).toLocaleString()}`
-                : '尚无成功获取的快照'}
+                ? t('agents.fetchedAt', {
+                    time: new Date(view.fetched_at).toLocaleString(
+                      i18n.language
+                    ),
+                  })
+                : t('agents.noSuccessfulSnapshot')}
             </span>
             {view?.snapshot_id ? (
               <span className="font-mono">ID {view.snapshot_id}</span>
@@ -161,7 +173,7 @@ export function AgentRegistryViewPanel({
 
           <div className="agent-registry-toolbar">
             <div
-              aria-label="注册表分类"
+              aria-label={t('agents.registryCategoryAria')}
               className="agent-registry-tabs"
               role="tablist"
             >
@@ -175,7 +187,9 @@ export function AgentRegistryViewPanel({
                 role="tab"
                 onClick={() => setTab('installed')}
               >
-                已安装 {view?.installed.length ?? 0}
+                {t('agents.installedCount', {
+                  count: view?.installed.length ?? 0,
+                })}
               </button>
               <button
                 type="button"
@@ -187,17 +201,19 @@ export function AgentRegistryViewPanel({
                 role="tab"
                 onClick={() => setTab('uninstalled')}
               >
-                未安装 {view?.uninstalled.length ?? 0}
+                {t('agents.uninstalledCount', {
+                  count: view?.uninstalled.length ?? 0,
+                })}
               </button>
             </div>
             <label className="agent-registry-search">
               <Search aria-hidden="true" className="h-3.5 w-3.5" />
               <input
-                aria-label="搜索 Agent"
+                aria-label={t('agents.searchAgentAria')}
                 className="agent-registry-search-input"
                 type="search"
                 value={query}
-                placeholder="搜索名称、作者或 Registry ID"
+                placeholder={t('agents.searchRegistryPlaceholder')}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
@@ -214,14 +230,14 @@ export function AgentRegistryViewPanel({
                     <span className="truncate text-sm font-medium text-foreground">
                       {row.display_name}
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {row.version}
                     </span>
                   </div>
                   <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                     {row.description}
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
                     {[row.authors.join('、'), row.registry_id]
                       .filter(Boolean)
                       .join(' · ')}
@@ -236,7 +252,9 @@ export function AgentRegistryViewPanel({
                       !row.platform_supported ||
                       addingAgentId === row.agent_id
                     }
-                    aria-label={`安装 ${row.display_name}`}
+                    aria-label={t('agents.installAgentAria', {
+                      agent: row.display_name,
+                    })}
                     onClick={() => onAdd(row)}
                   >
                     {addingAgentId === row.agent_id ? (
@@ -245,7 +263,9 @@ export function AgentRegistryViewPanel({
                         className="mr-1.5 h-3.5 w-3.5 animate-spin"
                       />
                     ) : null}
-                    {row.platform_supported ? '安装' : '当前平台不支持'}
+                    {row.platform_supported
+                      ? t('agents.fixInstall')
+                      : t('agents.platformUnsupported')}
                   </Button>
                 ) : (
                   <span
@@ -257,14 +277,18 @@ export function AgentRegistryViewPanel({
                         : 'settings-status-pill-warning'
                     )}
                   >
-                    {row.installed ? '已安装' : '未安装'}
+                    {row.installed
+                      ? t('agents.installed')
+                      : t('agents.notInstalled')}
                   </span>
                 )}
               </li>
             ))}
             {!loading && rows.length === 0 ? (
               <li className="px-4 py-10 text-center text-xs text-muted-foreground">
-                {query ? '没有匹配的 Agent。' : '当前分类没有 Agent。'}
+                {query
+                  ? t('agents.noMatchingAgents')
+                  : t('agents.noAgentsInCategory')}
               </li>
             ) : null}
           </ul>

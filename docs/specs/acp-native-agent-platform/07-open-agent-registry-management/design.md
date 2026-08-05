@@ -83,7 +83,8 @@ ready but fails the session-eligibility gate with an explicit disabled reason.
 ### Built-in Profiles
 
 Profiles are compile-time/bundled declarative data for Claude Code, Codex,
-OpenCode and Pi. A profile contains:
+Gemini, OpenClaw, OpenCode, Cline, Hermes, CodeBuddy, Kimi Code, Pi, Grok and
+Cursor. A profile contains:
 
 - fixed AgentId, display metadata and verified brand icon;
 - optional explicit Registry binding;
@@ -92,10 +93,13 @@ OpenCode and Pi. A profile contains:
 - official absolute-path candidates for read-only external detection;
 - recognized native configuration-file candidates/fields and authentication
   status precedence; and
-- optional local status/usage reader, never an interactive login runner.
+- optional local status/usage reader and compile-time-whitelisted official
+  login, logout, account or subscription actions.
 
-No Profile contains custom UI JSX, a dedicated state machine, a generic shell
-command, or remotely updateable Runtime contract data.
+No Profile contains custom UI JSX, a dedicated state machine, a user-supplied
+shell command, or remotely updateable Runtime contract data. Account actions
+resolve only fixed Profile program/argument or URL declarations after an
+explicit user click, as constrained by ADR-0037.
 
 ### Registry client
 
@@ -135,12 +139,38 @@ file only on explicit user save. Profiles may expose understood Runtime fields
 such as endpoint, credentials, model, reasoning, and native behavior options
 across multiple official JSON/TOML files. It supplies API Key status by presence
 and masks value on presentation; account login status is probe-only. The read
-projection also carries the exact on-disk source for each declared file so the
-form can show a read-only preview without fabricating or dropping unknown
-fields. Credential-bearing previews are masked except during hover/focus.
+projection also carries the exact on-disk source for each non-sensitive declared
+file so the form can show a preview without fabricating or dropping unknown
+fields. Credential-bearing file content never crosses IPC.
 All field edits and removals remain draft changes until the shared settings
 action bar saves them. Session defaults remain ACP session options and are
 applied only to new/rebound sessions when still advertised.
+
+Interactive authentication is a separate explicit action. VibeX may launch a
+Profile-whitelisted official CLI flow in a visible terminal or open a fixed
+official account/subscription URL; it never accepts command text from the UI,
+Registry or config files. Codex additionally exposes an in-page official device
+authorization flow whose tokens remain backend-only and are persisted directly
+to Codex's `auth.json`. OpenCode exposes a typed Provider connection adapter for
+its official `auth.json` and `opencode.json` files, a cached `models.dev` catalog,
+and declared-plugin health/install/remove actions. Claude Code, Codex, Gemini,
+Grok and Cursor expose explicit authentication modes whose Agent-native config,
+Model Provider binding and child-process environment remain mutually exclusive.
+
+The configuration projection keeps Agent-native files authoritative while
+supporting launch-only controls. Saving Cursor model/force, Grok permission or
+OpenClaw Gateway/session fields synchronizes a narrow set of derived Agent env
+keys. Session launch converts those keys into the CLI's required root/subcommand
+arguments after lock authorization; it does not mutate the installation lock or
+accept user-supplied argument arrays. Hermes provider fields are conditionally
+projected so the form exposes only the selected provider's credential variables.
+
+Advanced raw editing is an application-service operation, not an arbitrary file
+write. It resolves the requested path against the selected Built-in Profile,
+rejects sensitive bindings, validates the declared format and 1 MiB limit,
+checks an exact byte revision, and uses the native filesystem transaction
+boundary. The UI retains the requested content across a conflict and requires
+an explicit overwrite against the newly observed revision.
 
 ## Tauri and runtime APIs
 
@@ -211,9 +241,10 @@ The migration runs once, transactionally and offline:
 1. create new records and built-in memberships;
 2. parse old canonical/lenient Agent names only through a migration map;
 3. classify actual-use evidence before creating generic Gemini/Cline membership;
-4. retain old enabled state only after membership is decided; migrate relative
-   order and append Pi;
-5. create retired history bindings for OpenClaw/Hermes without membership;
+4. retain old enabled state and relative order, then idempotently add/promote
+   the complete twelve-Agent Built-in Profile catalog;
+5. retain historical bindings for every migrated Agent independently of current
+   membership state;
 6. migrate conversation Agent references to AgentId and record legacy/runtime
    provenance where available; and
 7. atomically mark the migration complete, then delete old seed/lookup code in

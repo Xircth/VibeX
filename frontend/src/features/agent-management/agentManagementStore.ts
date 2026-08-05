@@ -12,6 +12,7 @@ export type AgentOperationState = {
   status: AgentOperationEvent['status'];
   progressPercent: number | null;
   message: string | null;
+  logs?: string[];
   sequence: number;
 };
 
@@ -83,7 +84,8 @@ export function reduceOperationEvent(
   const terminal =
     event.status === 'succeeded' ||
     event.status === 'failed' ||
-    event.status === 'canceled';
+    event.status === 'canceled' ||
+    event.status === 'interrupted';
   const lifecycle = lifecycleForOperation(event);
   const agents = state.agents.map((agent) =>
     agent.agent_id === event.agent_id
@@ -98,12 +100,23 @@ export function reduceOperationEvent(
   if (terminal) {
     delete operations[event.agent_id];
   } else {
+    const previous = operations[event.agent_id];
+    const sameOperation = previous?.operationId === event.operation_id;
+    const previousLogs = sameOperation ? (previous.logs ?? []) : [];
+    const message = event.message?.trim();
+    const logs =
+      message && previousLogs.at(-1) !== message
+        ? [...previousLogs, message].slice(-200)
+        : previousLogs;
     operations[event.agent_id] = {
       operationId: event.operation_id,
       kind: event.kind,
       status: event.status,
-      progressPercent: event.progress_percent,
+      progressPercent:
+        event.progress_percent ??
+        (sameOperation ? previous.progressPercent : null),
       message: event.message,
+      logs,
       sequence: event.sequence,
     };
   }
@@ -143,7 +156,11 @@ export function mergeManagementSnapshot(
 function lifecycleForOperation(
   event: AgentOperationEvent
 ): AgentLifecycleState {
-  if (event.status === 'failed' || event.status === 'canceled') {
+  if (
+    event.status === 'failed' ||
+    event.status === 'canceled' ||
+    event.status === 'interrupted'
+  ) {
     return 'needs_repair';
   }
   if (event.status === 'succeeded') return 'ready';

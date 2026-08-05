@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use agents::{
     BuiltInProfileCatalog, ComponentProbeState, LaunchComponentEvidence, LaunchGate,
@@ -9,7 +12,7 @@ use agents::{
 use anyhow::Result;
 use api_types::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentManagementView,
-    AgentOperationKind, AgentRegistryView, AgentRegistryViewRow, AgentSource,
+    AgentOperationKind, AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
     UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
     UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
@@ -227,6 +230,21 @@ impl AgentManagementApplicationService {
                 rollback_available: installation
                     .and_then(|installation| installation.rollback_lock_id.as_ref())
                     .is_some(),
+                settings_features: Some(
+                    profile
+                        .map(|profile| profile.settings_features.to_vec())
+                        .unwrap_or_else(|| {
+                            user_definition
+                                .filter(|definition| {
+                                    definition.skills_shared_store
+                                        || definition.skills_directory.as_ref().is_some_and(
+                                            |directory| Path::new(directory).is_absolute(),
+                                        )
+                                })
+                                .map(|_| vec![AgentSettingsFeature::NativeSkills])
+                                .unwrap_or_default()
+                        }),
+                ),
             });
         }
         Ok(views)
@@ -409,6 +427,8 @@ impl AgentManagementApplicationService {
         &self,
         request: UserAgentDefinitionRequest,
     ) -> Result<AgentManagementView> {
+        let skills_shared_store = request.skills_shared_store;
+        let skills_directory = normalize_skills_directory(request.skills_directory.as_deref())?;
         let definition = UserAgentDefinition::parse(
             request.agent_id,
             request.display_name,
@@ -474,6 +494,8 @@ impl AgentManagementApplicationService {
                     distribution_kind: definition.distribution_kind,
                     distributions_json: definition.distributions_json,
                     definition_sha256: definition.definition_sha256,
+                    skills_shared_store,
+                    skills_directory,
                     created_at: None,
                     updated_at: None,
                 },
@@ -548,6 +570,8 @@ impl AgentManagementApplicationService {
             definition_sha256: definition.definition_sha256,
             installed_definition_sha256,
             reinstall_required,
+            skills_shared_store: record.skills_shared_store,
+            skills_directory: record.skills_directory,
             created_at: record.created_at,
             updated_at: record.updated_at,
         }))
@@ -574,6 +598,8 @@ impl AgentManagementApplicationService {
                 request.agent_id
             );
         }
+        let skills_shared_store = request.skills_shared_store;
+        let skills_directory = normalize_skills_directory(request.skills_directory.as_deref())?;
         let definition = UserAgentDefinition::parse(
             request.agent_id,
             request.display_name,
@@ -592,6 +618,8 @@ impl AgentManagementApplicationService {
                 distribution_kind: definition.distribution_kind,
                 distributions_json: definition.distributions_json,
                 definition_sha256: definition.definition_sha256,
+                skills_shared_store,
+                skills_directory,
                 created_at: None,
                 updated_at: None,
             })
@@ -714,6 +742,25 @@ impl AgentManagementApplicationService {
         .await?;
         Ok(())
     }
+}
+
+fn normalize_skills_directory(raw: Option<&str>) -> Result<Option<String>> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let path = if raw == "~" {
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory is unavailable"))?
+    } else if let Some(rest) = raw.strip_prefix("~/").or_else(|| raw.strip_prefix("~\\")) {
+        dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("home directory is unavailable"))?
+            .join(rest)
+    } else {
+        PathBuf::from(raw)
+    };
+    if !path.is_absolute() {
+        anyhow::bail!("skills directory must be an absolute path (got {raw:?})");
+    }
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 fn parse_persisted_user_definition(

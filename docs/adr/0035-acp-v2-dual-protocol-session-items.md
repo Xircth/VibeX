@@ -366,11 +366,12 @@ V1 Adapter 把 V1 Session Modes 转换为 category=`mode` 的语义 Config Optio
 ADR-0023 的产品规则不变：保存的是经验证的新会话默认偏好，不是 Agent 原生配置；
 失效 option 回退 Agent 默认并提示，不阻止就绪。
 
-### 13. V2 Auth 不改变 VibeX 的只读认证政策
+### 13. V2 Auth 与档案管理动作保持分层
 
-V2 `authMethods` 非空表示 Agent 提供 `auth/login` 与 `auth/logout`，但 VibeX 仍遵循
-ADR-0012/0021：不启动账号登录、不调用注销、不接管外部凭据。VibeX 记录 methodId、
-type 与能力事实，用于解释和就绪判断，不在本 ADR 增加登录 UI。
+V2 `authMethods` 非空表示 Agent 提供 `auth/login` 与 `auth/logout`。协议认证能力继续
+记录 methodId、type 与能力事实；ADR-0037 另行允许设置页启动 Built-in Agent Profile
+固定声明的官方 CLI 登录、注销或订阅入口。两条路径不能互相伪装，也不能从协议元数据
+或用户输入动态拼接本地命令。
 
 现有 Draft `auth/status` 继续作为独立 `AuthenticationObserver` Adapter，不与 V2
 Schema 强行合并。保存配置、进入设置或创建真实会话前的只读观察规则保持不变；真实
@@ -409,7 +410,7 @@ ADR-0029 的显式 Session rebind，不能伪造上下文连续。
 | ADR-0005       | 保留 VibeX 复制事件的 Fork 语义；Agent `session/fork` 继续独立门控，不视为 V2 baseline                      |
 | ADR-0006       | 保留 workspace-less scratch root；V2 MCP 必须服从相同路径范围                                               |
 | ADR-0010       | 保留 Native/Adapter-backed topology 和本地 stdio 限制                                                       |
-| ADR-0012、0021 | 保留安装/认证分离和只读认证；补充 V2 auth surface 的观察规则                                                |
+| ADR-0012、0021 | 保留安装/认证分离和认证状态观察；账号管理动作由 ADR-0037 补充                                                   |
 | ADR-0020       | 保留所有 Agent 共用统一管线；V2 allowlist 只能控制 rollout，不能形成 Agent 专属业务逻辑                     |
 | ADR-0023       | 保留 session default 语义；用统一 Config Option 取代独立 Mode 领域                                          |
 | ADR-0029       | 保留 Conversation 不锁版本和显式 rebind；禁止在已建 V2 Session 后静默降为 V1                                |

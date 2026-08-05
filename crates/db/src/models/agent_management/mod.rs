@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use api_types::{AgentId, AgentSource};
+use api_types::{AgentId, AgentSource, UserAgentDistributionKind};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
@@ -306,12 +306,19 @@ pub enum AgentManagementRepositoryError {
     InvalidOperationStatus(String),
     #[error("reorder must contain every membership exactly once")]
     InvalidReorder,
+    #[error("invalid persisted user Agent distribution kind `{0}`")]
+    InvalidUserDistributionKind(String),
+    #[error("user Agent definition and membership identities must match")]
+    UserDefinitionIdentityMismatch,
+    #[error("user Agent membership must use the user_definition source")]
+    InvalidUserDefinitionSource,
 }
 
 fn source_key(source: AgentSource) -> &'static str {
     match source {
         AgentSource::BuiltInProfile => "built_in_profile",
         AgentSource::OfficialRegistry => "official_registry",
+        AgentSource::UserDefinition => "user_definition",
         AgentSource::RetiredLegacy => "retired_legacy",
     }
 }
@@ -320,6 +327,7 @@ fn parse_source(value: &str) -> Result<AgentSource, AgentManagementRepositoryErr
     match value {
         "built_in_profile" => Ok(AgentSource::BuiltInProfile),
         "official_registry" => Ok(AgentSource::OfficialRegistry),
+        "user_definition" => Ok(AgentSource::UserDefinition),
         "retired_legacy" => Ok(AgentSource::RetiredLegacy),
         other => Err(AgentManagementRepositoryError::InvalidSource(
             other.to_string(),
@@ -485,6 +493,194 @@ impl AgentMembershipRepository {
         }
         transaction.commit().await?;
         Ok(())
+    }
+}
+
+fn user_distribution_kind_key(kind: UserAgentDistributionKind) -> &'static str {
+    match kind {
+        UserAgentDistributionKind::Binary => "binary",
+        UserAgentDistributionKind::Npx => "npx",
+        UserAgentDistributionKind::Uvx => "uvx",
+    }
+}
+
+fn parse_user_distribution_kind(
+    value: &str,
+) -> Result<UserAgentDistributionKind, AgentManagementRepositoryError> {
+    match value {
+        "binary" => Ok(UserAgentDistributionKind::Binary),
+        "npx" => Ok(UserAgentDistributionKind::Npx),
+        "uvx" => Ok(UserAgentDistributionKind::Uvx),
+        other => Err(AgentManagementRepositoryError::InvalidUserDistributionKind(
+            other.to_string(),
+        )),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserAgentDefinitionRecord {
+    pub agent_id: AgentId,
+    pub display_name: String,
+    pub description: String,
+    pub version: String,
+    pub distribution_kind: UserAgentDistributionKind,
+    pub distributions_json: String,
+    pub definition_sha256: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct UserAgentDefinitionRow {
+    agent_id: String,
+    display_name: String,
+    description: String,
+    version: String,
+    distribution_kind: String,
+    distributions_json: String,
+    definition_sha256: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl TryFrom<UserAgentDefinitionRow> for UserAgentDefinitionRecord {
+    type Error = AgentManagementRepositoryError;
+
+    fn try_from(row: UserAgentDefinitionRow) -> Result<Self, Self::Error> {
+        let raw_id = row.agent_id;
+        Ok(Self {
+            agent_id: AgentId::parse(&raw_id)
+                .map_err(|_| AgentManagementRepositoryError::InvalidAgentId(raw_id))?,
+            display_name: row.display_name,
+            description: row.description,
+            version: row.version,
+            distribution_kind: parse_user_distribution_kind(&row.distribution_kind)?,
+            distributions_json: row.distributions_json,
+            definition_sha256: row.definition_sha256,
+            created_at: Some(row.created_at),
+            updated_at: Some(row.updated_at),
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct UserAgentDefinitionRepository {
+    pool: SqlitePool,
+}
+
+impl UserAgentDefinitionRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn add_with_membership(
+        &self,
+        membership: NewAgentMembership,
+        definition: UserAgentDefinitionRecord,
+    ) -> Result<UserAgentDefinitionRecord, AgentManagementRepositoryError> {
+        if membership.agent_id != definition.agent_id {
+            return Err(AgentManagementRepositoryError::UserDefinitionIdentityMismatch);
+        }
+        if membership.source != AgentSource::UserDefinition {
+            return Err(AgentManagementRepositoryError::InvalidUserDefinitionSource);
+        }
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            r#"INSERT INTO agent_membership (
+                   agent_id, source, built_in, retired, enabled, position,
+                   retained_metadata_json, retained_icon_svg
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(membership.agent_id.as_str())
+        .bind(source_key(membership.source))
+        .bind(membership.built_in)
+        .bind(membership.retired)
+        .bind(membership.enabled)
+        .bind(membership.position)
+        .bind(membership.retained_metadata_json)
+        .bind(membership.retained_icon_svg)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO agent_user_definition (
+                   agent_id, display_name, description, version,
+                   distribution_kind, distributions_json, definition_sha256
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind(definition.agent_id.as_str())
+        .bind(definition.display_name)
+        .bind(definition.description)
+        .bind(definition.version)
+        .bind(user_distribution_kind_key(definition.distribution_kind))
+        .bind(definition.distributions_json)
+        .bind(definition.definition_sha256)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        self.find(&membership.agent_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn find(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<UserAgentDefinitionRecord>, AgentManagementRepositoryError> {
+        sqlx::query_as::<_, UserAgentDefinitionRow>(
+            r#"SELECT agent_id, display_name, description, version,
+                      distribution_kind, distributions_json, definition_sha256,
+                      created_at, updated_at
+               FROM agent_user_definition WHERE agent_id = ?"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        .map(TryInto::try_into)
+        .transpose()
+    }
+
+    pub async fn update(
+        &self,
+        definition: UserAgentDefinitionRecord,
+    ) -> Result<UserAgentDefinitionRecord, AgentManagementRepositoryError> {
+        let result = sqlx::query(
+            r#"UPDATE agent_user_definition
+               SET display_name = ?, description = ?, version = ?,
+                   distribution_kind = ?, distributions_json = ?,
+                   definition_sha256 = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE agent_id = ?"#,
+        )
+        .bind(definition.display_name)
+        .bind(definition.description)
+        .bind(definition.version)
+        .bind(user_distribution_kind_key(definition.distribution_kind))
+        .bind(definition.distributions_json)
+        .bind(definition.definition_sha256)
+        .bind(definition.agent_id.as_str())
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound.into());
+        }
+        self.find(&definition.agent_id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn list(
+        &self,
+    ) -> Result<Vec<UserAgentDefinitionRecord>, AgentManagementRepositoryError> {
+        sqlx::query_as::<_, UserAgentDefinitionRow>(
+            r#"SELECT agent_id, display_name, description, version,
+                      distribution_kind, distributions_json, definition_sha256,
+                      created_at, updated_at
+               FROM agent_user_definition ORDER BY display_name, agent_id"#,
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
     }
 }
 

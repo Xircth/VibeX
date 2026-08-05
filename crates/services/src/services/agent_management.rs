@@ -3,15 +3,19 @@ use std::collections::{HashMap, HashSet};
 use agents::{
     BuiltInProfileCatalog, ComponentProbeState, LaunchComponentEvidence, LaunchGate,
     ManagementFacts, ManagementOperationState, RegistryCacheFreshness, RegistryDistributions,
-    RequiredComponentProbe, current_platform, reduce_management_snapshot,
+    RequiredComponentProbe, UserAgentDefinition, UserAgentInstallTarget, current_platform,
+    reduce_management_snapshot,
 };
 use anyhow::Result;
 use api_types::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentManagementView,
     AgentOperationKind, AgentRegistryView, AgentRegistryViewRow, AgentSource,
+    UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
+    UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
 use db::models::agent_management::{
     AgentMembershipRepository, NewAgentMembership, RegistrySnapshotRepository,
+    UserAgentDefinitionRecord, UserAgentDefinitionRepository,
 };
 use sqlx::{FromRow, SqlitePool};
 
@@ -112,18 +116,26 @@ impl AgentManagementApplicationService {
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default();
+        let user_definitions = UserAgentDefinitionRepository::new(self.pool.clone())
+            .list()
+            .await?
+            .into_iter()
+            .map(|definition| (definition.agent_id.clone(), definition))
+            .collect::<HashMap<_, _>>();
         let profiles = BuiltInProfileCatalog::bundled();
 
         let mut views = Vec::with_capacity(memberships.len());
         for membership in memberships {
             let profile = profiles.profile(&membership.agent_id);
             let registry = registry_entries.get(&membership.agent_id);
+            let user_definition = user_definitions.get(&membership.agent_id);
             let retained = membership
                 .retained_metadata_json
                 .as_deref()
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok());
             let display_name = profile
                 .map(|profile| profile.display_name.to_string())
+                .or_else(|| user_definition.map(|definition| definition.display_name.clone()))
                 .or_else(|| registry.map(|entry| entry.name.clone()))
                 .or_else(|| {
                     retained
@@ -135,6 +147,7 @@ impl AgentManagementApplicationService {
                 .unwrap_or_else(|| membership.agent_id.to_string());
             let description = profile
                 .map(|profile| profile.description.to_string())
+                .or_else(|| user_definition.map(|definition| definition.description.clone()))
                 .or_else(|| registry.map(|entry| entry.description.clone()))
                 .unwrap_or_default();
             let installation = installations.get(membership.agent_id.as_str());
@@ -165,11 +178,14 @@ impl AgentManagementApplicationService {
             let operation = installation
                 .and_then(|installation| parse_management_operation(&installation.lifecycle));
             let authentication_required = probe.is_some_and(|probe| probe.authentication_required);
-            let platform_supported = profile.is_none_or(|profile| {
-                profile
-                    .supported_platforms
-                    .contains(&current_platform().as_str())
-            });
+            let platform_supported = profile
+                .map(|profile| {
+                    profile
+                        .supported_platforms
+                        .contains(&current_platform().as_str())
+                })
+                .or_else(|| user_definition.map(user_definition_supports_current_platform))
+                .unwrap_or(true);
             let snapshot = reduce_management_snapshot(ManagementFacts {
                 agent_id: membership.agent_id.clone(),
                 enabled: membership.enabled,
@@ -322,6 +338,7 @@ impl AgentManagementApplicationService {
         let (installed, uninstalled): (Vec<_>, Vec<_>) =
             rows.into_iter().partition(|row| row.installed);
         Ok(AgentRegistryView {
+            current_platform: current_platform(),
             snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
             fetched_at: snapshot
                 .as_ref()
@@ -386,6 +403,202 @@ impl AgentManagementApplicationService {
             .into_iter()
             .find(|view| view.agent_id == agent_id)
             .ok_or_else(|| anyhow::anyhow!("added Agent projection is missing"))
+    }
+
+    pub async fn add_user_definition(
+        &self,
+        request: UserAgentDefinitionRequest,
+    ) -> Result<AgentManagementView> {
+        let definition = UserAgentDefinition::parse(
+            request.agent_id,
+            request.display_name,
+            request.description,
+            request.version,
+            request.distribution_kind,
+            &request.distribution_json,
+        )
+        .map_err(anyhow::Error::msg)?;
+        if BuiltInProfileCatalog::bundled()
+            .profile(&definition.agent_id)
+            .is_some()
+        {
+            anyhow::bail!(
+                "Agent `{}` conflicts with a Built-in Profile",
+                definition.agent_id
+            );
+        }
+        if AgentMembershipRepository::new(self.pool.clone())
+            .find(&definition.agent_id)
+            .await?
+            .is_some()
+        {
+            anyhow::bail!("Agent `{}` has already been added", definition.agent_id);
+        }
+        let registry =
+            AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(self.pool.clone()))
+                .load()
+                .await?;
+        if registry.as_ref().is_some_and(|snapshot| {
+            snapshot
+                .entries
+                .iter()
+                .any(|entry| entry.agent_id == definition.agent_id)
+        }) {
+            anyhow::bail!(
+                "Agent `{}` already exists in the official ACP Registry",
+                definition.agent_id
+            );
+        }
+        let position = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM agent_membership",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        UserAgentDefinitionRepository::new(self.pool.clone())
+            .add_with_membership(
+                NewAgentMembership {
+                    agent_id: definition.agent_id.clone(),
+                    source: AgentSource::UserDefinition,
+                    built_in: false,
+                    retired: false,
+                    enabled: true,
+                    position,
+                    retained_metadata_json: None,
+                    retained_icon_svg: None,
+                },
+                UserAgentDefinitionRecord {
+                    agent_id: definition.agent_id.clone(),
+                    display_name: definition.display_name,
+                    description: definition.description,
+                    version: definition.version,
+                    distribution_kind: definition.distribution_kind,
+                    distributions_json: definition.distributions_json,
+                    definition_sha256: definition.definition_sha256,
+                    created_at: None,
+                    updated_at: None,
+                },
+            )
+            .await?;
+        self.list()
+            .await?
+            .into_iter()
+            .find(|view| view.agent_id == definition.agent_id)
+            .ok_or_else(|| anyhow::anyhow!("added user Agent projection is missing"))
+    }
+
+    pub async fn user_install_target(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<UserAgentInstallTarget>> {
+        let Some(record) = UserAgentDefinitionRepository::new(self.pool.clone())
+            .find(agent_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let definition = UserAgentDefinition::parse(
+            record.agent_id,
+            record.display_name,
+            record.description,
+            record.version,
+            record.distribution_kind,
+            &record.distributions_json,
+        )
+        .map_err(anyhow::Error::msg)?;
+        if definition.definition_sha256 != record.definition_sha256 {
+            anyhow::bail!("persisted user Agent definition failed its SHA-256 integrity check");
+        }
+        Ok(Some(definition.install_target()))
+    }
+
+    pub async fn user_definition_view(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<Option<UserAgentDefinitionView>> {
+        let Some(record) = UserAgentDefinitionRepository::new(self.pool.clone())
+            .find(agent_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let definition = parse_persisted_user_definition(&record)?;
+        let installed_definition_sha256 = sqlx::query_as::<_, (Option<String>,)>(
+            r#"SELECT json_extract(lock.resolved_json, '$.source.definition_sha256')
+               FROM agent_installation installation
+               JOIN agent_install_lock lock ON lock.id = installation.current_lock_id
+               WHERE installation.agent_id = ?"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        .and_then(|row| row.0);
+        let reinstall_required = installed_definition_sha256
+            .as_ref()
+            .is_some_and(|installed| installed != &definition.definition_sha256);
+        Ok(Some(UserAgentDefinitionView {
+            agent_id: definition.agent_id,
+            display_name: definition.display_name,
+            description: definition.description,
+            version: definition.version,
+            distribution_json: definition.distributions_json,
+            distribution: user_distribution_view(
+                definition.distribution_kind,
+                &definition.distributions,
+            )?,
+            definition_sha256: definition.definition_sha256,
+            installed_definition_sha256,
+            reinstall_required,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }))
+    }
+
+    pub async fn update_user_definition(
+        &self,
+        request: UserAgentDefinitionRequest,
+    ) -> Result<UserAgentDefinitionView> {
+        let repository = UserAgentDefinitionRepository::new(self.pool.clone());
+        if repository.find(&request.agent_id).await?.is_none() {
+            anyhow::bail!("user Agent `{}` does not exist", request.agent_id);
+        }
+        let active_operation = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT active_operation FROM agent_installation WHERE agent_id = ?",
+        )
+        .bind(request.agent_id.as_str())
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        if active_operation.is_some() {
+            anyhow::bail!(
+                "Agent `{}` cannot be edited while a management operation is active",
+                request.agent_id
+            );
+        }
+        let definition = UserAgentDefinition::parse(
+            request.agent_id,
+            request.display_name,
+            request.description,
+            request.version,
+            request.distribution_kind,
+            &request.distribution_json,
+        )
+        .map_err(anyhow::Error::msg)?;
+        repository
+            .update(UserAgentDefinitionRecord {
+                agent_id: definition.agent_id.clone(),
+                display_name: definition.display_name,
+                description: definition.description,
+                version: definition.version,
+                distribution_kind: definition.distribution_kind,
+                distributions_json: definition.distributions_json,
+                definition_sha256: definition.definition_sha256,
+                created_at: None,
+                updated_at: None,
+            })
+            .await?;
+        self.user_definition_view(&definition.agent_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("updated user Agent projection is missing"))
     }
 
     /// Reconcile authentication and lifecycle as one typed application-core
@@ -503,6 +716,100 @@ impl AgentManagementApplicationService {
     }
 }
 
+fn parse_persisted_user_definition(
+    record: &UserAgentDefinitionRecord,
+) -> Result<UserAgentDefinition> {
+    let definition = UserAgentDefinition::parse(
+        record.agent_id.clone(),
+        record.display_name.clone(),
+        record.description.clone(),
+        record.version.clone(),
+        record.distribution_kind,
+        &record.distributions_json,
+    )
+    .map_err(anyhow::Error::msg)?;
+    if definition.definition_sha256 != record.definition_sha256 {
+        anyhow::bail!("persisted user Agent definition failed its SHA-256 integrity check");
+    }
+    Ok(definition)
+}
+
+fn user_distribution_view(
+    kind: UserAgentDistributionKind,
+    distributions: &RegistryDistributions,
+) -> Result<UserAgentDistributionView> {
+    let platform = current_platform();
+    let package_view = |command: &str,
+                        distribution: &agents::RegistryPackageDistribution|
+     -> UserAgentDistributionView {
+        UserAgentDistributionView {
+            kind,
+            platform: platform.clone(),
+            platform_supported: true,
+            package: Some(distribution.package.clone()),
+            archive_url: None,
+            command: command.to_string(),
+            args: distribution.args.clone(),
+            environment: distribution
+                .env
+                .iter()
+                .map(|(name, value)| UserAgentEnvironmentVariableView {
+                    name: name.clone(),
+                    value: value.clone(),
+                })
+                .collect(),
+            sha256: None,
+            integrity: UserAgentIntegrityKind::EcosystemLock,
+        }
+    };
+    match kind {
+        UserAgentDistributionKind::Npx => distributions
+            .npx
+            .as_ref()
+            .map(|distribution| package_view("npx", distribution))
+            .ok_or_else(|| anyhow::anyhow!("selected npx distribution is missing")),
+        UserAgentDistributionKind::Uvx => distributions
+            .uvx
+            .as_ref()
+            .map(|distribution| package_view("uvx", distribution))
+            .ok_or_else(|| anyhow::anyhow!("selected uvx distribution is missing")),
+        UserAgentDistributionKind::Binary => {
+            let targets = distributions
+                .binary
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("selected binary distribution is missing"))?;
+            let platform_supported = targets.contains_key(&platform);
+            let (selected_platform, target) = targets
+                .get_key_value(&platform)
+                .or_else(|| targets.iter().next())
+                .ok_or_else(|| anyhow::anyhow!("binary distribution has no platform target"))?;
+            Ok(UserAgentDistributionView {
+                kind,
+                platform: selected_platform.clone(),
+                platform_supported,
+                package: None,
+                archive_url: Some(target.archive.clone()),
+                command: target.cmd.clone(),
+                args: target.args.clone(),
+                environment: target
+                    .env
+                    .iter()
+                    .map(|(name, value)| UserAgentEnvironmentVariableView {
+                        name: name.clone(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+                sha256: target.sha256.clone(),
+                integrity: if target.sha256.is_some() {
+                    UserAgentIntegrityKind::Sha256
+                } else {
+                    UserAgentIntegrityKind::TrustOnFirstUse
+                },
+            })
+        }
+    }
+}
+
 fn registry_supports_current_platform(distributions: &RegistryDistributions) -> bool {
     distributions.npx.is_some()
         || distributions.uvx.is_some()
@@ -510,6 +817,21 @@ fn registry_supports_current_platform(distributions: &RegistryDistributions) -> 
             .binary
             .as_ref()
             .is_some_and(|targets| targets.contains_key(&current_platform()))
+}
+
+fn user_definition_supports_current_platform(definition: &UserAgentDefinitionRecord) -> bool {
+    let Ok(distributions) =
+        agents::parse_registry_distributions_json(&definition.distributions_json)
+    else {
+        return false;
+    };
+    match definition.distribution_kind {
+        api_types::UserAgentDistributionKind::Binary => distributions
+            .binary
+            .is_some_and(|targets| targets.contains_key(&current_platform())),
+        api_types::UserAgentDistributionKind::Npx => distributions.npx.is_some(),
+        api_types::UserAgentDistributionKind::Uvx => distributions.uvx.is_some(),
+    }
 }
 
 fn parse_authentication(value: &str) -> AgentAuthenticationStatus {

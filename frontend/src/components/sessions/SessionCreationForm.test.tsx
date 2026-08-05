@@ -16,8 +16,10 @@ const sessionDefaults = vi.fn();
 const setSessionDefaults = vi.fn();
 const listRemoteSessions = vi.fn();
 const importRemoteSession = vi.fn();
-const deleteRemoteSession = vi.fn();
 const agentManagementBar = vi.fn();
+const userSystemConfig = vi.hoisted(() => ({
+  previousSessionContinuationEnabled: false,
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -29,6 +31,14 @@ vi.mock('@/components/tasks/RepoBranchSelector', () => ({
   default: () => null,
 }));
 vi.mock('./WorkspaceSelector', () => ({ WorkspaceSelector: () => null }));
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => ({
+    config: {
+      previous_session_continuation_enabled:
+        userSystemConfig.previousSessionContinuationEnabled,
+    },
+  }),
+}));
 vi.mock('@/features/agent-management', () => ({
   agentManagementApi: {
     bar: (...args: unknown[]) => agentManagementBar(...args),
@@ -45,7 +55,6 @@ vi.mock('@/features/agents/api', () => ({
     setSessionDefaults: (...args: unknown[]) => setSessionDefaults(...args),
     listRemoteSessions: (...args: unknown[]) => listRemoteSessions(...args),
     importRemoteSession: (...args: unknown[]) => importRemoteSession(...args),
-    deleteRemoteSession: (...args: unknown[]) => deleteRemoteSession(...args),
   },
 }));
 
@@ -147,8 +156,8 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     setSessionDefaults.mockReset();
     listRemoteSessions.mockReset();
     importRemoteSession.mockReset();
-    deleteRemoteSession.mockReset();
     agentManagementBar.mockReset();
+    userSystemConfig.previousSessionContinuationEnabled = false;
     capabilityCatalog.mockResolvedValue(CONTROLS);
     capabilityCatalogFresh.mockResolvedValue(true);
     refreshCapabilityCatalog.mockResolvedValue(true);
@@ -160,7 +169,6 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       meta: null,
     });
     importRemoteSession.mockResolvedValue({ id: 'conversation-imported' });
-    deleteRemoteSession.mockResolvedValue(undefined);
     agentManagementBar.mockResolvedValue([
       {
         agent_id: 'codex',
@@ -536,7 +544,26 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows explicit Agent session import only when list is advertised', async () => {
+  it('keeps previous-session continuation hidden until the preference is enabled', async () => {
+    capabilityCatalog.mockResolvedValue({
+      ...CONTROLS,
+      capabilities: {
+        list_sessions: true,
+      },
+    });
+
+    renderForm('gemini', vi.fn());
+
+    await screen.findByTestId('session-settings-summary');
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.continuePreviousSession',
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it('connects a listed previous session without exposing its path or deletion', async () => {
+    userSystemConfig.previousSessionContinuationEnabled = true;
     capabilityCatalog.mockResolvedValue({
       ...CONTROLS,
       capabilities: {
@@ -563,13 +590,19 @@ describe('SessionCreationForm agent capability catalog controls', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'sessionCreation.importAgentSession',
+        name: 'sessionCreation.continuePreviousSession',
       })
     );
     expect(await screen.findByText('Fixture session')).toBeInTheDocument();
+    expect(screen.queryByText('/workspace')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.deleteAgentSession',
+      })
+    ).not.toBeInTheDocument();
     await user.click(
       screen.getByRole('button', {
-        name: 'sessionCreation.importThisSession',
+        name: 'sessionCreation.connectThisSession',
       })
     );
 

@@ -9,6 +9,9 @@ const api = vi.hoisted(() => ({
   registry: vi.fn(),
   refreshRegistry: vi.fn(),
   addAndInstall: vi.fn(),
+  addUserDefinitionAndInstall: vi.fn(),
+  userDefinition: vi.fn(),
+  updateUserDefinition: vi.fn(),
   setEnabled: vi.fn(),
   reorder: vi.fn(),
   preflight: vi.fn(),
@@ -152,5 +155,72 @@ describe('AgentSettings', () => {
       await screen.findByRole('button', { name: '安装 Runtime 与 ACP' })
     );
     expect(api.addAndInstall).toHaveBeenCalledWith('kimi');
+  });
+
+  it('shows complete launch evidence for a manually registered Agent', async () => {
+    const user = userEvent.setup();
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'local-reviewer',
+        display_name: 'Local Reviewer',
+        description: 'Reviews the workspace',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'user_definition',
+        built_in: false,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'not_required',
+        runtime_version: '1.2.3',
+        acp_version: '1.2.3',
+        active_operation: null,
+        rollback_available: false,
+      },
+    ]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'local-reviewer',
+      available: false,
+      path: null,
+      fields: [],
+      applies_to_next_session: true,
+    });
+    api.userDefinition.mockResolvedValue({
+      agent_id: 'local-reviewer',
+      display_name: 'Local Reviewer',
+      description: 'Reviews the workspace',
+      version: '1.2.3',
+      distribution_json: '{}',
+      distribution: {
+        kind: 'npx',
+        platform: 'darwin-aarch64',
+        platform_supported: true,
+        package: 'local-reviewer@1.2.3',
+        archive_url: null,
+        command: 'npx',
+        args: ['--acp'],
+        environment: [{ name: 'ACP_MODE', value: 'review' }],
+        sha256: null,
+        integrity: 'ecosystem_lock',
+      },
+      definition_sha256: 'a'.repeat(64),
+      installed_definition_sha256: 'a'.repeat(64),
+      reinstall_required: false,
+      created_at: '2026-08-05T00:00:00Z',
+      updated_at: '2026-08-05T00:00:00Z',
+    });
+
+    render(<AgentSettings />);
+
+    expect(await screen.findByText('手动 Agent 定义')).toBeVisible();
+    expect(screen.getByText('local-reviewer@1.2.3')).toBeVisible();
+    expect(screen.getByText('生态锁文件')).toBeVisible();
+    expect(screen.getByText('ACP_MODE=••••••')).toBeVisible();
+    expect(screen.getByText('定义已同步')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: '编辑定义' }));
+    expect(screen.getByLabelText('Agent ID')).toBeDisabled();
   });
 });

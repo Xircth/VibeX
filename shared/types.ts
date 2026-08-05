@@ -390,6 +390,11 @@ export type SearchMode = "taskform" | "settings";
 
 export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
 /**
+ * Opt-in entry for connecting a newly created VibeX conversation to an
+ * existing Agent-managed ACP session in the selected workspace.
+ */
+previous_session_continuation_enabled: boolean,
+/**
  * Agents that have been disabled by the user in settings
  */
 disabled_agents: Array<AgentKind>,
@@ -1149,7 +1154,7 @@ export type AgentLifecycleState = "retired" | "platform_unsupported" | "queued" 
 
 export type AgentManagementIdentity = { agent_id: AgentId, source: AgentSource, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, enabled: boolean, };
 
-export type AgentSource = "built_in_profile" | "official_registry" | "retired_legacy";
+export type AgentSource = "built_in_profile" | "official_registry" | "user_definition" | "retired_legacy";
 
 export type ConversationArtifactPreviewReference = { artifact_id: string, provider_id: string, lease_id: string, };
 
@@ -1199,7 +1204,7 @@ export type AgentPreflightItemView = { id: string, label: string, status: string
 
 export type AgentPreflightView = { agent_id: AgentId, checked_at: string, items: Array<AgentPreflightItemView>, };
 
-export type AgentRegistryView = { snapshot_id: string | null, fetched_at: string | null, fresh: boolean, refresh_error: string | null, installed: Array<AgentRegistryViewRow>, uninstalled: Array<AgentRegistryViewRow>, };
+export type AgentRegistryView = { current_platform: string, snapshot_id: string | null, fetched_at: string | null, fresh: boolean, refresh_error: string | null, installed: Array<AgentRegistryViewRow>, uninstalled: Array<AgentRegistryViewRow>, };
 
 export type AgentRegistryViewRow = { agent_id: AgentId, registry_id: string | null, display_name: string, description: string, authors: Array<string>, version: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, built_in: boolean, added: boolean, installed: boolean, platform_supported: boolean, };
 
@@ -1248,3 +1253,15 @@ export type AuthenticationSource = "acp_auth_status" | "native_config" | "builti
 export type AgentListedSession = { acp_session_id: string, cwd: string, additional_directories: Array<string>, title: string | null, updated_at: string | null, meta: JsonValue | null, };
 
 export type AgentSessionListPage = { sessions: Array<AgentListedSession>, next_cursor: string | null, meta: JsonValue | null, };
+
+export type UserAgentDefinitionRequest = { agent_id: AgentId, display_name: string, description: string, version: string, distribution_kind: UserAgentDistributionKind, distribution_json: string, };
+
+export type UserAgentDistributionKind = "binary" | "npx" | "uvx";
+
+export type UserAgentDefinitionView = { agent_id: AgentId, display_name: string, description: string, version: string, distribution_json: string, distribution: UserAgentDistributionView, definition_sha256: string, installed_definition_sha256: string | null, reinstall_required: boolean, created_at: string | null, updated_at: string | null, };
+
+export type UserAgentDistributionView = { kind: UserAgentDistributionKind, platform: string, platform_supported: boolean, package: string | null, archive_url: string | null, command: string, args: Array<string>, environment: Array<UserAgentEnvironmentVariableView>, sha256: string | null, integrity: UserAgentIntegrityKind, };
+
+export type UserAgentEnvironmentVariableView = { name: string, value: string, };
+
+export type UserAgentIntegrityKind = "sha256" | "trust_on_first_use" | "ecosystem_lock";

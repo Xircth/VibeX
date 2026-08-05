@@ -9,7 +9,75 @@ use crate::AgentId;
 pub enum AgentSource {
     BuiltInProfile,
     OfficialRegistry,
+    UserDefinition,
     RetiredLegacy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum UserAgentDistributionKind {
+    Binary,
+    Npx,
+    Uvx,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UserAgentDefinitionRequest {
+    pub agent_id: AgentId,
+    pub display_name: String,
+    pub description: String,
+    pub version: String,
+    pub distribution_kind: UserAgentDistributionKind,
+    pub distribution_json: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum UserAgentIntegrityKind {
+    Sha256,
+    TrustOnFirstUse,
+    EcosystemLock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UserAgentEnvironmentVariableView {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UserAgentDistributionView {
+    pub kind: UserAgentDistributionKind,
+    pub platform: String,
+    pub platform_supported: bool,
+    pub package: Option<String>,
+    pub archive_url: Option<String>,
+    pub command: String,
+    pub args: Vec<String>,
+    pub environment: Vec<UserAgentEnvironmentVariableView>,
+    pub sha256: Option<String>,
+    pub integrity: UserAgentIntegrityKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UserAgentDefinitionView {
+    pub agent_id: AgentId,
+    pub display_name: String,
+    pub description: String,
+    pub version: String,
+    pub distribution_json: String,
+    pub distribution: UserAgentDistributionView,
+    pub definition_sha256: String,
+    pub installed_definition_sha256: Option<String>,
+    pub reinstall_required: bool,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -135,6 +203,7 @@ pub struct AgentUpdateCheckView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentRegistryView {
+    pub current_platform: String,
     pub snapshot_id: Option<String>,
     pub fetched_at: Option<String>,
     pub fresh: bool,

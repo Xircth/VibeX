@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 
 use agents::{
     AgentId, ArtifactTrust, InstallCandidateSource, InstallEnvironment, InstallPlanner,
-    InstallPlanningError, InstallPlanningInput, PlannedDistributionKind, RegistryAddTarget,
-    RegistryBinaryTarget, RegistryDistributions, RegistryPackageDistribution, TofuFingerprint,
-    VersionEvidence, verify_artifact_bytes, verify_version_evidence,
+    InstallPlanningError, InstallPlanningInput, LockedInstallSource, PlannedDistributionKind,
+    RegistryAddTarget, RegistryBinaryTarget, RegistryDistributions, RegistryPackageDistribution,
+    TofuFingerprint, UserAgentDistributionKind, UserAgentInstallTarget, VersionEvidence,
+    verify_artifact_bytes, verify_version_evidence,
 };
 use uuid::Uuid;
 
@@ -24,6 +25,58 @@ fn generic_target(distributions: RegistryDistributions) -> RegistryAddTarget {
         version: "1.2.3".to_string(),
         distributions,
     }
+}
+
+#[test]
+fn user_definition_freezes_the_explicit_distribution_without_registry_provenance() {
+    let planner = InstallPlanner::bundled();
+    let agent_id = AgentId::parse("local-reviewer").unwrap();
+    let mut binary = BTreeMap::new();
+    binary.insert(
+        "darwin-aarch64".to_string(),
+        RegistryBinaryTarget {
+            archive: "https://example.test/local-reviewer.tar.gz".to_string(),
+            sha256: Some("ab".repeat(32)),
+            cmd: "./local-reviewer".to_string(),
+            args: vec!["--acp".to_string()],
+            env: BTreeMap::new(),
+        },
+    );
+    let target = UserAgentInstallTarget {
+        agent_id: agent_id.clone(),
+        version: "1.2.3".to_string(),
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distributions: RegistryDistributions {
+            binary: Some(binary),
+            npx: Some(package("local-reviewer@1.2.3")),
+            uvx: None,
+        },
+        definition_sha256: "cd".repeat(32),
+    };
+
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id,
+            source: InstallCandidateSource::UserDefinition(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+    assert_eq!(
+        plan.source,
+        LockedInstallSource::UserDefinition {
+            definition_sha256: "cd".repeat(32),
+        }
+    );
+    assert_eq!(
+        plan.components[0].distribution_kind,
+        PlannedDistributionKind::Npx
+    );
+    assert_eq!(plan.components[0].resolved_source, "local-reviewer@1.2.3");
 }
 
 #[test]

@@ -524,6 +524,16 @@ fn validate_distributions(raw: &RawRegistryDistributions) -> Result<(), String> 
     Ok(())
 }
 
+/// Parse the executable portion of an ACP Registry entry for an explicitly
+/// user-declared Agent. This deliberately reuses the official Registry schema
+/// and validation instead of accepting an arbitrary launch command.
+pub fn parse_registry_distributions_json(raw: &str) -> Result<RegistryDistributions, String> {
+    let distributions: RawRegistryDistributions = serde_json::from_str(raw)
+        .map_err(|error| format!("Agent distribution schema validation failed: {error}"))?;
+    validate_distributions(&distributions)?;
+    Ok(distributions.into())
+}
+
 const DESKTOP_PLATFORMS: &[&str] = &[
     "darwin-aarch64",
     "darwin-x86_64",

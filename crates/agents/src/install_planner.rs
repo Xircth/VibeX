@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     ProfileComponent, ProfileInstallSource, RegistryAddTarget, RegistryBinaryTarget,
-    RegistryPackageDistribution, profiles::BuiltInProfileCatalog,
+    RegistryPackageDistribution, UserAgentDistributionKind, UserAgentInstallTarget,
+    profiles::BuiltInProfileCatalog,
 };
 
 struct BinaryPackagingAdvisory {
@@ -36,6 +37,7 @@ const BINARY_PACKAGING_ADVISORIES: &[BinaryPackagingAdvisory] = &[BinaryPackagin
 pub enum InstallCandidateSource {
     BuiltInProfile,
     Registry(Box<RegistryAddTarget>),
+    UserDefinition(Box<UserAgentInstallTarget>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -86,6 +88,9 @@ pub enum LockedInstallSource {
     OfficialRegistry {
         snapshot_id: Uuid,
         registry_id: String,
+    },
+    UserDefinition {
+        definition_sha256: String,
     },
 }
 
@@ -140,6 +145,9 @@ impl InstallPlanner {
         match input.source.clone() {
             InstallCandidateSource::BuiltInProfile => self.plan_profile(input),
             InstallCandidateSource::Registry(target) => self.plan_registry(input, *target),
+            InstallCandidateSource::UserDefinition(target) => {
+                self.plan_user_definition(input, *target)
+            }
         }
     }
 
@@ -242,6 +250,85 @@ impl InstallPlanner {
         Err(InstallPlanningError::UnsupportedPlatform {
             agent_id: input.agent_id,
             platform: input.platform,
+        })
+    }
+
+    fn plan_user_definition(
+        &self,
+        input: InstallPlanningInput,
+        target: UserAgentInstallTarget,
+    ) -> Result<ResolvedInstallPlan, InstallPlanningError> {
+        let component = match target.distribution_kind {
+            UserAgentDistributionKind::Binary => {
+                let binary = target
+                    .distributions
+                    .binary
+                    .as_ref()
+                    .and_then(|targets| targets.get(&input.platform))
+                    .cloned()
+                    .ok_or_else(|| InstallPlanningError::UnsupportedPlatform {
+                        agent_id: input.agent_id.clone(),
+                        platform: input.platform.clone(),
+                    })?;
+                let trust = binary
+                    .sha256
+                    .as_ref()
+                    .map(|sha256| ArtifactTrust::ExpectedSha256 {
+                        sha256: sha256.to_ascii_lowercase(),
+                    })
+                    .unwrap_or(ArtifactTrust::Tofu);
+                PlannedInstallComponent {
+                    component_id: "combined_runtime".to_string(),
+                    distribution_kind: PlannedDistributionKind::Binary,
+                    version: target.version.clone(),
+                    resolved_source: binary.archive,
+                    command: binary.cmd,
+                    args: binary.args,
+                    env: binary.env,
+                    trust,
+                }
+            }
+            UserAgentDistributionKind::Npx => {
+                if !input.environment.node_verified {
+                    return Err(InstallPlanningError::RuntimeUnavailable { runtime: "node" });
+                }
+                let package = target.distributions.npx.as_ref().ok_or_else(|| {
+                    InstallPlanningError::UnsupportedPlatform {
+                        agent_id: input.agent_id.clone(),
+                        platform: input.platform.clone(),
+                    }
+                })?;
+                ensure_package_version(package, &target.version, false)?;
+                let mut component = package_component(package, PlannedDistributionKind::Npx);
+                component.version.clone_from(&target.version);
+                component
+            }
+            UserAgentDistributionKind::Uvx => {
+                if !input.environment.uv_verified || !input.environment.python_verified {
+                    return Err(InstallPlanningError::RuntimeUnavailable {
+                        runtime: "uv/python",
+                    });
+                }
+                let package = target.distributions.uvx.as_ref().ok_or_else(|| {
+                    InstallPlanningError::UnsupportedPlatform {
+                        agent_id: input.agent_id.clone(),
+                        platform: input.platform.clone(),
+                    }
+                })?;
+                ensure_package_version(package, &target.version, true)?;
+                let mut component = package_component(package, PlannedDistributionKind::Uvx);
+                component.version.clone_from(&target.version);
+                component
+            }
+        };
+        Ok(ResolvedInstallPlan {
+            agent_id: input.agent_id,
+            source: LockedInstallSource::UserDefinition {
+                definition_sha256: target.definition_sha256,
+            },
+            version: target.version,
+            platform: input.platform,
+            components: vec![component],
         })
     }
 }

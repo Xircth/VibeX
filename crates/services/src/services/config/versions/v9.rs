@@ -106,6 +106,10 @@ pub struct Config {
     pub files_changed_default_collapsed: bool,
     #[serde(default = "default_ai_message_default_collapsed")]
     pub ai_message_default_collapsed: bool,
+    /// Opt-in entry for connecting a newly created VibeX conversation to an
+    /// existing Agent-managed ACP session in the selected workspace.
+    #[serde(default)]
+    pub previous_session_continuation_enabled: bool,
     /// Agents that have been disabled by the user in settings
     #[serde(default)]
     pub disabled_agents: Vec<AgentKind>,
@@ -160,6 +164,7 @@ impl Config {
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
+            previous_session_continuation_enabled: false,
             disabled_agents: Vec::new(),
             agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
@@ -227,6 +232,7 @@ impl Default for Config {
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
+            previous_session_continuation_enabled: false,
             disabled_agents: Vec::new(),
             agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
@@ -234,5 +240,23 @@ impl Default for Config {
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn previous_session_continuation_remains_off_when_absent_from_saved_config() {
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        saved
+            .as_object_mut()
+            .expect("config object")
+            .remove("previous_session_continuation_enabled");
+
+        let loaded: Config = serde_json::from_value(saved).expect("load older v9 config");
+
+        assert!(!loaded.previous_session_continuation_enabled);
     }
 }

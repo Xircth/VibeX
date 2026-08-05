@@ -13,8 +13,17 @@ mod tests {
         OperationCancellationRegistry, bind_profile_runtime_executable, build_launch_environment,
         configure_uv_tool_install_command, extract_binary_archive, install_locked_plan,
         managed_install_root, management_error, operation_event, resolve_npm_package_executable,
-        resolve_uv_tool_executable, verify_acp_handshake,
+        resolve_uv_tool_executable, safe_archive_executable, verify_acp_handshake,
     };
+
+    #[test]
+    fn binary_command_must_stay_inside_the_extracted_archive() {
+        let root = Path::new("/managed/agent/component");
+
+        assert!(safe_archive_executable(root, "bin/agent").is_ok());
+        assert!(safe_archive_executable(root, "../outside").is_err());
+        assert!(safe_archive_executable(root, "/absolute/agent").is_err());
+    }
 
     fn zip_with_symlink(link_target: &str) -> Vec<u8> {
         use std::io::Write;
@@ -545,7 +554,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ffi::OsString,
     io::{Cursor, Read},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -571,13 +580,14 @@ use api_types::{
     AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
     AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
     AgentOperationStatus, AgentPreflightItemView, AgentPreflightView, AgentRegistryView,
-    AgentUpdateCheckView,
+    AgentSource, AgentUpdateCheckView, UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
 use db::models::agent_management::{
     AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
     RegistrySnapshotRepository,
 };
+use futures::StreamExt;
 use services::services::{
     agent_management::AgentManagementApplicationService, agent_registry::AgentRegistrySnapshotStore,
 };
@@ -591,6 +601,7 @@ use crate::state::AppState;
 
 const MANAGEMENT_EVENT: &str = "agent-management-event";
 const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
+const MAX_AGENT_BINARY_BYTES: usize = 512 * 1024 * 1024;
 static EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static OPERATION_SCHEDULER: OnceLock<OperationScheduler> = OnceLock::new();
 static BUILT_IN_PROBES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
@@ -1312,6 +1323,69 @@ pub async fn agent_registry_add_and_install(
         AgentOperationKind::Install,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn agent_user_definition_add_and_install(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: UserAgentDefinitionRequest,
+) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
+    let agent_id = request.agent_id.clone();
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+        .add_user_definition(request)
+        .await
+        .map_err(|error| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                error.to_string(),
+                Some(agent_id.clone()),
+            )
+        })?;
+    queue_operation(
+        &app,
+        &state.deployment.db().pool,
+        agent_id,
+        AgentOperationKind::Install,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn agent_user_definition_detail(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<UserAgentDefinitionView, AgentManagementErrorView> {
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+        .user_definition_view(&agent_id)
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            management_error(
+                AgentManagementErrorCode::NotFound,
+                format!("user Agent `{agent_id}` does not exist"),
+                Some(agent_id),
+            )
+        })
+}
+
+#[tauri::command]
+pub async fn agent_user_definition_update(
+    state: tauri::State<'_, AppState>,
+    request: UserAgentDefinitionRequest,
+) -> Result<UserAgentDefinitionView, AgentManagementErrorView> {
+    let agent_id = request.agent_id.clone();
+    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+        .update_user_definition(request)
+        .await
+        .map_err(|error| {
+            let code = if error.to_string().contains("management operation is active") {
+                AgentManagementErrorCode::Busy
+            } else {
+                AgentManagementErrorCode::InvalidState
+            };
+            management_error(code, error.to_string(), Some(agent_id))
+        })
 }
 
 #[tauri::command]
@@ -2178,23 +2252,39 @@ async fn resolve_install_plan(
             .or_else(|_| which::which("python"))
             .is_ok(),
     };
-    let source = if BuiltInProfileCatalog::bundled().profile(agent_id).is_some() {
-        InstallCandidateSource::BuiltInProfile
-    } else {
-        let store = AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
-        let snapshot = store
-            .load()
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("ACP Registry 缓存为空，请先刷新注册表"))?;
-        if Utc::now().signed_duration_since(snapshot.fetched_at) > Duration::hours(24) {
-            anyhow::bail!("ACP Registry 快照已过期，请先刷新注册表");
+    let membership = AgentMembershipRepository::new(pool.clone())
+        .find(agent_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Agent 尚未添加"))?;
+    let source = match membership.source {
+        AgentSource::BuiltInProfile => InstallCandidateSource::BuiltInProfile,
+        AgentSource::OfficialRegistry => {
+            let store =
+                AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
+            let snapshot = store
+                .load()
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("ACP Registry 缓存为空，请先刷新注册表"))?;
+            if Utc::now().signed_duration_since(snapshot.fetched_at) > Duration::hours(24) {
+                anyhow::bail!("ACP Registry 快照已过期，请先刷新注册表");
+            }
+            let entry = snapshot
+                .entries
+                .iter()
+                .find(|entry| &entry.agent_id == agent_id)
+                .ok_or_else(|| anyhow::anyhow!("Agent 已从当前 ACP Registry 下架，无法重新安装"))?;
+            InstallCandidateSource::Registry(Box::new(entry.lock_add_target(snapshot.id)))
         }
-        let entry = snapshot
-            .entries
-            .iter()
-            .find(|entry| &entry.agent_id == agent_id)
-            .ok_or_else(|| anyhow::anyhow!("Agent 已从当前 ACP Registry 下架，无法重新安装"))?;
-        InstallCandidateSource::Registry(Box::new(entry.lock_add_target(snapshot.id)))
+        AgentSource::UserDefinition => {
+            let target = AgentManagementApplicationService::new(pool.clone())
+                .user_install_target(agent_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("手动 Agent 缺少已保存的发行定义"))?;
+            InstallCandidateSource::UserDefinition(Box::new(target))
+        }
+        AgentSource::RetiredLegacy => {
+            anyhow::bail!("已退役的 Agent 无法安装")
+        }
     };
     InstallPlanner::bundled()
         .plan(InstallPlanningInput {
@@ -2354,7 +2444,21 @@ async fn install_locked_plan(
                 if !response.status().is_success() {
                     anyhow::bail!("binary download returned HTTP {}", response.status());
                 }
-                let bytes = response.bytes().await?.to_vec();
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > MAX_AGENT_BINARY_BYTES as u64)
+                {
+                    anyhow::bail!("binary download exceeds the 512 MiB size limit");
+                }
+                let mut stream = response.bytes_stream();
+                let mut bytes = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    if bytes.len().saturating_add(chunk.len()) > MAX_AGENT_BINARY_BYTES {
+                        anyhow::bail!("binary download exceeds the 512 MiB size limit");
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
                 let verified = verify_artifact_bytes(
                     &component.trust,
                     &bytes,
@@ -2881,11 +2985,18 @@ fn validate_zip_symlink_target(link: &Path, target: &Path) -> anyhow::Result<()>
 }
 
 fn safe_archive_executable(root: &Path, command: &str) -> anyhow::Result<PathBuf> {
-    let candidate = root.join(command);
-    if !candidate.starts_with(root) {
+    let relative = Path::new(command);
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
         anyhow::bail!("binary command escapes the installation root");
     }
-    Ok(candidate)
+    Ok(root.join(relative))
 }
 
 async fn verify_acp_handshake(
@@ -3022,6 +3133,10 @@ async fn persist_installed_lock(
             "kind": "official_registry",
             "snapshot_id": snapshot_id,
             "registry_id": registry_id,
+        }),
+        LockedInstallSource::UserDefinition { definition_sha256 } => serde_json::json!({
+            "kind": "user_definition",
+            "definition_sha256": definition_sha256,
         }),
     };
     let resolved_json = serde_json::json!({

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, History } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import {
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
 import { sessionControlsQueryKey } from '@/features/agents/sessionControlsQuery';
+import { useUserSystem } from '@/components/ConfigProvider';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
 import { cn } from '@/lib/utils';
@@ -114,6 +116,7 @@ export function SessionCreationForm({
   onRemoteSessionImported,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const { config } = useUserSystem();
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
   const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
   const executor = selectedExecutorProfile?.executor ?? null;
@@ -248,6 +251,8 @@ export function SessionCreationForm({
   const activeControls = controlsQuery.data ?? null;
   const supportsRemoteSessionList =
     activeControls?.capabilities?.list_sessions === true;
+  const previousSessionContinuationEnabled =
+    config?.previous_session_continuation_enabled === true;
   const remoteSessionsQuery = useQuery({
     queryKey: ['agentRemoteSessions', executor, controlsWorkspaceId],
     queryFn: () =>
@@ -402,7 +407,7 @@ export function SessionCreationForm({
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
     selectedWorkspaceOption
   );
-  const importRemoteSession = async (
+  const connectRemoteSession = async (
     acpSessionId: string,
     title: string | null
   ) => {
@@ -424,24 +429,6 @@ export function SessionCreationForm({
       setRemoteSessionAction(null);
     }
   };
-  const deleteRemoteSession = async (acpSessionId: string) => {
-    if (!executor || !controlsWorkspaceId) return;
-    setRemoteSessionAction(acpSessionId);
-    setRemoteSessionStatus('idle');
-    try {
-      await agentsApi.deleteRemoteSession(
-        executor,
-        controlsWorkspaceId,
-        acpSessionId
-      );
-      await remoteSessionsQuery.refetch();
-    } catch {
-      setRemoteSessionStatus('error');
-    } finally {
-      setRemoteSessionAction(null);
-    }
-  };
-
   return (
     <form
       className={cn('space-y-4', className)}
@@ -590,89 +577,91 @@ export function SessionCreationForm({
             {t('sessionCreation.controlsLoading')}
           </p>
         ) : null}
-        {supportsRemoteSessionList && controlsWorkspaceId ? (
-          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
+        {previousSessionContinuationEnabled &&
+        supportsRemoteSessionList &&
+        controlsWorkspaceId ? (
+          <div className="space-y-1">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-7 text-[11px]"
+              className="h-8 w-full justify-between px-1 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
               disabled={isSubmitting}
+              aria-expanded={remoteSessionsOpen}
               onClick={() => setRemoteSessionsOpen((open) => !open)}
             >
-              {t('sessionCreation.importAgentSession')}
+              <span className="flex min-w-0 items-center gap-2">
+                <History className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  {t('sessionCreation.continuePreviousSession')}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none',
+                  remoteSessionsOpen && 'rotate-180'
+                )}
+              />
             </Button>
             {remoteSessionsOpen ? (
               remoteSessionsQuery.isPending ? (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="px-1 py-2 text-[11px] text-muted-foreground">
                   {t('sessionCreation.remoteSessionsLoading')}
                 </p>
               ) : remoteSessionsQuery.error ? (
-                <p className="text-[11px] text-destructive" role="alert">
+                <p
+                  className="px-1 py-2 text-[11px] text-destructive"
+                  role="alert"
+                >
                   {t('sessionCreation.remoteSessionsLoadFailed')}
                 </p>
               ) : remoteSessionsQuery.data?.sessions.length ? (
-                <div className="space-y-2">
+                <div className="divide-y divide-border/60">
                   {remoteSessionsQuery.data.sessions.map((remote) => (
                     <div
                       key={remote.acp_session_id}
-                      className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/70 px-2.5 py-2"
+                      className="flex items-center justify-between gap-3 px-1 py-2"
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-medium">
-                          {remote.title ?? remote.acp_session_id}
-                        </p>
-                        <p className="truncate text-[10px] text-muted-foreground">
-                          {remote.cwd}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-[11px]"
-                          disabled={remoteSessionAction !== null}
-                          onClick={() =>
-                            void importRemoteSession(
-                              remote.acp_session_id,
-                              remote.title ?? null
-                            )
-                          }
-                        >
-                          {t('sessionCreation.importThisSession')}
-                        </Button>
-                        {activeControls?.capabilities?.delete_session ===
-                        true ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-[11px] text-destructive"
-                            disabled={remoteSessionAction !== null}
-                            onClick={() =>
-                              void deleteRemoteSession(remote.acp_session_id)
-                            }
-                          >
-                            {t('sessionCreation.deleteAgentSession')}
-                          </Button>
-                        ) : null}
-                      </div>
+                      <p className="line-clamp-2 min-w-0 text-xs leading-5 text-foreground">
+                        {remote.title?.trim() ||
+                          t('sessionCreation.untitledPreviousSession')}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0 px-2 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
+                        disabled={remoteSessionAction !== null}
+                        onClick={() =>
+                          void connectRemoteSession(
+                            remote.acp_session_id,
+                            remote.title ?? null
+                          )
+                        }
+                      >
+                        {t('sessionCreation.connectThisSession')}
+                      </Button>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="px-1 py-2 text-[11px] text-muted-foreground">
                   {t('sessionCreation.noRemoteSessions')}
                 </p>
               )
             ) : null}
             {remoteSessionStatus === 'imported' ? (
-              <p className="text-[11px] text-muted-foreground" role="status">
-                {t('sessionCreation.remoteSessionImported')}
+              <p
+                className="px-1 pt-1 text-[11px] text-muted-foreground"
+                role="status"
+              >
+                {t('sessionCreation.remoteSessionConnected')}
               </p>
             ) : remoteSessionStatus === 'error' ? (
-              <p className="text-[11px] text-destructive" role="alert">
+              <p
+                className="px-1 pt-1 text-[11px] text-destructive"
+                role="alert"
+              >
                 {t('sessionCreation.remoteSessionActionFailed')}
               </p>
             ) : null}

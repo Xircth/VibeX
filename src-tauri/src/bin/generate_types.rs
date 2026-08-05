@@ -43,6 +43,8 @@ use api_types::{
     AgentNativeConfigPatchRequest, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
     AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightView,
     AgentRegistryView, AgentRegistryViewRow, AgentSource, AgentUpdateCheckView,
+    UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
+    UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
 use conversations::ConversationSearchHit;
 use db::models::{
@@ -287,6 +289,12 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentKind>(&mut decls);
     insert_declaration::<AgentId>(&mut decls);
     insert_declaration::<AgentSource>(&mut decls);
+    insert_declaration::<UserAgentDistributionKind>(&mut decls);
+    insert_declaration::<UserAgentDefinitionRequest>(&mut decls);
+    insert_declaration::<UserAgentIntegrityKind>(&mut decls);
+    insert_declaration::<UserAgentEnvironmentVariableView>(&mut decls);
+    insert_declaration::<UserAgentDistributionView>(&mut decls);
+    insert_declaration::<UserAgentDefinitionView>(&mut decls);
     insert_declaration::<AgentLifecycleState>(&mut decls);
     insert_declaration::<AgentAuthenticationStatus>(&mut decls);
     insert_declaration::<AgentManagementIdentity>(&mut decls);

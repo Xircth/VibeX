@@ -1,11 +1,16 @@
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { AgentRegistryView, AgentRegistryViewRow } from 'shared/types';
+import type {
+  AgentRegistryView,
+  AgentRegistryViewRow,
+  UserAgentDefinitionRequest,
+} from 'shared/types';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from './AgentManagementIcon';
+import { UserAgentDefinitionEditor } from './UserAgentDefinitionEditor';
 
 type AgentRegistryViewProps = {
   view: AgentRegistryView | null;
@@ -13,6 +18,7 @@ type AgentRegistryViewProps = {
   addingAgentId: string | null;
   onRefresh: () => void;
   onAdd: (row: AgentRegistryViewRow) => void;
+  onAddUserDefinition: (request: UserAgentDefinitionRequest) => void;
 };
 
 export function AgentRegistryViewPanel({
@@ -21,7 +27,9 @@ export function AgentRegistryViewPanel({
   addingAgentId,
   onRefresh,
   onAdd,
+  onAddUserDefinition,
 }: AgentRegistryViewProps) {
+  const [source, setSource] = useState<'official' | 'manual'>('official');
   const [tab, setTab] = useState<'installed' | 'uninstalled'>('installed');
   const [query, setQuery] = useState('');
   const rows = useMemo(() => {
@@ -64,160 +72,204 @@ export function AgentRegistryViewPanel({
             从官方注册表添加 Agent；安装仍使用本地 Runtime 与本地 ACP。
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8"
-          disabled={loading}
-          onClick={onRefresh}
-        >
-          {loading ? (
-            <Loader2
-              aria-hidden="true"
-              className="mr-1.5 h-3.5 w-3.5 animate-spin"
-            />
-          ) : (
-            <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-          )}
-          刷新
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span
-          aria-label={view?.fresh ? '注册表快照有效' : '注册表缓存已过期'}
-          className={cn(
-            'agent-registry-status',
-            view?.fresh
-              ? 'settings-status-pill-success'
-              : 'settings-status-pill-warning'
-          )}
-          role="status"
-        >
-          {view?.fresh ? '快照有效' : '离线缓存'}
-        </span>
-        <span>
-          {view?.fetched_at
-            ? `获取于 ${new Date(view.fetched_at).toLocaleString()}`
-            : '尚无成功获取的快照'}
-        </span>
-        {view?.snapshot_id ? (
-          <span className="font-mono">ID {view.snapshot_id}</span>
-        ) : null}
-        {view?.refresh_error ? (
-          <span className="text-destructive">{view.refresh_error}</span>
-        ) : null}
-      </div>
-
-      <div className="agent-registry-toolbar">
-        <div
-          aria-label="注册表分类"
-          className="agent-registry-tabs"
-          role="tablist"
-        >
-          <button
-            type="button"
-            aria-selected={tab === 'installed'}
-            className={cn(
-              'agent-registry-tab',
-              tab === 'installed' && 'is-selected'
-            )}
-            role="tab"
-            onClick={() => setTab('installed')}
+        {source === 'official' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            disabled={loading}
+            onClick={onRefresh}
           >
-            已安装 {view?.installed.length ?? 0}
-          </button>
-          <button
-            type="button"
-            aria-selected={tab === 'uninstalled'}
-            className={cn(
-              'agent-registry-tab',
-              tab === 'uninstalled' && 'is-selected'
-            )}
-            role="tab"
-            onClick={() => setTab('uninstalled')}
-          >
-            未安装 {view?.uninstalled.length ?? 0}
-          </button>
-        </div>
-        <label className="agent-registry-search">
-          <Search aria-hidden="true" className="h-3.5 w-3.5" />
-          <input
-            aria-label="搜索 Agent"
-            className="agent-registry-search-input"
-            type="search"
-            value={query}
-            placeholder="搜索名称、作者或 Registry ID"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-      </div>
-
-      <ul className="settings-surface agent-registry-list">
-        {rows.map((row) => (
-          <li className="agent-registry-row" key={row.agent_id}>
-            <div className="agent-registry-row-icon">
-              <AgentManagementIcon agent={row} className="h-6 w-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm font-medium text-foreground">
-                  {row.display_name}
-                </span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
-                  {row.version}
-                </span>
-              </div>
-              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {row.description}
-              </p>
-              <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                {[row.authors.join('、'), row.registry_id]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </p>
-            </div>
-            {tab === 'uninstalled' ? (
-              <Button
-                size="sm"
-                className="h-8 shrink-0"
-                disabled={
-                  !view?.fresh ||
-                  !row.platform_supported ||
-                  addingAgentId === row.agent_id
-                }
-                aria-label={`安装 ${row.display_name}`}
-                onClick={() => onAdd(row)}
-              >
-                {addingAgentId === row.agent_id ? (
-                  <Loader2
-                    aria-hidden="true"
-                    className="mr-1.5 h-3.5 w-3.5 animate-spin"
-                  />
-                ) : null}
-                {row.platform_supported ? '安装' : '当前平台不支持'}
-              </Button>
+            {loading ? (
+              <Loader2
+                aria-hidden="true"
+                className="mr-1.5 h-3.5 w-3.5 animate-spin"
+              />
             ) : (
-              <span
-                role="status"
-                className={cn(
-                  'agent-registry-status',
-                  row.installed
-                    ? 'settings-status-pill-success'
-                    : 'settings-status-pill-warning'
-                )}
-              >
-                {row.installed ? '已安装' : '未安装'}
-              </span>
+              <RefreshCw aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
             )}
-          </li>
-        ))}
-        {!loading && rows.length === 0 ? (
-          <li className="px-4 py-10 text-center text-xs text-muted-foreground">
-            {query ? '没有匹配的 Agent。' : '当前分类没有 Agent。'}
-          </li>
+            刷新
+          </Button>
         ) : null}
-      </ul>
+      </div>
+
+      <div
+        aria-label="Agent 来源"
+        className="agent-registry-tabs w-fit"
+        role="tablist"
+      >
+        <button
+          type="button"
+          aria-selected={source === 'official'}
+          className={cn(
+            'agent-registry-tab',
+            source === 'official' && 'is-selected'
+          )}
+          role="tab"
+          onClick={() => setSource('official')}
+        >
+          官方注册表
+        </button>
+        <button
+          type="button"
+          aria-selected={source === 'manual'}
+          className={cn(
+            'agent-registry-tab',
+            source === 'manual' && 'is-selected'
+          )}
+          role="tab"
+          onClick={() => setSource('manual')}
+        >
+          手动添加
+        </button>
+      </div>
+
+      {source === 'manual' ? (
+        <UserAgentDefinitionEditor
+          currentPlatform={view?.current_platform ?? 'unknown'}
+          loading={addingAgentId !== null}
+          submitLabel="添加并安装"
+          onSubmit={onAddUserDefinition}
+        />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span
+              aria-label={view?.fresh ? '注册表快照有效' : '注册表缓存已过期'}
+              className={cn(
+                'agent-registry-status',
+                view?.fresh
+                  ? 'settings-status-pill-success'
+                  : 'settings-status-pill-warning'
+              )}
+              role="status"
+            >
+              {view?.fresh ? '快照有效' : '离线缓存'}
+            </span>
+            <span>
+              {view?.fetched_at
+                ? `获取于 ${new Date(view.fetched_at).toLocaleString()}`
+                : '尚无成功获取的快照'}
+            </span>
+            {view?.snapshot_id ? (
+              <span className="font-mono">ID {view.snapshot_id}</span>
+            ) : null}
+            {view?.refresh_error ? (
+              <span className="text-destructive">{view.refresh_error}</span>
+            ) : null}
+          </div>
+
+          <div className="agent-registry-toolbar">
+            <div
+              aria-label="注册表分类"
+              className="agent-registry-tabs"
+              role="tablist"
+            >
+              <button
+                type="button"
+                aria-selected={tab === 'installed'}
+                className={cn(
+                  'agent-registry-tab',
+                  tab === 'installed' && 'is-selected'
+                )}
+                role="tab"
+                onClick={() => setTab('installed')}
+              >
+                已安装 {view?.installed.length ?? 0}
+              </button>
+              <button
+                type="button"
+                aria-selected={tab === 'uninstalled'}
+                className={cn(
+                  'agent-registry-tab',
+                  tab === 'uninstalled' && 'is-selected'
+                )}
+                role="tab"
+                onClick={() => setTab('uninstalled')}
+              >
+                未安装 {view?.uninstalled.length ?? 0}
+              </button>
+            </div>
+            <label className="agent-registry-search">
+              <Search aria-hidden="true" className="h-3.5 w-3.5" />
+              <input
+                aria-label="搜索 Agent"
+                className="agent-registry-search-input"
+                type="search"
+                value={query}
+                placeholder="搜索名称、作者或 Registry ID"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <ul className="settings-surface agent-registry-list">
+            {rows.map((row) => (
+              <li className="agent-registry-row" key={row.agent_id}>
+                <div className="agent-registry-row-icon">
+                  <AgentManagementIcon agent={row} className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {row.display_name}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {row.version}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                    {row.description}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                    {[row.authors.join('、'), row.registry_id]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+                {tab === 'uninstalled' ? (
+                  <Button
+                    size="sm"
+                    className="h-8 shrink-0"
+                    disabled={
+                      !view?.fresh ||
+                      !row.platform_supported ||
+                      addingAgentId === row.agent_id
+                    }
+                    aria-label={`安装 ${row.display_name}`}
+                    onClick={() => onAdd(row)}
+                  >
+                    {addingAgentId === row.agent_id ? (
+                      <Loader2
+                        aria-hidden="true"
+                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                      />
+                    ) : null}
+                    {row.platform_supported ? '安装' : '当前平台不支持'}
+                  </Button>
+                ) : (
+                  <span
+                    role="status"
+                    className={cn(
+                      'agent-registry-status',
+                      row.installed
+                        ? 'settings-status-pill-success'
+                        : 'settings-status-pill-warning'
+                    )}
+                  >
+                    {row.installed ? '已安装' : '未安装'}
+                  </span>
+                )}
+              </li>
+            ))}
+            {!loading && rows.length === 0 ? (
+              <li className="px-4 py-10 text-center text-xs text-muted-foreground">
+                {query ? '没有匹配的 Agent。' : '当前分类没有 Agent。'}
+              </li>
+            ) : null}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import {
   Bug,
   Code2,
   Eye,
+  History,
   Lightbulb,
   Loader2,
   RefreshCw,
@@ -421,6 +422,34 @@ export function GeneralSettings() {
                 {t('general.customPromptHint')}
               </p>
             </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={History}
+          title={t('general.sessionContinuationTitle')}
+          description={t('general.sessionContinuationDescription')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label
+                htmlFor="previous-session-continuation-enabled"
+                className="cursor-pointer"
+              >
+                {t('general.enablePreviousSessionContinuation')}
+              </Label>
+              <p className="settings-row__description">
+                {t('general.enablePreviousSessionContinuationHint')}
+              </p>
+            </div>
+            <Switch
+              id="previous-session-continuation-enabled"
+              className="settings-switch"
+              checked={draft.previous_session_continuation_enabled ?? false}
+              onCheckedChange={(checked: boolean) =>
+                updateDraft({ previous_session_continuation_enabled: checked })
+              }
+            />
           </div>
         </SettingsSection>
 

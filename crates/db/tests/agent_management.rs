@@ -1,9 +1,10 @@
-use api_types::{AgentId, AgentSource};
+use api_types::{AgentId, AgentSource, UserAgentDistributionKind};
 use db::models::agent_management::{
     AgentMembershipRepository, DiagnosticRecord, DiagnosticRepository, InstallLockRecord,
     InstallationOperationRepository, InstallationRepository, NewAgentMembership,
     NewInstallationOperation, RegistryEntryRecord, RegistrySnapshotRecord,
     RegistrySnapshotRepository, SessionDefaultRecord, SessionDefaultRepository,
+    UserAgentDefinitionRecord, UserAgentDefinitionRepository,
     conversation_migration::{
         ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
         RetiredAgentHistoryRepository,
@@ -283,6 +284,125 @@ async fn membership_repository_persists_open_id_and_position() {
     );
     assert_eq!(memberships[0].source, AgentSource::OfficialRegistry);
     assert!(!memberships[1].enabled);
+}
+
+#[tokio::test]
+async fn user_definition_repository_atomically_adds_definition_and_membership() {
+    let pool = migrated_pool().await;
+    let agent_id = AgentId::parse("local-reviewer").unwrap();
+    let repository = UserAgentDefinitionRepository::new(pool.clone());
+    repository
+        .add_with_membership(
+            NewAgentMembership {
+                agent_id: agent_id.clone(),
+                source: AgentSource::UserDefinition,
+                built_in: false,
+                retired: false,
+                enabled: true,
+                position: 3,
+                retained_metadata_json: None,
+                retained_icon_svg: None,
+            },
+            UserAgentDefinitionRecord {
+                agent_id: agent_id.clone(),
+                display_name: "Local Reviewer".to_string(),
+                description: "Reviews the workspace".to_string(),
+                version: "1.2.3".to_string(),
+                distribution_kind: UserAgentDistributionKind::Npx,
+                distributions_json:
+                    r#"{"binary":null,"npx":{"package":"local-reviewer@1.2.3","args":[],"env":{}},"uvx":null}"#
+                        .to_string(),
+                definition_sha256: "ab".repeat(32),
+                created_at: None,
+                updated_at: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let membership = AgentMembershipRepository::new(pool.clone())
+        .find(&agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let definition = repository.find(&agent_id).await.unwrap().unwrap();
+    assert_eq!(membership.source, AgentSource::UserDefinition);
+    assert_eq!(definition.display_name, "Local Reviewer");
+    assert_eq!(definition.distribution_kind, UserAgentDistributionKind::Npx);
+    assert_eq!(definition.definition_sha256, "ab".repeat(32));
+}
+
+#[tokio::test]
+async fn user_definition_migration_preserves_existing_membership_children() {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::new()
+                .filename(":memory:")
+                .create_if_missing(true),
+        )
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        r#"
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE agent_membership (
+            agent_id TEXT PRIMARY KEY NOT NULL,
+            source TEXT NOT NULL CHECK (source IN (
+                'built_in_profile', 'official_registry', 'retired_legacy'
+            )),
+            built_in INTEGER NOT NULL DEFAULT 0,
+            retired INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            position INTEGER NOT NULL,
+            retained_metadata_json TEXT,
+            retained_icon_svg TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_agent_membership_position
+            ON agent_membership(position, agent_id);
+        CREATE TABLE child_lock (
+            id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL REFERENCES agent_membership(agent_id) ON DELETE CASCADE
+        );
+        INSERT INTO agent_membership
+            (agent_id, source, built_in, retired, enabled, position)
+        VALUES ('existing-agent', 'official_registry', 0, 0, 1, 0);
+        INSERT INTO child_lock VALUES ('lock-1', 'existing-agent');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260805000000_user_declared_agents.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*) FROM child_lock child
+               JOIN agent_membership membership
+                 ON membership.agent_id = child.agent_id
+               WHERE child.id = 'lock-1'"#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        1
+    );
+    sqlx::query(
+        r#"INSERT INTO agent_membership
+           (agent_id, source, built_in, retired, enabled, position)
+           VALUES ('manual-agent', 'user_definition', 0, 0, 1, 1)"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

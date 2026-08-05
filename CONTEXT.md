@@ -111,7 +111,8 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 ## Agent domain
 
 - **Agent kind（agent 身份）** — Agent 的全系统唯一、稳定身份标识（如 `claude_code` 或 `codex`），回答“这是哪个 Agent”；普通 Agent 的初始标识可以由 Registry id 派生，但此后不随 Registry 条目改名或换 id 自动改变，也不是只允许固定成员的封闭枚举。
-- **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；当前只允许 VibeX Built-in Agent Profile 与 ACP 官方 Registry，不包含用户自定义清单或自动发现。
+- **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；允许 VibeX Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
+- **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
 - **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
 - **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Codex、Claude Code、OpenCode 与 Pi，它们与其他 Agent 使用同一管线，可由档案声明本地管理补缺，但不保证彼此拥有相同的管理能力。
 - **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、验证组合与本地管理补缺，但不能改变统一 Agent 管线的语义。

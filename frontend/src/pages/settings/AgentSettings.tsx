@@ -8,6 +8,8 @@ import type {
   AgentRegistryView,
   AgentRegistryViewRow,
   AgentUpdateCheckView,
+  UserAgentDefinitionRequest,
+  UserAgentDefinitionView,
 } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,7 @@ import { AgentBar } from './AgentBar';
 import { AgentConfigurationAndDiagnostics } from './AgentConfigurationAndDiagnostics';
 import { AgentDetail } from './AgentDetail';
 import { AgentRegistryViewPanel } from './AgentRegistryView';
+import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
 
 export function AgentSettings() {
   const management = useAgentManagement();
@@ -41,9 +44,15 @@ export function AgentSettings() {
     null
   );
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [userDefinition, setUserDefinition] =
+    useState<UserAgentDefinitionView | null>(null);
+  const [savingUserDefinition, setSavingUserDefinition] = useState(false);
 
   const selectedAgent = management.selectedAgent;
   const selectedAgentId = selectedAgent?.agent_id ?? null;
+  const selectedAgentSource = selectedAgent?.source ?? null;
+  const selectedAgentLifecycle = selectedAgent?.lifecycle ?? null;
+  const selectedAgentOperation = selectedAgent?.active_operation ?? null;
   const refreshManagement = management.refresh;
 
   const loadRegistry = useCallback(async (forceRefresh = false) => {
@@ -96,6 +105,38 @@ export function AgentSettings() {
   }, [refreshManagement, registryOpen, selectedAgentId]);
 
   useEffect(() => {
+    if (
+      !selectedAgentId ||
+      selectedAgentSource !== 'user_definition' ||
+      registryOpen
+    ) {
+      setUserDefinition(null);
+      return;
+    }
+    let active = true;
+    setUserDefinition(null);
+    void agentManagementApi
+      .userDefinition(selectedAgentId)
+      .then((definition) => {
+        if (active) setUserDefinition(definition);
+      })
+      .catch((error) => {
+        if (active) {
+          toast.error(errorMessage(error, '无法读取手动 Agent 定义'));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    registryOpen,
+    selectedAgentId,
+    selectedAgentLifecycle,
+    selectedAgentOperation,
+    selectedAgentSource,
+  ]);
+
+  useEffect(() => {
     if (!management.error) return;
     toast.error(errorMessage(management.error, '无法读取 Agent 列表'));
   }, [management.error]);
@@ -129,6 +170,58 @@ export function AgentSettings() {
     },
     [management]
   );
+
+  const addUserAgent = useCallback(
+    async (request: UserAgentDefinitionRequest) => {
+      setAddingAgentId(request.agent_id);
+      try {
+        await agentManagementApi.addUserDefinitionAndInstall(request);
+        await management.refresh();
+        management.select(request.agent_id);
+        setRegistryOpen(false);
+        toast.success(`${request.display_name} 已加入列表，正在安装。`);
+      } catch (error) {
+        toast.error(errorMessage(error, '添加手动 Agent 失败'));
+      } finally {
+        setAddingAgentId(null);
+      }
+    },
+    [management]
+  );
+
+  const saveUserDefinition = useCallback(
+    async (request: UserAgentDefinitionRequest): Promise<boolean> => {
+      setSavingUserDefinition(true);
+      try {
+        const definition =
+          await agentManagementApi.updateUserDefinition(request);
+        setUserDefinition(definition);
+        await management.refresh();
+        toast.success(
+          definition.reinstall_required
+            ? '定义已保存；重新安装后新会话才会使用它。'
+            : '定义已保存。'
+        );
+        return true;
+      } catch (error) {
+        toast.error(errorMessage(error, '保存手动 Agent 定义失败'));
+        return false;
+      } finally {
+        setSavingUserDefinition(false);
+      }
+    },
+    [management]
+  );
+
+  const reinstallUserDefinition = useCallback(async () => {
+    if (!selectedAgentId) return;
+    try {
+      await agentManagementApi.applyUpdate(selectedAgentId);
+      toast.success('已开始按新定义重新安装；现有会话不受影响。');
+    } catch (error) {
+      toast.error(errorMessage(error, '无法重新安装手动 Agent'));
+    }
+  }, [selectedAgentId]);
 
   const runPreflight = useCallback(async () => {
     if (!selectedAgentId) return;
@@ -410,6 +503,7 @@ export function AgentSettings() {
           addingAgentId={addingAgentId}
           onRefresh={() => void loadRegistry(true)}
           onAdd={(row) => void addAgent(row)}
+          onAddUserDefinition={(request) => void addUserAgent(request)}
         />
       ) : selectedAgent ? (
         <div className="space-y-4">
@@ -435,6 +529,18 @@ export function AgentSettings() {
             onRemove={() => void remove()}
             onExportDiagnostics={exportDiagnostics}
           />
+          {selectedAgent.source === 'user_definition' ? (
+            <UserAgentDefinitionPanel
+              definition={userDefinition}
+              loading={savingUserDefinition}
+              operationActive={Boolean(
+                selectedAgent.active_operation ||
+                  management.state.operations[selectedAgent.agent_id]
+              )}
+              onSave={saveUserDefinition}
+              onReinstall={() => void reinstallUserDefinition()}
+            />
+          ) : null}
           <AgentConfigurationAndDiagnostics
             config={config}
             saving={savingConfig}

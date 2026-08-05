@@ -37,8 +37,11 @@ pub mod session_gate;
 pub mod skills;
 pub mod state;
 pub mod terminal;
+pub mod user_definition;
 
-pub use api_types::{AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState};
+pub use api_types::{
+    AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
+};
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,
     AuthenticationMethod, AuthenticationObservation, AuthenticationObservationState,
@@ -140,7 +143,8 @@ pub use profiles::{
 pub use registry_client::{
     OfficialRegistryHttpFetcher, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,
     RegistryCache, RegistryCacheFreshness, RegistryDistributions, RegistryPackageDistribution,
-    RegistrySnapshot, RegistrySnapshotClient, RegistryView, sanitize_registry_svg,
+    RegistrySnapshot, RegistrySnapshotClient, RegistryView, parse_registry_distributions_json,
+    sanitize_registry_svg,
 };
 pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
@@ -160,3 +164,4 @@ pub use state::{
 pub use terminal::{
     AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalOutputSnapshot,
 };
+pub use user_definition::{UserAgentDefinition, UserAgentInstallTarget};

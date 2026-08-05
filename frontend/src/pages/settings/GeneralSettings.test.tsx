@@ -134,4 +134,24 @@ describe('GeneralSettings Agent model catalogs', () => {
       );
     });
   });
+
+  it('keeps previous-session continuation opt-in and persists it when enabled', async () => {
+    const user = userEvent.setup();
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
+    const { updateAndSaveConfig } = renderSettings();
+
+    const toggle = await screen.findByRole('switch', {
+      name: '创建会话时允许选择先前的会话以继续',
+    });
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ previous_session_continuation_enabled: true })
+      );
+    });
+  });
 });

@@ -1,4 +1,7 @@
-use api_types::{AgentLifecycleState, AgentSource};
+use api_types::{
+    AgentId, AgentLifecycleState, AgentSource, UserAgentDefinitionRequest,
+    UserAgentDistributionKind, UserAgentIntegrityKind,
+};
 use db::models::agent_management::{AgentMembershipRepository, NewAgentMembership};
 use services::services::agent_management::AgentManagementApplicationService;
 use sqlx::{
@@ -124,4 +127,119 @@ async fn component_integrity_refresh_marks_the_next_snapshot_as_needing_repair()
     let views = service.list().await.unwrap();
 
     assert_eq!(views[0].lifecycle, AgentLifecycleState::NeedsRepair);
+}
+
+#[tokio::test]
+async fn user_definition_is_added_without_an_official_registry_snapshot() {
+    let pool = migrated_pool().await;
+    let service = AgentManagementApplicationService::new(pool);
+    let agent_id = AgentId::parse("local-reviewer").unwrap();
+
+    let view = service
+        .add_user_definition(UserAgentDefinitionRequest {
+            agent_id: agent_id.clone(),
+            display_name: "Local Reviewer".to_string(),
+            description: "Reviews the workspace".to_string(),
+            version: "1.2.3".to_string(),
+            distribution_kind: UserAgentDistributionKind::Npx,
+            distribution_json: r#"{"npx":{"package":"local-reviewer@1.2.3","args":["--acp"]}}"#
+                .to_string(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(view.agent_id, agent_id);
+    assert_eq!(view.source, AgentSource::UserDefinition);
+    assert_eq!(view.display_name, "Local Reviewer");
+    assert_eq!(view.description, "Reviews the workspace");
+
+    let definition = service
+        .user_definition_view(&agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        definition.distribution.package.as_deref(),
+        Some("local-reviewer@1.2.3")
+    );
+    assert_eq!(definition.distribution.command, "npx");
+    assert_eq!(definition.distribution.args, ["--acp"]);
+    assert_eq!(
+        definition.distribution.integrity,
+        UserAgentIntegrityKind::EcosystemLock
+    );
+    assert!(!definition.reinstall_required);
+}
+
+#[tokio::test]
+async fn updating_a_user_definition_preserves_identity_and_marks_an_installed_lock_stale() {
+    let pool = migrated_pool().await;
+    let service = AgentManagementApplicationService::new(pool.clone());
+    let agent_id = AgentId::parse("local-reviewer").unwrap();
+    let initial = UserAgentDefinitionRequest {
+        agent_id: agent_id.clone(),
+        display_name: "Local Reviewer".to_string(),
+        description: "Reviews the workspace".to_string(),
+        version: "1.2.3".to_string(),
+        distribution_kind: UserAgentDistributionKind::Npx,
+        distribution_json: r#"{"npx":{"package":"local-reviewer@1.2.3","args":["--acp"]}}"#
+            .to_string(),
+    };
+    service.add_user_definition(initial).await.unwrap();
+    let before = service
+        .user_definition_view(&agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_install_lock
+               (id, agent_id, registry_version, platform, distribution_kind,
+                resolved_json, created_at)
+           VALUES ('lock-local', ?, '1.2.3', 'test', 'npx', ?, CURRENT_TIMESTAMP)"#,
+    )
+    .bind(agent_id.as_str())
+    .bind(
+        serde_json::json!({
+            "source": {
+                "kind": "user_definition",
+                "definition_sha256": before.definition_sha256,
+            }
+        })
+        .to_string(),
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO agent_installation
+               (agent_id, lifecycle, ownership, current_lock_id, updated_at)
+           VALUES (?, 'ready', 'managed', 'lock-local', CURRENT_TIMESTAMP)"#,
+    )
+    .bind(agent_id.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let updated = service
+        .update_user_definition(UserAgentDefinitionRequest {
+            agent_id: agent_id.clone(),
+            display_name: "Local Reviewer Pro".to_string(),
+            description: "Reviews and fixes the workspace".to_string(),
+            version: "1.3.0".to_string(),
+            distribution_kind: UserAgentDistributionKind::Npx,
+            distribution_json:
+                r#"{"npx":{"package":"local-reviewer@1.3.0","args":["--acp","--strict"]}}"#
+                    .to_string(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(updated.agent_id, agent_id);
+    assert_eq!(updated.display_name, "Local Reviewer Pro");
+    assert_eq!(updated.distribution.args, ["--acp", "--strict"]);
+    assert!(updated.reinstall_required);
+    assert_eq!(
+        updated.installed_definition_sha256,
+        Some(before.definition_sha256)
+    );
 }

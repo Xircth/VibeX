@@ -8,6 +8,8 @@ import type {
   AgentPreflightView,
   AgentRegistryView,
   AgentUpdateCheckView,
+  UserAgentDefinitionRequest,
+  UserAgentDefinitionView,
 } from 'shared/types';
 
 import { backendCall } from '@/lib/backendTransport';
@@ -30,6 +32,19 @@ export const agentManagementApi = {
 
   addAndInstall: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     backendCall('agent_registry_add_and_install', { agentId }),
+
+  addUserDefinitionAndInstall: (
+    request: UserAgentDefinitionRequest
+  ): Promise<AgentOperationReceipt> =>
+    backendCall('agent_user_definition_add_and_install', { request }),
+
+  userDefinition: (agentId: AgentId): Promise<UserAgentDefinitionView> =>
+    backendCall('agent_user_definition_detail', { agentId }),
+
+  updateUserDefinition: (
+    request: UserAgentDefinitionRequest
+  ): Promise<UserAgentDefinitionView> =>
+    backendCall('agent_user_definition_update', { request }),
 
   setEnabled: (
     agentId: AgentId,

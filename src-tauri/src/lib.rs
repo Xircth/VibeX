@@ -15,6 +15,7 @@ mod deeplink;
 mod delegation;
 mod error;
 mod events;
+pub mod linux_display;
 mod logging;
 mod office_runtime;
 mod prompt_enhancement;
@@ -181,6 +182,12 @@ fn setup_browser_runtime(
     Ok(())
 }
 
+fn setup_unavailable_browser_runtime(app: &mut tauri::App, message: String) {
+    tracing::error!(error = %message, "Chromium browser runtime is unavailable");
+    let runtime = Arc::new(commands::browser::unavailable_runtime(message));
+    app.manage(commands::browser::BrowserCommandState { runtime });
+}
+
 fn install_rustls_crypto_provider() {
     // The workspace uses reqwest's no-provider rustls mode, so the application
     // must select a process-wide crypto provider before any TLS client is built.
@@ -207,7 +214,7 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run(cef_bootstrap: CefBootstrap) {
+pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     // Install the file+stderr tracing subscriber first so startup is logged. The
     // guard flushes the non-blocking writer on drop; we drop it from RunEvent::Exit
     // (tao's process::exit doesn't unwind, so a scope-drop would never flush) (P2-8).
@@ -230,7 +237,14 @@ pub fn run(cef_bootstrap: CefBootstrap) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
-            setup_browser_runtime(app, cef_bootstrap)?;
+            match cef_bootstrap {
+                Ok(bootstrap) => {
+                    if let Err(error) = setup_browser_runtime(app, bootstrap) {
+                        setup_unavailable_browser_runtime(app, error.to_string());
+                    }
+                }
+                Err(error) => setup_unavailable_browser_runtime(app, error),
+            }
             // Apply the saved system-proxy setting to process env FIRST, before any
             // reqwest client is built or any ACP agent is spawned — otherwise the
             // proxy never reaches them (agents inherit it via merged_agent_env) and

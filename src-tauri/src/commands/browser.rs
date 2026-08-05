@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use browser_runtime::{
-    BrowserError, BrowserIntent, BrowserRuntime, BrowserTab, BrowserTabId, CreateBrowserTab,
+    BrowserEngine, BrowserEngineCommand, BrowserError, BrowserIntent, BrowserRuntime, BrowserTab,
+    BrowserTabId, CreateBrowserTab,
 };
 use serde::Serialize;
 
@@ -15,6 +16,20 @@ pub struct BrowserCommandState {
 pub struct BrowserCommandError {
     pub code: &'static str,
     pub message: String,
+}
+
+struct UnavailableBrowserEngine {
+    message: String,
+}
+
+impl BrowserEngine for UnavailableBrowserEngine {
+    fn dispatch(&self, _command: BrowserEngineCommand) -> Result<(), BrowserError> {
+        Err(BrowserError::Engine(self.message.clone()))
+    }
+}
+
+pub fn unavailable_runtime(message: String) -> BrowserRuntime {
+    BrowserRuntime::new(UnavailableBrowserEngine { message })
 }
 
 impl From<BrowserError> for BrowserCommandError {

@@ -83,7 +83,9 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            xauth \
+            xvfb
 
       - name: Setup Node.js and pnpm
         uses: ./.github/actions/setup-node
@@ -111,6 +113,22 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Smoke-test Linux desktop startup through XWayland
+        if: runner.os == 'Linux'
+        env:
+          GDK_BACKEND: wayland
+        run: |
+          executable="target/${{ matrix.target }}/release/vibex"
+          set +e
+          timeout --signal=TERM 10s xvfb-run -a "$executable" >vibex-startup.log 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 124 ] && [ "$exit_code" -ne 143 ]; then
+            cat vibex-startup.log
+            echo "VibeX exited during the Linux startup smoke test (code $exit_code)."
+            exit 1
+          fi
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

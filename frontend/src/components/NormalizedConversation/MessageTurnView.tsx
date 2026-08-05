@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
+import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import { Markdown } from './Markdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
@@ -485,7 +486,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   task,
   onRetry,
   onEditRetry,
-  collapseProcess = true,
+  collapseProcess = DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed,
   workspacePath,
   showInterruptedNotice = true,
 }: {

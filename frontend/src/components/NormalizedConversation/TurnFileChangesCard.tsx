@@ -14,6 +14,7 @@ import { useExpandable } from '@/stores/useExpandableStore';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useGitDiffNavigationStore } from '@/stores/useGitDiffNavigationStore';
 import { cn } from '@/lib/utils';
+import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 
 function changeKindIcon(changeKind: string) {
   switch (changeKind) {
@@ -42,7 +43,7 @@ function changeKindIcon(changeKind: string) {
 export function TurnFileChangesCard({
   summary,
   expansionKey,
-  defaultExpanded = false,
+  defaultExpanded = !DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed,
   onUndo,
   undoDisabled = false,
 }: {

@@ -5,8 +5,8 @@ import {
   getLatestTimelinePlanEntries,
   isEditableUserTimelineRow,
   isTimelineTurnInFlight,
-  resolveConversationCollapsePreferences,
 } from './AgentTimelineConversation';
+import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 
 function row(
   key: string,

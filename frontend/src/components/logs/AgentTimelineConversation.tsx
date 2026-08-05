@@ -64,6 +64,7 @@ import {
 } from '@/contexts/ActiveExecutorProfileContext';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import {
@@ -76,20 +77,6 @@ import {
 
 const ESTIMATED_ROW_HEIGHT = 128;
 const OVERSCAN = 10;
-
-type ConversationCollapsePreferences = {
-  ai_message_default_collapsed?: boolean;
-  files_changed_default_collapsed?: boolean;
-};
-
-export function resolveConversationCollapsePreferences(
-  config: ConversationCollapsePreferences | null | undefined
-): { collapseAiMessages: boolean; expandFileChanges: boolean } {
-  return {
-    collapseAiMessages: config?.ai_message_default_collapsed ?? true,
-    expandFileChanges: !(config?.files_changed_default_collapsed ?? true),
-  };
-}
 
 interface AgentTimelineConversationProps {
   attempt: WorkspaceWithSession;

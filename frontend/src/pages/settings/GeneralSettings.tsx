@@ -31,6 +31,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
+import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import {
   getDefaultTerminalShell,
   getTerminalShellOptions,
@@ -611,7 +612,10 @@ export function GeneralSettings() {
               <Switch
                 className="settings-switch"
                 aria-label={t('general.filesChangedCollapsed')}
-                checked={draft.files_changed_default_collapsed ?? true}
+                checked={
+                  draft.files_changed_default_collapsed ??
+                  DEFAULT_COLLAPSE_PREFERENCES.filesChangedCollapsed
+                }
                 onCheckedChange={(checked) =>
                   updateDraft({ files_changed_default_collapsed: checked })
                 }
@@ -655,7 +659,10 @@ export function GeneralSettings() {
               <Switch
                 className="settings-switch"
                 aria-label={t('general.aiMessageCollapsed')}
-                checked={draft.ai_message_default_collapsed ?? true}
+                checked={
+                  draft.ai_message_default_collapsed ??
+                  DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed
+                }
                 onCheckedChange={(checked) =>
                   updateDraft({ ai_message_default_collapsed: checked })
                 }

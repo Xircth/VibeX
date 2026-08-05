@@ -1,4 +1,7 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// VibeX is a GUI application in every Windows build profile. Keeping this
+// conditional on `debug_assertions` makes debug installers allocate a console
+// before Tauri creates the main window.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 fn main() {
     #[cfg(target_os = "linux")]

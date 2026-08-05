@@ -10,11 +10,56 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::clear_macos_quarantine;
     use super::{
-        OperationCancellationRegistry, bind_profile_runtime_executable, build_launch_environment,
-        configure_uv_tool_install_command, extract_binary_archive, install_locked_plan,
-        managed_install_root, management_error, operation_event, resolve_npm_package_executable,
-        resolve_uv_tool_executable, safe_archive_executable, verify_acp_handshake,
+        OperationCancellationRegistry, agent_process_command, bind_profile_runtime_executable,
+        build_launch_environment, cancellable_command_output, configure_uv_tool_install_command,
+        extract_binary_archive, install_locked_plan, managed_install_root, management_error,
+        operation_event, resolve_npm_package_executable, resolve_uv_tool_executable,
+        safe_archive_executable, should_probe_built_in, verify_acp_handshake,
     };
+
+    #[tokio::test]
+    async fn agent_process_command_runs_platform_scripts() {
+        let temp = tempfile::tempdir().unwrap();
+
+        #[cfg(windows)]
+        let script = {
+            let script = temp.path().join("agent probe.cmd");
+            std::fs::write(&script, "@echo off\r\n<nul set /p =ok:%1\r\n").unwrap();
+            script
+        };
+
+        #[cfg(unix)]
+        let script = {
+            use std::os::unix::fs::PermissionsExt;
+
+            let script = temp.path().join("agent-probe");
+            std::fs::write(&script, "#!/bin/sh\nprintf 'ok:%s' \"$1\"\n").unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+
+        let mut command = agent_process_command(&script);
+        command.arg("argument");
+        let output =
+            cancellable_command_output(command, &tokio_util::sync::CancellationToken::new())
+                .await
+                .unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok:argument");
+    }
+
+    #[test]
+    fn manual_preflight_retries_a_previously_attempted_built_in_probe() {
+        let agent_id = AgentId::parse("codex").unwrap();
+        let mut attempted = std::collections::HashSet::new();
+
+        assert!(should_probe_built_in(&mut attempted, &agent_id, false));
+        assert!(!should_probe_built_in(&mut attempted, &agent_id, false));
+        assert!(should_probe_built_in(&mut attempted, &agent_id, true));
+    }
 
     #[test]
     fn binary_command_must_stay_inside_the_extracted_archive() {
@@ -608,6 +653,18 @@ static BUILT_IN_PROBES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new()
 static CLI_EXPOSURES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
 static HOST_INSTANCE_ID: OnceLock<String> = OnceLock::new();
 
+fn agent_process_command(program: impl AsRef<Path>) -> tokio::process::Command {
+    utils::process::new_hidden_tokio_command(program, std::iter::empty::<&str>())
+}
+
+fn should_probe_built_in(
+    attempted: &mut HashSet<AgentId>,
+    agent_id: &AgentId,
+    force: bool,
+) -> bool {
+    attempted.insert(agent_id.clone()) || force
+}
+
 fn host_instance_id() -> &'static str {
     HOST_INSTANCE_ID
         .get_or_init(|| Uuid::new_v4().to_string())
@@ -889,17 +946,24 @@ pub(crate) async fn reconcile_managed_cli_exposures(app: &AppHandle, pool: &sqlx
     let _ = utils::shell::refresh_process_path_after_install().await;
 }
 
-async fn probe_built_in_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
+async fn probe_built_in_external_installations(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    force: bool,
+) {
+    if force {
+        let _ = utils::shell::refresh_process_path_after_install().await;
+    }
     let profiles = BuiltInProfileCatalog::bundled();
     for profile in profiles.profiles() {
-        let already_attempted = {
+        let should_probe = {
             let mut attempted = BUILT_IN_PROBES
                 .get_or_init(|| AsyncMutex::new(HashSet::new()))
                 .lock()
                 .await;
-            !attempted.insert(profile.agent_id.clone())
+            should_probe_built_in(&mut attempted, &profile.agent_id, force)
         };
-        if already_attempted {
+        if !should_probe {
             continue;
         }
         let installed = sqlx::query_scalar::<_, bool>(
@@ -928,8 +992,9 @@ async fn probe_built_in_external_installations(app: &AppHandle, pool: &sqlx::Sql
 async fn refresh_agent_management_evidence(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
+    force_external_probe: bool,
 ) -> Result<(), AgentManagementErrorView> {
-    probe_built_in_external_installations(app, pool).await;
+    probe_built_in_external_installations(app, pool, force_external_probe).await;
     normalize_optional_profile_authentication(pool).await;
     AgentManagementApplicationService::new(pool.clone())
         .refresh_component_integrity()
@@ -939,7 +1004,7 @@ async fn refresh_agent_management_evidence(
 }
 
 pub(crate) async fn warm_agent_management(app: &AppHandle, pool: &sqlx::SqlitePool) {
-    if let Err(error) = refresh_agent_management_evidence(app, pool).await {
+    if let Err(error) = refresh_agent_management_evidence(app, pool, false).await {
         tracing::warn!(
             message = %error.message,
             "Agent management startup warmup failed"
@@ -980,12 +1045,19 @@ async fn probe_one_built_in_external_installation(
 ) -> anyhow::Result<()> {
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
-        let executable = which::which(candidate.executable)?;
+        let executable = utils::shell::resolve_executable_path(candidate.executable)
+            .await
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "external Agent candidate `{}` was not found",
+                    candidate.executable
+                )
+            })?;
         let executable = tokio::fs::canonicalize(executable).await?;
         if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
             anyhow::bail!("external candidate is not an absolute executable file");
         }
-        let mut command = tokio::process::Command::new(&executable);
+        let mut command = agent_process_command(&executable);
         command.args(candidate.version_args);
         let output = command.output().await?;
         ensure_success("external Agent version probe", &output)?;
@@ -1220,7 +1292,7 @@ pub async fn agent_management_refresh(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
-    refresh_agent_management_evidence(&app, &state.deployment.db().pool).await?;
+    refresh_agent_management_evidence(&app, &state.deployment.db().pool, true).await?;
     AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
@@ -1434,6 +1506,7 @@ pub async fn agent_management_preflight(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentPreflightView, AgentManagementErrorView> {
+    refresh_agent_management_evidence(&app, &state.deployment.db().pool, true).await?;
     let view = agent_management_detail(state.clone(), agent_id.clone()).await?;
     let status = |pass: bool| if pass { "pass" } else { "fail" }.to_string();
     let pool = &state.deployment.db().pool;
@@ -2245,12 +2318,22 @@ async fn resolve_install_plan(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> anyhow::Result<ResolvedInstallPlan> {
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    let node_verified = utils::shell::resolve_executable_path("node")
+        .await
+        .is_some()
+        && utils::shell::resolve_executable_path("npm").await.is_some();
+    let uv_verified = utils::shell::resolve_executable_path("uv").await.is_some();
+    let python_verified = utils::shell::resolve_executable_path("python3")
+        .await
+        .is_some()
+        || utils::shell::resolve_executable_path("python")
+            .await
+            .is_some();
     let environment = InstallEnvironment {
-        node_verified: which::which("node").is_ok() && which::which("npm").is_ok(),
-        uv_verified: which::which("uv").is_ok(),
-        python_verified: which::which("python3")
-            .or_else(|_| which::which("python"))
-            .is_ok(),
+        node_verified,
+        uv_verified,
+        python_verified,
     };
     let membership = AgentMembershipRepository::new(pool.clone())
         .find(agent_id)
@@ -2392,7 +2475,7 @@ async fn install_locked_plan(
             PlannedDistributionKind::Npx => {
                 verify_npm_integrity(&component.resolved_source, &component.trust, cancellation)
                     .await?;
-                let mut command = tokio::process::Command::new("npm");
+                let mut command = agent_process_command("npm");
                 command
                     .arg("install")
                     .arg("--prefix")
@@ -2423,7 +2506,7 @@ async fn install_locked_plan(
             }
             PlannedDistributionKind::Uvx => {
                 let bin_dir = component_root.join("bin");
-                let mut command = tokio::process::Command::new("uv");
+                let mut command = agent_process_command("uv");
                 configure_uv_tool_install_command(
                     &mut command,
                     &component_root,
@@ -2639,7 +2722,7 @@ async fn verify_npm_integrity(
     ) {
         return Ok(());
     }
-    let mut command = tokio::process::Command::new("npm");
+    let mut command = agent_process_command("npm");
     command.args(["view", source, "dist.integrity", "--json"]);
     let output = cancellable_command_output(command, cancellation).await?;
     ensure_success("npm view dist.integrity", &output)?;
@@ -2929,7 +3012,7 @@ async fn extract_binary_archive(
     }
     let archive = destination.join("download.archive");
     tokio::fs::write(&archive, bytes).await?;
-    let mut command = tokio::process::Command::new("tar");
+    let mut command = agent_process_command("tar");
     command.arg("-xf").arg(&archive).arg("-C").arg(destination);
     let output = cancellable_command_output(command, cancellation).await?;
     ensure_success("binary archive extraction", &output)

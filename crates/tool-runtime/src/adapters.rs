@@ -308,12 +308,10 @@ impl ProcessProbe for CommandProcessProbe {
         if !executable.is_absolute() {
             return Err(PortError::new("probe executable path must be absolute"));
         }
-        let status = Command::new(executable)
-            .args(args)
-            .kill_on_drop(true)
-            .status()
-            .await
-            .map_err(port_error)?;
+        let mut command = Command::new(executable);
+        command.args(args).kill_on_drop(true);
+        hide_process_window(&mut command);
+        let status = command.status().await.map_err(port_error)?;
         if status.success() {
             Ok(())
         } else {
@@ -321,6 +319,17 @@ impl ProcessProbe for CommandProcessProbe {
         }
     }
 }
+
+#[cfg(windows)]
+fn hide_process_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_process_window(_command: &mut Command) {}
 
 #[derive(Clone, Debug)]
 pub struct FileInstallationLockStore {

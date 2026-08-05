@@ -966,10 +966,9 @@ impl ProcessProbe for OfficeCliProbe {
                 "OfficeCLI probe path must be absolute",
             ));
         }
-        let status = tokio::process::Command::new(executable)
-            .args(args)
-            .env("OFFICECLI_SKIP_UPDATE", "1")
-            .kill_on_drop(true)
+        let mut command = utils::process::new_hidden_tokio_command(executable, args);
+        command.env("OFFICECLI_SKIP_UPDATE", "1").kill_on_drop(true);
+        let status = command
             .status()
             .await
             .map_err(|error| tool_runtime::PortError::new(error.to_string()))?;

@@ -28,6 +28,53 @@ fn generic_target(distributions: RegistryDistributions) -> RegistryAddTarget {
 }
 
 #[test]
+fn built_in_linux_agents_resolve_supported_runtime_and_acp_plans() {
+    let planner = InstallPlanner::bundled();
+
+    for platform in ["linux-x86_64", "linux-aarch64"] {
+        for agent in ["claude_code", "codex", "pi"] {
+            let agent_id = AgentId::parse(agent).unwrap();
+            let plan = planner
+                .plan(InstallPlanningInput {
+                    agent_id,
+                    source: InstallCandidateSource::BuiltInProfile,
+                    platform: platform.to_string(),
+                    environment: InstallEnvironment {
+                        node_verified: true,
+                        ..Default::default()
+                    },
+                })
+                .unwrap();
+
+            assert_eq!(plan.platform, platform);
+            assert_eq!(plan.components.len(), 2);
+            assert!(plan.components.iter().all(|component| {
+                component.distribution_kind == PlannedDistributionKind::Npx
+                    && component.resolved_source.contains('@')
+            }));
+        }
+
+        let opencode = planner
+            .plan(InstallPlanningInput {
+                agent_id: AgentId::parse("opencode").unwrap(),
+                source: InstallCandidateSource::BuiltInProfile,
+                platform: platform.to_string(),
+                environment: InstallEnvironment::default(),
+            })
+            .unwrap();
+
+        assert_eq!(opencode.platform, platform);
+        assert_eq!(opencode.components.len(), 1);
+        assert_eq!(
+            opencode.components[0].distribution_kind,
+            PlannedDistributionKind::Binary
+        );
+        assert!(opencode.components[0].resolved_source.ends_with(".tar.gz"));
+        assert_eq!(opencode.components[0].command, "opencode");
+    }
+}
+
+#[test]
 fn user_definition_freezes_the_explicit_distribution_without_registry_provenance() {
     let planner = InstallPlanner::bundled();
     let agent_id = AgentId::parse("local-reviewer").unwrap();

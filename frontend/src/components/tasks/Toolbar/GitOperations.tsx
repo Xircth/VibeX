@@ -573,9 +573,9 @@ function GitOperations({
                   !pushSuccess &&
                   !mergeSuccess)
               }
-              variant="outline"
+              variant="ghost"
               size="xs"
-              className="border-success text-success hover:bg-success gap-1 shrink-0"
+              className="shrink-0 gap-1 text-success hover:bg-success/10 hover:text-success"
               aria-label={mergeButtonLabel}
             >
               <GitBranchIcon className="h-3.5 w-3.5" />
@@ -595,9 +595,9 @@ function GitOperations({
                   !pushSuccess &&
                   !mergeSuccess)
               }
-              variant="outline"
+              variant="ghost"
               size="xs"
-              className="border-info text-info hover:bg-info gap-1 shrink-0"
+              className="shrink-0 gap-1 text-info hover:bg-info/10 hover:text-info"
               aria-label={prButtonLabel}
             >
               <GitPullRequest className="h-3.5 w-3.5" />
@@ -607,9 +607,9 @@ function GitOperations({
             <Button
               onClick={handleRebaseDialogOpen}
               disabled={rebasing || hasConflictsCalculated}
-              variant="outline"
+              variant="ghost"
               size="xs"
-              className={`gap-1 shrink-0 ${rebaseSuccess ? 'border-success text-success hover:bg-success' : 'border-warning text-warning hover:bg-warning'}`}
+              className={`shrink-0 gap-1 ${rebaseSuccess ? 'text-success hover:bg-success/10 hover:text-success' : 'text-warning hover:bg-warning/10 hover:text-warning'}`}
               aria-label={rebaseButtonLabel}
             >
               {rebaseSuccess ? (
@@ -625,9 +625,9 @@ function GitOperations({
             <Button
               onClick={handleRebaseBack}
               disabled={rebasingBack || hasConflictsCalculated}
-              variant="outline"
+              variant="ghost"
               size="xs"
-              className={`gap-1 shrink-0 ${rebaseBackSuccess ? 'border-success text-success hover:bg-success' : 'border-warning text-warning hover:bg-warning'}`}
+              className={`shrink-0 gap-1 ${rebaseBackSuccess ? 'text-success hover:bg-success/10 hover:text-success' : 'text-warning hover:bg-warning/10 hover:text-warning'}`}
               aria-label={rebaseBackButtonLabel}
             >
               {rebaseBackSuccess ? (

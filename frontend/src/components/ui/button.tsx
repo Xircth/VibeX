@@ -6,7 +6,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+  'inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium transition-[color,background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
@@ -14,10 +14,8 @@ const buttonVariants = cva(
           'border border-transparent bg-primary text-primary-foreground shadow-none hover:bg-primary/90',
         destructive:
           'border border-destructive bg-transparent text-destructive hover:bg-destructive/10',
-        outline:
-          'border border-border bg-transparent text-foreground hover:bg-[var(--surface-control-hover)]',
-        secondary:
-          'border border-border bg-[var(--surface-control)] text-foreground hover:bg-[var(--surface-control-hover)]',
+        outline: 'raised-control',
+        secondary: 'raised-control',
         ghost:
           'bg-transparent text-muted-foreground hover:bg-[var(--surface-control-hover)] hover:text-foreground',
         link: 'h-auto p-0 text-primary underline-offset-4 hover:underline',

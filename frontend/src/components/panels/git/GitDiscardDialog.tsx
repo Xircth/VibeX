@@ -95,7 +95,7 @@ export const GitDiscardDialog = memo(function GitDiscardDialog({
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border/50">
           <button
-            className="px-3 py-1.5 rounded text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors disabled:opacity-40"
+            className="raised-control px-3 py-1.5 text-xs font-medium disabled:opacity-40"
             onClick={onCancel}
             disabled={loading}
           >

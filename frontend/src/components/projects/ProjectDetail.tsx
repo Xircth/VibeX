@@ -130,11 +130,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             <Edit className="mr-2 h-4 w-4" />
             Edit
           </Button>
-          <Button
-            variant="outline"
-            onClick={handleDelete}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive-foreground"
-          >
+          <Button variant="destructive" onClick={handleDelete}>
             <Trash2 className="mr-2 h-4 w-4" />
             Delete
           </Button>

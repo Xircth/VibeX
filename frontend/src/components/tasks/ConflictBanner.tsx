@@ -109,8 +109,8 @@ export function ConflictBanner({
         )}
         <Button
           size="sm"
-          variant="outline"
-          className="border-warning/40 text-warning-foreground hover:bg-warning/10 dark:text-warning/90"
+          variant="ghost"
+          className="text-warning-foreground hover:bg-warning/10 hover:text-warning-foreground dark:text-warning/90 dark:hover:text-warning/90"
           onClick={onOpenEditor}
         >
           Open in Editor
@@ -118,8 +118,7 @@ export function ConflictBanner({
 
         <Button
           size="sm"
-          variant="outline"
-          className="border-destructive/40 text-destructive hover:bg-destructive/10"
+          variant="destructive"
           onClick={onAbort}
           disabled={!enableAbort}
           aria-disabled={!enableAbort}

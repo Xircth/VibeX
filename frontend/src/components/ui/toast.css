@@ -36,7 +36,7 @@
   color: var(--text-primary, hsl(213 10% 30%));
   background: var(--surface-popover, hsl(0 0% 100% / 0.82));
   border: 1px solid var(--border-glass, hsl(0 0% 100% / 0.62));
-  border-radius: 14px;
+  border-radius: var(--radius);
   box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.38);
   backdrop-filter: blur(24px) saturate(1.55);
   -webkit-backdrop-filter: blur(24px) saturate(1.55);
@@ -56,7 +56,7 @@
   flex: 0 0 28px;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: var(--text-muted, hsl(213 8% 45%));
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
 }
@@ -120,7 +120,7 @@
   color: var(--text-muted, hsl(213 8% 45%));
   background: transparent;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -177,7 +177,7 @@
   overscroll-behavior: contain;
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
-  border-radius: 10px;
+  border-radius: var(--radius);
   scrollbar-width: thin;
 }
 
@@ -219,7 +219,7 @@
   min-height: 30px;
   padding: 0 12px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-family: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -287,7 +287,7 @@
   padding: 10px;
   background: var(--surface-control, hsl(220 20% 20% / 0.06));
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 
 .vu-desktop-toast-input {
@@ -298,7 +298,7 @@
   color: var(--text-strong, hsl(222 30% 16%));
   background: var(--surface-content, hsl(0 0% 100% / 0.96));
   border: 1px solid var(--border-subtle, hsl(220 16% 28% / 0.09));
-  border-radius: 8px;
+  border-radius: var(--radius);
   outline: none;
   font-family: inherit;
   font-size: 12px;
@@ -324,7 +324,7 @@
   color: hsl(var(--primary-foreground, 0 0% 100%));
   background: hsl(var(--primary, 215 50% 55%));
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 

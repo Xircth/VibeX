@@ -411,7 +411,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           </>
         ) : isMd && effectivePreviewKind === 'text' ? (
           <button
-            className="flex select-none items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
             title="Click to toggle preview"
             onClick={() => setIsRendered((prev) => !prev)}
           >

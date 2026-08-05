@@ -860,7 +860,7 @@ export function AutomationsSettings({
 
                 <div className="space-y-1.5">
                   <Label>{t('automations.prompt')}</Label>
-                  <div className="rounded-[10px] border border-border bg-background p-2">
+                  <div className="rounded-lg border border-border bg-background p-2">
                     <SessionComposerInput
                       value={draft.prompt}
                       images={[]}
@@ -876,7 +876,7 @@ export function AutomationsSettings({
                   </div>
                 </div>
 
-                <div className="rounded-[10px] border border-border bg-muted/20 p-3">
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label>{t('automations.trigger')}</Label>
@@ -1019,7 +1019,7 @@ export function AutomationsSettings({
                   ) : null}
                 </div>
 
-                <div className="space-y-2 rounded-[10px] border border-border p-3">
+                <div className="space-y-2 rounded-lg border border-border p-3">
                   <Label>{t('automations.pluginAction')}</Label>
                   <PluginActionEditor
                     transport={transport}
@@ -1093,7 +1093,7 @@ export function AutomationsSettings({
                 {draft.isolation === 'shared_in_root' ? (
                   <div
                     role="alert"
-                    className="flex gap-2 rounded-[10px] border border-destructive/35 bg-destructive/10 p-3 text-xs text-destructive"
+                    className="flex gap-2 rounded-lg border border-destructive/35 bg-destructive/10 p-3 text-xs text-destructive"
                   >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{t('automations.sharedRootRisk')}</span>

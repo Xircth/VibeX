@@ -115,7 +115,7 @@ export function OfficePreview({ filePath }: { filePath: string }) {
           onClick={() => {
             void install.start();
           }}
-          className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+          className="raised-control flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
         >
           {install.status === 'installing' ? (
             <>
@@ -189,7 +189,7 @@ export function OfficePreview({ filePath }: { filePath: string }) {
         <button
           type="button"
           onClick={retry}
-          className="mt-1 flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          className="raised-control mt-1 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium"
         >
           <RotateCw className="h-3.5 w-3.5" />
           {t('officePreview.retry')}

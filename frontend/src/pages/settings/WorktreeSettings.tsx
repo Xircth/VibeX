@@ -149,7 +149,7 @@ export function WorktreeSettings() {
           </Label>
           <select
             id="worktree-project"
-            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="raised-control h-8 min-w-0 flex-1 px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={projectId}
             onChange={(event) => setProjectId(event.target.value)}
             disabled={loading || projects.length === 0}

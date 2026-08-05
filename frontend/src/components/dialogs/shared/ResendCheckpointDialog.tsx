@@ -89,7 +89,7 @@ const ResendCheckpointDialogImpl =
               </div>
             </div>
 
-            <div className="mt-3 overflow-hidden rounded-[10px] bg-background/55">
+            <div className="mt-3 overflow-hidden rounded-lg bg-background/55">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted/50"

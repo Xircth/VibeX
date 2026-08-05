@@ -27,7 +27,7 @@
   width: 200px;
   max-width: 100%;
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 10px 12px 9px;
   user-select: none;
 }
@@ -127,7 +127,7 @@
 .vx-effort-track {
   position: relative;
   height: 18px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid #1a1a1e;
   background: #0c0c0c;
@@ -254,7 +254,7 @@
   -webkit-appearance: none;
   width: 17px;
   height: 17px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
   border: 0.5px solid rgba(0, 0, 0, 0.08);
   box-shadow:
@@ -305,7 +305,7 @@
 .vx-effort-track input[type='range']::-moz-range-thumb {
   width: 15px;
   height: 15px;
-  border-radius: 5px;
+  border-radius: var(--radius);
   background: linear-gradient(170deg, #ffffff 0%, #f0f0f2 40%, #e4e4e6 100%);
   border: 0.5px solid rgba(0, 0, 0, 0.08);
   box-shadow:

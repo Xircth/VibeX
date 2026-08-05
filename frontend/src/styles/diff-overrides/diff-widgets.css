@@ -52,7 +52,7 @@
   content: attr(data-title);
   font-size: 11px;
   padding: 1px 2px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   overflow: hidden;
   top: 50%;
   white-space: nowrap;

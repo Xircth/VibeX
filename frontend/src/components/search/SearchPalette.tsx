@@ -220,7 +220,7 @@ export function SearchPalette() {
 
       {/* Palette */}
       <div
-        className="tahoe-popover relative mx-4 w-full max-w-[600px] overflow-hidden rounded-[14px]"
+        className="tahoe-popover relative mx-4 w-full max-w-[600px] overflow-hidden rounded-lg"
         role="dialog"
         aria-modal="true"
         aria-label={t('searchPalette.dialogLabel')}

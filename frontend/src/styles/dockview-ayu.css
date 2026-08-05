@@ -42,7 +42,7 @@
   --dv-floating-box-shadow: var(--shadow-popover);
   --dv-overlay-z-index: 999;
   --dv-tab-font-size: inherit;
-  --dv-border-radius: 8px;
+  --dv-border-radius: var(--radius);
   --dv-tab-margin: 0;
   --dv-sash-color: color-mix(in srgb, var(--border-subtle) 86%, transparent);
   --dv-active-sash-color: hsl(var(--primary) / 0.58);
@@ -290,7 +290,7 @@
   margin: 2px 3px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius);
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,

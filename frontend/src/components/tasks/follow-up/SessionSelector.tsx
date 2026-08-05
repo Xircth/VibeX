@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Check, ChevronDown, Pencil, X } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
@@ -77,15 +76,12 @@ export function SessionSelector({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex items-center gap-1 hover:text-foreground transition-colors"
+          type="button"
+          data-raised-selector
+          className="raised-control flex h-7 items-center gap-1 px-2 text-[11px] font-medium"
           title={selectedSessionLabel}
         >
-          <Badge
-            variant="outline"
-            className="max-w-[96px] rounded-md border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-          >
-            <span className="truncate">{compactSessionLabel}</span>
-          </Badge>
+          <span className="max-w-[96px] truncate">{compactSessionLabel}</span>
           <ChevronDown className="h-2.5 w-2.5" />
         </button>
       </DropdownMenuTrigger>

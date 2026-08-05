@@ -116,7 +116,7 @@ const Dialog = React.forwardRef<
       <div
         ref={ref}
         className={cn(
-          'dialog-surface relative z-[9999] my-8 flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-[14px] border p-5',
+          'dialog-surface relative z-[9999] my-8 flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-lg border p-5',
           className
         )}
         {...props}

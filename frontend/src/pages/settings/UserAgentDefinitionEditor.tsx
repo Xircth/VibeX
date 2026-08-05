@@ -159,7 +159,7 @@ export function UserAgentDefinitionEditor({
         <Field label="安装方式">
           <select
             aria-label="安装方式"
-            className="h-8 w-full rounded-md border border-input bg-[var(--surface-control)] px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+            className="raised-control h-8 w-full px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             value={distributionKind}
             onChange={(event) =>
               setDistributionKind(

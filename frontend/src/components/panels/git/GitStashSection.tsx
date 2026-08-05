@@ -124,7 +124,7 @@ export function GitStashSection({
               {stashes.map((s) => (
                 <li
                   key={s.index}
-                  className="flex items-center justify-between gap-2 rounded-[6px] border border-border px-2 py-1.5"
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5"
                 >
                   <span
                     className="min-w-0 flex-1 truncate text-[11px]"

@@ -898,16 +898,19 @@ impl TurnLauncherPort for TauriTurnLauncher {
             .collect::<Vec<_>>()
             .join("\n");
         let (turn, _) = ConversationSessionService::new(state.conversation_context())
-            .start_turn(ConversationStartTurnInput {
-                agent_id: spec.agent.agent_id.clone(),
-                workspace_id: workspace.workspace_id,
-                conversation_id,
-                executor_profile_id: spec.agent.executor_profile_id.clone(),
-                text,
-                images: Vec::new(),
-                mode_override: spec.mode_id.clone(),
-                config_overrides: spec.config_values.clone(),
-            })
+            .start_turn_with_origin(
+                ConversationStartTurnInput {
+                    agent_id: spec.agent.agent_id.clone(),
+                    workspace_id: workspace.workspace_id,
+                    conversation_id,
+                    executor_profile_id: spec.agent.executor_profile_id.clone(),
+                    text,
+                    images: Vec::new(),
+                    mode_override: spec.mode_id.clone(),
+                    config_overrides: spec.config_values.clone(),
+                },
+                conversations::commit_reminder::AUTOMATION_ORIGIN,
+            )
             .await
             .map_err(|error| RunError::Launcher(error.to_string()))?;
         Ok(turn.turn_id)

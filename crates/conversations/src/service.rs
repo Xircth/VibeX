@@ -249,6 +249,15 @@ impl ConversationSessionService {
         &self,
         input: ConversationStartTurnInput,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        self.start_turn_with_origin(input, crate::commit_reminder::USER_ORIGIN)
+            .await
+    }
+
+    pub async fn start_turn_with_origin(
+        &self,
+        input: ConversationStartTurnInput,
+        origin: &str,
+    ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
         if input.text.trim().is_empty() && input.images.is_empty() {
             return Err(ConversationServiceError::BadRequest(
                 "Prompt must include text or an image".to_string(),
@@ -319,6 +328,9 @@ impl ConversationSessionService {
             },
         )
         .await?;
+        if origin != crate::commit_reminder::USER_ORIGIN {
+            ConversationTurnRecord::set_origin(pool, turn.id, origin).await?;
+        }
         ConversationRecord::update_active_turn(pool, input.conversation_id, Some(turn.id)).await?;
 
         let created = self

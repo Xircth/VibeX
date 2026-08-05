@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activateSessionInExecutionArea,
   appendMonitorSession,
   createEmptyKanbanSessionLayoutState,
   placeCreatedSession,
@@ -71,6 +72,40 @@ describe('kanban session layout', () => {
     expect(next.monitorSessions.map((item) => item.sessionId)).toEqual([
       'a',
       'c',
+      'right',
+    ]);
+  });
+
+  it('swaps a notification session from the list into the execution area', () => {
+    const state = {
+      rightSession: session('right'),
+      monitorSessions: [session('monitor')],
+    };
+
+    const next = activateSessionInExecutionArea(state, session('notifying'), {
+      canUseRightPanel: true,
+    });
+
+    expect(next.rightSession?.sessionId).toBe('notifying');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual([
+      'monitor',
+      'right',
+    ]);
+  });
+
+  it('promotes an already monitored notification session without duplicating it', () => {
+    const state = {
+      rightSession: session('right'),
+      monitorSessions: [session('a'), session('notifying')],
+    };
+
+    const next = activateSessionInExecutionArea(state, session('notifying'), {
+      canUseRightPanel: true,
+    });
+
+    expect(next.rightSession?.sessionId).toBe('notifying');
+    expect(next.monitorSessions.map((item) => item.sessionId)).toEqual([
+      'a',
       'right',
     ]);
   });

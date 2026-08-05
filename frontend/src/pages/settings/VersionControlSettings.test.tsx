@@ -145,4 +145,18 @@ describe('VersionControlSettings', () => {
       expect(mocks.logoutGithubCli).toHaveBeenCalledWith('github.com', 'sean');
     });
   });
+
+  it('persists the commit reminder toggle through the application config', async () => {
+    const user = userEvent.setup();
+    render(<VersionControlSettings />);
+
+    await user.click(screen.getByRole('switch', { name: '启用提交提醒' }));
+    await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
+
+    await waitFor(() => {
+      expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ commit_reminder_enabled: false })
+      );
+    });
+  });
 });

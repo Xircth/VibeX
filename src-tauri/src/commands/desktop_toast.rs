@@ -122,11 +122,15 @@ pub async fn show_desktop_toast(
 
 #[tauri::command]
 pub async fn is_main_window_focused(app: tauri::AppHandle) -> Result<bool, String> {
-    let main_window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Main window not found".to_string())?;
-
-    main_window.is_focused().map_err(|error| error.to_string())
+    for (label, window) in app.webview_windows() {
+        if label == DESKTOP_TOAST_WINDOW_LABEL {
+            continue;
+        }
+        if window.is_focused().map_err(|error| error.to_string())? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[tauri::command]

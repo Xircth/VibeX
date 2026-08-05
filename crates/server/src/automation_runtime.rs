@@ -646,16 +646,19 @@ impl TurnLauncherPort for ServerTurnLauncher {
             .join("\n");
         let (turn, _) =
             conversations::ConversationSessionService::new(self.conversation_context.clone())
-                .start_turn(conversations::ConversationStartTurnInput {
-                    agent_id: spec.agent.agent_id.clone(),
-                    workspace_id: workspace.workspace_id,
-                    conversation_id,
-                    executor_profile_id: spec.agent.executor_profile_id.clone(),
-                    text,
-                    images: Vec::new(),
-                    mode_override: spec.mode_id.clone(),
-                    config_overrides: spec.config_values.clone(),
-                })
+                .start_turn_with_origin(
+                    conversations::ConversationStartTurnInput {
+                        agent_id: spec.agent.agent_id.clone(),
+                        workspace_id: workspace.workspace_id,
+                        conversation_id,
+                        executor_profile_id: spec.agent.executor_profile_id.clone(),
+                        text,
+                        images: Vec::new(),
+                        mode_override: spec.mode_id.clone(),
+                        config_overrides: spec.config_values.clone(),
+                    },
+                    conversations::commit_reminder::AUTOMATION_ORIGIN,
+                )
                 .await
                 .map_err(launcher_error)?;
         Ok(turn.turn_id)

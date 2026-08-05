@@ -251,6 +251,30 @@
   cursor: pointer;
 }
 
+.vu-desktop-toast-app-icon {
+  position: relative;
+  overflow: visible;
+  color: inherit;
+  background: transparent;
+}
+
+.vu-desktop-toast-app-icon .logo img {
+  width: 28px;
+  height: 28px;
+}
+
+.vu-desktop-toast-status-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 13px;
+  height: 13px;
+  padding: 2px;
+  color: currentColor;
+  background: var(--surface-popover, hsl(0 0% 100% / 0.96));
+  border-radius: 999px;
+}
+
 .vu-desktop-toast-copy .vu-toast-summary {
   display: -webkit-box;
   overflow: hidden;

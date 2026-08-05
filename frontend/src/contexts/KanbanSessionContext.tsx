@@ -14,6 +14,7 @@ import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { getProjectScopeKey } from '@/lib/projectScope';
 import {
+  activateSessionInExecutionArea,
   createEmptyKanbanSessionLayoutState,
   placeCreatedSession,
   placeSessionFromList,
@@ -45,9 +46,11 @@ interface KanbanSessionContextValue {
   monitorSessions: KanbanSessionPlacement[];
   lastActiveWorkspaceId: string | null;
   canUseRightPanelForSessions: boolean;
+  isLayoutHydrated: boolean;
   openSessionFromList: (session: KanbanSessionPlacement) => void;
   placeCreatedSession: (session: KanbanSessionPlacement) => void;
   replaceRightSession: (session: KanbanSessionPlacement) => void;
+  activateExecutionSession: (session: KanbanSessionPlacement) => void;
   promoteMonitorSession: (sessionId: string) => void;
   cancelMonitorSession: (sessionId: string) => void;
   pruneSessions: (availableSessionIds: Set<string>) => void;
@@ -77,6 +80,9 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   const [lastActiveWorkspaceId, setLastActiveWorkspaceId] = useState<
     string | null
   >(null);
+  const [hydratedProjectKey, setHydratedProjectKey] = useState<string | null>(
+    null
+  );
   const lastSyncedWorkspaceIdRef = useRef<string | null>(null);
 
   // Derived state for backward compatibility
@@ -90,15 +96,23 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     setLayoutState(stored.layoutState);
     setLastActiveWorkspaceId(stored.lastActiveWorkspaceId);
     lastSyncedWorkspaceIdRef.current = null;
+    setHydratedProjectKey(projectKey);
   }, [projectKey]);
 
   useEffect(() => {
+    if (hydratedProjectKey !== projectKey) return;
     useProjectViewStateStore.getState().setKanbanState(projectKey, {
       panelView,
       layoutState,
       lastActiveWorkspaceId,
     });
-  }, [projectKey, panelView, layoutState, lastActiveWorkspaceId]);
+  }, [
+    hydratedProjectKey,
+    projectKey,
+    panelView,
+    layoutState,
+    lastActiveWorkspaceId,
+  ]);
 
   useEffect(() => {
     if (!activeWorktreeId) return;
@@ -170,6 +184,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
   ]);
 
   const canUseRightPanelForSessions = isRightPanelVisible;
+  const isLayoutHydrated = hydratedProjectKey === projectKey;
 
   const goToBoard = useCallback(() => {
     setPanelView('board');
@@ -229,6 +244,17 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     [canUseRightPanelForSessions]
   );
 
+  const activateExecutionSession = useCallback(
+    (session: KanbanSessionPlacement) => {
+      setLayoutState((current) =>
+        activateSessionInExecutionArea(current, session, {
+          canUseRightPanel: true,
+        })
+      );
+    },
+    []
+  );
+
   const promoteMonitorSession = useCallback(
     (sessionId: string) => {
       setLayoutState((current) =>
@@ -273,9 +299,11 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       monitorSessions: layoutState.monitorSessions,
       lastActiveWorkspaceId,
       canUseRightPanelForSessions,
+      isLayoutHydrated,
       openSessionFromList,
       placeCreatedSession: placeCreatedSessionInLayout,
       replaceRightSession: replaceRightSessionInLayout,
+      activateExecutionSession,
       promoteMonitorSession,
       cancelMonitorSession,
       pruneSessions,
@@ -287,6 +315,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       goToUsageDashboard,
       isSessionHubVisible,
       canUseRightPanelForSessions,
+      isLayoutHydrated,
       lastActiveWorkspaceId,
       setSessionHubVisible,
       layoutState.monitorSessions,
@@ -294,6 +323,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
       openSessionFromList,
       placeCreatedSessionInLayout,
       replaceRightSessionInLayout,
+      activateExecutionSession,
       promoteMonitorSession,
       cancelMonitorSession,
       pruneSessions,

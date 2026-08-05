@@ -8,7 +8,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use agents::{
-    AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope, AgentRuntime,
+    AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentEventEnvelope,
     conversation::{
         ConversationAgentConnectionStatus, ConversationDelegation, ConversationDelegationResult,
         ConversationError, ConversationEvent, ConversationEventEnvelope, ConversationFileLocation,
@@ -19,6 +19,7 @@ use agents::{
 };
 use db::models::{
     conversation::ConversationAgentBindingRecord, conversation_event::AppendConversationEvent,
+    conversation_turn::ConversationTurnRecord,
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
@@ -26,7 +27,9 @@ use tokio::{sync::broadcast, task::JoinHandle};
 use uuid::Uuid;
 
 use crate::{
-    ConversationEventAppender, ConversationServiceError, finalize_checkpoint_file_changes,
+    ConversationContext, ConversationEventAppender, ConversationServiceError,
+    commit_reminder::{is_complete_ai_reply, start_commit_reminder_if_needed},
+    finalize_checkpoint_file_changes,
 };
 
 /// Transport-neutral recorder used by all application hosts.
@@ -34,6 +37,7 @@ pub struct ConversationAgentEventRecorder {
     pool: SqlitePool,
     deployment: Arc<dyn Deployment>,
     active_turns: HashMap<Uuid, Uuid>,
+    conversation_context: Option<ConversationContext>,
 }
 
 impl ConversationAgentEventRecorder {
@@ -42,6 +46,16 @@ impl ConversationAgentEventRecorder {
             pool,
             deployment,
             active_turns: HashMap::new(),
+            conversation_context: None,
+        }
+    }
+
+    pub fn with_context(context: ConversationContext) -> Self {
+        Self {
+            pool: context.deployment.db().pool.clone(),
+            deployment: context.deployment.clone(),
+            active_turns: HashMap::new(),
+            conversation_context: Some(context),
         }
     }
 
@@ -57,7 +71,7 @@ impl ConversationAgentEventRecorder {
             return Ok(Vec::new());
         };
         let conversation_id = session_id.0;
-        let turn_id = self.active_turn_id(conversation_id).await?;
+        let turn_id = self.event_turn_id(conversation_id, &envelope.event).await?;
         let Some(event) = map_agent_event(envelope, turn_id) else {
             return Ok(Vec::new());
         };
@@ -119,6 +133,35 @@ impl ConversationAgentEventRecorder {
             }
             self.active_turns.remove(&conversation_id);
         }
+        if matches!(
+            &envelope.event,
+            AgentEvent::PromptFinished { finished }
+                if is_complete_ai_reply(finished.stop_reason.as_deref())
+        ) && let Some(turn_id) = turn_id
+            && let Some(context) = self.conversation_context.clone()
+        {
+            match ConversationTurnRecord::claim_completion_effects(&self.pool, turn_id).await {
+                Ok(true) => {
+                    if let Err(error) =
+                        start_commit_reminder_if_needed(context, conversation_id, turn_id).await
+                    {
+                        tracing::warn!(
+                            %conversation_id,
+                            %turn_id,
+                            %error,
+                            "failed to start commit reminder"
+                        );
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => tracing::warn!(
+                    %conversation_id,
+                    %turn_id,
+                    %error,
+                    "failed to claim completion effects"
+                ),
+            }
+        }
         Ok(events)
     }
 
@@ -138,6 +181,32 @@ impl ConversationAgentEventRecorder {
         }
         Ok(turn_id)
     }
+
+    async fn event_turn_id(
+        &mut self,
+        conversation_id: Uuid,
+        event: &AgentEvent,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        let AgentEvent::PromptFinished { finished } = event else {
+            return self.active_turn_id(conversation_id).await;
+        };
+
+        let prompt_id = finished.prompt_id.to_string();
+        if let Some(turn) =
+            ConversationTurnRecord::find_by_prompt_id(&self.pool, conversation_id, &prompt_id)
+                .await?
+        {
+            return Ok(Some(turn.id));
+        }
+
+        let Some(active_id) = self.active_turn_id(conversation_id).await? else {
+            return Ok(None);
+        };
+        let active_turn = ConversationTurnRecord::find_by_id(&self.pool, active_id).await?;
+        Ok(active_turn
+            .filter(|turn| turn.prompt_id.as_deref().is_none_or(|id| id == prompt_id))
+            .map(|turn| turn.id))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -151,14 +220,10 @@ pub enum RuntimeEventRecordError {
 }
 
 /// Start the durable runtime-event bridge for a host composition root.
-pub fn start_agent_event_persistence(
-    pool: SqlitePool,
-    deployment: Arc<dyn Deployment>,
-    runtime: Arc<AgentRuntime>,
-) -> JoinHandle<()> {
-    let mut receiver = runtime.subscribe_events();
+pub fn start_agent_event_persistence(context: ConversationContext) -> JoinHandle<()> {
+    let mut receiver = context.agent_runtime.subscribe_events();
     tokio::spawn(async move {
-        let mut recorder = ConversationAgentEventRecorder::new(pool, deployment);
+        let mut recorder = ConversationAgentEventRecorder::with_context(context);
         loop {
             match receiver.recv().await {
                 Ok(envelope) => {

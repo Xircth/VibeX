@@ -562,16 +562,19 @@ pub async fn conversation_start_turn(
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
     let service = ConversationSessionService::new(state.conversation_context());
     let result = service
-        .start_turn(ConversationStartTurnInput {
-            agent_id: request.agent_id,
-            workspace_id,
-            conversation_id,
-            executor_profile_id: request.executor_profile_id,
-            text: request.text,
-            images: request.images,
-            mode_override: request.mode_override,
-            config_overrides: request.config_overrides,
-        })
+        .start_turn_with_origin(
+            ConversationStartTurnInput {
+                agent_id: request.agent_id,
+                workspace_id,
+                conversation_id,
+                executor_profile_id: request.executor_profile_id,
+                text: request.text,
+                images: request.images,
+                mode_override: request.mode_override,
+                config_overrides: request.config_overrides,
+            },
+            conversations::commit_reminder::LOCAL_USER_ORIGIN,
+        )
         .await;
 
     emit_conversation_events_after(

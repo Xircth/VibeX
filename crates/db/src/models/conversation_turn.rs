@@ -11,6 +11,8 @@ pub struct ConversationTurnRecord {
     pub ordinal: i64,
     pub prompt_id: Option<String>,
     pub role: String,
+    pub origin: String,
+    pub completion_effects_claimed_at: Option<DateTime<Utc>>,
     pub status: String,
     pub text_preview: Option<String>,
     pub input_blocks_json: String,
@@ -37,6 +39,8 @@ const TURN_COLUMNS: &str = r#"id,
     ordinal,
     prompt_id,
     role,
+    origin,
+    completion_effects_claimed_at,
     status,
     text_preview,
     input_blocks_json,
@@ -109,6 +113,22 @@ impl ConversationTurnRecord {
         .await
     }
 
+    pub async fn find_by_prompt_id(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+        prompt_id: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {TURN_COLUMNS}
+               FROM conversation_turns
+               WHERE conversation_id = ? AND prompt_id = ?"#
+        ))
+        .bind(conversation_id)
+        .bind(prompt_id)
+        .fetch_optional(pool)
+        .await
+    }
+
     pub async fn list_for_conversation(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -160,6 +180,38 @@ impl ConversationTurnRecord {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn set_origin(pool: &SqlitePool, id: Uuid, origin: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE conversation_turns
+               SET origin = ?, updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(origin)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Atomically claim the notification/reminder side effects for a completed prompt.
+    /// Returns `true` only to the first caller, making duplicate runtime completion
+    /// envelopes harmless across retries and host event bridges.
+    pub async fn claim_completion_effects(
+        pool: &SqlitePool,
+        id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE conversation_turns
+               SET completion_effects_claimed_at = datetime('now', 'subsec'),
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ? AND completion_effects_claimed_at IS NULL"#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn mark_running<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
@@ -434,6 +486,99 @@ mod tests {
         ConversationTurnRecord::mark_cancelled(&pool, cancelled_id, Some(r#"{"message":"stop"}"#))
             .await
             .expect("cancelled");
+    }
+
+    #[tokio::test]
+    async fn conversation_turn_origin_can_mark_an_automatic_commit_reminder() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: None,
+            },
+        )
+        .await
+        .expect("create conversation");
+        let turn_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: None,
+                text_preview: Some("review changes"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+
+        ConversationTurnRecord::set_origin(&pool, turn_id, "commit_reminder")
+            .await
+            .expect("set origin");
+
+        let turn = ConversationTurnRecord::find_by_id(&pool, turn_id)
+            .await
+            .expect("load turn")
+            .expect("turn exists");
+        assert_eq!(turn.origin, "commit_reminder");
+    }
+
+    #[tokio::test]
+    async fn completion_effects_can_only_be_claimed_once() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: None,
+            },
+        )
+        .await
+        .expect("create conversation");
+        let turn_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-once"),
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+
+        assert!(
+            ConversationTurnRecord::claim_completion_effects(&pool, turn_id)
+                .await
+                .expect("first claim")
+        );
+        assert!(
+            !ConversationTurnRecord::claim_completion_effects(&pool, turn_id)
+                .await
+                .expect("duplicate claim")
+        );
+        let turn = ConversationTurnRecord::find_by_prompt_id(&pool, conversation_id, "prompt-once")
+            .await
+            .expect("find by prompt")
+            .expect("turn exists");
+        assert_eq!(turn.id, turn_id);
+        assert!(turn.completion_effects_claimed_at.is_some());
     }
 
     #[tokio::test]

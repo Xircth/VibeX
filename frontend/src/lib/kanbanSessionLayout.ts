@@ -143,6 +143,42 @@ export function promoteMonitorSessionToRight(
   };
 }
 
+/**
+ * Put a notification's session in the execution area. If the target is already
+ * monitored this is a true promotion; otherwise the target and the current
+ * execution session exchange places so both remain represented in the layout.
+ */
+export function activateSessionInExecutionArea(
+  state: KanbanSessionLayoutState,
+  nextSession: KanbanSessionPlacement,
+  options: KanbanSessionPlacementOptions
+): KanbanSessionLayoutState {
+  if (
+    !options.canUseRightPanel ||
+    isSameKanbanSession(state.rightSession, nextSession)
+  ) {
+    return state;
+  }
+
+  if (
+    state.monitorSessions.some(
+      (session) => session.sessionId === nextSession.sessionId
+    )
+  ) {
+    return promoteMonitorSessionToRight(state, nextSession.sessionId, options);
+  }
+
+  return {
+    rightSession: nextSession,
+    monitorSessions: state.rightSession
+      ? appendMonitorSession(
+          withoutSession(state.monitorSessions, nextSession.sessionId),
+          state.rightSession
+        )
+      : withoutSession(state.monitorSessions, nextSession.sessionId),
+  };
+}
+
 export function removeMonitorSession(
   state: KanbanSessionLayoutState,
   sessionId: string

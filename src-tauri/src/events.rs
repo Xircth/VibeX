@@ -12,9 +12,14 @@ use agents::{
     },
     terminal::{AgentTerminalLifecycleEvent, agent_terminal_registry},
 };
-use conversations::{ConversationEventAppender, IncrementalRowProjector};
+use conversations::{
+    ConversationContext, ConversationEventAppender, IncrementalRowProjector,
+    commit_reminder::{is_complete_ai_reply, start_commit_reminder_if_needed},
+};
 use db::models::{
+    conversation::ConversationRecord,
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
+    conversation_turn::ConversationTurnRecord,
     workspace::Workspace,
 };
 use deployment::Deployment;
@@ -35,6 +40,7 @@ pub mod channels {
     pub const AGENT_EVENTS: &str = "agent-events";
     pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
+    pub const DESKTOP_CONVERSATION_FINISHED: &str = "desktop-conversation-finished";
 }
 
 /// Per-conversation cache of live incremental projectors (消灭双投影). Held on
@@ -220,6 +226,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
     let conversation_pool = state.deployment.db().pool.clone();
     let deployment = state.deployment.clone();
     let projectors = state.conversation_row_projectors.clone();
+    let conversation_context = state.conversation_context();
     let mut agent_events = state.agent_runtime.subscribe_events();
 
     tauri::async_runtime::spawn(async move {
@@ -236,6 +243,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                         deployment.as_ref(),
                         &app_handle,
                         &projectors,
+                        &conversation_context,
                         &mut coalescer,
                     )
                     .await
@@ -260,6 +268,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                         deployment.as_ref(),
                                         &app_handle,
                                         &projectors,
+                                        &conversation_context,
                                         ready_events,
                                     )
                                     .await
@@ -294,6 +303,7 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
                                 deployment.as_ref(),
                                 &app_handle,
                                 &projectors,
+                                &conversation_context,
                                 &mut coalescer,
                             )
                             .await;
@@ -336,6 +346,23 @@ struct MappedConversationEventRecord {
     idempotency_key: String,
     first_agent_sequence: i64,
     last_agent_sequence: i64,
+    completion_signal: Option<ConversationCompletionKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ConversationCompletionKind {
+    Success,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopConversationFinished {
+    project_id: Uuid,
+    workspace_id: Uuid,
+    session_id: Uuid,
+    turn_id: Uuid,
+    kind: ConversationCompletionKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -448,6 +475,7 @@ impl PendingConversationDelta {
             "kind": self.base.event_kind,
         })
         .to_string();
+        self.base.completion_signal = None;
         self.base
     }
 }
@@ -480,13 +508,14 @@ async fn map_conversation_event_record(
     };
 
     let conversation_id = session_id.0;
-    let turn_id = match active_turn_id_cached(pool, active_turn_cache, conversation_id).await {
-        Ok(turn_id) => turn_id,
-        Err(sqlx::Error::Database(error)) if error.message().contains("no such table") => {
-            return Ok(None);
-        }
-        Err(error) => return Err(error.into()),
-    };
+    let turn_id =
+        match event_turn_id(pool, active_turn_cache, conversation_id, &envelope.event).await {
+            Ok(turn_id) => turn_id,
+            Err(sqlx::Error::Database(error)) if error.message().contains("no such table") => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
     let Some(event) = map_agent_event_to_conversation_event(envelope, turn_id) else {
         return Ok(None);
     };
@@ -532,7 +561,26 @@ async fn map_conversation_event_record(
         idempotency_key,
         first_agent_sequence: envelope.sequence,
         last_agent_sequence: envelope.sequence,
+        completion_signal: completion_signal(&envelope.event, turn_id),
     }))
+}
+
+fn completion_signal(
+    event: &AgentEvent,
+    turn_id: Option<Uuid>,
+) -> Option<ConversationCompletionKind> {
+    match event {
+        AgentEvent::PromptFinished { finished }
+            if turn_id.is_some() && is_complete_ai_reply(finished.stop_reason.as_deref()) =>
+        {
+            Some(ConversationCompletionKind::Success)
+        }
+        _ => None,
+    }
+}
+
+fn is_local_user_turn_origin(origin: &str) -> bool {
+    origin == conversations::commit_reminder::LOCAL_USER_ORIGIN
 }
 
 async fn flush_pending_conversation_events<D: Deployment + ?Sized>(
@@ -540,10 +588,18 @@ async fn flush_pending_conversation_events<D: Deployment + ?Sized>(
     deployment: &D,
     app_handle: &AppHandle,
     projectors: &ConversationRowProjectors,
+    conversation_context: &ConversationContext,
     coalescer: &mut ConversationEventCoalescer,
 ) -> bool {
-    append_and_emit_conversation_events(pool, deployment, app_handle, projectors, coalescer.flush())
-        .await
+    append_and_emit_conversation_events(
+        pool,
+        deployment,
+        app_handle,
+        projectors,
+        conversation_context,
+        coalescer.flush(),
+    )
+    .await
 }
 
 async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
@@ -551,6 +607,7 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
     deployment: &D,
     app_handle: &AppHandle,
     projectors: &ConversationRowProjectors,
+    conversation_context: &ConversationContext,
     records: Vec<MappedConversationEventRecord>,
 ) -> bool {
     // First-touched sequence per conversation, so the row-op emit below reads exactly
@@ -562,8 +619,18 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
             .and_modify(|min| *min = (*min).min(sequence))
             .or_insert(sequence);
     };
+    let mut completions = Vec::new();
 
     for record in records {
+        let completion = record.completion_signal.map(|kind| {
+            (
+                record.conversation_id,
+                record
+                    .turn_id
+                    .expect("completion signals always have a turn"),
+                kind,
+            )
+        });
         match append_conversation_event_record(pool, record).await {
             Ok(conversation_event) => {
                 note_touched(
@@ -620,6 +687,9 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
                         }
                     }
                 }
+                if let Some(completion) = completion {
+                    completions.push(completion);
+                }
             }
             Err(error) => {
                 tracing::warn!(
@@ -640,7 +710,83 @@ async fn append_and_emit_conversation_events<D: Deployment + ?Sized>(
         )
         .await;
     }
+
+    for (conversation_id, turn_id, kind) in completions {
+        let completion_turn = match ConversationTurnRecord::find_by_id(pool, turn_id).await {
+            Ok(turn) => turn,
+            Err(error) => {
+                tracing::warn!(%conversation_id, %turn_id, %error, "Failed to load completed turn");
+                continue;
+            }
+        };
+        let Some(completion_turn) = completion_turn else {
+            tracing::warn!(%conversation_id, %turn_id, "Completed turn not found");
+            continue;
+        };
+        let claimed = match ConversationTurnRecord::claim_completion_effects(pool, turn_id).await {
+            Ok(claimed) => claimed,
+            Err(error) => {
+                tracing::warn!(%conversation_id, %turn_id, %error, "Failed to claim completion effects");
+                continue;
+            }
+        };
+        if !claimed {
+            continue;
+        }
+
+        let should_notify = is_local_user_turn_origin(&completion_turn.origin);
+        if should_notify
+            && let Err(error) =
+                emit_desktop_conversation_finished(pool, app_handle, conversation_id, turn_id, kind)
+                    .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %turn_id,
+                %error,
+                "Failed to emit desktop conversation completion"
+            );
+        }
+
+        if let Err(error) =
+            start_commit_reminder_if_needed(conversation_context.clone(), conversation_id, turn_id)
+                .await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %turn_id,
+                %error,
+                "Failed to start commit reminder"
+            );
+        }
+    }
     true
+}
+
+async fn emit_desktop_conversation_finished(
+    pool: &SqlitePool,
+    app_handle: &AppHandle,
+    conversation_id: Uuid,
+    turn_id: Uuid,
+    kind: ConversationCompletionKind,
+) -> Result<(), anyhow::Error> {
+    let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Conversation {conversation_id} not found"))?;
+    let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Workspace {} not found", conversation.workspace_id))?;
+    app_handle.emit(
+        channels::DESKTOP_CONVERSATION_FINISHED,
+        DesktopConversationFinished {
+            project_id: workspace.project_id,
+            workspace_id: workspace.id,
+            session_id: conversation_id,
+            turn_id,
+            kind,
+        },
+    )?;
+    Ok(())
 }
 
 async fn append_conversation_event_record(
@@ -715,6 +861,36 @@ async fn active_turn_id_cached(
         cache.remove(&conversation_id);
     }
     Ok(turn_id)
+}
+
+async fn event_turn_id(
+    pool: &SqlitePool,
+    cache: &mut HashMap<Uuid, Option<Uuid>>,
+    conversation_id: Uuid,
+    event: &AgentEvent,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let AgentEvent::PromptFinished { finished } = event else {
+        return active_turn_id_cached(pool, cache, conversation_id).await;
+    };
+
+    let prompt_id = finished.prompt_id.to_string();
+    if let Some(turn) =
+        ConversationTurnRecord::find_by_prompt_id(pool, conversation_id, &prompt_id).await?
+    {
+        return Ok(Some(turn.id));
+    }
+
+    // The runtime can finish an extremely short prompt before start_turn has
+    // persisted its prompt id. Only fall back to the active turn while that id is
+    // still unset; a different persisted id means this is a late event for an
+    // older prompt and must not be attached to the new active turn.
+    let Some(active_id) = active_turn_id_cached(pool, cache, conversation_id).await? else {
+        return Ok(None);
+    };
+    let active_turn = ConversationTurnRecord::find_by_id(pool, active_id).await?;
+    Ok(active_turn
+        .filter(|turn| turn.prompt_id.as_deref().is_none_or(|id| id == prompt_id))
+        .map(|turn| turn.id))
 }
 
 async fn latest_binding_id(
@@ -1157,12 +1333,71 @@ mod tests {
     use agents::{
         AgentAvailableCommand, AgentConnectionId, AgentContentBlock, AgentEvent,
         AgentEventEnvelope, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPermissionRequest, AgentSessionId, AgentTerminalId, AgentTerminalOutput,
-        conversation::ConversationEvent,
+        AgentPermissionRequest, AgentPromptFinished, AgentPromptId, AgentSessionId,
+        AgentTerminalId, AgentTerminalOutput, conversation::ConversationEvent,
     };
     use chrono::Utc;
     use sqlx::SqlitePool;
     use uuid::Uuid;
+
+    #[test]
+    fn completion_signal_uses_prompt_finished_not_turn_completed() {
+        let turn_id = Uuid::new_v4();
+        assert_eq!(
+            super::completion_signal(
+                &AgentEvent::PromptFinished {
+                    finished: AgentPromptFinished {
+                        prompt_id: AgentPromptId::new(),
+                        stop_reason: Some("end_turn".to_string()),
+                    },
+                },
+                Some(turn_id),
+            ),
+            Some(super::ConversationCompletionKind::Success),
+        );
+        assert_eq!(
+            super::completion_signal(
+                &AgentEvent::TurnCompleted {
+                    stop_reason: Some("end_turn".to_string()),
+                },
+                Some(turn_id),
+            ),
+            None,
+        );
+        assert_eq!(
+            super::completion_signal(
+                &AgentEvent::PromptFinished {
+                    finished: AgentPromptFinished {
+                        prompt_id: AgentPromptId::new(),
+                        stop_reason: Some("cancelled".to_string()),
+                    },
+                },
+                Some(turn_id),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn binding_errors_do_not_look_like_completed_user_turns() {
+        let error = AgentEvent::Error {
+            error: agents::AgentErrorEvent {
+                message: "failed".to_string(),
+                code: None,
+                raw: None,
+            },
+        };
+        assert_eq!(super::completion_signal(&error, None), None);
+        assert_eq!(super::completion_signal(&error, Some(Uuid::new_v4())), None);
+    }
+
+    #[test]
+    fn automatic_commit_reminder_turn_does_not_emit_a_second_reply_notification() {
+        assert!(super::is_local_user_turn_origin("local_user"));
+        assert!(!super::is_local_user_turn_origin("user"));
+        assert!(!super::is_local_user_turn_origin("commit_reminder"));
+        assert!(!super::is_local_user_turn_origin("automation"));
+    }
 
     #[tokio::test]
     async fn idle_conversation_has_no_active_turn_without_uuid_decode_error() {
@@ -1489,6 +1724,7 @@ mod tests {
             idempotency_key: format!("agent:{sequence}:test"),
             first_agent_sequence: sequence,
             last_agent_sequence: sequence,
+            completion_signal: None,
         }
     }
 

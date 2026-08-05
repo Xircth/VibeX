@@ -135,6 +135,29 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
+  it('persists the detached window and sound notification preferences', async () => {
+    const user = userEvent.setup();
+    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
+    const { updateAndSaveConfig } = renderSettings();
+
+    await user.click(await screen.findByRole('switch', { name: '声音通知' }));
+    await user.click(
+      screen.getByRole('switch', { name: '系统通知（桌面窗口）' })
+    );
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notifications: expect.objectContaining({
+            sound_enabled: false,
+            push_enabled: false,
+          }),
+        })
+      );
+    });
+  });
+
   it('enables conversation collapse preferences by default and persists opt-out', async () => {
     const user = userEvent.setup();
     configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });

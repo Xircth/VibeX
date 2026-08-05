@@ -23,9 +23,13 @@ interface WorkspaceLayoutProps {
 
 function PendingProjectFocusBridge() {
   const { projectId } = useProject();
-  const { replaceRightSession, goToBoard } = useKanbanSessionContext();
+  const { activateExecutionSession, goToBoard, isLayoutHydrated } =
+    useKanbanSessionContext();
   const consumeProjectFocus = useWindowProjectsStore(
     (state) => state.consumeProjectFocus
+  );
+  const pendingProjectFocus = useWindowProjectsStore((state) =>
+    projectId ? state.focusRequests[projectId] : undefined
   );
   const setActiveTab = useLayoutStore((state) => state.setActiveTab);
   const setRightPanelVisible = useLayoutStore(
@@ -33,7 +37,7 @@ function PendingProjectFocusBridge() {
   );
 
   useEffect(() => {
-    if (!projectId) {
+    if (!projectId || !pendingProjectFocus || !isLayoutHydrated) {
       return;
     }
 
@@ -45,7 +49,7 @@ function PendingProjectFocusBridge() {
     setActiveTab('kanban');
     setRightPanelVisible(true);
     goToBoard();
-    replaceRightSession({
+    activateExecutionSession({
       workspaceId: focusRequest.workspaceId,
       sessionId: focusRequest.sessionId,
     });
@@ -56,8 +60,10 @@ function PendingProjectFocusBridge() {
   }, [
     consumeProjectFocus,
     goToBoard,
+    isLayoutHydrated,
+    pendingProjectFocus,
     projectId,
-    replaceRightSession,
+    activateExecutionSession,
     setActiveTab,
     setRightPanelVisible,
   ]);

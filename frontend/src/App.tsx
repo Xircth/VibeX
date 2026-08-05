@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Minimize2, Power, X } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { usePreviousPath } from '@/hooks/usePreviousPath';
 import { useUiPreferencesScratch } from '@/hooks/useUiPreferencesScratch';
 
@@ -173,6 +174,7 @@ function MainAppContent() {
   const crashPromptShownRef = useRef(false);
   const transport = useBackendTransport();
   const isDesktop = transport.environment === 'desktop';
+  const isMainDesktopWindow = isDesktop && getCurrentWindow().label === 'main';
   const startupPromptStep = getStartupPromptStep({
     config,
     pathname: location.pathname,
@@ -397,7 +399,7 @@ function MainAppContent() {
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>
       <SearchProvider>
         <AgentWorkbenchProvider>
-          {isDesktop ? <ProjectWindowManager /> : null}
+          {isMainDesktopWindow ? <ProjectWindowManager /> : null}
           {isDesktop ? <TrayBadgeSync /> : null}
           {isDesktop ? <MainWindowCloseToastBridge /> : null}
           <ThemedToaster />

@@ -5,6 +5,7 @@
 //! db→agents reverse dependency is now gone). `crates/db` is a dumb storage layer;
 //! this crate owns the folding of the event log into timeline projections.
 
+pub mod commit_reminder;
 pub mod export;
 pub mod host;
 pub mod projection;

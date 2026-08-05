@@ -11,12 +11,11 @@ export interface SessionCompletionNotificationRequest {
 }
 
 /**
- * Delivers the two user-controlled completion channels independently. Sound is
- * an acknowledgement of completion and therefore also plays in the focused
- * window; the detached push window remains reserved for errors/background use.
+ * Delivers the two user-controlled completion channels independently, but only
+ * while the main application window is unfocused. The in-app completion message
+ * remains visible in the main window regardless of this detached delivery.
  */
 export async function deliverSessionCompletionNotification({
-  kind,
   windowFocused,
   soundEnabled,
   soundFile,
@@ -24,10 +23,10 @@ export async function deliverSessionCompletionNotification({
   playSound,
   showPush,
 }: SessionCompletionNotificationRequest): Promise<void> {
+  if (windowFocused) return;
+
   const deliveries: Promise<void>[] = [];
   if (soundEnabled) deliveries.push(playSound(soundFile));
-  if (pushEnabled && (kind === 'error' || !windowFocused)) {
-    deliveries.push(showPush());
-  }
+  if (pushEnabled) deliveries.push(showPush());
   await Promise.all(deliveries);
 }

@@ -96,8 +96,7 @@ impl HeadlessServer {
             )),
             host: Arc::new(DefaultConversationHost),
         };
-        let agent_event_task =
-            start_agent_event_persistence(pool.clone(), deployment.clone(), agent_runtime.clone());
+        let agent_event_task = start_agent_event_persistence(conversation_context.clone());
         let delegation_runtime =
             HeadlessDelegationRuntime::start(agent_runtime.clone(), pool.clone());
 

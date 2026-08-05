@@ -558,6 +558,7 @@ export function VersionControlSettings() {
               </p>
             </div>
             <Switch
+              aria-label={t('versionControl.enableCommitReminderLabel')}
               checked={draft.commit_reminder_enabled ?? true}
               onCheckedChange={(checked) =>
                 updateDraft({ commit_reminder_enabled: checked })

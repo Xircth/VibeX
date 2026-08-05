@@ -13,6 +13,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { AgentId, Session } from 'shared/types';
 import { backendCall, backendListen } from '@/lib/backendTransport';
 import { sessionsApi } from '@/lib/api';
+import { Logo } from '@/components/Logo';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { agentTypeFromExecutor } from '@/features/agents/sendAgentRuntimeTurn';
 
@@ -304,15 +305,16 @@ export function DesktopToastWindow() {
                 role={toast.kind === 'error' ? 'alert' : 'status'}
               >
                 <div className="vu-toast-heading">
-                  <span className="vu-toast-icon-tile">
+                  <span className="vu-toast-icon-tile vu-desktop-toast-app-icon">
+                    <Logo showText={false} />
                     {toast.kind === 'error' ? (
                       <CircleAlert
-                        className="vu-toast-status-icon"
+                        className="vu-desktop-toast-status-badge"
                         aria-hidden="true"
                       />
                     ) : (
                       <CheckCircle2
-                        className="vu-toast-status-icon"
+                        className="vu-desktop-toast-status-badge"
                         aria-hidden="true"
                       />
                     )}

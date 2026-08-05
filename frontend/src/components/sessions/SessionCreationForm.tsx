@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
@@ -114,6 +114,7 @@ export function SessionCreationForm({
   onRemoteSessionImported,
 }: SessionCreationFormProps) {
   const { t } = useTranslation(['tasks', 'common']);
+  const queryClient = useQueryClient();
   const resolvedSubmitLabel = submitLabel ?? t('sessionCreation.submit');
   const resolvedCancelLabel = cancelLabel ?? t('common:cancel');
   const executor = selectedExecutorProfile?.executor ?? null;
@@ -177,7 +178,7 @@ export function SessionCreationForm({
   const [defaultsSaveState, setDefaultsSaveState] = useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
-  const [savedControlsFingerprint, setSavedControlsFingerprint] = useState<
+  const [savedDefaultsFingerprint, setSavedDefaultsFingerprint] = useState<
     string | null
   >(null);
   const [defaultsHydratedAgent, setDefaultsHydratedAgent] = useState<
@@ -195,7 +196,7 @@ export function SessionCreationForm({
     setSelectedMode(null);
     setSelectedConfigValues({});
     setDefaultsSaveState('idle');
-    setSavedControlsFingerprint(null);
+    setSavedDefaultsFingerprint(null);
     setDefaultsHydratedAgent(null);
     setCatalogRefreshFailed(false);
     setRemoteSessionsOpen(false);
@@ -306,33 +307,35 @@ export function SessionCreationForm({
   const currentControlsPreset = activeControls
     ? { modeOverride, configOverrides }
     : null;
-  const currentControlsFingerprint = currentControlsPreset
-    ? JSON.stringify([
-        currentControlsPreset.modeOverride,
+  // Legacy Session Modes remain a per-session choice. ADR-0035 requires them
+  // to pass through the Config Option adapter before they can participate in
+  // the single persisted-defaults data flow.
+  const currentDefaultsFingerprint = currentControlsPreset
+    ? JSON.stringify(
         Object.entries(currentControlsPreset.configOverrides).sort(
           ([left], [right]) => left.localeCompare(right)
-        ),
-      ])
+        )
+      )
     : null;
   useEffect(() => {
     if (
-      !currentControlsFingerprint ||
-      savedControlsFingerprint ||
+      !currentDefaultsFingerprint ||
+      savedDefaultsFingerprint ||
       defaultsHydratedAgent !== executor
     ) {
       return;
     }
-    setSavedControlsFingerprint(currentControlsFingerprint);
+    setSavedDefaultsFingerprint(currentDefaultsFingerprint);
   }, [
-    currentControlsFingerprint,
+    currentDefaultsFingerprint,
     defaultsHydratedAgent,
     executor,
-    savedControlsFingerprint,
+    savedDefaultsFingerprint,
   ]);
-  const sessionControlsChanged = Boolean(
-    currentControlsFingerprint &&
-      savedControlsFingerprint &&
-      currentControlsFingerprint !== savedControlsFingerprint
+  const sessionDefaultsChanged = Boolean(
+    currentDefaultsFingerprint &&
+      savedDefaultsFingerprint &&
+      currentDefaultsFingerprint !== savedDefaultsFingerprint
   );
   const saveAgentDefaults = async () => {
     if (!executor) return;
@@ -355,9 +358,13 @@ export function SessionCreationForm({
     setDefaultsSaveState('saving');
     try {
       await agentsApi.setSessionDefaults(executor, rawDefaults);
+      queryClient.setQueryData(['agentSessionDefaults', executor], {
+        values: rawDefaults,
+        staleIds: [],
+      });
       setDefaultsSaveState('saved');
-      if (currentControlsFingerprint) {
-        setSavedControlsFingerprint(currentControlsFingerprint);
+      if (currentDefaultsFingerprint) {
+        setSavedDefaultsFingerprint(currentDefaultsFingerprint);
       }
     } catch {
       setDefaultsSaveState('error');
@@ -553,7 +560,7 @@ export function SessionCreationForm({
                 disabled={isSubmitting}
                 dropdownSide={dropdownSide}
               />
-              {sessionControlsChanged ? (
+              {sessionDefaultsChanged ? (
                 <Button
                   type="button"
                   variant="outline"

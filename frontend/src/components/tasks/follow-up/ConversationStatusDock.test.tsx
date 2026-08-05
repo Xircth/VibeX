@@ -189,4 +189,43 @@ describe('ConversationStatusDock', () => {
     );
     expect(screen.getByText('部分会话记录无法显示')).toBeInTheDocument();
   });
+
+  it('allows turn failures, interruptions, and local send errors to be dismissed', () => {
+    const onDismissLocalError = vi.fn();
+    render(
+      <ConversationStatusDock
+        dismissalScope="session-1"
+        localError="send failed"
+        onDismissLocalError={onDismissLocalError}
+        notices={[
+          {
+            id: 'error-turn-1',
+            kind: 'turn-error',
+            error: {
+              message: 'agent connection closed',
+              code: 'connection_closed',
+              raw: null,
+            },
+          },
+          {
+            id: 'interrupted-turn-2',
+            kind: 'interrupted-turn',
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭本地错误提示' }));
+    expect(onDismissLocalError).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '关闭提示 error-turn-1' })
+    );
+    expect(screen.queryByText('连接已断开')).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '关闭提示 interrupted-turn-2' })
+    );
+    expect(screen.queryByText('因重启中断')).not.toBeInTheDocument();
+  });
 });

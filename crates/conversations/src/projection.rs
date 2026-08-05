@@ -908,7 +908,7 @@ impl ProjectionFold {
             // ACP session metadata is preserved in the durable event log. It is
             // intentionally not folded into VibeX conversation identity/title.
             ConversationEvent::AgentSessionInfoUpdated { .. } => {}
-            ConversationEvent::TurnCompleted { .. } => {
+            ConversationEvent::TurnCompleted { .. } | ConversationEvent::TurnCancelled { .. } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
@@ -1101,6 +1101,10 @@ impl ProjectionFold {
                 ));
             }
             ConversationEvent::TurnFailed { error } => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
+                }
                 side_rows.push(side_row(
                     record.sequence,
                     ConversationTimelineRow::TurnError {
@@ -2075,6 +2079,60 @@ mod tests {
             _ => None,
         });
         assert_eq!(user_phase.as_deref(), Some("interrupted"));
+    }
+
+    #[tokio::test]
+    async fn failed_and_cancelled_turns_settle_the_projected_message_rows() {
+        for terminal_event in [
+            ConversationEvent::TurnFailed {
+                error: ConversationError {
+                    message: "agent failed".into(),
+                    code: Some("fixture_failure".into()),
+                    raw: None,
+                },
+            },
+            ConversationEvent::TurnCancelled {
+                reason: Some("user stopped the turn".into()),
+            },
+        ] {
+            let pool = setup_pool().await;
+            let (conversation_id, turn_id) = seed_turn(&pool).await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn_id),
+                "user",
+                ConversationEvent::UserTurnCreated {
+                    blocks: vec![ConversationInputBlock::Text {
+                        text: "do work".into(),
+                    }],
+                },
+                None,
+            )
+            .await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn_id),
+                "runtime",
+                terminal_event,
+                None,
+            )
+            .await;
+
+            let timeline = ConversationProjector::project(&pool, conversation_id)
+                .await
+                .expect("timeline");
+            let user_phase = timeline.rows.iter().find_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, phase }
+                    if turn.role == TurnRole::User =>
+                {
+                    Some(phase.as_str())
+                }
+                _ => None,
+            });
+            assert_eq!(user_phase, Some("settled"));
+        }
     }
 
     #[tokio::test]

@@ -133,6 +133,7 @@
   },
   "statusDock": {
     "dismiss": "关闭提示",
+    "dismissLocalError": "关闭本地错误提示",
     "newerEventTitle": "此会话包含较新版本的记录",
     "newerEventDescription": "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。",
     "unreadableEventTitle": "部分会话记录无法显示",

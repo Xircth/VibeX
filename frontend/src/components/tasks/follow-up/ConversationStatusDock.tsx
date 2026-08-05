@@ -1,68 +1,27 @@
-import { useState } from 'react';
 import { Info, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
-import type { ConversationSessionNotice } from 'shared/types';
-
-const DISMISSED_NOTICE_KEY_PREFIX = 'vibex:dismissed-conversation-notice';
-
-function dismissalStorageKey(
-  scope: string | null | undefined,
-  noticeId: string
-): string | null {
-  return scope ? `${DISMISSED_NOTICE_KEY_PREFIX}:${scope}:${noticeId}` : null;
-}
-
-function wasNoticeDismissed(
-  scope: string | null | undefined,
-  noticeId: string,
-  notice: ConversationSessionNotice
-): boolean {
-  const key = dismissalStorageKey(scope, noticeId);
-  if (!key || typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(key) === noticeSignature(notice);
-  } catch {
-    return false;
-  }
-}
-
-function noticeSignature(notice: ConversationSessionNotice): string {
-  return JSON.stringify([notice.title, notice.message, notice.severity]);
-}
-
-function noticeDismissalIdentity(
-  noticeId: string,
-  notice: ConversationSessionNotice
-): string {
-  return `${noticeId}:${noticeSignature(notice)}`;
-}
+import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
 
 type ConversationStatusDockProps = {
   notices: ConversationStatusNotice[];
   localError?: string | null;
+  onDismissLocalError?: () => void;
   dismissalScope?: string | null;
 };
 
 export function ConversationStatusDock({
   notices,
   localError,
+  onDismissLocalError,
   dismissalScope,
 }: ConversationStatusDockProps) {
   const { t } = useTranslation(['conversation']);
-  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(
-    () => new Set()
-  );
-  const visibleNotices = notices.filter(
-    (notice) =>
-      notice.kind !== 'session-notice' ||
-      (!dismissedNotices.has(
-        noticeDismissalIdentity(notice.id, notice.notice)
-      ) &&
-        !wasNoticeDismissed(dismissalScope, notice.id, notice.notice))
-  );
+  const { dismiss: dismissNotice, isDismissed } =
+    useConversationStatusDismissal(dismissalScope);
+  const visibleNotices = notices.filter((notice) => !isDismissed(notice));
 
   if (visibleNotices.length === 0 && !localError) return null;
 
@@ -74,7 +33,19 @@ export function ConversationStatusDock({
     >
       <div className="composer-status-surface overflow-hidden rounded-[10px]">
         {localError ? (
-          <StatusSurface tone="error" role="alert" icon={<TriangleAlert />}>
+          <StatusSurface
+            tone="error"
+            role="alert"
+            icon={<TriangleAlert />}
+            action={
+              onDismissLocalError ? (
+                <DismissButton
+                  label={t('statusDock.dismissLocalError')}
+                  onClick={onDismissLocalError}
+                />
+              ) : null
+            }
+          >
             <p className="break-words">{localError}</p>
           </StatusSurface>
         ) : null}
@@ -86,6 +57,8 @@ export function ConversationStatusDock({
                 key={notice.id}
                 error={notice.error}
                 onReload={notice.onReload}
+                onDismiss={() => dismissNotice(notice)}
+                dismissLabel={`${t('statusDock.dismiss')} ${notice.id}`}
                 placement="composer"
               />
             );
@@ -99,18 +72,24 @@ export function ConversationStatusDock({
                 role="status"
                 icon={<RotateCcw />}
                 action={
-                  notice.onResend ? (
-                    <button
-                      type="button"
-                      className="composer-status-action"
-                      onClick={notice.onResend}
-                      title={t('messageTurnView.resendHint')}
-                      aria-label={t('messageTurnView.resend')}
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      {t('messageTurnView.resend')}
-                    </button>
-                  ) : null
+                  <div className="flex items-center gap-1">
+                    {notice.onResend ? (
+                      <button
+                        type="button"
+                        className="composer-status-action"
+                        onClick={notice.onResend}
+                        title={t('messageTurnView.resendHint')}
+                        aria-label={t('messageTurnView.resend')}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        {t('messageTurnView.resend')}
+                      </button>
+                    ) : null}
+                    <DismissButton
+                      label={`${t('statusDock.dismiss')} ${notice.id}`}
+                      onClick={() => dismissNotice(notice)}
+                    />
+                  </div>
                 }
               >
                 <div className="min-w-0">
@@ -139,37 +118,10 @@ export function ConversationStatusDock({
               role={tone === 'error' ? 'alert' : 'status'}
               icon={tone === 'info' ? <Info /> : <TriangleAlert />}
               action={
-                <button
-                  type="button"
-                  className="composer-status-dismiss"
-                  onClick={() =>
-                    setDismissedNotices((current) => {
-                      const next = new Set(current);
-                      next.add(
-                        noticeDismissalIdentity(notice.id, notice.notice)
-                      );
-                      const storageKey = dismissalStorageKey(
-                        dismissalScope,
-                        notice.id
-                      );
-                      if (storageKey) {
-                        try {
-                          window.localStorage.setItem(
-                            storageKey,
-                            noticeSignature(notice.notice)
-                          );
-                        } catch {
-                          // Dismissal still works for this mount when storage is unavailable.
-                        }
-                      }
-                      return next;
-                    })
-                  }
-                  title={t('statusDock.dismiss')}
-                  aria-label={t('statusDock.dismiss')}
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <DismissButton
+                  label={t('statusDock.dismiss')}
+                  onClick={() => dismissNotice(notice)}
+                />
               }
             >
               <div className="min-w-0">
@@ -185,6 +137,26 @@ export function ConversationStatusDock({
         })}
       </div>
     </div>
+  );
+}
+
+function DismissButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="composer-status-dismiss focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      <X className="h-4 w-4" />
+    </button>
   );
 }
 

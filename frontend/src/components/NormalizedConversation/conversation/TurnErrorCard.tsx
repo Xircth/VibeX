@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ban, RefreshCw, ShieldAlert, TriangleAlert } from 'lucide-react';
+import { Ban, RefreshCw, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { ConversationError } from 'shared/types';
@@ -17,10 +17,14 @@ import { cn } from '@/lib/utils';
 export function TurnErrorCard({
   error,
   onReload,
+  onDismiss,
+  dismissLabel,
   placement = 'timeline',
 }: {
   error: ConversationError;
   onReload?: () => void | Promise<unknown>;
+  onDismiss?: () => void;
+  dismissLabel?: string;
   placement?: 'timeline' | 'composer';
 }) {
   const { t } = useTranslation(['conversation', 'common']);
@@ -84,6 +88,21 @@ export function TurnErrorCard({
             </div>
           ) : null}
         </div>
+        {onDismiss ? (
+          <button
+            type="button"
+            className={cn(
+              'shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+              placement === 'composer' && 'composer-status-dismiss'
+            )}
+            onClick={onDismiss}
+            title={dismissLabel ?? t('statusDock.dismiss')}
+            aria-label={dismissLabel ?? t('statusDock.dismiss')}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
     </div>
   );

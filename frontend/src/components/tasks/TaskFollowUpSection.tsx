@@ -749,6 +749,7 @@ export function TaskFollowUpSection({
         <ConversationStatusDock
           notices={conversationStatusNotices}
           localError={followUpError}
+          onDismissLocalError={() => setFollowUpError(null)}
           dismissalScope={session?.id ?? null}
         />
 

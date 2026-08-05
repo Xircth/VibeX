@@ -753,7 +753,7 @@ impl ProjectionFold {
         let side_rows = &mut self.side_rows;
 
         match event {
-            ConversationEvent::UserTurnCreated { blocks } => {
+            ConversationEvent::UserTurnCreated { blocks, .. } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
@@ -2106,6 +2106,7 @@ mod tests {
                     blocks: vec![ConversationInputBlock::Text {
                         text: "do work".into(),
                     }],
+                    plugin_actions: Vec::new(),
                 },
                 None,
             )
@@ -2155,6 +2156,7 @@ mod tests {
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -2243,6 +2245,7 @@ mod tests {
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -3156,6 +3159,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "hello".into(),
                 }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -3259,6 +3263,7 @@ mod tests {
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -3422,6 +3427,7 @@ mod tests {
             "user",
             ConversationEvent::UserTurnCreated {
                 blocks: vec![ConversationInputBlock::Text { text: "hi".into() }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -3583,6 +3589,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "first".into(),
                 }],
+                plugin_actions: Vec::new(),
             },
             None,
         )
@@ -3634,6 +3641,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "second".into(),
                 }],
+                plugin_actions: Vec::new(),
             },
             None,
         )

@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Loader2, Puzzle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import type { BackendTransport } from '@/lib/backendTransport';
 import {
@@ -67,12 +76,16 @@ export function PluginsSettings({
 }) {
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
+  const navigate = useNavigate();
   const { t } = useTranslation(['settings', 'common']);
   const api = useMemo(() => createPluginApi(transport), [transport]);
   const [catalog, setCatalog] = useState<PluginActionCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isToggling, setIsToggling] = useState(false);
+  const [skillSetupOpen, setSkillSetupOpen] = useState(false);
+  const [isApplyingSkills, setIsApplyingSkills] = useState(false);
+  const [skillSetupError, setSkillSetupError] = useState<string | null>(null);
   const installTaskIdRef = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -99,12 +112,45 @@ export function PluginsSettings({
     try {
       await api.setOfficeEnabled(enabled, taskId);
       await reload();
+      if (enabled) {
+        setSkillSetupError(null);
+        setSkillSetupOpen(true);
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       installTaskIdRef.current = null;
       setIsToggling(false);
     }
+  };
+
+  const applySkillsToAllAgents = async () => {
+    if (!catalog) return;
+    setIsApplyingSkills(true);
+    setSkillSetupError(null);
+    try {
+      await api.configureSkills({
+        pluginId: catalog.plugin.id,
+        apps: [],
+        allAgents: true,
+        link: false,
+      });
+      setSkillSetupOpen(false);
+    } catch (error) {
+      setSkillSetupError(
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setIsApplyingSkills(false);
+    }
+  };
+
+  const openSkillSettings = () => {
+    if (!catalog) return;
+    setSkillSetupOpen(false);
+    navigate(
+      `/settings/skills?plugin=${encodeURIComponent(catalog.plugin.id)}`
+    );
   };
 
   const cancelEnable = async () => {
@@ -228,6 +274,70 @@ export function PluginsSettings({
           </p>
         )}
       </SettingsSection>
+
+      <Dialog
+        open={skillSetupOpen}
+        onOpenChange={setSkillSetupOpen}
+        uncloseable
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plugin-skill-setup-title"
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle id="plugin-skill-setup-title">
+              {t('plugins.skillSetupTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('plugins.skillSetupDescription', {
+                name: catalog?.plugin.name ?? t('plugins.pageTitle'),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+
+          <ul
+            aria-label={t('plugins.skillSetupListAria')}
+            className="overflow-hidden rounded-[10px] border border-border bg-card"
+          >
+            {catalog?.readiness.skills.map((skill) => (
+              <li
+                key={skill.id}
+                className="flex items-center gap-2 border-t border-border/70 px-3 py-2 text-xs first:border-t-0"
+              >
+                <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
+                <span className="font-medium">{skill.id}</span>
+              </li>
+            ))}
+          </ul>
+
+          {skillSetupError ? (
+            <p role="alert" className="text-xs text-destructive">
+              {t('plugins.skillSetupFailed', { error: skillSetupError })}
+            </p>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openSkillSettings}
+              disabled={isApplyingSkills}
+            >
+              {t('plugins.configureInSkills')}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void applySkillsToAllAgents()}
+              disabled={isApplyingSkills}
+            >
+              {isApplyingSkills ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              {t('plugins.applyToAllAgents')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

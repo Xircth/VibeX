@@ -42,6 +42,12 @@ describe('conversationApi', () => {
       workspaceId: 'workspace-1',
       conversationId: 'conversation-1',
       text: 'hello',
+      pluginActions: [
+        {
+          pluginId: 'vibex.office',
+          actionId: 'create-presentation',
+        },
+      ],
     });
 
     expect(call).toHaveBeenCalledWith('conversation_start_turn', {
@@ -51,6 +57,12 @@ describe('conversationApi', () => {
         conversationId: 'conversation-1',
         text: 'hello',
         images: [],
+        pluginActions: [
+          {
+            pluginId: 'vibex.office',
+            actionId: 'create-presentation',
+          },
+        ],
       },
     });
   });

@@ -12,7 +12,10 @@ import {
   buildAgentPrompt,
   isSessionScopedSlashCommand,
 } from '@/utils/promptMessage';
-import { serializeSessionComposerBackendMessage } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import {
+  getSessionComposerPluginActionInvocations,
+  serializeSessionComposerBackendMessage,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 type Args = {
   sessionId?: string;
@@ -78,6 +81,7 @@ export function useFollowUpSend({
     const displayMessage = message.trim();
     const backendMessage =
       serializeSessionComposerBackendMessage(message).trim();
+    const pluginActions = getSessionComposerPluginActionInvocations(message);
     const { prompt, isSlashCommand } = buildAgentPrompt(backendMessage, [
       conflictMarkdown,
       reviewMarkdown?.trim(),
@@ -157,6 +161,7 @@ export function useFollowUpSend({
           images,
           modeOverride,
           configOverrides,
+          pluginActions,
         });
         await queryClient.invalidateQueries({
           queryKey: ['workspaceSessions', targetWorkspaceId],

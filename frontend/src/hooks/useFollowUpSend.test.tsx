@@ -20,6 +20,7 @@ import {
   subscribeToOptimisticConversationTurns,
   type OptimisticConversationTurnEvent,
 } from '@/features/conversation/optimisticTurnEvents';
+import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 function renderFollowUpSend() {
   const queryClient = new QueryClient();
@@ -195,6 +196,49 @@ describe('useFollowUpSend', () => {
 
     expect(sendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({ text: message })
+    );
+  });
+
+  it('sends PluginAction identity with its editable prompt text', async () => {
+    sendTurnMock.mockResolvedValue({});
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const action = formatSessionComposerCommand({
+      type: '!',
+      key: 'vibex.office/create-presentation|创建 PPT',
+      value: '',
+    });
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: `${action}请把重点改成季度复盘`,
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '请把重点改成季度复盘',
+        pluginActions: [
+          {
+            pluginId: 'vibex.office',
+            actionId: 'create-presentation',
+          },
+        ],
+      })
     );
   });
 });

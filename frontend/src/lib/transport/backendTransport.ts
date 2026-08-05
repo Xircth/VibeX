@@ -56,6 +56,7 @@ export interface ApplicationCommandMap {
         images: string[];
         modeOverride?: string | null;
         configOverrides?: AgentSessionConfigOverride[];
+        pluginActions?: Array<{ pluginId: string; actionId: string }>;
       };
     };
     result: ConversationTurnSnapshot;

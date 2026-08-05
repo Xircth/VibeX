@@ -7,8 +7,11 @@ use std::{
 
 use agents::AgentRuntime;
 use application::{
-    ApplicationCore, ConversationSessionExecutionPort, SqliteConversationRepository,
+    ApplicationCore, ApplicationError, CancelConversationTurn, ConversationExecutionPort,
+    ConversationSessionExecutionPort, RespondConversationPermission, RespondConversationQuestion,
+    SqliteConversationRepository, StartConversationTurn,
 };
+use async_trait::async_trait;
 use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
@@ -47,6 +50,49 @@ pub struct ServerBootstrapConfig {
     pub data_dir: PathBuf,
     pub server: ServerConfig,
     pub token: Option<ServerToken>,
+}
+
+struct PluginAwareConversationExecution {
+    inner: ConversationSessionExecutionPort,
+    office: Arc<OfficeRuntime>,
+}
+
+#[async_trait]
+impl ConversationExecutionPort for PluginAwareConversationExecution {
+    async fn start_turn(
+        &self,
+        request: StartConversationTurn,
+    ) -> Result<conversations::ConversationTurnSnapshot, ApplicationError> {
+        for invocation in &request.plugin_actions {
+            self.office
+                .resolve_bundled_action_for_agent(
+                    &invocation.plugin_id,
+                    &invocation.action_id,
+                    &request.agent_id,
+                )
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        }
+        self.inner.start_turn(request).await
+    }
+
+    async fn respond_permission(
+        &self,
+        request: RespondConversationPermission,
+    ) -> Result<(), ApplicationError> {
+        self.inner.respond_permission(request).await
+    }
+
+    async fn respond_question(
+        &self,
+        request: RespondConversationQuestion,
+    ) -> Result<(), ApplicationError> {
+        self.inner.respond_question(request).await
+    }
+
+    async fn cancel_turn(&self, request: CancelConversationTurn) -> Result<(), ApplicationError> {
+        self.inner.cancel_turn(request).await
+    }
 }
 
 impl ServerBootstrapConfig {
@@ -122,6 +168,7 @@ impl HeadlessServer {
             deployment.clone(),
             conversation_context.clone(),
             managed_tools_root,
+            office_runtime.clone(),
         );
         let preview_proxy = PreviewProxyRegistry::default();
         let domains = Arc::new(ServerApplicationDomains::new(
@@ -133,9 +180,10 @@ impl HeadlessServer {
             conversation_context.clone(),
             deployment.clone(),
         ));
-        let execution = Arc::new(ConversationSessionExecutionPort::new(
-            conversation_context.clone(),
-        ));
+        let execution = Arc::new(PluginAwareConversationExecution {
+            inner: ConversationSessionExecutionPort::new(conversation_context.clone()),
+            office: office_runtime.clone(),
+        });
         let repository = SqliteConversationRepository::new(pool.clone());
         let core = ApplicationCore::with_ports(repository, execution, domains);
         let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy(

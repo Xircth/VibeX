@@ -648,6 +648,23 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
     }
 }
 
+struct SkillHostingLayout {
+    store: PathBuf,
+    agent_dirs: BTreeMap<String, PathBuf>,
+}
+
+fn system_skill_hosting_layout() -> SkillHostingLayout {
+    SkillHostingLayout {
+        store: vibex_skills_dir(),
+        agent_dirs: ALL_AGENTS
+            .into_iter()
+            .filter_map(|agent| {
+                agent_primary_skill_dir(agent).map(|dir| (agent.as_str().to_string(), dir))
+            })
+            .collect(),
+    }
+}
+
 /// Prefix before the first '-', or the whole name when there is none.
 fn skill_group(name: &str) -> String {
     match name.split_once('-') {
@@ -818,7 +835,25 @@ fn apply_hosting(
     agents: &BTreeSet<String>,
     link: bool,
 ) -> Result<(), SkillError> {
-    let vibex = vibex_skills_dir().join(skill_id);
+    apply_hosting_with_layout(
+        src,
+        skill_id,
+        global,
+        agents,
+        link,
+        &system_skill_hosting_layout(),
+    )
+}
+
+fn apply_hosting_with_layout(
+    src: &Path,
+    skill_id: &str,
+    global: bool,
+    agents: &BTreeSet<String>,
+    link: bool,
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    let vibex = layout.store.join(skill_id);
     let (agent_src, agent_link) = if global {
         place_skill(src, &vibex, false)?;
         (vibex.clone(), link)
@@ -826,12 +861,9 @@ fn apply_hosting(
         (src.to_path_buf(), false)
     };
 
-    for agent in ALL_AGENTS {
-        let Some(dir) = agent_primary_skill_dir(agent) else {
-            continue;
-        };
+    for (agent, dir) in &layout.agent_dirs {
         let dest = dir.join(skill_id);
-        if global || agents.contains(agent.as_str()) {
+        if global || agents.contains(agent) {
             place_skill(&agent_src, &dest, agent_link)?;
         } else {
             remove_if_exists(&dest)?;
@@ -841,6 +873,44 @@ fn apply_hosting(
         remove_if_exists(&vibex)?;
     }
     Ok(())
+}
+
+fn configure_bundled_skills_with_layout(
+    skills: &[(&str, &str)],
+    global: bool,
+    agents: &BTreeSet<String>,
+    link: bool,
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    let validated = skills
+        .iter()
+        .map(|(id, source)| {
+            let id = validate_skill_id(id)?;
+            if source.trim().is_empty() {
+                return Err(SkillError::Validation(format!(
+                    "Bundled skill content is empty: {id}"
+                )));
+            }
+            Ok((id, *source))
+        })
+        .collect::<Result<Vec<_>, SkillError>>()?;
+
+    let staging = staging_dir();
+    std::fs::create_dir_all(&staging)
+        .map_err(|error| SkillError::Other(format!("创建暂存目录失败: {error}")))?;
+    let result = (|| {
+        for (id, source) in validated {
+            let skill_dir = staging.join(&id);
+            std::fs::create_dir_all(&skill_dir)
+                .map_err(|error| SkillError::Other(format!("创建暂存技能失败: {error}")))?;
+            std::fs::write(skill_dir.join("SKILL.md"), source)
+                .map_err(|error| SkillError::Other(format!("写入暂存技能失败: {error}")))?;
+            apply_hosting_with_layout(&skill_dir, &id, global, agents, link, layout)?;
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
 }
 
 fn parse_agent_keys(keys: &[String]) -> Result<BTreeSet<String>, SkillError> {
@@ -1184,6 +1254,25 @@ pub async fn set_skill_hosting(
     Ok(scan_all_skills().await)
 }
 
+/// Materialize trusted, embedded skills and assign them to either every
+/// supported Agent or an exact set of Agent hosts.
+pub async fn configure_bundled_skills(
+    skills: &[(&str, &str)],
+    global: bool,
+    apps: Vec<String>,
+    link: bool,
+) -> Result<Vec<LocalSkill>, SkillError> {
+    let agents = parse_agent_keys(&apps)?;
+    configure_bundled_skills_with_layout(
+        skills,
+        global,
+        &agents,
+        link,
+        &system_skill_hosting_layout(),
+    )?;
+    Ok(scan_all_skills().await)
+}
+
 pub async fn uninstall_skill(skill_id: String) -> Result<Vec<LocalSkill>, SkillError> {
     let id = validate_skill_id(&skill_id)?;
     for dir in global_scan_dirs() {
@@ -1307,5 +1396,70 @@ mod tests {
                 "{agent:?} should have a writable global skills dir"
             );
         }
+    }
+
+    #[test]
+    fn bundled_skills_are_hosted_to_the_exact_agent_set() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([
+                ("codex".to_string(), temp.path().join("codex")),
+                ("claude_code".to_string(), temp.path().join("claude")),
+            ]),
+        };
+
+        configure_bundled_skills_with_layout(
+            &[("office-pptx", "---\nname: office-pptx\n---\n")],
+            false,
+            &BTreeSet::from(["codex".to_string()]),
+            false,
+            &layout,
+        )
+        .unwrap();
+
+        assert!(temp.path().join("codex/office-pptx/SKILL.md").is_file());
+        assert!(!temp.path().join("claude/office-pptx").exists());
+        assert!(!temp.path().join("store/office-pptx").exists());
+
+        configure_bundled_skills_with_layout(
+            &[("office-pptx", "---\nname: office-pptx\n---\nupdated")],
+            false,
+            &BTreeSet::from(["claude_code".to_string()]),
+            false,
+            &layout,
+        )
+        .unwrap();
+
+        assert!(!temp.path().join("codex/office-pptx").exists());
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("claude/office-pptx/SKILL.md")).unwrap(),
+            "---\nname: office-pptx\n---\nupdated"
+        );
+    }
+
+    #[test]
+    fn bundled_skills_can_be_applied_globally_to_every_agent() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([
+                ("codex".to_string(), temp.path().join("codex")),
+                ("claude_code".to_string(), temp.path().join("claude")),
+            ]),
+        };
+
+        configure_bundled_skills_with_layout(
+            &[("office-pptx", "---\nname: office-pptx\n---\n")],
+            true,
+            &BTreeSet::new(),
+            false,
+            &layout,
+        )
+        .unwrap();
+
+        assert!(temp.path().join("store/office-pptx/SKILL.md").is_file());
+        assert!(temp.path().join("codex/office-pptx/SKILL.md").is_file());
+        assert!(temp.path().join("claude/office-pptx/SKILL.md").is_file());
     }
 }

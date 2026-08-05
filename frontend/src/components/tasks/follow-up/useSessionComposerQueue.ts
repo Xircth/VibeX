@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExecutorProfileId } from 'shared/types';
+import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
   buildCancelQueueMutationInput,
@@ -72,11 +73,13 @@ export function useSessionComposerQueue({
       message,
       images,
       executorProfileId,
+      pluginActions,
     }: {
       sessionId: string;
       message: string;
       images: string[];
       executorProfileId: ExecutorProfileId;
+      pluginActions: SessionComposerPluginActionInvocation[];
     }) =>
       sendAgentRuntimeTurn({
         workspaceId: workspaceId ?? '',
@@ -84,6 +87,7 @@ export function useSessionComposerQueue({
         text: message,
         images,
         executorProfileId,
+        pluginActions,
       }),
     onSuccess: (_turn, variables) => {
       queryClient.setQueryData(
@@ -116,6 +120,7 @@ export function useSessionComposerQueue({
       message: queuedMessage.data.message,
       images: queuedMessage.data.images,
       executorProfileId: queuedMessage.executorProfileId,
+      pluginActions: queuedMessage.data.pluginActions ?? [],
     });
   }, [
     isAttemptRunning,
@@ -131,16 +136,19 @@ export function useSessionComposerQueue({
       message,
       images,
       executorProfileId,
+      pluginActions,
     }: {
       sessionId: string;
       message: string;
       images: string[];
       executorProfileId: ExecutorProfileId;
+      pluginActions: SessionComposerPluginActionInvocation[];
     }) => ({
       sessionId,
       message,
       images,
       executorProfileId,
+      pluginActions,
       createdAt: new Date().toISOString(),
     }),
     onSuccess: (message) => {
@@ -154,6 +162,7 @@ export function useSessionComposerQueue({
           data: {
             message: message.message,
             images: message.images,
+            pluginActions: message.pluginActions,
           },
         },
       };
@@ -180,13 +189,15 @@ export function useSessionComposerQueue({
     async (
       message: string,
       executorProfileId: ExecutorProfileId,
-      images: string[] = []
+      images: string[] = [],
+      pluginActions: SessionComposerPluginActionInvocation[] = []
     ) => {
       const queueInput = buildQueueMutationInput({
         sessionId,
         message,
         images,
         executorProfileId,
+        pluginActions,
       });
       if (!queueInput || !workspaceId) return;
       await queueMutation.mutateAsync(queueInput);

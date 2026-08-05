@@ -639,6 +639,71 @@ impl OfficeRuntime {
             })
     }
 
+    pub async fn resolve_bundled_action_for_agent(
+        &self,
+        plugin_id: &str,
+        action_id: &str,
+        agent_id: &str,
+    ) -> Result<PluginAction, OfficeRuntimeError> {
+        if plugin_id != self.office_manifest.id.as_str() {
+            return Err(OfficeRuntimeError::new(
+                "PLUGIN_NOT_FOUND",
+                format!("unknown bundled plugin `{plugin_id}`"),
+            ));
+        }
+        let action = self.resolve_bundled_action(action_id)?;
+        let hosted_skills = agents::skills::list_agent_skills(agent_id.to_owned(), None)
+            .await
+            .map_err(|error| OfficeRuntimeError::new("SKILL_HOSTING_FAILED", error.to_string()))?
+            .skills
+            .into_iter()
+            .map(|skill| skill.id)
+            .collect::<std::collections::HashSet<_>>();
+        if let Some(skill) = first_missing_required_skill(
+            action.required_skills.iter().map(|skill| skill.as_str()),
+            &hosted_skills,
+        ) {
+            return Err(OfficeRuntimeError::new(
+                "SKILL_NOT_HOSTED",
+                format!(
+                    "plugin action {plugin_id}/{action_id} requires Skill {skill} for Agent {agent_id}"
+                ),
+            ));
+        }
+        Ok(action)
+    }
+
+    pub async fn configure_bundled_skills(
+        &self,
+        plugin_id: &str,
+        apps: Vec<String>,
+        all_agents: bool,
+        link: bool,
+    ) -> Result<Vec<agents::skills::LocalSkill>, OfficeRuntimeError> {
+        if plugin_id != self.office_manifest.id.as_str() {
+            return Err(OfficeRuntimeError::new(
+                "PLUGIN_NOT_FOUND",
+                format!("unknown bundled plugin `{plugin_id}`"),
+            ));
+        }
+        let snapshot = self
+            .plugins
+            .snapshot(plugin_id)
+            .map_err(|error| OfficeRuntimeError::new("PLUGIN_NOT_READY", error.to_string()))?;
+        if snapshot.activation != PluginActivation::Enabled
+            || snapshot.readiness != PluginReadiness::Ready
+        {
+            return Err(OfficeRuntimeError::new(
+                "PLUGIN_NOT_READY",
+                "bundled Office plugin must be enabled and ready before configuring skills",
+            ));
+        }
+
+        agents::skills::configure_bundled_skills(&OFFICE_SKILLS, all_agents, apps, link)
+            .await
+            .map_err(|error| OfficeRuntimeError::new("SKILL_CONFIG_FAILED", error.to_string()))
+    }
+
     pub async fn set_bundled_enabled(
         &self,
         enabled: bool,
@@ -686,6 +751,15 @@ impl OfficeRuntime {
         .map(|_| ())
         .map_err(|error| OfficeRuntimeError::new("PERSIST_FAILED", error.to_string()))
     }
+}
+
+fn first_missing_required_skill<'a>(
+    required_skills: impl IntoIterator<Item = &'a str>,
+    hosted_skills: &std::collections::HashSet<String>,
+) -> Option<&'a str> {
+    required_skills
+        .into_iter()
+        .find(|skill| !hosted_skills.contains(*skill))
 }
 
 struct InstallCancellationRegistration {
@@ -984,7 +1058,20 @@ impl ProcessProbe for OfficeCliProbe {
 
 #[cfg(test)]
 mod tests {
-    use super::OfficeRuntime;
+    use std::collections::HashSet;
+
+    use super::{OfficeRuntime, first_missing_required_skill};
+
+    #[test]
+    fn required_skill_guard_reports_the_first_unhosted_skill() {
+        let hosted = HashSet::from(["documents".to_string()]);
+
+        assert_eq!(
+            first_missing_required_skill(["documents", "presentations"], &hosted),
+            Some("presentations")
+        );
+        assert_eq!(first_missing_required_skill(["documents"], &hosted), None);
+    }
 
     #[tokio::test]
     async fn uninstall_persists_disabled_in_the_v2_registry() {
@@ -1000,6 +1087,11 @@ mod tests {
         let runtime = OfficeRuntime::new(pool.clone(), managed.path().to_path_buf())
             .await
             .expect("create Office runtime");
+        let error = runtime
+            .resolve_bundled_action_for_agent("vibex.office", "create-presentation", "codex")
+            .await
+            .expect_err("disabled plugins must be rejected before Agent dispatch");
+        assert_eq!(error.code(), "PLUGIN_NOT_READY");
 
         runtime
             .persist_enabled(true)

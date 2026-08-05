@@ -6,6 +6,7 @@ import type {
   OfficeComponentReadiness,
   OfficePluginCatalog,
 } from 'shared/types';
+import type { LocalSkill } from './misc';
 
 export type PluginComponentStatus = OfficeComponentReadiness['status'];
 export type PluginActionCatalog = OfficePluginCatalog;
@@ -20,6 +21,15 @@ export function createPluginApi(transport: BackendTransport) {
       transport.call('officecli_cancel_install', { taskId }),
     setOfficeEnabled: (enabled: boolean, taskId: string) =>
       transport.call('office_plugin_set_enabled', { enabled, taskId }),
+    configureSkills: (params: {
+      pluginId: string;
+      apps: string[];
+      allAgents: boolean;
+      link: boolean;
+    }) =>
+      transport.call('plugin_skills_configure', params) as Promise<
+        LocalSkill[]
+      >,
   };
 }
 

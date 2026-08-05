@@ -54,6 +54,14 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides,
+                plugin_actions: request
+                    .plugin_actions
+                    .into_iter()
+                    .map(|invocation| agents::ConversationPluginActionInvocation {
+                        plugin_id: invocation.plugin_id,
+                        action_id: invocation.action_id,
+                    })
+                    .collect(),
             })
             .await
             .map(|(turn, _)| turn)

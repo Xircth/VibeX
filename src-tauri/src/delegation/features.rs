@@ -175,7 +175,7 @@ async fn load_compact_transcript(
                 continue;
             };
             match event {
-                ConversationEvent::UserTurnCreated { blocks } => {
+                ConversationEvent::UserTurnCreated { blocks, .. } => {
                     let content = blocks
                         .into_iter()
                         .filter_map(|block| match block {
@@ -273,6 +273,7 @@ mod tests {
                     blocks: vec![ConversationInputBlock::Text {
                         text: "first".to_string(),
                     }],
+                    plugin_actions: Vec::new(),
                 },
             ),
             (

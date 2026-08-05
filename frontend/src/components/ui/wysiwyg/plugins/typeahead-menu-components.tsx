@@ -356,7 +356,7 @@ function TypeaheadMenuItemComponent({
 
   useEffect(() => {
     if (isSelected && ref.current) {
-      ref.current.scrollIntoView({ block: 'nearest' });
+      ref.current.scrollIntoView?.({ block: 'nearest' });
     }
   }, [isSelected]);
 

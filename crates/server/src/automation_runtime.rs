@@ -20,6 +20,7 @@ use db::models::{
 };
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
+use office_runtime::OfficeRuntime;
 use plugins::PromptBlock;
 use tool_runtime::{FileInstallationLockStore, InstallationLockStore};
 use uuid::Uuid;
@@ -30,6 +31,7 @@ pub(crate) struct HeadlessAutomationRuntime {
     conversation_context: conversations::ConversationContext,
     store: SqliteAutomationStore,
     tool_locks: Arc<FileInstallationLockStore>,
+    office: Arc<OfficeRuntime>,
 }
 
 impl HeadlessAutomationRuntime {
@@ -37,12 +39,14 @@ impl HeadlessAutomationRuntime {
         deployment: Arc<LocalDeployment>,
         conversation_context: conversations::ConversationContext,
         managed_tools_root: PathBuf,
+        office: Arc<OfficeRuntime>,
     ) -> Self {
         Self {
             store: SqliteAutomationStore::new(deployment.db().pool.clone()),
             deployment,
             conversation_context,
             tool_locks: Arc::new(FileInstallationLockStore::new(managed_tools_root)),
+            office,
         }
     }
 
@@ -116,6 +120,7 @@ impl HeadlessAutomationRuntime {
                 deployment: self.deployment.clone(),
                 conversation_context: self.conversation_context.clone(),
                 tool_locks: self.tool_locks.clone(),
+                office: self.office.clone(),
             },
         );
         if let Err(error) = runner
@@ -481,6 +486,7 @@ struct ServerTurnLauncher {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
     tool_locks: Arc<FileInstallationLockStore>,
+    office: Arc<OfficeRuntime>,
 }
 
 #[async_trait]
@@ -504,59 +510,31 @@ impl TurnLauncherPort for ServerTurnLauncher {
         let mut plugins = Vec::new();
         let mut tool_locks = Vec::new();
         for action in &spec.plugin_actions {
-            let manifest_json: String = sqlx::query_scalar(
-                "SELECT normalized_manifest_json
-                 FROM plugin_v2_registry
-                 WHERE plugin_id = ? AND membership != 'removed'",
-            )
-            .bind(action.plugin_id.as_str())
-            .fetch_optional(pool)
-            .await
-            .map_err(launcher_error)?
-            .ok_or_else(|| {
-                RunError::Launcher(format!(
-                    "plugin {} is unavailable",
-                    action.plugin_id.as_str()
-                ))
-            })?;
-            let manifest: serde_json::Value =
-                serde_json::from_str(&manifest_json).map_err(launcher_error)?;
-            let version = manifest["version"]
-                .as_str()
-                .ok_or_else(|| RunError::Launcher("plugin version is missing".to_string()))?;
-            let manifest_action = manifest["actions"]
-                .as_array()
-                .and_then(|actions| {
-                    actions.iter().find(|candidate| {
-                        candidate["id"].as_str() == Some(action.action.id.as_str())
-                    })
-                })
-                .ok_or_else(|| {
-                    RunError::Launcher(format!(
-                        "plugin action {}/{} is unavailable",
-                        action.plugin_id.as_str(),
-                        action.action.id.as_str()
-                    ))
-                })?;
+            let resolved_action = self
+                .office
+                .resolve_bundled_action_for_agent(
+                    action.plugin_id.as_str(),
+                    action.action.id.as_str(),
+                    spec.agent.agent_id.as_str(),
+                )
+                .await
+                .map_err(launcher_error)?;
+            let manifest = self.office.bundled_plugin();
             plugins.push(ComponentVersionEvidence {
                 id: action.plugin_id.as_str().to_string(),
-                version: version.to_string(),
+                version: manifest.version.clone(),
             });
-            for tool_id in manifest_action["requiredTools"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-            {
+            for tool_id in &resolved_action.required_tools {
                 let lock = self
                     .tool_locks
-                    .load_current(tool_id)
+                    .load_current(tool_id.as_str())
                     .await
                     .map_err(launcher_error)?
                     .ok_or_else(|| {
                         RunError::Launcher(format!(
-                            "plugin {} has no resolved ToolInstallationLock for {tool_id}",
-                            action.plugin_id.as_str()
+                            "plugin {} has no resolved ToolInstallationLock for {}",
+                            action.plugin_id.as_str(),
+                            tool_id.as_str()
                         ))
                     })?;
                 tool_locks.push(ToolLockVersionEvidence {
@@ -656,6 +634,14 @@ impl TurnLauncherPort for ServerTurnLauncher {
                         images: Vec::new(),
                         mode_override: spec.mode_id.clone(),
                         config_overrides: spec.config_values.clone(),
+                        plugin_actions: spec
+                            .plugin_actions
+                            .iter()
+                            .map(|invocation| agents::ConversationPluginActionInvocation {
+                                plugin_id: invocation.plugin_id.as_str().to_owned(),
+                                action_id: invocation.action.id.as_str().to_owned(),
+                            })
+                            .collect(),
                     },
                     conversations::commit_reminder::AUTOMATION_ORIGIN,
                 )

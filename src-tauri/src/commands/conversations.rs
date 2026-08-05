@@ -16,7 +16,7 @@ use agents::{
     },
 };
 use automation::{
-    AgentSelectionIntent, ComposerCanonicalInput, IsolationSpec, TurnLaunchSpec,
+    AgentSelectionIntent, ComposerCanonicalInput, IsolationSpec, PluginActionRef, TurnLaunchSpec,
     TurnLaunchSpecInput, WorkspaceTarget,
 };
 use conversations::{
@@ -120,6 +120,16 @@ pub struct ConversationStartTurnRequest {
     /// Composer-selected config option overrides (advertised select options).
     #[serde(default)]
     pub config_overrides: Vec<AgentSessionConfigOverride>,
+    /// Structured PluginActions selected in the Composer for this turn.
+    #[serde(default)]
+    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationPluginActionInvocation {
+    pub plugin_id: String,
+    pub action_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -532,7 +542,24 @@ pub async fn conversation_start_turn(
     let workspace = Workspace::find_by_id(&pool, workspace_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace {workspace_id} not found")))?;
-    if !request.text.trim().is_empty() {
+    let mut plugin_actions = Vec::with_capacity(request.plugin_actions.len());
+    for invocation in &request.plugin_actions {
+        let action = state
+            .office_runtime
+            .resolve_bundled_action_for_agent(
+                &invocation.plugin_id,
+                &invocation.action_id,
+                request.agent_id.as_str(),
+            )
+            .await
+            .map_err(|error| AppError::BadRequest(error.to_string()))?;
+        let manifest = state.office_runtime.bundled_plugin();
+        plugin_actions.push(PluginActionRef {
+            plugin_id: manifest.id.clone(),
+            action,
+        });
+    }
+    if !request.text.trim().is_empty() || !plugin_actions.is_empty() {
         TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
             prompt_blocks: vec![PromptBlock::Text {
                 text: request.text.clone(),
@@ -544,7 +571,7 @@ pub async fn conversation_start_turn(
             },
             mode_id: request.mode_override.clone(),
             config_values: request.config_overrides.clone(),
-            plugin_actions: Vec::new(),
+            plugin_actions,
             skills: Vec::new(),
             workspace: WorkspaceTarget {
                 project_id: workspace.project_id,
@@ -572,6 +599,16 @@ pub async fn conversation_start_turn(
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides: request.config_overrides,
+                plugin_actions: request
+                    .plugin_actions
+                    .into_iter()
+                    .map(
+                        |invocation| agents::conversation::ConversationPluginActionInvocation {
+                            plugin_id: invocation.plugin_id,
+                            action_id: invocation.action_id,
+                        },
+                    )
+                    .collect(),
             },
             conversations::commit_reminder::LOCAL_USER_ORIGIN,
         )
@@ -1313,7 +1350,10 @@ pub async fn import_agent_session_to_conversation_events(
                     conversation_id,
                     Some(turn.id),
                     Some(binding.id),
-                    ConversationEvent::UserTurnCreated { blocks },
+                    ConversationEvent::UserTurnCreated {
+                        blocks,
+                        plugin_actions: Vec::new(),
+                    },
                     session,
                     &format!("message-{index}-user-created"),
                     Some(serde_json::to_value(message)?),
@@ -1605,6 +1645,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "hello".to_string(),
                 }],
+                plugin_actions: Vec::new(),
             },
             "created",
         )

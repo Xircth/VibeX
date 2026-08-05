@@ -15,7 +15,7 @@ use agents::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
-        ConversationQuestionResponse,
+        ConversationPluginActionInvocation, ConversationQuestionResponse,
     },
     validate_session_defaults,
 };
@@ -228,6 +228,8 @@ pub struct ConversationStartTurnInput {
     /// User-selected config option overrides for this turn (real ACP
     /// `SetSessionConfigOption`), e.g. an advertised select option.
     pub config_overrides: Vec<AgentSessionConfigOverride>,
+    /// Structured PluginAction identities retained in the durable turn event.
+    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -340,6 +342,7 @@ impl ConversationSessionService {
                 "user",
                 ConversationEvent::UserTurnCreated {
                     blocks: conversation_blocks,
+                    plugin_actions: input.plugin_actions.clone(),
                 },
                 Some(format!("turn:{}:created", turn.id)),
             )

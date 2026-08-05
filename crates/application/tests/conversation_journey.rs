@@ -283,6 +283,7 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 images: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
+                plugin_actions: Vec::new(),
             },
         )
         .await

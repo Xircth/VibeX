@@ -1,4 +1,7 @@
-import type { SlashCommandDescription } from 'shared/types';
+import type {
+  OfficePluginCatalog,
+  SlashCommandDescription,
+} from 'shared/types';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
@@ -18,6 +21,70 @@ export type ComposerTypeaheadOption = {
 
 export const MAX_TYPEAHEAD_OPTIONS = 50;
 export const MAX_REFERENCE_OPTIONS = 10;
+
+export function pluginActionsToTypeaheadOptions(
+  catalog: OfficePluginCatalog | null | undefined,
+  query: string,
+  hostedSkillIds: ReadonlySet<string>
+): ComposerTypeaheadOption[] {
+  if (
+    !catalog?.readiness.enabled ||
+    catalog.readiness.overall !== 'ready' ||
+    catalog.readiness.dependency.status !== 'ready'
+  ) {
+    return [];
+  }
+
+  const readySkills = new Set(
+    catalog.readiness.skills
+      .filter((skill) => skill.status === 'ready')
+      .map((skill) => skill.id)
+  );
+  const normalized = query.trim().toLocaleLowerCase();
+
+  return catalog.actions
+    .filter(
+      (action) =>
+        action.requiredSkills.every((skill) => readySkills.has(skill)) &&
+        action.requiredSkills.every((skill) => hostedSkillIds.has(skill)) &&
+        action.requiredTools.every(
+          (tool) =>
+            tool === catalog.readiness.dependency.id &&
+            catalog.readiness.dependency.status === 'ready'
+        )
+    )
+    .filter((action) => {
+      if (!normalized) return true;
+      return [
+        action.actionId,
+        action.label,
+        ...action.requiredSkills,
+        ...action.requiredTools,
+        ...action.promptBlocks.map((block) => block.text),
+      ]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(normalized);
+    })
+    .slice(0, MAX_TYPEAHEAD_OPTIONS)
+    .map((action) => {
+      const prompt = action.promptBlocks
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text.trim())
+        .filter(Boolean)
+        .join('\n');
+      return {
+        key: `plugin-${action.pluginId}-${action.actionId}`,
+        label: `!${action.label}`,
+        description: prompt || undefined,
+        insertText: `${formatSessionComposerCommand({
+          type: '!',
+          key: `${action.pluginId}/${action.actionId}|${action.label}`,
+          value: '',
+        })}${prompt}`,
+      };
+    });
+}
 
 export function agentMentionsToTypeaheadOptions(
   candidates: AgentMentionCandidate[],

@@ -66,8 +66,18 @@ Provider 代码、动态库或任意宿主进程属于未来的签名扩展体�
 
 插件动作必须保存结构化 Prompt blocks，而不是只保存一段不可解析字符串。动作可以
 声明需要的 Skill、工具、输入文件类型、目标 Artifact 类型、建议 Agent 和默认提示词，
-但最终发送前仍由用户确认。动作在 Composer、插件侧栏和 Automation 编辑器中复用
-同一个 `PluginAction` 定义，避免三个入口分别维护提示词。
+但最终发送前仍由用户确认。动作在 Composer 与 Automation 编辑器中复用同一个
+`PluginAction` 定义，避免不同入口分别维护提示词。
+
+插件启用成功后，VibeX 必须让用户选择把插件内嵌 Skill 一键同步到所有 Agent，或
+前往 Skill 设置按 Agent 精确分配。精确分配是收敛操作：未选中的 Agent 会移除该
+插件的 Skill，而不是只增不减。
+
+Composer 不把 PluginAction 渲染成常驻快捷按钮。用户仅在普通空格后输入半角 `!`
+或全角 `！` 时打开“调用插件”列表；行首或紧贴其他文本的感叹号不触发。选择动作会
+插入带插件与动作身份的结构化 token，并将其 prompt blocks 作为可编辑回合内容，
+不会自动发送或执行。发送与排队发送都必须保留 PluginAction 身份；运行前由后端重新
+校验插件 readiness，以及当前 Agent 是否已经托管动作声明的全部 Skill。
 
 ## Consequences
 

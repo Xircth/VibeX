@@ -4,6 +4,7 @@ import type {
   AgentSessionConfigOverride,
   ConversationTurnSnapshot,
 } from 'shared/types';
+import type { ConversationPluginActionInvocation } from '@/features/conversation/conversationApi';
 
 export type AgentRuntimeTurnInput = {
   workspaceId: string;
@@ -16,6 +17,8 @@ export type AgentRuntimeTurnInput = {
   modeOverride?: string | null;
   /** Composer-selected session config overrides for this turn. */
   configOverrides?: AgentSessionConfigOverride[];
+  /** Structured plugin actions selected in the composer for this turn. */
+  pluginActions?: ConversationPluginActionInvocation[];
 };
 
 /**
@@ -36,6 +39,7 @@ export async function sendAgentRuntimeTurn({
   images,
   modeOverride,
   configOverrides,
+  pluginActions,
 }: AgentRuntimeTurnInput): Promise<ConversationTurnSnapshot> {
   return conversationApi.startTurn({
     agentId: agentTypeFromExecutor(executorProfileId.executor),
@@ -46,5 +50,6 @@ export async function sendAgentRuntimeTurn({
     images,
     modeOverride: modeOverride ?? null,
     configOverrides: configOverrides ?? [],
+    pluginActions: pluginActions ?? [],
   });
 }

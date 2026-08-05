@@ -4,6 +4,7 @@ import {
   buildQueuedFollowUp,
   getSubmitShortcutAction,
 } from './sessionComposerSubmit';
+import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
 export function useSessionComposerSubmitActions({
   localMessage,
@@ -36,7 +37,8 @@ export function useSessionComposerSubmitActions({
   queueMessage: (
     message: string,
     executorProfileId: ExecutorProfileId,
-    images?: string[]
+    images?: string[],
+    pluginActions?: SessionComposerPluginActionInvocation[]
   ) => Promise<void> | void;
   onAfterQueueCleanup: () => void | Promise<void>;
   onSendFollowUp: () => void;
@@ -57,7 +59,8 @@ export function useSessionComposerSubmitActions({
     await queueMessage(
       queuedFollowUp.message,
       queuedFollowUp.executorProfile,
-      queuedFollowUp.images
+      queuedFollowUp.images,
+      queuedFollowUp.pluginActions
     );
     await onAfterQueueCleanup();
   }, [

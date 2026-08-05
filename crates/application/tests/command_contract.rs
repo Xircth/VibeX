@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use application::{
     ApplicationCore, ApplicationDomainPort, CommandRegistry, ConversationRepository, DomainCommand,
     Principal, RegisteredCommand,
@@ -10,6 +12,23 @@ use uuid::Uuid;
 struct EmptyConversations;
 
 struct CatalogDomain;
+
+#[test]
+fn plugin_skill_configuration_is_registered_as_a_write_command() {
+    let command = DomainCommand::from_str("plugin_skills_configure")
+        .expect("plugin Skill configuration command");
+
+    assert_eq!(command, DomainCommand::PluginSkillsConfigure);
+    assert_eq!(command.required_scope(), "plugin.write");
+}
+
+#[test]
+fn agent_skill_listing_is_available_through_the_application_domain() {
+    let command = "list_agent_skills"
+        .parse::<DomainCommand>()
+        .expect("agent Skill listing should parse");
+    assert_eq!(command.required_scope(), "application.call");
+}
 
 #[async_trait]
 impl ApplicationDomainPort for CatalogDomain {

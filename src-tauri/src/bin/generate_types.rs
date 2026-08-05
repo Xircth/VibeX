@@ -26,13 +26,14 @@ use agents::{
         ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
         ConversationFileLocation, ConversationInputBlock, ConversationPermissionRequest,
         ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
-        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRowOp,
-        ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
-        ConversationSessionNotice, ConversationSummary, ConversationTerminalPatch,
-        ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-        ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData,
-        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationPluginActionInvocation, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationRowOp, ConversationRowOpBatch,
+        ConversationRowPage, ConversationSessionModes, ConversationSessionNotice,
+        ConversationSummary, ConversationTerminalPatch, ConversationTerminalView,
+        ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
+        ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn, PlanEntry,
+        SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
+        TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -445,6 +446,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationDelegationView>(&mut decls);
     insert_declaration::<ConversationArtifactReference>(&mut decls);
     insert_declaration::<ConversationArtifactPreviewReference>(&mut decls);
+    insert_declaration::<ConversationPluginActionInvocation>(&mut decls);
     insert_declaration::<ConversationEvent>(&mut decls);
     insert_declaration::<ConversationEventEnvelope>(&mut decls);
     insert_declaration::<ConversationPermissionView>(&mut decls);

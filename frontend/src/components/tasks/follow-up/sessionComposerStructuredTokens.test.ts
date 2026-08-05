@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deleteSessionComposerStructuredToken,
   formatSessionComposerCommand,
+  getSessionComposerPluginActionInvocations,
   getSessionComposerStructuredTokenSegments,
   getSessionComposerStructuredTokens,
   insertFileReferenceToken,
@@ -10,7 +11,7 @@ import {
 } from './sessionComposerStructuredTokens';
 
 describe('session composer structured commands', () => {
-  it('formats file, slash, dollar, and tag commands with the explicit command contract', () => {
+  it('formats file, slash, dollar, tag, and plugin action commands with the explicit command contract', () => {
     expect(
       formatSessionComposerCommand({
         type: '@',
@@ -39,6 +40,13 @@ describe('session composer structured commands', () => {
         value: '#bug',
       })
     ).toBe('[#:bug](#bug)');
+    expect(
+      formatSessionComposerCommand({
+        type: '!',
+        key: 'vibex.office/create-presentation',
+        value: 'Create a presentation',
+      })
+    ).toBe('[!:vibex.office/create-presentation](Create a presentation)');
   });
 
   it('escapes command keys and values without exposing escape text in the chip', () => {
@@ -204,6 +212,25 @@ describe('session composer structured commands', () => {
       value: 'Review now',
       caretOffset: 'Review '.length,
     });
+  });
+
+  it('retains unique PluginAction identities separately from editable prompt text', () => {
+    const action = formatSessionComposerCommand({
+      type: '!',
+      key: 'vibex.office/create-presentation|创建 PPT',
+      value: '',
+    });
+    const message = `${action}Edit this prompt ${action}`;
+
+    expect(getSessionComposerPluginActionInvocations(message)).toEqual([
+      {
+        pluginId: 'vibex.office',
+        actionId: 'create-presentation',
+      },
+    ]);
+    expect(serializeSessionComposerBackendMessage(message)).toBe(
+      'Edit this prompt '
+    );
   });
 
   it('does not delete an unconfirmed legacy-style command as a whole token', () => {

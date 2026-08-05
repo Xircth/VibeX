@@ -1,4 +1,5 @@
 import type { ExecutorProfileId } from 'shared/types';
+import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
 export const QUEUE_STATUS_QUERY_KEY = 'queue-status';
 
@@ -12,6 +13,7 @@ export type QueueMutationInput = {
   message: string;
   images: string[];
   executorProfileId: ExecutorProfileId;
+  pluginActions: SessionComposerPluginActionInvocation[];
 };
 
 export type CancelQueueMutationInput = {
@@ -28,6 +30,7 @@ export type QueuedMessage = {
   data: {
     message: string;
     images: string[];
+    pluginActions?: SessionComposerPluginActionInvocation[];
   };
 };
 
@@ -51,11 +54,13 @@ export function buildQueueMutationInput({
   message,
   images,
   executorProfileId,
+  pluginActions = [],
 }: {
   sessionId: string | undefined;
   message: string;
   images: string[];
   executorProfileId: ExecutorProfileId;
+  pluginActions?: SessionComposerPluginActionInvocation[];
 }): QueueMutationInput | null {
   if (!sessionId) return null;
 
@@ -64,6 +69,7 @@ export function buildQueueMutationInput({
     message,
     images,
     executorProfileId,
+    pluginActions,
   };
 }
 

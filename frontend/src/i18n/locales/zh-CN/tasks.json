@@ -357,6 +357,8 @@
     }
   },
   "pluginActions": {
+    "invokeMenuTitle": "调用插件",
+    "noMatches": "没有匹配的插件动作。",
     "loadingAria": "Plugin actions 加载状态",
     "loading": "正在加载 Office 快捷工作流",
     "retry": "重试加载快捷工作流",

@@ -40,7 +40,6 @@ import {
   selectConfigOptionValue,
 } from './follow-up/SessionConfigOptionSelectors';
 import { SessionComposerInput } from './follow-up/SessionComposerInput';
-import { ComposerPluginActions } from './follow-up/ComposerPluginActions';
 import { AgentMentionProvider } from './follow-up/AgentMention';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
@@ -98,7 +97,7 @@ import {
   codexGoalEntriesFromConversation,
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
-import { tauriBackendTransport } from '@/lib/backendTransport';
+import { configuredBackendTransport } from '@/lib/backendTransport';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -783,12 +782,8 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
-          <ComposerPluginActions
-            key={sessionId ?? workspaceId}
-            transport={tauriBackendTransport}
-          />
           <AgentMentionProvider
-            transport={tauriBackendTransport}
+            transport={configuredBackendTransport}
             conversationId={sessionId}
           >
             <SessionComposerInput
@@ -804,6 +799,7 @@ export function TaskFollowUpSection({
                 repoIds: repos.map((repo) => repo.id),
                 executorProfile: effectiveExecutorProfile,
                 sessionId,
+                transport: configuredBackendTransport,
               }}
               images={attachedImages}
               onSubmit={handleSubmitShortcut}

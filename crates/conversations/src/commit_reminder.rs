@@ -130,6 +130,7 @@ pub async fn start_commit_reminder_if_needed(
                 executor_profile_id: None,
                 text: prompt,
                 images: Vec::new(),
+                plugin_actions: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
             },

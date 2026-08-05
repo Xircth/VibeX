@@ -13,14 +13,24 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Image, Loader2, TriangleAlert, X } from 'lucide-react';
+import { Image, Loader2, Puzzle, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { TypeaheadMenu } from '@/components/ui/wysiwyg/plugins/typeahead-menu-components';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
-import { fileTreeApi, repoApi, skillsApi } from '@/lib/api';
+import {
+  fileTreeApi,
+  repoApi,
+  skillsApi,
+  type AgentSkillsListResult,
+} from '@/lib/api';
+import {
+  configuredBackendTransport,
+  type BackendTransport,
+} from '@/lib/backendTransport';
+import { createPluginApi } from '@/lib/api/plugins';
 import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
 import {
   agentAvailableCommandsToSlashCommands,
@@ -58,6 +68,7 @@ import {
   referenceResultsToTypeaheadOptions,
   rootEntriesToFileReferenceOptions,
   slashCommandsToTypeaheadOptions,
+  pluginActionsToTypeaheadOptions,
   type ComposerTypeaheadOption,
 } from './sessionComposerTypeaheadOptions';
 import {
@@ -90,6 +101,7 @@ export type SessionComposerInputContext = {
   projectId?: string;
   executorProfile?: ExecutorProfileId | null;
   availableCommands?: AgentAvailableCommand[];
+  transport?: BackendTransport;
 };
 
 type SessionComposerInputProps = {
@@ -548,6 +560,7 @@ export function SessionComposerInput({
     projectId,
     executorProfile,
     availableCommands = [],
+    transport = configuredBackendTransport,
   } = context ?? {};
   const editorRef = useRef<HTMLDivElement | null>(null);
   const renderedEditorHtmlRef = useRef<string | null>(null);
@@ -600,6 +613,39 @@ export function SessionComposerInput({
     workspaceId,
     repoId,
   });
+  const pluginApi = useMemo(() => createPluginApi(transport), [transport]);
+  const {
+    data: pluginCatalog,
+    isLoading: isPluginCatalogLoading,
+    isFetching: isPluginCatalogFetching,
+  } = useQuery({
+    queryKey: ['session-composer-plugin-actions', transport.environment],
+    queryFn: () => pluginApi.catalog(),
+    enabled: typeaheadTrigger === '!',
+    staleTime: 5_000,
+  });
+  const {
+    data: pluginAgentSkills,
+    isLoading: isPluginAgentSkillsLoading,
+    isFetching: isPluginAgentSkillsFetching,
+  } = useQuery({
+    queryKey: [
+      'session-composer-plugin-agent-skills',
+      transport.environment,
+      executor,
+    ],
+    queryFn: () =>
+      transport.call('list_agent_skills', {
+        agentType: executor!,
+        workspacePath: null,
+      }) as Promise<AgentSkillsListResult>,
+    enabled: typeaheadTrigger === '!' && !!executor,
+    staleTime: 0,
+  });
+  const hostedPluginSkillIds = useMemo(
+    () => new Set(pluginAgentSkills?.skills.map((skill) => skill.id) ?? []),
+    [pluginAgentSkills]
+  );
   const { data: localSkills = [] } = useQuery({
     queryKey: ['local-agent-skills', 'codex'],
     queryFn: () => skillsApi.listLocal('codex'),
@@ -690,6 +736,14 @@ export function SessionComposerInput({
       );
     }
 
+    if (typeaheadState.trigger === '!') {
+      return pluginActionsToTypeaheadOptions(
+        pluginCatalog,
+        typeaheadQuery,
+        hostedPluginSkillIds
+      );
+    }
+
     if (typeaheadState.trigger === '@' && typeaheadQuery.trim() === '') {
       if (!initialRootEntries) return [];
       return rootEntriesToFileReferenceOptions(initialRootEntries);
@@ -708,7 +762,9 @@ export function SessionComposerInput({
     allSlashCommands,
     agentMentions.candidates,
     executor,
+    hostedPluginSkillIds,
     initialRootEntries,
+    pluginCatalog,
     referenceResults,
     typeaheadQuery,
     typeaheadState,
@@ -724,6 +780,13 @@ export function SessionComposerInput({
     ((typeaheadTrigger === '@' || typeaheadTrigger === '#') &&
       isSearchingReferences) ||
     (typeaheadTrigger === '&' && agentMentions.loading);
+  const pluginTypeaheadLoading =
+    typeaheadTrigger === '!' &&
+    (isPluginCatalogLoading ||
+      isPluginCatalogFetching ||
+      isPluginAgentSkillsLoading ||
+      isPluginAgentSkillsFetching);
+  const isAnyTypeaheadLoading = isTypeaheadLoading || pluginTypeaheadLoading;
   const shouldShowTypeahead =
     !!typeaheadState &&
     (typeaheadOptions.length > 0 ||
@@ -732,20 +795,23 @@ export function SessionComposerInput({
       typeaheadTrigger === '@' ||
       typeaheadTrigger === '#' ||
       typeaheadTrigger === '&' ||
+      typeaheadTrigger === '!' ||
       (typeaheadTrigger === '/' && !!executor));
   const typeaheadEmptyText = useMemo(() => {
-    if (isTypeaheadLoading) {
+    if (isAnyTypeaheadLoading) {
       if (typeaheadTrigger === '@') return 'Searching files...';
       if (typeaheadTrigger === '#') return 'Searching tags...';
       if (typeaheadTrigger === '&') return t('agentMention.loading');
+      if (typeaheadTrigger === '!') return t('pluginActions.loading');
       return 'Loading commands...';
     }
 
     if (typeaheadTrigger === '@') return 'No matching files found.';
     if (typeaheadTrigger === '#') return 'No matching tags found.';
     if (typeaheadTrigger === '&') return t('agentMention.noMatches');
+    if (typeaheadTrigger === '!') return t('pluginActions.noMatches');
     return 'No matching commands found.';
-  }, [isTypeaheadLoading, t, typeaheadTrigger]);
+  }, [isAnyTypeaheadLoading, t, typeaheadTrigger]);
 
   useEffect(() => {
     return () => {
@@ -1114,7 +1180,7 @@ export function SessionComposerInput({
             return;
           }
 
-          if (isTypeaheadLoading) {
+          if (isAnyTypeaheadLoading) {
             event.preventDefault();
             event.stopPropagation();
             return;
@@ -1170,7 +1236,7 @@ export function SessionComposerInput({
       closeTypeahead,
       commitTypeaheadOption,
       disabled,
-      isTypeaheadLoading,
+      isAnyTypeaheadLoading,
       onChange,
       onSubmit,
       selectedTypeaheadIndex,
@@ -1300,6 +1366,12 @@ export function SessionComposerInput({
       {shouldShowTypeahead && editorRef.current
         ? createPortal(
             <TypeaheadMenu anchorEl={editorRef.current}>
+              {typeaheadTrigger === '!' ? (
+                <TypeaheadMenu.Header>
+                  <Puzzle className="h-3.5 w-3.5 text-primary" />
+                  <span>{t('pluginActions.invokeMenuTitle')}</span>
+                </TypeaheadMenu.Header>
+              ) : null}
               {typeaheadTrigger === '&' &&
               agentMentions.capability === 'unsupported' ? (
                 <TypeaheadMenu.Header>

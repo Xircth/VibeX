@@ -22,6 +22,11 @@ import type {
   ExecutorProfileId,
 } from 'shared/types';
 
+export type ConversationPluginActionInvocation = {
+  pluginId: string;
+  actionId: string;
+};
+
 export type ConversationStartTurnRequest = {
   agentId: AgentId;
   workspaceId: string;
@@ -31,6 +36,7 @@ export type ConversationStartTurnRequest = {
   images?: string[];
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];
+  pluginActions?: ConversationPluginActionInvocation[];
 };
 
 export type ConversationCreateRequest = {

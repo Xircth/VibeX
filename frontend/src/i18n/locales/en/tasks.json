@@ -357,6 +357,8 @@
     }
   },
   "pluginActions": {
+    "invokeMenuTitle": "Invoke plugin",
+    "noMatches": "No matching plugin actions.",
     "loadingAria": "Plugin actions loading state",
     "loading": "Loading Office workflows",
     "retry": "Retry loading workflows",

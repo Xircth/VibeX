@@ -785,17 +785,16 @@ impl TurnLauncherPort for TauriTurnLauncher {
         let mut plugins = Vec::new();
         let mut tool_locks = Vec::new();
         for action in &spec.plugin_actions {
-            let manifest = state.office_runtime.bundled_plugin();
-            if action.plugin_id.as_str() != manifest.id.as_str() {
-                return Err(RunError::Launcher(format!(
-                    "plugin {} is unavailable",
-                    action.plugin_id.as_str()
-                )));
-            }
             state
                 .office_runtime
-                .resolve_bundled_action(action.action.id.as_str())
+                .resolve_bundled_action_for_agent(
+                    action.plugin_id.as_str(),
+                    action.action.id.as_str(),
+                    spec.agent.agent_id.as_str(),
+                )
+                .await
                 .map_err(|error| RunError::Launcher(error.to_string()))?;
+            let manifest = state.office_runtime.bundled_plugin();
             plugins.push(ComponentVersionEvidence {
                 id: manifest.id.as_str().to_string(),
                 version: manifest.version.clone(),
@@ -908,6 +907,14 @@ impl TurnLauncherPort for TauriTurnLauncher {
                     images: Vec::new(),
                     mode_override: spec.mode_id.clone(),
                     config_overrides: spec.config_values.clone(),
+                    plugin_actions: spec
+                        .plugin_actions
+                        .iter()
+                        .map(|invocation| agents::ConversationPluginActionInvocation {
+                            plugin_id: invocation.plugin_id.as_str().to_owned(),
+                            action_id: invocation.action.id.as_str().to_owned(),
+                        })
+                        .collect(),
                 },
                 conversations::commit_reminder::AUTOMATION_ORIGIN,
             )

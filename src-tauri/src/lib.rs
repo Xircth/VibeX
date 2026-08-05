@@ -756,6 +756,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             commands::file_tree::search_workspace_text,
             // Office preview (OfficeCLI) commands
             commands::office_tools::plugin_action_catalog,
+            commands::office_tools::plugin_skills_configure,
             commands::office_tools::office_plugin_set_enabled,
             commands::office_tools::officecli_detect,
             commands::office_tools::officecli_install,

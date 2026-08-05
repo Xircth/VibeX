@@ -284,6 +284,21 @@ pub fn plugin_action_catalog(state: State<'_, AppState>) -> Result<OfficePluginC
 }
 
 #[tauri::command]
+pub async fn plugin_skills_configure(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    apps: Vec<String>,
+    all_agents: bool,
+    link: bool,
+) -> Result<Vec<agents::skills::LocalSkill>, AppError> {
+    state
+        .office_runtime
+        .configure_bundled_skills(&plugin_id, apps, all_agents, link)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
 pub async fn office_plugin_set_enabled(
     state: State<'_, AppState>,
     enabled: bool,

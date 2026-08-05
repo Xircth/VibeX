@@ -73,11 +73,13 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog(),
+            DomainCommand::PluginSkillsConfigure => self.configure_plugin_skills(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
             DomainCommand::AgentManagementBar => self.agent_management_bar().await,
             DomainCommand::AgentCapabilityCatalog => self.agent_capability_catalog(args).await,
+            DomainCommand::AgentSkillsList => self.agent_skills(args).await,
             DomainCommand::UserSystemInfo => self.user_system_info().await,
             DomainCommand::OfficeCliInstall => self.install_office(args).await,
             DomainCommand::OfficeCliCancelInstall => self.cancel_office_install(args).await,
@@ -237,6 +239,14 @@ impl ServerApplicationDomains {
             .map_or(Ok(Value::Null), Ok)
     }
 
+    async fn agent_skills(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: AgentSkillsArgs = parse(args)?;
+        let result = agents::skills::list_agent_skills(args.agent_type, args.workspace_path)
+            .await
+            .map_err(internal_error)?;
+        serialize(result)
+    }
+
     async fn user_system_info(&self) -> Result<Value, ApplicationError> {
         let config = self.deployment.config().read().await.clone();
         Ok(json!({
@@ -282,6 +292,17 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         self.plugin_catalog()
+    }
+
+    async fn configure_plugin_skills(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: ConfigurePluginSkillsArgs = parse(args)?;
+        require_nonempty(&args.plugin_id, "pluginId")?;
+        let skills = self
+            .office
+            .configure_bundled_skills(&args.plugin_id, args.apps, args.all_agents, args.link)
+            .await
+            .map_err(internal_error)?;
+        serialize(skills)
     }
 
     async fn artifact_list(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -604,6 +625,16 @@ struct EnableOfficeArgs {
     task_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigurePluginSkillsArgs {
+    plugin_id: String,
+    #[serde(default)]
+    apps: Vec<String>,
+    all_agents: bool,
+    link: bool,
+}
+
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ArtifactListArgs {
@@ -664,6 +695,13 @@ struct RepoIdArgs {
 #[serde(rename_all = "camelCase")]
 struct AgentIdArgs {
     agent_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentSkillsArgs {
+    agent_type: String,
+    workspace_path: Option<String>,
 }
 
 #[derive(Deserialize)]

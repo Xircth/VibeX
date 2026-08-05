@@ -33,6 +33,12 @@ describe('sendAgentRuntimeTurn', () => {
       displayText: 'visible text',
       images: ['.vibe-images/screen.png'],
       modeOverride: 'plan',
+      pluginActions: [
+        {
+          pluginId: 'vibex.office',
+          actionId: 'create-presentation',
+        },
+      ],
     });
 
     expect(startTurnMock).toHaveBeenCalledWith({
@@ -48,6 +54,12 @@ describe('sendAgentRuntimeTurn', () => {
       images: ['.vibe-images/screen.png'],
       modeOverride: 'plan',
       configOverrides: [],
+      pluginActions: [
+        {
+          pluginId: 'vibex.office',
+          actionId: 'create-presentation',
+        },
+      ],
     });
   });
 
@@ -73,7 +85,11 @@ describe('sendAgentRuntimeTurn', () => {
     });
 
     expect(startTurnMock).toHaveBeenCalledWith(
-      expect.objectContaining({ modeOverride: null, configOverrides: [] })
+      expect.objectContaining({
+        modeOverride: null,
+        configOverrides: [],
+        pluginActions: [],
+      })
     );
   });
 });

@@ -1,12 +1,13 @@
 import { isAgentMentionCodeContext } from './AgentMention';
 
-export type SessionComposerCommandType = '@' | '/' | '$' | '#' | '&';
+export type SessionComposerCommandType = '@' | '/' | '$' | '#' | '&' | '!';
 
 export type SessionComposerStructuredTokenKind =
   | 'slash'
   | 'dollar'
   | 'file'
   | 'tag'
+  | 'plugin_action'
   | 'element'
   | 'agent_mention';
 
@@ -47,7 +48,13 @@ type PreviewElementTokenPayload = {
 const LEGACY_PREVIEW_ELEMENT_PREFIX = 'element:';
 const LEGACY_PREVIEW_ELEMENT_STORAGE_PREFIX =
   'vibex:session-composer-preview-element:';
-const COMMAND_TYPES = new Set<SessionComposerCommandType>(['@', '/', '$', '#']);
+const COMMAND_TYPES = new Set<SessionComposerCommandType>([
+  '@',
+  '/',
+  '$',
+  '#',
+  '!',
+]);
 
 function parseAgentMentionAt(
   source: string,
@@ -250,6 +257,23 @@ function createStructuredToken({
       label: `#${key}`,
       value,
       raw,
+    };
+  }
+
+  if (type === '!') {
+    const labelSeparator = key.indexOf('|');
+    const actionRef = labelSeparator >= 0 ? key.slice(0, labelSeparator) : key;
+    const actionLabel =
+      labelSeparator >= 0 ? key.slice(labelSeparator + 1) : null;
+    const actionId = actionRef.split('/').pop() ?? actionRef;
+    return {
+      kind: 'plugin_action',
+      type,
+      key: actionRef,
+      label: `!${actionLabel || actionId}`,
+      value,
+      raw,
+      title: actionRef,
     };
   }
 
@@ -609,6 +633,35 @@ export function serializeSessionComposerBackendMessage(value: string): string {
           : segment.token.value
     )
     .join('');
+}
+
+export type SessionComposerPluginActionInvocation = {
+  pluginId: string;
+  actionId: string;
+};
+
+export function getSessionComposerPluginActionInvocations(
+  value: string
+): SessionComposerPluginActionInvocation[] {
+  const seen = new Set<string>();
+  const invocations: SessionComposerPluginActionInvocation[] = [];
+
+  for (const segment of getSessionComposerStructuredTokenSegments(value)) {
+    if (segment.kind !== 'token' || segment.token.kind !== 'plugin_action') {
+      continue;
+    }
+
+    const separator = segment.token.key.indexOf('/');
+    if (separator <= 0 || separator === segment.token.key.length - 1) continue;
+    const pluginId = segment.token.key.slice(0, separator);
+    const actionId = segment.token.key.slice(separator + 1);
+    const identity = `${pluginId}\0${actionId}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    invocations.push({ pluginId, actionId });
+  }
+
+  return invocations;
 }
 
 function insertCommandToken({

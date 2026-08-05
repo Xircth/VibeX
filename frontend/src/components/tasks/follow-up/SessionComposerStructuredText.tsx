@@ -1,5 +1,5 @@
 import { forwardRef, type HTMLAttributes } from 'react';
-import { AtSign, Bot, Box, Command, File, Hash } from 'lucide-react';
+import { AtSign, Bot, Box, Command, File, Hash, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   SessionComposerStructuredToken,
@@ -10,7 +10,9 @@ export function getSessionComposerTokenChipTitle(
   token: SessionComposerStructuredToken
 ): string | undefined {
   if (token.kind === 'agent_mention') return token.title ?? token.value;
-  return token.kind === 'file' || token.kind === 'element'
+  return token.kind === 'file' ||
+    token.kind === 'element' ||
+    token.kind === 'plugin_action'
     ? (token.title ?? token.value)
     : undefined;
 }
@@ -20,34 +22,39 @@ export function getSessionComposerTokenChipClassName(
   className?: string
 ): string {
   const toneClassName =
-    token.kind === 'agent_mention'
-      ? 'session-composer-token-chip--agent border-border bg-muted text-foreground'
-      : token.kind === 'slash'
-        ? 'session-composer-token-chip--slash border-[hsl(var(--status-running)/0.35)] bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]'
-        : token.kind === 'dollar'
-          ? 'session-composer-token-chip--dollar border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
-          : token.kind === 'file'
-            ? 'session-composer-token-chip--file border-[hsl(var(--info)/0.35)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]'
-            : token.kind === 'element'
-              ? 'session-composer-token-chip--element border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
-              : 'session-composer-token-chip--tag border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
+    token.kind === 'plugin_action'
+      ? 'session-composer-token-chip--plugin border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
+      : token.kind === 'agent_mention'
+        ? 'session-composer-token-chip--agent border-border bg-muted text-foreground'
+        : token.kind === 'slash'
+          ? 'session-composer-token-chip--slash border-[hsl(var(--status-running)/0.35)] bg-[hsl(var(--status-running)/0.1)] text-[hsl(var(--status-running))]'
+          : token.kind === 'dollar'
+            ? 'session-composer-token-chip--dollar border-[hsl(var(--success)/0.35)] bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))]'
+            : token.kind === 'file'
+              ? 'session-composer-token-chip--file border-[hsl(var(--info)/0.35)] bg-[hsl(var(--info)/0.1)] text-[hsl(var(--info))]'
+              : token.kind === 'element'
+                ? 'session-composer-token-chip--element border-[hsl(var(--primary)/0.35)] bg-[hsl(var(--primary)/0.1)] text-primary'
+                : 'session-composer-token-chip--tag border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning))]';
   const hoverClassName =
-    token.kind === 'agent_mention'
-      ? 'hover:border-border hover:bg-accent'
-      : token.kind === 'file'
-        ? 'hover:border-[hsl(var(--info)/0.55)] hover:bg-[hsl(var(--info)/0.15)]'
-        : token.kind === 'element'
-          ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
-          : token.kind === 'slash'
-            ? 'hover:border-[hsl(var(--status-running)/0.55)] hover:bg-[hsl(var(--status-running)/0.15)]'
-            : token.kind === 'dollar'
-              ? 'hover:border-[hsl(var(--success)/0.55)] hover:bg-[hsl(var(--success)/0.15)]'
-              : 'hover:border-[hsl(var(--warning)/0.6)] hover:bg-[hsl(var(--warning)/0.15)]';
+    token.kind === 'plugin_action'
+      ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
+      : token.kind === 'agent_mention'
+        ? 'hover:border-border hover:bg-accent'
+        : token.kind === 'file'
+          ? 'hover:border-[hsl(var(--info)/0.55)] hover:bg-[hsl(var(--info)/0.15)]'
+          : token.kind === 'element'
+            ? 'hover:border-[hsl(var(--primary)/0.55)] hover:bg-[hsl(var(--primary)/0.15)]'
+            : token.kind === 'slash'
+              ? 'hover:border-[hsl(var(--status-running)/0.55)] hover:bg-[hsl(var(--status-running)/0.15)]'
+              : token.kind === 'dollar'
+                ? 'hover:border-[hsl(var(--success)/0.55)] hover:bg-[hsl(var(--success)/0.15)]'
+                : 'hover:border-[hsl(var(--warning)/0.6)] hover:bg-[hsl(var(--warning)/0.15)]';
 
   return cn(
     'inline-flex max-w-[220px] cursor-default select-none items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] leading-4 transition-colors',
     (token.kind === 'file' || token.kind === 'element') &&
       'pointer-events-auto',
+    token.kind === 'plugin_action' && 'mr-1',
     hoverClassName,
     toneClassName,
     className
@@ -61,15 +68,17 @@ export function SessionComposerTokenChip({
   token: SessionComposerStructuredToken;
 } & HTMLAttributes<HTMLSpanElement>) {
   const Icon =
-    token.kind === 'agent_mention'
-      ? Bot
-      : token.kind === 'file'
-        ? File
-        : token.kind === 'tag'
-          ? Hash
-          : token.kind === 'element'
-            ? Box
-            : Command;
+    token.kind === 'plugin_action'
+      ? Puzzle
+      : token.kind === 'agent_mention'
+        ? Bot
+        : token.kind === 'file'
+          ? File
+          : token.kind === 'tag'
+            ? Hash
+            : token.kind === 'element'
+              ? Box
+              : Command;
 
   return (
     <span

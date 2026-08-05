@@ -244,7 +244,7 @@ async fn ensure_import_turn(
     }
     let new_turn_id = Uuid::new_v4();
     let text_preview = match event {
-        ConversationEvent::UserTurnCreated { blocks } => blocks.iter().find_map(|block| {
+        ConversationEvent::UserTurnCreated { blocks, .. } => blocks.iter().find_map(|block| {
             if let ConversationInputBlock::Text { text } = block {
                 Some(text.as_str())
             } else {
@@ -383,6 +383,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "hello".to_string(),
                 }],
+                plugin_actions: Vec::new(),
             },
         )
         .await;

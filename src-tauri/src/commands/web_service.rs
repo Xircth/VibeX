@@ -479,6 +479,7 @@ async fn api_start_turn(
             images: request.images,
             mode_override: request.mode_override,
             config_overrides: request.config_overrides,
+            plugin_actions: Vec::new(),
         })
         .await;
     emit_events_after(

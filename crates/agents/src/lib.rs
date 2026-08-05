@@ -62,12 +62,12 @@ pub use conversation::{
     ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
     ConversationFileChangeSummary, ConversationFileLocation, ConversationInputBlock,
     ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
-    ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
-    ConversationSessionNotice, ConversationSummary, ConversationTerminalPatch,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-    ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn,
-    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-    TurnBlockedReason, TurnRole, TurnUsage,
+    ConversationPlanEntry, ConversationPluginActionInvocation, ConversationQuestionRequest,
+    ConversationQuestionResponse, ConversationSessionNotice, ConversationSummary,
+    ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+    ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
+    ConversationUsage, ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy,
+    SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,

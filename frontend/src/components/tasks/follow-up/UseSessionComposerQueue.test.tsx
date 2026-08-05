@@ -159,6 +159,7 @@ describe('useSessionComposerQueue', () => {
         text: 'queued text',
         images: ['vibe://queued'],
         executorProfileId: profile,
+        pluginActions: [],
       })
     );
     await waitFor(() =>

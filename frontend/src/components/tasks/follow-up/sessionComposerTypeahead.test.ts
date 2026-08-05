@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type SlashCommandDescription } from 'shared/types';
+import type { OfficePluginCatalog } from 'shared/types';
 import { DOLLAR_COMMANDS } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import {
@@ -17,6 +18,7 @@ import {
   rootEntriesToFileReferenceOptions,
   searchResultToTypeaheadOption,
   slashCommandsToTypeaheadOptions,
+  pluginActionsToTypeaheadOptions,
 } from './sessionComposerTypeaheadOptions';
 
 describe('session composer textarea typeahead', () => {
@@ -37,6 +39,33 @@ describe('session composer textarea typeahead', () => {
 
   it('does not match completed trigger text after whitespace', () => {
     expect(getTextareaTypeaheadState('use $plan now', 13)).toBeNull();
+  });
+
+  it.each(['调用 !', '调用 ！'])(
+    'opens plugin actions for a space followed by %s',
+    (value) => {
+      const state = getTextareaTypeaheadState(value, value.length);
+
+      expect(state?.trigger).toBe('!');
+      expect(state?.match.matchingString).toBe('');
+      expect(state?.match.replaceableString).toBe(value.slice(-1));
+    }
+  );
+
+  it.each(['!', '！', '调用!', '调用！'])(
+    'does not open plugin actions without a preceding space: %s',
+    (value) => {
+      expect(getTextareaTypeaheadState(value, value.length)).toBeNull();
+    }
+  );
+
+  it('supports filtering after the plugin action trigger', () => {
+    const value = '请 ！PPT';
+    const state = getTextareaTypeaheadState(value, value.length);
+
+    expect(state?.trigger).toBe('!');
+    expect(state?.match.matchingString).toBe('PPT');
+    expect(state?.match.replaceableString).toBe('！PPT');
   });
 
   it('does not match @ triggers inside preview element tokens', () => {
@@ -69,6 +98,80 @@ describe('session composer textarea typeahead', () => {
 });
 
 describe('session composer typeahead option derivation', () => {
+  it('maps only ready plugin actions into prompt-backed command tokens', () => {
+    const catalog = {
+      plugin: {
+        id: 'vibex.office',
+        name: 'Office',
+        version: '2.0.0',
+        membership: 'builtin',
+      },
+      actions: [
+        {
+          pluginId: 'vibex.office',
+          actionId: 'create-presentation',
+          label: '创建 PPT',
+          requiredSkills: ['office-pptx'],
+          requiredTools: ['officecli'],
+          promptBlocks: [
+            {
+              type: 'text',
+              text: '澄清受众与目标后，创建新的 PPTX 并验证输出。',
+            },
+          ],
+          artifactIntent: null,
+        },
+      ],
+      readiness: {
+        enabled: true,
+        dependency: {
+          id: 'officecli',
+          status: 'ready',
+          version: '1.0.0',
+          error: null,
+        },
+        skills: [
+          {
+            id: 'office-pptx',
+            status: 'ready',
+            version: null,
+            error: null,
+          },
+        ],
+        providers: [],
+        overall: 'ready',
+      },
+    } satisfies OfficePluginCatalog;
+
+    expect(
+      pluginActionsToTypeaheadOptions(catalog, 'PPT', new Set(['office-pptx']))
+    ).toEqual([
+      {
+        key: 'plugin-vibex.office-create-presentation',
+        label: '!创建 PPT',
+        description: '澄清受众与目标后，创建新的 PPTX 并验证输出。',
+        insertText: `${formatSessionComposerCommand({
+          type: '!',
+          key: 'vibex.office/create-presentation|创建 PPT',
+          value: '',
+        })}澄清受众与目标后，创建新的 PPTX 并验证输出。`,
+      },
+    ]);
+
+    expect(
+      pluginActionsToTypeaheadOptions(
+        {
+          ...catalog,
+          readiness: { ...catalog.readiness, enabled: false },
+        },
+        '',
+        new Set(['office-pptx'])
+      )
+    ).toEqual([]);
+
+    expect(pluginActionsToTypeaheadOptions(catalog, '', new Set())).toEqual([]);
+  });
+
   it('filters slash commands and keeps commands before skills', () => {
     const commands: SlashCommandDescription[] = [
       {

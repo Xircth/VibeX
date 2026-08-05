@@ -53,6 +53,15 @@ pub struct StartConversationTurn {
     pub images: Vec<String>,
     pub mode_override: Option<String>,
     pub config_overrides: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationPluginActionInvocation {
+    pub plugin_id: String,
+    pub action_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]

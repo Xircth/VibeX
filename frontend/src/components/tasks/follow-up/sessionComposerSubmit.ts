@@ -4,7 +4,11 @@ import {
   clearComposerImageAttachments,
   type SessionComposerImageAttachment,
 } from './sessionComposerImages';
-import { serializeSessionComposerBackendMessage } from './sessionComposerStructuredTokens';
+import {
+  getSessionComposerPluginActionInvocations,
+  serializeSessionComposerBackendMessage,
+  type SessionComposerPluginActionInvocation,
+} from './sessionComposerStructuredTokens';
 
 export type SubmitShortcutAction = 'send' | 'queue' | 'none';
 
@@ -183,6 +187,7 @@ export function buildQueuedFollowUp({
   message: string;
   images: string[];
   executorProfile: ExecutorProfileId;
+  pluginActions: SessionComposerPluginActionInvocation[];
 } | null {
   if (!executorProfile) return null;
   if (
@@ -205,6 +210,7 @@ export function buildQueuedFollowUp({
     message: prompt,
     images,
     executorProfile,
+    pluginActions: getSessionComposerPluginActionInvocations(message),
   };
 }
 

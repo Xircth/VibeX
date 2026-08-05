@@ -31,6 +31,16 @@ pub enum TurnRole {
     System,
 }
 
+/// Auditable identity of a plugin-owned workflow selected for a conversation turn.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConversationPluginActionInvocation {
+    pub plugin_id: String,
+    pub action_id: String,
+}
+
 /// Token accounting for a single turn.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
@@ -634,6 +644,8 @@ pub enum ConversationEvent {
     },
     UserTurnCreated {
         blocks: Vec<ConversationInputBlock>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        plugin_actions: Vec<ConversationPluginActionInvocation>,
     },
     UserTurnQueued,
     UserTurnStarted,
@@ -1038,6 +1050,15 @@ mod event_sourced_tests {
     #[test]
     fn conversation_event_round_trips_coverage_cases() {
         let events = vec![
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "create slides".to_string(),
+                }],
+                plugin_actions: vec![ConversationPluginActionInvocation {
+                    plugin_id: "vibex.office".to_string(),
+                    action_id: "create-presentation".to_string(),
+                }],
+            },
             ConversationEvent::QuestionRequested {
                 request: ConversationQuestionRequest {
                     question_id: "q1".to_string(),
@@ -1107,6 +1128,21 @@ mod event_sourced_tests {
             ConversationEvent::DelegationStarted {
                 delegation: ConversationDelegation { agent_id, .. }
             } if agent_id.as_str() == "codex"
+        ));
+    }
+
+    #[test]
+    fn legacy_user_turn_without_plugin_actions_remains_deserializable() {
+        let event: ConversationEvent = serde_json::from_value(serde_json::json!({
+            "kind": "user_turn_created",
+            "blocks": [{ "kind": "text", "text": "hello" }]
+        }))
+        .expect("legacy user turn should remain readable");
+
+        assert!(matches!(
+            event,
+            ConversationEvent::UserTurnCreated { plugin_actions, .. }
+                if plugin_actions.is_empty()
         ));
     }
 }

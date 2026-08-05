@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HotkeysProvider } from 'react-hotkeys-hook';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InstructionsSettings } from './InstructionsSettings';
@@ -30,6 +31,8 @@ const mocks = vi.hoisted(() => ({
   installSkill: vi.fn(),
   setSkillHosting: vi.fn(),
   uninstallSkill: vi.fn(),
+  pluginCatalog: vi.fn(),
+  configurePluginSkills: vi.fn(),
 }));
 
 vi.mock('@/features/agent-management', () => ({
@@ -65,6 +68,13 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+vi.mock('@/lib/api/plugins', () => ({
+  pluginV2Api: {
+    catalog: mocks.pluginCatalog,
+    configureSkills: mocks.configurePluginSkills,
+  },
+}));
+
 const savedInstruction = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   name: 'review_changes',
@@ -76,11 +86,16 @@ const savedInstruction = {
   updated_at: '2026-08-03T00:00:00Z',
 };
 
-function renderSettings(settings: ReactElement) {
+function renderSettings(
+  settings: ReactElement,
+  initialEntries = ['/settings']
+) {
   return render(
-    <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
-      {settings}
-    </HotkeysProvider>
+    <MemoryRouter initialEntries={initialEntries}>
+      <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
+        {settings}
+      </HotkeysProvider>
+    </MemoryRouter>
   );
 }
 
@@ -213,6 +228,57 @@ describe('SkillsSettings', () => {
         value.mockReset();
     }
     mocks.searchSkills.mockResolvedValue([]);
+    mocks.scanSkills.mockResolvedValue([]);
+    mocks.agentOptions = [{ value: 'codex', label: 'Codex' }];
+  });
+
+  it('assigns every skill from an enabled plugin to selected Agents', async () => {
+    const user = userEvent.setup();
+    mocks.agentOptions = [
+      { value: 'codex', label: 'Codex' },
+      { value: 'claude_code', label: 'Claude Code' },
+    ];
+    const pluginSkills = ['office-pptx', 'office-docx', 'office-xlsx'];
+    mocks.pluginCatalog.mockResolvedValue({
+      plugin: { id: 'vibex.office', name: 'Office' },
+      readiness: {
+        skills: pluginSkills.map((id) => ({ id, status: 'ready' })),
+      },
+    });
+    mocks.scanSkills.mockResolvedValue(
+      pluginSkills.map((id) => ({
+        id,
+        name: id,
+        description: null,
+        group: 'office',
+        global: false,
+        apps: ['codex'],
+        path: `/tmp/${id}/SKILL.md`,
+      }))
+    );
+    mocks.configurePluginSkills.mockResolvedValue([]);
+
+    renderSettings(<SkillsSettings />, [
+      '/settings/skills?plugin=vibex.office',
+    ]);
+
+    expect(
+      await screen.findByRole('heading', { name: '配置 Office Skill' })
+    ).toBeVisible();
+    expect(await screen.findByText('分配 Agent')).toBeVisible();
+    expect(await screen.findByLabelText('Codex')).toBeChecked();
+    expect(await screen.findByLabelText('Claude Code')).not.toBeChecked();
+    await user.click(screen.getByLabelText('Claude Code'));
+    await user.click(screen.getByRole('button', { name: '保存 Agent 分配' }));
+
+    await waitFor(() => {
+      expect(mocks.configurePluginSkills).toHaveBeenCalledWith({
+        pluginId: 'vibex.office',
+        apps: ['codex', 'claude_code'],
+        allAgents: false,
+        link: false,
+      });
+    });
   });
 
   it('reads, retargets, and uninstalls a locally hosted skill', async () => {

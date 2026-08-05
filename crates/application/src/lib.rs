@@ -10,10 +10,10 @@ mod principal;
 
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
-    ApplicationCore, CancelConversationTurn, ConversationExecutionPort, ConversationRepository,
-    ConversationSubscriptionRegistrar, CreateConversation, ListConversations,
-    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
-    StartConversationTurn,
+    ApplicationCore, CancelConversationTurn, ConversationExecutionPort,
+    ConversationPluginActionInvocation, ConversationRepository, ConversationSubscriptionRegistrar,
+    CreateConversation, ListConversations, RespondConversationPermission,
+    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
 };
 pub use conversation_execution::ConversationSessionExecutionPort;
 pub use conversations::ConversationTurnSnapshot;

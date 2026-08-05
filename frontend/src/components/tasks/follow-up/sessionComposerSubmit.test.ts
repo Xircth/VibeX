@@ -308,6 +308,7 @@ describe('session composer submit helpers', () => {
       message: 'conflicts\n\nreview\n\ncontinue',
       images: ['vibe://image-1'],
       executorProfile: profile,
+      pluginActions: [],
     });
 
     expect(
@@ -322,6 +323,7 @@ describe('session composer submit helpers', () => {
       message: '/status',
       images: [],
       executorProfile: profile,
+      pluginActions: [],
     });
 
     expect(
@@ -363,6 +365,35 @@ describe('session composer submit helpers', () => {
       message: 'Review src/App.tsx with $plan',
       images: [],
       executorProfile: profile,
+      pluginActions: [],
+    });
+  });
+
+  it('retains PluginAction identity when queueing editable action text', () => {
+    const action = formatSessionComposerCommand({
+      type: '!',
+      key: 'vibex.office/create-presentation|创建 PPT',
+      value: '',
+    });
+
+    expect(
+      buildQueuedFollowUp({
+        message: `${action}生成季度复盘`,
+        conflictMarkdown: null,
+        reviewMarkdown: '',
+        images: [],
+        executorProfile: profile,
+      })
+    ).toEqual({
+      message: '生成季度复盘',
+      images: [],
+      executorProfile: profile,
+      pluginActions: [
+        {
+          pluginId: 'vibex.office',
+          actionId: 'create-presentation',
+        },
+      ],
     });
   });
 

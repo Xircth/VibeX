@@ -8,11 +8,13 @@ use crate::{ApplicationError, Principal};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DomainCommand {
     PluginActionCatalog,
+    PluginSkillsConfigure,
     ProjectList,
     ProjectRepositories,
     RepoBranches,
     AgentManagementBar,
     AgentCapabilityCatalog,
+    AgentSkillsList,
     UserSystemInfo,
     OfficeCliInstall,
     OfficeCliCancelInstall,
@@ -40,11 +42,13 @@ impl DomainCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PluginActionCatalog => "plugin_action_catalog",
+            Self::PluginSkillsConfigure => "plugin_skills_configure",
             Self::ProjectList => "get_projects",
             Self::ProjectRepositories => "get_project_repositories",
             Self::RepoBranches => "get_repo_branches",
             Self::AgentManagementBar => "agent_management_bar",
             Self::AgentCapabilityCatalog => "agent_capability_catalog",
+            Self::AgentSkillsList => "list_agent_skills",
             Self::UserSystemInfo => "get_user_system_info",
             Self::OfficeCliInstall => "officecli_install",
             Self::OfficeCliCancelInstall => "officecli_cancel_install",
@@ -77,6 +81,7 @@ impl DomainCommand {
             | Self::RepoBranches
             | Self::AgentManagementBar
             | Self::AgentCapabilityCatalog
+            | Self::AgentSkillsList
             | Self::UserSystemInfo => "application.call",
             Self::ArtifactList => "artifact.read",
             Self::ArtifactOpenPreview | Self::ArtifactClosePreview => "artifact.preview",
@@ -88,7 +93,8 @@ impl DomainCommand {
             | Self::AutomationUnseenFailures => "automation.read",
             Self::OfficeCliInstall
             | Self::OfficeCliCancelInstall
-            | Self::OfficePluginSetEnabled => "plugin.write",
+            | Self::OfficePluginSetEnabled
+            | Self::PluginSkillsConfigure => "plugin.write",
             Self::AutomationCreate
             | Self::AutomationUpdate
             | Self::AutomationSetEnabled
@@ -107,11 +113,13 @@ impl FromStr for DomainCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         [
             Self::PluginActionCatalog,
+            Self::PluginSkillsConfigure,
             Self::ProjectList,
             Self::ProjectRepositories,
             Self::RepoBranches,
             Self::AgentManagementBar,
             Self::AgentCapabilityCatalog,
+            Self::AgentSkillsList,
             Self::UserSystemInfo,
             Self::OfficeCliInstall,
             Self::OfficeCliCancelInstall,

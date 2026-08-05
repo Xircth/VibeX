@@ -8,7 +8,7 @@ import {
 import type { SessionComposerStructuredTokenSegment } from './sessionComposerStructuredTokens';
 import { matchAgentMentionTrigger } from './AgentMention';
 
-export type TextareaTypeaheadTrigger = '/' | '$' | '@' | '#' | '&';
+export type TextareaTypeaheadTrigger = '/' | '$' | '@' | '#' | '&' | '!';
 
 export type TextareaTypeaheadState = {
   trigger: TextareaTypeaheadTrigger;
@@ -24,7 +24,20 @@ const MATCHERS: Record<
   '@': matchFileReferenceTrigger,
   '#': matchTagReferenceTrigger,
   '&': matchAgentMentionTrigger,
+  '!': matchPluginActionTrigger,
 };
+
+function matchPluginActionTrigger(text: string): TypeaheadTriggerMatch | null {
+  const match = / ([!！])([^\s!！]*)$/.exec(text);
+  if (!match) return null;
+
+  const replaceableString = `${match[1]}${match[2]}`;
+  return {
+    leadOffset: text.length - replaceableString.length,
+    matchingString: match[2],
+    replaceableString,
+  };
+}
 
 export function getTextareaTypeaheadState(
   value: string,
@@ -65,7 +78,7 @@ function getMatchState(
   textBeforeCaret: string,
   rawStartOffset: number
 ): TextareaTypeaheadState | null {
-  for (const trigger of ['/', '$', '@', '#', '&'] as const) {
+  for (const trigger of ['/', '$', '@', '#', '&', '!'] as const) {
     const match = MATCHERS[trigger](textBeforeCaret);
     if (match) {
       return {

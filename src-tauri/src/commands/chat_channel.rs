@@ -1802,6 +1802,7 @@ async fn send_task(
             images: Vec::new(),
             mode_override: None,
             config_overrides: Vec::new(),
+            plugin_actions: Vec::new(),
         })
         .await;
 

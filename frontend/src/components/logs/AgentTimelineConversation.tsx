@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -53,7 +53,11 @@ import {
 import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
-import { useOptionalConversationStatus } from '@/contexts/ConversationStatusContext';
+import {
+  useOptionalConversationStatus,
+  type ConversationStatusNotice,
+} from '@/contexts/ConversationStatusContext';
+import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
 import {
   resolveResendExecutorProfile,
   useActiveExecutorProfile,
@@ -200,6 +204,8 @@ function ConversationSideRows({
   onRespondQuestion,
   respondingQuestionId,
   onOpenChild,
+  isStatusDismissed,
+  onDismissStatus,
 }: {
   rows: TimelineRow[];
   showSessionNotices: boolean;
@@ -209,18 +215,29 @@ function ConversationSideRows({
   ) => void;
   respondingQuestionId: string | null;
   onOpenChild?: (childConversationId: string) => void;
+  isStatusDismissed: (notice: ConversationStatusNotice) => boolean;
+  onDismissStatus: (notice: ConversationStatusNotice) => void;
 }) {
   const { t } = useTranslation(['conversation']);
   // turn_error renders as the standalone TurnErrorCard; file_change_summary is
   // anchored inline at the end of its own turn (TurnFileChangesCard); pending
   // permission requests dock at the bottom of the stream instead.
-  const visibleRows = rows.filter(
-    (entry) =>
-      entry.row.kind !== 'turn_error' &&
-      entry.row.kind !== 'file_change_summary' &&
-      entry.row.kind !== 'permission_request' &&
-      (showSessionNotices || entry.row.kind !== 'session_notice')
-  );
+  const visibleRows = rows.filter((entry) => {
+    if (
+      entry.row.kind === 'turn_error' ||
+      entry.row.kind === 'file_change_summary' ||
+      entry.row.kind === 'permission_request'
+    ) {
+      return false;
+    }
+    if (entry.row.kind !== 'session_notice') return true;
+    if (!showSessionNotices) return false;
+    return !isStatusDismissed({
+      id: entry.row_id,
+      kind: 'session-notice',
+      notice: entry.row.notice,
+    });
+  });
   if (visibleRows.length === 0) return null;
 
   return (
@@ -287,17 +304,33 @@ function ConversationSideRows({
         }
         if (row.kind === 'session_notice') {
           const copy = getConversationSessionNoticeCopy(row.notice, t);
+          const notice: ConversationStatusNotice = {
+            id: entry.row_id,
+            kind: 'session-notice',
+            notice: row.notice,
+          };
           return (
             <div
-              key={`notice-${index}`}
-              className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+              key={`notice-${entry.row_id}`}
+              className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
             >
-              <div className="font-medium text-foreground">{copy.title}</div>
-              {copy.message ? (
-                <div className="mt-1 whitespace-pre-wrap break-words">
-                  {copy.message}
-                </div>
-              ) : null}
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-foreground">{copy.title}</div>
+                {copy.message ? (
+                  <div className="mt-1 whitespace-pre-wrap break-words">
+                    {copy.message}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                onClick={() => onDismissStatus(notice)}
+                title={t('statusDock.dismiss')}
+                aria-label={t('statusDock.dismiss')}
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           );
         }
@@ -353,6 +386,8 @@ const AgentTimelineConversation = forwardRef<
   const detailLoading = conversation.loading;
   const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
+  const { dismiss: dismissStatus, isDismissed: isStatusDismissed } =
+    useConversationStatusDismissal(sessionId);
   useEffect(() => {
     if (conversationError) toast.error(conversationError);
   }, [conversationError]);
@@ -418,6 +453,14 @@ const AgentTimelineConversation = forwardRef<
   const latestTurnError =
     latestTurnErrorRow?.row.kind === 'turn_error'
       ? latestTurnErrorRow.row.error.error
+      : null;
+  const latestTurnErrorNotice: ConversationStatusNotice | null =
+    latestTurnError && latestTurnErrorRow
+      ? {
+          id: latestTurnErrorRow.row_id,
+          kind: 'turn-error',
+          error: latestTurnError,
+        }
       : null;
   const latestSessionNoticeRow = sideRows
     .filter((entry) => entry.row.kind === 'session_notice')
@@ -958,10 +1001,13 @@ const AgentTimelineConversation = forwardRef<
       ) : (
         <div className="conv-thread-shell relative mx-auto w-full max-w-6xl">
           <div className="conv-thread-content min-w-0">
-            {latestTurnError && !usesComposerStatusDock ? (
+            {latestTurnErrorNotice &&
+            !usesComposerStatusDock &&
+            !isStatusDismissed(latestTurnErrorNotice) ? (
               <TurnErrorCard
-                error={latestTurnError}
+                error={latestTurnErrorNotice.error}
                 onReload={conversationResetAndReload}
+                onDismiss={() => dismissStatus(latestTurnErrorNotice)}
               />
             ) : null}
             <ConversationSideRows
@@ -970,6 +1016,8 @@ const AgentTimelineConversation = forwardRef<
               onRespondQuestion={handleRespondQuestion}
               respondingQuestionId={respondingQuestionId}
               onOpenChild={handleOpenChild}
+              isStatusDismissed={isStatusDismissed}
+              onDismissStatus={dismissStatus}
             />
             <div
               ref={virtualListRef}

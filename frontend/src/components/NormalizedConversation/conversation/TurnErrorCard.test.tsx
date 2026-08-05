@@ -92,4 +92,17 @@ describe('TurnErrorCard', () => {
     expect(screen.getByText('会话出错')).toBeInTheDocument();
     expect(screen.getByText('something failed')).toBeInTheDocument();
   });
+
+  it('allows a timeline error to be dismissed', () => {
+    const onDismiss = vi.fn();
+    render(
+      <TurnErrorCard
+        error={err({ code: 'connection_closed' })}
+        onDismiss={onDismiss}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
 });

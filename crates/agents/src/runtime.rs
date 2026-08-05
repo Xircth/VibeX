@@ -571,6 +571,10 @@ impl AgentRuntime {
                         && connection.snapshot.workspace_id == input.workspace_id
                         && connection.snapshot.working_dir
                             == input.working_dir.display().to_string()
+                        && !state.sessions.values().any(|session| {
+                            session.snapshot.connection_id == connection.snapshot.id
+                                && session.queue.active().is_some()
+                        })
                 })
                 .map(|connection| connection.snapshot.id)
                 .collect::<Vec<_>>();
@@ -2428,6 +2432,73 @@ mod tests {
         assert_eq!(snapshot.connections.len(), 1);
         assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(snapshot.sessions[0].id, session_id);
+    }
+
+    #[tokio::test]
+    async fn preparing_another_session_does_not_reuse_a_connection_with_an_active_turn() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let working_dir = PathBuf::from("C:/shared-workspace");
+        let active_session_id = AgentSessionId::new();
+        let active_session = runtime
+            .ensure_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: working_dir.clone(),
+                additional_directories: Vec::new(),
+                session_id: active_session_id,
+                acp_session_id: "active-acp-session".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Hold the connection command stream open without completing the prompt,
+        // matching a real ACP turn that is still in progress.
+        let (holding_tx, _holding_rx) = mpsc::channel(4);
+        runtime
+            .connection_manager
+            .replace_command_sender(active_session.connection_id, holding_tx)
+            .await;
+        let active_prompt = runtime
+            .send_prompt(SendAgentPromptInput {
+                connection_id: active_session.connection_id,
+                session_id: active_session.id,
+                blocks: vec![AgentContentBlock::Text {
+                    text: "keep working".to_string(),
+                }],
+                mode_override: None,
+                config_overrides: Vec::new(),
+            })
+            .await
+            .unwrap();
+
+        let new_session_id = AgentSessionId::new();
+        let prepared = tokio::time::timeout(
+            Duration::from_millis(100),
+            runtime.prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir,
+                additional_directories: Vec::new(),
+                session_id: new_session_id,
+                acp_session_id: format!("pending-{new_session_id}"),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            }),
+        )
+        .await
+        .expect("new session preparation must not block behind the active turn")
+        .expect("new session preparation should use another connection");
+
+        assert_ne!(prepared.session.connection_id, active_session.connection_id);
+        let snapshot = runtime.snapshot().await;
+        assert!(snapshot.prompts.iter().any(|prompt| {
+            prompt.id == active_prompt.id && matches!(prompt.status, AgentPromptStatus::Running)
+        }));
     }
 
     #[tokio::test]

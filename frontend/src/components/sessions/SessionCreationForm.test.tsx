@@ -142,6 +142,9 @@ function renderForm(
   const result = render(form(executor, mode), { wrapper: Wrapper });
   return {
     ...result,
+    client,
+    form,
+    Wrapper,
     switchExecutor: (selectedExecutor: typeof executor) =>
       result.rerender(form(selectedExecutor, mode)),
   };
@@ -161,7 +164,10 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     capabilityCatalog.mockResolvedValue(CONTROLS);
     capabilityCatalogFresh.mockResolvedValue(true);
     refreshCapabilityCatalog.mockResolvedValue(true);
-    sessionDefaults.mockResolvedValue({ values: {}, staleIds: [] });
+    sessionDefaults.mockResolvedValue({
+      values: {},
+      staleIds: [],
+    });
     setSessionDefaults.mockResolvedValue(undefined);
     listRemoteSessions.mockResolvedValue({
       sessions: [],
@@ -307,6 +313,22 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     );
   });
 
+  it('does not present a legacy Session Mode override as a persisted Agent default', async () => {
+    renderForm('claude_code', vi.fn());
+    const user = userEvent.setup();
+
+    await screen.findByTestId('session-settings-summary');
+    await user.click(screen.getByTestId('session-settings-summary'));
+    await user.click(screen.getByText('sessionModeSelector.title'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Plan' }));
+
+    expect(
+      screen.queryByRole('button', {
+        name: 'sessionCreation.saveAgentDefaults',
+      })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows a matching default pill only while session controls differ from their initial values', async () => {
     renderForm('claude_code', vi.fn());
     const user = userEvent.setup();
@@ -340,6 +362,59 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         name: 'sessionCreation.saveAgentDefaults',
       })
     ).not.toBeInTheDocument();
+  });
+
+  it('reuses a newly saved Agent default when the create form is opened again', async () => {
+    const firstPreset = vi.fn();
+    const first = renderForm('claude_code', firstPreset);
+    const user = userEvent.setup();
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    await user.click(summary);
+    await user.click(screen.getByText('Model'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Opus' }));
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'sessionCreation.saveAgentDefaults',
+      })
+    );
+    await waitFor(() => expect(setSessionDefaults).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    const reopenedPreset = vi.fn();
+    render(
+      <SessionCreationForm
+        mode="existing_workspace"
+        onModeChange={() => {}}
+        workspaceBranchOptions={[WORKSPACE_OPTION]}
+        selectedWorkspaceValue={WORKSPACE_OPTION.value}
+        onSelectedWorkspaceValueChange={() => {}}
+        sessionName=""
+        onSessionNameChange={() => {}}
+        profiles={{}}
+        selectedExecutorProfile={{
+          executor: 'claude_code',
+          variant: null,
+        }}
+        onSelectedExecutorProfileChange={() => {}}
+        repoBranchConfigs={[]}
+        onRepoBranchChange={() => {}}
+        isLoadingBranches={false}
+        canSubmit={true}
+        isSubmitting={false}
+        onSubmit={() => {}}
+        onSessionControlsPresetChange={reopenedPreset}
+      />,
+      { wrapper: first.Wrapper }
+    );
+
+    await waitFor(() =>
+      expect(reopenedPreset).toHaveBeenLastCalledWith({
+        modeOverride: 'auto',
+        configOverrides: { model: 'opus', fast: 'false' },
+      })
+    );
+    expect(sessionDefaults).toHaveBeenCalledTimes(1);
   });
 
   it('hides the default pill when the user restores the initial session controls', async () => {

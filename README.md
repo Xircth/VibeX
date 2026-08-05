@@ -1,8 +1,8 @@
 # VibeX
 
 <p align="center">
-  <strong>IAE · Integrated Agent Environment</strong><br />
-  集成 Agent 平台，为 Vibe Coding 提供统一的 Agent、环境与协作入口。
+  <strong>IAP · Integrated Agent Platform</strong><br />
+  集成 Agent 平台，为 Vibe Coding 提供统一的 Agent、工具与协作入口。
 </p>
 
 <p align="center">
@@ -19,22 +19,25 @@
   <a href="#本地开发">本地开发</a>
 </p>
 
-![VibeX IAE：多种 Agent 接入统一开发环境](./docs/readme/iae-hero.svg)
+![VibeX IAP：多种 Agent 通过 ACP 接入统一调度内核](./docs/readme/iap-hero.svg)
 
 VibeX 将 Claude Code、Codex、OpenCode、Pi 与 ACP Registry Agent 接入同一套桌面环境。每种 Agent 共用统一的检测、安装、认证、配置、更新和会话管线。
 
 项目围绕三个核心目标构建：接入更多 Agent、隔离并行任务、集中完成开发交付。开发者可以在一个应用中组织会话、创建 worktree、委派子任务、检查代码，并使用浏览器、Git、终端和会话看板持续推进工作。
 
-> VibeX 仍处于快速迭代阶段。建议在重要仓库中启用版本控制，并在提交前检查 Agent 产生的变更。
+> [!IMPORTANT]
+> **本地运行与隐私**：VibeX 是纯本地的 Agent 托管应用，不设置 VibeX 云端数据托管，也不会自动将项目、会话、配置或诊断数据上传到 VibeX 服务器。
+>
+> **测试阶段提示**：VibeX 正处于测试阶段。请谨慎管理个人项目资料，使用版本控制并做好备份，在提交、同步或合并前检查 Agent 产生的变更。
+>
+> 所启用的 Agent、模型服务、MCP、插件、消息渠道与浏览器访问可能按配置连接第三方服务；相关数据处理遵循对应服务提供方的隐私政策。
 
-## IAE 核心能力
-
-![VibeX Agent 接入与能力分发架构](./docs/readme/agent-fabric.svg)
+## IAP 核心能力
 
 ### 多种 Agent，统一接入
 
 - **内置 Agent 档案**：优先支持 Claude Code、Codex、OpenCode 与 Pi。
-- **ACP Registry**：从官方 Registry 浏览并添加更多兼容 Agent。
+- **ACP Registry**：从 ACP 官方 Registry 浏览并添加更多兼容 Agent。
 - **统一生命周期**：集中展示 Runtime、ACP 适配器、版本、位置、认证、配置与诊断状态。
 - **本地 Runtime 复用**：检测并验证本机已有 CLI，兼容时直接接入。
 - **托管安装**：按版本安装缺失组件，记录安装锁，并提供更新、修复和卸载入口。
@@ -165,7 +168,7 @@ crates/          会话、自动化、插件、产物与服务模块
 shared/          从 Rust 生成的 TypeScript 类型
 ```
 
-VibeX 使用 Tauri、Rust 和 React 构建。应用数据主要保存在本机；Agent 请求的网络连接、模型数据处理和账户策略由所选 Agent 与其服务提供方决定。
+VibeX 使用 Tauri、Rust 和 React 构建。VibeX 管理的应用数据保存在本机，不会自动上传至 VibeX 服务器。所选 Agent、模型服务、MCP、插件、消息渠道与浏览器访问可能连接外部服务，其数据处理与账户策略由对应服务提供方决定。
 
 `shared/types.ts` 属于生成文件。修改共享 Rust 类型后请运行 `pnpm run generate-types`。
 

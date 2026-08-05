@@ -1,13 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import BranchSelector from '@/components/tasks/BranchSelector';
 import type { GitBranch } from 'shared/types';
@@ -53,21 +46,23 @@ const ChangeTargetBranchDialogImpl =
       };
 
       return (
-        <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('changeTargetBranch.title')}</DialogTitle>
-              <DialogDescription>
-                {t('changeTargetBranch.description')}
-              </DialogDescription>
-            </DialogHeader>
+        <Dialog
+          open={modal.visible}
+          onOpenChange={handleOpenChange}
+          className="sm:max-w-lg"
+        >
+          <DialogContent>
+            <DialogTitle className="sr-only">
+              {t('changeTargetBranch.title')}
+            </DialogTitle>
 
-            <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] sm:items-end">
               <div className="space-y-2">
                 <label htmlFor="base-branch" className="text-sm font-medium">
                   {t('changeTargetBranch.targetBranchLabel')}
                 </label>
                 <BranchSelector
+                  triggerId="base-branch"
                   branches={branches}
                   selectedBranch={selectedBranch}
                   onBranchSelect={setSelectedBranch}
@@ -75,25 +70,29 @@ const ChangeTargetBranchDialogImpl =
                   excludeCurrentBranch={false}
                 />
               </div>
-            </div>
 
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={handleCancel}
-                disabled={isChangingTargetBranch}
-              >
-                {t('common:cancel')}
-              </Button>
-              <Button
-                onClick={handleConfirm}
-                disabled={isChangingTargetBranch || !selectedBranch}
-              >
-                {isChangingTargetBranch
-                  ? t('changeTargetBranch.changing')
-                  : t('changeTargetBranch.changeBranch')}
-              </Button>
-            </DialogFooter>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={isChangingTargetBranch}
+                >
+                  {t('common:cancel')}
+                </Button>
+                <Button
+                  className="w-full"
+                  size="sm"
+                  onClick={handleConfirm}
+                  disabled={isChangingTargetBranch || !selectedBranch}
+                >
+                  {isChangingTargetBranch
+                    ? t('changeTargetBranch.changing')
+                    : t('changeTargetBranch.changeBranch')}
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       );

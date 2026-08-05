@@ -23,6 +23,7 @@ type Props = {
   branches: GitBranch[];
   selectedBranch: string | null;
   onBranchSelect: (branch: string) => void;
+  triggerId?: string;
   placeholder?: string;
   className?: string;
   excludeCurrentBranch?: boolean;
@@ -105,6 +106,7 @@ function BranchSelector({
   branches,
   selectedBranch,
   onBranchSelect,
+  triggerId,
   placeholder,
   className = '',
   excludeCurrentBranch = false,
@@ -210,6 +212,7 @@ function BranchSelector({
     >
       <DropdownMenuTrigger asChild>
         <Button
+          id={triggerId}
           variant="outline"
           size="sm"
           className={`w-full justify-between text-xs ${className}`}
@@ -228,9 +231,9 @@ function BranchSelector({
         <DropdownMenuContent
           side={dropdownSide}
           align="start"
-          sideOffset={1}
+          sideOffset={4}
           avoidCollisions={false}
-          className="w-80"
+          className="branch-selector-menu w-[var(--radix-dropdown-menu-trigger-width)]"
         >
           <div className="p-2">
             <div className="relative">

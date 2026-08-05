@@ -1337,8 +1337,7 @@ function LocalEditor({
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
             size="sm"
-            variant="outline"
-            className="text-destructive hover:text-destructive"
+            variant="destructive"
             disabled={removing}
             onClick={onUninstall}
           >

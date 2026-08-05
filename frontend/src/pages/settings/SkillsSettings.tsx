@@ -1213,8 +1213,8 @@ function LocalDetail({
         </div>
         <Button
           size="sm"
-          variant="outline"
-          className="shrink-0 text-destructive hover:text-destructive"
+          variant="destructive"
+          className="shrink-0"
           disabled={removing}
           onClick={onUninstall}
         >
@@ -1399,7 +1399,7 @@ function MarketDetail({
           type="button"
           onClick={copyCommand}
           title={t('skills.clickToCopy')}
-          className="flex w-full items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+          className="raised-control flex w-full items-center gap-2 px-3 py-2 text-left"
         >
           <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-foreground">
             {installCommand}

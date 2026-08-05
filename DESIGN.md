@@ -13,6 +13,8 @@ colors:
   panel-bg: "#ffffff"
   panel-translucent: "#ffffffe6"
   control-bg: "#0f172a0f"
+  raised-control-bg: "#f6f7f8"
+  raised-control-hover: "#f0f1f3"
   active-bg: "#dceafa"
   text-strong: "#1d2530"
   text-primary: "#46505b"
@@ -72,8 +74,8 @@ typography:
     lineHeight: 1.5
     letterSpacing: "0"
 rounded:
-  control: "6px"
-  card: "10px"
+  control: "14px"
+  card: "14px"
   panel: "14px"
   sidebar: "14px"
   pill: "999px"
@@ -100,6 +102,21 @@ components:
     rounded: "{rounded.control}"
     padding: "0 10px"
     height: "32px"
+  button-secondary:
+    backgroundColor: "{colors.raised-control-bg}"
+    hoverBackgroundColor: "{colors.raised-control-hover}"
+    border: "none"
+    shadow: "0 1px 1px #0d121c1f, 0 3px 6px #0d121c24"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+    height: "32px"
+  select-default:
+    backgroundColor: "{colors.raised-control-bg}"
+    border: "none"
+    shadow: "0 1px 1px #0d121c1f, 0 3px 6px #0d121c24"
+    rounded: "{rounded.control}"
+    padding: "0 10px"
+    height: "32px"
   input-default:
     backgroundColor: "{colors.control-bg}"
     textColor: "{colors.text-primary}"
@@ -112,7 +129,7 @@ components:
     rounded: "{rounded.card}"
     padding: "14px"
   sidebar-nav-row:
-    rounded: "10px"
+    rounded: "14px"
     height: "36px"
     selectedBackground: "{colors.primary}  # accent fill, white label"
 ---
@@ -135,6 +152,7 @@ The macOS contract is a two-layer model:
 VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`, blur materials). Every surface must degrade: when the OS reports reduced transparency, glass collapses to a solid panel; on Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
 
 **Key characteristics:**
+
 - Dense information, quiet surfaces, visible state.
 - Glass is structural, not decorative — chrome only, never content.
 - One calm system-blue accent, used only for selected / focused / primary / live.
@@ -157,7 +175,7 @@ Translucent, blurred, lightly saturated material that floats and lets the worksp
 
 Everything users read, edit, or scan. **No glass here.** Use opaque panels:
 
-- **Inset grouped lists / cards** (`.settings-surface`): solid `--surface-card-strong`, 1px hairline, `10px` corners, flat at rest. Rows are separated by inset hairlines; a row gains elevation only while dragged or actively hovered.
+- **Inset grouped lists / cards** (`.settings-surface`): solid `--surface-card-strong`, 1px hairline, `14px` corners, flat at rest. Rows are separated by inset hairlines; a row gains elevation only while dragged or actively hovered.
 - **Editors, tables, conversation, file tree, diffs**: opaque content background, hairline seams.
 
 ### Named Rules
@@ -175,14 +193,17 @@ Everything users read, edit, or scan. **No glass here.** Use opaque panels:
 A restrained, system-adaptive neutral palette with one calm blue accent and small semantic status colors. Brand comes from content, iconography, and the accent — not from replacing structure.
 
 ### Accent
+
 - **Workbench Blue** (`--primary`, ≈ `#5b8cc7`): the macOS selection-blue equivalent. Used for the selected sidebar row (accent fill, white label), focus rings, primary buttons, active navigation, live state, and drag targets.
 
 ### Semantic status
+
 - **Ayu Green** — success, passed checks, healthy terminal.
 - **Ayu Amber** — warning, queued, pending; attention without danger.
 - **Review Red** — destructive actions, failures, deleted diff state, irreversible warnings.
 
 ### Neutrals (tinted, never pure)
+
 - **Shell Mist** — the window backdrop behind the glass chrome.
 - **Panel White / Panel Strong** — opaque content surfaces.
 - **Control Wash** — quiet toolbar buttons, chips, inactive controls (a low-alpha ink tint).
@@ -224,6 +245,7 @@ user-configurable code-font setting.
 ## 5. Elevation, Corners & Motion
 
 ### Elevation
+
 Resting surfaces are flat with a 1px hairline. Shadow is reserved for things that genuinely float above another layer.
 
 - **Shell Shadow** (`0 18px 42px hsl(220 36% 8% / 0.16)`): floating sidebar, project rail, loading shells.
@@ -232,12 +254,16 @@ Resting surfaces are flat with a 1px hairline. Shadow is reserved for things tha
 - **Composer Shadow**: the persistent follow-up composer, slightly lifted from the right panel.
 
 ### Corners (continuous, macOS-leaning)
-- **Controls** (buttons, inputs, switches, chips): `6px`.
-- **Cards / grouped lists**: `10px`.
-- **Panels / sidebar / dialogs / composer**: `14px`.
+
+- **All standard surfaces and controls** (buttons, inputs, selects, chips, cards, grouped lists, panels, sidebar, dialogs, composer): `14px`.
 - **Status pills / avatars**: full radius.
 
+`--radius` is the single source of truth. Named Tailwind radius utilities map to
+that token; local numeric radii are not allowed. Full circles/pills and square
+structural seams are the only exceptions.
+
 ### Motion
+
 Motion communicates state, focus, and hierarchy — quietly. Ease-out curves (no bounce, no elastic), `120–180ms` for state changes, `200–260ms` for surface reveals. Stagger a list's own items if it helps; never apply one uniform entrance to every section. Honor `prefers-reduced-motion` with a crossfade or instant change, and never gate content visibility on a transition that could pause off-screen.
 
 ### Named Rules
@@ -249,32 +275,39 @@ Motion communicates state, focus, and hierarchy — quietly. Ease-out curves (no
 ## 6. Components
 
 ### Title bar / Window chrome
+
 Unified Liquid Glass strip, full drag region, hairline beneath. Keep it sparse: app mark + title, primary actions tinted, everything secondary demoted. On Windows the custom traffic-light controls live at the right; on macOS the OS owns the left. Settings is always reachable by keyboard.
 
 ### Sidebar
+
 A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a white label** (the macOS System Settings idiom). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
 
 ### Toolbars
+
 Group items by function and frequency; the primary action is visually distinct (tinted). Demote secondary actions into a "more" overflow menu rather than crowding the bar — a crowded toolbar is the signal to cut. Remove custom backgrounds/borders; let the glass layer and spacing do the work. Don't pair a text button and an icon button so tightly they read as one control.
 
 ### Inset grouped lists & cards (content)
-The workhorse content surface: an opaque `.settings-surface` card with a quiet header row and hairline-separated rows. Leading label, trailing control. `10–14px` corners, `12px` dense / `16px` comfortable padding. This is where settings, agent detail, and list content live.
+
+The workhorse content surface: an opaque `.settings-surface` card with a quiet header row and hairline-separated rows. Leading label, trailing control. `14px` corners, `12px` dense / `16px` comfortable padding. This is where settings, agent detail, and list content live.
 
 ### Controls
+
 - **Switch**: system-blue when on; clear off state; never the only signal for a meaningful change.
-- **Select / segmented**: compact, hairline border, low-opacity blue focus ring.
-- **Inputs / fields**: Control Wash background, 1px hairline, `6px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
+- **Secondary / outline buttons and selects**: borderless, very light cool-gray surface in light mode, compact control shadow, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow-led hierarchy.
+- **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
 
 ### Iconography
+
 Use crisp, consistent line icons (lucide) as SF-Symbols stand-ins for system concepts — one weight, aligned to the type baseline. Render brand agent marks in their brand color (`AgentTypeIcon`); single-color glyphs inherit `currentColor` so they adapt to light/dark. Only draw a custom glyph when the domain has no system equivalent, and keep it SF-like and labelled.
 
 ### Signature surfaces
+
 The **Composer Shell** (grounded, always-available action surface) and the **Agent bar** (icon-only, hover reveals the name, accent-filled when selected) are VibeX's signatures. Keep their surrounding controls quieter than the primary input and the selected agent.
 
 ## 7. Accessibility (designed in, not added later)
 
 - **Labels:** every icon-only control carries an `aria-label`/title (e.g. the agent bar buttons). Communicate state with icon + text + color together — never color alone.
-- **Keyboard:** everything operable without a pointer; visible focus rings on custom controls; standard editing shortcuts (copy/paste/undo) never overridden; a command palette *in addition* to menus.
+- **Keyboard:** everything operable without a pointer; visible focus rings on custom controls; standard editing shortcuts (copy/paste/undo) never overridden; a command palette _in addition_ to menus.
 - **Contrast:** body text ≥ 4.5:1, large text ≥ 3:1, including over glass; placeholders meet the same bar. Strengthen hairlines under `prefers-contrast: more`.
 - **Reduced transparency / motion:** glass collapses to solid panels; animations fall back to crossfade/instant. Both states must stay fully usable.
 - **Localization:** layouts absorb longer strings (the UI is bilingual today); never truncate meaning at default width.
@@ -282,15 +315,17 @@ The **Composer Shell** (grounded, always-available action surface) and the **Age
 ## 8. Do's and Don'ts
 
 ### Do
+
 - **Do** name a surface's layer (chrome vs content) before styling it; glass for chrome, opaque for content.
 - **Do** use the tokenized shell classes in `frontend/src/styles/legacy/index.css` before adding one-off Tailwind color stacks.
-- **Do** keep controls compact and consistent: `32px` controls, `6px` control radius, `10px` cards, `14px` panels.
+- **Do** keep controls compact and consistent: `32px` controls and one `14px` radius token across controls and surfaces.
 - **Do** express hierarchy through grouping, spacing, and hairlines — and delete any chrome added only for emphasis.
 - **Do** keep hover changes stable: change color, shadow, or a small transform; never size, border width, or text wrapping.
 - **Do** give every glass surface a reduced-transparency solid fallback.
 - **Do** keep settings, dialogs, Kanban, conversation, file tree, and preview controls aligned to the same radius, hairline, focus, and material rules.
 
 ### Don't
+
 - **Don't** put Liquid Glass on content (lists, tables, editors, conversation) or stack glass on glass.
 - **Don't** separate a section header from its own content with a full-width divider/underline (e.g. a `border-t` directly beneath a section title). It reads as a hard rule and looks cheap. Use spacing and grouping to relate a heading to its body; reserve hairline separators for between sibling rows in a grouped list, never between a title and the content it introduces.
 - **Don't** use generic AI-SaaS patterns: oversized cards, decorative gradients, glass panels as ornament, hero metrics, vague productivity claims.

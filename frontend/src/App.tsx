@@ -147,7 +147,7 @@ function MainWindowCloseToastBridge() {
           </button>
           <button
             type="button"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-muted px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
+            className="raised-control inline-flex h-11 items-center justify-center gap-2 px-3 text-sm font-medium"
             onClick={() => chooseBehavior('minimize')}
           >
             <Minimize2 className="h-4 w-4" />

@@ -161,7 +161,7 @@ export const GitCommitBox = memo(function GitCommitBox({
               )}
             </button>
             <button
-              className="flex items-center justify-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="raised-control flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!canCommit}
               onClick={onCommitAndPush}
               title="Commit and Push (Ctrl+Shift+Enter)"

@@ -186,7 +186,7 @@
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   color: var(--text-faint);
   font-size: 11px;
@@ -209,7 +209,7 @@
 .file-tree-search-details-input {
   min-width: 0;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--surface-secondary) 86%, transparent);
   color: var(--text-emphasis);
@@ -226,7 +226,7 @@
   flex: 0 0 auto;
   margin-left: auto;
   padding: 4px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border-color: color-mix(
     in srgb,
     var(--accent-500) 70%,
@@ -307,7 +307,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .file-tree-search-result-file:hover,
@@ -351,7 +351,7 @@
   gap: 8px;
   align-items: start;
   padding: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .file-tree-search-result-location {
@@ -402,7 +402,7 @@
   gap: 8px;
   min-width: 0;
   padding: 6px 8px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--surface-secondary) 86%, transparent);
   color: var(--text-faint);
@@ -432,7 +432,7 @@
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   color: var(--text-faint);
   font-size: 11px;
@@ -455,7 +455,7 @@
 .workspace-search-details-input {
   min-width: 0;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--surface-secondary) 86%, transparent);
   color: var(--text-emphasis);
@@ -504,7 +504,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .workspace-search-result-file:hover,
@@ -548,7 +548,7 @@
   gap: 8px;
   align-items: start;
   padding: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .workspace-search-result-location {
@@ -600,7 +600,7 @@
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
@@ -750,7 +750,7 @@
   width: calc(100% - 20px);
   margin-left: 20px;
   border: 1px dashed var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--status-error);
   font-size: 10px;
@@ -764,7 +764,7 @@
 }
 
 .file-preview-popover {
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -850,7 +850,7 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface-command);
   overflow: auto;
   max-height: 60vh;
@@ -860,7 +860,7 @@
   max-width: 100%;
   max-height: 58vh;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
 }
 
@@ -905,7 +905,7 @@
   min-height: 30px;
   font-size: 12px;
   line-height: 1.2;
-  border-radius: 10px;
+  border-radius: var(--radius);
 }
 
 .file-preview-action--add {
@@ -925,7 +925,7 @@
   flex-direction: column;
   gap: 0;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface-command);
   padding: 6px 0;
   font-family: var(--code-font-family);

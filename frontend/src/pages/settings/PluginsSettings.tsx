@@ -297,7 +297,7 @@ export function PluginsSettings({
 
           <ul
             aria-label={t('plugins.skillSetupListAria')}
-            className="overflow-hidden rounded-[10px] border border-border bg-card"
+            className="overflow-hidden rounded-lg border border-border bg-card"
           >
             {catalog?.readiness.skills.map((skill) => (
               <li

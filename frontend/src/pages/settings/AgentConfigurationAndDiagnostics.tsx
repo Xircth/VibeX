@@ -223,6 +223,7 @@ function ConfigField({
           <select
             id={inputId}
             aria-label={field.label}
+            className="raised-control"
             disabled={saving}
             value={value}
             onChange={(event) => onChange(event.target.value)}

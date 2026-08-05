@@ -861,7 +861,7 @@ export function BrowserPanel({
               level: zoomLevelForPercent(Number(event.target.value)),
             })
           }
-          className="h-7 w-[4.25rem] rounded-md border border-border bg-background px-1 text-[11px] text-foreground outline-none"
+          className="raised-control h-7 w-[4.25rem] px-1 text-[11px] text-foreground outline-none"
         >
           {ZOOM_PERCENTAGES.map((percent) => (
             <option key={percent} value={percent}>
@@ -877,7 +877,7 @@ export function BrowserPanel({
           onChange={(event) =>
             changeDevicePreset(event.target.value as DevicePresetId)
           }
-          className="h-7 w-[4.75rem] rounded-md border border-border bg-background px-1 text-[11px] text-foreground outline-none"
+          className="raised-control h-7 w-[4.75rem] px-1 text-[11px] text-foreground outline-none"
         >
           <option value="desktop">Desktop</option>
           <option value="tablet">Tablet</option>

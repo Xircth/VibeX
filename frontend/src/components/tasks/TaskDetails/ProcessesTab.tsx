@@ -284,19 +284,19 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
               <button
                 onClick={handleCopyLogs}
                 disabled={logs.length === 0}
-                className={`flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md border border-border transition-colors ${
+                className={`raised-control flex items-center gap-2 px-3 py-2 text-sm font-medium ${
                   copied
-                    ? 'text-success'
+                    ? '!text-success'
                     : logs.length === 0
-                      ? 'text-muted-foreground opacity-50 cursor-not-allowed'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                      ? 'cursor-not-allowed opacity-50'
+                      : ''
                 }`}
               >
                 {copied ? t('processesTab.copied') : t('processesTab.copyLogs')}
               </button>
               <button
                 onClick={() => setSelectedProcessId(null)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md border border-border transition-colors"
+                className="raised-control flex items-center gap-2 px-3 py-2 text-sm font-medium"
               >
                 <ArrowLeft className="h-4 w-4" />
                 {t('processesTab.backToList')}

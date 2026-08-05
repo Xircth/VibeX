@@ -94,7 +94,7 @@ const FeatureShowcaseDialogImpl = NiceModal.create<FeatureShowcaseDialogProps>(
                     {currentStage > 0 && (
                       <button
                         onClick={handlePrevious}
-                        className="inline-flex h-10 items-center justify-center gap-2 border border-input px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+                        className="raised-control inline-flex h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium"
                       >
                         <ChevronLeft className="h-4 w-4" />
                         {t('featureShowcase.previous')}

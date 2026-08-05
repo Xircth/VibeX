@@ -7,7 +7,7 @@
 .legacy-design {
   --conv-user-bg: hsl(var(--primary, 215 50% 55%));
   --conv-user-text: hsl(var(--primary-foreground, 0 0% 100%));
-  --conv-user-bubble-radius: 12px 12px 2px 12px;
+  --conv-user-bubble-radius: var(--radius);
 
   --conv-thinking-border: hsl(var(--primary, 215 50% 55%) / 0.42);
   --conv-thinking-bg: var(--surface-control);

@@ -103,7 +103,7 @@ export function AppUpdaterSection() {
         </div>
 
         {state === 'available' && update ? (
-          <div className="space-y-2 rounded-[10px] border border-border p-3">
+          <div className="space-y-2 rounded-lg border border-border p-3">
             <div className="text-sm font-medium">
               {t('appUpdater.newVersionFound', { version: update.version })}
             </div>

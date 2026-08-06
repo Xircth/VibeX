@@ -13,6 +13,7 @@ name is historical. Treat it as the active Tahoe app-design scope until the
 class and Tailwind config can be renamed safely.
 
 **Key CSS files:**
+
 - `src/styles/legacy/index.css` - current app-design token layer and Tailwind base.
 - `src/styles/conversation.css` - conversation compatibility island.
 - `src/styles/file-tree.css` - file tree compatibility island.
@@ -24,12 +25,14 @@ class and Tailwind config can be renamed safely.
 Dark/light mode is toggled via `.dark` on the root element.
 
 **Current variable conventions:**
+
 - App tokens: `--surface-*`, `--text-*`, `--border-*`, `--shadow-*`, plus
   shadcn-compatible `--background`, `--foreground`, `--border`, `--muted`, etc.
 - Conversation, file-tree, diff, syntax, and terminal variables are compatibility
   aliases. They should move toward the global token roles in `DESIGN.md`.
 
 **Rules:**
+
 - Use CSS variables or Tailwind token classes for product colors.
 - Reserve Liquid Glass for navigation and controls chrome only.
 - Keep content surfaces opaque.
@@ -48,8 +51,13 @@ Dark/light mode is toggled via `.dark` on the root element.
 
 ```tsx
 // Product UI should state its design role through tokens/classes.
-className="settings-surface rounded-[10px] text-foreground"
+className = 'settings-surface rounded-lg text-foreground';
 
 // Controls-layer overlays should share the app popover/dialog roles.
-className="dialog-surface text-popover-foreground"
+className = 'dialog-surface text-popover-foreground';
 ```
+
+All standard corner utilities resolve through `--radius` (`14px`). Use
+`rounded-full` only for true circles, avatars, and status pills. Secondary and
+outline actions plus selectors use the shared borderless raised-control tokens;
+do not recreate their fill or shadow locally.

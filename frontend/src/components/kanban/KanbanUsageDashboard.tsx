@@ -348,7 +348,7 @@ export function KanbanUsageDashboard() {
                     setSelectedTarget(nextTarget);
                   });
                 }}
-                className="h-7 appearance-none rounded-lg border border-border bg-background px-3 pr-7 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="raised-control h-7 appearance-none px-3 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="global">{t('usageDashboard.global')}</option>
                 {projects.map((project) => (
@@ -978,7 +978,7 @@ export function KanbanUsageDashboard() {
                       setSessionPage((prev) => Math.max(1, prev - 1))
                     }
                     disabled={sessionPage === 1}
-                    className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                    className="raised-control px-3 py-1 text-xs disabled:opacity-50"
                   >
                     {t('usageDashboard.prevPage')}
                   </button>
@@ -991,7 +991,7 @@ export function KanbanUsageDashboard() {
                       setSessionPage((prev) => Math.min(totalPages, prev + 1))
                     }
                     disabled={sessionPage === totalPages}
-                    className="rounded-lg border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                    className="raised-control px-3 py-1 text-xs disabled:opacity-50"
                   >
                     {t('usageDashboard.nextPage')}
                   </button>
@@ -1004,7 +1004,7 @@ export function KanbanUsageDashboard() {
 
       {tooltip.visible ? (
         <div
-          className="tahoe-popover fixed z-50 rounded-[14px] px-3 py-2"
+          className="tahoe-popover fixed z-50 rounded-lg px-3 py-2"
           style={{
             left: tooltip.x,
             top: tooltip.y - 80,

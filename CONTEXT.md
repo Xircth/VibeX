@@ -114,14 +114,21 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；允许 VibeX Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
 - **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
 - **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
-- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Codex、Claude Code、OpenCode 与 Pi，它们与其他 Agent 使用同一管线，可由档案声明本地管理补缺，但不保证彼此拥有相同的管理能力。
-- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、验证组合与本地管理补缺，但不能改变统一 Agent 管线的语义。
-- **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态与订阅可见性等管理能力；它不包含启动账号登录、注销、ACP 持久配置写入或会话内的模型、模式与推理配置。
+- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、Hermes、CodeBuddy、Kimi Code、Pi、Grok 与 Cursor。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅与 Provider 管理动作。
+- **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、依赖环境、验证组合、原生配置与白名单管理动作，但不能改变统一 Agent 管线的语义。
+- **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态、订阅入口、Provider 连接以及官方登录、注销和初始化动作。管理动作必须由 Built-in Agent Profile 完整声明，不能接受用户提供的程序、参数、URL 或任意 shell 文本。
+- **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；VibeX 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。
 - **Local management fallback（本地管理补缺）** — 当 ACP 未提供某项状态管理能力时，Built-in Agent Profile 可以提供的等价本地状态探测；同一状态能力由 ACP 优先。持久配置始终通过已适配的 Agent 原生配置文件编辑，不属于补缺切换。
-- **Subscription visibility（订阅可见性）** — 对 Agent 账户套餐、额度、用量与重置时间的只读呈现；购买、升级、降级和取消订阅不属于 VibeX 的 Agent 管理能力。
-- **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的只读判断：已通过账号登录、已通过 API Key 登录或暂未登录；账号登录与注销始终由官方 Agent 在 VibeX 外部完成。
-- **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有，并界定 VibeX 只能编辑其明确认识的 API Key 配置字段，不能登录、注销或删除外部环境凭据。
-- **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 VibeX 当前唯一允许编辑的持久配置来源。
+- **Subscription visibility（订阅可见性）** — 对 Agent 账户套餐、额度、用量与重置时间的呈现，并可由档案动作打开固定官方订阅页面；购买、升级、降级和取消仍由官方页面完成。
+- **Authentication status（认证状态）** — VibeX 对 Agent 当前认证来源的判断：已通过账号登录、已通过 API Key 登录或暂未登录；用户可从设置页显式启动 Built-in Agent Profile 声明的官方登录或注销流程。
+- **Credential ownership（凭据所有权）** — 表明认证凭据由 Agent Runtime 配置或用户外部环境中的哪一方持有。VibeX 可启动官方 Agent 的账号流程，也可编辑 Profile 明确认识的本地凭据字段或 Provider 文档，但不采集终端交互内容、不自动生成凭据，也不删除 Profile 范围外的外部环境凭据。
+- **Inline device authentication（页内设备认证）** — 只为已适配且固定端点的官方设备授权流程提供页内状态机；短期设备码可以穿过 IPC，访问令牌只能由 Rust 后端交换并直接写入 Agent 官方凭据文件，不能进入前端、数据库或诊断日志。当前仅适配 Codex。
+- **Agent authentication mode（Agent 鉴权模式）** — Grok/Cursor 等 Runtime 在订阅登录与显式密钥之间的用户选择；模式保存于 Agent 设置，预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。
+- **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。Provider 连接同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。
+- **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；VibeX 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
+- **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
+- **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
+- **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Gemini 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据；IPC 只暴露凭据是否存在，不回显密钥。绑定或更新已绑定预设时，后端把字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。

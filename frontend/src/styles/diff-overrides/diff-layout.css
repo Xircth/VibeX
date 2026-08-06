@@ -255,15 +255,15 @@
 }
 
 .diff-tailwindcss-wrapper .rounded-\[0\.2em\] {
-  border-radius: 0.2em;
+  border-radius: var(--radius);
 }
 
 .diff-tailwindcss-wrapper .rounded-\[2px\] {
-  border-radius: 2px;
+  border-radius: var(--radius);
 }
 
 .diff-tailwindcss-wrapper .rounded-md {
-  border-radius: 0.375rem;
+  border-radius: var(--radius);
 }
 
 .diff-tailwindcss-wrapper .border-l-\[1px\] {

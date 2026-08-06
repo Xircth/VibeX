@@ -88,7 +88,7 @@ function JourneySurface({ transport }: { transport: BackendTransport }) {
 
         <section
           aria-label="Web conversation"
-          className="rounded-[14px] border border-border bg-card p-4"
+          className="rounded-lg border border-border bg-card p-4"
         >
           <Button type="button" onClick={() => void startTurn()}>
             <Send className="mr-1.5 h-3.5 w-3.5" />
@@ -134,7 +134,7 @@ function JourneySurface({ transport }: { transport: BackendTransport }) {
 
         <section
           aria-label="Reconnect evidence"
-          className="rounded-[14px] border border-border bg-card p-4"
+          className="rounded-lg border border-border bg-card p-4"
         >
           <div className="flex items-center justify-between gap-3">
             <p role="status">{streamStatus}</p>

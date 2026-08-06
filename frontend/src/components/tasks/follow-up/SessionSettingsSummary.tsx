@@ -319,7 +319,7 @@ export function SessionSettingsSummary({
         side={dropdownSide}
         align="start"
         sideOffset={8}
-        className="w-[min(22rem,calc(100vw-2rem))] rounded-[1.15rem] border-border/60 bg-popover/95 p-1.5 shadow-[0_18px_45px_hsl(var(--foreground)/0.18)] backdrop-blur-2xl"
+        className="w-[min(22rem,calc(100vw-2rem))] rounded-lg border-border/60 bg-popover/95 p-1.5 shadow-[0_18px_45px_hsl(var(--foreground)/0.18)] backdrop-blur-2xl"
       >
         <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t('sessionSettings.title')}
@@ -395,7 +395,7 @@ function ModeRow({
       <DropdownMenuSubTrigger
         disabled={disabled}
         onClick={() => setOpen(true)}
-        className="rounded-[0.8rem] px-2.5 py-2 focus:bg-muted data-[state=open]:bg-muted"
+        className="rounded-lg px-2.5 py-2 focus:bg-muted data-[state=open]:bg-muted"
       >
         <span className="min-w-0 flex-1 text-sm font-semibold">
           {t('sessionModeSelector.title')}
@@ -404,7 +404,7 @@ function ModeRow({
           {activeMode?.label ?? t('sessionModeSelector.fallbackLabel')}
         </RowValue>
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="min-w-[13rem] rounded-[1rem] border-border/60 bg-popover/95 p-1.5 shadow-[0_16px_35px_hsl(var(--foreground)/0.16)] backdrop-blur-2xl">
+      <DropdownMenuSubContent className="min-w-[13rem] rounded-lg border-border/60 bg-popover/95 p-1.5 shadow-[0_16px_35px_hsl(var(--foreground)/0.16)] backdrop-blur-2xl">
         <DropdownMenuLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t('sessionModeSelector.title')}
         </DropdownMenuLabel>
@@ -417,7 +417,7 @@ function ModeRow({
                 setOpen(false);
                 onSelect(mode.id);
               }}
-              className="rounded-[0.7rem] px-2.5 py-2 text-sm"
+              className="rounded-lg px-2.5 py-2 text-sm"
               title={mode.description ?? undefined}
             >
               <span className="min-w-0 flex-1 truncate">{mode.label}</span>
@@ -431,7 +431,7 @@ function ModeRow({
               event.preventDefault();
               setDangerousOperationsAllowed(!dangerousOperationsAllowed);
             }}
-            className="mt-1 rounded-[0.7rem] border-t border-border/60 px-2.5 py-2 text-sm"
+            className="mt-1 rounded-lg border-t border-border/60 px-2.5 py-2 text-sm"
           >
             <span className="min-w-0 flex-1 text-muted-foreground">
               {t('sessionModeSelector.allowDangerousOperations')}
@@ -481,7 +481,7 @@ function ChoiceRow({
       <DropdownMenuSubTrigger
         disabled={disabled}
         onClick={() => setOpen(true)}
-        className="rounded-[0.8rem] px-2.5 py-2 focus:bg-muted data-[state=open]:bg-muted"
+        className="rounded-lg px-2.5 py-2 focus:bg-muted data-[state=open]:bg-muted"
       >
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">
           {row.option.label}
@@ -492,7 +492,7 @@ function ChoiceRow({
         className={cn(
           isEffortOption(row.option)
             ? 'w-auto max-w-none border-0 bg-transparent p-0 shadow-none'
-            : 'min-w-[13rem] rounded-[1rem] border-border/60 bg-popover/95 p-1.5 shadow-[0_16px_35px_hsl(var(--foreground)/0.16)] backdrop-blur-2xl'
+            : 'min-w-[13rem] rounded-lg border-border/60 bg-popover/95 p-1.5 shadow-[0_16px_35px_hsl(var(--foreground)/0.16)] backdrop-blur-2xl'
         )}
       >
         {isEffortOption(row.option) ? (
@@ -520,7 +520,7 @@ function ChoiceRow({
                     setOpen(false);
                     onSelect(row.option.key, choice.value);
                   }}
-                  className="rounded-[0.7rem] px-2.5 py-2 text-sm"
+                  className="rounded-lg px-2.5 py-2 text-sm"
                   title={choice.description ?? undefined}
                 >
                   <span className="min-w-0 flex-1 truncate">{choice.name}</span>
@@ -554,7 +554,7 @@ function ToggleRow({
         event.preventDefault();
         onSelect(row.option.key, checked ? toggleValues.off : toggleValues.on);
       }}
-      className="rounded-[0.8rem] px-2.5 py-2 text-sm"
+      className="rounded-lg px-2.5 py-2 text-sm"
     >
       <span className="min-w-0 flex-1 truncate font-semibold">
         {row.option.label}

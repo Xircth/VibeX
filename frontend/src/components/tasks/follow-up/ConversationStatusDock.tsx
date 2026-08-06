@@ -31,7 +31,7 @@ export function ConversationStatusDock({
       data-testid="conversation-status-dock"
       aria-live="polite"
     >
-      <div className="composer-status-surface overflow-hidden rounded-[10px]">
+      <div className="composer-status-surface overflow-hidden rounded-lg">
         {localError ? (
           <StatusSurface
             tone="error"

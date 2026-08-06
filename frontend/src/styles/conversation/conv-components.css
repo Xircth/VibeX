@@ -100,7 +100,7 @@
 
 .conv-assistant-msg {
   position: relative;
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 2px 0;
 }
 
@@ -172,7 +172,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 9px;
+  border-radius: var(--radius);
   font-size: 11px;
   font-weight: 600;
   background: var(--conv-surface-control);
@@ -215,7 +215,7 @@
   background: var(--conv-surface-control) !important;
   color: var(--conv-text-primary) !important;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 5px;
+  border-radius: var(--radius);
   padding: 1px 5px;
   font-size: 0.88em;
 }
@@ -224,7 +224,7 @@
 .conv-assistant-msg .editor-code {
   background: var(--conv-code-bg) !important;
   border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius) !important;
   padding: 12px 14px !important;
   margin: 8px 0 !important;
   overflow-x: auto;
@@ -248,7 +248,7 @@
 .conv-feedback-card {
   background: var(--conv-surface-control);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 10px 14px;
   font-size: 13px;
 }
@@ -267,7 +267,7 @@
 .conv-system-card {
   background: var(--conv-surface-card);
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 8px 12px;
   cursor: pointer;
   box-shadow: none;
@@ -289,7 +289,7 @@
 .conv-error-card {
   background: hsl(var(--destructive) / 0.06);
   border: 1px solid hsl(var(--destructive) / 0.32);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 8px 12px;
   cursor: pointer;
   box-shadow: none;
@@ -382,7 +382,7 @@
   gap: 6px;
   padding: 6px 10px;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--conv-surface-card);
   font-size: 13px;
   transition: background 0.15s;
@@ -458,7 +458,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: hsl(var(--background) / 0.56);
   padding: 10px 10px 10px 12px;
 }

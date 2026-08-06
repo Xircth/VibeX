@@ -25,7 +25,7 @@
     --_border: 240 2% 88%;
     --_input: 0 0% 83%;
     --_ring: 215 50% 55%;
-    --_radius: 0.5rem;
+    --_radius: 0.875rem;
 
     /* Status (light - Ayu) */
     --_success: 78 100% 35%;
@@ -225,6 +225,8 @@
     --surface-card-strong: hsl(0 0% 100% / 0.94);
     --surface-control: hsl(220 20% 20% / 0.06);
     --surface-control-hover: hsl(220 20% 20% / 0.1);
+    --surface-raised-control: hsl(220 14% 97%);
+    --surface-raised-control-hover: hsl(220 14% 95%);
     --surface-hover: hsl(220 20% 20% / 0.07);
     --surface-active: hsl(215 75% 58% / 0.16);
     --surface-page-solid: hsl(0 0% 94%);
@@ -242,6 +244,8 @@
     --shadow-glass:
       0 18px 42px hsl(220 36% 8% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.36);
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
+    --shadow-raised-control:
+      0 1px 1px hsl(220 36% 8% / 0.12), 0 3px 6px hsl(220 36% 8% / 0.14);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
     --status-running: var(--info);
@@ -297,6 +301,8 @@
     --surface-card-strong: hsl(220 18% 20% / 0.92);
     --surface-control: hsl(0 0% 100% / 0.07);
     --surface-control-hover: hsl(0 0% 100% / 0.12);
+    --surface-raised-control: hsl(220 18% 20%);
+    --surface-raised-control-hover: hsl(220 18% 23%);
     --surface-hover: hsl(0 0% 100% / 0.08);
     --surface-active: hsl(215 80% 64% / 0.18);
     --surface-page-solid: hsl(0 0% 11%);
@@ -314,6 +320,8 @@
     --shadow-glass:
       0 18px 42px hsl(220 48% 2% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.08);
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
+    --shadow-raised-control:
+      0 1px 1px hsl(220 48% 2% / 0.28), 0 3px 6px hsl(220 48% 2% / 0.34);
     --usage-pink: hsl(340 26% 24% / 0.6);
     --usage-pink-border: hsl(340 34% 66% / 0.22);
     --usage-pink-fg: hsl(342 55% 76%);
@@ -372,7 +380,7 @@
   :where(.legacy-design) input:not([type='checkbox']):not([type='radio']),
   :where(.legacy-design) textarea,
   :where(.legacy-design) select {
-    border-radius: calc(var(--radius) - 2px);
+    border-radius: var(--radius);
   }
 
   html,
@@ -427,7 +435,7 @@
 
   .settings-page .settings-card {
     border-color: var(--border-content);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
     box-shadow: none;
   }
@@ -510,7 +518,7 @@
     min-height: 2.25rem;
     padding: 0.25rem 0.5rem;
     border: 1px solid var(--border-content);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
   }
 
@@ -550,7 +558,7 @@
   .settings-page .settings-meta-chip,
   .settings-page .settings-kbd {
     border: 1px solid var(--border-content);
-    border-radius: 4px;
+    border-radius: var(--radius);
     background: var(--surface-control);
     color: var(--text-muted);
   }
@@ -578,7 +586,7 @@
   .settings-page .settings-status-pill-warning,
   .settings-page .settings-status-pill-danger {
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--radius);
   }
 
   .settings-page .settings-status-pill-neutral {
@@ -650,7 +658,7 @@
 
   .settings-page .settings-agent-strip {
     border: 1px solid var(--border-content);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
   }
 
@@ -688,7 +696,7 @@
 
   .settings-page .settings-message {
     border: 1px solid var(--border-content);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
   }
 
@@ -718,7 +726,7 @@
 
   .settings-page .settings-list-button {
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius);
     color: var(--text-primary);
   }
 
@@ -934,6 +942,33 @@
     color: var(--text-primary);
   }
 
+  .raised-control {
+    border: 0 !important;
+    border-radius: var(--radius) !important;
+    background: var(--surface-raised-control) !important;
+    box-shadow: var(--shadow-raised-control) !important;
+    color: var(--text-strong) !important;
+    transition:
+      color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .raised-control:hover:not(:disabled) {
+    background: var(--surface-raised-control-hover) !important;
+  }
+
+  .raised-control:focus-visible {
+    outline: none;
+    box-shadow:
+      var(--shadow-raised-control),
+      0 0 0 2px var(--focus-ring) !important;
+  }
+
+  select.raised-control:not([multiple]) {
+    appearance: auto;
+  }
+
   .workspace-shell {
     background:
       linear-gradient(180deg, var(--surface-shell), hsl(var(--background))),
@@ -1039,7 +1074,7 @@
   }
 
   .branch-info-current-branch:focus-visible {
-    border-radius: 4px;
+    border-radius: var(--radius);
     outline: 2px solid var(--focus-ring);
     outline-offset: 1px;
   }
@@ -1090,7 +1125,7 @@
     min-width: 0;
     align-items: center;
     gap: 4px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0 4px;
     color: var(--text-strong);
     font-family: var(--font-mono, monospace);
@@ -1111,7 +1146,7 @@
 
   .branch-info-action {
     height: 26px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     padding: 0 6px;
     color: var(--text-primary);
     font-size: 0.75rem;
@@ -1168,7 +1203,7 @@
   .workspace-toolbar-button {
     color: var(--text-muted);
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius);
     transition:
       background 150ms ease,
       border-color 150ms ease,
@@ -1235,7 +1270,7 @@
   .workspace-activity-button {
     color: var(--text-subtle);
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius);
     transition:
       background 150ms ease,
       border-color 150ms ease,
@@ -1283,7 +1318,7 @@
 
   .workspace-loading-panel {
     border: 1px solid var(--border-subtle);
-    border-radius: 14px;
+    border-radius: var(--radius);
     background: var(--surface-card);
     box-shadow: var(--shadow-shell);
   }
@@ -1331,7 +1366,7 @@
     height: 40px;
     margin-bottom: 18px;
     border: 1px solid hsl(var(--primary) / 0.28);
-    border-radius: 8px;
+    border-radius: var(--radius);
     color: hsl(var(--primary));
     background:
       linear-gradient(
@@ -1394,7 +1429,7 @@
     min-height: 72px;
     padding: 11px;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius);
     color: var(--text-primary);
     text-align: left;
     background: var(--surface-card);
@@ -1424,7 +1459,7 @@
     flex: 0 0 auto;
     width: 28px;
     height: 28px;
-    border-radius: 7px;
+    border-radius: var(--radius);
     color: hsl(var(--primary));
     background: hsl(var(--primary) / 0.1);
   }
@@ -1451,7 +1486,7 @@
   .workspace-welcome__artifact {
     overflow: hidden;
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background:
       linear-gradient(180deg, var(--surface-card-strong), var(--surface-card)),
       var(--surface-card);
@@ -1489,7 +1524,7 @@
     grid-template-columns: 24px minmax(0, 1fr);
     align-items: center;
     min-height: 34px;
-    border-radius: 7px;
+    border-radius: var(--radius);
     color: var(--welcome-muted);
     background: var(--surface-control);
   }
@@ -1648,8 +1683,8 @@
   .project-rail-shell {
     --project-rail-project-size: 44px;
     --project-rail-action-size: 42px;
-    --project-rail-control-radius: 14px;
-    --project-rail-action-radius: 13px;
+    --project-rail-control-radius: var(--radius);
+    --project-rail-action-radius: var(--radius);
     --project-rail-project-gap: 8px;
     --project-rail-action-gap: 8px;
     --project-rail-monogram-size: 14px;
@@ -1679,8 +1714,8 @@
   .project-rail-shell--inline {
     --project-rail-project-size: 31px;
     --project-rail-action-size: 30px;
-    --project-rail-control-radius: 10px;
-    --project-rail-action-radius: 9px;
+    --project-rail-control-radius: var(--radius);
+    --project-rail-action-radius: var(--radius);
     --project-rail-project-gap: 6px;
     --project-rail-action-gap: 6px;
     --project-rail-monogram-size: 10px;
@@ -1700,7 +1735,7 @@
     height: 100%;
     padding: 7px 6px 6px;
     border: 0;
-    border-radius: 20px;
+    border-radius: var(--radius);
     background: transparent;
     box-shadow: none;
   }
@@ -1754,7 +1789,7 @@
   .project-rail-project-button {
     width: var(--project-rail-project-size);
     height: var(--project-rail-project-size);
-    border-radius: var(--project-rail-control-radius);
+    border-radius: var(--radius);
     background: transparent;
   }
 
@@ -1775,7 +1810,7 @@
     height: var(--project-rail-project-size);
     place-items: center;
     overflow: hidden;
-    border-radius: var(--project-rail-control-radius);
+    border-radius: var(--radius);
     transition:
       background 140ms ease-out,
       border-color 140ms ease-out,
@@ -1939,7 +1974,7 @@
     width: var(--project-rail-action-size);
     height: var(--project-rail-action-size);
     flex: 0 0 var(--project-rail-action-size);
-    border-radius: var(--project-rail-action-radius);
+    border-radius: var(--radius);
   }
 
   .project-rail-action-button svg {
@@ -1964,7 +1999,7 @@
 
   .workspace-command-kbd {
     border: 1px solid var(--border-content);
-    border-radius: 4px;
+    border-radius: var(--radius);
     background: var(--surface-control);
     color: var(--text-muted);
   }
@@ -2006,7 +2041,7 @@
 
   .kanban-column-surface {
     border: 1px solid var(--border-subtle);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
     background-color: var(--surface-content);
     overflow: hidden;
@@ -2049,7 +2084,7 @@
   .session-hub-action-button {
     color: var(--text-muted);
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: transparent;
     box-shadow: none;
   }
@@ -2119,7 +2154,7 @@
   .kanban-usage-card,
   .kanban-usage-tab-rail {
     border: 1px solid var(--border-content);
-    border-radius: 8px;
+    border-radius: var(--radius);
     background: var(--surface-content);
     box-shadow: none;
   }
@@ -2294,7 +2329,7 @@
   .session-monitor-slot-2,
   .session-monitor-slot-3,
   .session-monitor-slot-4 {
-    border-radius: 8px;
+    border-radius: var(--radius);
     box-shadow: none;
   }
 
@@ -2320,7 +2355,7 @@
 
   /* 监控卡片错误态：会话报错时覆盖 Slot 配色，红色描边 + 浅红底，配合「失败」角标。 */
   .session-monitor-slot-error {
-    border-radius: 8px;
+    border-radius: var(--radius);
     border-color: hsl(var(--destructive) / 0.55);
     background: hsl(var(--destructive) / 0.07);
     box-shadow: none;
@@ -2400,7 +2435,7 @@
     align-items: center;
     gap: 4px;
     border: 1px solid var(--border-subtle);
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: var(--surface-control);
     padding: 0 10px;
     color: var(--text-strong);
@@ -2427,7 +2462,7 @@
     align-items: center;
     justify-content: center;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--text-muted);
     transition:
@@ -2493,7 +2528,7 @@
      region carries a faint diagonal blue wash from the top-left corner. */
   .settings-sidebar {
     border: 1px solid var(--border-subtle);
-    border-radius: 0.875rem;
+    border-radius: var(--radius);
     background:
       linear-gradient(145deg, #e2effc 0%, #f1f8fe 28%, transparent 52%),
       var(--surface-sidebar);

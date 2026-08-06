@@ -13,7 +13,7 @@
    assistant prose stays the visual focus. */
 .conv-tool-card {
   border: none !important;
-  border-radius: 8px !important;
+  border-radius: var(--radius) !important;
   background: transparent !important;
   transition: background 0.15s;
   font-size: 13px;
@@ -92,7 +92,7 @@
 /* Tool expanded details panel — flat like the collapsed card. */
 .conv-tool-details {
   border: none;
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 var(--radius) var(--radius);
   background: transparent;
   max-height: 400px;
   overflow-y: auto;
@@ -148,7 +148,7 @@
   background: var(--conv-terminal-bg);
   color: var(--conv-terminal-text);
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 8px 10px;
   font-family: var(
     --font-mono,
@@ -233,7 +233,7 @@
 
 .conv-assistant-command-output-prefix {
   border: 1px dashed var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--conv-surface-control);
   color: var(--conv-text-tertiary);
   padding: 8px 10px;
@@ -258,7 +258,7 @@
 .conv-thinking {
   border: 1px dashed var(--conv-border-subtle);
   background: var(--conv-surface-control);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 6px 10px;
   opacity: 0.9;
 }
@@ -457,7 +457,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--surface-card-strong);
   box-shadow: none;
   color: var(--conv-text-primary);
@@ -508,7 +508,7 @@
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--conv-text-tertiary);
 }

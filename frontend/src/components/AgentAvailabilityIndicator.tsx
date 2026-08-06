@@ -73,7 +73,7 @@ export function AgentAvailabilityIndicator({
                 type="button"
                 onClick={onQuickFix}
                 disabled={fixing}
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                className="raised-control flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:opacity-50"
               >
                 {fixing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

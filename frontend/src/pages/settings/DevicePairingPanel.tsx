@@ -107,7 +107,7 @@ export function DevicePairingPanel({
 
       {challenge ? (
         <div className="flex flex-wrap items-start gap-4 px-4 py-4">
-          <div className="rounded-[10px] bg-white p-2">
+          <div className="rounded-lg bg-white p-2">
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}

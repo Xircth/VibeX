@@ -84,7 +84,7 @@ function TerminalHeaderActionsInner() {
         onMouseDown={stopPropagation}
         onPointerDown={stopPropagation}
         onClick={stopPropagation}
-        className="h-6 text-[11px] bg-transparent border border-border rounded px-1 text-muted-foreground hover:text-foreground focus:outline-none cursor-pointer"
+        className="raised-control h-6 cursor-pointer px-1 text-[11px] focus:outline-none"
         title="Shell type"
       >
         {terminalShellOptions.map((opt) => (

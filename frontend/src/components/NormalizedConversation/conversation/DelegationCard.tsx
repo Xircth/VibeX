@@ -66,7 +66,7 @@ export function DelegationCard({
     <div
       role="group"
       aria-label={cardLabel}
-      className="conv-entry-item rounded-[10px] border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
+      className="conv-entry-item rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-card-foreground"
     >
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 shrink-0 rounded-md border border-border bg-muted p-1 text-muted-foreground">

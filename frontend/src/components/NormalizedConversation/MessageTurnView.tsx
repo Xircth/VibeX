@@ -348,7 +348,7 @@ function InterruptedTurnNotice({ onResend }: { onResend?: () => void }) {
         <button
           type="button"
           onClick={onResend}
-          className="ml-auto inline-flex items-center gap-1 rounded border px-2 py-0.5 font-medium text-foreground transition-colors hover:bg-muted"
+          className="raised-control ml-auto inline-flex items-center gap-1 px-2 py-0.5 font-medium"
           title={t('messageTurnView.resendHint')}
           aria-label={t('messageTurnView.resend')}
         >

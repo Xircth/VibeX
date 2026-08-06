@@ -58,7 +58,7 @@
   max-width: min(100%, 520px);
   padding: 0;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--conv-surface-card);
   overflow: hidden;
   cursor: zoom-in;
@@ -94,7 +94,7 @@
   border: 1px solid var(--conv-border-subtle);
   color: var(--conv-text-primary);
   padding: 1px 5px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 0.88em;
 }
 
@@ -102,7 +102,7 @@
 
 .conv-md-codeblock {
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--conv-surface-card);
   overflow: hidden;
   margin: 6px 0;
@@ -135,7 +135,7 @@
   width: 24px;
   height: 24px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   padding: 0;
   color: var(--conv-text-secondary);
   background: transparent;
@@ -198,7 +198,7 @@
   margin: 6px 0;
   padding: 8px 12px;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--conv-surface-card);
   white-space: pre;
   overflow-x: auto;
@@ -238,7 +238,7 @@
   margin: 6px 0;
   max-width: 100%;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--conv-surface-card);
   overflow: hidden;
 }
@@ -287,7 +287,7 @@
   max-height: 180px;
   padding: 8px 10px;
   border: 1px solid var(--conv-border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius);
   overflow: auto;
   color: var(--conv-code-text);
   background: var(--conv-code-bg);
@@ -357,7 +357,7 @@
   padding: 6px 10px;
   border: 1px solid var(--conv-border-subtle);
   background: var(--conv-surface-control);
-  border-radius: 6px;
+  border-radius: var(--radius);
   color: var(--conv-text-secondary);
 }
 
@@ -372,7 +372,7 @@
   max-width: 100%;
   overflow-x: auto;
   border: 1.5px solid var(--conv-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .conv-markdown thead,

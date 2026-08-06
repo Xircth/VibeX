@@ -335,7 +335,7 @@ function SessionConfigOptionSelector({
           side="top"
           align="start"
           sideOffset={8}
-          className="w-auto max-w-none rounded-[12px] border-0 bg-transparent p-0 shadow-none"
+          className="w-auto max-w-none rounded-lg border-0 bg-transparent p-0 shadow-none"
         >
           <EffortSlider
             title={optionLabel}

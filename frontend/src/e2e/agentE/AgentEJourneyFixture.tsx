@@ -188,7 +188,7 @@ function AgentEJourneySurface() {
 
         <section
           aria-label="Parent conversation"
-          className="rounded-[14px] border border-border bg-card p-4"
+          className="rounded-lg border border-border bg-card p-4"
         >
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
@@ -203,7 +203,7 @@ function AgentEJourneySurface() {
             </span>
           </div>
           <div
-            className="composer-shell flex flex-col gap-2 rounded-[14px] p-2"
+            className="composer-shell flex flex-col gap-2 rounded-lg p-2"
             data-typeahead-surface="composer"
           >
             <AgentMentionProvider
@@ -234,7 +234,7 @@ function AgentEJourneySurface() {
 
         <section
           aria-label="Persisted delegation projection"
-          className="rounded-[14px] border border-border bg-card p-4"
+          className="rounded-lg border border-border bg-card p-4"
         >
           <div className="mb-3">
             <h2 className="text-sm font-semibold">
@@ -246,7 +246,7 @@ function AgentEJourneySurface() {
             </p>
           </div>
           {delegations.length === 0 ? (
-            <p className="rounded-[10px] bg-muted/50 px-3 py-4 text-sm text-foreground">
+            <p className="rounded-lg bg-muted/50 px-3 py-4 text-sm text-foreground">
               No delegation has run. Select agents and send the parent prompt.
             </p>
           ) : (
@@ -266,7 +266,7 @@ function AgentEJourneySurface() {
           <section
             role="region"
             aria-label="Child conversation"
-            className="rounded-[14px] border border-border bg-card p-4"
+            className="rounded-lg border border-border bg-card p-4"
           >
             <h2 className="text-sm font-semibold">Child conversation</h2>
             <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -275,7 +275,7 @@ function AgentEJourneySurface() {
           </section>
         ) : null}
 
-        <details className="rounded-[10px] border border-border bg-card px-3 py-2">
+        <details className="rounded-lg border border-border bg-card px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium">
             BackendTransport log ({logs.length})
           </summary>

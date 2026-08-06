@@ -258,7 +258,7 @@ function DockviewTerminalPanel(props: IDockviewPanelProps) {
                 onChange={(event) =>
                   setSelectedShell(event.target.value as TerminalShellValue)
                 }
-                className="h-6 min-w-0 flex-1 rounded border border-border bg-transparent px-1 text-[10px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                className="raised-control h-6 min-w-0 flex-1 px-1 text-[10px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 title="Shell type"
               >
                 {terminalShellOptions.map((opt) => (

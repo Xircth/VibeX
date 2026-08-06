@@ -6,6 +6,34 @@ import { agentManagementApi } from '@/features/agent-management';
 
 import { AgentAuthModeControl } from './AgentAuthModeControl';
 
+const claudeActions = {
+  agent_id: 'claude_code' as const,
+  actions: [
+    {
+      id: 'login',
+      label: '登录 Claude Code',
+      description: '运行 Claude Code 官方账号登录流程。',
+      label_key: 'agents.managementAction.claude_code.login.label',
+      description_key: 'agents.managementAction.claude_code.login.description',
+      kind: 'login' as const,
+      available: true,
+      unavailable_reason: null,
+      url: null,
+    },
+    {
+      id: 'logout',
+      label: '退出 Claude Code',
+      description: '移除 Claude Code 本地账号会话。',
+      label_key: 'agents.managementAction.claude_code.logout.label',
+      description_key: 'agents.managementAction.claude_code.logout.description',
+      kind: 'logout' as const,
+      available: false,
+      unavailable_reason: '当前没有可退出的账号会话。',
+      url: null,
+    },
+  ],
+};
+
 const grokOptions = [
   authOption(
     'subscription',
@@ -20,7 +48,8 @@ const codexOptions = [
     'api_key',
     'authModeOpenAiKey',
     'authDescCodexKey',
-    'OPENAI_API_KEY'
+    'OPENAI_API_KEY',
+    'openai_api_key'
   ),
   authOption(
     'chatgpt_subscription',
@@ -39,7 +68,8 @@ const claudeOptions = [
     'custom',
     'authModeCustomEndpoint',
     'authDescClaudeCustom',
-    'ANTHROPIC_API_KEY'
+    'ANTHROPIC_API_KEY',
+    'anthropic_api_key'
   ),
   authOption('model_provider', 'authModeProvider', 'authDescClaudeProvider'),
 ];
@@ -48,14 +78,16 @@ const geminiOptions = [
     'custom',
     'authModeCustomEndpoint',
     'authDescGeminiCustom',
-    'GEMINI_API_KEY'
+    'GEMINI_API_KEY',
+    'gemini_api_key'
   ),
   authOption('login_google', 'authModeGoogleLogin', 'authDescGeminiGoogle'),
   authOption(
     'gemini_api_key',
     'authModeGeminiKey',
     'authDescGeminiKey',
-    'GEMINI_API_KEY'
+    'GEMINI_API_KEY',
+    'gemini_api_key'
   ),
   authOption('vertex_adc', 'authModeVertexAdc', 'authDescGeminiAdc'),
   authOption(
@@ -67,7 +99,8 @@ const geminiOptions = [
     'vertex_api_key',
     'authModeVertexKey',
     'authDescGeminiVertexKey',
-    'GOOGLE_API_KEY'
+    'GOOGLE_API_KEY',
+    'gemini_google_api_key'
   ),
   authOption('model_provider', 'authModeProvider', 'authDescGeminiProvider'),
 ];
@@ -106,11 +139,11 @@ describe('AgentAuthModeControl', () => {
       expect(save).toHaveBeenCalledWith('grok', 'subscription', null)
     );
     expect(
-      screen.getByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
-    ).toBeInTheDocument();
+      screen.queryByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
+    ).not.toBeInTheDocument();
   });
 
-  it('exposes all Codex authentication modes and requires a key only for API mode', async () => {
+  it('keeps the Codex API key inside the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'codex',
       mode: 'chatgpt_subscription',
@@ -129,7 +162,13 @@ describe('AgentAuthModeControl', () => {
     });
     const user = userEvent.setup();
 
-    render(<AgentAuthModeControl agentId="codex" />);
+    render(
+      <AgentAuthModeControl
+        agentId="codex"
+        configuration={<input aria-label="OpenAI API Key" />}
+        nativeCredentialPresent={(fieldId) => fieldId === 'openai_api_key'}
+      />
+    );
 
     const select = await screen.findByLabelText('Codex 鉴权模式');
     expect(
@@ -139,15 +178,16 @@ describe('AgentAuthModeControl', () => {
       screen.getByRole('option', { name: '已绑定 Model Provider' })
     ).toBeVisible();
     await user.selectOptions(select, 'api_key');
-    await user.type(screen.getByLabelText('OPENAI_API_KEY'), 'sk-local');
+    expect(screen.getByLabelText('OpenAI API Key')).toBeVisible();
+    expect(screen.queryByLabelText('OPENAI_API_KEY')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('codex', 'api_key', 'sk-local')
+      expect(save).toHaveBeenCalledWith('codex', 'api_key', null)
     );
   });
 
-  it('exposes Claude subscription, custom endpoint, and Provider modes', async () => {
+  it('keeps Claude credentials inside the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'claude_code',
       mode: 'official_subscription',
@@ -166,20 +206,94 @@ describe('AgentAuthModeControl', () => {
     });
     const user = userEvent.setup();
 
-    render(<AgentAuthModeControl agentId="claude_code" />);
+    render(
+      <AgentAuthModeControl
+        agentId="claude_code"
+        configuration={
+          <label>
+            API Key
+            <input aria-label="API Key" />
+          </label>
+        }
+        nativeCredentialPresent={(fieldId) => fieldId === 'anthropic_api_key'}
+      />
+    );
 
     const select = await screen.findByLabelText('Claude Code 鉴权模式');
     expect(screen.getByRole('option', { name: '官方订阅' })).toBeVisible();
     await user.selectOptions(select, 'custom');
-    await user.type(screen.getByLabelText('ANTHROPIC_API_KEY'), 'sk-ant-local');
+    expect(screen.getByLabelText('API Key')).toBeVisible();
+    expect(
+      screen.queryByLabelText('ANTHROPIC_API_KEY')
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith('claude_code', 'custom', 'sk-ant-local')
+      expect(save).toHaveBeenCalledWith('claude_code', 'custom', null)
     );
   });
 
-  it('exposes all seven Gemini modes and maps the Vertex credential correctly', async () => {
+  it('shows only the workflow selected inside one authentication management region', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'claude_code',
+      mode: 'official_subscription',
+      credential_env: 'ANTHROPIC_API_KEY',
+      credential_present: false,
+      modes: ['official_subscription', 'custom', 'model_provider'],
+      options: claudeOptions,
+    });
+    const user = userEvent.setup();
+
+    render(
+      <AgentAuthModeControl
+        actions={claudeActions}
+        agentId="claude_code"
+        configuration={
+          <div data-testid="native-configuration">settings.json fields</div>
+        }
+        modelProvider={<div data-testid="model-provider">Provider fields</div>}
+        onRunAction={vi.fn()}
+      />
+    );
+
+    const region = await screen.findByRole('region', { name: '鉴权管理' });
+    const select = screen.getByLabelText('Claude Code 鉴权模式');
+    expect(region).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '登录 Claude Code' })
+    ).toBeVisible();
+    expect(screen.getByText('请先安装或修复此 Agent。')).toBeVisible();
+    expect(
+      screen.queryByText('当前没有可退出的账号会话。')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('运行 Claude Code 官方账号登录流程。')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-configuration')).not.toBeVisible();
+    expect(screen.getByTestId('model-provider')).not.toBeVisible();
+    expect(
+      screen.queryByText('调用此 Agent 官方提供的账号管理流程')
+    ).not.toBeInTheDocument();
+
+    await user.selectOptions(select, 'custom');
+    expect(
+      screen.queryByRole('button', { name: '登录 Claude Code' })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('ANTHROPIC_API_KEY')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-configuration')).toBeVisible();
+    expect(screen.getByTestId('model-provider')).not.toBeVisible();
+
+    await user.selectOptions(select, 'model_provider');
+    expect(
+      screen.queryByLabelText('ANTHROPIC_API_KEY')
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-configuration')).not.toBeVisible();
+    expect(screen.getByTestId('model-provider')).toBeVisible();
+  });
+
+  it('maps all Gemini credentials to the native configuration form', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
       agent_id: 'gemini',
       mode: 'login_google',
@@ -214,20 +328,25 @@ describe('AgentAuthModeControl', () => {
     });
     const user = userEvent.setup();
 
-    render(<AgentAuthModeControl agentId="gemini" />);
+    render(
+      <AgentAuthModeControl
+        agentId="gemini"
+        configuration={<input aria-label="Google API Key" />}
+        nativeCredentialPresent={(fieldId) =>
+          fieldId === 'gemini_google_api_key'
+        }
+      />
+    );
 
     const select = await screen.findByLabelText('Gemini 鉴权模式');
     expect(screen.getAllByRole('option')).toHaveLength(7);
     await user.selectOptions(select, 'vertex_api_key');
-    await user.type(screen.getByLabelText('GOOGLE_API_KEY'), 'vertex-key');
+    expect(screen.getByLabelText('Google API Key')).toBeVisible();
+    expect(screen.queryByLabelText('GOOGLE_API_KEY')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
-      expect(save).toHaveBeenCalledWith(
-        'gemini',
-        'vertex_api_key',
-        'vertex-key'
-      )
+      expect(save).toHaveBeenCalledWith('gemini', 'vertex_api_key', null)
     );
   });
 });
@@ -236,7 +355,8 @@ function authOption(
   value: string,
   label: string,
   description: string,
-  credentialEnv?: string
+  credentialEnv?: string,
+  nativeConfigFieldId?: string
 ) {
   return {
     value,
@@ -244,5 +364,6 @@ function authOption(
     description_key: `agents.${description}`,
     credential_env: credentialEnv ?? null,
     credential_required: credentialEnv !== undefined,
+    native_config_field_id: nativeConfigFieldId ?? null,
   };
 }

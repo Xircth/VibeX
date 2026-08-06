@@ -155,14 +155,9 @@ export function AgentEnvironmentEditor({
       <div className="agent-section-heading">
         <div className="flex items-center gap-2">
           <KeyRound aria-hidden="true" className="h-4 w-4" />
-          <div>
-            <h3 id={`${agentId}-environment-heading`}>
-              {t('agents.environmentTitle')}
-            </h3>
-            <p className="agent-section-caption">
-              {t('agents.environmentCaption')}
-            </p>
-          </div>
+          <h3 id={`${agentId}-environment-heading`}>
+            {t('agents.environmentTitle')}
+          </h3>
         </div>
         <Button
           className="h-8"

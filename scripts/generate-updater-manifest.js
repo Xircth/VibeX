@@ -18,10 +18,33 @@ const updaterTargets = [
     },
   },
   {
+    artifactName: "VibeX-windows-arm64",
+    platform: "windows-aarch64",
+    assetName(version) {
+      return `VibeX-${version}-windows-aarch64-setup.exe`;
+    },
+    matches(filePath) {
+      return (
+        filePath.includes(`${path.sep}nsis${path.sep}`) &&
+        filePath.endsWith(".exe")
+      );
+    },
+  },
+  {
     artifactName: "VibeX-linux-x64",
     platform: "linux-x86_64",
     assetName(version) {
       return `VibeX-${version}-linux-x86_64.AppImage`;
+    },
+    matches(filePath) {
+      return filePath.endsWith(".AppImage");
+    },
+  },
+  {
+    artifactName: "VibeX-linux-arm64",
+    platform: "linux-aarch64",
+    assetName(version) {
+      return `VibeX-${version}-linux-aarch64.AppImage`;
     },
     matches(filePath) {
       return filePath.endsWith(".AppImage");

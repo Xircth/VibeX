@@ -132,10 +132,7 @@ export function CodexModelCatalogEditor({
       }}
     >
       <summary>
-        <span>
-          <strong>{t('agents.codexCatalogAdvanced')}</strong>
-          <small>{t('agents.codexCatalogAdvancedDescription')}</small>
-        </span>
+        <strong>{t('agents.codexCatalogAdvanced')}</strong>
         <ChevronDown aria-hidden="true" className="h-4 w-4" />
       </summary>
       {loading ? (

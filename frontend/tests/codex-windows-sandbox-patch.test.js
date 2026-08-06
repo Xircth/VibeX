@@ -12,9 +12,15 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('workspace patches codex windows sandbox to avoid duplicate VERSION resources in installer builds', () => {
-  const cargoToml = readRepoFile('Cargo.toml');
+test('workspace has no Codex sandbox linker workaround without the dependency', () => {
+  const cargoLock = readRepoFile('Cargo.lock');
+  const buildScript = readRepoFile('src-tauri/build.rs');
 
-  assert.match(cargoToml, /\[patch\."https:\/\/github\.com\/openai\/codex\.git"\]/);
-  assert.match(cargoToml, /codex-windows-sandbox\s*=\s*\{\s*path\s*=\s*"vendor\/codex-windows-sandbox-rs"/);
+  assert.doesNotMatch(cargoLock, /name = "codex-windows-sandbox"/);
+  assert.doesNotMatch(buildScript, /neutralize_codex_sandbox_resource/);
+  assert.doesNotMatch(buildScript, /NODEFAULTLIB:resource\.lib/);
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, 'vendor/codex-windows-sandbox-rs')),
+    false
+  );
 });

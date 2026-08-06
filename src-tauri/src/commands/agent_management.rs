@@ -1,16 +1,17 @@
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{BTreeMap, HashMap},
+        collections::{BTreeMap, HashMap, HashSet},
         io::Cursor,
         path::{Path, PathBuf},
         sync::Arc,
     };
 
     use api_types::{
-        AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentNativeConfigPatchRequest,
-        AgentOperationEvent, AgentOperationKind, AgentOperationStatus, AgentPreflightItemView,
-        OpenCodeProviderConnectRequest, OpenCodeProviderModelRequest,
+        AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentNativeConfigFormat,
+        AgentNativeConfigPatchRequest, AgentOperationEvent, AgentOperationKind,
+        AgentOperationStatus, AgentPreflightItemView, OpenCodeProviderConnectRequest,
+        OpenCodeProviderModelRequest,
     };
     use sha2::Digest;
 
@@ -25,17 +26,19 @@ mod tests {
         build_launch_environment, cancellable_command_output, codex_provider_config_is_projected,
         compare_and_set_agent_environment, configure_uv_tool_install_command,
         dependency_version_satisfied, detect_account_login, extract_binary_archive,
-        install_locked_plan, managed_install_root, managed_uv_artifact, managed_uv_executable,
+        install_locked_plan, managed_install_root, managed_node_artifact, managed_node_executables,
+        managed_uv_artifact, managed_uv_executable, managed_uv_version_matches,
         management_command_with_environment, management_error, native_auth_mode_patch,
         native_config_view, opencode_provider_paths, operation_event, pi_runtime_lock_env,
         preflight_component_is_healthy, project_agent_environment, project_auth_mode_options,
         project_codex_auth_mode, project_opencode_provider_connections,
         reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
-        redact_operation_output, remove_opencode_provider_state, resolve_npm_package_executable,
-        resolve_uv_tool_executable, restore_native_file_rollback, safe_archive_executable,
-        sanitize_custom_version, seed_kimi_synthetic_credential, set_opencode_provider_enabled,
-        should_probe_built_in, sync_native_launch_preferences, validate_agent_environment_name,
-        validate_native_config_patch, verify_acp_handshake, write_bytes_document,
+        redact_operation_output, redact_sensitive_config_preview, remove_opencode_provider_state,
+        resolve_npm_package_executable, resolve_uv_tool_executable, restore_native_file_rollback,
+        safe_archive_executable, sanitize_custom_version, seed_kimi_synthetic_credential,
+        set_opencode_provider_enabled, should_probe_built_in, sync_native_launch_preferences,
+        validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
+        write_bytes_document,
     };
 
     #[tokio::test]
@@ -207,6 +210,10 @@ mod tests {
         assert_eq!(
             subscription.options[0].credential_env.as_deref(),
             Some("OPENAI_API_KEY")
+        );
+        assert_eq!(
+            subscription.options[0].native_config_field_id.as_deref(),
+            Some("openai_api_key")
         );
         assert!(subscription.options[0].credential_required);
         assert_eq!(
@@ -459,7 +466,7 @@ wire_api = "responses"
     }
 
     #[test]
-    fn native_config_ipc_never_contains_sensitive_file_content() {
+    fn native_config_ipc_returns_only_a_redacted_sensitive_preview() {
         let agent_id = AgentId::parse("hermes").unwrap();
         let view = native_config_view(
             agent_id.clone(),
@@ -481,8 +488,36 @@ wire_api = "responses"
             },
         );
 
-        assert!(view.files[0].content.is_empty());
+        assert_eq!(view.files[0].content, "OPENAI_API_KEY=••••••••");
+        assert!(!view.files[0].content.contains("must-not-cross-ipc"));
         assert!(view.files[0].sensitive);
+    }
+
+    #[test]
+    fn sensitive_json_preview_preserves_structure_without_values() {
+        let preview = redact_sensitive_config_preview(
+            AgentNativeConfigFormat::Json,
+            r#"{"OPENAI_API_KEY":"sk-secret","tokens":{"access_token":"oauth-secret"}}"#,
+            &HashSet::from(["OPENAI_API_KEY", "tokens", "access_token"]),
+        );
+
+        assert!(preview.contains("OPENAI_API_KEY"));
+        assert!(preview.contains("access_token"));
+        assert!(!preview.contains("sk-secret"));
+        assert!(!preview.contains("oauth-secret"));
+        assert_eq!(preview.matches("••••••••").count(), 2);
+    }
+
+    #[test]
+    fn sensitive_preview_drops_untrusted_keys() {
+        let preview = redact_sensitive_config_preview(
+            AgentNativeConfigFormat::Json,
+            r#"{"sk-secret-as-a-key":"value"}"#,
+            &HashSet::from(["OPENAI_API_KEY"]),
+        );
+
+        assert!(preview.is_empty());
+        assert!(!preview.contains("sk-secret-as-a-key"));
     }
 
     #[test]
@@ -1350,6 +1385,77 @@ base_url = "https://example.test/v1"
         );
     }
 
+    #[test]
+    fn managed_uv_health_accepts_only_the_locked_version() {
+        assert!(managed_uv_version_matches(
+            "uv 0.8.10 (Homebrew 2025-08-08)"
+        ));
+        assert!(managed_uv_version_matches("uv 0.8.10"));
+        assert!(!managed_uv_version_matches("uv 0.8.9"));
+        assert!(!managed_uv_version_matches("0.8.10"));
+        assert!(!managed_uv_version_matches("malformed output"));
+    }
+
+    #[test]
+    fn managed_node_catalog_covers_every_supported_desktop_target_with_fixed_checksums() {
+        let artifacts = [
+            ("darwin-aarch64", "darwin-arm64", "tar.gz"),
+            ("darwin-x86_64", "darwin-x64", "tar.gz"),
+            ("linux-aarch64", "linux-arm64", "tar.gz"),
+            ("linux-x86_64", "linux-x64", "tar.gz"),
+            ("windows-aarch64", "win-arm64", "zip"),
+            ("windows-x86_64", "win-x64", "zip"),
+        ];
+
+        for (platform, target, extension) in artifacts {
+            let artifact = managed_node_artifact(platform).unwrap();
+            assert_eq!(artifact.target, target);
+            assert_eq!(artifact.extension, extension);
+            assert_eq!(artifact.sha256.len(), 64);
+            assert!(
+                artifact
+                    .sha256
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+            );
+        }
+        assert!(managed_node_artifact("freebsd-x86_64").is_none());
+    }
+
+    #[test]
+    fn managed_node_paths_are_versioned_platform_scoped_and_include_npm() {
+        let root = Path::new("/application-data");
+        let runtime = managed_node_executables(root).unwrap();
+        let platform = agents::current_platform();
+
+        assert!(
+            runtime
+                .node
+                .starts_with(root.join("agent-tools").join("node"))
+        );
+        assert!(
+            runtime.node.components().any(|part| {
+                part.as_os_str() == std::ffi::OsStr::new(super::MANAGED_NODE_VERSION)
+            })
+        );
+        assert!(
+            runtime
+                .node
+                .components()
+                .any(|part| { part.as_os_str() == std::ffi::OsStr::new(&platform) })
+        );
+        assert_eq!(
+            runtime.node.file_name().and_then(|name| name.to_str()),
+            Some(if cfg!(windows) { "node.exe" } else { "node" })
+        );
+        assert_eq!(
+            runtime.npm.file_name().and_then(|name| name.to_str()),
+            Some(if cfg!(windows) { "npm.cmd" } else { "npm" })
+        );
+        assert_eq!(runtime.node.parent(), Some(runtime.bin_dir.as_path()));
+        assert_eq!(runtime.npm.parent(), Some(runtime.bin_dir.as_path()));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn managed_uv_component_is_dequarantined_before_its_runtime_is_launched() {
@@ -1435,6 +1541,7 @@ base_url = "https://example.test/v1"
             temp.path(),
             &cancellation,
             &std::collections::HashMap::new(),
+            None,
             None,
             None,
         )
@@ -1546,6 +1653,7 @@ base_url = "https://example.test/v1"
                 &std::collections::HashMap::new(),
                 None,
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -1588,6 +1696,7 @@ base_url = "https://example.test/v1"
             temp.path(),
             &cancellation,
             &std::collections::HashMap::new(),
+            None,
             None,
             None,
         )
@@ -1685,8 +1794,85 @@ use crate::state::AppState;
 const MANAGEMENT_EVENT: &str = "agent-management-event";
 const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
 const MAX_AGENT_BINARY_BYTES: usize = 512 * 1024 * 1024;
+const MANAGED_NODE_VERSION: &str = "22.22.3";
+const MAX_MANAGED_NODE_BYTES: usize = 128 * 1024 * 1024;
 const MANAGED_UV_VERSION: &str = "0.8.10";
 const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
+
+struct ManagedNodeArtifact {
+    target: &'static str,
+    extension: &'static str,
+    sha256: &'static str,
+}
+
+fn managed_node_artifact(platform: &str) -> Option<ManagedNodeArtifact> {
+    let (target, extension, sha256) = match platform {
+        "darwin-aarch64" => (
+            "darwin-arm64",
+            "tar.gz",
+            "0da7ff74ef8611328c8212f17943368713a2ad953fb7d89a8c8a0eae87c23207",
+        ),
+        "darwin-x86_64" => (
+            "darwin-x64",
+            "tar.gz",
+            "45830ba752fa0d892c6dcd640946669801293cac820a33591ded40ac075198ec",
+        ),
+        "linux-aarch64" => (
+            "linux-arm64",
+            "tar.gz",
+            "cc8bc82b2dd0b595c3b95a4c3c9c8c350907cff011afbdee3d1379e812e1e3e3",
+        ),
+        "linux-x86_64" => (
+            "linux-x64",
+            "tar.gz",
+            "c7a10d6816da8eaaa7534dd73c71c6e2b2c391dbbf845e364902d156615dd1b8",
+        ),
+        "windows-aarch64" => (
+            "win-arm64",
+            "zip",
+            "00be129a09e8872cd52d3bb8bba12412c5733d2224123a482a2dca4a6fbf2586",
+        ),
+        "windows-x86_64" => (
+            "win-x64",
+            "zip",
+            "6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33",
+        ),
+        _ => return None,
+    };
+    Some(ManagedNodeArtifact {
+        target,
+        extension,
+        sha256,
+    })
+}
+
+#[derive(Clone)]
+struct ManagedNodeRuntime {
+    node: PathBuf,
+    npm: PathBuf,
+    bin_dir: PathBuf,
+}
+
+fn managed_node_executables(app_data_dir: &Path) -> Option<ManagedNodeRuntime> {
+    let platform = agents::current_platform();
+    let artifact = managed_node_artifact(&platform)?;
+    let archive_root = app_data_dir
+        .join("agent-tools")
+        .join("node")
+        .join(MANAGED_NODE_VERSION)
+        .join(platform)
+        .join(format!("node-v{MANAGED_NODE_VERSION}-{}", artifact.target));
+    let bin_dir = if cfg!(windows) {
+        archive_root
+    } else {
+        archive_root.join("bin")
+    };
+    Some(ManagedNodeRuntime {
+        node: bin_dir.join(if cfg!(windows) { "node.exe" } else { "node" }),
+        npm: bin_dir.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        bin_dir,
+    })
+}
 
 struct ManagedUvArtifact {
     target: &'static str,
@@ -2205,6 +2391,7 @@ async fn probe_one_built_in_external_installation(
             sha256: Some(sha256),
             trust_state: "tofu".to_string(),
             ownership: "external".to_string(),
+            shared_resource_key: None,
         });
     }
     let required_components_present = match profile.topology {
@@ -2801,14 +2988,12 @@ pub async fn agent_management_preflight(
         authentication_observation.as_ref(),
         authentication_required_by_default,
     );
-    let managed_uv = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .and_then(|app_data_dir| managed_uv_executable(&app_data_dir));
+    let app_data_dir = app.path().app_data_dir().ok();
+    let managed_node = app_data_dir.as_deref().and_then(managed_node_executables);
+    let managed_uv = app_data_dir.as_deref().and_then(managed_uv_executable);
     let (dependency_items, required_dependencies_ok) =
         if let Some(profile) = BuiltInProfileCatalog::bundled().profile(&agent_id) {
-            probe_profile_dependencies(profile, managed_uv.as_deref()).await
+            probe_profile_dependencies(profile, managed_node.as_ref(), managed_uv.as_deref()).await
         } else {
             (Vec::new(), true)
         };
@@ -3201,25 +3386,31 @@ fn codex_provider_config_is_projected(table: &toml::Table) -> bool {
 
 async fn probe_profile_dependencies(
     profile: &agents::BuiltInProfile,
+    managed_node: Option<&ManagedNodeRuntime>,
     managed_uv: Option<&Path>,
 ) -> (Vec<AgentPreflightItemView>, bool) {
     let mut required_ok = true;
     let mut items = Vec::with_capacity(profile.dependencies.len());
     for dependency in profile.dependencies {
-        let mut path = utils::shell::resolve_executable_path(dependency.executable).await;
-        let managed = if path.is_none() && dependency.executable == "uv" {
-            if let Some(candidate) = managed_uv
-                && tokio::fs::metadata(candidate)
-                    .await
-                    .is_ok_and(|metadata| metadata.is_file())
-            {
-                path = Some(candidate.to_path_buf());
-                true
-            } else {
-                false
-            }
+        let managed_candidate = match dependency.executable {
+            "node" => managed_node.map(|runtime| runtime.node.as_path()),
+            "npm" => managed_node.map(|runtime| runtime.npm.as_path()),
+            "uv" => managed_uv,
+            _ => None,
+        };
+        let managed_path = if let Some(candidate) = managed_candidate
+            && tokio::fs::metadata(candidate)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+        {
+            Some(candidate.to_path_buf())
         } else {
-            false
+            None
+        };
+        let managed = managed_path.is_some();
+        let path = match managed_path {
+            Some(path) => Some(path),
+            None => utils::shell::resolve_executable_path(dependency.executable).await,
         };
         let mut passed = path.is_some();
         let mut version = None;
@@ -3775,146 +3966,156 @@ async fn run_install_operation(
         Some("正在解析已锁定的安装方案".to_string()),
     );
 
-    let result = async {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        let root = managed_install_root(&app_data_dir, &agent_id)?;
-        tokio::fs::create_dir_all(&root).await?;
-        let lock_id = Uuid::new_v4();
-        let staging = root.join(format!(".staging-{lock_id}"));
-        if let Ok(operation_uuid) = Uuid::parse_str(&operation_id) {
-            InstallationOperationRepository::new(pool.clone())
-                .set_staging_path(operation_uuid, &staging.display().to_string())
-                .await?;
-        }
-        tokio::fs::create_dir_all(&staging).await?;
-        emit_operation(
-            &app,
-            agent_id.clone(),
-            &operation_id,
-            kind,
-            AgentOperationStatus::Running,
-            Some(20),
-            Some("正在安装本地 Runtime 与 ACP".to_string()),
-        );
-        let custom_builtin_binary = matches!(plan.source, LockedInstallSource::BuiltInProfile)
-            && plan.components.iter().any(|component| {
-                component.distribution_kind == PlannedDistributionKind::Binary
-                    && matches!(component.trust, ArtifactTrust::Tofu)
-            });
-        let tofu_fingerprints = if custom_builtin_binary {
-            HashMap::new()
-        } else {
-            previous_tofu_fingerprints(&pool, &agent_id).await?
-        };
-        let install_log = OperationLogEmitter::new(&app, &agent_id, &operation_id, kind);
-        let managed_uv = if plan
-            .components
-            .iter()
-            .any(|component| component.distribution_kind == PlannedDistributionKind::Uvx)
-            && utils::shell::resolve_executable_path("uv").await.is_none()
-        {
-            Some(ensure_managed_uv(&app_data_dir, &cancellation, &install_log).await?)
-        } else {
-            None
-        };
-        let installation = install_locked_plan(
-            &plan,
-            &staging,
-            &cancellation,
-            &tofu_fingerprints,
-            Some(&install_log),
-            managed_uv.as_deref(),
-        )
-        .await;
-        let installation = match installation {
-            Ok(installation) => installation,
-            Err(error) => {
+    let result =
+        async {
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            let root = managed_install_root(&app_data_dir, &agent_id)?;
+            tokio::fs::create_dir_all(&root).await?;
+            let lock_id = Uuid::new_v4();
+            let staging = root.join(format!(".staging-{lock_id}"));
+            if let Ok(operation_uuid) = Uuid::parse_str(&operation_id) {
+                InstallationOperationRepository::new(pool.clone())
+                    .set_staging_path(operation_uuid, &staging.display().to_string())
+                    .await?;
+            }
+            tokio::fs::create_dir_all(&staging).await?;
+            emit_operation(
+                &app,
+                agent_id.clone(),
+                &operation_id,
+                kind,
+                AgentOperationStatus::Running,
+                Some(20),
+                Some("正在安装本地 Runtime 与 ACP".to_string()),
+            );
+            let custom_builtin_binary = matches!(plan.source, LockedInstallSource::BuiltInProfile)
+                && plan.components.iter().any(|component| {
+                    component.distribution_kind == PlannedDistributionKind::Binary
+                        && matches!(component.trust, ArtifactTrust::Tofu)
+                });
+            let tofu_fingerprints = if custom_builtin_binary {
+                HashMap::new()
+            } else {
+                previous_tofu_fingerprints(&pool, &agent_id).await?
+            };
+            let install_log = OperationLogEmitter::new(&app, &agent_id, &operation_id, kind);
+            let installation =
+                async {
+                    let managed_node = if plan.components.iter().any(|component| {
+                        component.distribution_kind == PlannedDistributionKind::Npx
+                    }) {
+                        Some(ensure_managed_node(&app_data_dir, &cancellation, &install_log).await?)
+                    } else {
+                        None
+                    };
+                    let managed_uv = if plan.components.iter().any(|component| {
+                        component.distribution_kind == PlannedDistributionKind::Uvx
+                    }) {
+                        Some(ensure_managed_uv(&app_data_dir, &cancellation, &install_log).await?)
+                    } else {
+                        None
+                    };
+                    install_locked_plan(
+                        &plan,
+                        &staging,
+                        &cancellation,
+                        &tofu_fingerprints,
+                        Some(&install_log),
+                        managed_node.as_ref(),
+                        managed_uv.as_deref(),
+                    )
+                    .await
+                }
+                .await;
+            let installation = match installation {
+                Ok(installation) => installation,
+                Err(error) => {
+                    let _ = tokio::fs::remove_dir_all(&staging).await;
+                    return Err(error);
+                }
+            };
+            emit_operation(
+                &app,
+                agent_id.clone(),
+                &operation_id,
+                kind,
+                AgentOperationStatus::Running,
+                Some(75),
+                Some("正在验证 ACP 握手".to_string()),
+            );
+            if let Err(error) = verify_acp_handshake(
+                &agent_id,
+                &installation.launch_lock,
+                &staging,
+                &cancellation,
+            )
+            .await
+            {
                 let _ = tokio::fs::remove_dir_all(&staging).await;
                 return Err(error);
             }
-        };
-        emit_operation(
-            &app,
-            agent_id.clone(),
-            &operation_id,
-            kind,
-            AgentOperationStatus::Running,
-            Some(75),
-            Some("正在验证 ACP 握手".to_string()),
-        );
-        if let Err(error) = verify_acp_handshake(
-            &agent_id,
-            &installation.launch_lock,
-            &staging,
-            &cancellation,
-        )
-        .await
-        {
-            let _ = tokio::fs::remove_dir_all(&staging).await;
-            return Err(error);
-        }
-        if cancellation.is_cancelled() {
-            let _ = tokio::fs::remove_dir_all(&staging).await;
-            anyhow::bail!("operation canceled");
-        }
-        emit_operation(
-            &app,
-            agent_id.clone(),
-            &operation_id,
-            kind,
-            AgentOperationStatus::Running,
-            Some(85),
-            Some("正在发布本地终端命令".to_string()),
-        );
-        let previous_runtime = current_managed_runtime(&pool, &agent_id).await?;
-        let runtime_executable = installation.runtime_executable()?.to_path_buf();
-        let home_dir = app
-            .path()
-            .home_dir()
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        let shell = configured_shell_family();
-        let _ = utils::shell::refresh_process_path_after_install().await;
-        switch_managed_runtime_cli(
-            &home_dir,
-            &agent_id,
-            &root,
-            previous_runtime.as_deref(),
-            &runtime_executable,
-            shell,
-        )?;
-        if let Err(error) =
-            persist_installed_lock(&pool, lock_id, &plan, &installation, "managed").await
-        {
-            if let Err(restore_error) = restore_managed_cli_switch(
+            if cancellation.is_cancelled() {
+                let _ = tokio::fs::remove_dir_all(&staging).await;
+                anyhow::bail!("operation canceled");
+            }
+            emit_operation(
+                &app,
+                agent_id.clone(),
+                &operation_id,
+                kind,
+                AgentOperationStatus::Running,
+                Some(85),
+                Some("正在发布本地终端命令".to_string()),
+            );
+            let previous_runtime = current_managed_runtime(&pool, &agent_id).await?;
+            let runtime_executable = installation.runtime_executable()?.to_path_buf();
+            let home_dir = app
+                .path()
+                .home_dir()
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            let shell = configured_shell_family();
+            let _ = utils::shell::refresh_process_path_after_install().await;
+            switch_managed_runtime_cli(
                 &home_dir,
                 &agent_id,
                 &root,
                 previous_runtime.as_deref(),
                 &runtime_executable,
                 shell,
-            ) {
-                tracing::error!(
-                    agent_id = %agent_id,
-                    %restore_error,
-                    "failed to restore Agent terminal command after lock persistence failure"
-                );
+            )?;
+            if let Err(error) =
+                persist_installed_lock(&pool, lock_id, &plan, &installation, "managed").await
+            {
+                if let Err(restore_error) = restore_managed_cli_switch(
+                    &home_dir,
+                    &agent_id,
+                    &root,
+                    previous_runtime.as_deref(),
+                    &runtime_executable,
+                    shell,
+                ) {
+                    tracing::error!(
+                        agent_id = %agent_id,
+                        %restore_error,
+                        "failed to restore Agent terminal command after lock persistence failure"
+                    );
+                }
+                let _ = tokio::fs::remove_dir_all(&staging).await;
+                return Err(error);
             }
-            let _ = tokio::fs::remove_dir_all(&staging).await;
-            return Err(error);
+            CLI_EXPOSURES
+                .get_or_init(|| AsyncMutex::new(HashSet::new()))
+                .lock()
+                .await
+                .insert(agent_id.clone());
+            let _ = utils::shell::refresh_process_path_after_install().await;
+            record_post_install_probe(&app, &pool, &agent_id).await?;
+            Ok::<_, anyhow::Error>(())
         }
-        CLI_EXPOSURES
-            .get_or_init(|| AsyncMutex::new(HashSet::new()))
-            .lock()
-            .await
-            .insert(agent_id.clone());
-        let _ = utils::shell::refresh_process_path_after_install().await;
-        record_post_install_probe(&app, &pool, &agent_id).await?;
-        Ok::<_, anyhow::Error>(())
-    }
-    .await;
+        .await;
 
     match result {
         Ok(()) => {
@@ -4125,10 +4326,14 @@ async fn resolve_install_plan(
     agent_id: &AgentId,
 ) -> anyhow::Result<ResolvedInstallPlan> {
     let _ = utils::shell::refresh_process_path_after_install().await;
-    let node_verified = utils::shell::resolve_executable_path("node")
+    // Npx plans can bootstrap VibeX's pinned, checksum-verified Node.js
+    // distribution. A clean machine therefore remains install-capable without
+    // trusting or mutating a user-managed PATH runtime.
+    let node_verified = (utils::shell::resolve_executable_path("node")
         .await
         .is_some()
-        && utils::shell::resolve_executable_path("npm").await.is_some();
+        && utils::shell::resolve_executable_path("npm").await.is_some())
+        || managed_node_artifact(&agents::current_platform()).is_some();
     // Hermes can use VibeX's pinned, checksum-verified uv distribution when no
     // system uv is available. Treat supported platforms as install-capable so
     // planning can proceed to the managed-tool bootstrap in run_operation.
@@ -4242,6 +4447,7 @@ struct InstalledComponent {
     sha256: Option<String>,
     trust_state: String,
     ownership: String,
+    shared_resource_key: Option<String>,
 }
 
 struct InstalledPlan {
@@ -4308,6 +4514,172 @@ impl InstalledPlan {
     }
 }
 
+async fn managed_node_is_healthy(runtime: &ManagedNodeRuntime) -> bool {
+    if !tokio::fs::metadata(&runtime.node)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+        || !tokio::fs::metadata(&runtime.npm)
+            .await
+            .is_ok_and(|metadata| metadata.is_file())
+    {
+        return false;
+    }
+    let mut command = agent_process_command(&runtime.node);
+    command.arg("--version").kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), command.output()).await,
+        Ok(Ok(output))
+            if output.status.success()
+                && String::from_utf8_lossy(&output.stdout).trim()
+                    == format!("v{MANAGED_NODE_VERSION}")
+    )
+}
+
+fn managed_uv_version_matches(output: &str) -> bool {
+    let mut fields = output.split_whitespace();
+    matches!(
+        (fields.next(), fields.next()),
+        (Some("uv"), Some(version)) if version == MANAGED_UV_VERSION
+    )
+}
+
+async fn managed_uv_is_healthy(executable: &Path) -> bool {
+    if !tokio::fs::metadata(executable)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
+        return false;
+    }
+    let mut command = agent_process_command(executable);
+    command.arg("--version").kill_on_drop(true);
+    matches!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), command.output()).await,
+        Ok(Ok(output)) if output.status.success() && {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let observed = if stdout.trim().is_empty() { &stderr } else { &stdout };
+            managed_uv_version_matches(observed.trim())
+        }
+    )
+}
+
+async fn ensure_managed_node(
+    app_data_dir: &Path,
+    cancellation: &CancellationToken,
+    log: &OperationLogEmitter<'_>,
+) -> anyhow::Result<ManagedNodeRuntime> {
+    let platform = agents::current_platform();
+    let artifact = managed_node_artifact(&platform)
+        .ok_or_else(|| anyhow::anyhow!("Node.js 不支持当前平台 {platform}"))?;
+    let runtime = managed_node_executables(app_data_dir)
+        .ok_or_else(|| anyhow::anyhow!("无法解析托管 Node.js 路径"))?;
+    if managed_node_is_healthy(&runtime).await {
+        log.emit(format!(
+            "Using managed Node.js {MANAGED_NODE_VERSION}: {}",
+            runtime.node.display()
+        ));
+        return Ok(runtime);
+    }
+
+    let base = app_data_dir
+        .join("agent-tools")
+        .join("node")
+        .join(MANAGED_NODE_VERSION);
+    tokio::fs::create_dir_all(&base).await?;
+    let staging = base.join(format!(".staging-{}", Uuid::new_v4()));
+    tokio::fs::create_dir_all(&staging).await?;
+    let filename = format!(
+        "node-v{MANAGED_NODE_VERSION}-{}.{}",
+        artifact.target, artifact.extension
+    );
+    let url = format!("https://nodejs.org/dist/v{MANAGED_NODE_VERSION}/{filename}");
+    log.emit(format!(
+        "Downloading managed Node.js {MANAGED_NODE_VERSION} ({platform})"
+    ));
+    let result = async {
+        let response = tokio::select! {
+            response = reqwest::get(&url) => response?,
+            () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
+        };
+        if !response.status().is_success() {
+            anyhow::bail!("Node.js download returned HTTP {}", response.status());
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_MANAGED_NODE_BYTES as u64)
+        {
+            anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
+        }
+        let mut bytes = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = tokio::select! {
+            chunk = stream.next() => chunk,
+            () = cancellation.cancelled() => anyhow::bail!("operation canceled"),
+        } {
+            let chunk = chunk?;
+            if bytes.len().saturating_add(chunk.len()) > MAX_MANAGED_NODE_BYTES {
+                anyhow::bail!("Node.js archive exceeds the 128 MiB size limit");
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if !actual.eq_ignore_ascii_case(artifact.sha256) {
+            anyhow::bail!(
+                "Node.js archive SHA-256 mismatch: expected {}, found {actual}",
+                artifact.sha256
+            );
+        }
+        extract_binary_archive(&bytes, &url, &staging, cancellation).await?;
+        clear_macos_quarantine(&staging)?;
+
+        let staged_root = staging.join(format!("node-v{MANAGED_NODE_VERSION}-{}", artifact.target));
+        let staged_bin = if cfg!(windows) {
+            staged_root
+        } else {
+            staged_root.join("bin")
+        };
+        for expected in [
+            staged_bin.join(if cfg!(windows) { "node.exe" } else { "node" }),
+            staged_bin.join(if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        ] {
+            if !tokio::fs::metadata(&expected)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+            {
+                anyhow::bail!(
+                    "Node.js archive did not contain expected executable {}",
+                    expected.display()
+                );
+            }
+        }
+
+        let final_root = base.join(&platform);
+        if tokio::fs::metadata(&final_root).await.is_ok() {
+            let aside = base.join(format!(".invalid-{}", Uuid::new_v4()));
+            tokio::fs::rename(&final_root, &aside).await?;
+            if let Err(error) = tokio::fs::rename(&staging, &final_root).await {
+                let _ = tokio::fs::rename(&aside, &final_root).await;
+                return Err(error.into());
+            }
+            let _ = tokio::fs::remove_dir_all(aside).await;
+        } else {
+            tokio::fs::rename(&staging, &final_root).await?;
+        }
+        if !managed_node_is_healthy(&runtime).await {
+            anyhow::bail!("installed managed Node.js failed its version health check");
+        }
+        log.emit(format!(
+            "Managed Node.js {MANAGED_NODE_VERSION} verified and installed"
+        ));
+        Ok(runtime)
+    }
+    .await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+    }
+    result
+}
+
 async fn ensure_managed_uv(
     app_data_dir: &Path,
     cancellation: &CancellationToken,
@@ -4318,10 +4690,7 @@ async fn ensure_managed_uv(
         .ok_or_else(|| anyhow::anyhow!("uv 不支持当前平台 {platform}"))?;
     let final_executable = managed_uv_executable(app_data_dir)
         .ok_or_else(|| anyhow::anyhow!("无法解析托管 uv 路径"))?;
-    if tokio::fs::metadata(&final_executable)
-        .await
-        .is_ok_and(|metadata| metadata.is_file())
-    {
+    if managed_uv_is_healthy(&final_executable).await {
         log.emit(format!(
             "Using managed uv {MANAGED_UV_VERSION}: {}",
             final_executable.display()
@@ -4403,6 +4772,9 @@ async fn ensure_managed_uv(
             }
             tokio::fs::rename(&staging, &final_root).await?;
         }
+        if !managed_uv_is_healthy(&final_executable).await {
+            anyhow::bail!("installed managed uv failed its version health check");
+        }
         log.emit(format!(
             "Managed uv {MANAGED_UV_VERSION} verified and installed"
         ));
@@ -4421,10 +4793,13 @@ async fn install_locked_plan(
     cancellation: &CancellationToken,
     previous_tofu_fingerprints: &HashMap<String, String>,
     log: Option<&OperationLogEmitter<'_>>,
+    managed_node: Option<&ManagedNodeRuntime>,
     managed_uv: Option<&Path>,
 ) -> anyhow::Result<InstalledPlan> {
     let mut components = Vec::new();
-    let mut path_entries = Vec::new();
+    let mut path_entries = managed_node
+        .map(|runtime| vec![runtime.bin_dir.clone()])
+        .unwrap_or_default();
     for (index, component) in plan.components.iter().enumerate() {
         let component_root = staging.join(format!("{index}-{}", component.component_id));
         tokio::fs::create_dir_all(&component_root).await?;
@@ -4444,9 +4819,21 @@ async fn install_locked_plan(
                         component.version
                     ));
                 }
-                verify_npm_integrity(&component.resolved_source, &component.trust, cancellation)
-                    .await?;
-                let mut command = agent_process_command("npm");
+                verify_npm_integrity(
+                    &component.resolved_source,
+                    &component.trust,
+                    cancellation,
+                    managed_node,
+                )
+                .await?;
+                let mut command = agent_process_command(
+                    managed_node
+                        .map(|runtime| runtime.npm.as_path())
+                        .unwrap_or_else(|| Path::new("npm")),
+                );
+                if let Some(runtime) = managed_node {
+                    prepend_command_path(&mut command, &runtime.bin_dir)?;
+                }
                 command
                     .arg("install")
                     .arg("--prefix")
@@ -4606,6 +4993,38 @@ async fn install_locked_plan(
             sha256,
             trust_state,
             ownership: "managed".to_string(),
+            shared_resource_key: None,
+        });
+    }
+    if let Some(runtime) = managed_node {
+        components.push(InstalledComponent {
+            kind: "base_runtime_node".to_string(),
+            absolute_path: runtime.node.clone(),
+            version: MANAGED_NODE_VERSION.to_string(),
+            sha256: Some(format!(
+                "{:x}",
+                Sha256::digest(tokio::fs::read(&runtime.node).await?)
+            )),
+            trust_state: "verified_sha256".to_string(),
+            ownership: "managed_shared".to_string(),
+            shared_resource_key: Some(format!(
+                "node:{MANAGED_NODE_VERSION}:{}",
+                agents::current_platform()
+            )),
+        });
+    }
+    if let Some(uv) = managed_uv {
+        components.push(InstalledComponent {
+            kind: "base_runtime_uv".to_string(),
+            absolute_path: uv.to_path_buf(),
+            version: MANAGED_UV_VERSION.to_string(),
+            sha256: Some(format!("{:x}", Sha256::digest(tokio::fs::read(uv).await?))),
+            trust_state: "verified_sha256".to_string(),
+            ownership: "managed_shared".to_string(),
+            shared_resource_key: Some(format!(
+                "uv:{MANAGED_UV_VERSION}:{}",
+                agents::current_platform()
+            )),
         });
     }
     let acp = components
@@ -4719,10 +5138,20 @@ fn build_launch_environment(
     Ok(env)
 }
 
+fn prepend_command_path(command: &mut tokio::process::Command, path: &Path) -> anyhow::Result<()> {
+    let mut entries = vec![path.to_path_buf()];
+    entries.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    command.env("PATH", std::env::join_paths(entries)?);
+    Ok(())
+}
+
 async fn verify_npm_integrity(
     source: &str,
     trust: &ArtifactTrust,
     cancellation: &CancellationToken,
+    managed_node: Option<&ManagedNodeRuntime>,
 ) -> anyhow::Result<()> {
     if !matches!(
         trust,
@@ -4730,7 +5159,14 @@ async fn verify_npm_integrity(
     ) {
         return Ok(());
     }
-    let mut command = agent_process_command("npm");
+    let mut command = agent_process_command(
+        managed_node
+            .map(|runtime| runtime.npm.as_path())
+            .unwrap_or_else(|| Path::new("npm")),
+    );
+    if let Some(runtime) = managed_node {
+        prepend_command_path(&mut command, &runtime.bin_dir)?;
+    }
     command.args([
         "view",
         source,
@@ -5141,8 +5577,12 @@ async fn extract_binary_archive(
     tokio::fs::write(&archive, bytes).await?;
     let mut command = agent_process_command("tar");
     command.arg("-xf").arg(&archive).arg("-C").arg(destination);
-    let output = cancellable_command_output(command, cancellation).await?;
-    ensure_success("binary archive extraction", &output)
+    let result = match cancellable_command_output(command, cancellation).await {
+        Ok(output) => ensure_success("binary archive extraction", &output),
+        Err(error) => Err(error),
+    };
+    let _ = tokio::fs::remove_file(&archive).await;
+    result
 }
 
 fn validate_zip_symlinks<R>(archive: &mut zip::ZipArchive<R>) -> anyhow::Result<()>
@@ -5384,7 +5824,7 @@ async fn persist_installed_lock(
             r#"INSERT INTO agent_install_component
                (id, lock_id, component_kind, absolute_path, version, sha256,
                 trust_state, ownership, shared_resource_key)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)"#,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(Uuid::new_v4().to_string())
         .bind(lock_id.to_string())
@@ -5394,6 +5834,7 @@ async fn persist_installed_lock(
         .bind(&component.sha256)
         .bind(&component.trust_state)
         .bind(&component.ownership)
+        .bind(&component.shared_resource_key)
         .execute(&mut *transaction)
         .await?;
     }
@@ -7211,9 +7652,21 @@ fn project_auth_mode_options(agent_id: &AgentId, modes: &[&str]) -> Vec<AgentAut
                 description_key: description_key.to_string(),
                 credential_required: credential_env.is_some(),
                 credential_env,
+                native_config_field_id: native_auth_config_field_id(agent_id, mode)
+                    .map(str::to_string),
             }
         })
         .collect()
+}
+
+fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'static str> {
+    match (agent_id.as_str(), mode) {
+        ("claude_code", "custom") => Some("anthropic_api_key"),
+        ("codex", "api_key") => Some("openai_api_key"),
+        ("gemini", "custom" | "gemini_api_key") => Some("gemini_api_key"),
+        ("gemini", "vertex_api_key") => Some("gemini_google_api_key"),
+        _ => None,
+    }
 }
 
 fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, &'static str) {
@@ -8488,8 +8941,9 @@ fn native_config_view(
     agent_id: AgentId,
     snapshot: agents::NativeConfigSnapshot,
 ) -> AgentNativeConfigView {
-    let settings_features = BuiltInProfileCatalog::bundled()
-        .profile(&agent_id)
+    let catalog = BuiltInProfileCatalog::bundled();
+    let profile = catalog.profile(&agent_id);
+    let settings_features = profile
         .map(|profile| profile.settings_features.to_vec())
         .unwrap_or_default();
     let fields = snapshot
@@ -8523,22 +8977,35 @@ fn native_config_view(
     let files = snapshot
         .files
         .into_iter()
-        .map(|file| AgentNativeConfigFileView {
-            path: file.path.display().to_string(),
-            format: match file.format {
+        .map(|file| {
+            let format = match file.format {
                 agents::NativeConfigFormat::Json => AgentNativeConfigFormat::Json,
                 agents::NativeConfigFormat::Toml => AgentNativeConfigFormat::Toml,
                 agents::NativeConfigFormat::Yaml => AgentNativeConfigFormat::Yaml,
                 agents::NativeConfigFormat::Dotenv => AgentNativeConfigFormat::Dotenv,
-            },
-            content: if file.sensitive {
-                String::new()
+            };
+            let content = if file.sensitive {
+                let safe_keys = profile
+                    .and_then(|profile| {
+                        profile.native_config.iter().find(|binding| {
+                            file.path.ends_with(binding.override_relative_path)
+                                || file.path.ends_with(binding.home_relative_path)
+                        })
+                    })
+                    .map(sensitive_preview_keys)
+                    .unwrap_or_default();
+                redact_sensitive_config_preview(format, &file.content, &safe_keys)
             } else {
                 file.content
-            },
-            sensitive: file.sensitive,
-            exists: file.exists,
-            revision: file.revision,
+            };
+            AgentNativeConfigFileView {
+                path: file.path.display().to_string(),
+                format,
+                content,
+                sensitive: file.sensitive,
+                exists: file.exists,
+                revision: file.revision,
+            }
         })
         .collect();
     AgentNativeConfigView {
@@ -8554,6 +9021,103 @@ fn native_config_view(
         fields,
         files,
         applies_to_next_session: true,
+    }
+}
+
+const REDACTED_CONFIG_VALUE: &str = "••••••••";
+
+fn sensitive_preview_keys(binding: &agents::NativeConfigBinding) -> HashSet<&str> {
+    binding
+        .fields
+        .iter()
+        .flat_map(|field| {
+            field
+                .path
+                .iter()
+                .copied()
+                .chain(field.object_discriminator.map(|(key, _)| key))
+        })
+        .collect()
+}
+
+fn redact_sensitive_config_preview(
+    format: AgentNativeConfigFormat,
+    content: &str,
+    safe_keys: &HashSet<&str>,
+) -> String {
+    match format {
+        AgentNativeConfigFormat::Json => {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
+                return String::new();
+            };
+            if !redact_json_config_values(&mut value, safe_keys) {
+                return String::new();
+            }
+            serde_json::to_string_pretty(&value).unwrap_or_default()
+        }
+        AgentNativeConfigFormat::Toml => {
+            let Ok(mut value) = toml::from_str::<toml::Value>(content) else {
+                return String::new();
+            };
+            if !redact_toml_config_values(&mut value, safe_keys) {
+                return String::new();
+            }
+            toml::to_string_pretty(&value).unwrap_or_default()
+        }
+        AgentNativeConfigFormat::Dotenv => content
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let assignment = line.strip_prefix("export ").unwrap_or(line);
+                let (key, _) = assignment.split_once('=')?;
+                let key = key.trim();
+                safe_keys
+                    .contains(key)
+                    .then(|| format!("{key}={REDACTED_CONFIG_VALUE}"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        // YAML permits values in mapping keys and tags. Until those shapes can be
+        // redacted without ambiguity, expose no source text across IPC.
+        AgentNativeConfigFormat::Yaml => String::new(),
+    }
+}
+
+fn redact_json_config_values(value: &mut serde_json::Value, safe_keys: &HashSet<&str>) -> bool {
+    match value {
+        serde_json::Value::Array(values) => {
+            values.retain_mut(|value| redact_json_config_values(value, safe_keys));
+            !values.is_empty()
+        }
+        serde_json::Value::Object(values) => {
+            values.retain(|key, value| {
+                safe_keys.contains(key.as_str()) && redact_json_config_values(value, safe_keys)
+            });
+            !values.is_empty()
+        }
+        _ => {
+            *value = serde_json::Value::String(REDACTED_CONFIG_VALUE.to_string());
+            true
+        }
+    }
+}
+
+fn redact_toml_config_values(value: &mut toml::Value, safe_keys: &HashSet<&str>) -> bool {
+    match value {
+        toml::Value::Array(values) => {
+            values.retain_mut(|value| redact_toml_config_values(value, safe_keys));
+            !values.is_empty()
+        }
+        toml::Value::Table(values) => {
+            values.retain(|key, value| {
+                safe_keys.contains(key) && redact_toml_config_values(value, safe_keys)
+            });
+            !values.is_empty()
+        }
+        _ => {
+            *value = toml::Value::String(REDACTED_CONFIG_VALUE.to_string());
+            true
+        }
     }
 }
 

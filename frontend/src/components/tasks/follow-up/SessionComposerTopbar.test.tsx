@@ -108,7 +108,9 @@ describe('SessionComposerTopbar', () => {
       onSelectSession,
     });
 
-    expect(screen.getByTitle('Main session')).toBeInTheDocument();
+    const sessionSelector = screen.getByTitle('Main session');
+    expect(sessionSelector).toHaveClass('raised-control', 'h-5');
+    expect(sessionSelector).not.toHaveClass('h-7');
 
     const jumpButton = screen.getByRole('button', {
       name: '\u56de\u5230\u4e0a\u4e00\u6761\u7528\u6237\u6d88\u606f',

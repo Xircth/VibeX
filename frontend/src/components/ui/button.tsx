@@ -11,9 +11,9 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'border border-transparent bg-primary text-primary-foreground shadow-none hover:bg-primary/90',
+          'primary-control border border-transparent bg-primary text-[var(--primary-control-foreground)] hover:bg-primary/90',
         destructive:
-          'border border-destructive bg-transparent text-destructive hover:bg-destructive/10',
+          'destructive-control border border-destructive bg-transparent text-destructive hover:bg-destructive/10',
         outline: 'raised-control',
         secondary: 'raised-control',
         ghost:

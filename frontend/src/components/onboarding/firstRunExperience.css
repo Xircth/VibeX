@@ -487,11 +487,11 @@
 }
 
 .onboarding-agent-row.is-enabled {
-  background: rgba(91, 140, 199, 0.07);
+  background: hsl(var(--primary) / 0.07);
 }
 
 .dark .onboarding-agent-row.is-enabled {
-  background: rgba(91, 140, 199, 0.11);
+  background: hsl(var(--primary) / 0.11);
 }
 
 .onboarding-agent-enable {
@@ -526,13 +526,13 @@
 }
 
 .onboarding-agent-enable input:checked + .onboarding-agent-checkbox {
-  border-color: #5b8cc7;
-  color: white;
-  background: #5b8cc7;
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
 }
 
 .onboarding-agent-enable input:focus-visible + .onboarding-agent-checkbox {
-  outline: 2px solid #5b8cc7;
+  outline: 2px solid hsl(var(--primary));
   outline-offset: 2px;
 }
 
@@ -753,7 +753,7 @@
 }
 
 .onboarding-agent-loading-indicator svg {
-  color: #5b8cc7;
+  color: hsl(var(--primary));
 }
 
 .onboarding-agent-state {

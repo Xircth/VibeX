@@ -344,14 +344,9 @@ export function OpenCodeProviderConnections({
       <div className="agent-section-heading">
         <div className="flex items-center gap-2">
           <PlugZap aria-hidden="true" className="h-4 w-4" />
-          <div>
-            <h3 id="opencode-provider-heading">
-              {t('settings:agents.openCodeProviderTitle')}
-            </h3>
-            <p className="agent-section-caption">
-              {t('settings:agents.openCodeProviderDescription')}
-            </p>
-          </div>
+          <h3 id="opencode-provider-heading">
+            {t('settings:agents.openCodeProviderTitle')}
+          </h3>
         </div>
         <Button
           aria-label={t('settings:agents.openCodeProviderRefreshAria')}
@@ -603,7 +598,6 @@ export function OpenCodeProviderConnections({
       >
         <div className="agent-provider-form-heading">
           <strong>{t('settings:agents.connectProvider')}</strong>
-          <span>{t('settings:agents.connectProviderDescription')}</span>
         </div>
         <div className="agent-provider-form-grid">
           <ProviderField label="Provider ID" required>
@@ -685,10 +679,7 @@ export function OpenCodeProviderConnections({
           </ProviderField>
           <div className="agent-provider-models">
             <div className="agent-provider-models-heading">
-              <div>
-                <strong>{t('settings:agents.openCodeModelManagement')}</strong>
-                <span>{t('settings:agents.openCodeModelDescription')}</span>
-              </div>
+              <strong>{t('settings:agents.openCodeModelManagement')}</strong>
               <Button
                 className="h-8"
                 size="sm"

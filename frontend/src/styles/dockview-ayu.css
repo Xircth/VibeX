@@ -405,7 +405,7 @@
   > .dv-tabs-container:hover::-webkit-scrollbar-thumb {
   background-color: var(
     --dv-paneview-active-outline-color,
-    rgba(91, 140, 199, 0.6)
+    rgba(168, 190, 223, 0.6)
   );
 }
 

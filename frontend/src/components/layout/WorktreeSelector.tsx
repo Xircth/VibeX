@@ -235,7 +235,7 @@ export function WorktreeSelector() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="ml-2 h-7 w-36 justify-between gap-1 px-2 text-xs sm:w-48"
+          className="h-7 w-36 justify-between gap-1 px-2 text-xs sm:w-48"
           aria-label="Select workspace"
           disabled={switchBranchMutation.isPending}
         >

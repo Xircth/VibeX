@@ -6,7 +6,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
@@ -41,10 +41,12 @@ export function AgentModelProviderManager({
   agentId,
   disabled,
   onDirtyChange,
+  embedded = false,
 }: {
   agentId: AgentId;
   disabled: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  embedded?: boolean;
 }) {
   const { t } = useTranslation(['settings', 'common']);
   const [view, setView] = useState<AgentModelProvidersView | null>(null);
@@ -82,7 +84,7 @@ export function AgentModelProviderManager({
     setModel('');
   }, [agentId]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (loaded || loading) return;
     setLoading(true);
     setError(null);
@@ -101,7 +103,11 @@ export function AgentModelProviderManager({
     } finally {
       setLoading(false);
     }
-  };
+  }, [agentId, loaded, loading, t]);
+
+  useEffect(() => {
+    if (embedded) void load();
+  }, [embedded, load]);
 
   const resetForm = () => {
     setId(null);
@@ -207,21 +213,8 @@ export function AgentModelProviderManager({
     }
   };
 
-  return (
-    <details
-      ref={detailsRef}
-      className="agent-model-provider-manager"
-      onToggle={(event) => {
-        if (event.currentTarget.open) void load();
-      }}
-    >
-      <summary>
-        <span>
-          <strong>{t('settings:agents.providerTitle')}</strong>
-          <small>{t('settings:agents.providerCaption')}</small>
-        </span>
-        <ChevronDown aria-hidden="true" className="h-4 w-4" />
-      </summary>
+  const content = (
+    <>
       {loading ? (
         <p className="agent-model-provider-state" aria-live="polite">
           <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
@@ -418,6 +411,38 @@ export function AgentModelProviderManager({
           {error}
         </p>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <section
+        aria-labelledby={`${agentId}-model-provider-heading`}
+        className="agent-model-provider-manager is-embedded"
+      >
+        <h4 id={`${agentId}-model-provider-heading`}>
+          {t('settings:agents.providerTitle')}
+        </h4>
+        {content}
+      </section>
+    );
+  }
+
+  return (
+    <details
+      ref={detailsRef}
+      className="agent-model-provider-manager"
+      onToggle={(event) => {
+        if (event.currentTarget.open) void load();
+      }}
+    >
+      <summary>
+        <span>
+          <strong>{t('settings:agents.providerTitle')}</strong>
+        </span>
+        <ChevronDown aria-hidden="true" className="h-4 w-4" />
+      </summary>
+      {content}
     </details>
   );
 }

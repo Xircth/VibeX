@@ -31,8 +31,8 @@ import { AgentDetail } from './AgentDetail';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
 import { AgentEnvironmentEditor } from './AgentEnvironmentEditor';
 import { AgentEnvironmentDiagnosticsDialog } from './AgentEnvironmentDiagnosticsDialog';
+import { AgentModelProviderManager } from './AgentModelProviderManager';
 import { AgentRegistryViewPanel } from './AgentRegistryView';
-import { AgentSkillsManager } from './AgentSkillsManager';
 import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
 import { OpenCodePluginHealth } from './OpenCodePluginHealth';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
@@ -94,8 +94,8 @@ export function AgentSettings() {
     (dirty: boolean) => setDirtySource('user-definition', dirty),
     [setDirtySource]
   );
-  const setCustomSkillsDirty = useCallback(
-    (dirty: boolean) => setDirtySource('custom-skills', dirty),
+  const setModelProviderDirty = useCallback(
+    (dirty: boolean) => setDirtySource('model-provider', dirty),
     [setDirtySource]
   );
   const setOpenCodeProviderDirty = useCallback(
@@ -751,9 +751,56 @@ export function AgentSettings() {
               management.state.operations[selectedAgent.agent_id] ?? null
             }
             preflight={preflight}
-            actions={actions}
+            authentication={
+              config?.settings_features.includes('authentication_mode') ? (
+                <AgentAuthModeControl
+                  actions={actions}
+                  actionRunning={actionRunning}
+                  agentId={selectedAgent.agent_id}
+                  busy={Boolean(
+                    selectedAgent.retired ||
+                      selectedAgent.active_operation ||
+                      management.state.operations[selectedAgent.agent_id]
+                  )}
+                  configuration={
+                    <AgentConfigurationAndDiagnostics
+                      config={config}
+                      saving={savingConfig}
+                      conflictMessage={configConflict?.message}
+                      embedded
+                      onSave={(request) => void saveConfig(request)}
+                      onSaveFile={(request) => void saveConfigFile(request)}
+                      onReloadConflict={() => void reloadConflict()}
+                      onAdoptExternal={() => setConfigConflict(null)}
+                      onOverwriteConflict={() => void overwriteConflict()}
+                      onDirtyChange={setConfigurationDirty}
+                    />
+                  }
+                  modelProvider={
+                    config.settings_features.includes(
+                      'reusable_model_providers'
+                    ) ? (
+                      <AgentModelProviderManager
+                        agentId={selectedAgent.agent_id}
+                        disabled={savingConfig}
+                        embedded
+                        onDirtyChange={setModelProviderDirty}
+                      />
+                    ) : undefined
+                  }
+                  onChanged={runPreflight}
+                  onDirtyChange={setAuthModeDirty}
+                  onAuthenticated={runPreflight}
+                  onRunAction={(actionId) => void runManagementAction(actionId)}
+                  nativeCredentialPresent={(fieldId) =>
+                    config.fields.some(
+                      (field) => field.id === fieldId && field.present
+                    )
+                  }
+                />
+              ) : null
+            }
             diagnostics={diagnostics}
-            actionRunning={actionRunning}
             checking={checking}
             checkingUpdate={checkingUpdate}
             updateCheck={updateCheck}
@@ -775,7 +822,6 @@ export function AgentSettings() {
                 ? () => setEnvironmentDiagnosticsAgentId(selectedAgent.agent_id)
                 : undefined
             }
-            onRunAction={(actionId) => void runManagementAction(actionId)}
           />
           {environmentDiagnosticsAgentId ? (
             <AgentEnvironmentDiagnosticsDialog
@@ -784,13 +830,6 @@ export function AgentSettings() {
               onOpenChange={(open) => {
                 if (!open) setEnvironmentDiagnosticsAgentId(null);
               }}
-            />
-          ) : null}
-          {config?.settings_features.includes('authentication_mode') ? (
-            <AgentAuthModeControl
-              agentId={selectedAgent.agent_id}
-              onChanged={runPreflight}
-              onDirtyChange={setAuthModeDirty}
             />
           ) : null}
           <AgentEnvironmentEditor
@@ -807,29 +846,17 @@ export function AgentSettings() {
             onDirtyChange={setEnvironmentDirty}
           />
           {selectedAgent.source === 'user_definition' ? (
-            <>
-              <UserAgentDefinitionPanel
-                definition={userDefinition}
-                loading={savingUserDefinition}
-                operationActive={Boolean(
-                  selectedAgent.active_operation ||
-                    management.state.operations[selectedAgent.agent_id]
-                )}
-                onSave={saveUserDefinition}
-                onReinstall={() => void reinstallUserDefinition()}
-                onDirtyChange={setUserDefinitionDirty}
-              />
-              {selectedAgent.settings_features?.includes('native_skills') ? (
-                <section className="settings-surface pt-4">
-                  <AgentSkillsManager
-                    key={`custom-skills:${selectedAgent.agent_id}`}
-                    agentId={selectedAgent.agent_id}
-                    disabled={savingUserDefinition}
-                    onDirtyChange={setCustomSkillsDirty}
-                  />
-                </section>
-              ) : null}
-            </>
+            <UserAgentDefinitionPanel
+              definition={userDefinition}
+              loading={savingUserDefinition}
+              operationActive={Boolean(
+                selectedAgent.active_operation ||
+                  management.state.operations[selectedAgent.agent_id]
+              )}
+              onSave={saveUserDefinition}
+              onReinstall={() => void reinstallUserDefinition()}
+              onDirtyChange={setUserDefinitionDirty}
+            />
           ) : null}
           {config?.settings_features.includes('open_code_providers') ||
           config?.settings_features.includes('open_code_plugins') ? (
@@ -852,17 +879,19 @@ export function AgentSettings() {
               ) : null}
             </>
           ) : null}
-          <AgentConfigurationAndDiagnostics
-            config={config}
-            saving={savingConfig}
-            conflictMessage={configConflict?.message}
-            onSave={(request) => void saveConfig(request)}
-            onSaveFile={(request) => void saveConfigFile(request)}
-            onReloadConflict={() => void reloadConflict()}
-            onAdoptExternal={() => setConfigConflict(null)}
-            onOverwriteConflict={() => void overwriteConflict()}
-            onDirtyChange={setConfigurationDirty}
-          />
+          {!config?.settings_features.includes('authentication_mode') ? (
+            <AgentConfigurationAndDiagnostics
+              config={config}
+              saving={savingConfig}
+              conflictMessage={configConflict?.message}
+              onSave={(request) => void saveConfig(request)}
+              onSaveFile={(request) => void saveConfigFile(request)}
+              onReloadConflict={() => void reloadConflict()}
+              onAdoptExternal={() => setConfigConflict(null)}
+              onOverwriteConflict={() => void overwriteConflict()}
+              onDirtyChange={setConfigurationDirty}
+            />
+          ) : null}
         </div>
       ) : (
         <section className="settings-surface flex min-h-44 items-center justify-center px-6 text-center text-sm text-muted-foreground">

@@ -78,7 +78,7 @@ export function SessionSelector({
         <button
           type="button"
           data-raised-selector
-          className="raised-control flex h-7 items-center gap-1 px-2 text-[11px] font-medium"
+          className="raised-control flex h-5 items-center gap-1 px-2 text-[11px] font-medium"
           title={selectedSessionLabel}
         >
           <span className="max-w-[96px] truncate">{compactSessionLabel}</span>

@@ -109,14 +109,9 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
       <div className="agent-section-heading">
         <div className="flex items-center gap-2">
           <Puzzle aria-hidden="true" className="h-4 w-4" />
-          <div>
-            <h3 id="opencode-plugin-heading">
-              {t('settings:agents.openCodePluginTitle')}
-            </h3>
-            <p className="agent-section-caption">
-              {t('settings:agents.openCodePluginDescription')}
-            </p>
-          </div>
+          <h3 id="opencode-plugin-heading">
+            {t('settings:agents.openCodePluginTitle')}
+          </h3>
         </div>
         <div className="flex items-center gap-1.5">
           {missing.length > 1 ? (

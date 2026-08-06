@@ -69,16 +69,9 @@ export function AgentModelCatalogControl({
     >
       <div className="agent-model-catalog-copy">
         <Database aria-hidden="true" className="h-4 w-4" />
-        <div>
-          <strong id="agent-model-catalog-heading">
-            {t('agents.modelCatalog')}
-          </strong>
-          <p>
-            {agentId === 'kimi_code'
-              ? t('agents.kimiCatalogDescription')
-              : t('agents.runtimeCatalogDescription')}
-          </p>
-        </div>
+        <strong id="agent-model-catalog-heading">
+          {t('agents.modelCatalog')}
+        </strong>
       </div>
       <div className="agent-model-catalog-actions">
         {catalog?.models.length ? (

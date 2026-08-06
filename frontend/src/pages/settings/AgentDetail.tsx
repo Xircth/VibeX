@@ -3,27 +3,20 @@ import {
   ArrowUp,
   CheckCircle2,
   CircleAlert,
-  CreditCard,
   Download,
-  ExternalLink,
   FileDown,
   Loader2,
-  LogIn,
-  LogOut,
   RefreshCw,
-  Settings2,
   ShieldCheck,
   Stethoscope,
   Trash2,
   Wrench,
 } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AgentDiagnosticView,
-  AgentManagementActionKind,
-  AgentManagementActionsView,
   AgentManagementView,
   AgentPreflightItemView,
   AgentPreflightView,
@@ -37,15 +30,13 @@ import type { AgentOperationState } from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from './AgentManagementIcon';
-import { CodexDeviceLogin } from './CodexDeviceLogin';
 
 type AgentDetailProps = {
   agent: AgentManagementView;
   operation: AgentOperationState | null;
   preflight: AgentPreflightView | null;
-  actions?: AgentManagementActionsView | null;
+  authentication?: ReactNode;
   diagnostics?: AgentDiagnosticView[];
-  actionRunning?: string | null;
   checking: boolean;
   checkingUpdate: boolean;
   updateCheck: AgentUpdateCheckView | null;
@@ -63,7 +54,6 @@ type AgentDetailProps = {
   onRemove: () => void;
   onExportDiagnostics: () => void;
   onEnvironmentDiagnostics?: () => void;
-  onRunAction?: (actionId: string) => void;
 };
 
 const operationStages: Record<
@@ -95,9 +85,8 @@ export function AgentDetail({
   agent,
   operation,
   preflight,
-  actions = null,
+  authentication,
   diagnostics = [],
-  actionRunning = null,
   checking,
   checkingUpdate,
   updateCheck,
@@ -115,7 +104,6 @@ export function AgentDetail({
   onRemove,
   onExportDiagnostics,
   onEnvironmentDiagnostics,
-  onRunAction,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
   const busy = operation != null || agent.active_operation != null;
@@ -268,76 +256,7 @@ export function AgentDetail({
         </section>
       ) : null}
 
-      {actions && actions.actions.length > 0 ? (
-        <section
-          aria-labelledby="agent-account-heading"
-          className="settings-surface agent-account-surface"
-        >
-          <div className="agent-section-heading">
-            <div className="flex items-center gap-2">
-              <LogIn aria-hidden="true" className="h-4 w-4" />
-              <div>
-                <h3 id="agent-account-heading">{t('agents.accountTitle')}</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t('agents.accountCaption')}
-                </p>
-              </div>
-            </div>
-          </div>
-          {agent.agent_id === 'codex' ? (
-            <CodexDeviceLogin onAuthenticated={onPreflight} />
-          ) : null}
-          <ul className="agent-account-actions">
-            {actions.actions.map((action) => {
-              const Icon = managementActionIcon(action.kind);
-              const localizedLabel = t(action.label_key, {
-                defaultValue: action.label,
-              });
-              const localizedDescription = action.available
-                ? t(action.description_key, {
-                    defaultValue: action.description,
-                  })
-                : t('agents.actionUnavailable');
-              return (
-                <li key={action.id}>
-                  <div className="agent-account-action-copy">
-                    <span className="agent-account-action-icon">
-                      <Icon aria-hidden="true" className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <strong>{localizedLabel}</strong>
-                      <p>{localizedDescription}</p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={action.kind === 'login' ? 'default' : 'outline'}
-                    className="h-8 shrink-0"
-                    aria-label={localizedLabel}
-                    disabled={
-                      busy || !action.available || actionRunning !== null
-                    }
-                    onClick={() => onRunAction?.(action.id)}
-                  >
-                    {actionRunning === action.id ? (
-                      <Loader2
-                        aria-hidden="true"
-                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
-                      />
-                    ) : action.kind === 'subscription' ? (
-                      <ExternalLink
-                        aria-hidden="true"
-                        className="mr-1.5 h-3.5 w-3.5"
-                      />
-                    ) : null}
-                    {localizedLabel}
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : null}
+      {authentication}
 
       <section
         aria-labelledby="agent-preflight-heading"
@@ -717,19 +636,6 @@ function preflightSummary(
     }
   }
   return parts.join(' · ');
-}
-
-function managementActionIcon(kind: AgentManagementActionKind) {
-  switch (kind) {
-    case 'login':
-      return LogIn;
-    case 'logout':
-      return LogOut;
-    case 'setup':
-      return Settings2;
-    case 'subscription':
-      return CreditCard;
-  }
 }
 
 function operationMessage(

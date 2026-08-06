@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stage_root = target_root.join("cef-runtime").join(env::consts::OS);
     fs::create_dir_all(&stage_root)?;
 
-    let required_files = stage_platform_runtime(&stage_root, &target_path)?;
+    let required_files = stage_platform_runtime(&stage_root, &target_path, &workspace)?;
     let manifest = serde_json::json!({
         "schemaVersion": 1,
         "cefVersion": "150.2.1+150.0.14",
@@ -57,11 +57,20 @@ fn workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
 fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
+    workspace: &std::path::Path,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     use std::os::unix::fs::symlink;
 
     use cef::build_util::mac::{BundleInfo, bundle};
     use semver::Version;
+
+    let package: serde_json::Value =
+        serde_json::from_slice(&fs::read(workspace.join("package.json"))?)?;
+    let app_version = package
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("root package.json does not contain a string version")?;
+    let app_version = Version::parse(app_version)?;
 
     let app_root = stage_root.join("app");
     let framework_links = stage_root.join("framework-links");
@@ -79,13 +88,7 @@ fn stage_platform_runtime(
         "vibex",
         "vibex_cef_helper",
         None,
-        BundleInfo::new(
-            "VibeX",
-            "com.vibex.app",
-            "VibeX",
-            "en",
-            Version::new(0, 1, 0),
-        ),
+        BundleInfo::new("VibeX", "com.vibex.app", "VibeX", "en", app_version),
     )?;
     let frameworks = app_root.join("vibex.app/Contents/Frameworks");
     let framework_helpers = frameworks
@@ -121,6 +124,7 @@ fn stage_platform_runtime(
 fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
+    _workspace: &std::path::Path,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     let executable = cef::build_util::linux::bundle(stage_root, target_path, "vibex")?;
     fs::remove_file(executable)?;
@@ -136,6 +140,7 @@ fn stage_platform_runtime(
 fn stage_platform_runtime(
     stage_root: &std::path::Path,
     target_path: &std::path::Path,
+    _workspace: &std::path::Path,
 ) -> Result<Vec<&'static str>, Box<dyn std::error::Error>> {
     let executable = cef::build_util::win::bundle(stage_root, target_path, "vibex")?;
     fs::remove_file(executable)?;

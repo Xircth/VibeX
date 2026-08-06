@@ -108,7 +108,6 @@ export function CodexDeviceLogin({ onAuthenticated }: Props) {
       <div className="codex-device-login">
         <div>
           <strong>{t('settings:agents.codexDeviceTitle')}</strong>
-          <p>{t('settings:agents.codexDeviceDescription')}</p>
         </div>
         <Button
           aria-label={t('settings:agents.codexDeviceLoginAria')}

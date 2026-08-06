@@ -1,5 +1,8 @@
 use std::ffi::OsStr;
 
+pub const XWAYLAND_REQUIRED_MESSAGE: &str =
+    "CEF child windows require X11/XWayland; install xwayland and launch VibeX with DISPLAY set";
+
 /// Selects the GTK backend required by native, windowed CEF on Linux.
 ///
 /// Wayland sessions normally expose an XWayland display through `DISPLAY`.

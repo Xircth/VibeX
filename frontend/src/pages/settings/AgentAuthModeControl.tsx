@@ -1,25 +1,58 @@
-import { KeyRound, Loader2, ShieldCheck } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import {
+  CreditCard,
+  ExternalLink,
+  KeyRound,
+  Loader2,
+  LogIn,
+  LogOut,
+  Settings2,
+  ShieldCheck,
+} from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AgentAuthModeView, AgentId } from 'shared/types';
+import type {
+  AgentAuthModeView,
+  AgentId,
+  AgentManagementActionKind,
+  AgentManagementActionsView,
+} from 'shared/types';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import {
   agentManagementApi,
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 
+import { CodexDeviceLogin } from './CodexDeviceLogin';
+
 type Props = {
   agentId: AgentId;
+  actions?: AgentManagementActionsView | null;
+  actionRunning?: string | null;
+  busy?: boolean;
+  configuration?: ReactNode;
+  modelProvider?: ReactNode;
+  nativeCredentialPresent?: (fieldId: string) => boolean;
   onChanged?: () => void | Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
+  onAuthenticated?: () => void;
+  onRunAction?: (actionId: string) => void;
 };
 
 export function AgentAuthModeControl({
   agentId,
+  actions = null,
+  actionRunning = null,
+  busy = false,
+  configuration,
+  modelProvider,
+  nativeCredentialPresent,
   onChanged,
   onDirtyChange,
+  onAuthenticated,
+  onRunAction,
 }: Props) {
   const { t } = useTranslation('settings');
   const [view, setView] = useState<AgentAuthModeView | null>(null);
@@ -75,8 +108,16 @@ export function AgentAuthModeControl({
   const selectedOption = view?.options.find((option) => option.value === mode);
   const requiresCredential = selectedOption?.credential_required ?? false;
   const credentialEnv = selectedOption?.credential_env ?? 'API_KEY';
+  const nativeConfigFieldId = selectedOption?.native_config_field_id ?? null;
   const credentialAlreadyPresent =
     view?.mode === mode && view.credential_present;
+  const credentialAvailable =
+    credentialAlreadyPresent ||
+    Boolean(
+      nativeConfigFieldId && nativeCredentialPresent?.(nativeConfigFieldId)
+    ) ||
+    Boolean(apiKey.trim());
+  const panel = authenticationPanel(mode);
   const displayName =
     agentId === 'grok'
       ? 'Grok'
@@ -96,10 +137,7 @@ export function AgentAuthModeControl({
       <div className="agent-section-heading">
         <div className="flex items-center gap-2">
           <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-          <div>
-            <h3 id={`${agentId}-auth-mode-heading`}>{t('agents.authTitle')}</h3>
-            <p className="agent-section-caption">{t('agents.authCaption')}</p>
-          </div>
+          <h3 id={`${agentId}-auth-mode-heading`}>{t('agents.authTitle')}</h3>
         </div>
       </div>
 
@@ -121,83 +159,38 @@ export function AgentAuthModeControl({
         </div>
       ) : view ? (
         <div className="agent-auth-mode-body">
-          <label className="agent-auth-mode-field">
-            <span>{t('agents.authModeLabel', { agent: displayName })}</span>
-            <select
-              aria-label={t('agents.authModeAria', { agent: displayName })}
-              className="raised-control"
-              name={`${agentId}_auth_mode`}
-              value={mode}
-              onChange={(event) => {
-                const nextMode = event.target.value;
-                setMode(nextMode);
-                if (
-                  !view.options.find((option) => option.value === nextMode)
-                    ?.credential_required
-                ) {
-                  setApiKey('');
-                }
-              }}
-            >
-              {view.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {t(option.label_key)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {requiresCredential ? (
+          <div className="agent-auth-mode-selector">
             <label className="agent-auth-mode-field">
-              <span>{credentialEnv}</span>
-              <div className="agent-auth-mode-secret">
-                <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
-                <input
-                  aria-label={credentialEnv}
-                  autoComplete="new-password"
-                  name={`${agentId}_api_key`}
-                  placeholder={
-                    credentialAlreadyPresent
-                      ? t('agents.credentialSavedPlaceholder')
-                      : t('agents.credentialPlaceholder')
+              <span>{t('agents.authModeLabel', { agent: displayName })}</span>
+              <select
+                aria-label={t('agents.authModeAria', { agent: displayName })}
+                className="raised-control"
+                name={`${agentId}_auth_mode`}
+                value={mode}
+                onChange={(event) => {
+                  const nextMode = event.target.value;
+                  setMode(nextMode);
+                  const nextOption = view.options.find(
+                    (option) => option.value === nextMode
+                  );
+                  if (
+                    !nextOption?.credential_required ||
+                    nextOption.native_config_field_id
+                  ) {
+                    setApiKey('');
                   }
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                />
-              </div>
+                }}
+              >
+                {view.options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.label_key)}
+                  </option>
+                ))}
+              </select>
             </label>
-          ) : (
-            <div className="agent-auth-mode-note">
-              <strong>
-                {selectedOption
-                  ? t(selectedOption.label_key)
-                  : t('agents.authModeUnknown')}
-              </strong>
-              <p>
-                {selectedOption
-                  ? t(selectedOption.description_key)
-                  : t('agents.authDescUnknown')}
-              </p>
-            </div>
-          )}
-
-          <div className="agent-auth-mode-actions" aria-live="polite">
-            <span>
-              {requiresCredential
-                ? selectedOption
-                  ? t(selectedOption.description_key)
-                  : t('agents.authDescUnknown')
-                : t('agents.authNextSession')}
-            </span>
             <Button
               className="h-8 shrink-0"
-              disabled={
-                saving ||
-                (requiresCredential &&
-                  !credentialAlreadyPresent &&
-                  !apiKey.trim())
-              }
+              disabled={saving || (requiresCredential && !credentialAvailable)}
               size="sm"
               onClick={() => void save()}
             >
@@ -210,8 +203,137 @@ export function AgentAuthModeControl({
               {saving ? t('agents.saving') : t('agents.authSave')}
             </Button>
           </div>
+
+          {requiresCredential &&
+          !nativeConfigFieldId &&
+          panel === 'configuration' ? (
+            <label className="agent-auth-mode-field agent-auth-mode-credential">
+              <span>{credentialEnv}</span>
+              <div className="agent-auth-mode-secret">
+                <KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
+                <Input
+                  aria-label={credentialEnv}
+                  autoComplete="new-password"
+                  className="agent-auth-mode-secret-input"
+                  name={`${agentId}_api_key`}
+                  placeholder={
+                    credentialAlreadyPresent
+                      ? t('agents.credentialSavedPlaceholder')
+                      : t('agents.credentialPlaceholder')
+                  }
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                />
+              </div>
+            </label>
+          ) : null}
+
+          <div className="agent-auth-mode-panel" hidden={panel !== 'account'}>
+            {agentId === 'codex' ? (
+              <CodexDeviceLogin onAuthenticated={onAuthenticated} />
+            ) : null}
+            {actions?.actions.length ? (
+              <ul className="agent-account-actions">
+                {actions.actions.map((action) => {
+                  const Icon = managementActionIcon(action.kind);
+                  const localizedLabel = t(action.label_key, {
+                    defaultValue: action.label,
+                  });
+                  return (
+                    <li key={action.id}>
+                      <div className="agent-account-action-copy">
+                        <span className="agent-account-action-icon">
+                          <Icon aria-hidden="true" className="h-4 w-4" />
+                        </span>
+                        <span>
+                          <strong>{localizedLabel}</strong>
+                          {!action.available ? (
+                            <small>{t('agents.actionUnavailable')}</small>
+                          ) : null}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={
+                          action.kind === 'login' ? 'default' : 'outline'
+                        }
+                        className="h-8 shrink-0"
+                        aria-label={localizedLabel}
+                        disabled={
+                          busy ||
+                          view.mode !== mode ||
+                          !action.available ||
+                          actionRunning !== null
+                        }
+                        onClick={() => onRunAction?.(action.id)}
+                      >
+                        {actionRunning === action.id ? (
+                          <Loader2
+                            aria-hidden="true"
+                            className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                          />
+                        ) : action.kind === 'subscription' ? (
+                          <ExternalLink
+                            aria-hidden="true"
+                            className="mr-1.5 h-3.5 w-3.5"
+                          />
+                        ) : null}
+                        {localizedLabel}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+
+          {configuration ? (
+            <div
+              className="agent-auth-mode-panel"
+              hidden={panel !== 'configuration'}
+            >
+              {configuration}
+            </div>
+          ) : null}
+
+          {modelProvider ? (
+            <div
+              className="agent-auth-mode-panel"
+              hidden={panel !== 'provider'}
+            >
+              {modelProvider}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>
   );
+}
+
+type AuthenticationPanel = 'account' | 'configuration' | 'provider';
+
+function authenticationPanel(mode: string): AuthenticationPanel {
+  if (mode === 'model_provider') return 'provider';
+  if (
+    mode === 'subscription' ||
+    mode.endsWith('_subscription') ||
+    mode === 'login_google'
+  ) {
+    return 'account';
+  }
+  return 'configuration';
+}
+
+function managementActionIcon(kind: AgentManagementActionKind) {
+  switch (kind) {
+    case 'login':
+      return LogIn;
+    case 'logout':
+      return LogOut;
+    case 'setup':
+      return Settings2;
+    case 'subscription':
+      return CreditCard;
+  }
 }

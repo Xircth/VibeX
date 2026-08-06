@@ -27,6 +27,8 @@ const api = vi.hoisted(() => ({
   diagnostics: vi.fn(),
   actions: vi.fn(),
   runAction: vi.fn(),
+  authMode: vi.fn(),
+  setAuthMode: vi.fn(),
   clearDiagnostics: vi.fn(),
 }));
 const confirmShow = vi.hoisted(() => vi.fn());
@@ -82,6 +84,39 @@ describe('AgentSettings', () => {
     });
     api.diagnostics.mockResolvedValue([]);
     api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
+    api.authMode.mockResolvedValue({
+      agent_id: 'codex',
+      mode: 'chatgpt_subscription',
+      credential_env: 'OPENAI_API_KEY',
+      credential_present: false,
+      modes: ['api_key', 'chatgpt_subscription', 'model_provider'],
+      options: [
+        {
+          value: 'api_key',
+          label_key: 'agents.authModeOpenAiKey',
+          description_key: 'agents.authDescCodexKey',
+          credential_env: 'OPENAI_API_KEY',
+          native_config_field_id: 'openai_api_key',
+          credential_required: true,
+        },
+        {
+          value: 'chatgpt_subscription',
+          label_key: 'agents.authModeChatGpt',
+          description_key: 'agents.authDescCodexSubscription',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+        {
+          value: 'model_provider',
+          label_key: 'agents.authModeProvider',
+          description_key: 'agents.authDescCodexProvider',
+          credential_env: null,
+          native_config_field_id: null,
+          credential_required: false,
+        },
+      ],
+    });
   });
 
   it('renders the management projection as the only Agent settings source', async () => {
@@ -89,6 +124,10 @@ describe('AgentSettings', () => {
     expect(await screen.findByRole('button', { name: 'Codex' })).toBeVisible();
     await waitFor(() => expect(api.readConfig).toHaveBeenCalledWith('codex'));
     expect(screen.getByText('已通过账号登录')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('region', { name: '鉴权管理' })
+    ).toBeVisible();
+    expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
   });
 
   it('requires destructive confirmation before uninstalling an Agent', async () => {

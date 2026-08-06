@@ -25,8 +25,37 @@ interface WidthPreservingDockview {
   layout(width: number, height: number, forceResize?: boolean): void;
 }
 
+interface DockviewGroupWidthTarget {
+  group: WidthPreservingGroup;
+  width: number;
+}
+
 const MAX_SIDE_WIDTH_SETTLE_PASSES = 12;
 const SIDE_WIDTH_SETTLE_TOLERANCE = 0.5;
+
+/**
+ * Set coupled Dockview columns to their intended widths before the layout is
+ * shown. Resizing one side redistributes space into the other, so a single
+ * pass can leave the first column much wider than requested.
+ */
+export function settleDockviewGroupWidths(
+  targets: readonly DockviewGroupWidthTarget[]
+): void {
+  for (let attempt = 0; attempt < MAX_SIDE_WIDTH_SETTLE_PASSES; attempt += 1) {
+    let isStable = true;
+    for (const target of targets.toReversed()) {
+      if (
+        target.group.api.isVisible &&
+        Math.abs(target.group.api.width - target.width) >
+          SIDE_WIDTH_SETTLE_TOLERANCE
+      ) {
+        target.group.api.setSize({ width: target.width });
+        isStable = false;
+      }
+    }
+    if (isStable) break;
+  }
+}
 
 /**
  * Resize Dockview while keeping side groups pixel-stable.
@@ -57,18 +86,5 @@ export function layoutDockviewPreservingGroupWidths(
   // columns, so restoring one side can nudge the other. Settle the two coupled
   // widths to sub-pixel precision; impossible sizes still stop at the bounded
   // pass count and remain clamped by Dockview's native minimum constraints.
-  for (let attempt = 0; attempt < MAX_SIDE_WIDTH_SETTLE_PASSES; attempt += 1) {
-    let isStable = true;
-    for (const entry of widths.toReversed()) {
-      if (
-        entry.group.api.isVisible &&
-        Math.abs(entry.group.api.width - entry.width) >
-          SIDE_WIDTH_SETTLE_TOLERANCE
-      ) {
-        entry.group.api.setSize({ width: entry.width });
-        isStable = false;
-      }
-    }
-    if (isStable) break;
-  }
+  settleDockviewGroupWidths(widths);
 }

@@ -15,6 +15,7 @@ const config: AgentNativeConfigView = {
     'model_catalog',
     'reusable_model_providers',
     'codex_model_catalog',
+    'native_skills',
   ],
   path: '/Users/example/.codex/auth.json',
   paths: [
@@ -26,7 +27,7 @@ const config: AgentNativeConfigView = {
       path: '/Users/example/.codex/auth.json',
       format: 'json',
       content:
-        '{\n  "OPENAI_API_KEY": "sk-local-only",\n  "tokens": {"access_token": "oauth-local"}\n}',
+        '{\n  "OPENAI_API_KEY": "••••••••",\n  "tokens": {"access_token": "••••••••"}\n}',
       sensitive: true,
       exists: true,
       revision: 'revision-auth-file',
@@ -102,21 +103,28 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.getByDisplayValue('gpt-5.4')).toBeInTheDocument();
     expect(screen.getByText('config.toml')).toBeInTheDocument();
     expect(screen.queryByText('诊断记录')).not.toBeInTheDocument();
-    const reasoningDescription = screen.getByText(
-      'Codex 模型的 reasoning effort'
+    expect(
+      screen.queryByText('Codex 模型的 reasoning effort')
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText('推理强度')).not.toHaveAttribute(
+      'aria-describedby'
     );
-    expect(reasoningDescription).toBeInTheDocument();
-    expect(screen.getByLabelText('推理强度')).toHaveAttribute(
-      'aria-describedby',
-      reasoningDescription.id
-    );
+    expect(
+      screen.queryByText('写入 Codex 的本地认证文件')
+    ).not.toBeInTheDocument();
     expect(screen.getByText('高级原生文件编辑器')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '保存' })
     ).not.toBeInTheDocument();
     expect(screen.getAllByText(/unknown = "preserved"/)).toHaveLength(2);
-    expect(screen.getByText('敏感内容已在后端隐藏')).toBeInTheDocument();
+    const sensitivePreview = screen.getByLabelText('auth.json 脱敏配置预览');
+    expect(sensitivePreview).toHaveClass('is-sensitive');
+    expect(sensitivePreview).toHaveAttribute('tabindex', '0');
+    expect(sensitivePreview).toHaveTextContent('OPENAI_API_KEY');
+    expect(screen.queryByText('敏感内容已在后端隐藏')).not.toBeInTheDocument();
     expect(screen.queryByText(/sk-local-only/)).not.toBeInTheDocument();
+    expect(screen.queryByText('可复用 Model Provider')).not.toBeInTheDocument();
+    expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText('模型'));
     await userEvent.type(screen.getByLabelText('模型'), 'gpt-5.6');

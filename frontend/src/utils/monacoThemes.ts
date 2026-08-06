@@ -32,7 +32,7 @@ export function defineAyuMonacoThemes(monaco: MonacoThemeDefiner) {
       'editorLineNumber.foreground': '#8A9199',
       'editorLineNumber.activeForeground': '#5C6166',
       'editorCursor.foreground': '#55B4D4',
-      'editor.selectionBackground': '#5B8CC733',
+      'editor.selectionBackground': '#A8BEDF33',
       'editor.inactiveSelectionBackground': '#DDE6F780',
     },
   });
@@ -49,7 +49,7 @@ export function defineAyuMonacoThemes(monaco: MonacoThemeDefiner) {
       'editorLineNumber.foreground': '#5C6773',
       'editorLineNumber.activeForeground': '#B8C4D0',
       'editorCursor.foreground': '#5CCFE6',
-      'editor.selectionBackground': '#5B8CC74D',
+      'editor.selectionBackground': '#A8BEDF4D',
       'editor.inactiveSelectionBackground': '#3B425280',
     },
   });

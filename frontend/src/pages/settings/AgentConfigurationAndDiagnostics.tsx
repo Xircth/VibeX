@@ -14,8 +14,6 @@ import { toast } from '@/components/ui/toast';
 import { desktopApi } from '@/lib/api';
 
 import { AgentModelCatalogControl } from './AgentModelCatalogControl';
-import { AgentModelProviderManager } from './AgentModelProviderManager';
-import { AgentSkillsManager } from './AgentSkillsManager';
 import { CodexModelCatalogEditor } from './CodexModelCatalogEditor';
 import { PiConfigurationPanel } from './PiConfigurationPanel';
 import { PiProviderBuilder } from './PiProviderBuilder';
@@ -31,6 +29,7 @@ type Props = {
   onAdoptExternal?: () => void;
   onOverwriteConflict?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  embedded?: boolean;
 };
 
 export function AgentConfigurationAndDiagnostics({
@@ -43,6 +42,7 @@ export function AgentConfigurationAndDiagnostics({
   onAdoptExternal,
   onOverwriteConflict,
   onDirtyChange,
+  embedded = false,
 }: Props) {
   const { t } = useTranslation('settings');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -98,14 +98,6 @@ export function AgentConfigurationAndDiagnostics({
   );
   const updatePiConfigurationDirty = useCallback(
     (isDirty: boolean) => updateChildDirty('pi-configuration', isDirty),
-    [updateChildDirty]
-  );
-  const updateModelProviderDirty = useCallback(
-    (isDirty: boolean) => updateChildDirty('model-provider', isDirty),
-    [updateChildDirty]
-  );
-  const updateSkillsDirty = useCallback(
-    (isDirty: boolean) => updateChildDirty('skills', isDirty),
     [updateChildDirty]
   );
 
@@ -168,32 +160,58 @@ export function AgentConfigurationAndDiagnostics({
     setRemoved((current) => ({ ...current, [field.id]: true }));
   };
 
+  const openConfigFolderButton = firstConfigPath ? (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="h-7"
+      aria-label={t('agents.openConfigFolder')}
+      disabled={saving}
+      onClick={() => {
+        void desktopApi
+          .revealInFileManager(parentDirectory(firstConfigPath))
+          .catch(() => toast.error(t('agents.openConfigFolderFailed')));
+      }}
+    >
+      <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+      {t('agents.openConfigFolder')}
+    </Button>
+  ) : null;
+  const actionBar = config?.available ? (
+    <SettingsActionBar
+      dirty={changedFields.length > 0}
+      saving={saving}
+      disabled={!canSave}
+      onDiscard={discard}
+      onSave={save}
+    />
+  ) : null;
+
   return (
     <>
-      <section className="settings-surface agent-config-surface">
-        <div className="agent-section-heading">
-          <div className="flex items-center gap-2">
-            <FileKey2 aria-hidden="true" className="h-4 w-4" />
-            <h3>{t('agents.configTitle')}</h3>
+      <section
+        aria-label={embedded ? t('agents.configTitle') : undefined}
+        className={
+          embedded
+            ? 'agent-config-surface is-embedded'
+            : 'settings-surface agent-config-surface'
+        }
+      >
+        {embedded ? (
+          openConfigFolderButton ? (
+            <div className="agent-config-inline-actions">
+              {openConfigFolderButton}
+            </div>
+          ) : null
+        ) : (
+          <div className="agent-section-heading">
+            <div className="flex items-center gap-2">
+              <FileKey2 aria-hidden="true" className="h-4 w-4" />
+              <h3>{t('agents.configTitle')}</h3>
+            </div>
+            {openConfigFolderButton}
           </div>
-          {firstConfigPath ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7"
-              aria-label={t('agents.openConfigFolder')}
-              disabled={saving}
-              onClick={() => {
-                void desktopApi
-                  .revealInFileManager(parentDirectory(firstConfigPath))
-                  .catch(() => toast.error(t('agents.openConfigFolderFailed')));
-              }}
-            >
-              <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              {t('agents.openConfigFolder')}
-            </Button>
-          ) : null}
-        </div>
+        )}
 
         {conflictMessage ? (
           <div
@@ -260,22 +278,6 @@ export function AgentConfigurationAndDiagnostics({
                 onDirtyChange={updatePiConfigurationDirty}
               />
             ) : null}
-            {config.settings_features.includes('reusable_model_providers') ? (
-              <AgentModelProviderManager
-                key={config.agent_id}
-                agentId={config.agent_id}
-                disabled={saving}
-                onDirtyChange={updateModelProviderDirty}
-              />
-            ) : null}
-            {config.settings_features.includes('native_skills') ? (
-              <AgentSkillsManager
-                key={`skills:${config.agent_id}`}
-                agentId={config.agent_id}
-                disabled={saving}
-                onDirtyChange={updateSkillsDirty}
-              />
-            ) : null}
             <div className="agent-config-groups">
               {groups.map(([path, fields, file]) => (
                 <fieldset className="agent-config-group" key={path}>
@@ -310,16 +312,9 @@ export function AgentConfigurationAndDiagnostics({
             </div>
           </>
         )}
+        {embedded ? actionBar : null}
       </section>
-      {config?.available ? (
-        <SettingsActionBar
-          dirty={changedFields.length > 0}
-          saving={saving}
-          disabled={!canSave}
-          onDiscard={discard}
-          onSave={save}
-        />
-      ) : null}
+      {embedded ? null : actionBar}
     </>
   );
 }
@@ -342,12 +337,8 @@ function ConfigField({
   const { t, i18n } = useTranslation('settings');
   const inputId = `agent-config-${field.id}`;
   const labelId = `${inputId}-label`;
-  const descriptionId = `${inputId}-description`;
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizeIdentifier(field.id) : field.label;
-  const description = english
-    ? t('agents.nativeConfigFieldDescription', { label })
-    : field.description;
   return (
     <div className="agent-config-field">
       <div className="agent-config-field-label">
@@ -356,16 +347,10 @@ function ConfigField({
         ) : (
           <label htmlFor={inputId}>{label}</label>
         )}
-        <p id={descriptionId}>{description}</p>
       </div>
       <div className="agent-config-field-control">
         {field.id === 'pi_custom_providers' ? (
-          <div
-            id={inputId}
-            aria-describedby={descriptionId}
-            aria-labelledby={labelId}
-            role="group"
-          >
+          <div id={inputId} aria-labelledby={labelId} role="group">
             <PiProviderBuilder
               value={value}
               disabled={saving}
@@ -376,7 +361,6 @@ function ConfigField({
           <textarea
             id={inputId}
             aria-label={label}
-            aria-describedby={descriptionId}
             autoComplete="off"
             name={`agent_config_${field.id}`}
             disabled={saving}
@@ -390,7 +374,6 @@ function ConfigField({
           <select
             id={inputId}
             aria-label={label}
-            aria-describedby={descriptionId}
             className="raised-control"
             disabled={saving}
             name={`agent_config_${field.id}`}
@@ -411,7 +394,6 @@ function ConfigField({
             <input
               id={inputId}
               aria-label={label}
-              aria-describedby={descriptionId}
               checked={value === 'true'}
               disabled={saving}
               name={`agent_config_${field.id}`}
@@ -424,7 +406,6 @@ function ConfigField({
           <input
             id={inputId}
             aria-label={label}
-            aria-describedby={descriptionId}
             autoComplete={field.secret ? 'new-password' : 'off'}
             disabled={saving}
             inputMode={field.kind === 'number' ? 'numeric' : undefined}
@@ -523,14 +504,32 @@ function ConfigFileEditor({
   const content = !file?.exists
     ? t('agents.fileNotCreated')
     : sensitive
-      ? t('agents.sensitiveHidden')
+      ? file.content || '••••••••'
       : file.content;
-  if (!file || file.sensitive) {
+  if (!file) {
     return (
       <div className="agent-config-preview">
         <div className="agent-config-preview-heading">
           <span>{t('agents.configFile')}</span>
-          <code>{file?.format.toUpperCase() ?? 'FILE'}</code>
+          <code>FILE</code>
+        </div>
+        <pre>{content}</pre>
+      </div>
+    );
+  }
+
+  if (file.sensitive) {
+    return (
+      <div
+        aria-label={t('agents.sensitivePreviewAria', {
+          file: fileName(file.path),
+        })}
+        className={`agent-config-preview${sensitive ? ' is-sensitive' : ''}`}
+        tabIndex={sensitive ? 0 : undefined}
+      >
+        <div className="agent-config-preview-heading">
+          <span>{t('agents.configFile')}</span>
+          <code>{file.format.toUpperCase()}</code>
         </div>
         <pre>{content}</pre>
       </div>
@@ -546,7 +545,6 @@ function ConfigFileEditor({
       <pre>{content}</pre>
       <details className="agent-config-raw-editor">
         <summary>{t('agents.advancedFileEditor')}</summary>
-        <p>{t('agents.advancedFileEditorHint')}</p>
         <label className="sr-only" htmlFor={`agent-file-${file.path}`}>
           {t('agents.editConfigFileAria', { file: fileName(file.path) })}
         </label>

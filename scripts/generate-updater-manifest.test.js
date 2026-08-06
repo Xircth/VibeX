@@ -12,7 +12,7 @@ function writeArtifact(root, relativePath, contents) {
   fs.writeFileSync(artifactPath, contents);
 }
 
-test("generates a four-platform updater manifest without macOS asset collisions", () => {
+test("generates a six-platform updater manifest without asset collisions", () => {
   const temporaryRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "vibex-updater-manifest-"),
   );
@@ -27,9 +27,19 @@ test("generates a four-platform updater manifest without macOS asset collisions"
         "windows signature",
       ],
       [
+        "VibeX-windows-arm64/bundle/nsis/VibeX_0.1.1_arm64-setup.exe",
+        "windows ARM64 bundle",
+        "windows ARM64 signature",
+      ],
+      [
         "VibeX-linux-x64/bundle/appimage/VibeX_0.1.1_amd64.AppImage",
         "linux bundle",
         "linux signature",
+      ],
+      [
+        "VibeX-linux-arm64/bundle/appimage/VibeX_0.1.1_arm64.AppImage",
+        "linux ARM64 bundle",
+        "linux ARM64 signature",
       ],
       [
         "VibeX-macos-x64/bundle/macos/VibeX.app.tar.gz",
@@ -67,9 +77,17 @@ test("generates a four-platform updater manifest without macOS asset collisions"
           signature: "windows signature",
           url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-windows-x86_64-setup.exe",
         },
+        "windows-aarch64": {
+          signature: "windows ARM64 signature",
+          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-windows-aarch64-setup.exe",
+        },
         "linux-x86_64": {
           signature: "linux signature",
           url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-linux-x86_64.AppImage",
+        },
+        "linux-aarch64": {
+          signature: "linux ARM64 signature",
+          url: "https://github.com/Xircth/VibeX/releases/download/v0.1.1/VibeX-0.1.1-linux-aarch64.AppImage",
         },
         "darwin-x86_64": {
           signature: "macOS x64 signature",
@@ -84,7 +102,9 @@ test("generates a four-platform updater manifest without macOS asset collisions"
 
     for (const assetName of [
       "VibeX-0.1.1-windows-x86_64-setup.exe",
+      "VibeX-0.1.1-windows-aarch64-setup.exe",
       "VibeX-0.1.1-linux-x86_64.AppImage",
+      "VibeX-0.1.1-linux-aarch64.AppImage",
       "VibeX-0.1.1-darwin-x86_64.app.tar.gz",
       "VibeX-0.1.1-darwin-aarch64.app.tar.gz",
     ]) {

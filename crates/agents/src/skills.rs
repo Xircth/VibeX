@@ -12,7 +12,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 use ts_rs::TS;
-use workspace_utils::path::normalize_windows_extended_path_prefix;
+use workspace_utils::{
+    path::normalize_windows_extended_path_prefix, process::new_hidden_tokio_command,
+};
 
 use crate::AgentKind;
 
@@ -1348,7 +1350,6 @@ fn find_installed_skill_dir(root: &Path, skill_id: &str) -> Option<PathBuf> {
 
 /// Run `npx skills add <source> --skill <id>` into a staging project dir.
 async fn run_skills_add(source: &str, skill_id: &str, staging: &Path) -> Result<(), SkillError> {
-    use tokio::process::Command;
     // Project-scope install (no -g) into `staging` so the output is fully
     // contained; we relocate it ourselves afterwards. `--agent claude-code`
     // is just a placement vehicle — the real targeting is done by mirroring.
@@ -1363,20 +1364,7 @@ async fn run_skills_add(source: &str, skill_id: &str, staging: &Path) -> Result<
         "--agent",
         "claude-code",
     ];
-    let mut command = if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.arg("/C").arg("npx");
-        for arg in cli_args {
-            c.arg(arg);
-        }
-        c
-    } else {
-        let mut c = Command::new("npx");
-        for arg in cli_args {
-            c.arg(arg);
-        }
-        c
-    };
+    let mut command = new_hidden_tokio_command("npx", cli_args);
     command.current_dir(staging);
 
     let output = tokio::time::timeout(std::time::Duration::from_secs(180), command.output())

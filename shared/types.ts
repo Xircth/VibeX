@@ -2008,7 +2008,7 @@ export type AgentNativeConfigFileWriteRequest = { agent_id: AgentId, path: strin
 
 export type AgentSettingsFeature = "authentication_mode" | "model_catalog" | "reusable_model_providers" | "codex_model_catalog" | "pi_configuration" | "open_code_providers" | "open_code_plugins" | "native_mcp" | "native_skills";
 
-export type AgentAuthModeOptionView = { value: string, label_key: string, description_key: string, credential_env: string | null, credential_required: boolean, };
+export type AgentAuthModeOptionView = { value: string, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, };
 
 export type AgentEnvironmentEntryView = { name: string, value: string | null, secret: boolean, present: boolean, masked_value: string | null, };
 

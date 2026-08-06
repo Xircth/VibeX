@@ -12,8 +12,8 @@
     /* Ayu Light */
     --_background: 0 0% 98%;
     --_foreground: 213 10% 37%;
-    --_primary: 215 50% 55%;
-    --_primary-foreground: 0 0% 100%;
+    --_primary: 216 46.22% 76.67%;
+    --_primary-foreground: 213 25% 15%;
     --_secondary: 0 0% 94%;
     --_secondary-foreground: 213 10% 37%;
     --_muted: 220 4% 91%;
@@ -24,7 +24,7 @@
     --_destructive-foreground: 0 0% 100%;
     --_border: 240 2% 88%;
     --_input: 0 0% 83%;
-    --_ring: 215 50% 55%;
+    --_ring: var(--_primary);
     --_radius: 0.875rem;
 
     /* Status (light - Ayu) */
@@ -61,8 +61,8 @@
     color-scheme: dark;
     --_background: 220 22% 14%;
     --_foreground: 215 20% 73%;
-    --_primary: 215 50% 62%;
-    --_primary-foreground: 0 0% 100%;
+    --_primary: 216 46.22% 76.67%;
+    --_primary-foreground: 213 25% 15%;
     --_secondary: 220 20% 17%;
     --_secondary-foreground: 215 20% 73%;
     --_muted: 220 18% 20%;
@@ -73,7 +73,7 @@
     --_destructive-foreground: 0 0% 100%;
     --_border: 220 15% 25%;
     --_input: 220 15% 25%;
-    --_ring: 215 50% 62%;
+    --_ring: var(--_primary);
 
     /* Status (dark - Ayu Mirage) */
     --_success: 78 72% 50%;
@@ -115,11 +115,8 @@
     --popover: var(--background);
     --popover-foreground: var(--foreground);
 
-    --primary: var(--vscode-button-background, var(--_primary));
-    --primary-foreground: var(
-      --vscode-button-foreground,
-      var(--_primary-foreground)
-    );
+    --primary: var(--_primary);
+    --primary-foreground: var(--_primary-foreground);
     --secondary: var(--vscode-input-background, var(--_secondary));
     --secondary-foreground: var(
       --vscode-input-foreground,
@@ -212,6 +209,10 @@
     --text-muted: hsl(213 8% 45%);
     --text-subtle: hsl(214 7% 56%);
     --text-faint: hsl(214 6% 66%);
+    --primary-control-foreground: hsl(0 0% 100%);
+    --switch-checked-track: hsl(213 25% 15%);
+    --switch-checked-border: var(--switch-checked-track);
+    --switch-checked-thumb: hsl(0 0% 100%);
     --surface-shell: hsl(225 18% 94%);
     --surface-topbar: hsl(0 0% 100% / 0.86);
     --surface-sidebar: hsl(220 16% 96% / 0.88);
@@ -244,8 +245,8 @@
     --shadow-glass:
       0 18px 42px hsl(220 36% 8% / 0.14), inset 0 1px 0 hsl(0 0% 100% / 0.36);
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
-    --shadow-raised-control:
-      0 1px 1px hsl(220 36% 8% / 0.12), 0 3px 6px hsl(220 36% 8% / 0.14);
+    --shadow-control:
+      0 1px 1px hsl(220 36% 8% / 0.08), 0 2px 4px hsl(220 36% 8% / 0.1);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
     --status-running: var(--info);
@@ -320,8 +321,9 @@
     --shadow-glass:
       0 18px 42px hsl(220 48% 2% / 0.3), inset 0 1px 0 hsl(0 0% 100% / 0.08);
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
-    --shadow-raised-control:
-      0 1px 1px hsl(220 48% 2% / 0.28), 0 3px 7px hsl(220 48% 2% / 0.4);
+    --shadow-control:
+      0 1px 1px hsl(220 48% 2% / 0.2), 0 2px 4px hsl(220 48% 2% / 0.3);
+    --switch-checked-border: hsl(0 0% 100% / 0.34);
     --usage-pink: hsl(340 26% 24% / 0.6);
     --usage-pink-border: hsl(340 34% 66% / 0.22);
     --usage-pink-fg: hsl(342 55% 76%);
@@ -952,7 +954,7 @@
     border: 0 !important;
     border-radius: var(--radius) !important;
     background: var(--surface-raised-control) !important;
-    box-shadow: var(--shadow-raised-control) !important;
+    box-shadow: var(--shadow-control) !important;
     color: var(--text-strong) !important;
     transition:
       color 150ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -974,8 +976,25 @@
   .raised-control:focus-visible {
     outline: none;
     box-shadow:
-      var(--shadow-raised-control),
+      var(--shadow-control),
       0 0 0 2px var(--focus-ring) !important;
+  }
+
+  .primary-control,
+  .destructive-control {
+    box-shadow: var(--shadow-control);
+  }
+
+  .primary-control:focus-visible,
+  .destructive-control:focus-visible {
+    box-shadow:
+      var(--shadow-control),
+      0 0 0 2px var(--focus-ring);
+  }
+
+  .primary-control:disabled,
+  .destructive-control:disabled {
+    box-shadow: none;
   }
 
   select.raised-control:not([multiple]) {
@@ -1258,12 +1277,6 @@
     border-color: var(--border-subtle);
     background: var(--surface-content);
     box-shadow: 0 1px 5px hsl(220 36% 8% / 0.08);
-  }
-
-  .workspace-branch-status-badge {
-    color: var(--text-muted);
-    border-color: var(--border-subtle);
-    background: var(--surface-control);
   }
 
   .workspace-branch-ahead {
@@ -2722,6 +2735,19 @@
   background: var(--surface-content);
 }
 
+.settings-page .agent-model-provider-manager.is-embedded {
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-page .agent-model-provider-manager.is-embedded > h4 {
+  margin-bottom: 10px;
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .settings-page .agent-model-provider-manager > summary {
   display: flex;
   min-height: 44px;
@@ -2772,6 +2798,13 @@
   gap: 12px;
   padding: 12px;
   border-top: 1px solid var(--border-subtle);
+}
+
+.settings-page
+  .agent-model-provider-manager.is-embedded
+  .agent-model-provider-body {
+  padding: 0;
+  border-top: 0;
 }
 
 .settings-page .agent-model-provider-binding,
@@ -3659,9 +3692,8 @@
 
 .settings-page .agent-account-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 16px 16px;
+  gap: 0;
+  padding: 0;
 }
 
 .settings-page .agent-account-actions > li {
@@ -3670,10 +3702,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-control);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-page .agent-account-actions > li:last-child {
+  border-bottom: 0;
 }
 
 .settings-page .agent-account-action-copy {
@@ -3685,15 +3719,12 @@
 
 .settings-page .agent-account-action-icon {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
   color: var(--text-muted);
-  background: var(--surface-content);
 }
 
 .settings-page .agent-account-action-copy strong {
@@ -3703,11 +3734,12 @@
   font-weight: 600;
 }
 
-.settings-page .agent-account-action-copy p {
+.settings-page .agent-account-action-copy small {
+  display: block;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.45;
+  font-size: 0.6875rem;
+  line-height: 1.35;
 }
 
 .settings-page .codex-device-login {
@@ -3715,11 +3747,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 0 16px 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  background: var(--surface-content);
+  margin: 0;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-page .codex-device-login strong {
@@ -3804,9 +3834,16 @@
 
 .settings-page .agent-auth-mode-body {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 20px;
+  gap: 0;
   padding: 0 16px 16px;
+}
+
+.settings-page .agent-auth-mode-selector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding-bottom: 14px;
 }
 
 .settings-page .agent-auth-mode-field {
@@ -3815,22 +3852,16 @@
   gap: 6px;
 }
 
-.settings-page .agent-auth-mode-field > span,
-.settings-page .agent-auth-mode-note strong {
+.settings-page .agent-auth-mode-field > span {
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 500;
 }
 
-.settings-page .agent-auth-mode-field select,
-.settings-page .agent-auth-mode-secret {
+.settings-page .agent-auth-mode-field select {
   width: 100%;
-  height: 34px;
-  border: 1px solid var(--border-content);
-  border-radius: var(--radius);
+  height: 32px;
   outline: none;
-  background: var(--surface-control);
-  color: var(--text-strong);
   font-size: 0.75rem;
 }
 
@@ -3838,56 +3869,44 @@
   padding-inline: 10px;
 }
 
-.settings-page .agent-auth-mode-field select:focus-visible,
-.settings-page .agent-auth-mode-secret:focus-within {
-  border-color: hsl(var(--primary) / 0.6);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+.settings-page .agent-auth-mode-credential {
+  padding: 14px 0;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-page .agent-auth-mode-secret {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  position: relative;
   color: var(--text-muted);
 }
 
-.settings-page .agent-auth-mode-secret input {
-  min-width: 0;
-  flex: 1;
-  outline: none;
-  background: transparent;
-  color: var(--text-strong);
+.settings-page .agent-auth-mode-secret > svg {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  z-index: 1;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
-.settings-page .agent-auth-mode-note {
-  align-self: end;
-  min-height: 58px;
-  padding: 9px 10px;
-  border-left: 1px solid hsl(var(--primary) / 0.45);
-  background: hsl(var(--primary) / 0.045);
+.settings-page .agent-auth-mode-secret .agent-auth-mode-secret-input {
+  width: 100%;
+  padding-left: 32px;
 }
 
-.settings-page .agent-auth-mode-note p,
-.settings-page .agent-auth-mode-actions span,
 .settings-page .agent-auth-mode-loading {
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.45;
 }
 
-.settings-page .agent-auth-mode-note p {
-  margin-top: 3px;
+.settings-page .agent-auth-mode-panel {
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
 }
 
-.settings-page .agent-auth-mode-actions {
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
+.settings-page .agent-auth-mode-panel[hidden] {
+  display: none;
 }
 
 .settings-page .agent-auth-mode-loading {
@@ -4826,6 +4845,32 @@
   padding: 0 16px 16px;
 }
 
+.settings-page .agent-config-surface.is-embedded .agent-config-groups {
+  padding: 0;
+}
+
+.settings-page
+  .agent-config-surface.is-embedded
+  .agent-config-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-page .agent-config-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.settings-page .agent-config-surface.is-embedded .settings-action-bar {
+  position: static;
+  z-index: auto;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .settings-page .agent-model-catalog {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5248,13 +5293,6 @@
   font-weight: 500;
 }
 
-.settings-page .agent-config-field-label p {
-  margin: 3px 0 0;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
-}
-
 .settings-page .agent-config-field-control {
   position: relative;
   display: flex;
@@ -5478,6 +5516,24 @@
   white-space: pre;
 }
 
+.settings-page .agent-config-preview.is-sensitive > pre {
+  filter: blur(5px);
+  transition: filter 160ms ease;
+  user-select: none;
+}
+
+.settings-page .agent-config-preview.is-sensitive:hover > pre,
+.settings-page .agent-config-preview.is-sensitive:focus-visible > pre {
+  filter: blur(0);
+  user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-page .agent-config-preview.is-sensitive > pre {
+    transition: none;
+  }
+}
+
 .settings-page .agent-config-raw-editor {
   border-top: 1px solid var(--border-subtle);
   padding: 10px 12px 12px;
@@ -5489,13 +5545,6 @@
   color: var(--text-primary);
   font-size: 0.75rem;
   font-weight: 600;
-}
-
-.settings-page .agent-config-raw-editor > p {
-  margin: 8px 0;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.5;
 }
 
 .settings-page .agent-config-raw-editor textarea {
@@ -5538,6 +5587,10 @@
   }
 
   .settings-page .agent-auth-mode-body {
+    display: block;
+  }
+
+  .settings-page .agent-auth-mode-selector {
     grid-template-columns: 1fr;
   }
 
@@ -5579,7 +5632,6 @@
     align-items: flex-start;
   }
 
-  .settings-page .agent-auth-mode-actions,
   .settings-page .agent-provider-catalog-heading,
   .settings-page .agent-provider-form-heading {
     flex-wrap: wrap;

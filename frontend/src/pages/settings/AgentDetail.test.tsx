@@ -1,11 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type {
-  AgentManagementActionsView,
-  AgentManagementView,
-  AgentPreflightView,
-} from 'shared/types';
+import type { AgentManagementView, AgentPreflightView } from 'shared/types';
 
 import i18n from '@/i18n';
 
@@ -61,34 +57,6 @@ const preflight: AgentPreflightView = {
       version: 'v20.18.0',
       path: '/usr/local/bin/node',
       repairable: false,
-    },
-  ],
-};
-
-const actions: AgentManagementActionsView = {
-  agent_id: 'codex',
-  actions: [
-    {
-      id: 'login',
-      label: '登录 ChatGPT',
-      description: '启动 Codex 官方设备码登录',
-      label_key: 'agents.managementAction.codex.login.label',
-      description_key: 'agents.managementAction.codex.login.description',
-      kind: 'login',
-      available: true,
-      unavailable_reason: null,
-      url: null,
-    },
-    {
-      id: 'subscription',
-      label: '管理订阅',
-      description: '打开 ChatGPT 套餐管理页面',
-      label_key: 'agents.managementAction.codex.subscription.label',
-      description_key: 'agents.managementAction.codex.subscription.description',
-      kind: 'subscription',
-      available: true,
-      unavailable_reason: null,
-      url: 'https://chatgpt.com/#pricing',
     },
   ],
 };
@@ -164,15 +132,13 @@ describe('AgentDetail', () => {
     expect(onRepair).toHaveBeenCalled();
   });
 
-  it('runs only the declared login and subscription actions', async () => {
-    const onRunAction = vi.fn();
+  it('places the composed authentication manager before preflight', () => {
     render(
       <AgentDetail
         agent={agent}
         operation={null}
         preflight={preflight}
-        actions={actions}
-        actionRunning={null}
+        authentication={<section aria-label="鉴权管理">鉴权内容</section>}
         checking={false}
         checkingUpdate={false}
         updateCheck={null}
@@ -188,19 +154,15 @@ describe('AgentDetail', () => {
         onUninstall={vi.fn()}
         onRemove={vi.fn()}
         onExportDiagnostics={vi.fn()}
-        onRunAction={onRunAction}
       />
     );
 
+    const authentication = screen.getByRole('region', { name: '鉴权管理' });
+    const preflightRegion = screen.getByRole('region', { name: '预检查' });
     expect(
-      screen.getByRole('region', { name: '账号与订阅' })
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '登录 ChatGPT' }));
-    await userEvent.click(
-      screen.getByRole('button', { name: '管理 ChatGPT 订阅' })
-    );
-    expect(onRunAction).toHaveBeenNthCalledWith(1, 'login');
-    expect(onRunAction).toHaveBeenNthCalledWith(2, 'subscription');
+      authentication.compareDocumentPosition(preflightRegion) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('offers explicit cancellation while an installation operation is running', async () => {
@@ -311,7 +273,6 @@ describe('AgentDetail', () => {
             logs: ['正在解析已锁定的安装方案', '正在安装本地 Runtime 与 ACP'],
           }}
           preflight={preflight}
-          actions={actions}
           checking={false}
           checkingUpdate={false}
           updateCheck={null}
@@ -330,9 +291,6 @@ describe('AgentDetail', () => {
         />
       );
 
-      expect(
-        screen.getByRole('button', { name: 'Manage ChatGPT subscription' })
-      ).toBeInTheDocument();
       expect(
         screen.getByText('Installing the Agent runtime and ACP adapter…')
       ).toBeInTheDocument();

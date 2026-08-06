@@ -85,6 +85,7 @@ import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
 import {
   defaultSessionPanelWidth,
   layoutDockviewPreservingGroupWidths,
+  settleDockviewGroupWidths,
 } from '@/utils/dockviewStartupSizing';
 
 const LAYOUT = {
@@ -310,6 +311,10 @@ function buildDefaultLayout(api: DockviewApi) {
   bottomGroup.api.setVisible(false);
 
   normalizeGroupIds(api);
+  settleDockviewGroupWidths([
+    { group: leftGroup, width: defaultDockWidth(api.width) },
+    { group: rightGroup, width: defaultSessionWidth(api.width) },
+  ]);
 }
 
 function ensureWelcomeEditorGroup(api: DockviewApi): DockviewGroup | undefined {

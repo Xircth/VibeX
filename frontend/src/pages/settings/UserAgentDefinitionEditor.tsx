@@ -160,10 +160,6 @@ export function UserAgentDefinitionEditor({
 
   return (
     <form className="settings-surface space-y-4 p-4" onSubmit={submit}>
-      <div className="rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-xs text-muted-foreground">
-        {t('settings:agents.userDefinitionEditorDescription')}
-      </div>
-
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Agent ID">
           <Input
@@ -300,9 +296,6 @@ export function UserAgentDefinitionEditor({
           placeholder={t('settings:agents.launchArgumentsPlaceholder')}
           onChange={(event) => setArgsText(event.target.value)}
         />
-        <span className="block font-normal text-muted-foreground">
-          {t('settings:agents.launchArgumentsDescription')}
-        </span>
       </Field>
 
       <fieldset className="space-y-2">
@@ -392,9 +385,6 @@ export function UserAgentDefinitionEditor({
             <span className="block text-xs font-medium text-foreground">
               {t('settings:agents.customSkillsSharedStore')}
             </span>
-            <span className="block text-xs font-normal text-muted-foreground">
-              {t('settings:agents.customSkillsSharedStoreDescription')}
-            </span>
           </label>
           <Switch
             id="custom-agent-shared-skills"
@@ -412,9 +402,6 @@ export function UserAgentDefinitionEditor({
             placeholder="~/.my-agent/skills"
             onChange={(event) => setSkillsDirectory(event.target.value)}
           />
-          <span className="block font-normal text-muted-foreground">
-            {t('settings:agents.customSkillsDirectoryDescription')}
-          </span>
         </Field>
       </fieldset>
 

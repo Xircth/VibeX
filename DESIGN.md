@@ -5,8 +5,12 @@ register: product
 platform: Tauri desktop (React + Tailwind + Radix). macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
 colors:
   # One calm system-blue accent, reserved for state (selected / focused / primary / live).
-  primary: "#5b8cc7"
-  primary-foreground: "#f8fafc"
+  primary: "#A8BEDF"
+  primary-foreground: "#1d2530"
+  primary-control-foreground: "#ffffff"
+  switch-checked-track: "#1d2530"
+  switch-checked-thumb: "#ffffff"
+  dark-switch-checked-border: "#ffffff57"
   # Window backdrop sits BEHIND translucent chrome; content layer is opaque.
   shell-bg: "#eef1f5"
   content-bg: "#fafbfc"
@@ -92,7 +96,8 @@ motion:
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.primary-foreground}"
+    textColor: "{colors.primary-control-foreground}"
+    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
     rounded: "{rounded.control}"
     padding: "0 14px"
     height: "32px"
@@ -106,14 +111,22 @@ components:
     backgroundColor: "{colors.raised-control-bg}"
     hoverBackgroundColor: "{colors.raised-control-hover}"
     border: "none"
-    shadow: "0 1px 1px #0d121c1f, 0 3px 6px #0d121c24"
+    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
+    rounded: "{rounded.control}"
+    padding: "0 12px"
+    height: "32px"
+  button-destructive:
+    backgroundColor: "transparent"
+    textColor: "{colors.destructive}"
+    border: "1px solid {colors.destructive}"
+    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
     rounded: "{rounded.control}"
     padding: "0 12px"
     height: "32px"
   select-default:
     backgroundColor: "{colors.raised-control-bg}"
     border: "none"
-    shadow: "0 1px 1px #0d121c1f, 0 3px 6px #0d121c24"
+    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
     rounded: "{rounded.control}"
     padding: "0 10px"
     height: "32px"
@@ -123,6 +136,11 @@ components:
     rounded: "{rounded.control}"
     padding: "0 10px"
     height: "32px"
+  switch-default:
+    checkedBackgroundColor: "{colors.switch-checked-track}"
+    checkedThumbColor: "{colors.switch-checked-thumb}"
+    darkCheckedBorderColor: "{colors.dark-switch-checked-border}"
+    rounded: "{rounded.pill}"
   card-default:
     backgroundColor: "{colors.panel-bg}"
     textColor: "{colors.text-primary}"
@@ -131,7 +149,7 @@ components:
   sidebar-nav-row:
     rounded: "14px"
     height: "36px"
-    selectedBackground: "{colors.primary}  # accent fill, white label"
+    selectedBackground: "{colors.primary}  # accent fill, dark ink label"
 ---
 
 # Design System: VibeX Tahoe
@@ -194,7 +212,7 @@ A restrained, system-adaptive neutral palette with one calm blue accent and smal
 
 ### Accent
 
-- **Workbench Blue** (`--primary`, ≈ `#5b8cc7`): the macOS selection-blue equivalent. Used for the selected sidebar row (accent fill, white label), focus rings, primary buttons, active navigation, live state, and drag targets.
+- **Workbench Blue** (`--primary`, `#A8BEDF`): the calm macOS selection-blue equivalent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Primary buttons use the shared white control-foreground token; non-button accent states keep dark ink.
 
 ### Semantic status
 
@@ -280,7 +298,7 @@ Unified Liquid Glass strip, full drag region, hairline beneath. Keep it sparse: 
 
 ### Sidebar
 
-A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a white label** (the macOS System Settings idiom). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
+A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a dark ink label** (the macOS System Settings idiom, adjusted for the lighter Workbench Blue). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
 
 ### Toolbars
 
@@ -292,7 +310,7 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 
 ### Controls
 
-- **Switch**: system-blue when on; clear off state; never the only signal for a meaningful change.
+- **Switch**: dark-ink track with a white thumb when on; dark mode adds a light hairline so the track stays distinct. Keep a clear off state and never use the switch as the only signal for a meaningful change.
 - **Secondary / outline buttons and selects**: borderless, very light cool-gray surface in light mode, compact control shadow, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow-led hierarchy.
 - **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
 

@@ -79,7 +79,7 @@ function isMainlineBranch(branch: string) {
   );
 }
 
-function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
+export function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   const { data: branchStatus } = useWorkspaceBranchStatus(workspaceId);
 
   const statusSummary = useMemo(() => {
@@ -120,7 +120,7 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="workspace-branch-status-badge flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs">
+        <div className="workspace-branch-status-badge raised-control flex h-7 items-center gap-1 rounded-lg px-2 text-xs">
           <GitBranch className="h-3 w-3" />
           {targetBranch && (
             <span className="max-w-24 truncate">{targetBranch}</span>
@@ -147,6 +147,26 @@ function BranchStatusBadge({ workspaceId }: { workspaceId: string }) {
       </TooltipTrigger>
       <TooltipContent side="bottom">{tooltipText}</TooltipContent>
     </Tooltip>
+  );
+}
+
+export function WorkspaceBranchControls({
+  isWorkspaceTab,
+  workspaceId,
+}: {
+  isWorkspaceTab: boolean;
+  workspaceId?: string;
+}) {
+  return (
+    <div
+      className="flex min-w-0 shrink-0 items-center gap-2"
+      role="group"
+      aria-label="Workspace and target branches"
+    >
+      <ProjectRailToggleButton />
+      {isWorkspaceTab ? <WorktreeSelector /> : null}
+      {workspaceId ? <BranchStatusBadge workspaceId={workspaceId} /> : null}
+    </div>
   );
 }
 
@@ -367,12 +387,10 @@ export function Toolbar() {
     <TooltipProvider delayDuration={300}>
       <div className="workspace-topbar w-full px-1.5">
         <div className="relative flex items-center h-9 gap-0.5">
-          <div className="flex items-center shrink-0 min-w-0">
-            <ProjectRailToggleButton />
-            {isWorkspaceTab ? <WorktreeSelector /> : null}
-          </div>
-
-          {workspaceId && <BranchStatusBadge workspaceId={workspaceId} />}
+          <WorkspaceBranchControls
+            isWorkspaceTab={isWorkspaceTab}
+            workspaceId={workspaceId}
+          />
 
           <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
             <div className="pointer-events-auto">

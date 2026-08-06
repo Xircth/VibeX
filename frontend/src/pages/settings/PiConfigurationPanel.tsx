@@ -270,10 +270,7 @@ export function PiConfigurationPanel({
       }}
     >
       <summary>
-        <span>
-          <strong>{t('agents.piTitle')}</strong>
-          <small>{t('agents.piDescription')}</small>
-        </span>
+        <strong>{t('agents.piTitle')}</strong>
         <ChevronDown aria-hidden="true" className="h-4 w-4" />
       </summary>
 
@@ -295,7 +292,6 @@ export function PiConfigurationPanel({
                 <strong id="pi-provider-heading">
                   {t('agents.piProviderHeading')}
                 </strong>
-                <small>{t('agents.piProviderDescription')}</small>
               </span>
             </div>
             <div className="pi-configuration-grid">
@@ -467,7 +463,6 @@ export function PiConfigurationPanel({
               <Cpu aria-hidden="true" className="h-4 w-4" />
               <span>
                 <strong id="pi-runtime-heading">Pi Runtime</strong>
-                <small>{t('agents.piRuntimeDescription')}</small>
               </span>
             </div>
             <fieldset className="pi-runtime-modes">
@@ -501,7 +496,6 @@ export function PiConfigurationPanel({
                 />
                 <span>
                   <strong>{t('agents.piCustomRuntime')}</strong>
-                  <small>{t('agents.piCustomRuntimeDescription')}</small>
                 </span>
               </label>
             </fieldset>
@@ -603,7 +597,6 @@ export function PiConfigurationPanel({
               />
               <span>
                 <strong>{t('agents.piTrustWorkspace')}</strong>
-                <small>{t('agents.piTrustWorkspaceDescription')}</small>
               </span>
             </label>
             <div className="pi-configuration-actions">

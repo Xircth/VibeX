@@ -3,6 +3,7 @@ import { createDockview, type DockviewApi } from 'dockview-core';
 import {
   defaultSessionPanelWidth,
   layoutDockviewPreservingGroupWidths,
+  settleDockviewGroupWidths,
 } from './dockviewStartupSizing';
 
 class ResizeObserverStub {
@@ -62,6 +63,10 @@ function buildWorkspaceGroups(api: DockviewApi) {
     title: 'Sessions',
     position: { referenceGroup: session, direction: 'within' },
   });
+  settleDockviewGroupWidths([
+    { group: fileTree, width: 200 },
+    { group: session, width: 434 },
+  ]);
   return { fileTree, session };
 }
 
@@ -69,9 +74,6 @@ describe('new workspace Dockview sizing', () => {
   it('applies compact defaults when the initial canvas is already wide', () => {
     const api = createApi(1600);
     const { fileTree, session } = buildWorkspaceGroups(api);
-
-    fileTree.api.setSize({ width: 200 });
-    session.api.setSize({ width: 434 });
 
     expect(Math.round(fileTree.api.width)).toBe(200);
     expect(Math.round(session.api.width)).toBe(434);

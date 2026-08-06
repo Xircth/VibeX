@@ -4,7 +4,9 @@ import { extname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { Button } from './button';
+import { Input } from './input';
 import { Select, SelectTrigger, SelectValue } from './select';
+import { Switch } from './switch';
 
 const frontendRoot = process.cwd();
 const srcRoot = join(frontendRoot, 'src');
@@ -36,6 +38,47 @@ describe('shared raised controls', () => {
     }
   );
 
+  it('gives the primary button the same standard control elevation', () => {
+    render(<Button>Primary action</Button>);
+
+    const className = screen.getByRole('button', {
+      name: 'Primary action',
+    }).className;
+    expect(className).toContain('primary-control');
+    expect(className).toContain('text-[var(--primary-control-foreground)]');
+  });
+
+  it('uses the canonical dark track and white thumb when a switch is on', () => {
+    render(<Switch aria-label="Enabled" defaultChecked />);
+
+    const control = screen.getByRole('switch', { name: 'Enabled' });
+    expect(control.className).toContain(
+      'data-[state=checked]:bg-[var(--switch-checked-track)]'
+    );
+    expect(control.className).toContain(
+      'data-[state=checked]:border-[var(--switch-checked-border)]'
+    );
+    expect(control.firstElementChild?.className).toContain(
+      'data-[state=checked]:bg-[var(--switch-checked-thumb)]'
+    );
+  });
+
+  it('keeps destructive actions on the same control geometry and elevation', () => {
+    render(<Button variant="destructive">Remove</Button>);
+
+    const className = screen.getByRole('button', { name: 'Remove' }).className;
+    expect(className).toContain('rounded-lg');
+    expect(className).toContain('destructive-control');
+  });
+
+  it('keeps shared inputs on the canonical control radius', () => {
+    render(<Input aria-label="Credential" />);
+
+    expect(screen.getByLabelText('Credential').className).toContain(
+      'rounded-lg'
+    );
+  });
+
   it('gives select triggers the same raised surface', () => {
     render(
       <Select defaultValue="main">
@@ -60,13 +103,24 @@ describe('shared raised controls', () => {
       join(frontendRoot, 'tailwind.legacy.config.js'),
       'utf8'
     );
+    const design = readFileSync(join(frontendRoot, '../DESIGN.md'), 'utf8');
 
     expect(css).toContain('--_radius: 0.875rem;');
+    expect(css).toContain('--_primary: 216 46.22% 76.67%;');
+    expect(css).toContain('--_primary-foreground: 213 25% 15%;');
+    expect(css).toContain('--primary-control-foreground: hsl(0 0% 100%);');
+    expect(css).toContain('--switch-checked-track: hsl(213 25% 15%);');
+    expect(css).toContain('--switch-checked-thumb: hsl(0 0% 100%);');
+    expect(css).toContain('--switch-checked-border: hsl(0 0% 100% / 0.34);');
+    expect(css).toContain('--_ring: var(--_primary);');
     expect(css).toContain('--surface-raised-control: hsl(220 14% 97%);');
+    expect(css).toContain('--shadow-control:');
     expect(css).toContain('border: 0 !important;');
-    expect(css).toContain(
-      'box-shadow: var(--shadow-raised-control) !important;'
-    );
+    expect(css).toContain('box-shadow: var(--shadow-control) !important;');
+    expect(css).toContain('.primary-control,');
+    expect(css).toContain('.destructive-control {');
+    expect(design).toContain('primary: "#A8BEDF"');
+    expect(design).toContain('primary-control-foreground: "#ffffff"');
     expect(css).toContain(".raised-control[aria-disabled='true']");
     expect(css).toContain('opacity: 0.5;');
     expect(tailwind).toContain("DEFAULT: 'var(--radius)'");

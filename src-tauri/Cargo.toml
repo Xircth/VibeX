@@ -1,6 +1,6 @@
 [package]
 name = "vibex"
-version = "0.1.2"
+version = "0.1.8"
 edition = "2024"
 default-run = "vibex"
 
@@ -8,7 +8,6 @@ default-run = "vibex"
 qa-mode = ["executors/qa-mode"]
 
 [build-dependencies]
-cc = "1"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]

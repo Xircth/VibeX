@@ -53,8 +53,11 @@ OpenCode 官方 `auth.json` 与 `opencode.json` 中指定 Provider 的凭据、S
 `opencode.json` 已声明的包，使用 OpenCode 自带 Bun 或 PATH 中的 Bun，在官方缓存目录
 校验安装版本；卸载同步移除声明和缓存包，`@opencode-ai/*` 保留包不可移除。
 
-原生配置文件预览对敏感文件实行后端脱敏：IPC 只返回路径、格式、存在性与敏感标记，
-`content` 必须为空；前端不得以模糊、悬停或聚焦揭示的方式接收或暂存完整凭据文件。
+原生配置文件预览对敏感文件实行后端结构化脱敏：IPC 绝不返回原始凭据，
+`content` 只可包含 Agent 档案原生配置字段路径中已声明的安全键与层级，所有值均替换为
+固定掩码；未声明的键必须丢弃，无法无歧义
+脱敏时返回空内容。前端可对这份已脱敏预览默认模糊，并在悬停或键盘聚焦时解除模糊；
+完整凭据文件不得进入前端 DOM 或状态。
 
 Grok 与 Cursor 的订阅/密钥模式保存在 Agent 设置环境中。启动时必须应用模式策略：
 订阅模式显式清除继承进程中的冲突 API Key；密钥模式在预检查中验证凭据存在；Cursor
@@ -94,8 +97,9 @@ Skills、WebSocket 与 workspace-write 沙箱细项，Kimi Provider 环境/推�
 相关的密钥与端点。Cursor 模型和 Run Everything、Grok 权限模式、OpenClaw Gateway
 与 Session 配置在保存后同步到 Agent 启动设置，并转换为各 CLI 所要求的根级或子命令
 参数；静态安装锁本身不被改写。
-所有结构化字段的后端说明必须在界面可见并通过 `aria-describedby` 关联到控件；英文界面
-使用稳定英文说明，不能直接显示后端中文文案。
+结构化字段以稳定、自足的本地化标签为主；后端说明作为元数据保留，但默认不在表单内
+重复展示。校验错误、冲突、未保存状态和操作后果等与当前任务相关的反馈仍必须可见且
+可访问。
 
 Codex 的审批策略同时支持简单策略与 granular 五项开关；两种原生形态必须互斥，切换
 时不能在 `config.toml` 留下冲突值。Codex 模型目录优先读取 Runtime 的 bundled catalog，

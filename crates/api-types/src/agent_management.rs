@@ -610,6 +610,7 @@ pub struct AgentAuthModeOptionView {
     pub label_key: String,
     pub description_key: String,
     pub credential_env: Option<String>,
+    pub native_config_field_id: Option<String>,
     pub credential_required: bool,
 }
 

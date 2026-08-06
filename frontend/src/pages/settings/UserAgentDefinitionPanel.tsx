@@ -50,9 +50,6 @@ export function UserAgentDefinitionPanel({
           >
             {t('agents.userDefinitionEditTitle')}
           </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t('agents.userDefinitionEditDescription')}
-          </p>
         </div>
         <UserAgentDefinitionEditor
           key={definition.definition_sha256}
@@ -79,31 +76,26 @@ export function UserAgentDefinitionPanel({
       className="settings-surface overflow-hidden"
     >
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-3.5">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2
-              className="text-[15px] font-semibold text-foreground"
-              id="user-agent-definition-title"
-            >
-              {t('agents.userDefinitionTitle')}
-            </h2>
-            <span
-              className={cn(
-                'agent-registry-status',
-                definition.reinstall_required
-                  ? 'settings-status-pill-warning'
-                  : 'settings-status-pill-success'
-              )}
-              role="status"
-            >
-              {definition.reinstall_required
-                ? t('agents.userDefinitionPending')
-                : t('agents.userDefinitionSynced')}
-            </span>
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t('agents.userDefinitionDescription')}
-          </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2
+            className="text-[15px] font-semibold text-foreground"
+            id="user-agent-definition-title"
+          >
+            {t('agents.userDefinitionTitle')}
+          </h2>
+          <span
+            className={cn(
+              'agent-registry-status',
+              definition.reinstall_required
+                ? 'settings-status-pill-warning'
+                : 'settings-status-pill-success'
+            )}
+            role="status"
+          >
+            {definition.reinstall_required
+              ? t('agents.userDefinitionPending')
+              : t('agents.userDefinitionSynced')}
+          </span>
         </div>
         <Button
           className="h-8"

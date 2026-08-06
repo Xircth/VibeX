@@ -42,9 +42,8 @@ fn command_adapter_returns_a_stable_error_code_when_cef_rejects_creation() {
 
 #[test]
 fn unavailable_cef_runtime_reports_the_initialization_error() {
-    let runtime = browser::unavailable_runtime(
-        "CEF child windows require an X11/XWayland parent".to_string(),
-    );
+    let runtime =
+        browser::unavailable_runtime(vibex::linux_display::XWAYLAND_REQUIRED_MESSAGE.to_string());
 
     let error = browser::create_tab(
         &runtime,
@@ -66,6 +65,6 @@ fn unavailable_cef_runtime_reports_the_initialization_error() {
     assert_eq!(error.code, "browser_engine_error");
     assert_eq!(
         error.message,
-        "browser engine rejected command: CEF child windows require an X11/XWayland parent"
+        "browser engine rejected command: CEF child windows require X11/XWayland; install xwayland and launch VibeX with DISPLAY set"
     );
 }

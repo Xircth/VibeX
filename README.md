@@ -8,8 +8,8 @@
 <p align="center">
   <a href="https://github.com/Xircth/VibeX/releases/latest"><img src="https://img.shields.io/badge/Download-Latest_Release-2563EB?style=flat-square" alt="Download latest release" /></a>
   <img src="https://img.shields.io/badge/macOS-Intel_%7C_Apple_Silicon-111827?style=flat-square" alt="macOS support" />
-  <img src="https://img.shields.io/badge/Windows-x64-2563EB?style=flat-square" alt="Windows x64 support" />
-  <img src="https://img.shields.io/badge/Linux-x64-F59E0B?style=flat-square" alt="Linux x64 support" />
+  <img src="https://img.shields.io/badge/Windows-x64_%7C_ARM64-2563EB?style=flat-square" alt="Windows x64 and ARM64 support" />
+  <img src="https://img.shields.io/badge/Linux-x64_%7C_ARM64-F59E0B?style=flat-square" alt="Linux x64 and ARM64 support" />
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-16A34A?style=flat-square" alt="Apache 2.0 License" /></a>
 </p>
 
@@ -41,6 +41,7 @@ VibeX 将 Claude Code、Codex、OpenCode、Pi 与 ACP Registry Agent 接入同�
 - **统一生命周期**：集中展示 Runtime、ACP 适配器、版本、位置、认证、配置与诊断状态。
 - **本地 Runtime 复用**：检测并验证本机已有 CLI，兼容时直接接入。
 - **托管安装**：按版本安装缺失组件，记录安装锁，并提供更新、修复和卸载入口。
+- **托管基础运行时**：需要 npm 的 Agent 使用 VibeX 校验并管理的 Node.js，不要求用户预装 Node/npm。
 - **认证状态分离**：安装完成后，由用户在对应 Agent 中完成登录或 API 配置。
 
 Agent 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 进入统一会话管线。Agent 的模型、模式与推理选项会根据其实际能力显示，VibeX 会保留各 Agent 的差异。
@@ -73,36 +74,21 @@ Agent 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 
 
 从 [GitHub Releases](https://github.com/Xircth/VibeX/releases/latest) 下载对应平台的桌面安装包。
 
-| 平台    | 架构          | 安装包               | 安装方式                                    |
-| ------- | ------------- | -------------------- | ------------------------------------------- |
-| macOS   | Apple Silicon | `.dmg`               | 打开镜像，将 `VibeX.app` 拖入“应用程序”。   |
-| macOS   | Intel         | `.dmg`               | 打开镜像，将 `VibeX.app` 拖入“应用程序”。   |
-| Windows | x64           | `.exe` / `.msi`      | 运行安装程序并按向导完成安装。              |
-| Linux   | x64           | `.AppImage` / `.deb` | 运行 AppImage，或使用系统包管理器安装 deb。 |
+| 平台    | 系统基线              | 架构          | 安装包               | 安装方式                                    |
+| ------- | --------------------- | ------------- | -------------------- | ------------------------------------------- |
+| macOS   | macOS 12 或更高版本   | Intel / ARM64 | `.dmg`               | 打开镜像，将 `VibeX.app` 拖入“应用程序”。   |
+| Windows | Windows 10/11         | x64 / ARM64   | `.exe` / `.msi`      | 运行安装程序并按向导完成安装。              |
+| Linux   | Ubuntu 22.04 同等基线 | x64 / ARM64   | `.AppImage` / `.deb` | 运行 AppImage，或使用系统包管理器安装 deb。 |
+
+Windows 安装包包含离线 WebView2 安装器，首次打开不依赖联网下载 WebView；VibeX 及其后台 Agent、Git、npm/uv 子进程不会创建可见的控制台窗口。Linux 的内置 Chromium/CEF 子窗口需要 X11 或 XWayland；`.deb` 会声明 `xwayland` 依赖，使用 AppImage 的纯 Wayland 系统需要先安装并启用 XWayland。
 
 首次启动时，VibeX 会检查本地 Agent Runtime 与 ACP Registry。选择需要启用的 Agent、默认 Agent 和外部编辑器后即可进入首页；缺失的托管组件会在后台安装。
 
 兼容的本地 Runtime 会被复用。安装完成后的账号登录、浏览器授权和 API 配置需要在对应 Agent 的官方流程中完成。
 
-### macOS 提示“App 已损坏”
+### macOS 阻止打开应用
 
-当前发布包可能尚未完成 Apple 公证。Gatekeeper 有时会将从网络下载的 VibeX 标记为“已损坏”或“无法验证开发者”。
-
-请先确认安装包来自 [VibeX 官方 Releases](https://github.com/Xircth/VibeX/releases/latest)，然后退出 VibeX，在终端执行：
-
-```bash
-xattr -dr com.apple.quarantine /Applications/VibeX.app
-```
-
-如果终端提示权限不足，执行：
-
-```bash
-sudo xattr -dr com.apple.quarantine /Applications/VibeX.app
-```
-
-命令只清除 `/Applications/VibeX.app` 的下载隔离属性。VibeX 安装在其他目录时，请将命令中的路径替换为实际位置。完成后重新打开应用。
-
-仍被系统拦截时，可以前往“系统设置 → 隐私与安全性”，在安全提示区域确认打开 VibeX。无需全局关闭 Gatekeeper。
+正式发布流程会强制执行 Developer ID 签名、公证和 Gatekeeper 校验；缺少任一发布凭据时不会生成 Release。若系统仍阻止打开，请先确认安装包来自 [VibeX 官方 Releases](https://github.com/Xircth/VibeX/releases/latest)，再在“系统设置 → 隐私与安全性”查看具体拦截原因。不要全局关闭 Gatekeeper，也不要清除来源不明应用的隔离属性。
 
 ### 首次 Agent 配置
 

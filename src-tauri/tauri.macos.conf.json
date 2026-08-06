@@ -1,6 +1,7 @@
 {
   "bundle": {
     "macOS": {
+      "minimumSystemVersion": "12.0",
       "frameworks": [
         "../target/cef-runtime/macos/app/vibex.app/Contents/Frameworks/Chromium Embedded Framework.framework"
       ],

@@ -78,7 +78,8 @@ pub async fn resolve_agent_runtime_launch_settings(
                   COALESCE(probe.lifecycle, installation.lifecycle, 'uninstalled') AS lifecycle,
                   COALESCE(probe.authentication, 'not_logged_in') AS authentication,
                   lock.resolved_json,
-                  lock.id
+                  lock.id,
+                  setting.env_json
            FROM agent_membership membership
            LEFT JOIN agent_installation installation
              ON installation.agent_id = membership.agent_id
@@ -86,6 +87,8 @@ pub async fn resolve_agent_runtime_launch_settings(
              ON lock.id = installation.current_lock_id
            LEFT JOIN agent_probe probe
              ON probe.agent_id = membership.agent_id
+           LEFT JOIN agent_setting setting
+             ON setting.agent_type = membership.agent_id
            WHERE membership.agent_id = ?"#,
     )
     .bind(agent_id.as_str())
@@ -184,13 +187,22 @@ pub async fn resolve_agent_runtime_launch_settings(
         })
         .map_err(|error| ConversationServiceError::BadRequest(error.to_string()))?;
 
+    let mut env = row
+        .try_get::<Option<String>, _>("env_json")?
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| serde_json::from_str::<HashMap<String, String>>(&value))
+        .transpose()?
+        .unwrap_or_default();
+    agents::apply_built_in_auth_mode_policy(agent_id, &mut env);
+    let mut args = authorization.args;
+    agents::apply_built_in_launch_argument_policy(agent_id, &env, &mut args);
     Ok(AgentRuntimeLaunchSettings {
         auto_approve_mode: AgentAutoApproveMode::Off,
-        env: HashMap::new(),
+        env,
         launch_lock: SessionLaunchLock {
             agent_id: authorization.agent_id,
             absolute_acp_program: authorization.absolute_acp_program,
-            args: authorization.args,
+            args,
             env: authorization.env,
             runtime_version: authorization.runtime_version,
             acp_version: authorization.acp_version,

@@ -526,6 +526,8 @@ pub struct UserAgentDefinitionRecord {
     pub distribution_kind: UserAgentDistributionKind,
     pub distributions_json: String,
     pub definition_sha256: String,
+    pub skills_shared_store: bool,
+    pub skills_directory: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -539,6 +541,8 @@ struct UserAgentDefinitionRow {
     distribution_kind: String,
     distributions_json: String,
     definition_sha256: String,
+    skills_shared_store: bool,
+    skills_directory: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -557,6 +561,8 @@ impl TryFrom<UserAgentDefinitionRow> for UserAgentDefinitionRecord {
             distribution_kind: parse_user_distribution_kind(&row.distribution_kind)?,
             distributions_json: row.distributions_json,
             definition_sha256: row.definition_sha256,
+            skills_shared_store: row.skills_shared_store,
+            skills_directory: row.skills_directory,
             created_at: Some(row.created_at),
             updated_at: Some(row.updated_at),
         })
@@ -604,8 +610,9 @@ impl UserAgentDefinitionRepository {
         sqlx::query(
             r#"INSERT INTO agent_user_definition (
                    agent_id, display_name, description, version,
-                   distribution_kind, distributions_json, definition_sha256
-               ) VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+                   distribution_kind, distributions_json, definition_sha256,
+                   skills_shared_store, skills_directory
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(definition.agent_id.as_str())
         .bind(definition.display_name)
@@ -614,6 +621,8 @@ impl UserAgentDefinitionRepository {
         .bind(user_distribution_kind_key(definition.distribution_kind))
         .bind(definition.distributions_json)
         .bind(definition.definition_sha256)
+        .bind(definition.skills_shared_store)
+        .bind(definition.skills_directory)
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
@@ -629,6 +638,7 @@ impl UserAgentDefinitionRepository {
         sqlx::query_as::<_, UserAgentDefinitionRow>(
             r#"SELECT agent_id, display_name, description, version,
                       distribution_kind, distributions_json, definition_sha256,
+                      skills_shared_store, skills_directory,
                       created_at, updated_at
                FROM agent_user_definition WHERE agent_id = ?"#,
         )
@@ -647,7 +657,8 @@ impl UserAgentDefinitionRepository {
             r#"UPDATE agent_user_definition
                SET display_name = ?, description = ?, version = ?,
                    distribution_kind = ?, distributions_json = ?,
-                   definition_sha256 = ?, updated_at = CURRENT_TIMESTAMP
+                   definition_sha256 = ?, skills_shared_store = ?,
+                   skills_directory = ?, updated_at = CURRENT_TIMESTAMP
                WHERE agent_id = ?"#,
         )
         .bind(definition.display_name)
@@ -656,6 +667,8 @@ impl UserAgentDefinitionRepository {
         .bind(user_distribution_kind_key(definition.distribution_kind))
         .bind(definition.distributions_json)
         .bind(definition.definition_sha256)
+        .bind(definition.skills_shared_store)
+        .bind(definition.skills_directory)
         .bind(definition.agent_id.as_str())
         .execute(&self.pool)
         .await?;
@@ -673,6 +686,7 @@ impl UserAgentDefinitionRepository {
         sqlx::query_as::<_, UserAgentDefinitionRow>(
             r#"SELECT agent_id, display_name, description, version,
                       distribution_kind, distributions_json, definition_sha256,
+                      skills_shared_store, skills_directory,
                       created_at, updated_at
                FROM agent_user_definition ORDER BY display_name, agent_id"#,
         )

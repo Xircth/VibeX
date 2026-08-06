@@ -7,7 +7,8 @@ decision-makers:
 
 # 内置 Agent 永久保留，其他 Agent 可以移除
 
-四个内置 Agent 永久属于 VibeX Agent 集合，用户可以禁用、卸载其托管 Runtime
+当前十二个内置 Agent（Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、
+Hermes、CodeBuddy、Kimi Code、Pi、Grok 与 Cursor）永久属于 VibeX Agent 集合，用户可以禁用、卸载其托管 Runtime
 或清除配置，但不能把它们从 Agent 导航带移除。其他已添加 Agent 可以从 VibeX
 移除；仍存在于上游 Registry 时重新成为可添加 Agent，已经下架时则只从本地界面
 消失。

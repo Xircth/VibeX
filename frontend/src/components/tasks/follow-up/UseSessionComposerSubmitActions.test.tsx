@@ -70,7 +70,8 @@ describe('useSessionComposerSubmitActions', () => {
     expect(queueMessage).toHaveBeenCalledWith(
       'conflicts\n\nreview\n\ncontinue',
       profile,
-      ['vibe://image']
+      ['vibe://image'],
+      []
     );
     expect(onAfterQueueCleanup).toHaveBeenCalledOnce();
   });

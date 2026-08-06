@@ -14,10 +14,12 @@ agent-client-protocol = { version = "1.2.0", features = [
 chrono = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_yaml = "0.9"
 sha2 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -25,6 +27,7 @@ tokio-util = { version = "0.7", features = ["io", "compat", "rt"] }
 tracing = { workspace = true }
 ts-rs = { workspace = true }
 uuid = { workspace = true }
+url = { workspace = true }
 workspace_utils = { path = "../utils", package = "utils" }
 which = "8.0.0"
 dirs = { workspace = true }

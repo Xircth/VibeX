@@ -8,8 +8,8 @@ decision-makers:
 # Agent 管理能力采用 ACP 优先、本地补缺
 
 VibeX 对所有 Agent 使用同一套管理能力接口，并优先采用 Agent 通过 ACP 广告的认证
-状态、账户状态与订阅可见性。ACP 尚未提供某项状态能力时，Codex、Claude Code、
-OpenCode 与 Pi 的 Built-in Agent Profile 可以通过统一 Provider 接口声明本地探测；
+状态、账户状态与订阅可见性。ACP 尚未提供某项状态能力时，Built-in Agent Profile
+可以通过统一 Provider 接口声明本地探测；
 普通 Registry Agent 不获得专用本地适配。ACP 只承担握手、状态探测与会话能力，不
 承担 VibeX 的持久配置写入。
 
@@ -20,9 +20,9 @@ ACP 与本地 Provider 同时支持同一状态能力时只启用 ACP，避免�
 订阅相关能力限定为只读的账户套餐、额度、用量与重置时间展示。VibeX 不执行购买、
 升级、降级或取消订阅；需要改变订阅时只引导用户前往 Agent 官方渠道。
 
-认证在 VibeX 中只作为只读状态显示：已通过账号登录、已通过 API Key 登录或暂未登录。
-VibeX 不启动浏览器或 CLI 登录、不处理设备码、不调用注销，也不让用户切换账号认证
-方式；这些操作始终由官方 Agent 在 VibeX 外部完成。Built-in Agent Profile 已适配的
+认证状态显示已通过账号登录、已通过 API Key 登录或暂未登录。按 ADR-0037，用户可以
+从设置页启动 Built-in Agent Profile 固定声明的官方登录、注销或初始化流程；VibeX
+不解释或代理终端交互，也不接受用户提供的命令文本。Built-in Agent Profile 已适配的
 原生 Runtime 配置字段可经由受控配置编辑器写入或清除，API Key 只是其中一种字段。
 
 API Key 保存在 Agent 原生配置文件中，允许作为仅本机数据以明文存在；设置界面默认
@@ -37,7 +37,7 @@ API Key 保存在 Agent 原生配置文件中，允许作为仅本机数据以�
 运行时优先级显示实际认证状态；无法可靠判断优先级时显示多种凭据已存在但实际方式
 未知，并阻止创建新会话，避免误用账户或产生非预期费用。
 
-四个 Built-in Agent 不要求管理能力完全对齐。设置界面按当前安装版本实际提供的
+Built-in Agent 不要求管理能力完全对齐。设置界面按当前安装版本实际提供的
 ACP 状态能力与本地探测动态呈现；未提供订阅可见性、账户详情等可选能力不是错误，
 也不影响就绪。只有 Built-in Agent Profile 明确标记为就绪前提的能力缺失时，才阻止
 创建新会话。持久配置只在存在已适配配置文件 Provider 时显示；没有该 Provider 的

@@ -325,6 +325,43 @@ impl AgentRuntime {
         );
     }
 
+    /// Mark every live session for an Agent as using stale launch-time configuration.
+    /// Native files and provider bindings only take effect when a runtime is launched,
+    /// so settings writes must make that boundary visible to existing conversations.
+    pub async fn mark_agent_sessions_config_stale(
+        &self,
+        agent_id: &AgentId,
+        reason: impl Into<String>,
+    ) -> usize {
+        let reason = reason.into();
+        let mut state = self.state.write().await;
+        let sessions = state
+            .sessions
+            .iter()
+            .filter_map(|(session_id, session)| {
+                let connection_id = session.snapshot.connection_id;
+                state
+                    .connections
+                    .get(&connection_id)
+                    .is_some_and(|connection| connection.snapshot.agent_id == *agent_id)
+                    .then_some((connection_id, *session_id))
+            })
+            .collect::<Vec<_>>();
+        for (connection_id, session_id) in &sessions {
+            Self::emit_with_parts_locked(
+                &mut state,
+                self.event_sink.as_ref(),
+                &self.event_tx,
+                *connection_id,
+                Some(*session_id),
+                AgentEvent::SessionConfigStale {
+                    reason: Some(reason.clone()),
+                },
+            );
+        }
+        sessions.len()
+    }
+
     /// Install the delegation companion injector so each new ACP session can
     /// have the companion MCP server spliced into its `session/new`.
     pub fn install_delegation_injector(
@@ -1554,6 +1591,56 @@ mod tests {
         assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(snapshot.prompts.len(), 1);
         assert!(sink.events.lock().unwrap().len() >= 4);
+    }
+
+    #[tokio::test]
+    async fn marks_only_matching_agent_sessions_as_config_stale() {
+        let sink = Arc::new(RecordingSink {
+            events: Mutex::new(Vec::new()),
+        });
+        let runtime = AgentRuntime::new_with_driver(sink.clone(), false);
+        let connection = runtime
+            .connect(ConnectAgentInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id: Uuid::new_v4(),
+                working_dir: PathBuf::from("C:/work"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+        runtime
+            .new_session(connection.id, "acp-session")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            runtime
+                .mark_agent_sessions_config_stale(
+                    &AgentId::parse("codex").unwrap(),
+                    "Model Provider changed",
+                )
+                .await,
+            1
+        );
+        assert_eq!(
+            runtime
+                .mark_agent_sessions_config_stale(
+                    &AgentId::parse("gemini").unwrap(),
+                    "Model Provider changed",
+                )
+                .await,
+            0
+        );
+        assert!(sink.events.lock().unwrap().iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                AgentEvent::SessionConfigStale { reason }
+                    if reason.as_deref() == Some("Model Provider changed")
+            )
+        }));
     }
 
     #[tokio::test]

@@ -96,7 +96,7 @@
   box-sizing: border-box;
   overflow: hidden;
   border: 1.5px solid hsl(var(--primary) / 0.92);
-  border-radius: var(--radius) var(--radius) var(--radius) var(--radius);
+  border-radius: var(--radius);
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   box-shadow:
@@ -187,7 +187,7 @@
     linear-gradient(180deg, hsl(var(--primary-foreground) / 0.12), transparent),
     var(--conv-user-bg);
   color: var(--conv-user-text);
-  border-radius: var(--radius) var(--radius) var(--radius) var(--radius);
+  border-radius: var(--radius);
   border: 1px solid hsl(var(--primary-foreground) / 0.1);
   max-width: 100%;
   padding: 10px 14px;
@@ -322,7 +322,7 @@
   max-width: 85%;
   padding: 12px;
   border: 1px solid hsl(var(--border));
-  border-radius: var(--radius) var(--radius) var(--radius) var(--radius);
+  border-radius: var(--radius);
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   box-shadow: 0 10px 30px hsl(var(--foreground) / 0.08);

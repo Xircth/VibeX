@@ -22,7 +22,6 @@ function readSourceFiles(directory: string): Array<[string, string]> {
     return [[path, readFileSync(path, 'utf8')]];
   });
 }
-
 describe('shared raised controls', () => {
   it.each(['outline', 'secondary'] as const)(
     'gives the %s button the standard raised surface',

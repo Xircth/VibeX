@@ -1,5 +1,13 @@
 import { Loader2, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   UserAgentDefinitionRequest,
   UserAgentDefinitionView,
@@ -8,6 +16,7 @@ import type {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
 type EnvironmentRow = {
@@ -22,6 +31,7 @@ type UserAgentDefinitionEditorProps = {
   loading: boolean;
   submitLabel: string;
   onCancel?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onSubmit: (request: UserAgentDefinitionRequest) => void;
 };
 
@@ -31,8 +41,10 @@ export function UserAgentDefinitionEditor({
   loading,
   submitLabel,
   onCancel,
+  onDirtyChange,
   onSubmit,
 }: UserAgentDefinitionEditorProps) {
+  const { t } = useTranslation(['settings', 'common']);
   const initialDistribution = initial?.distribution;
   const [agentId, setAgentId] = useState(initial?.agent_id ?? '');
   const [displayName, setDisplayName] = useState(initial?.display_name ?? '');
@@ -63,6 +75,12 @@ export function UserAgentDefinitionEditor({
   });
   const [nextEnvironmentId, setNextEnvironmentId] = useState(
     (initialDistribution?.environment.length ?? 0) + 1
+  );
+  const [skillsSharedStore, setSkillsSharedStore] = useState(
+    initial?.skills_shared_store ?? false
+  );
+  const [skillsDirectory, setSkillsDirectory] = useState(
+    initial?.skills_directory ?? ''
   );
 
   const args = useMemo(
@@ -105,24 +123,45 @@ export function UserAgentDefinitionEditor({
       sha256,
     ]
   );
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onSubmit({
+  const request = useMemo<UserAgentDefinitionRequest>(
+    () => ({
       agent_id: agentId,
       display_name: displayName,
       description,
       version,
       distribution_kind: distributionKind,
       distribution_json: distributionJson,
-    });
+      skills_shared_store: skillsSharedStore,
+      skills_directory: skillsDirectory.trim() || null,
+    }),
+    [
+      agentId,
+      description,
+      displayName,
+      distributionJson,
+      distributionKind,
+      skillsDirectory,
+      skillsSharedStore,
+      version,
+    ]
+  );
+  const fingerprint = JSON.stringify(request);
+  const initialFingerprint = useRef(fingerprint).current;
+  const dirty = fingerprint !== initialFingerprint;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSubmit(request);
   };
 
   return (
     <form className="settings-surface space-y-4 p-4" onSubmit={submit}>
       <div className="rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-xs text-muted-foreground">
-        使用 ACP Registry 兼容的 binary、npx 或 uvx 发行定义。VibeX 不执行自定义
-        shell 命令；安装前会冻结定义并验证制品完整性。
+        {t('settings:agents.userDefinitionEditorDescription')}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -138,27 +177,27 @@ export function UserAgentDefinitionEditor({
             onChange={(event) => setAgentId(event.target.value)}
           />
         </Field>
-        <Field label="显示名称">
+        <Field label={t('settings:agents.displayName')}>
           <Input
-            aria-label="显示名称"
+            aria-label={t('settings:agents.displayName')}
             required
             value={displayName}
             placeholder="Local Reviewer"
             onChange={(event) => setDisplayName(event.target.value)}
           />
         </Field>
-        <Field label="版本">
+        <Field label={t('settings:agents.version')}>
           <Input
-            aria-label="版本"
+            aria-label={t('settings:agents.version')}
             required
             value={version}
             placeholder="1.2.3"
             onChange={(event) => setVersion(event.target.value)}
           />
         </Field>
-        <Field label="安装方式">
+        <Field label={t('settings:agents.installMethod')}>
           <select
-            aria-label="安装方式"
+            aria-label={t('settings:agents.installMethod')}
             className="raised-control h-8 w-full px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             value={distributionKind}
             onChange={(event) =>
@@ -174,19 +213,21 @@ export function UserAgentDefinitionEditor({
         </Field>
       </div>
 
-      <Field label="描述（可选）">
+      <Field label={t('settings:agents.descriptionOptional')}>
         <Input
-          aria-label="描述"
+          aria-label={t('settings:agents.description')}
           value={description}
-          placeholder="这个 Agent 适合完成什么任务"
+          placeholder={t('settings:agents.descriptionPlaceholder')}
           onChange={(event) => setDescription(event.target.value)}
         />
       </Field>
 
       <div className="border-t border-border/70 pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-          <span className="font-medium text-foreground">发行证据</span>
-          <span>用户定义</span>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {t('settings:agents.distributionEvidence')}
+          </span>
+          <span>{t('settings:agents.userDefined')}</span>
           <span>·</span>
           <span>{distributionKind}</span>
           <span>·</span>
@@ -196,16 +237,19 @@ export function UserAgentDefinitionEditor({
             {distributionKind === 'binary'
               ? sha256.trim()
                 ? 'SHA-256'
-                : '首次信任后锁定'
-              : '生态锁文件'}
+                : t('settings:agents.trustOnFirstUse')
+              : t('settings:agents.ecosystemLock')}
           </span>
         </div>
 
         {distributionKind === 'binary' ? (
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="归档地址" className="sm:col-span-2">
+            <Field
+              label={t('settings:agents.archiveUrl')}
+              className="sm:col-span-2"
+            >
               <Input
-                aria-label="归档地址"
+                aria-label={t('settings:agents.archiveUrl')}
                 required
                 type="url"
                 value={archiveUrl}
@@ -213,28 +257,28 @@ export function UserAgentDefinitionEditor({
                 onChange={(event) => setArchiveUrl(event.target.value)}
               />
             </Field>
-            <Field label="归档内命令">
+            <Field label={t('settings:agents.archiveCommand')}>
               <Input
-                aria-label="归档内命令"
+                aria-label={t('settings:agents.archiveCommand')}
                 required
                 value={command}
                 placeholder="./agent"
                 onChange={(event) => setCommand(event.target.value)}
               />
             </Field>
-            <Field label="SHA-256（可选）">
+            <Field label={t('settings:agents.sha256Optional')}>
               <Input
                 aria-label="SHA-256"
                 value={sha256}
-                placeholder="留空时首次安装后锁定"
+                placeholder={t('settings:agents.sha256Placeholder')}
                 onChange={(event) => setSha256(event.target.value)}
               />
             </Field>
           </div>
         ) : (
-          <Field label="软件包">
+          <Field label={t('settings:agents.package')}>
             <Input
-              aria-label="软件包"
+              aria-label={t('settings:agents.package')}
               required
               value={packageName}
               placeholder={
@@ -248,24 +292,23 @@ export function UserAgentDefinitionEditor({
         )}
       </div>
 
-      <Field label="启动参数">
+      <Field label={t('settings:agents.launchArguments')}>
         <Textarea
-          aria-label="启动参数"
+          aria-label={t('settings:agents.launchArguments')}
           className="min-h-20 resize-y border-input bg-[var(--surface-control)] font-mono text-xs leading-5"
           value={argsText}
-          placeholder="每行一个参数，例如 --acp"
+          placeholder={t('settings:agents.launchArgumentsPlaceholder')}
           onChange={(event) => setArgsText(event.target.value)}
         />
         <span className="block font-normal text-muted-foreground">
-          每行一个参数；参数会直接传给进程，不经过
-          shell，因此可安全保留参数内的空格。
+          {t('settings:agents.launchArgumentsDescription')}
         </span>
       </Field>
 
       <fieldset className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <legend className="text-xs font-medium text-foreground">
-            环境变量（可选）
+            {t('settings:agents.environmentOptional')}
           </legend>
           <Button
             className="h-7"
@@ -281,16 +324,18 @@ export function UserAgentDefinitionEditor({
             }}
           >
             <Plus aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
-            添加变量
+            {t('settings:agents.addVariable')}
           </Button>
         </div>
         {environment.map((entry, index) => (
           <div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={entry.id}>
             <Input
-              aria-label={`环境变量名称 ${index + 1}`}
+              aria-label={t('settings:agents.environmentNameAria', {
+                number: index + 1,
+              })}
               autoComplete="off"
               value={entry.name}
-              placeholder="变量名"
+              placeholder={t('settings:agents.variableName')}
               onChange={(event) =>
                 setEnvironment((rows) =>
                   rows.map((row) =>
@@ -302,10 +347,12 @@ export function UserAgentDefinitionEditor({
               }
             />
             <Input
-              aria-label={`环境变量值 ${index + 1}`}
+              aria-label={t('settings:agents.environmentValueAria', {
+                number: index + 1,
+              })}
               autoComplete="off"
               value={entry.value}
-              placeholder="值"
+              placeholder={t('settings:agents.value')}
               onChange={(event) =>
                 setEnvironment((rows) =>
                   rows.map((row) =>
@@ -317,7 +364,9 @@ export function UserAgentDefinitionEditor({
               }
             />
             <Button
-              aria-label={`删除环境变量 ${index + 1}`}
+              aria-label={t('settings:agents.environmentDeleteAria', {
+                number: index + 1,
+              })}
               className="h-8 w-8 p-0"
               disabled={environment.length === 1}
               type="button"
@@ -334,11 +383,46 @@ export function UserAgentDefinitionEditor({
         ))}
       </fieldset>
 
+      <fieldset className="space-y-3 rounded-md border border-border/70 bg-muted/10 p-3">
+        <legend className="px-1 text-xs font-medium text-foreground">
+          {t('settings:agents.customSkillsDeclaration')}
+        </legend>
+        <div className="flex items-start justify-between gap-3">
+          <label className="space-y-1" htmlFor="custom-agent-shared-skills">
+            <span className="block text-xs font-medium text-foreground">
+              {t('settings:agents.customSkillsSharedStore')}
+            </span>
+            <span className="block text-xs font-normal text-muted-foreground">
+              {t('settings:agents.customSkillsSharedStoreDescription')}
+            </span>
+          </label>
+          <Switch
+            id="custom-agent-shared-skills"
+            aria-label={t('settings:agents.customSkillsSharedStore')}
+            checked={skillsSharedStore}
+            onCheckedChange={setSkillsSharedStore}
+          />
+        </div>
+        <Field label={t('settings:agents.customSkillsDirectory')}>
+          <Input
+            aria-label={t('settings:agents.customSkillsDirectory')}
+            autoComplete="off"
+            className="font-mono text-xs"
+            value={skillsDirectory}
+            placeholder="~/.my-agent/skills"
+            onChange={(event) => setSkillsDirectory(event.target.value)}
+          />
+          <span className="block font-normal text-muted-foreground">
+            {t('settings:agents.customSkillsDirectoryDescription')}
+          </span>
+        </Field>
+      </fieldset>
+
       <details className="rounded-md border border-border/70 px-3 py-2">
         <summary className="cursor-pointer text-xs font-medium text-foreground">
-          高级：查看生成的 Registry JSON
+          {t('settings:agents.registryJsonAdvanced')}
         </summary>
-        <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-all text-[11px] leading-5 text-muted-foreground">
+        <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-all text-xs leading-5 text-muted-foreground">
           {JSON.stringify(JSON.parse(distributionJson), null, 2)}
         </pre>
       </details>
@@ -353,7 +437,7 @@ export function UserAgentDefinitionEditor({
             variant="ghost"
             onClick={onCancel}
           >
-            取消
+            {t('common:cancel')}
           </Button>
         ) : null}
         <Button className="h-8" disabled={loading} size="sm" type="submit">

@@ -222,7 +222,7 @@ function TargetSelector({
 
 export function McpSettings() {
   const { t } = useTranslation(['settings', 'common']);
-  const agentOptions = useManagedAgentOptions();
+  const agentOptions = useManagedAgentOptions('native_mcp');
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);

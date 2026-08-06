@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   AgentId,
   AgentManagementView,
@@ -18,6 +19,7 @@ import {
 } from './agentManagementStore';
 
 export function useAgentManagement() {
+  const { t, i18n } = useTranslation('settings');
   const [state, setState] = useState(() => createAgentManagementState([]));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -62,7 +64,12 @@ export function useAgentManagement() {
         if (event.sequence <= lastEventSequence.current) return;
         lastEventSequence.current = event.sequence;
         if (event.status === 'failed') {
-          toast.error(event.message?.trim() || 'Agent 安装或验证失败');
+          const message = event.message?.trim();
+          toast.error(
+            i18n.resolvedLanguage?.startsWith('en')
+              ? t('agents.operationFailed')
+              : message || t('agents.operationFailed')
+          );
         }
         setState((current) => reduceOperationEvent(current, event));
         if (
@@ -81,7 +88,7 @@ export function useAgentManagement() {
       active = false;
       unlisten?.();
     };
-  }, [refresh]);
+  }, [i18n.resolvedLanguage, refresh, t]);
 
   useEffect(() => {
     let active = true;

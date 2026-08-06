@@ -200,6 +200,8 @@ describe('AgentRegistryViewPanel', () => {
           env: { ACP_MODE: 'review' },
         },
       }),
+      skills_shared_store: false,
+      skills_directory: null,
     });
   });
 });

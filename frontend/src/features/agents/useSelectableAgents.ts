@@ -3,6 +3,7 @@ import type {
   AgentId,
   AgentLifecycleState,
   AgentManagementView,
+  AgentSettingsFeature,
 } from 'shared/types';
 
 import { agentManagementApi } from '@/features/agent-management';
@@ -16,6 +17,7 @@ export type SelectableAgent = {
   enabled: boolean;
   lifecycle: AgentLifecycleState;
   runnable: boolean;
+  settingsFeatures: AgentSettingsFeature[];
 };
 
 function toSelectableAgent(agent: AgentManagementView): SelectableAgent {
@@ -31,6 +33,7 @@ function toSelectableAgent(agent: AgentManagementView): SelectableAgent {
       agent.enabled &&
       agent.lifecycle === 'ready' &&
       agent.active_operation === null,
+    settingsFeatures: agent.settings_features ?? [],
   };
 }
 

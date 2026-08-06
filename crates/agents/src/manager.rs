@@ -81,8 +81,28 @@ const FULL_GATE_FIXTURE_PROMPT: &str = "__vibex_agent_full_gate_fixture__";
 // legitimately-streaming long turn; permission waits are exempt (see run_prompt).
 const DEFAULT_PROMPT_IDLE_TIMEOUT_SECS: u64 = 600;
 const PROMPT_IDLE_TIMEOUT_ENV: &str = "VIBEX_PROMPT_IDLE_TIMEOUT_SECS";
+const PI_COMMAND_ENV: &str = "PI_ACP_PI_COMMAND";
+const PI_CONFIG_DIR_ENV: &str = "PI_CODING_AGENT_DIR";
+const PI_SESSION_DIR_ENV: &str = "PI_CODING_AGENT_SESSION_DIR";
+const PI_TRUST_WORKSPACE_ENV: &str = "PI_ACP_TRUST_WORKSPACE";
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
+
+fn agent_accepts_wire_mcp(agent_id: &AgentId) -> bool {
+    agent_id.as_str() != "openclaw"
+}
+
+fn agent_delivers_wire_mcp(agent_id: &AgentId) -> bool {
+    agent_accepts_wire_mcp(agent_id) && agent_id.as_str() != "pi"
+}
+
+fn agent_reads_native_mcp(agent_id: &AgentId) -> bool {
+    matches!(
+        agent_id.as_str(),
+        "hermes" | "kimi_code" | "grok" | "cursor"
+    )
+}
+
 const PROXY_ENV_KEYS: [&str; 8] = [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -1236,6 +1256,13 @@ impl AgentConnectionRunner {
         }
         let mut command =
             new_hidden_tokio_command(&launch_lock.absolute_acp_program, &launch_lock.args);
+
+        if self.snapshot.agent_id.as_str() == "pi"
+            && let Err(error) =
+                seed_pi_workspace_trust(&self.snapshot.working_dir, &self.snapshot.env)
+        {
+            tracing::warn!(%error, "could not seed Pi workspace trust");
+        }
         command
             .kill_on_drop(true)
             .stdin(std::process::Stdio::piped())
@@ -1249,6 +1276,36 @@ impl AgentConnectionRunner {
         for (key, value) in &launch_lock.env {
             command.env(key, value);
         }
+        // Pi runtime preferences are mutable user settings. They must win over
+        // values captured by an older external-adoption lock; clearing a field
+        // must also remove an inherited or legacy lock value.
+        if self.snapshot.agent_id.as_str() == "pi" {
+            for key in [PI_COMMAND_ENV, PI_CONFIG_DIR_ENV, PI_SESSION_DIR_ENV] {
+                match self
+                    .snapshot
+                    .env
+                    .get(key)
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    Some(value) => {
+                        command.env(key, value);
+                    }
+                    None => {
+                        command.env_remove(key);
+                    }
+                }
+            }
+        }
+        for key in
+            crate::built_in_auth_mode_scrubbed_env_keys(&self.snapshot.agent_id, &self.snapshot.env)
+        {
+            command.env_remove(key);
+        }
+        // This is a VibeX-side policy toggle, not an environment variable Pi
+        // or pi-acp should observe.
+        command.env_remove(PI_TRUST_WORKSPACE_ENV);
         // The child inherits the full parent env. A blank `OPENAI_API_KEY=""`
         // (or `OPENAI_BASE_URL=""`) leaked from the shell that launched VibeX
         // makes codex think an API key is present but empty, derailing its
@@ -1436,12 +1493,10 @@ impl AgentConnectionRunner {
                     .session_capabilities
                     .fork
                     .is_some();
-                // ACP v1 models stdio MCP servers directly on `session/new`;
-                // completing the ACP handshake is therefore the negotiated
-                // capability evidence for accepting a session-scoped companion.
-                // Keep this explicit so non-ACP adapters can fail closed.
+                // Describe the effective wire path: OpenClaw rejects entries,
+                // while Pi accepts the field but drops it before the model.
                 let companion_capabilities = CompanionCapabilities {
-                    accepts_session_mcp_servers: true,
+                    accepts_session_mcp_servers: agent_delivers_wire_mcp(&runner.snapshot.agent_id),
                 };
                 let supports_list = initialize_response
                     .agent_capabilities
@@ -1780,7 +1835,14 @@ impl AgentConnectionRunner {
                 request =
                     request.additional_directories(self.snapshot.additional_directories.clone());
             }
-            request = request.mcp_servers(self.session_mcp_servers(working_dir).await);
+            request = request.mcp_servers(
+                self.session_mcp_servers_with_companion(
+                    working_dir,
+                    session_id,
+                    companion_capabilities,
+                )
+                .await,
+            );
             let load_result = conn.send_request(request).block_task().await;
             match load_result {
                 Ok(response) => {
@@ -1806,7 +1868,14 @@ impl AgentConnectionRunner {
                     request = request
                         .additional_directories(self.snapshot.additional_directories.clone());
                 }
-                request = request.mcp_servers(self.session_mcp_servers(working_dir).await);
+                request = request.mcp_servers(
+                    self.session_mcp_servers_with_companion(
+                        working_dir,
+                        session_id,
+                        companion_capabilities,
+                    )
+                    .await,
+                );
                 let response = conn.send_request(request).block_task().await?;
                 self.session_map
                     .write()
@@ -1857,35 +1926,9 @@ impl AgentConnectionRunner {
         if self.capabilities.read().await.additional_directories {
             request = request.additional_directories(self.snapshot.additional_directories.clone());
         }
-        request.mcp_servers = self.session_mcp_servers(working_dir).await;
-        // Splice in the delegation companion (so the agent's LLM gets the
-        // delegate_to_agent tools) when the host installed an injector.
-        if let Some(injector) = &self.delegation_injector {
-            match injector.companion(CompanionInjectionContext {
-                parent_connection_id: &self.snapshot.connection_id.0.to_string(),
-                parent_conversation_id: session_id.0,
-                agent_id: &self.snapshot.agent_id,
-                working_root: working_dir,
-                capabilities: companion_capabilities,
-            }) {
-                CompanionInjection::Injected(server) => {
-                    request.mcp_servers.push(acp::schema::v1::McpServer::Stdio(
-                        acp::schema::v1::McpServerStdio::new(server.name, server.command)
-                            .args(server.args),
-                    ));
-                }
-                CompanionInjection::Unsupported { code } => self.emit(
-                    Some(session_id),
-                    None,
-                    AgentEvent::RawAcpDiagnostic {
-                        raw: serde_json::json!({
-                            "kind": "companion_capability",
-                            "code": code,
-                        }),
-                    },
-                ),
-            }
-        }
+        request.mcp_servers = self
+            .session_mcp_servers_with_companion(working_dir, session_id, companion_capabilities)
+            .await;
         let response = conn.send_request(request).block_task().await?;
         let acp_session_id = response.session_id.0.to_string();
         self.session_map
@@ -1906,7 +1949,52 @@ impl AgentConnectionRunner {
         Ok(acp_session_id)
     }
 
+    async fn session_mcp_servers_with_companion(
+        &self,
+        working_dir: &Path,
+        session_id: AgentSessionId,
+        companion_capabilities: CompanionCapabilities,
+    ) -> Vec<acp::schema::v1::McpServer> {
+        let mut servers = self.session_mcp_servers(working_dir).await;
+        // Restored sessions need the same companion as newly created sessions.
+        if companion_capabilities.accepts_session_mcp_servers
+            && let Some(injector) = &self.delegation_injector
+        {
+            match injector.companion(CompanionInjectionContext {
+                parent_connection_id: &self.snapshot.connection_id.0.to_string(),
+                parent_conversation_id: session_id.0,
+                agent_id: &self.snapshot.agent_id,
+                working_root: working_dir,
+                capabilities: companion_capabilities,
+            }) {
+                CompanionInjection::Injected(server) => {
+                    servers.push(acp::schema::v1::McpServer::Stdio(
+                        acp::schema::v1::McpServerStdio::new(server.name, server.command)
+                            .args(server.args),
+                    ));
+                }
+                CompanionInjection::Unsupported { code } => self.emit(
+                    Some(session_id),
+                    None,
+                    AgentEvent::RawAcpDiagnostic {
+                        raw: serde_json::json!({
+                            "kind": "companion_capability",
+                            "code": code,
+                        }),
+                    },
+                ),
+            }
+        }
+        servers
+    }
+
     async fn session_mcp_servers(&self, _working_dir: &Path) -> Vec<acp::schema::v1::McpServer> {
+        if !agent_accepts_wire_mcp(&self.snapshot.agent_id)
+            || !agent_delivers_wire_mcp(&self.snapshot.agent_id)
+            || agent_reads_native_mcp(&self.snapshot.agent_id)
+        {
+            return Vec::new();
+        }
         let mut servers = Vec::new();
         if let Some(injector) = &self.delegation_injector {
             let capabilities = self.capabilities.read().await.clone();
@@ -2689,6 +2777,106 @@ impl AgentConnectionRunner {
                 },
             },
         );
+    }
+}
+
+fn seed_pi_workspace_trust(
+    working_dir: &Path,
+    env: &HashMap<String, String>,
+) -> Result<(), String> {
+    if env
+        .get(PI_TRUST_WORKSPACE_ENV)
+        .is_some_and(|value| value.trim() == "0")
+    {
+        return Ok(());
+    }
+
+    let canonical_workspace = std::fs::canonicalize(working_dir)
+        .map_err(|error| format!("could not resolve workspace path: {error}"))?;
+    let home = dirs::home_dir().ok_or_else(|| "home directory is unavailable".to_string())?;
+    let agent_dir = env
+        .get(PI_CONFIG_DIR_ENV)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| expand_pi_home(value, &home))
+        .unwrap_or_else(|| home.join(".pi/agent"));
+    let trust_path = agent_dir.join("trust.json");
+    let mut trust = match std::fs::read(&trust_path) {
+        Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|error| format!("existing trust.json is invalid: {error}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::Value::Object(serde_json::Map::new())
+        }
+        Err(error) => return Err(format!("could not read trust.json: {error}")),
+    };
+    let trust = trust
+        .as_object_mut()
+        .ok_or_else(|| "existing trust.json is not an object".to_string())?;
+    let workspace_key = canonical_workspace.to_string_lossy().into_owned();
+    if trust.contains_key(&workspace_key) {
+        return Ok(());
+    }
+    trust.insert(workspace_key, serde_json::Value::Bool(true));
+
+    std::fs::create_dir_all(&agent_dir)
+        .map_err(|error| format!("could not create Pi config directory: {error}"))?;
+    let bytes = serde_json::to_vec_pretty(&serde_json::Value::Object(trust.clone()))
+        .map_err(|error| format!("could not serialize trust.json: {error}"))?;
+    let temporary_path = agent_dir.join(format!(".trust.json.vibex-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&temporary_path, bytes)
+        .map_err(|error| format!("could not write temporary trust.json: {error}"))?;
+    if let Err(error) = replace_pi_trust_file(&temporary_path, &trust_path) {
+        let _ = std::fs::remove_file(&temporary_path);
+        return Err(format!("could not replace trust.json: {error}"));
+    }
+    Ok(())
+}
+
+fn expand_pi_home(path: &str, home: &Path) -> PathBuf {
+    if path == "~" {
+        home.to_path_buf()
+    } else if let Some(relative) = path.strip_prefix("~/") {
+        home.join(relative)
+    } else {
+        PathBuf::from(path)
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_pi_trust_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::rename(temporary, destination)
+}
+
+#[cfg(windows)]
+fn replace_pi_trust_file(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    let temporary = temporary
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    if unsafe {
+        MoveFileExW(
+            temporary.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    } == 0
+    {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 
@@ -3784,6 +3972,21 @@ mod tests {
     }
 
     #[test]
+    fn wire_mcp_policy_matches_each_adapter_delivery_path() {
+        let id = |value: &str| AgentId::parse(value).unwrap();
+
+        assert!(!agent_accepts_wire_mcp(&id("openclaw")));
+        assert!(!agent_delivers_wire_mcp(&id("openclaw")));
+        assert!(!agent_delivers_wire_mcp(&id("pi")));
+        assert!(agent_delivers_wire_mcp(&id("codex")));
+
+        for native in ["hermes", "kimi_code", "grok", "cursor"] {
+            assert!(agent_reads_native_mcp(&id(native)), "{native}");
+        }
+        assert!(!agent_reads_native_mcp(&id("claude_code")));
+    }
+
+    #[test]
     fn audio_resource_and_resource_link_content_round_trip_without_flattening() {
         let fixtures = [
             serde_json::json!({
@@ -4485,6 +4688,115 @@ mod tests {
         assert!(PROXY_ENV_KEYS.contains(&"no_proxy"));
         assert!(PROXY_ENV_KEYS.contains(&"HTTPS_PROXY"));
         assert!(PROXY_ENV_KEYS.contains(&"https_proxy"));
+    }
+
+    #[test]
+    fn pi_workspace_trust_is_seeded_additively_and_idempotently() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let workspace = root.path().join("workspace");
+        let agent_dir = root.path().join("pi-agent");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("trust.json"),
+            serde_json::to_vec(&serde_json::json!({ "/already/trusted": true }))
+                .expect("serialize"),
+        )
+        .expect("seed trust");
+        let env = HashMap::from([(
+            PI_CONFIG_DIR_ENV.to_string(),
+            agent_dir.display().to_string(),
+        )]);
+
+        seed_pi_workspace_trust(&workspace, &env).expect("first seed");
+        seed_pi_workspace_trust(&workspace, &env).expect("second seed");
+
+        let document: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(agent_dir.join("trust.json")).expect("read trust"),
+        )
+        .expect("valid trust");
+        let object = document.as_object().expect("object");
+        let canonical = std::fs::canonicalize(workspace).expect("canonical workspace");
+        assert_eq!(
+            object.get("/already/trusted"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            object.get(&canonical.to_string_lossy().into_owned()),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(object.len(), 2);
+    }
+
+    #[test]
+    fn pi_workspace_trust_preserves_explicit_false() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let workspace = root.path().join("workspace");
+        let agent_dir = root.path().join("pi-agent");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        let canonical = std::fs::canonicalize(&workspace).expect("canonical workspace");
+        std::fs::write(
+            agent_dir.join("trust.json"),
+            serde_json::to_vec(&serde_json::json!({
+                canonical.to_string_lossy().into_owned(): false
+            }))
+            .expect("serialize"),
+        )
+        .expect("seed trust");
+        let env = HashMap::from([(
+            PI_CONFIG_DIR_ENV.to_string(),
+            agent_dir.display().to_string(),
+        )]);
+
+        seed_pi_workspace_trust(&workspace, &env).expect("seed should be a no-op");
+
+        let document: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(agent_dir.join("trust.json")).expect("read trust"),
+        )
+        .expect("valid trust");
+        assert_eq!(
+            document.get(canonical.to_string_lossy().as_ref()),
+            Some(&serde_json::json!(false))
+        );
+    }
+
+    #[test]
+    fn pi_workspace_trust_can_be_disabled() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let workspace = root.path().join("workspace");
+        let agent_dir = root.path().join("pi-agent");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let env = HashMap::from([
+            (
+                PI_CONFIG_DIR_ENV.to_string(),
+                agent_dir.display().to_string(),
+            ),
+            (PI_TRUST_WORKSPACE_ENV.to_string(), "0".to_string()),
+        ]);
+
+        seed_pi_workspace_trust(&workspace, &env).expect("disabled seed");
+
+        assert!(!agent_dir.join("trust.json").exists());
+    }
+
+    #[test]
+    fn pi_workspace_trust_does_not_clobber_invalid_documents() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let workspace = root.path().join("workspace");
+        let agent_dir = root.path().join("pi-agent");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        let trust_path = agent_dir.join("trust.json");
+        std::fs::write(&trust_path, b"not-json").expect("invalid trust");
+        let env = HashMap::from([(
+            PI_CONFIG_DIR_ENV.to_string(),
+            agent_dir.display().to_string(),
+        )]);
+
+        assert!(seed_pi_workspace_trust(&workspace, &env).is_err());
+
+        assert_eq!(std::fs::read(trust_path).expect("read trust"), b"not-json");
     }
 
     #[test]

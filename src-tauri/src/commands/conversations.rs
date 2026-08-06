@@ -1381,15 +1381,26 @@ pub async fn import_agent_session_to_conversation_events(
                 )
                 .await?;
                 current_turn_id = Some(turn_id);
+                let event = if matches!(
+                    message.metadata.kind.as_deref(),
+                    Some("reasoning" | "reasoning_and_text")
+                ) {
+                    ConversationEvent::AssistantReasoningDelta {
+                        text: message.content.clone(),
+                        message_id: Some(format!("imported-message-{index}")),
+                    }
+                } else {
+                    ConversationEvent::AssistantTextDelta {
+                        text: message.content.clone(),
+                        message_id: Some(format!("imported-message-{index}")),
+                    }
+                };
                 append_import_event(
                     pool,
                     conversation_id,
                     Some(turn_id),
                     Some(binding.id),
-                    ConversationEvent::AssistantTextDelta {
-                        text: message.content.clone(),
-                        message_id: Some(format!("imported-message-{index}")),
-                    },
+                    event,
                     session,
                     &format!("message-{index}-assistant"),
                     Some(serde_json::to_value(message)?),
@@ -1412,18 +1423,47 @@ pub async fn import_agent_session_to_conversation_events(
                     Some(binding.id),
                     ConversationEvent::ToolCallUpsert {
                         tool_call: ConversationToolCallPatch {
-                            tool_call_id: format!("imported-tool-{index}"),
-                            title: Some("Imported tool output".to_string()),
-                            kind: Some("imported".to_string()),
-                            status: Some("completed".to_string()),
-                            raw_input: None,
-                            raw_output: Some(serde_json::Value::String(message.content.clone())),
+                            tool_call_id: message
+                                .metadata
+                                .tool_call_id
+                                .clone()
+                                .unwrap_or_else(|| format!("imported-tool-{index}")),
+                            title: message
+                                .metadata
+                                .tool_name
+                                .clone()
+                                .or_else(|| Some("Imported tool output".to_string())),
+                            kind: message
+                                .metadata
+                                .kind
+                                .clone()
+                                .or_else(|| Some("imported".to_string())),
+                            status: message.metadata.tool_status.clone().or_else(|| {
+                                Some(
+                                    if message.metadata.kind.as_deref() == Some("tool_call") {
+                                        "pending"
+                                    } else {
+                                        "completed"
+                                    }
+                                    .to_string(),
+                                )
+                            }),
+                            raw_input: message.metadata.raw_input.clone(),
+                            raw_output: message.metadata.raw_output.clone().or_else(|| {
+                                (message.metadata.kind.as_deref() != Some("tool_call"))
+                                    .then(|| serde_json::Value::String(message.content.clone()))
+                            }),
                             raw_output_append: None,
                             content: Some(serde_json::json!({ "text": message.content.clone() })),
                             locations: None,
                             metadata: Some(serde_json::json!({
                                 "source": "agent_transcript",
-                                "role": "tool"
+                                "role": "tool",
+                                "model": message.metadata.model.clone(),
+                                "input_tokens": message.metadata.input_tokens,
+                                "output_tokens": message.metadata.output_tokens,
+                                "cost": message.metadata.cost,
+                                "parent_session_id": message.metadata.parent_session_id.clone()
                             })),
                             images: Vec::new(),
                         },
@@ -1749,11 +1789,13 @@ mod tests {
                     role: ImportedAgentMessageRole::User,
                     content: "hello from history".to_string(),
                     created_at: None,
+                    metadata: Default::default(),
                 },
                 ImportedAgentMessage {
                     role: ImportedAgentMessageRole::Assistant,
                     content: "imported reply".to_string(),
                     created_at: None,
+                    metadata: Default::default(),
                 },
             ],
             raw_source_path: None,

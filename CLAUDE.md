@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VibeX is a local-first Tauri desktop app that orchestrates AI coding agents (Claude Code, OpenCode, Codex, and more) across projects, git-worktree-isolated workspaces, sessions, terminals, previews, and diffs. Frontend is React + TypeScript + Vite; backend is a Rust workspace exposed to the webview through Tauri IPC commands.
 
+## Required task bootstrap
+
+Before every task, read and apply the project-wide [`maiden-skill`](.agents/skills/maiden-skill/SKILL.md). It establishes the baseline for complete, root-cause-driven, clean work and concise UI copy. Then follow the repository bootstrap requirements in [`AGENTS.md`](AGENTS.md).
+
 ## Commands
 
 Run from the repo root unless noted. The repo is pnpm-workspace + cargo-workspace; the Rust toolchain is pinned to a nightly in `rust-toolchain.toml`.

@@ -111,10 +111,13 @@ const Dialog = React.forwardRef<
     <div className="fixed inset-0 z-[9999] flex items-start justify-center p-4 overflow-y-auto">
       <div
         className="dialog-backdrop fixed inset-0"
+        aria-hidden="true"
         onClick={() => (uncloseable ? {} : onOpenChange?.(false))}
       />
       <div
         ref={ref}
+        role="dialog"
+        aria-modal="true"
         className={cn(
           'dialog-surface relative z-[9999] my-8 flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col gap-4 overflow-y-auto rounded-lg border p-5',
           className
@@ -123,6 +126,7 @@ const Dialog = React.forwardRef<
       >
         {!uncloseable && (
           <button
+            type="button"
             className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--surface-control-hover)] hover:text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
             onClick={() => onOpenChange?.(false)}
           >

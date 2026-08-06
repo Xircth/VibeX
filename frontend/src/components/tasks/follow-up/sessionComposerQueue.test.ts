@@ -178,6 +178,7 @@ describe('session composer queue helpers', () => {
       message: 'queued text',
       images: ['vibe://image'],
       executorProfileId: profile,
+      pluginActions: [],
     });
     expect(
       buildQueueMutationInput({

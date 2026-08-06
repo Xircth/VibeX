@@ -4,9 +4,11 @@
 //! does not depend on VibeX's legacy executor, provider-runtime, `MsgStore`, or
 //! `ExecutionProcess` systems.
 
+mod auth_mode;
 pub mod auth_status;
 pub mod capability;
 pub mod cli_exposure;
+mod codex_auth;
 pub mod conversation;
 pub mod delegation_inject;
 pub mod distribution;
@@ -42,6 +44,11 @@ pub mod user_definition;
 pub use api_types::{
     AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState, UserAgentDistributionKind,
 };
+pub use auth_mode::{
+    BuiltInAuthModePolicy, apply_built_in_auth_mode_policy, apply_built_in_launch_argument_policy,
+    apply_built_in_launch_policy, auth_mode_credential_env, built_in_auth_mode_policy,
+    built_in_auth_mode_scrubbed_env_keys,
+};
 pub use auth_status::{
     AUTH_STATUS_DRAFT_REVISION, AcpAuthStatusAdapter, AcpAuthStatusAdapterError,
     AuthenticationMethod, AuthenticationObservation, AuthenticationObservationState,
@@ -52,6 +59,9 @@ pub use capability::AcpCapabilityNormalizer;
 pub use cli_exposure::{
     CliExposureError, PublishedCliCommand, ShellFamily, publish_managed_runtime_cli,
     remove_managed_runtime_cli, switch_managed_runtime_cli,
+};
+pub use codex_auth::{
+    CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
 };
 pub use conversation::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
@@ -86,8 +96,9 @@ pub use events::{
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use history::{
-    AgentHistoryError, AgentHistorySource, ImportedAgentMessage, ImportedAgentMessageRole,
-    ImportedAgentSession, default_history_sources, import_history_source,
+    AgentHistoryError, AgentHistorySource, ImportedAgentMessage, ImportedAgentMessageMetadata,
+    ImportedAgentMessageRole, ImportedAgentSession, configured_history_sources,
+    default_history_sources, import_history_source,
 };
 pub use host::{AgentHost, HostRequestError};
 pub use ids::{
@@ -107,7 +118,8 @@ pub use lifecycle::{
 };
 pub use management_boundary::{
     BoundaryError, Clock, InstallInvocation, InstallOutput, InstallRunner, NativeFileMetadata,
-    NativeFileSystem, RegistryFetchResponse, RegistryFetcher, SystemClock, TokioNativeFileSystem,
+    NativeFileMutation, NativeFileSystem, RegistryFetchResponse, RegistryFetcher, SystemClock,
+    TokioNativeFileSystem,
 };
 pub use management_state::{
     AgentManagementSnapshot, ComponentProbeState, ExternalCandidateObservation, ManagementFacts,
@@ -123,9 +135,9 @@ pub use metadata::{
     codex_home, opencode_auth_path, opencode_config_dir, opencode_config_path,
 };
 pub use native_config::{
-    ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFileSnapshot,
-    NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError, NativeConfigSaveResult,
-    NativeConfigSnapshot,
+    ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFilePatch,
+    NativeConfigFileSnapshot, NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError,
+    NativeConfigSaveResult, NativeConfigSnapshot,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{
@@ -136,8 +148,9 @@ pub use permissions::{
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,
     BuiltInProfileCatalog, NativeConfigBinding, NativeConfigField, NativeConfigFieldKind,
-    NativeConfigFormat, ProfileBinaryArtifact, ProfileComponent, ProfileExternalCandidate,
-    ProfileIcon, ProfileInstallSource, ProfileRegistryBinding, ProfileTopology,
+    NativeConfigFormat, ProfileBinaryArtifact, ProfileBinaryEntry, ProfileComponent,
+    ProfileDependency, ProfileExternalCandidate, ProfileIcon, ProfileInstallSource,
+    ProfileManagementAction, ProfileManagementActionKind, ProfileRegistryBinding, ProfileTopology,
     RegistryEntryIdentity,
 };
 pub use registry_client::{

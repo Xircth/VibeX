@@ -313,6 +313,8 @@ async fn user_definition_repository_atomically_adds_definition_and_membership() 
                     r#"{"binary":null,"npx":{"package":"local-reviewer@1.2.3","args":[],"env":{}},"uvx":null}"#
                         .to_string(),
                 definition_sha256: "ab".repeat(32),
+                skills_shared_store: true,
+                skills_directory: Some("/tmp/local-reviewer-skills".to_string()),
                 created_at: None,
                 updated_at: None,
             },
@@ -330,6 +332,11 @@ async fn user_definition_repository_atomically_adds_definition_and_membership() 
     assert_eq!(definition.display_name, "Local Reviewer");
     assert_eq!(definition.distribution_kind, UserAgentDistributionKind::Npx);
     assert_eq!(definition.definition_sha256, "ab".repeat(32));
+    assert!(definition.skills_shared_store);
+    assert_eq!(
+        definition.skills_directory.as_deref(),
+        Some("/tmp/local-reviewer-skills")
+    );
 }
 
 #[tokio::test]
@@ -559,7 +566,7 @@ async fn management_repositories_keep_atomic_snapshot_lock_and_retention_invaria
 }
 
 #[tokio::test]
-async fn migrates_only_agents_with_actual_use_evidence() {
+async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
     let pool = migrated_pool().await;
     seed_legacy_settings(&pool).await;
     sqlx::query(
@@ -600,22 +607,29 @@ async fn migrates_only_agents_with_actual_use_evidence() {
         [
             ("claude_code", true),
             ("codex", false),
-            ("opencode", true),
             ("gemini", false),
+            ("openclaw", true),
+            ("opencode", true),
             ("cline", true),
+            ("hermes", true),
+            ("codebuddy", true),
+            ("kimi_code", true),
             ("pi", true),
+            ("grok", true),
+            ("cursor", true),
         ]
     );
     assert!(
         memberships
             .iter()
             .find(|row| row.agent_id.as_str() == "gemini")
-            .is_some_and(|row| row.source == AgentSource::OfficialRegistry)
+            .is_some_and(|row| row.source == AgentSource::BuiltInProfile && row.built_in)
     );
     assert!(
-        !memberships
+        memberships
             .iter()
-            .any(|row| { matches!(row.agent_id.as_str(), "openclaw" | "hermes") })
+            .filter(|row| matches!(row.agent_id.as_str(), "openclaw" | "hermes"))
+            .all(|row| row.source == AgentSource::BuiltInProfile && row.built_in)
     );
 
     // The completion marker makes the migration one-shot even if old rows

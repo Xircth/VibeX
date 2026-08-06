@@ -44,6 +44,12 @@ vi.mock('@/features/agents/api', () => ({
   agentsApi: { lastSessionControls: vi.fn().mockResolvedValue(null) },
 }));
 
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => ({
+    config: { previous_session_continuation_enabled: false },
+  }),
+}));
+
 vi.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>

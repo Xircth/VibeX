@@ -392,7 +392,7 @@ async fn management_boundary_fakes_are_deterministic() {
 
     let filesystem = MemoryNativeFileSystem::default();
     let path = PathBuf::from("/fixture/config.json");
-    filesystem.write_atomic(&path, b"{}").await.unwrap();
+    filesystem.write_atomic(&path, b"{}", false).await.unwrap();
     assert_eq!(filesystem.read(&path).await.unwrap(), Some(b"{}".to_vec()));
     assert_eq!(filesystem.metadata(&path).await.unwrap().unwrap().length, 2);
 }

@@ -3,11 +3,19 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentNativeConfigView } from 'shared/types';
 
+import { desktopApi } from '@/lib/api';
+
 import { AgentConfigurationAndDiagnostics } from './AgentConfigurationAndDiagnostics';
 
 const config: AgentNativeConfigView = {
   agent_id: 'codex',
   available: true,
+  settings_features: [
+    'authentication_mode',
+    'model_catalog',
+    'reusable_model_providers',
+    'codex_model_catalog',
+  ],
   path: '/Users/example/.codex/auth.json',
   paths: [
     '/Users/example/.codex/auth.json',
@@ -21,6 +29,7 @@ const config: AgentNativeConfigView = {
         '{\n  "OPENAI_API_KEY": "sk-local-only",\n  "tokens": {"access_token": "oauth-local"}\n}',
       sensitive: true,
       exists: true,
+      revision: 'revision-auth-file',
     },
     {
       path: '/Users/example/.codex/config.toml',
@@ -29,6 +38,7 @@ const config: AgentNativeConfigView = {
         'model = "gpt-5.4"\nmodel_reasoning_effort = "medium"\nunknown = "preserved"\n',
       sensitive: false,
       exists: true,
+      revision: 'revision-config-file',
     },
   ],
   applies_to_next_session: true,
@@ -92,19 +102,21 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.getByDisplayValue('gpt-5.4')).toBeInTheDocument();
     expect(screen.getByText('config.toml')).toBeInTheDocument();
     expect(screen.queryByText('诊断记录')).not.toBeInTheDocument();
-    expect(
-      screen.queryByText('Codex 模型的 reasoning effort')
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText(/直接编辑 Agent 官方配置文件/)
-    ).not.toBeInTheDocument();
+    const reasoningDescription = screen.getByText(
+      'Codex 模型的 reasoning effort'
+    );
+    expect(reasoningDescription).toBeInTheDocument();
+    expect(screen.getByLabelText('推理强度')).toHaveAttribute(
+      'aria-describedby',
+      reasoningDescription.id
+    );
+    expect(screen.getByText('高级原生文件编辑器')).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: '保存' })
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/unknown = "preserved"/)).toBeInTheDocument();
-    expect(
-      screen.getByLabelText('auth.json 配置文件预览，悬停或聚焦时显示')
-    ).toHaveClass('is-sensitive');
+    expect(screen.getAllByText(/unknown = "preserved"/)).toHaveLength(2);
+    expect(screen.getByText('敏感内容已在后端隐藏')).toBeInTheDocument();
+    expect(screen.queryByText(/sk-local-only/)).not.toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText('模型'));
     await userEvent.type(screen.getByLabelText('模型'), 'gpt-5.6');
@@ -122,6 +134,49 @@ describe('AgentConfigurationAndDiagnostics', () => {
         codex_reasoning_effort: 'high',
       },
     });
+  });
+
+  it('edits a validated non-sensitive native file with its revision', async () => {
+    const onSaveFile = vi.fn();
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        saving={false}
+        onSave={vi.fn()}
+        onSaveFile={onSaveFile}
+      />
+    );
+
+    await userEvent.click(screen.getByText('高级原生文件编辑器'));
+    const editor = screen.getByLabelText('编辑 config.toml');
+    await userEvent.clear(editor);
+    await userEvent.type(editor, 'model = "gpt-5.6"');
+    await userEvent.click(screen.getByRole('button', { name: '保存文件' }));
+
+    expect(onSaveFile).toHaveBeenCalledWith({
+      agent_id: 'codex',
+      path: '/Users/example/.codex/config.toml',
+      base_revision: 'revision-config-file',
+      content: 'model = "gpt-5.6"',
+    });
+    expect(screen.queryByLabelText('编辑 auth.json')).not.toBeInTheDocument();
+  });
+
+  it('opens the resolved native configuration directory', async () => {
+    const reveal = vi
+      .spyOn(desktopApi, 'revealInFileManager')
+      .mockResolvedValue(undefined);
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: '打开配置目录' }));
+    expect(reveal).toHaveBeenCalledWith('/Users/example/.codex');
+    reveal.mockRestore();
   });
 
   it('keeps secret replacement and removal explicit', async () => {
@@ -181,5 +236,173 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(onReloadConflict).toHaveBeenCalledOnce();
     expect(onAdoptExternal).toHaveBeenCalledOnce();
     expect(onOverwriteConflict).toHaveBeenCalledOnce();
+  });
+
+  it('shows only the credential fields relevant to the selected Hermes provider', async () => {
+    const hermesConfig: AgentNativeConfigView = {
+      agent_id: 'hermes',
+      available: true,
+      settings_features: [],
+      path: '/Users/example/.hermes/config.yaml',
+      paths: [
+        '/Users/example/.hermes/config.yaml',
+        '/Users/example/.hermes/.env',
+      ],
+      files: [],
+      applies_to_next_session: true,
+      fields: [
+        {
+          id: 'hermes_provider',
+          label: 'Provider',
+          description: '',
+          kind: 'select',
+          options: [
+            { value: 'openrouter', label: 'OpenRouter' },
+            { value: 'anthropic', label: 'Anthropic' },
+          ],
+          secret: false,
+          path: '/Users/example/.hermes/config.yaml',
+          present: true,
+          value: 'openrouter',
+          masked_value: null,
+          revision: 'provider-revision',
+        },
+        {
+          id: 'hermes_model',
+          label: '模型',
+          description: '',
+          kind: 'text',
+          options: [],
+          secret: false,
+          path: '/Users/example/.hermes/config.yaml',
+          present: false,
+          value: null,
+          masked_value: null,
+          revision: 'model-revision',
+        },
+        {
+          id: 'hermes_openrouter_key',
+          label: 'OpenRouter API Key',
+          description: '',
+          kind: 'secret',
+          options: [],
+          secret: true,
+          path: '/Users/example/.hermes/.env',
+          present: false,
+          value: null,
+          masked_value: null,
+          revision: 'openrouter-revision',
+        },
+        {
+          id: 'hermes_anthropic_key',
+          label: 'Anthropic API Key',
+          description: '',
+          kind: 'secret',
+          options: [],
+          secret: true,
+          path: '/Users/example/.hermes/.env',
+          present: false,
+          value: null,
+          masked_value: null,
+          revision: 'anthropic-revision',
+        },
+      ],
+    };
+
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={hermesConfig}
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('OpenRouter API Key')).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Anthropic API Key')
+    ).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('Provider'),
+      'anthropic'
+    );
+
+    expect(screen.getByLabelText('Anthropic API Key')).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('OpenRouter API Key')
+    ).not.toBeInTheDocument();
+  });
+
+  it('reveals Codex granular approvals and saves an explicit five-part policy', async () => {
+    const onSave = vi.fn();
+    const granularFields = [
+      ['codex_approval_sandbox', '沙箱命令确认'],
+      ['codex_approval_rules', '规则确认'],
+      ['codex_approval_skills', 'Skill 确认'],
+      ['codex_approval_permissions', '权限请求确认'],
+      ['codex_approval_mcp', 'MCP 交互确认'],
+    ].map(([id, label]) => ({
+      id,
+      label,
+      description: '',
+      kind: 'boolean' as const,
+      options: [],
+      secret: false,
+      path: '/Users/example/.codex/config.toml',
+      present: false,
+      value: null,
+      masked_value: null,
+      revision: `${id}-revision`,
+    }));
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={{
+          ...config,
+          fields: [
+            ...config.fields,
+            {
+              id: 'codex_approval_policy',
+              label: '命令确认',
+              description: '',
+              kind: 'select',
+              options: [
+                { value: 'on-request', label: '按需确认' },
+                { value: 'granular', label: '按能力分别确认' },
+              ],
+              secret: false,
+              path: '/Users/example/.codex/config.toml',
+              present: true,
+              value: 'on-request',
+              masked_value: null,
+              revision: 'policy-revision',
+            },
+            ...granularFields,
+          ],
+        }}
+        saving={false}
+        onSave={onSave}
+      />
+    );
+
+    expect(screen.queryByLabelText('沙箱命令确认')).not.toBeInTheDocument();
+    await userEvent.selectOptions(
+      screen.getByLabelText('命令确认'),
+      'granular'
+    );
+    expect(screen.getByLabelText('沙箱命令确认')).toBeChecked();
+    await userEvent.click(screen.getByLabelText('规则确认'));
+    await userEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      agent_id: 'codex',
+      base_field_revisions: {
+        codex_approval_policy: 'policy-revision',
+        codex_approval_rules: 'codex_approval_rules-revision',
+      },
+      fields: {
+        codex_approval_policy: 'granular',
+        codex_approval_rules: 'false',
+      },
+    });
   });
 });

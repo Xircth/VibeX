@@ -176,7 +176,7 @@ export function SkillsSettings() {
   const { t } = useTranslation(['settings', 'common']);
   const [searchParams, setSearchParams] = useSearchParams();
   const pluginId = searchParams.get('plugin');
-  const agentOptions = useManagedAgentOptions();
+  const agentOptions = useManagedAgentOptions('native_skills');
   const agentLabels = useMemo(
     () =>
       Object.fromEntries(agentOptions.map((item) => [item.value, item.label])),

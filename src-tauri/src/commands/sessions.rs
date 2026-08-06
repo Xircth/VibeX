@@ -79,6 +79,20 @@ fn to_task_status(status: SessionStatus) -> TaskStatus {
     }
 }
 
+fn prepared_session_agent_id(executor: Option<&str>) -> Result<agents::AgentId, AppError> {
+    let executor = executor
+        .map(str::trim)
+        .filter(|executor| !executor.is_empty())
+        .ok_or_else(|| {
+            AppError::BadRequest("A prepared session requires an Agent executor".to_string())
+        })?;
+    agents::AgentId::parse(executor).map_err(|error| {
+        AppError::BadRequest(format!(
+            "Prepared session Agent executor is invalid: {error}"
+        ))
+    })
+}
+
 const PROJECT_ROOT_TASK_TITLE: &str = "Project Root Workspace";
 const NEW_SESSION_WORKSPACE_TITLE: &str = "New Session Workspace";
 
@@ -688,25 +702,16 @@ pub async fn create_project_session(
 
     let session_id = payload.session_id.unwrap_or_else(Uuid::new_v4);
     let prepared_identity = if payload.session_id.is_some() {
-        let agent_type = payload
-            .executor
-            .as_deref()
-            .and_then(agents::AgentKind::from_lenient)
-            .ok_or_else(|| {
-                AppError::BadRequest(
-                    "A prepared session requires a canonical Agent executor".to_string(),
-                )
-            })?;
+        let agent_id = prepared_session_agent_id(payload.executor.as_deref())?;
         let prepared = state
             .agent_runtime
             .claim_prepared_session(
                 agents::AgentSessionId(session_id),
                 workspace.id,
-                agents::AgentId::parse(agent_type.as_str())
-                    .expect("session AgentKind values are valid AgentIds"),
+                agent_id.clone(),
             )
             .await?;
-        Some((agent_type, prepared))
+        Some((agent_id, prepared))
     } else {
         None
     };
@@ -714,10 +719,9 @@ pub async fn create_project_session(
         pool,
         &CreateSession {
             executor: payload.executor,
-            agent_id: prepared_identity.as_ref().map(|(agent_type, _)| {
-                agents::AgentId::parse(agent_type.as_str())
-                    .expect("prepared AgentKind values are valid AgentIds")
-            }),
+            agent_id: prepared_identity
+                .as_ref()
+                .map(|(agent_id, _)| agent_id.clone()),
             task_id: Some(workspace.task_id),
             name: payload.name,
             initial_prompt: payload.initial_prompt,
@@ -728,9 +732,7 @@ pub async fn create_project_session(
     )
     .await?;
 
-    if let Some((agent_type, prepared)) = prepared_identity {
-        let agent_id = agents::AgentId::parse(agent_type.as_str())
-            .expect("prepared AgentKind values are valid AgentIds");
+    if let Some((agent_id, prepared)) = prepared_identity {
         Session::update_agent_metadata(
             pool,
             session.id,
@@ -748,6 +750,23 @@ pub async fn create_project_session(
         .await;
 
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prepared_session_agent_id;
+
+    #[test]
+    fn prepared_sessions_accept_open_registry_agent_ids() {
+        let agent_id = prepared_session_agent_id(Some("registry.example-agent")).unwrap();
+        assert_eq!(agent_id.as_str(), "registry.example-agent");
+    }
+
+    #[test]
+    fn prepared_sessions_reject_missing_or_invalid_agent_ids() {
+        assert!(prepared_session_agent_id(None).is_err());
+        assert!(prepared_session_agent_id(Some("Registry Agent")).is_err());
+    }
 }
 
 #[tauri::command]

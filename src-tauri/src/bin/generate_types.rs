@@ -14,7 +14,8 @@ use agents::{
     AgentTerminalExit, AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot,
     AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
     AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
-    ImportedAgentMessage, ImportedAgentMessageRole, ImportedAgentSession, RuntimeSnapshot,
+    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
+    ImportedAgentSession, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
@@ -37,15 +38,30 @@ use agents::{
     },
 };
 use api_types::{
-    AgentAuthenticationStatus, AgentDiagnosticView, AgentId, AgentKind, AgentLifecycleState,
-    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementIdentity,
-    AgentManagementView, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
-    AgentNativeConfigFileView, AgentNativeConfigFormat, AgentNativeConfigOptionView,
+    AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView,
+    AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
+    AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
+    AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView, AgentId,
+    AgentKind, AgentLifecycleState, AgentManagementActionKind, AgentManagementActionReceipt,
+    AgentManagementActionView, AgentManagementActionsView, AgentManagementErrorCode,
+    AgentManagementErrorView, AgentManagementIdentity, AgentManagementView,
+    AgentModelCatalogItemView, AgentModelCatalogSource, AgentModelCatalogView,
+    AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
+    AgentNativeConfigFieldKind, AgentNativeConfigFieldView, AgentNativeConfigFileView,
+    AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat, AgentNativeConfigOptionView,
     AgentNativeConfigPatchRequest, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
     AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightView,
-    AgentRegistryView, AgentRegistryViewRow, AgentSource, AgentUpdateCheckView,
-    UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
-    UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
+    AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
+    AgentUpdateCheckView, CodexCustomModelRequest, CodexDeviceCodePollView, CodexDeviceCodeView,
+    CodexModelCatalogConfigRequest, CodexModelCatalogConfigView, OpenCodeCatalogModelView,
+    OpenCodeCatalogProviderView, OpenCodePluginStatus, OpenCodePluginSummaryView,
+    OpenCodePluginView, OpenCodeProviderCatalogSource, OpenCodeProviderCatalogView,
+    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
+    OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomProviderView,
+    PiRuntimeConfigurationView, PiRuntimeSaveRequest, UserAgentDefinitionRequest,
+    UserAgentDefinitionView, UserAgentDistributionKind, UserAgentDistributionView,
+    UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
 };
 use conversations::ConversationSearchHit;
 use db::models::{
@@ -310,11 +326,55 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentManagementErrorView>(&mut decls);
     insert_declaration::<AgentPreflightItemView>(&mut decls);
     insert_declaration::<AgentPreflightView>(&mut decls);
+    insert_declaration::<AgentManagementActionKind>(&mut decls);
+    insert_declaration::<AgentManagementActionView>(&mut decls);
+    insert_declaration::<AgentManagementActionsView>(&mut decls);
+    insert_declaration::<AgentManagementActionReceipt>(&mut decls);
+    insert_declaration::<OpenCodeProviderConnectionView>(&mut decls);
+    insert_declaration::<OpenCodeProviderModelView>(&mut decls);
+    insert_declaration::<OpenCodeProviderConnectionsView>(&mut decls);
+    insert_declaration::<OpenCodeProviderConnectRequest>(&mut decls);
+    insert_declaration::<OpenCodeProviderModelRequest>(&mut decls);
+    insert_declaration::<OpenCodeProviderCatalogSource>(&mut decls);
+    insert_declaration::<OpenCodeCatalogModelView>(&mut decls);
+    insert_declaration::<OpenCodeCatalogProviderView>(&mut decls);
+    insert_declaration::<OpenCodeProviderCatalogView>(&mut decls);
+    insert_declaration::<CodexDeviceCodeView>(&mut decls);
+    insert_declaration::<CodexDeviceCodePollView>(&mut decls);
+    insert_declaration::<AgentModelCatalogSource>(&mut decls);
+    insert_declaration::<AgentModelCatalogItemView>(&mut decls);
+    insert_declaration::<AgentModelCatalogView>(&mut decls);
+    insert_declaration::<CodexCustomModelRequest>(&mut decls);
+    insert_declaration::<CodexModelCatalogConfigRequest>(&mut decls);
+    insert_declaration::<CodexModelCatalogConfigView>(&mut decls);
+    insert_declaration::<AgentModelProviderView>(&mut decls);
+    insert_declaration::<AgentModelProvidersView>(&mut decls);
+    insert_declaration::<AgentModelProviderSaveRequest>(&mut decls);
+    insert_declaration::<PiCustomProviderView>(&mut decls);
+    insert_declaration::<PiRuntimeConfigurationView>(&mut decls);
+    insert_declaration::<PiConfigurationView>(&mut decls);
+    insert_declaration::<PiCredentialsSaveRequest>(&mut decls);
+    insert_declaration::<PiRuntimeSaveRequest>(&mut decls);
+    insert_declaration::<PiCommandValidationView>(&mut decls);
+    insert_declaration::<AgentAuthModeOptionView>(&mut decls);
+    insert_declaration::<AgentAuthModeView>(&mut decls);
+    insert_declaration::<AgentEnvironmentEntryView>(&mut decls);
+    insert_declaration::<AgentEnvironmentView>(&mut decls);
+    insert_declaration::<AgentEnvironmentPatchRequest>(&mut decls);
+    insert_declaration::<AgentEnvironmentDiagnosticLevel>(&mut decls);
+    insert_declaration::<AgentEnvironmentDiagnosticCheckView>(&mut decls);
+    insert_declaration::<AgentEnvironmentDiagnosticSectionView>(&mut decls);
+    insert_declaration::<AgentEnvironmentDiagnosticsView>(&mut decls);
+    insert_declaration::<OpenCodePluginStatus>(&mut decls);
+    insert_declaration::<OpenCodePluginView>(&mut decls);
+    insert_declaration::<OpenCodePluginSummaryView>(&mut decls);
     insert_declaration::<AgentNativeConfigOptionView>(&mut decls);
     insert_declaration::<AgentNativeConfigFieldKind>(&mut decls);
     insert_declaration::<AgentNativeConfigFieldView>(&mut decls);
     insert_declaration::<AgentNativeConfigFormat>(&mut decls);
     insert_declaration::<AgentNativeConfigFileView>(&mut decls);
+    insert_declaration::<AgentNativeConfigFileWriteRequest>(&mut decls);
+    insert_declaration::<AgentSettingsFeature>(&mut decls);
     insert_declaration::<AgentNativeConfigView>(&mut decls);
     insert_declaration::<AgentNativeConfigPatchRequest>(&mut decls);
     insert_declaration::<AgentDiagnosticView>(&mut decls);
@@ -402,6 +462,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentFileReadRequest>(&mut decls);
     insert_declaration::<AgentFileWriteRequest>(&mut decls);
     insert_declaration::<ImportedAgentMessageRole>(&mut decls);
+    insert_declaration::<ImportedAgentMessageMetadata>(&mut decls);
     insert_declaration::<ImportedAgentMessage>(&mut decls);
     insert_declaration::<ImportedAgentSession>(&mut decls);
     insert_declaration::<RuntimeSnapshot>(&mut decls);

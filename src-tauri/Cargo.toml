@@ -37,6 +37,7 @@ futures = { workspace = true }
 trash = "5"
 ignore = "0.4"
 regex = { workspace = true }
+semver = "1"
 os_info = "3.12.0"
 which = "8.0.0"
 dirs = { workspace = true }

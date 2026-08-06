@@ -199,6 +199,11 @@ fn acp_slash_command_catalog(agent_type: AgentKind) -> Vec<SlashCommandDescripti
         | AgentKind::Openclaw
         | AgentKind::Cline
         | AgentKind::Hermes
+        | AgentKind::Codebuddy
+        | AgentKind::KimiCode
+        | AgentKind::Pi
+        | AgentKind::Grok
+        | AgentKind::Cursor
         | AgentKind::QaMock => Vec::new(),
     }
 }

@@ -1,6 +1,9 @@
-name: Desktop Installers
+name: Build & Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -20,27 +23,29 @@ env:
   NODE_VERSION: 22
   PNPM_VERSION: 10.13.1
   RUST_TOOLCHAIN: nightly-2025-12-04
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
   SQLX_OFFLINE: "true"
   SQLX_OFFLINE_DIR: ${{ github.workspace }}/crates/db/.sqlx
 
 jobs:
   prepare-release:
     name: Prepare GitHub Release
-    if: ${{ inputs.upload_to_release }}
+    if: ${{ github.event_name == 'push' || inputs.upload_to_release }}
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Require a release tag
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
         run: test -n "$RELEASE_TAG"
 
       - name: Require desktop release signing credentials
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ inputs.upload_to_release && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ inputs.upload_to_release && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ inputs.upload_to_release && secrets.APPLE_API_KEY || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -71,16 +76,23 @@ jobs:
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists."
           else
-            gh release create "$RELEASE_TAG" \
-              --repo "$RELEASE_REPOSITORY" \
-              --title "$RELEASE_TAG" \
-              --notes "Desktop installers for $RELEASE_TAG."
+            notes_path="docs/release/${RELEASE_TAG#v}.md"
+            if [ -f "$notes_path" ]; then
+              gh release create "$RELEASE_TAG" \
+                --repo "$RELEASE_REPOSITORY" \
+                --title "$RELEASE_TAG" \
+                --notes-file "$notes_path"
+            else
+              gh release create "$RELEASE_TAG" \
+                --repo "$RELEASE_REPOSITORY" \
+                --title "$RELEASE_TAG" \
+                --generate-notes
+            fi
           fi
 
   build:
@@ -156,7 +168,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Import macOS signing certificate and notarization key
-        if: runner.os == 'macOS' && inputs.upload_to_release
+        if: ${{ runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -189,7 +201,7 @@ jobs:
           echo "VIBEX_MACOS_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
       - name: Import Windows signing certificate
-        if: runner.os == 'Windows' && inputs.upload_to_release
+        if: ${{ runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -235,14 +247,14 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ inputs.upload_to_release && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ inputs.upload_to_release && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ inputs.upload_to_release && secrets.APPLE_API_KEY || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_API_KEY || '' }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Verify signed and notarized macOS bundle
-        if: runner.os == 'macOS' && inputs.upload_to_release
+        if: ${{ runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
         run: |
           app_path="$(find "target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
           test -n "$app_path"
@@ -250,7 +262,7 @@ jobs:
           spctl --assess --type execute --verbose=2 "$app_path"
 
       - name: Verify signed Windows artifacts
-        if: runner.os == 'Windows' && inputs.upload_to_release
+        if: ${{ runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
         shell: pwsh
         run: |
           $artifacts = Get-ChildItem `
@@ -284,7 +296,7 @@ jobs:
         run: scripts/smoke-windows-desktop.ps1 -Executable "target/${{ matrix.target }}/release/vibex.exe"
 
       - name: Remove temporary macOS signing material
-        if: always() && runner.os == 'macOS' && inputs.upload_to_release
+        if: ${{ always() && runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
@@ -294,7 +306,7 @@ jobs:
             "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
 
       - name: Remove temporary Windows signing material
-        if: always() && runner.os == 'Windows' && inputs.upload_to_release
+        if: ${{ always() && runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
         shell: pwsh
         run: |
           if ($env:VIBEX_WINDOWS_CERTIFICATE_THUMBPRINT) {
@@ -322,10 +334,10 @@ jobs:
             target/release/bundle/**/*
 
       - name: Upload installers to GitHub Release
-        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        if: ${{ github.event_name == 'push' || (inputs.upload_to_release && inputs.release_tag != '') }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             target/${{ matrix.target }}/release/bundle/**/*.msi
             target/${{ matrix.target }}/release/bundle/**/*.exe
@@ -341,7 +353,7 @@ jobs:
   publish-updater:
     name: Publish updater manifest
     needs: build
-    if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+    if: ${{ github.event_name == 'push' || (inputs.upload_to_release && inputs.release_tag != '') }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
@@ -355,7 +367,6 @@ jobs:
 
       - name: Generate updater manifest
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -369,12 +380,11 @@ jobs:
       - name: Upload updater manifest and signed bundles
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
+          tag_name: ${{ env.RELEASE_TAG }}
           fail_on_unmatched_files: true
           files: updater-release/*
 
       - name: Mark desktop release as latest
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
         run: gh release edit "$RELEASE_TAG" --latest

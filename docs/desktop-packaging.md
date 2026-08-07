@@ -24,7 +24,8 @@ pnpm run tauri:build:linux
 ```
 
 These commands build the current machine's native platform only. To produce all
-desktop installers together, use the GitHub Actions workflow:
+desktop installers together without publishing them, use the GitHub Actions
+workflow:
 
 ```sh
 pnpm run tauri:build:all
@@ -42,11 +43,15 @@ triggers `.github/workflows/desktop-release.yml`, which builds these artifacts:
 
 The generated installers are available from the workflow run's artifacts.
 
-To create a GitHub Release when needed and upload installers to it, pass a
-release tag:
+Pushing a version tag such as `v0.1.3` automatically runs the same workflow,
+requires the platform signing credentials, uploads the signed installers to the
+tag's GitHub Release, publishes the updater manifest, and marks the release as
+latest. The tag release does not publish standalone backend binary archives.
+
+To publish installers to an existing tag manually, pass the release tag:
 
 ```sh
-pnpm run tauri:build:all -- --release-tag v0.1.8 --upload-to-release
+pnpm run tauri:build:all -- --release-tag v0.1.3 --upload-to-release
 ```
 
 You can also trigger the workflow manually from GitHub Actions and provide the

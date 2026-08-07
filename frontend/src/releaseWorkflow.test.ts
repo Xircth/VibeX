@@ -29,7 +29,7 @@ function cargoBinaryNames(packageDirectory: string): string[] {
   return [...new Set([...explicit, ...srcBin])];
 }
 
-describe('release binary contract', () => {
+describe('release workflow contract', () => {
   it('builds and packages the Cargo binary targets that actually exist', () => {
     const packages = ['crates/server', 'crates/vibex-mcp', 'crates/review'].map(
       (directory) => ({
@@ -57,10 +57,7 @@ describe('release binary contract', () => {
       },
     ]);
 
-    for (const workflowPath of [
-      '.github/workflows/release.yml',
-      '.github/workflows/pre-release.yml',
-    ]) {
+    for (const workflowPath of ['.github/workflows/pre-release.yml']) {
       const workflow = read(workflowPath);
       for (const { packageName, binaryNames } of packages) {
         expect(workflow, workflowPath).toContain(`-p ${packageName}`);
@@ -78,6 +75,33 @@ describe('release binary contract', () => {
     const launcher = read('scripts/run-backend-dev.js');
     expect(launcher).toContain('run --bin vibex-server');
     expect(launcher).not.toContain('run --bin server');
+  });
+
+  it('publishes native desktop installers for version tags', () => {
+    expect(existsSync(join(repoRoot, '.github/workflows/release.yml'))).toBe(
+      false
+    );
+
+    const workflow = read('.github/workflows/desktop-release.yml');
+    expect(workflow).toMatch(/push:\s+tags:\s+- ['"]v\*['"]/);
+    expect(workflow).toContain('bundles: msi,nsis');
+    expect(workflow).toContain('bundles: appimage,deb');
+    expect(workflow).toContain('bundles: app,dmg');
+    for (const extension of [
+      '*.msi',
+      '*.exe',
+      '*.AppImage',
+      '*.deb',
+      '*.dmg',
+    ]) {
+      expect(workflow).toContain(extension);
+    }
+    expect(workflow).toContain(
+      "RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}"
+    );
+    expect(workflow).toContain('tag_name: ${{ env.RELEASE_TAG }}');
+    expect(workflow).not.toContain('RELEASE_TAG: ${{ inputs.release_tag }}');
+    expect(workflow).not.toMatch(/\bzip\s+-/);
   });
 
   it('keeps SQLite-only SQLx dependencies free of cross-target TLS providers', () => {

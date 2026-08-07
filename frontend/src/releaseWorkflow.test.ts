@@ -79,4 +79,17 @@ describe('release binary contract', () => {
     expect(launcher).toContain('run --bin vibex-server');
     expect(launcher).not.toContain('run --bin server');
   });
+
+  it('keeps SQLite-only SQLx dependencies free of cross-target TLS providers', () => {
+    for (const manifestPath of [
+      'crates/conversations/Cargo.toml',
+      'crates/db/Cargo.toml',
+      'crates/local-deployment/Cargo.toml',
+      'crates/services/Cargo.toml',
+    ]) {
+      expect(read(manifestPath), manifestPath).not.toContain(
+        'tls-rustls-aws-lc-rs'
+      );
+    }
+  });
 });

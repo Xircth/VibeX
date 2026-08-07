@@ -16,7 +16,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
 uuid = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }

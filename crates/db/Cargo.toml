@@ -14,7 +14,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "sqlite-preupdate-hook", "chrono", "uuid"] }
 chrono = { workspace = true }
 iana-time-zone = "0.1"
 uuid = { workspace = true }

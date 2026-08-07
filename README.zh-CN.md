@@ -92,7 +92,7 @@ Windows 安装包包含离线 WebView2 安装器，首次打开不依赖联网�
 
 ### macOS 阻止打开应用
 
-正式发布流程会强制执行 Developer ID 签名、公证和 Gatekeeper 校验；缺少任一发布凭据时不会生成 Release。若系统仍阻止打开，请先确认安装包来自 [VibeX 官方 Releases](https://github.com/Xircth/VibeX/releases/latest)，再在“系统设置 → 隐私与安全性”查看具体拦截原因。不要全局关闭 Gatekeeper，也不要清除来源不明应用的隔离属性。
+正式发布始终使用 Tauri 更新包签名；项目配置了 Developer ID 凭据时还会执行代码签名和公证，否则仍可发布未签名的 macOS 安装包，Gatekeeper 可能会在首次启动时拦截。请先确认安装包来自 [VibeX 官方 Releases](https://github.com/Xircth/VibeX/releases/latest)，再前往“系统设置 → 隐私与安全性”，仅对这个已确认的下载选择“仍要打开”。不要全局关闭 Gatekeeper，也不要清除来源不明应用的隔离属性。
 
 ### 首次 Agent 配置
 

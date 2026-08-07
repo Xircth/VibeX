@@ -32,6 +32,9 @@ jobs:
     name: Prepare GitHub Release
     if: ${{ github.event_name == 'push' || inputs.upload_to_release }}
     runs-on: ubuntu-22.04
+    outputs:
+      apple_signing_enabled: ${{ steps.signing.outputs.apple_signing_enabled }}
+      windows_signing_enabled: ${{ steps.signing.outputs.windows_signing_enabled }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,7 +42,8 @@ jobs:
       - name: Require a release tag
         run: test -n "$RELEASE_TAG"
 
-      - name: Require desktop release signing credentials
+      - name: Require updater signing credentials
+        id: signing
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -54,14 +58,6 @@ jobs:
         run: |
           missing=()
           for name in \
-            APPLE_CERTIFICATE \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_SIGNING_IDENTITY \
-            APPLE_API_ISSUER \
-            APPLE_API_KEY \
-            APPLE_API_KEY_P8_BASE64 \
-            WINDOWS_CERTIFICATE \
-            WINDOWS_CERTIFICATE_PASSWORD \
             TAURI_SIGNING_PRIVATE_KEY \
             TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
@@ -69,9 +65,49 @@ jobs:
             fi
           done
           if [ "${#missing[@]}" -ne 0 ]; then
-            echo "Missing required desktop release secrets: ${missing[*]}"
+            echo "Missing required updater signing secrets: ${missing[*]}"
             exit 1
           fi
+
+          check_optional_signing() {
+            label="$1"
+            output_name="$2"
+            shift 2
+            configured=()
+            missing=()
+            for name in "$@"; do
+              if [ -n "${!name}" ]; then
+                configured+=("$name")
+              else
+                missing+=("$name")
+              fi
+            done
+
+            if [ "${#configured[@]}" -eq 0 ]; then
+              echo "$output_name=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::$label code signing is disabled; installers will be published unsigned."
+            elif [ "${#missing[@]}" -ne 0 ]; then
+              echo "Optional $label signing credentials are incomplete: ${missing[*]}"
+              exit 1
+            else
+              echo "$output_name=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          check_optional_signing \
+            "macOS" \
+            apple_signing_enabled \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY \
+            APPLE_API_KEY_P8_BASE64
+          check_optional_signing \
+            "Windows" \
+            windows_signing_enabled \
+            WINDOWS_CERTIFICATE \
+            WINDOWS_CERTIFICATE_PASSWORD
 
       - name: Create release if missing
         env:
@@ -169,7 +205,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Import macOS signing certificate and notarization key
-        if: ${{ runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ runner.os == 'macOS' && needs.prepare-release.outputs.apple_signing_enabled == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -208,7 +244,7 @@ jobs:
           echo "VIBEX_MACOS_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
       - name: Import Windows signing certificate
-        if: ${{ runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_enabled == 'true' }}
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -259,7 +295,7 @@ jobs:
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Verify signed and notarized macOS bundle
-        if: ${{ runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ runner.os == 'macOS' && needs.prepare-release.outputs.apple_signing_enabled == 'true' }}
         run: |
           app_path="$(find "target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
           test -n "$app_path"
@@ -267,7 +303,7 @@ jobs:
           spctl --assess --type execute --verbose=2 "$app_path"
 
       - name: Verify signed Windows artifacts
-        if: ${{ runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_enabled == 'true' }}
         shell: pwsh
         run: |
           $artifacts = Get-ChildItem `
@@ -302,7 +338,7 @@ jobs:
         run: scripts/smoke-windows-desktop.ps1 -Executable "target/${{ matrix.target }}/release/vibex.exe"
 
       - name: Remove temporary macOS signing material
-        if: ${{ always() && runner.os == 'macOS' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ always() && runner.os == 'macOS' && needs.prepare-release.outputs.apple_signing_enabled == 'true' }}
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
@@ -312,7 +348,7 @@ jobs:
             "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
 
       - name: Remove temporary Windows signing material
-        if: ${{ always() && runner.os == 'Windows' && (github.event_name == 'push' || inputs.upload_to_release) }}
+        if: ${{ always() && runner.os == 'Windows' && needs.prepare-release.outputs.windows_signing_enabled == 'true' }}
         shell: pwsh
         run: |
           if ($env:VIBEX_WINDOWS_CERTIFICATE_THUMBPRINT) {

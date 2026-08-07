@@ -90,6 +90,25 @@ describe('release workflow contract', () => {
     expect(workflow).toContain('xdg-utils');
     expect(workflow).toContain('NODE_OPTIONS: --max-old-space-size=6144');
     expect(workflow).toContain("printf 'APPLE_SIGNING_IDENTITY=%s\\n'");
+    expect(workflow).toContain('Require updater signing credentials');
+    expect(workflow).toContain(
+      'Optional $label signing credentials are incomplete'
+    );
+    expect(workflow).toMatch(
+      /check_optional_signing[\s\\]+"macOS"[\s\\]+apple_signing_enabled/
+    );
+    expect(workflow).toMatch(
+      /check_optional_signing[\s\\]+"Windows"[\s\\]+windows_signing_enabled/
+    );
+    expect(workflow).toContain(
+      "needs.prepare-release.outputs.apple_signing_enabled == 'true'"
+    );
+    expect(workflow).toContain(
+      "needs.prepare-release.outputs.windows_signing_enabled == 'true'"
+    );
+    expect(workflow).not.toContain(
+      'Require desktop release signing credentials'
+    );
     expect(workflow).toMatch(
       /name: Smoke-test macOS desktop startup[\s\S]*?timeout-minutes: 2/
     );

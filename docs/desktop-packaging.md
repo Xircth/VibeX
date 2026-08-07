@@ -44,9 +44,11 @@ triggers `.github/workflows/desktop-release.yml`, which builds these artifacts:
 The generated installers are available from the workflow run's artifacts.
 
 Pushing a version tag such as `v0.1.3` automatically runs the same workflow,
-requires the platform signing credentials, uploads the signed installers to the
+requires the Tauri updater signing credentials, uploads the installers to the
 tag's GitHub Release, publishes the updater manifest, and marks the release as
-latest. The tag release does not publish standalone backend binary archives.
+latest. Apple and Windows code signing is applied when the complete credential
+set for that platform is configured. The tag release does not publish
+standalone backend binary archives.
 
 To publish installers to an existing tag manually, pass the release tag:
 
@@ -75,9 +77,11 @@ parent-window requirement.
 
 ## Release signing contract
 
-When `upload_to_release` is enabled, the prepare job fails before creating a
-release unless all Apple Developer ID/notarization, Windows Authenticode, and
-Tauri updater signing secrets are present. The build imports credentials into
-ephemeral runner stores, signs the native artifacts, verifies them with
-`codesign`/`spctl` or `Get-AuthenticodeSignature`, and removes temporary key
-material in an `always()` cleanup step.
+When `upload_to_release` is enabled, the prepare job requires the Tauri updater
+signing secrets. Apple Developer ID/notarization and Windows Authenticode
+credentials are optional platform groups: when every secret in a group is
+present, the build imports it into an ephemeral runner store, signs and verifies
+the native artifacts, and removes the temporary key material in an `always()`
+cleanup step. When an entire group is absent, that platform is published
+unsigned, matching the 0.1.2 release behavior. A partially configured group is
+rejected so the workflow cannot silently produce an unexpected signing state.

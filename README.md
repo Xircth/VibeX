@@ -92,7 +92,14 @@ Compatible local runtimes are reused. Account login, browser authorization, and 
 
 ### If macOS blocks the application
 
-The production release process requires Developer ID signing, notarization, and Gatekeeper verification; missing credentials prevent a release from being created. If macOS still blocks the app, confirm that the installer came from the [official VibeX Releases page](https://github.com/Xircth/VibeX/releases/latest), then review the reason under System Settings > Privacy & Security. Do not disable Gatekeeper globally or remove quarantine attributes from software obtained from an unknown source.
+Official releases always use Tauri updater signatures. Developer ID signing and
+notarization are applied when the project credentials are configured; otherwise
+macOS installers can still be published unsigned and Gatekeeper may block their
+first launch. Confirm that the installer came from the
+[official VibeX Releases page](https://github.com/Xircth/VibeX/releases/latest),
+then review the reason under System Settings > Privacy & Security and use Open
+Anyway only for that verified download. Do not disable Gatekeeper globally or
+remove quarantine attributes from software obtained from an unknown source.
 
 ### Initial agent setup
 

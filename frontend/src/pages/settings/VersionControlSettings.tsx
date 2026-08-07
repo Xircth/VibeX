@@ -1,15 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   AlertCircle,
   Bell,
   CheckCircle2,
-  FolderGit2,
   GitPullRequest,
   Github,
   Loader2,
@@ -27,7 +20,6 @@ import {
 } from 'shared/types';
 
 import { useUserSystem } from '@/components/ConfigProvider';
-import { FolderPickerDialog } from '@/components/dialogs/shared/FolderPickerDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,28 +40,6 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 function cloneConfig(config: Config): Config {
   return structuredClone(config);
-}
-
-function validateBranchPrefix(
-  prefix: string,
-  t: (key: string) => string
-): string | null {
-  if (!prefix.trim()) {
-    return t('versionControl.branchPrefixEmpty');
-  }
-  if (prefix.includes(' ')) {
-    return t('versionControl.branchPrefixNoSpaces');
-  }
-  if (prefix.startsWith('/') || prefix.endsWith('/')) {
-    return t('versionControl.branchPrefixNoSlashEnds');
-  }
-  if (prefix.includes('//')) {
-    return t('versionControl.branchPrefixNoDoubleSlash');
-  }
-  if (/[~^:?*[\\]/.test(prefix)) {
-    return t('versionControl.branchPrefixInvalidChars');
-  }
-  return null;
 }
 
 function StatusLine({
@@ -123,11 +93,6 @@ export function VersionControlSettings() {
       setDraft(cloneConfig(config));
     }
   }, [config, dirty]);
-
-  const branchPrefixError = useMemo(
-    () => validateBranchPrefix(draft?.git_branch_prefix || '', t),
-    [draft?.git_branch_prefix, t]
-  );
 
   const updateDraft = useCallback((patch: Partial<Config>) => {
     setDraft((prev) => {
@@ -254,30 +219,19 @@ export function VersionControlSettings() {
     };
   }, [cliSettings, customGitPath, t]);
 
-  const handleBrowseWorkspaceDir = async () => {
-    const result = await FolderPickerDialog.show({
-      value: draft?.workspace_dir ?? '',
-      title: t('versionControl.pickWorkspaceTitle'),
-      description: t('versionControl.pickWorkspaceDescription'),
-    });
-
-    if (result) {
-      updateDraft({ workspace_dir: result });
-    }
-  };
-
   const handleSave = async () => {
     if (!draft) return;
-    if (branchPrefixError) {
-      toast.error(t('versionControl.branchPrefixInvalid'), {
-        description: branchPrefixError,
-      });
-      return;
-    }
 
     try {
       setSaving(true);
-      const saved = await updateAndSaveConfig(draft);
+      // 只提交本页可编辑的字段，避免用旧快照覆盖工作树页等其它来源的
+      // 全局设置（workspace_dir / git_branch_prefix 已迁移到工作树页）。
+      const saved = await updateAndSaveConfig({
+        commit_reminder_enabled: draft.commit_reminder_enabled,
+        commit_reminder_prompt: draft.commit_reminder_prompt,
+        pr_auto_description_enabled: draft.pr_auto_description_enabled,
+        pr_auto_description_prompt: draft.pr_auto_description_prompt,
+      });
       if (!saved) {
         throw new Error(t('versionControl.saveFailedDesc'));
       }
@@ -493,59 +447,6 @@ export function VersionControlSettings() {
         </SettingsSection>
 
         <SettingsSection
-          icon={FolderGit2}
-          title={t('versionControl.worktreeSectionTitle')}
-          description={t('versionControl.worktreeSectionDescription')}
-        >
-          <div className="space-y-4">
-            <div className="settings-row settings-row--stacked">
-              <div>
-                <Label>{t('versionControl.workspaceDirLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('versionControl.workspaceDirDescription')}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  value={draft.workspace_dir ?? ''}
-                  onChange={(event) =>
-                    updateDraft({ workspace_dir: event.target.value || null })
-                  }
-                  placeholder={t('versionControl.workspaceDirPlaceholder')}
-                />
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={handleBrowseWorkspaceDir}
-                >
-                  {t('versionControl.browse')}
-                </Button>
-              </div>
-            </div>
-
-            <div className="settings-row settings-row--stacked">
-              <div>
-                <Label>{t('versionControl.branchPrefixLabel')}</Label>
-                <p className="settings-row__description">
-                  {t('versionControl.branchPrefixDescription')}
-                </p>
-              </div>
-              <Input
-                value={draft.git_branch_prefix}
-                onChange={(event) =>
-                  updateDraft({ git_branch_prefix: event.target.value.trim() })
-                }
-                placeholder="vibex"
-                aria-invalid={Boolean(branchPrefixError)}
-              />
-              {branchPrefixError ? (
-                <p className="text-sm text-destructive">{branchPrefixError}</p>
-              ) : null}
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
           icon={Bell}
           title={t('versionControl.commitReminderSectionTitle')}
           description={t('versionControl.commitReminderSectionDescription')}
@@ -734,7 +635,6 @@ export function VersionControlSettings() {
         saving={saving}
         onDiscard={handleReset}
         onSave={handleSave}
-        disabled={Boolean(branchPrefixError)}
       />
     </div>
   );

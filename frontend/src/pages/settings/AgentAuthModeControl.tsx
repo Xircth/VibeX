@@ -17,6 +17,7 @@ import type {
   AgentManagementActionsView,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
@@ -162,13 +163,14 @@ export function AgentAuthModeControl({
           <div className="agent-auth-mode-selector">
             <label className="agent-auth-mode-field">
               <span>{t('agents.authModeLabel', { agent: displayName })}</span>
-              <select
-                aria-label={t('agents.authModeAria', { agent: displayName })}
-                className="raised-control"
-                name={`${agentId}_auth_mode`}
+              <AstryxSelect
+                ariaLabel={t('agents.authModeAria', { agent: displayName })}
                 value={mode}
-                onChange={(event) => {
-                  const nextMode = event.target.value;
+                options={view.options.map((option) => ({
+                  value: option.value,
+                  label: t(option.label_key),
+                }))}
+                onChange={(nextMode) => {
                   setMode(nextMode);
                   const nextOption = view.options.find(
                     (option) => option.value === nextMode
@@ -180,13 +182,7 @@ export function AgentAuthModeControl({
                     setApiKey('');
                   }
                 }}
-              >
-                {view.options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.label_key)}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             <Button
               className="h-8 shrink-0"
@@ -290,7 +286,7 @@ export function AgentAuthModeControl({
 
           {configuration ? (
             <div
-              className="agent-auth-mode-panel"
+              className="agent-auth-mode-panel agent-auth-mode-panel-config"
               hidden={panel !== 'configuration'}
             >
               {configuration}

@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Save,
   Trash2,
-  Undo2,
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
@@ -41,7 +40,7 @@ import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
-import { SettingsSection } from './SettingsUi';
+import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import { AppUpdaterSection } from '@/components/settings/AppUpdaterSection';
 
 type SystemSettingsConfig = Config;
@@ -987,43 +986,13 @@ export function SystemSettings() {
         </SettingsSection>
       </div>
 
-      {hasUnsavedChanges ? (
-        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {t('common:settingsChanged')}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleDiscard}
-                disabled={saving}
-              >
-                <Undo2 className="mr-1 h-3 w-3" />
-                {t('common:cancel')}
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? (
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3 w-3" />
-                )}
-                {t('system.saveSettings')}
-              </Button>
-            </div>
-          </div>
-          {saveError ? (
-            <p className="mt-2 text-xs text-destructive">{saveError}</p>
-          ) : null}
-        </div>
-      ) : null}
+      <SettingsActionBar
+        dirty={hasUnsavedChanges}
+        saving={saving}
+        onDiscard={handleDiscard}
+        onSave={handleSave}
+        error={saveError}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type {
   JsonValue,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import {
   agentManagementApi,
@@ -43,6 +44,31 @@ const BOOLEAN_OVERRIDES = [
   ['supports_parallel_tool_calls', 'codexOverrideSupportsParallelTools'],
   ['supports_search_tool', 'codexOverrideSupportsSearch'],
 ] as const;
+
+function codexModelOptions(
+  draft: CodexModelCatalogConfigRequest,
+  models: AgentModelCatalogView['models'],
+  customLabel: string
+): { value: string; label: string }[] {
+  const options = [
+    ...draft.customs.map((custom) => ({
+      value: custom.slug,
+      label: `${custom.display_name || custom.slug} · ${customLabel}`,
+    })),
+    ...models
+      .filter((model) => !draft.excluded_officials.includes(model.id))
+      .map((model) => ({ value: model.id, label: model.label })),
+  ];
+  // config.toml 中手写的默认模型可能不在官方模板或自定义列表里（例如直接
+  // 配置了自定义 Provider 的模型 ID），补一个条目使当前配置可见、可选。
+  if (
+    draft.default_model &&
+    !options.some((option) => option.value === draft.default_model)
+  ) {
+    options.push({ value: draft.default_model, label: draft.default_model });
+  }
+  return options;
+}
 
 export function CodexModelCatalogEditor({
   disabled,
@@ -239,34 +265,21 @@ export function CodexModelCatalogEditor({
 
           <label className="codex-default-model">
             <span>{t('agents.defaultModelLabel')}</span>
-            <select
-              aria-label={t('agents.codexDefaultModelAria')}
-              autoComplete="off"
-              className="raised-control"
+            <AstryxSelect
+              ariaLabel={t('agents.codexDefaultModelAria')}
               disabled={disabled || saving}
-              name="codex_catalog_default_model"
+              hasClear
+              placeholder={t('agents.codexDecides')}
               value={draft.default_model ?? ''}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  default_model: event.target.value || null,
-                })
+              options={codexModelOptions(
+                draft,
+                catalog.models,
+                t('agents.custom')
+              )}
+              onChange={(next) =>
+                setDraft({ ...draft, default_model: next || null })
               }
-            >
-              <option value="">{t('agents.codexDecides')}</option>
-              {draft.customs.map((custom) => (
-                <option key={custom.slug} value={custom.slug}>
-                  {custom.display_name || custom.slug} · {t('agents.custom')}
-                </option>
-              ))}
-              {catalog.models
-                .filter((model) => !draft.excluded_officials.includes(model.id))
-                .map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.label}
-                  </option>
-                ))}
-            </select>
+            />
           </label>
 
           <div className="codex-model-editor-footer">
@@ -414,34 +427,17 @@ export function CodexModelConfigFields({
 
       <label className="codex-default-model">
         <span>{t('agents.defaultModelLabel')}</span>
-        <select
-          aria-label={t('agents.codexDefaultModelAria')}
-          autoComplete="off"
-          className="raised-control"
+        <AstryxSelect
+          ariaLabel={t('agents.codexDefaultModelAria')}
           disabled={disabled}
-          name="codex_catalog_default_model"
+          hasClear
+          placeholder={t('agents.codexDecides')}
           value={draft.default_model ?? ''}
-          onChange={(event) =>
-            onChange({
-              ...draft,
-              default_model: event.target.value || null,
-            })
+          options={codexModelOptions(draft, catalog.models, t('agents.custom'))}
+          onChange={(next) =>
+            onChange({ ...draft, default_model: next || null })
           }
-        >
-          <option value="">{t('agents.codexDecides')}</option>
-          {draft.customs.map((custom) => (
-            <option key={custom.slug} value={custom.slug}>
-              {custom.display_name || custom.slug} · {t('agents.custom')}
-            </option>
-          ))}
-          {catalog.models
-            .filter((model) => !draft.excluded_officials.includes(model.id))
-            .map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.label}
-              </option>
-            ))}
-        </select>
+        />
       </label>
     </>
   );
@@ -512,26 +508,19 @@ function CustomModelRow({
       </label>
       <label>
         <span>{t('agents.capabilityTemplate')}</span>
-        <select
-          aria-label={t('agents.codexCustomFieldAria', {
+        <AstryxSelect
+          ariaLabel={t('agents.codexCustomFieldAria', {
             row: rowLabel,
             field: t('agents.capabilityTemplate'),
           })}
-          autoComplete="off"
-          className="raised-control"
           disabled={disabled}
-          name={`${rowLabel.replaceAll(' ', '_')}_base`}
           value={custom.base}
-          onChange={(event) =>
-            onChange({ ...custom, base: event.target.value })
-          }
-        >
-          {bases.map((base) => (
-            <option key={base.id} value={base.id}>
-              {base.label}
-            </option>
-          ))}
-        </select>
+          options={bases.map((base) => ({
+            value: base.id,
+            label: base.label,
+          }))}
+          onChange={(next) => onChange({ ...custom, base: next })}
+        />
       </label>
       <label>
         <span>{t('agents.contextWindow')}</span>
@@ -577,7 +566,6 @@ function CustomModelRow({
                 field: t('agents.defaultReasoningEffort'),
               })}
               label={t('agents.defaultReasoningEffort')}
-              name={`${rowLabel}_reasoning_level`}
               disabled={disabled}
               options={base.reasoning_levels}
               value={overrides.default_reasoning_level}
@@ -594,7 +582,6 @@ function CustomModelRow({
                 field: t(`agents.${labelKey}`),
               })}
               label={t(`agents.${labelKey}`)}
-              name={`${rowLabel}_${key}`}
               disabled={disabled}
               nullable={options.some((option: string) => option === '__null__')}
               options={options.filter((option) => option !== '__null__')}
@@ -610,7 +597,6 @@ function CustomModelRow({
                 field: t(`agents.${labelKey}`),
               })}
               label={t(`agents.${labelKey}`)}
-              name={`${rowLabel}_${key}`}
               disabled={disabled}
               options={['true', 'false']}
               value={
@@ -658,7 +644,6 @@ function CustomModelRow({
 function OverrideSelect({
   ariaLabel,
   label,
-  name,
   disabled,
   nullable = false,
   options,
@@ -667,7 +652,6 @@ function OverrideSelect({
 }: {
   ariaLabel: string;
   label: string;
-  name: string;
   disabled: boolean;
   nullable?: boolean;
   options: readonly string[];
@@ -679,26 +663,20 @@ function OverrideSelect({
   return (
     <label>
       <span>{label}</span>
-      <select
-        aria-label={ariaLabel}
-        autoComplete="off"
-        className="raised-control"
+      <AstryxSelect
+        ariaLabel={ariaLabel}
         disabled={disabled}
-        name={name.replaceAll(' ', '_')}
+        hasClear
+        placeholder={t('agents.inheritCapabilityTemplate')}
         value={selected}
-        onChange={(event) => {
-          const next = event.target.value;
-          onChange(next === '' ? undefined : next === '__null__' ? null : next);
-        }}
-      >
-        <option value="">{t('agents.inheritCapabilityTemplate')}</option>
-        {nullable ? <option value="__null__">{t('agents.none')}</option> : null}
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+        options={[
+          ...(nullable ? [{ value: '__null__', label: t('agents.none') }] : []),
+          ...options.map((option) => ({ value: option, label: option })),
+        ]}
+        onChange={(next) =>
+          onChange(next === '' ? undefined : next === '__null__' ? null : next)
+        }
+      />
     </label>
   );
 }

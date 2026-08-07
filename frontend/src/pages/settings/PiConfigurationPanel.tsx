@@ -14,6 +14,7 @@ import type {
   PiConfigurationView,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import {
@@ -297,25 +298,26 @@ export function PiConfigurationPanel({
             <div className="pi-configuration-grid">
               <label>
                 Provider
-                <select
-                  className="raised-control"
+                <AstryxSelect
+                  ariaLabel={t('agents.piProviderHeading')}
                   disabled={busy}
-                  name="pi_provider"
+                  hasClear
+                  placeholder={t('agents.selectPlaceholder')}
                   value={provider}
-                  onChange={(event) => selectProvider(event.target.value)}
-                >
-                  <option value="">{t('agents.selectPlaceholder')}</option>
-                  {providerOptions.map(([id, label, region]) => (
-                    <option key={id} value={id}>
-                      {region
+                  options={[
+                    ...providerOptions.map(([id, label, region]) => ({
+                      value: id,
+                      label: region
                         ? `${label} (${t(`agents.region${capitalize(region)}`)})`
-                        : label}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_PROVIDER}>
-                    {t('agents.customProviderOption')}
-                  </option>
-                </select>
+                        : label,
+                    })),
+                    {
+                      value: CUSTOM_PROVIDER,
+                      label: t('agents.customProviderOption'),
+                    },
+                  ]}
+                  onChange={(next) => selectProvider(next)}
+                />
               </label>
               <label>
                 {t('agents.modelId')}
@@ -330,20 +332,18 @@ export function PiConfigurationPanel({
               </label>
               <label>
                 {t('agents.reasoningEffort')}
-                <select
-                  className="raised-control"
+                <AstryxSelect
+                  ariaLabel={t('agents.reasoningEffort')}
                   disabled={busy}
-                  name="pi_thinking_level"
+                  hasClear
+                  placeholder={t('agents.useModelDefault')}
                   value={thinkingLevel}
-                  onChange={(event) => setThinkingLevel(event.target.value)}
-                >
-                  <option value="">{t('agents.useModelDefault')}</option>
-                  {THINKING_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {level}
-                    </option>
-                  ))}
-                </select>
+                  options={THINKING_LEVELS.map((level) => ({
+                    value: level,
+                    label: level,
+                  }))}
+                  onChange={setThinkingLevel}
+                />
               </label>
               <label>
                 API Key
@@ -369,10 +369,11 @@ export function PiConfigurationPanel({
                 {view.custom_providers.length > 0 ? (
                   <label>
                     {t('agents.loadExistingConfig')}
-                    <select
-                      className="raised-control"
+                    <AstryxSelect
+                      ariaLabel={t('agents.loadExistingConfig')}
                       disabled={busy}
-                      name="pi_existing_custom_provider"
+                      hasClear
+                      placeholder={t('agents.newCustomProvider')}
                       value={
                         view.custom_providers.some(
                           (entry) => entry.id === customId
@@ -380,17 +381,12 @@ export function PiConfigurationPanel({
                           ? customId
                           : ''
                       }
-                      onChange={(event) =>
-                        selectCustomProvider(event.target.value)
-                      }
-                    >
-                      <option value="">{t('agents.newCustomProvider')}</option>
-                      {view.custom_providers.map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.id}
-                        </option>
-                      ))}
-                    </select>
+                      options={view.custom_providers.map((entry) => ({
+                        value: entry.id,
+                        label: entry.id,
+                      }))}
+                      onChange={(next) => selectCustomProvider(next)}
+                    />
                   </label>
                 ) : null}
                 <label>
@@ -421,19 +417,16 @@ export function PiConfigurationPanel({
                 </label>
                 <label>
                   Wire protocol
-                  <select
-                    className="raised-control"
+                  <AstryxSelect
+                    ariaLabel={t('agents.customProviderProtocol')}
                     disabled={busy}
-                    name="pi_custom_provider_protocol"
                     value={customApi}
-                    onChange={(event) => setCustomApi(event.target.value)}
-                  >
-                    {CUSTOM_PROTOCOLS.map((protocol) => (
-                      <option key={protocol} value={protocol}>
-                        {protocol}
-                      </option>
-                    ))}
-                  </select>
+                    options={CUSTOM_PROTOCOLS.map((protocol) => ({
+                      value: protocol,
+                      label: protocol,
+                    }))}
+                    onChange={setCustomApi}
+                  />
                 </label>
               </fieldset>
             ) : null}

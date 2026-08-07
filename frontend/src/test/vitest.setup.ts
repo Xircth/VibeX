@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 // strings instead of raw keys. Tests use a deterministic Chinese locale even
 // though production now derives its initial locale from the host system.
 import i18n from '@/i18n';
+import './LiquidGlassMock';
 
 const localStorageStore = new Map<string, string>();
 const localStorageMock: Storage = {

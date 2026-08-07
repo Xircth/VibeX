@@ -203,8 +203,16 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const tag = context.ref.replace('refs/tags/', '');
             const repo = context.repo;
+            const curatedNotesPath = `docs/release/${tag.replace(/^v/, '')}.md`;
+
+            if (fs.existsSync(curatedNotesPath)) {
+              core.info(`Using curated release notes from ${curatedNotesPath}`);
+              core.setOutput('body', fs.readFileSync(curatedNotesPath, 'utf8'));
+              return;
+            }
 
             // Get auto-generated release notes from GitHub
             let autoNotes = '';

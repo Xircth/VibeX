@@ -28,6 +28,7 @@ pub mod management_state;
 pub mod manager;
 pub mod metadata;
 pub mod native_config;
+pub mod npm_registry;
 pub mod operations;
 pub mod parsers;
 pub mod permissions;
@@ -109,7 +110,8 @@ pub use install_planner::{
     ArtifactTrust, ArtifactVerification, InstallCandidateSource, InstallEnvironment,
     InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
     PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan, TofuFingerprint,
-    VersionEvidence, verify_artifact_bytes, verify_version_evidence,
+    VersionEvidence, registry_target_for_built_in_update, verify_artifact_bytes,
+    verify_version_evidence,
 };
 pub use launch_gate::{LaunchComponentEvidence, LaunchGate, LaunchGateError};
 pub use lifecycle::{
@@ -138,6 +140,10 @@ pub use native_config::{
     ConfigApplyEffect, NativeConfigError, NativeConfigFieldSnapshot, NativeConfigFilePatch,
     NativeConfigFileSnapshot, NativeConfigPatch, NativeConfigProvider, NativeConfigSaveError,
     NativeConfigSaveResult, NativeConfigSnapshot,
+};
+pub use npm_registry::{
+    ExternalChangeVerdict, NpmRegistryHttpFetcher, NpmVerificationOutcome, split_npm_spec,
+    verify_external_component_change, verify_npm_component_file,
 };
 pub use operations::{InstallOperationError, InstallOrchestrator, OrchestratorAgentSnapshot};
 pub use permissions::{

@@ -550,6 +550,180 @@ responses_websockets_v2 = false
 }
 
 #[tokio::test]
+async fn codex_api_url_reads_and_writes_the_active_provider_table() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "deepseek-v4-flash"
+model_provider = "deepseek"
+
+[model_providers.deepseek]
+name = "DeepSeek Gateway"
+base_url = "https://api.deepseek.example/v1"
+wire_api = "responses"
+"#
+        .to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let url = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_openai_base_url")
+        .unwrap();
+    assert_eq!(
+        url.value.as_deref(),
+        Some("https://api.deepseek.example/v1")
+    );
+
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_openai_base_url".to_string(),
+                    Some("https://new.example/v1".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        config["model_providers"]["deepseek"]["base_url"].as_str(),
+        Some("https://new.example/v1")
+    );
+    assert!(config.get("openai_base_url").is_none());
+    assert!(config.get("api_base_url").is_none());
+}
+
+#[tokio::test]
+async fn clearing_codex_api_url_removes_the_active_provider_table_value() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "deepseek-v4-flash"
+model_provider = "deepseek"
+
+[model_providers.deepseek]
+name = "DeepSeek Gateway"
+base_url = "https://api.deepseek.example/v1"
+wire_api = "responses"
+"#
+        .to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([("codex_openai_base_url".to_string(), None)]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // 清空后表内旧值一并移除，刷新不会回显旧端点。
+    assert!(
+        config["model_providers"]["deepseek"]
+            .get("base_url")
+            .is_none()
+    );
+    assert!(config.get("openai_base_url").is_none());
+    assert!(config.get("api_base_url").is_none());
+}
+
+#[tokio::test]
+async fn codex_api_url_falls_back_to_top_level_base_url_keys_and_writes_them_back() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let codex = AgentId::parse("codex").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.codex/config.toml"),
+        br#"model = "gpt-custom"
+api_base_url = "https://gateway.example/v1"
+"#
+        .to_vec(),
+    );
+
+    let initial = provider.read(&codex, false).await.unwrap();
+    let url = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "codex_openai_base_url")
+        .unwrap();
+    assert_eq!(url.value.as_deref(), Some("https://gateway.example/v1"));
+    assert!(url.present);
+
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &codex,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "codex_openai_base_url".to_string(),
+                    Some("https://new-gateway.example/v1".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let config: toml::Value = toml::from_str(
+        &String::from_utf8(
+            filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.codex/config.toml")]
+                .clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    // 原值来自 api_base_url，保存后仍写回 api_base_url 而非 openai_base_url。
+    assert_eq!(
+        config["api_base_url"].as_str(),
+        Some("https://new-gateway.example/v1")
+    );
+    assert!(config.get("openai_base_url").is_none());
+}
+
+#[tokio::test]
 async fn advanced_codeg_parity_fields_write_their_native_shapes() {
     let filesystem = Arc::new(MemoryNativeFileSystem::default());
     let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
@@ -1208,4 +1382,89 @@ async fn codebuddy_routes_private_and_hosted_environments_exclusively() {
     assert!(hosted_env.contains("CODEBUDDY_INTERNET_ENVIRONMENT="));
     assert!(hosted_env.contains("internal"));
     assert!(!hosted_env.contains("CODEBUDDY_BASE_URL"));
+}
+
+#[tokio::test]
+async fn claude_api_key_reads_and_writes_the_auth_token_source() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let claude = AgentId::parse("claude_code").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.claude/settings.json"),
+        br#"{"env":{"ANTHROPIC_AUTH_TOKEN":"sk-bearer","ANTHROPIC_MODEL":"sonnet"}}"#.to_vec(),
+    );
+
+    let initial = provider.read(&claude, false).await.unwrap();
+    let key = initial
+        .fields
+        .iter()
+        .find(|field| field.field_id == "anthropic_api_key")
+        .unwrap();
+    assert!(key.secret);
+    assert!(key.present);
+    assert_eq!(key.masked_value.as_deref(), Some("••••••••"));
+
+    // 保存新 key：写回原来源 AUTH_TOKEN，不残留 API_KEY，未知字段保留。
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &claude,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([(
+                    "anthropic_api_key".to_string(),
+                    Some("sk-new".to_string()),
+                )]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let settings: serde_json::Value = serde_json::from_slice(
+        &filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.claude/settings.json")],
+    )
+    .unwrap();
+    assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-new");
+    assert!(settings["env"].get("ANTHROPIC_API_KEY").is_none());
+    assert_eq!(settings["env"]["ANTHROPIC_MODEL"], "sonnet");
+}
+
+#[tokio::test]
+async fn clearing_claude_api_key_removes_both_credential_keys() {
+    let filesystem = Arc::new(MemoryNativeFileSystem::default());
+    let provider = NativeConfigProvider::bundled(filesystem.clone(), PathBuf::from("/home/user"));
+    let claude = AgentId::parse("claude_code").unwrap();
+    filesystem.files.lock().unwrap().insert(
+        PathBuf::from("/home/user/.claude/settings.json"),
+        br#"{"env":{"ANTHROPIC_AUTH_TOKEN":"sk-bearer","ANTHROPIC_API_KEY":"sk-legacy"}}"#.to_vec(),
+    );
+
+    let initial = provider.read(&claude, false).await.unwrap();
+    let revisions = initial
+        .fields
+        .iter()
+        .map(|field| (field.field_id.clone(), field.revision.clone()))
+        .collect();
+    provider
+        .save(
+            &claude,
+            NativeConfigPatch {
+                base_field_revisions: revisions,
+                values: BTreeMap::from([("anthropic_api_key".to_string(), None)]),
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    let settings: serde_json::Value = serde_json::from_slice(
+        &filesystem.files.lock().unwrap()[&PathBuf::from("/home/user/.claude/settings.json")],
+    )
+    .unwrap();
+    // 清空时两个凭据键都移除，刷新后不会因残留旧键再次显示已配置。
+    assert!(settings["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
+    assert!(settings["env"].get("ANTHROPIC_API_KEY").is_none());
 }

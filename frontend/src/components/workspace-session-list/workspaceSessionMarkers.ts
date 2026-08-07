@@ -5,7 +5,7 @@ export const WORKSPACE_SESSION_MARKER_CLASSES: Record<
   string
 > = {
   active: 'bg-red-500',
-  related: 'bg-blue-500',
+  related: 'bg-primary',
   other: 'bg-muted-foreground/35',
 };
 

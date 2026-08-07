@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
 use agents::{
-    AgentId, ArtifactTrust, InstallCandidateSource, InstallEnvironment, InstallPlanner,
-    InstallPlanningError, InstallPlanningInput, LockedInstallSource, PlannedDistributionKind,
-    RegistryAddTarget, RegistryBinaryTarget, RegistryDistributions, RegistryPackageDistribution,
-    TofuFingerprint, UserAgentDistributionKind, UserAgentInstallTarget, VersionEvidence,
-    verify_artifact_bytes, verify_version_evidence,
+    AgentId, ArtifactTrust, BuiltInProfileCatalog, InstallCandidateSource, InstallEnvironment,
+    InstallPlanner, InstallPlanningError, InstallPlanningInput, LockedInstallSource,
+    PlannedDistributionKind, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,
+    RegistryDistributions, RegistryPackageDistribution, RegistrySnapshot, TofuFingerprint,
+    UserAgentDistributionKind, UserAgentInstallTarget, VersionEvidence,
+    registry_target_for_built_in_update, verify_artifact_bytes, verify_version_evidence,
 };
+use chrono::Utc;
 use uuid::Uuid;
 
 fn package(package: &str) -> RegistryPackageDistribution {
@@ -14,6 +16,7 @@ fn package(package: &str) -> RegistryPackageDistribution {
         package: package.to_string(),
         args: Vec::new(),
         env: BTreeMap::new(),
+        integrity: None,
     }
 }
 
@@ -404,5 +407,300 @@ fn planner_locks_distribution_version_platform_and_trust() {
             ]
         ),
         Err(InstallPlanningError::VersionEvidenceConflict { .. })
+    ));
+}
+
+#[test]
+fn built_in_update_target_pins_profile_locked_versions() {
+    // ADR-0038 Phase 0 表征:内置 Agent 的更新目标始终是 Profile 编译期锁定的
+    // 版本组合,与 Registry 最新版本无关(ADR-0016、ADR-0027)。
+    let planner = InstallPlanner::bundled();
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("codex").unwrap(),
+            source: InstallCandidateSource::BuiltInProfile,
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+    assert_eq!(plan.version, "0.146.0");
+    let runtime = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")
+        .expect("codex declares an agent_runtime component");
+    assert_eq!(runtime.resolved_source, "@openai/codex@0.146.0");
+    assert_eq!(runtime.version, "0.146.0");
+    let adapter = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "acp_adapter")
+        .expect("codex declares an acp_adapter component");
+    assert_eq!(
+        adapter.resolved_source,
+        "@agentclientprotocol/codex-acp@1.1.9"
+    );
+    assert_eq!(adapter.version, "1.1.9");
+}
+
+#[test]
+fn registry_package_integrity_sets_ecosystem_trust() {
+    // ADR-0038 Phase 1:Registry npx 分发携带官方完整性时,计划组件采用
+    // EcosystemIntegrity(可持久化官方指纹);缺失时保持现状(生态完整性要求)。
+    let planner = InstallPlanner::bundled();
+    let target = generic_target(RegistryDistributions {
+        binary: None,
+        npx: Some(RegistryPackageDistribution {
+            package: "vendor-agent@1.2.3".to_string(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            integrity: Some("sha512-official".to_string()),
+        }),
+        uvx: None,
+    });
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::Registry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+    assert!(matches!(
+        plan.components[0].trust,
+        ArtifactTrust::EcosystemIntegrity {
+            ref integrity,
+        } if integrity == "sha512-official"
+    ));
+
+    let without = generic_target(RegistryDistributions {
+        binary: None,
+        npx: Some(RegistryPackageDistribution {
+            package: "vendor-agent@1.2.3".to_string(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            integrity: None,
+        }),
+        uvx: None,
+    });
+    let fallback = planner
+        .plan(InstallPlanningInput {
+            agent_id: without.agent_id.clone(),
+            source: InstallCandidateSource::Registry(Box::new(without)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    assert!(matches!(
+        fallback.components[0].trust,
+        ArtifactTrust::EcosystemIntegrityRequired
+    ));
+}
+
+#[test]
+fn built_in_update_with_registry_replaces_only_the_acp_adapter() {
+    // ADR-0038 方向 A:AdapterBacked 内置 Agent(codex)更新时,Registry 条目
+    // 只替换 acp_adapter;agent_runtime 保持 Profile 锁版本。
+    let planner = InstallPlanner::bundled();
+    let target = RegistryAddTarget {
+        snapshot_id: Uuid::new_v4(),
+        agent_id: AgentId::parse("codex").unwrap(),
+        registry_id: "codex-acp".to_string(),
+        version: "1.2.0".to_string(),
+        distributions: RegistryDistributions {
+            binary: None,
+            npx: Some(RegistryPackageDistribution {
+                package: "@agentclientprotocol/codex-acp@1.2.0".to_string(),
+                args: Vec::new(),
+                env: BTreeMap::new(),
+                integrity: Some("sha512-1.2.0".to_string()),
+            }),
+            uvx: None,
+        },
+    };
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+    assert_eq!(plan.agent_id.as_str(), "codex");
+    assert_eq!(plan.version, "0.146.0");
+    assert!(matches!(
+        plan.source,
+        LockedInstallSource::BuiltInProfileWithRegistry { .. }
+    ));
+    let runtime = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "agent_runtime")
+        .expect("runtime component");
+    assert_eq!(runtime.resolved_source, "@openai/codex@0.146.0");
+    let adapter = plan
+        .components
+        .iter()
+        .find(|component| component.component_id == "acp_adapter")
+        .expect("acp_adapter component");
+    assert_eq!(
+        adapter.resolved_source,
+        "@agentclientprotocol/codex-acp@1.2.0"
+    );
+    assert_eq!(adapter.version, "1.2.0");
+    assert!(matches!(
+        adapter.trust,
+        ArtifactTrust::EcosystemIntegrity { ref integrity } if integrity == "sha512-1.2.0"
+    ));
+}
+
+#[test]
+fn built_in_update_with_registry_replaces_the_combined_runtime() {
+    // ADR-0038 方向 A:CombinedRuntime 内置 Agent(opencode)整体随 Registry 版本。
+    let planner = InstallPlanner::bundled();
+    let target = RegistryAddTarget {
+        snapshot_id: Uuid::new_v4(),
+        agent_id: AgentId::parse("opencode").unwrap(),
+        registry_id: "opencode".to_string(),
+        version: "1.19.0".to_string(),
+        distributions: RegistryDistributions {
+            binary: Some(BTreeMap::from([(
+                "darwin-aarch64".to_string(),
+                RegistryBinaryTarget {
+                    archive: "https://example.test/opencode-1.19.0.tar.gz".to_string(),
+                    sha256: Some(
+                        "aa19412dd20fc49416742440077fab60944096650072b0ce08e87a16183978e1"
+                            .to_string(),
+                    ),
+                    cmd: "./opencode".to_string(),
+                    args: vec!["acp".to_string()],
+                    env: BTreeMap::new(),
+                },
+            )])),
+            npx: None,
+            uvx: None,
+        },
+    };
+    let plan = planner
+        .plan(InstallPlanningInput {
+            agent_id: target.agent_id.clone(),
+            source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment::default(),
+        })
+        .unwrap();
+
+    assert_eq!(plan.version, "1.19.0");
+    assert_eq!(plan.components.len(), 1);
+    assert_eq!(plan.components[0].component_id, "combined_runtime");
+    assert_eq!(plan.components[0].version, "1.19.0");
+    assert!(matches!(
+        plan.components[0].trust,
+        ArtifactTrust::ExpectedSha256 { .. }
+    ));
+}
+
+#[test]
+fn registry_target_for_built_in_update_resolves_the_binding() {
+    // ADR-0038 方向 A:registry_target_for_built_in_update 按 profile 的
+    // registry binding 在 snapshot 中定位条目;缺失时返回 None(回退锁版本)。
+    let catalog = BuiltInProfileCatalog::bundled();
+    let snapshot = RegistrySnapshot {
+        id: Uuid::new_v4(),
+        source_url: "https://registry.example.test/registry.json".to_string(),
+        fetched_at: Utc::now(),
+        schema_version: "1.0.0".to_string(),
+        document_json: "{}".to_string(),
+        document_sha256: "digest".to_string(),
+        etag: None,
+        entries: vec![RegistryAgentEntry {
+            agent_id: AgentId::parse("codex").unwrap(),
+            registry_id: "codex-acp".to_string(),
+            name: "Codex".to_string(),
+            version: "1.2.0".to_string(),
+            description: "ACP adapter for OpenAI's coding assistant".to_string(),
+            repository: None,
+            website: None,
+            authors: Vec::new(),
+            license: None,
+            distributions: RegistryDistributions {
+                binary: None,
+                npx: Some(RegistryPackageDistribution {
+                    package: "@agentclientprotocol/codex-acp@1.2.0".to_string(),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                    integrity: None,
+                }),
+                uvx: None,
+            },
+            icon_url: None,
+            icon_svg: None,
+        }],
+    };
+    let codex = AgentId::parse("codex").unwrap();
+    let target = registry_target_for_built_in_update(&catalog, &snapshot, &codex).unwrap();
+    assert_eq!(target.agent_id.as_str(), "codex");
+    assert_eq!(target.version, "1.2.0");
+
+    let unbound = AgentId::parse("claude_code").unwrap();
+    assert!(
+        registry_target_for_built_in_update(&catalog, &snapshot, &unbound).is_none(),
+        "snapshot 中没有 claude-acp 条目时应回退 Profile 锁版本"
+    );
+}
+
+#[test]
+fn built_in_update_with_registry_rejects_a_mismatched_target() {
+    // Registry target 与 profile 不是同一 Agent 时拒绝,防止跨 Agent 混搭。
+    let planner = InstallPlanner::bundled();
+    let target = RegistryAddTarget {
+        snapshot_id: Uuid::new_v4(),
+        agent_id: AgentId::parse("opencode").unwrap(),
+        registry_id: "opencode".to_string(),
+        version: "1.19.0".to_string(),
+        distributions: RegistryDistributions {
+            binary: Some(BTreeMap::from([(
+                "darwin-aarch64".to_string(),
+                RegistryBinaryTarget {
+                    archive: "https://example.test/opencode-1.19.0.tar.gz".to_string(),
+                    sha256: None,
+                    cmd: "./opencode".to_string(),
+                    args: Vec::new(),
+                    env: BTreeMap::new(),
+                },
+            )])),
+            npx: None,
+            uvx: None,
+        },
+    };
+    let error = planner
+        .plan(InstallPlanningInput {
+            agent_id: AgentId::parse("codex").unwrap(),
+            source: InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target)),
+            platform: "darwin-aarch64".to_string(),
+            environment: InstallEnvironment {
+                node_verified: true,
+                ..Default::default()
+            },
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        InstallPlanningError::RegistryTargetAgentMismatch { .. }
     ));
 }

@@ -5,6 +5,7 @@ import type { AgentNativeConfigView } from 'shared/types';
 
 import { desktopApi } from '@/lib/api';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentConfigurationAndDiagnostics } from './AgentConfigurationAndDiagnostics';
 
 const config: AgentNativeConfigView = {
@@ -27,7 +28,7 @@ const config: AgentNativeConfigView = {
       path: '/Users/example/.codex/auth.json',
       format: 'json',
       content:
-        '{\n  "OPENAI_API_KEY": "••••••••",\n  "tokens": {"access_token": "••••••••"}\n}',
+        '{\n  "OPENAI_API_KEY": "sk-real-local-key",\n  "tokens": {"access_token": "oauth-real-token"}\n}',
       sensitive: true,
       exists: true,
       revision: 'revision-auth-file',
@@ -117,18 +118,19 @@ describe('AgentConfigurationAndDiagnostics', () => {
       screen.queryByRole('button', { name: '保存' })
     ).not.toBeInTheDocument();
     expect(screen.getAllByText(/unknown = "preserved"/)).toHaveLength(2);
-    const sensitivePreview = screen.getByLabelText('auth.json 脱敏配置预览');
+    const sensitivePreview = screen.getByLabelText('auth.json 配置预览');
     expect(sensitivePreview).toHaveClass('is-sensitive');
     expect(sensitivePreview).toHaveAttribute('tabindex', '0');
     expect(sensitivePreview).toHaveTextContent('OPENAI_API_KEY');
-    expect(screen.queryByText('敏感内容已在后端隐藏')).not.toBeInTheDocument();
+    expect(sensitivePreview).toHaveTextContent('sk-real-local-key');
+    expect(sensitivePreview).toHaveTextContent('oauth-real-token');
     expect(screen.queryByText(/sk-local-only/)).not.toBeInTheDocument();
     expect(screen.queryByText('可复用 Model Provider')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText('模型'));
     await userEvent.type(screen.getByLabelText('模型'), 'gpt-5.6');
-    await userEvent.selectOptions(screen.getByLabelText('推理强度'), 'high');
+    await pickAstryxOption(userEvent, screen.getByLabelText('推理强度'), '高');
     await userEvent.click(screen.getByRole('button', { name: '保存' }));
 
     expect(onSave).toHaveBeenCalledWith({
@@ -170,7 +172,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
     expect(screen.queryByLabelText('编辑 auth.json')).not.toBeInTheDocument();
   });
 
-  it('opens the resolved native configuration directory', async () => {
+  it('opens the containing folder from each configuration file row', async () => {
     const reveal = vi
       .spyOn(desktopApi, 'revealInFileManager')
       .mockResolvedValue(undefined);
@@ -182,8 +184,14 @@ describe('AgentConfigurationAndDiagnostics', () => {
       />
     );
 
-    await userEvent.click(screen.getByRole('button', { name: '打开配置目录' }));
-    expect(reveal).toHaveBeenCalledWith('/Users/example/.codex');
+    await userEvent.click(
+      screen.getByRole('button', { name: '打开 auth.json 所在目录' })
+    );
+    expect(reveal).toHaveBeenNthCalledWith(1, '/Users/example/.codex');
+    await userEvent.click(
+      screen.getByRole('button', { name: '打开 config.toml 所在目录' })
+    );
+    expect(reveal).toHaveBeenNthCalledWith(2, '/Users/example/.codex');
     reveal.mockRestore();
   });
 
@@ -197,7 +205,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
       />
     );
 
-    expect(screen.getByText('••••••••')).toBeInTheDocument();
+    expect(screen.getByLabelText('OpenAI API Key')).toHaveValue('••••••••');
     await userEvent.type(
       screen.getByLabelText('OpenAI API Key'),
       'sk-local-only'
@@ -330,9 +338,10 @@ describe('AgentConfigurationAndDiagnostics', () => {
       screen.queryByLabelText('Anthropic API Key')
     ).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(
+    await pickAstryxOption(
+      userEvent,
       screen.getByLabelText('Provider'),
-      'anthropic'
+      'Anthropic'
     );
 
     expect(screen.getByLabelText('Anthropic API Key')).toBeInTheDocument();
@@ -393,9 +402,10 @@ describe('AgentConfigurationAndDiagnostics', () => {
     );
 
     expect(screen.queryByLabelText('沙箱命令确认')).not.toBeInTheDocument();
-    await userEvent.selectOptions(
+    await pickAstryxOption(
+      userEvent,
       screen.getByLabelText('命令确认'),
-      'granular'
+      '按能力分别确认'
     );
     expect(screen.getByLabelText('沙箱命令确认')).toBeChecked();
     await userEvent.click(screen.getByLabelText('规则确认'));
@@ -411,6 +421,57 @@ describe('AgentConfigurationAndDiagnostics', () => {
         codex_approval_policy: 'granular',
         codex_approval_rules: 'false',
       },
+    });
+  });
+
+  it('renders Codex quick toggles and saves their state', async () => {
+    const onSave = vi.fn();
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={{
+          ...config,
+          fields: [
+            ...config.fields,
+            {
+              id: 'codex_skills',
+              label: 'Skills',
+              description: '',
+              kind: 'boolean',
+              options: [],
+              secret: false,
+              path: '/Users/example/.codex/config.toml',
+              present: true,
+              value: 'false',
+              masked_value: null,
+              revision: 'skills-revision',
+            },
+            {
+              id: 'codex_network_access',
+              label: '沙箱网络访问',
+              description: '',
+              kind: 'boolean',
+              options: [],
+              secret: false,
+              path: '/Users/example/.codex/config.toml',
+              present: true,
+              value: 'false',
+              masked_value: null,
+              revision: 'network-revision',
+            },
+          ],
+        }}
+        saving={false}
+        onSave={onSave}
+      />
+    );
+
+    await userEvent.click(screen.getByLabelText('Skills'));
+    await userEvent.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      agent_id: 'codex',
+      base_field_revisions: { codex_skills: 'skills-revision' },
+      fields: { codex_skills: 'true' },
     });
   });
 });

@@ -497,6 +497,10 @@ pub struct AgentModelProviderView {
     pub model: String,
     pub credential_present: bool,
     pub bound: bool,
+    /// `true` 表示该 Provider 由 VibeX 的预设存储管理；`false` 表示它只存在于
+    /// Agent 原生配置中（例如 Codex `config.toml` 的 `[model_providers.xxx]`），
+    /// 只能查看或接管，不能被 VibeX 直接编辑或删除。
+    pub managed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -804,6 +808,7 @@ pub struct AgentDiagnosticView {
     pub message: String,
     pub redacted_output: Option<String>,
     pub created_at: String,
+    pub read: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

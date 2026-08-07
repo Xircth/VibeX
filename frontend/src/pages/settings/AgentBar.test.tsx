@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
@@ -33,6 +33,57 @@ function agent(
 }
 
 describe('AgentBar', () => {
+  it('drag-scrolls the strip and suppresses the click after a drag', () => {
+    const onSelect = vi.fn();
+    render(
+      <AgentBar
+        agents={Array.from({ length: 12 }, (_, index) =>
+          agent(`agent-${index}`, `Agent ${index}`, index)
+        )}
+        selectedAgentId="agent-0"
+        registryOpen={false}
+        onSelect={onSelect}
+        onOpenRegistry={vi.fn()}
+      />
+    );
+
+    const scroller = document.querySelector(
+      '.agent-management-bar-scroll'
+    ) as HTMLElement;
+    fireEvent.pointerDown(scroller, { pointerId: 1, clientX: 20 });
+    fireEvent.pointerMove(scroller, { pointerId: 1, clientX: 80 });
+    fireEvent.pointerUp(scroller, { pointerId: 1 });
+    expect(scroller.scrollLeft).toBe(-60);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent 1' }));
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent 2' }));
+    expect(onSelect).toHaveBeenCalledWith('agent-2');
+  });
+
+  it('navigates on a plain pointer click (no drag) on an agent icon', () => {
+    const onSelect = vi.fn();
+    render(
+      <AgentBar
+        agents={[
+          agent('claude_code', 'Claude Code', 0),
+          agent('codex', 'Codex', 1),
+        ]}
+        selectedAgentId="claude_code"
+        registryOpen={false}
+        onSelect={onSelect}
+        onOpenRegistry={vi.fn()}
+      />
+    );
+
+    const codex = screen.getByRole('button', { name: 'Codex' });
+    fireEvent.pointerDown(codex, { pointerId: 1, clientX: 100 });
+    fireEvent.pointerUp(codex, { pointerId: 1 });
+    fireEvent.click(codex);
+    expect(onSelect).toHaveBeenCalledWith('codex');
+  });
+
   it('keeps all Agents in one ordered strip with a sticky final add control', async () => {
     const onSelect = vi.fn();
     render(

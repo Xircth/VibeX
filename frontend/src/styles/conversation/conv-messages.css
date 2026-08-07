@@ -20,7 +20,7 @@
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
-  --conv-user-bg: hsl(214 56% 24%);
+  --conv-user-bg: hsl(220 53% 24%);
   --conv-user-action-button-color: rgba(255, 255, 255, 0.72);
   --conv-user-action-button-bg: rgba(255, 255, 255, 0.1);
   --conv-user-action-button-border: rgba(255, 255, 255, 0.18);

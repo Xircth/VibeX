@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
 
 describe('OpenCodeProviderConnections', () => {
@@ -46,9 +47,10 @@ describe('OpenCodeProviderConnections', () => {
     expect(screen.getByText(/凭据已保存/)).toBeInTheDocument();
     await user.type(screen.getByLabelText('Provider ID'), 'my-provider');
     await user.type(screen.getByLabelText('显示名称'), 'My Provider');
-    await user.selectOptions(
+    await pickAstryxOption(
+      user,
       screen.getByLabelText('AI SDK 包'),
-      '@ai-sdk/openai-compatible'
+      'OpenAI Compatible · @ai-sdk/openai-compatible'
     );
     await user.type(screen.getByLabelText('API 适配器'), 'openai.responses');
     await user.type(
@@ -220,8 +222,8 @@ describe('OpenCodeProviderConnections', () => {
     await user.click(screen.getByRole('button', { name: /选择 OpenRouter/ }));
 
     expect(screen.getByLabelText('Provider ID')).toHaveValue('openrouter');
-    expect(screen.getByLabelText('AI SDK 包')).toHaveValue(
-      '@ai-sdk/openai-compatible'
+    expect(screen.getByLabelText('AI SDK 包')).toHaveTextContent(
+      'OpenAI Compatible · @ai-sdk/openai-compatible'
     );
     expect(screen.getByLabelText('第 1 个模型 ID')).toHaveValue(
       'anthropic/claude-sonnet-4'

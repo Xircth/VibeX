@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Keyboard, Loader2, RotateCcw, Save, Undo2 } from 'lucide-react';
+import { Keyboard, Loader2, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { SettingsActionBar } from './SettingsUi';
 import {
   Select,
   SelectContent,
@@ -424,40 +425,13 @@ export function ShortcutSettings() {
         </section>
       </div>
 
-      {hasUnsavedChanges ? (
-        <div className="settings-action-bar sticky bottom-0 z-10 mt-4 py-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {t('shortcuts.unsaved')}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleDiscard}
-                disabled={saving}
-              >
-                <Undo2 className="mr-1 h-3 w-3" />
-                {t('common:discard')}
-              </Button>
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={handleSave}
-                disabled={saving}
-              >
-                {saving ? (
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                ) : (
-                  <Save className="mr-1 h-3 w-3" />
-                )}
-                {t('shortcuts.saveSettings')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <SettingsActionBar
+        dirty={hasUnsavedChanges}
+        saving={saving}
+        onDiscard={handleDiscard}
+        onSave={handleSave}
+        message={t('shortcuts.unsaved')}
+      />
     </div>
   );
 }

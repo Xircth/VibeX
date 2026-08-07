@@ -23,6 +23,33 @@ struct StoredProvider {
     model: String,
 }
 
+/// 原生 Codex `config.toml` 中声明的自定义 Provider（`[model_providers.xxx]`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct NativeCodexProvider {
+    pub id: String,
+    pub name: String,
+    pub api_url: String,
+    pub model: String,
+}
+
+/// 原生 Codex 配置的 Provider 相关状态。用于把用户手写在 `config.toml` 中的
+/// 自定义 Provider（而非 VibeX 预设）投影为"已绑定"视图，只读识别、不改文件。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct NativeCodexState {
+    pub providers: Vec<NativeCodexProvider>,
+    /// `model_provider` 键指向的非 vibex 提供商标识。
+    pub active_provider: Option<String>,
+    /// 顶层 `openai_base_url` / `api_base_url`（内置 OpenAI provider 端点）。
+    pub base_url: Option<String>,
+    /// 顶层 `model` 键。
+    pub model: Option<String>,
+    /// `auth.json` 中是否存在非空 `OPENAI_API_KEY`。
+    pub credential_present: bool,
+}
+
+/// 只有顶层 base_url、没有显式 `[model_providers.xxx]` 表时使用的合成标识。
+const NATIVE_ENDPOINT_PROVIDER_ID: &str = "__vibex_native_endpoint__";
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ProviderStore {
     #[serde(default)]
@@ -96,9 +123,54 @@ pub(super) async fn list(
     store_path: &Path,
     agent_id: AgentId,
 ) -> Result<AgentModelProvidersView, String> {
+    list_with_native(store_path, agent_id, None).await
+}
+
+/// 与 `list` 相同，但对 Codex 额外把原生 `config.toml` 中已激活的自定义
+/// Provider 合并进视图，使未使用 VibeX 预设的手写配置也能如实显示。
+pub(super) async fn list_with_native(
+    store_path: &Path,
+    agent_id: AgentId,
+    codex_home: Option<&Path>,
+) -> Result<AgentModelProvidersView, String> {
     validate_agent(&agent_id)?;
     let store = read_store(store_path).await?;
-    Ok(project(&store, agent_id))
+    let native = if agent_id.as_str() == "codex" {
+        match codex_home {
+            Some(home) => Some(read_native_codex_state(home).await?),
+            None => None,
+        }
+    } else {
+        None
+    };
+    Ok(project_with_native(&store, agent_id, native.as_ref()))
+}
+
+pub(super) async fn resolve_probe_api_key(
+    store_path: &Path,
+    agent_id: &AgentId,
+    provider_id: Option<&str>,
+    submitted_api_key: Option<&str>,
+) -> Result<String, String> {
+    validate_agent(agent_id)?;
+    if let Some(api_key) = submitted_api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(api_key.to_string());
+    }
+    let provider_id = provider_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "读取 Provider 模型需要填写 API Key".to_string())?;
+    let store = read_store(store_path).await?;
+    store
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id && &provider.agent_id == agent_id)
+        .map(|provider| provider.api_key.clone())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "找不到可用于模型探测的 Provider 凭据".to_string())
 }
 
 pub(super) async fn save(
@@ -232,14 +304,38 @@ pub(super) async fn bind(
 
 pub(super) async fn delete(
     store_path: &Path,
+    home: &Path,
+    environment: &HashMap<String, String>,
     agent_id: AgentId,
     provider_id: &str,
 ) -> Result<AgentModelProvidersView, String> {
     validate_agent(&agent_id)?;
+    let homes = ProviderNativeHomes::resolve(home, environment);
     let mut store = read_store(store_path).await?;
-    if store.bindings.values().any(|bound| bound == provider_id) {
+    let bound = store.bindings.get(agent_id.as_str()).cloned();
+    // 其它 Agent 不可能绑定本 Agent 的 Provider（bind 会校验归属），此处保留
+    // 防御性检查：只有当前 Agent 的绑定会在下方随删除一起解除。
+    if bound.as_deref() != Some(provider_id)
+        && store.bindings.values().any(|value| value == provider_id)
+    {
         return Err("Model Provider 正在使用中，请先解除绑定".to_string());
     }
+    // 删除当前绑定的 Provider 时先恢复原生投影并移除绑定，与 bind 一样在单次
+    // 写盘内完成：写盘失败时回滚投影，不会留下"已解绑但未删除"的中间状态。
+    let rollback = if bound.as_deref() == Some(provider_id) {
+        let rollback = capture_projection(&homes, &agent_id).await?;
+        let backup = store
+            .projection_backups
+            .get(agent_id.as_str())
+            .cloned()
+            .unwrap_or_else(|| empty_projection_backup(&agent_id));
+        restore_projection(&homes, &agent_id, &backup).await?;
+        store.bindings.remove(agent_id.as_str());
+        store.projection_backups.remove(agent_id.as_str());
+        Some(rollback)
+    } else {
+        None
+    };
     let before = store.providers.len();
     store
         .providers
@@ -247,7 +343,12 @@ pub(super) async fn delete(
     if store.providers.len() == before {
         return Err("找不到要删除的 Model Provider".to_string());
     }
-    write_store(store_path, &store).await?;
+    if let Err(error) = write_store(store_path, &store).await {
+        if let Some(rollback) = rollback {
+            restore_projection(&homes, &agent_id, &rollback).await?;
+        }
+        return Err(error);
+    }
     Ok(project(&store, agent_id))
 }
 
@@ -265,6 +366,7 @@ fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelProvidersView 
             model: provider.model.clone(),
             credential_present: !provider.api_key.is_empty(),
             bound: bound_provider_id.as_deref() == Some(provider.id.as_str()),
+            managed: true,
         })
         .collect::<Vec<_>>();
     providers.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
@@ -273,6 +375,143 @@ fn project(store: &ProviderStore, agent_id: AgentId) -> AgentModelProvidersView 
         providers,
         bound_provider_id,
     }
+}
+
+/// 在 VibeX 预设视图之上合并原生 Codex Provider。仅在 Codex 且 VibeX 尚未
+/// 绑定时生效：此时 `config.toml` 中激活的自定义 Provider（`model_provider`
+/// 指向的表，或顶层 base_url）就是 Codex 实际使用的端点，应显示为已绑定。
+fn project_with_native(
+    store: &ProviderStore,
+    agent_id: AgentId,
+    native: Option<&NativeCodexState>,
+) -> AgentModelProvidersView {
+    let mut view = project(store, agent_id.clone());
+    if agent_id.as_str() != "codex" || view.bound_provider_id.is_some() {
+        return view;
+    }
+    let Some(native) = native else {
+        return view;
+    };
+    let active_provider = native.active_provider.as_deref();
+    let base_url_active = native
+        .base_url
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    if active_provider.is_none() && !base_url_active {
+        return view;
+    }
+    if let Some(active) = active_provider {
+        let existing = native
+            .providers
+            .iter()
+            .find(|provider| provider.id == active);
+        let (id, name, api_url) = match existing {
+            Some(provider) => (
+                provider.id.clone(),
+                provider.name.clone(),
+                provider.api_url.clone(),
+            ),
+            None => (
+                active.to_string(),
+                active.to_string(),
+                native.base_url.clone().unwrap_or_default(),
+            ),
+        };
+        view.providers.push(AgentModelProviderView {
+            id: id.clone(),
+            name,
+            agent_id: agent_id.clone(),
+            api_url,
+            model: native.model.clone().unwrap_or_default(),
+            credential_present: native.credential_present,
+            bound: true,
+            managed: false,
+        });
+        view.bound_provider_id = Some(id);
+    } else if let Some(base_url) = native
+        .base_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        view.providers.push(AgentModelProviderView {
+            id: NATIVE_ENDPOINT_PROVIDER_ID.to_string(),
+            name: "原生端点".to_string(),
+            agent_id: agent_id.clone(),
+            api_url: base_url.to_string(),
+            model: native.model.clone().unwrap_or_default(),
+            credential_present: native.credential_present,
+            bound: true,
+            managed: false,
+        });
+        view.bound_provider_id = Some(NATIVE_ENDPOINT_PROVIDER_ID.to_string());
+    }
+    view
+}
+
+/// 只读解析 Codex 原生配置的 Provider 状态，不修改任何文件。
+pub(super) async fn read_native_codex_state(codex_home: &Path) -> Result<NativeCodexState, String> {
+    let mut state = NativeCodexState::default();
+    // 原生识别是辅助视图：config.toml 损坏时降级为空状态，不影响 VibeX 预设
+    // 的列表与绑定流程。
+    let table = match read_toml_table(&codex_home.join("config.toml")).await {
+        Ok(table) => table,
+        Err(_) => toml::Table::new(),
+    };
+    state.active_provider = table
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "vibex")
+        .map(str::to_string);
+    state.base_url = table
+        .get("openai_base_url")
+        .or_else(|| table.get("api_base_url"))
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    state.model = table
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(providers) = table.get("model_providers").and_then(toml::Value::as_table) {
+        for (id, value) in providers {
+            if id == "vibex" {
+                continue;
+            }
+            let Some(provider) = value.as_table() else {
+                continue;
+            };
+            state.providers.push(NativeCodexProvider {
+                id: id.clone(),
+                name: provider
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(id)
+                    .to_string(),
+                api_url: provider
+                    .get("base_url")
+                    .and_then(toml::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_default()
+                    .to_string(),
+                model: state.model.clone().unwrap_or_default(),
+            });
+        }
+    }
+    let auth = read_json_object_or_empty(&codex_home.join("auth.json"))
+        .await
+        .map_err(|error| error.message)?;
+    state.credential_present = auth
+        .get("OPENAI_API_KEY")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    Ok(state)
 }
 
 async fn read_store(path: &Path) -> Result<ProviderStore, String> {
@@ -1039,6 +1278,51 @@ async fn write_json(path: &Path, document: &Value, sensitive: bool) -> Result<()
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn probe_key_prefers_the_draft_and_can_reuse_the_edited_provider_secret() {
+        let temp = tempfile::tempdir().unwrap();
+        let store_path = temp.path().join("providers.json");
+        write_store(
+            &store_path,
+            &ProviderStore {
+                providers: vec![StoredProvider {
+                    id: "provider-1".to_string(),
+                    name: "Gateway".to_string(),
+                    agent_id: AgentId::parse("gemini").unwrap(),
+                    api_url: "https://saved.example/v1".to_string(),
+                    api_key: "saved-secret".to_string(),
+                    model: String::new(),
+                }],
+                ..ProviderStore::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            resolve_probe_api_key(
+                &store_path,
+                &AgentId::parse("gemini").unwrap(),
+                Some("provider-1"),
+                Some("draft-secret")
+            )
+            .await
+            .unwrap(),
+            "draft-secret"
+        );
+        assert_eq!(
+            resolve_probe_api_key(
+                &store_path,
+                &AgentId::parse("gemini").unwrap(),
+                Some("provider-1"),
+                None
+            )
+            .await
+            .unwrap(),
+            "saved-secret"
+        );
+    }
+
     #[test]
     fn gemini_cli_home_is_a_parent_directory_for_provider_projection() {
         let home = Path::new("/users/example");
@@ -1500,5 +1784,238 @@ mod tests {
         )
         .unwrap();
         assert!(restored.get("OPENAI_API_KEY").is_none());
+    }
+
+    #[tokio::test]
+    async fn native_codex_provider_appears_as_bound_when_vibex_has_no_binding() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join("home/.codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"sk-native"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model = \"deepseek-v4-flash\"\nmodel_provider = \"deepseek\"\n\n[model_providers.deepseek]\nname = \"DeepSeek Gateway\"\nbase_url = \"https://api.deepseek.example/v1\"\nwire_api = \"responses\"\n",
+        )
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("codex").unwrap();
+        let view = list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
+            .await
+            .unwrap();
+        assert_eq!(view.bound_provider_id.as_deref(), Some("deepseek"));
+        assert_eq!(view.providers.len(), 1);
+        let native = &view.providers[0];
+        assert_eq!(native.id, "deepseek");
+        assert_eq!(native.name, "DeepSeek Gateway");
+        assert_eq!(native.api_url, "https://api.deepseek.example/v1");
+        assert_eq!(native.model, "deepseek-v4-flash");
+        assert!(native.bound);
+        assert!(!native.managed);
+        assert!(native.credential_present);
+    }
+
+    #[tokio::test]
+    async fn native_codex_endpoint_without_provider_table_projects_synthetic_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join("home/.codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model = \"gpt-custom\"\nopenai_base_url = \"https://gateway.example/v1\"\n",
+        )
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("codex").unwrap();
+        let view = list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
+            .await
+            .unwrap();
+        let bound = view.bound_provider_id.as_deref().unwrap();
+        let entry = view
+            .providers
+            .iter()
+            .find(|provider| provider.id == bound)
+            .unwrap();
+        assert_eq!(entry.api_url, "https://gateway.example/v1");
+        assert_eq!(entry.model, "gpt-custom");
+        assert!(entry.bound);
+        assert!(!entry.managed);
+    }
+
+    #[tokio::test]
+    async fn vibex_binding_takes_precedence_over_native_codex_provider() {
+        let temp = tempfile::tempdir().unwrap();
+        let codex_home = temp.path().join("home/.codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"sk-native"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model = \"deepseek-v4-flash\"\nmodel_provider = \"deepseek\"\n\n[model_providers.deepseek]\nname = \"DeepSeek Gateway\"\nbase_url = \"https://api.deepseek.example/v1\"\n",
+        )
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("codex").unwrap();
+        let environment = HashMap::new();
+        let created = save(
+            &store_path,
+            &temp.path().join("home"),
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "VibeX Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://vibex.example/v1".to_string(),
+                api_key: Some("vibex-secret".to_string()),
+                model: "vibex-model".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        bind(
+            &store_path,
+            &temp.path().join("home"),
+            &environment,
+            agent_id.clone(),
+            Some(created.providers[0].id.clone()),
+        )
+        .await
+        .unwrap();
+        let view = list_with_native(&store_path, agent_id, Some(&codex_home))
+            .await
+            .unwrap();
+        // VibeX 绑定存在时原生 provider 不再出现在视图中，且绑定指向 VibeX 预设。
+        assert_eq!(
+            view.bound_provider_id,
+            Some(created.providers[0].id.clone())
+        );
+        assert!(view.providers.iter().all(|provider| provider.managed));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_bound_provider_unbinds_it_restores_native_config_and_removes_the_preset()
+    {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let codex_home = home.join(".codex");
+        let store_path = temp.path().join("data/agent-model-providers.json");
+        let cache_path = codex_catalog_cache(&store_path);
+        tokio::fs::create_dir_all(&codex_home).await.unwrap();
+        tokio::fs::create_dir_all(cache_path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            codex_home.join("auth.json"),
+            br#"{"OPENAI_API_KEY":"original-secret","keep":true}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join("config.toml"),
+            "model = \"official-a\"\nmodel_provider = \"original\"\nmodel_catalog_json = \"vibex-model-catalog.json\"\n[model_providers.original]\nbase_url = \"https://original.example\"\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            codex_home.join(CODEX_CATALOG_FILE),
+            r#"{"models":[{"slug":"old-custom"}]}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(codex_home.join(CODEX_SOURCE_FILE), r#"{"customs":[]}"#)
+            .await
+            .unwrap();
+        tokio::fs::write(
+            &cache_path,
+            r#"{"models":[{"slug":"official-a","display_name":"Official A","visibility":"list","priority":0,"context_window":1000}]}"#,
+        )
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("codex").unwrap();
+        let environment = HashMap::new();
+        let created = save(
+            &store_path,
+            &home,
+            &environment,
+            AgentModelProviderSaveRequest {
+                id: None,
+                name: "Codex Gateway".to_string(),
+                agent_id: agent_id.clone(),
+                api_url: "https://gateway.example/v1".to_string(),
+                api_key: Some("new-secret".to_string()),
+                model: r#"{"customs":[{"slug":"gateway-a","display_name":"Gateway A","base":"official-a"}],"excluded_officials":[],"default_model":"gateway-a"}"#.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let provider_id = created.providers[0].id.clone();
+        bind(
+            &store_path,
+            &home,
+            &environment,
+            agent_id.clone(),
+            Some(provider_id.clone()),
+        )
+        .await
+        .unwrap();
+        let bound_config = read_toml_table(&codex_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(
+            bound_config.get("model").and_then(toml::Value::as_str),
+            Some("gateway-a")
+        );
+
+        // 删除当前绑定的 Provider：自动解绑、恢复原生配置并移除预设。
+        let view = delete(
+            &store_path,
+            &home,
+            &environment,
+            agent_id.clone(),
+            &provider_id,
+        )
+        .await
+        .unwrap();
+        assert!(view.providers.is_empty());
+        assert!(view.bound_provider_id.is_none());
+
+        let restored_config = read_toml_table(&codex_home.join("config.toml"))
+            .await
+            .unwrap();
+        assert_eq!(
+            restored_config.get("model").and_then(toml::Value::as_str),
+            Some("official-a")
+        );
+        assert_eq!(
+            restored_config
+                .get("model_providers")
+                .and_then(toml::Value::as_table)
+                .and_then(|providers| providers.get("original"))
+                .and_then(toml::Value::as_table)
+                .and_then(|provider| provider.get("base_url"))
+                .and_then(toml::Value::as_str),
+            Some("https://original.example")
+        );
+        let store = read_store(&store_path).await.unwrap();
+        assert!(store.bindings.is_empty());
+        assert!(store.projection_backups.is_empty());
+        assert!(store.providers.is_empty());
+
+        // 再次删除已不存在的 Provider 报错，且不触碰已恢复的原生配置。
+        let error = delete(&store_path, &home, &environment, agent_id, &provider_id)
+            .await
+            .unwrap_err();
+        assert!(error.contains("找不到要删除的 Model Provider"));
     }
 }

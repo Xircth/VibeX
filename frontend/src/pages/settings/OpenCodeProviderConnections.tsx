@@ -23,6 +23,7 @@ import type {
   OpenCodeProviderModelRequest,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -623,22 +624,17 @@ export function OpenCodeProviderConnections({
             />
           </ProviderField>
           <ProviderField label={t('settings:agents.aiSdkPackage')}>
-            <select
-              aria-label={t('settings:agents.aiSdkPackage')}
-              className="raised-control"
-              name="provider_npm"
+            <AstryxSelect
+              ariaLabel={t('settings:agents.aiSdkPackage')}
+              hasClear
+              placeholder={t('settings:agents.openCodeBuiltInProvider')}
               value={npm}
-              onChange={(event) => setNpm(event.target.value)}
-            >
-              <option value="">
-                {t('settings:agents.openCodeBuiltInProvider')}
-              </option>
-              {packageOptions.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label} · {value}
-                </option>
-              ))}
-            </select>
+              options={packageOptions.map(([value, label]) => ({
+                value,
+                label: `${label} · ${value}`,
+              }))}
+              onChange={setNpm}
+            />
           </ProviderField>
           <ProviderField label={t('settings:agents.apiAdapter')}>
             <input

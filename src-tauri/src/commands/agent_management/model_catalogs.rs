@@ -60,54 +60,77 @@ pub(super) async fn cursor(
 }
 
 pub(super) async fn kimi(base_url: &str, api_key: &str) -> Result<AgentModelCatalogView, String> {
+    let catalog = provider(
+        AgentId::parse("kimi_code").expect("built-in id"),
+        base_url,
+        api_key,
+    )
+    .await?;
+    if catalog.models.is_empty() {
+        return Err("Kimi Provider 未返回任何模型".to_string());
+    }
+    Ok(catalog)
+}
+
+pub(super) async fn provider(
+    agent_id: AgentId,
+    base_url: &str,
+    api_key: &str,
+) -> Result<AgentModelCatalogView, String> {
+    if !matches!(
+        agent_id.as_str(),
+        "claude_code" | "codex" | "gemini" | "kimi_code"
+    ) {
+        return Err("该 Agent 不支持 Provider 模型探测".to_string());
+    }
     let base_url = validate_model_endpoint(base_url)?;
     let api_key = api_key.trim();
     if api_key.is_empty() {
-        return Err("读取 Kimi 模型需要填写 API Key".to_string());
+        return Err("读取 Provider 模型需要填写 API Key".to_string());
     }
     let url = base_url
         .join("models")
-        .map_err(|error| format!("Kimi 模型地址无效：{error}"))?;
-    let response = reqwest::Client::builder()
+        .map_err(|error| format!("Provider 模型地址无效：{error}"))?;
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|error| format!("创建 Kimi 模型客户端失败：{error}"))?
-        .get(url)
-        .bearer_auth(api_key)
+        .map_err(|error| format!("创建 Provider 模型客户端失败：{error}"))?;
+    let mut request = client.get(url).bearer_auth(api_key);
+    request = match agent_id.as_str() {
+        "claude_code" => request
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01"),
+        "gemini" => request.header("x-goog-api-key", api_key),
+        _ => request,
+    };
+    let response = request
         .send()
         .await
-        .map_err(|error| format!("读取 Kimi 模型失败：{error}"))?;
+        .map_err(|error| format!("读取 Provider 模型失败：{error}"))?;
     let status = response.status();
     if response
         .content_length()
         .is_some_and(|length| length > MAX_CATALOG_BYTES as u64)
     {
-        return Err("Kimi 模型响应超过 4 MiB 安全上限".to_string());
+        return Err("Provider 模型响应超过 4 MiB 安全上限".to_string());
     }
     let mut stream = response.bytes_stream();
     let mut bytes = Vec::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("读取 Kimi 模型响应失败：{error}"))?;
+        let chunk = chunk.map_err(|error| format!("读取 Provider 模型响应失败：{error}"))?;
         if bytes.len().saturating_add(chunk.len()) > MAX_CATALOG_BYTES {
-            return Err("Kimi 模型响应超过 4 MiB 安全上限".to_string());
+            return Err("Provider 模型响应超过 4 MiB 安全上限".to_string());
         }
         bytes.extend_from_slice(&chunk);
     }
-    let body: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Kimi 模型响应不是有效 JSON：{error}"))?;
     if !status.is_success() {
-        let message = body
-            .pointer("/error/message")
-            .and_then(Value::as_str)
-            .unwrap_or("Provider 拒绝了模型目录请求");
-        return Err(format!("Kimi 模型目录返回 HTTP {status}：{message}"));
+        return Err(format!("Provider 模型目录返回 HTTP {status}"));
     }
+    let body: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Provider 模型响应不是有效 JSON：{error}"))?;
     let models = parse_openai_models(&body);
-    if models.is_empty() {
-        return Err("Kimi Provider 未返回任何模型".to_string());
-    }
     Ok(AgentModelCatalogView {
-        agent_id: AgentId::parse("kimi_code").expect("built-in id"),
+        agent_id,
         source: AgentModelCatalogSource::Live,
         models,
         default_model: None,
@@ -763,17 +786,25 @@ fn parse_cursor_models(text: &str) -> (Vec<AgentModelCatalogItemView>, Option<St
 }
 
 fn parse_openai_models(body: &Value) -> Vec<AgentModelCatalogItemView> {
-    let mut models = body
+    let entries = body
         .get("data")
         .and_then(Value::as_array)
+        .or_else(|| body.get("models").and_then(Value::as_array));
+    let mut models = entries
         .into_iter()
         .flatten()
         .filter_map(|model| {
-            let id = model.get("id")?.as_str()?.trim();
+            let raw_id = model
+                .get("id")
+                .or_else(|| model.get("name"))?
+                .as_str()?
+                .trim();
+            let id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
             (!id.is_empty()).then(|| AgentModelCatalogItemView {
                 id: id.to_string(),
                 label: model
-                    .get("name")
+                    .get("display_name")
+                    .or_else(|| model.get("displayName"))
                     .and_then(Value::as_str)
                     .unwrap_or(id)
                     .to_string(),
@@ -792,13 +823,13 @@ fn parse_openai_models(body: &Value) -> Vec<AgentModelCatalogItemView> {
 }
 
 fn validate_model_endpoint(base_url: &str) -> Result<url::Url, String> {
-    let mut url =
-        url::Url::parse(base_url.trim()).map_err(|error| format!("Kimi API URL 无效：{error}"))?;
+    let mut url = url::Url::parse(base_url.trim())
+        .map_err(|error| format!("Provider API URL 无效：{error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("Kimi API URL 仅支持 http 或 https".to_string());
+        return Err("Provider API URL 仅支持 http 或 https".to_string());
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err("Kimi API URL 不能包含用户名或密码".to_string());
+        return Err("Provider API URL 不能包含用户名或密码".to_string());
     }
     if !url.path().ends_with('/') {
         url.set_path(&format!("{}/", url.path()));
@@ -861,6 +892,53 @@ mod tests {
                 .as_str(),
             "https://example.com/v1/"
         );
+    }
+
+    #[tokio::test]
+    async fn provider_catalog_uses_the_draft_endpoint_and_returns_normalized_models() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = vec![0_u8; 4096];
+            let read = stream.read(&mut request).await.unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("GET /v1/models HTTP/1.1"));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer draft-secret")
+            );
+
+            let body = r#"{"data":[{"id":"z-model"},{"id":"a-model","display_name":"A Model"},{"id":"a-model"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let catalog = provider(
+            AgentId::parse("codex").unwrap(),
+            &format!("http://{address}/v1"),
+            "draft-secret",
+        )
+        .await
+        .unwrap();
+        server.await.unwrap();
+
+        assert_eq!(catalog.agent_id.as_str(), "codex");
+        assert_eq!(catalog.models.len(), 2);
+        assert_eq!(catalog.models[0].id, "a-model");
+        assert_eq!(catalog.models[0].label, "A Model");
+        assert_eq!(catalog.models[1].id, "z-model");
     }
 
     #[test]

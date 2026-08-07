@@ -12,8 +12,8 @@
       <stop offset="1" stop-color="#1D8DD1" stop-opacity="0" />
     </radialGradient>
     <radialGradient id="hero-glow-b" cx="0" cy="0" r="1" gradientTransform="translate(1040 740) rotate(-136) scale(520 420)">
-      <stop stop-color="#A8BEDF" stop-opacity=".22" />
-      <stop offset="1" stop-color="#A8BEDF" stop-opacity="0" />
+      <stop stop-color="#3F6CC4" stop-opacity=".22" />
+      <stop offset="1" stop-color="#3F6CC4" stop-opacity="0" />
     </radialGradient>
     <pattern id="hero-grid" width="32" height="32" patternUnits="userSpaceOnUse">
       <path d="M32 0H0V32" fill="none" stroke="#C7E6FF" stroke-opacity=".055" />

@@ -190,3 +190,40 @@ async fn live_official_registry_returns_the_public_catalog() {
         view.entries.len()
     );
 }
+
+#[tokio::test]
+async fn registry_package_integrity_is_preserved_across_parse_and_persist() {
+    // ADR-0038 Phase 1:官方 Registry 的 npx 分发若提供 integrity,必须被解析
+    // 保留并随 snapshot 持久化;缺失时保持 None 且不破坏现有解析。
+    let registry_url = RegistrySnapshotClient::OFFICIAL_REGISTRY_URL;
+    let with_integrity = r#"{
+      "version": "1.0.0",
+      "agents": [{
+        "id": "vendor-agent",
+        "name": "Vendor Agent",
+        "version": "1.2.3",
+        "description": "A generic ACP Agent",
+        "distribution": {
+          "npx": { "package": "vendor-agent@1.2.3", "integrity": "sha512-official" }
+        }
+      }],
+      "extensions": []
+    }"#;
+    let fetcher = Arc::new(ScriptedFetcher::new([(
+        registry_url,
+        vec![response(with_integrity, "v1")],
+    )]));
+    let clock = Arc::new(MutableClock(Mutex::new(
+        Utc.with_ymd_and_hms(2026, 7, 29, 0, 0, 0).unwrap(),
+    )));
+    let client = RegistrySnapshotClient::new(fetcher, clock);
+    let mut cache = RegistryCache::default();
+    let opened = client.open(&mut cache).await;
+    assert!(opened.refresh_error.is_none());
+    let npx = opened.entries[0]
+        .distributions
+        .npx
+        .as_ref()
+        .expect("npx distribution");
+    assert_eq!(npx.integrity.as_deref(), Some("sha512-official"));
+}

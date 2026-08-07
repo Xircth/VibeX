@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentModelCatalogControl } from './AgentModelCatalogControl';
 
 vi.mock('@/features/agent-management', async (importOriginal) => {
@@ -52,9 +53,10 @@ describe('AgentModelCatalogControl', () => {
     expect(await screen.findByText(/1 个模型/)).toHaveTextContent(
       'Runtime 实时目录'
     );
-    await userEvent.selectOptions(
+    await pickAstryxOption(
+      userEvent,
       screen.getByLabelText('选择目录模型'),
-      'composer-1'
+      'Composer 1 · composer-1'
     );
     expect(onSelect).toHaveBeenCalledWith('cursor_model', 'composer-1');
   });

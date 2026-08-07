@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 
 const PROTOCOLS = [
@@ -145,21 +146,16 @@ export function PiProviderBuilder({
                 </label>
                 <label>
                   <span>{t('agents.protocol')}</span>
-                  <select
-                    aria-label={t('agents.piProviderProtocolAria', { id })}
-                    autoComplete="off"
-                    className="raised-control"
+                  <AstryxSelect
+                    ariaLabel={t('agents.piProviderProtocolAria', { id })}
                     disabled={disabled}
-                    name={`pi_provider_${id}_protocol`}
                     value={stringValue(provider.api) || PROTOCOLS[0][0]}
-                    onChange={(event) => patch(id, 'api', event.target.value)}
-                  >
-                    {PROTOCOLS.map(([protocol, label]) => (
-                      <option key={protocol} value={protocol}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                    options={PROTOCOLS.map(([protocol, label]) => ({
+                      value: protocol,
+                      label,
+                    }))}
+                    onChange={(next) => patch(id, 'api', next)}
+                  />
                 </label>
               </div>
               {Object.keys(provider).some(

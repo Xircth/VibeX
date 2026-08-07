@@ -106,8 +106,8 @@ describe('shared raised controls', () => {
     const design = readFileSync(join(frontendRoot, '../DESIGN.md'), 'utf8');
 
     expect(css).toContain('--_radius: 0.875rem;');
-    expect(css).toContain('--_primary: 216 46.22% 76.67%;');
-    expect(css).toContain('--_primary-foreground: 213 25% 15%;');
+    expect(css).toContain('--_primary: 219.7 52.99% 50.78%;');
+    expect(css).toContain('--_primary-foreground: 0 0% 100%;');
     expect(css).toContain('--primary-control-foreground: hsl(0 0% 100%);');
     expect(css).toContain('--switch-checked-track: hsl(213 25% 15%);');
     expect(css).toContain('--switch-checked-thumb: hsl(0 0% 100%);');
@@ -119,7 +119,7 @@ describe('shared raised controls', () => {
     expect(css).toContain('box-shadow: var(--shadow-control) !important;');
     expect(css).toContain('.primary-control,');
     expect(css).toContain('.destructive-control {');
-    expect(design).toContain('primary: "#A8BEDF"');
+    expect(design).toContain('primary: "#3F6CC4"');
     expect(design).toContain('primary-control-foreground: "#ffffff"');
     expect(css).toContain(".raised-control[aria-disabled='true']");
     expect(css).toContain('opacity: 0.5;');

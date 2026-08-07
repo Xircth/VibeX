@@ -238,7 +238,13 @@ impl NativeConfigProvider {
                 .iter()
                 .filter(|field| patch.values.contains_key(field.field_id))
             {
-                let current_revision = field_revision(value_at_path(document, field.path));
+                let current_revision = if field.field_id == "codex_openai_base_url" {
+                    field_revision(codex_base_url_value(document))
+                } else if field.field_id == "anthropic_api_key" {
+                    field_revision(claude_credential_value(document))
+                } else {
+                    field_revision(value_at_path(document, field.path))
+                };
                 if patch
                     .base_field_revisions
                     .get(field.field_id)
@@ -268,6 +274,14 @@ impl NativeConfigProvider {
                         if field.field_id == "codebuddy_environment"
                             && matches!(value.as_str(), "overseas" | "self_hosted")
                         {
+                            continue;
+                        }
+                        if field.field_id == "codex_openai_base_url"
+                            || field.field_id == "anthropic_api_key"
+                        {
+                            // 延迟到 finalize_*_shape：写回位置取决于原始配置
+                            // （Codex 活跃表 / 顶层键；Claude AUTH_TOKEN /
+                            // API_KEY），此处保留原始文档以便判断来源。
                             continue;
                         }
                         let value = parse_field_value(field, &value)?;
@@ -477,23 +491,38 @@ fn field_snapshot(
     path: PathBuf,
 ) -> NativeConfigFieldSnapshot {
     let raw = value_at_path(document, field.path);
-    let value = if field.field_id == "codebuddy_environment" {
+    let (value, revision_source) = if field.field_id == "codebuddy_environment" {
         if value_at_path(document, &["CODEBUDDY_BASE_URL"])
             .and_then(Value::as_str)
             .is_some_and(|value| !value.trim().is_empty())
         {
-            Some("self_hosted".to_string())
+            (Some("self_hosted".to_string()), raw)
         } else {
-            scalar_string(raw).or_else(|| Some("overseas".to_string()))
+            (
+                scalar_string(raw).or_else(|| Some("overseas".to_string())),
+                raw,
+            )
         }
     } else if field.field_id == "codex_approval_policy"
         && raw
             .and_then(|value| value.get("granular"))
             .is_some_and(Value::is_object)
     {
-        Some("granular".to_string())
+        (Some("granular".to_string()), raw)
+    } else if field.field_id == "codex_openai_base_url" {
+        // Codex 的端点可能位于顶层 `openai_base_url`、兼容键 `api_base_url`
+        // 或活跃 `[model_providers.<id>].base_url`；无论来自哪里都投影到
+        // 同一个 `API URL` 字段展示，让用户看到正在使用的端点。
+        let effective = codex_base_url_value(document);
+        (scalar_string(effective), effective)
+    } else if field.field_id == "anthropic_api_key" {
+        // Claude Code 的凭据可能位于 `env.ANTHROPIC_AUTH_TOKEN`（优先）或
+        // `env.ANTHROPIC_API_KEY`；secret 字段不返回明文，但 present 与
+        // revision 必须反映实际生效的凭据来源。
+        let effective = claude_credential_value(document);
+        (scalar_string(effective), effective)
     } else {
-        scalar_string(raw)
+        (scalar_string(raw), raw)
     };
     let present = value
         .as_deref()
@@ -514,8 +543,39 @@ fn field_snapshot(
         present,
         value: (!secret).then_some(value).flatten(),
         masked_value: (secret && present).then(|| "••••••••".to_string()),
-        revision: field_revision(raw),
+        revision: field_revision(revision_source),
     }
+}
+
+/// Codex 当前活跃的 `model_provider` 标识（顶层 `model_provider` 键）。
+fn codex_active_provider(document: &Value) -> Option<&str> {
+    document
+        .get("model_provider")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// Claude Code 凭据字段的有效来源：Claude Code 优先使用
+/// `env.ANTHROPIC_AUTH_TOKEN`（Bearer token），其次是 `env.ANTHROPIC_API_KEY`。
+fn claude_credential_value(document: &Value) -> Option<&Value> {
+    value_at_path(document, &["env", "ANTHROPIC_AUTH_TOKEN"])
+        .or_else(|| value_at_path(document, &["env", "ANTHROPIC_API_KEY"]))
+}
+
+/// Codex 端点字段的有效来源：活跃 `[model_providers.<id>].base_url`，
+/// 其次顶层 `openai_base_url`，最后兼容键 `api_base_url`。
+fn codex_base_url_value(document: &Value) -> Option<&Value> {
+    if let Some(provider) = codex_active_provider(document)
+        && let Some(url) = document
+            .get("model_providers")
+            .and_then(|table| table.get(provider))
+            .and_then(|entry| entry.get("base_url"))
+    {
+        return Some(url);
+    }
+    value_at_path(document, &["openai_base_url"])
+        .or_else(|| value_at_path(document, &["api_base_url"]))
 }
 
 fn prepare_special_native_shape(
@@ -561,6 +621,7 @@ fn finalize_special_native_shape(
 ) -> Result<(), NativeConfigError> {
     validate_object_field(document, patch, "opencode_providers", &["provider"])?;
     validate_object_field(document, patch, "pi_custom_providers", &["providers"])?;
+    finalize_claude_shape(document, patch)?;
     finalize_codex_shape(document, patch)?;
     finalize_grok_shape(document, patch)?;
     finalize_cursor_shape(document, patch)?;
@@ -588,44 +649,72 @@ fn finalize_codex_shape(
     document: &mut Value,
     patch: &NativeConfigPatch,
 ) -> Result<(), NativeConfigError> {
-    if !patch.values.contains_key("codex_writable_roots") {
-        return Ok(());
-    }
-    let Some(value) = value_at_path(document, &["sandbox_workspace_write", "writable_roots"])
-    else {
-        return Ok(());
-    };
-    let roots = value.as_array().ok_or_else(|| {
-        NativeConfigError::Invalid("codex_writable_roots must be a JSON string array".to_string())
-    })?;
-    let mut normalized = Vec::new();
-    for root in roots {
-        let root = root.as_str().ok_or_else(|| {
+    if patch.values.contains_key("codex_writable_roots")
+        && let Some(value) = value_at_path(document, &["sandbox_workspace_write", "writable_roots"])
+    {
+        let roots = value.as_array().ok_or_else(|| {
             NativeConfigError::Invalid(
                 "codex_writable_roots must be a JSON string array".to_string(),
             )
         })?;
-        let root = root.trim();
-        if root.is_empty() {
-            continue;
+        let mut normalized = Vec::new();
+        for root in roots {
+            let root = root.as_str().ok_or_else(|| {
+                NativeConfigError::Invalid(
+                    "codex_writable_roots must be a JSON string array".to_string(),
+                )
+            })?;
+            let root = root.trim();
+            if root.is_empty() {
+                continue;
+            }
+            if !is_portable_absolute_path(root) {
+                return Err(NativeConfigError::Invalid(format!(
+                    "codex writable_roots entries must be absolute paths: {root}"
+                )));
+            }
+            if !normalized.iter().any(|existing| existing == root) {
+                normalized.push(root.to_string());
+            }
         }
-        if !is_portable_absolute_path(root) {
-            return Err(NativeConfigError::Invalid(format!(
-                "codex writable_roots entries must be absolute paths: {root}"
-            )));
-        }
-        if !normalized.iter().any(|existing| existing == root) {
-            normalized.push(root.to_string());
+        if normalized.is_empty() {
+            remove_value_at_path(document, &["sandbox_workspace_write", "writable_roots"]);
+        } else {
+            set_value_at_path(
+                document,
+                &["sandbox_workspace_write", "writable_roots"],
+                Value::Array(normalized.into_iter().map(Value::String).collect()),
+            )?;
         }
     }
-    if normalized.is_empty() {
-        remove_value_at_path(document, &["sandbox_workspace_write", "writable_roots"]);
-    } else {
-        set_value_at_path(
-            document,
-            &["sandbox_workspace_write", "writable_roots"],
-            Value::Array(normalized.into_iter().map(Value::String).collect()),
-        )?;
+    if patch.values.contains_key("codex_openai_base_url") {
+        // 字段写循环跳过该字段，因此这里读到的是原始文档。按 Codex 实际读取
+        // 的位置归位：活跃 `[model_providers.<id>]` 表存在时写回表 `base_url`；
+        // 否则跟随原始键（openai_base_url 优先，其次 api_base_url）。
+        let had_openai = value_at_path(document, &["openai_base_url"]).is_some();
+        let had_api = value_at_path(document, &["api_base_url"]).is_some();
+        let new_value = patch.values.get("codex_openai_base_url").cloned().flatten();
+        remove_value_at_path(document, &["openai_base_url"]);
+        remove_value_at_path(document, &["api_base_url"]);
+        let active_provider = codex_active_provider(document).map(str::to_owned);
+        if let Some(provider) = active_provider {
+            let path = ["model_providers", provider.as_str(), "base_url"];
+            if let Some(value) = new_value {
+                set_value_at_path(document, &path, Value::String(value))?;
+            } else {
+                // 用户清空端点时，同时移除表内旧值，避免刷新后仍显示旧端点。
+                remove_value_at_path(document, &path);
+            }
+        } else if let Some(value) = new_value {
+            let target = if had_openai {
+                "openai_base_url"
+            } else if had_api {
+                "api_base_url"
+            } else {
+                "openai_base_url"
+            };
+            set_value_at_path(document, &[target], Value::String(value))?;
+        }
     }
     Ok(())
 }
@@ -642,6 +731,35 @@ fn is_portable_absolute_path(value: &str) -> bool {
                 .as_bytes()
                 .first()
                 .is_some_and(u8::is_ascii_alphabetic))
+}
+
+/// Claude Code 凭据字段写回：字段写循环跳过该字段，因此这里读到的是原始
+/// 文档。新值写回实际生效的位置（原 `ANTHROPIC_AUTH_TOKEN` 存在则写它，
+/// 否则 `ANTHROPIC_API_KEY`），替换/清空时移除两个键，保证单一来源且清空
+/// 真正生效（否则被另一个键残留遮挡）。
+fn finalize_claude_shape(
+    document: &mut Value,
+    patch: &NativeConfigPatch,
+) -> Result<(), NativeConfigError> {
+    if !patch.values.contains_key("anthropic_api_key") {
+        return Ok(());
+    }
+    let had_token = value_at_path(document, &["env", "ANTHROPIC_AUTH_TOKEN"]).is_some();
+    let new_value = patch.values.get("anthropic_api_key").cloned().flatten();
+    if let Some(env) = document.get_mut("env").and_then(Value::as_object_mut) {
+        env.remove("ANTHROPIC_API_KEY");
+        env.remove("ANTHROPIC_AUTH_TOKEN");
+    }
+    if let Some(value) = new_value {
+        let target = if had_token {
+            "ANTHROPIC_AUTH_TOKEN"
+        } else {
+            "ANTHROPIC_API_KEY"
+        };
+        let path = ["env", target];
+        set_value_at_path(document, &path, Value::String(value))?;
+    }
+    Ok(())
 }
 
 fn finalize_grok_shape(

@@ -13,7 +13,7 @@ function StatusIcon({ status }: { status: string }) {
     return <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />;
   }
   if (status === 'in_progress') {
-    return <CircleDot className="h-3.5 w-3.5 shrink-0 text-blue-500" />;
+    return <CircleDot className="h-3.5 w-3.5 shrink-0 text-primary" />;
   }
   return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
 }

@@ -1,13 +1,23 @@
 import {
+  Check,
   CheckCircle2,
   CircleAlert,
+  Copy,
+  FileCog,
+  HardDrive,
   Loader2,
   PackagePlus,
   Puzzle,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { OpenCodePluginSummaryView } from 'shared/types';
 
@@ -262,16 +272,71 @@ export function OpenCodePluginHealth({ onChanged }: Props) {
 
       {summary ? (
         <dl className="agent-plugin-paths">
-          <div>
-            <dt>{t('settings:agents.configTitle')}</dt>
-            <dd title={summary.config_path}>{summary.config_path}</dd>
-          </div>
-          <div>
-            <dt>{t('settings:agents.cache')}</dt>
-            <dd title={summary.cache_dir}>{summary.cache_dir}</dd>
-          </div>
+          <PluginPathInfo
+            icon={<FileCog aria-hidden="true" className="h-4 w-4" />}
+            label={t('settings:agents.configTitle')}
+            path={summary.config_path}
+            copyAriaLabel={t('settings:agents.openCodeCopyConfigPathAria')}
+          />
+          <PluginPathInfo
+            icon={<HardDrive aria-hidden="true" className="h-4 w-4" />}
+            label={t('settings:agents.cache')}
+            path={summary.cache_dir}
+            copyAriaLabel={t('settings:agents.openCodeCopyCacheDirAria')}
+          />
         </dl>
       ) : null}
     </section>
+  );
+}
+
+function PluginPathInfo({
+  icon,
+  label,
+  path,
+  copyAriaLabel,
+}: {
+  icon: ReactNode;
+  label: string;
+  path: string;
+  copyAriaLabel: string;
+}) {
+  const { t } = useTranslation(['settings', 'common']);
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard can be unavailable; the row stays readable without it.
+    }
+  };
+  return (
+    <div className="agent-plugin-path">
+      <span className="agent-plugin-path-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <div className="agent-plugin-path-copy">
+        <dt>{label}</dt>
+        <dd title={path}>{path}</dd>
+      </div>
+      <Button
+        aria-label={copyAriaLabel}
+        className="h-7 shrink-0"
+        size="sm"
+        variant="ghost"
+        onClick={() => void copy()}
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="h-3.5 w-3.5" />
+        ) : (
+          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
+        )}
+        {copied
+          ? t('settings:agents.openCodePathCopied')
+          : t('settings:agents.openCodePathCopy')}
+      </Button>
+    </div>
   );
 }

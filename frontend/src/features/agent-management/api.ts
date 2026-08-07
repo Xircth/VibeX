@@ -134,6 +134,19 @@ export const agentManagementApi = {
   modelProviders: (agentId: AgentId): Promise<AgentModelProvidersView> =>
     backendCall('agent_model_providers', { agentId }),
 
+  modelProviderCatalog: (
+    agentId: AgentId,
+    providerId: string | null,
+    apiUrl: string,
+    apiKey: string | null
+  ): Promise<AgentModelCatalogView> =>
+    backendCall('agent_model_provider_catalog', {
+      agentId,
+      providerId,
+      apiUrl,
+      apiKey,
+    }),
+
   saveModelProvider: (
     request: AgentModelProviderSaveRequest
   ): Promise<AgentModelProvidersView> =>
@@ -258,6 +271,9 @@ export const agentManagementApi = {
 
   diagnostics: (agentId: AgentId): Promise<AgentDiagnosticView[]> =>
     backendCall('agent_management_diagnostics', { agentId }),
+
+  markDiagnosticsRead: (agentId: AgentId): Promise<void> =>
+    backendCall('agent_management_mark_diagnostics_read', { agentId }),
 
   clearDiagnostics: (agentId: AgentId): Promise<void> =>
     backendCall('agent_management_clear_diagnostics', { agentId }),

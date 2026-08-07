@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     ProfileComponent, ProfileInstallSource, RegistryAddTarget, RegistryBinaryTarget,
-    RegistryPackageDistribution, UserAgentDistributionKind, UserAgentInstallTarget,
-    profiles::BuiltInProfileCatalog,
+    RegistryPackageDistribution, RegistrySnapshot, UserAgentDistributionKind,
+    UserAgentInstallTarget, profiles::BuiltInProfileCatalog,
 };
 
 struct BinaryPackagingAdvisory {
@@ -36,6 +36,10 @@ const BINARY_PACKAGING_ADVISORIES: &[BinaryPackagingAdvisory] = &[BinaryPackagin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallCandidateSource {
     BuiltInProfile,
+    /// 内置 Agent 的更新目标:Profile 提供组件结构与锁版本基线,Registry 条目提供
+    /// 目标版本的组件分发(acp_adapter 或 combined_runtime);无 fresh snapshot
+    /// 时回退 [`InstallCandidateSource::BuiltInProfile`]。
+    BuiltInProfileWithRegistry(Box<RegistryAddTarget>),
     Registry(Box<RegistryAddTarget>),
     UserDefinition(Box<UserAgentInstallTarget>),
 }
@@ -85,6 +89,10 @@ pub struct PlannedInstallComponent {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LockedInstallSource {
     BuiltInProfile,
+    BuiltInProfileWithRegistry {
+        snapshot_id: Uuid,
+        registry_id: String,
+    },
     OfficialRegistry {
         snapshot_id: Uuid,
         registry_id: String,
@@ -125,6 +133,10 @@ pub enum InstallPlanningError {
         expected: String,
         actual: String,
     },
+    #[error("Registry target Agent `{registry}` does not match the built-in profile `{profile}`")]
+    RegistryTargetAgentMismatch { profile: AgentId, registry: AgentId },
+    #[error("built-in Agent `{agent_id}` has no component slot for the Registry distribution")]
+    RegistryDistributionDoesNotFitProfile { agent_id: AgentId },
 }
 
 pub struct InstallPlanner {
@@ -144,6 +156,9 @@ impl InstallPlanner {
     ) -> Result<ResolvedInstallPlan, InstallPlanningError> {
         match input.source.clone() {
             InstallCandidateSource::BuiltInProfile => self.plan_profile(input),
+            InstallCandidateSource::BuiltInProfileWithRegistry(target) => {
+                self.plan_profile_with_registry(input, *target)
+            }
             InstallCandidateSource::Registry(target) => self.plan_registry(input, *target),
             InstallCandidateSource::UserDefinition(target) => {
                 self.plan_user_definition(input, *target)
@@ -196,6 +211,64 @@ impl InstallPlanner {
         input: InstallPlanningInput,
         target: RegistryAddTarget,
     ) -> Result<ResolvedInstallPlan, InstallPlanningError> {
+        let component = self.registry_plan_component(&target, &input)?;
+        Ok(registry_plan(input, target, component))
+    }
+
+    fn plan_profile_with_registry(
+        &self,
+        input: InstallPlanningInput,
+        target: RegistryAddTarget,
+    ) -> Result<ResolvedInstallPlan, InstallPlanningError> {
+        let mut plan = self.plan_profile(input.clone())?;
+        if target.agent_id != plan.agent_id {
+            return Err(InstallPlanningError::RegistryTargetAgentMismatch {
+                profile: plan.agent_id.clone(),
+                registry: target.agent_id.clone(),
+            });
+        }
+        let component = self.registry_plan_component(&target, &input)?;
+        let slot = plan
+            .components
+            .iter()
+            .position(|component| component.component_id == "acp_adapter")
+            .or_else(|| {
+                plan.components
+                    .iter()
+                    .position(|component| component.component_id == "combined_runtime")
+            })
+            .ok_or_else(
+                || InstallPlanningError::RegistryDistributionDoesNotFitProfile {
+                    agent_id: plan.agent_id.clone(),
+                },
+            )?;
+        let mut component = component;
+        component.component_id = plan.components[slot].component_id.clone();
+        component.version.clone_from(&target.version);
+        plan.components[slot] = component;
+        // 替换 combined_runtime 时整体版本随 Registry;替换 acp_adapter 时
+        // Runtime 版本(plan.version)保持不变。
+        if plan
+            .components
+            .iter()
+            .all(|component| component.component_id != "agent_runtime")
+        {
+            plan.version.clone_from(&target.version);
+        }
+        plan.source = LockedInstallSource::BuiltInProfileWithRegistry {
+            snapshot_id: target.snapshot_id,
+            registry_id: target.registry_id,
+        };
+        Ok(plan)
+    }
+
+    /// 从 Registry 条目解析当前平台的单个组件分发;plan_registry 与
+    /// plan_profile_with_registry 共用同一执行路径(ADR-0034 单一 plan)。
+    fn registry_plan_component(
+        &self,
+        target: &RegistryAddTarget,
+        input: &InstallPlanningInput,
+    ) -> Result<PlannedInstallComponent, InstallPlanningError> {
         if let Some(binary) = target
             .distributions
             .binary
@@ -211,44 +284,32 @@ impl InstallPlanner {
                     sha256: sha256.to_ascii_lowercase(),
                 })
                 .unwrap_or(ArtifactTrust::Tofu);
-            return Ok(registry_plan(
-                input,
-                target,
-                PlannedInstallComponent {
-                    component_id: "combined_runtime".to_string(),
-                    distribution_kind: PlannedDistributionKind::Binary,
-                    version: String::new(),
-                    resolved_source: binary.archive,
-                    command: binary.cmd,
-                    args: binary.args,
-                    env: binary.env,
-                    trust,
-                },
-            ));
+            return Ok(PlannedInstallComponent {
+                component_id: "combined_runtime".to_string(),
+                distribution_kind: PlannedDistributionKind::Binary,
+                version: String::new(),
+                resolved_source: binary.archive,
+                command: binary.cmd,
+                args: binary.args,
+                env: binary.env,
+                trust,
+            });
         }
         if input.environment.node_verified
             && let Some(npx) = target.distributions.npx.clone()
         {
             ensure_package_version(&npx, &target.version, false)?;
-            return Ok(registry_plan(
-                input,
-                target,
-                package_component(&npx, PlannedDistributionKind::Npx),
-            ));
+            return Ok(package_component(&npx, PlannedDistributionKind::Npx));
         }
         if input.environment.uv_verified
             && let Some(uvx) = target.distributions.uvx.clone()
         {
             ensure_package_version(&uvx, &target.version, true)?;
-            return Ok(registry_plan(
-                input,
-                target,
-                package_component(&uvx, PlannedDistributionKind::Uvx),
-            ));
+            return Ok(package_component(&uvx, PlannedDistributionKind::Uvx));
         }
         Err(InstallPlanningError::UnsupportedPlatform {
-            agent_id: input.agent_id,
-            platform: input.platform,
+            agent_id: input.agent_id.clone(),
+            platform: input.platform.clone(),
         })
     }
 
@@ -366,6 +427,22 @@ fn registry_plan(
     }
 }
 
+/// 内置 Agent 更新时从 fresh Registry snapshot 解析其 registry binding 条目的
+/// 目标版本。Profile 无 binding 或 snapshot 中无对应条目时返回 `None`,调用方
+/// 回退 [`InstallCandidateSource::BuiltInProfile`](Profile 锁版本)。
+pub fn registry_target_for_built_in_update(
+    catalog: &BuiltInProfileCatalog,
+    snapshot: &RegistrySnapshot,
+    agent_id: &AgentId,
+) -> Option<RegistryAddTarget> {
+    let binding = catalog.profile(agent_id)?.registry_binding.as_ref()?;
+    let entry = snapshot
+        .entries
+        .iter()
+        .find(|entry| entry.registry_id == binding.registry_id)?;
+    Some(entry.lock_add_target(snapshot.id))
+}
+
 fn package_component(
     package: &RegistryPackageDistribution,
     distribution_kind: PlannedDistributionKind,
@@ -382,7 +459,12 @@ fn package_component(
         },
         args: package.args.clone(),
         env: package.env.clone(),
-        trust: ArtifactTrust::EcosystemIntegrityRequired,
+        trust: package
+            .integrity
+            .clone()
+            .map_or(ArtifactTrust::EcosystemIntegrityRequired, |integrity| {
+                ArtifactTrust::EcosystemIntegrity { integrity }
+            }),
     }
 }
 

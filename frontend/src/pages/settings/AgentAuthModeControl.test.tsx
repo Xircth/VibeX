@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
 
 const claudeActions = {
@@ -129,10 +130,8 @@ describe('AgentAuthModeControl', () => {
 
     render(<AgentAuthModeControl agentId="grok" />);
 
-    await user.selectOptions(
-      await screen.findByLabelText('Grok 鉴权模式'),
-      'subscription'
-    );
+    const select = await screen.findByLabelText('Grok 鉴权模式');
+    await pickAstryxOption(user, select, '官方订阅账号');
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
 
     await waitFor(() =>
@@ -171,13 +170,14 @@ describe('AgentAuthModeControl', () => {
     );
 
     const select = await screen.findByLabelText('Codex 鉴权模式');
+    await user.click(select);
     expect(
       screen.getByRole('option', { name: 'ChatGPT 官方订阅' })
     ).toBeVisible();
     expect(
       screen.getByRole('option', { name: '已绑定 Model Provider' })
     ).toBeVisible();
-    await user.selectOptions(select, 'api_key');
+    await user.click(screen.getByRole('option', { name: 'OpenAI API Key' }));
     expect(screen.getByLabelText('OpenAI API Key')).toBeVisible();
     expect(screen.queryByLabelText('OPENAI_API_KEY')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));
@@ -220,8 +220,9 @@ describe('AgentAuthModeControl', () => {
     );
 
     const select = await screen.findByLabelText('Claude Code 鉴权模式');
+    await user.click(select);
     expect(screen.getByRole('option', { name: '官方订阅' })).toBeVisible();
-    await user.selectOptions(select, 'custom');
+    await user.click(screen.getByRole('option', { name: '自定义模型端点' }));
     expect(screen.getByLabelText('API Key')).toBeVisible();
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
@@ -275,7 +276,7 @@ describe('AgentAuthModeControl', () => {
       screen.queryByText('调用此 Agent 官方提供的账号管理流程')
     ).not.toBeInTheDocument();
 
-    await user.selectOptions(select, 'custom');
+    await pickAstryxOption(user, select, '自定义模型端点');
     expect(
       screen.queryByRole('button', { name: '登录 Claude Code' })
     ).not.toBeInTheDocument();
@@ -285,7 +286,7 @@ describe('AgentAuthModeControl', () => {
     expect(screen.getByTestId('native-configuration')).toBeVisible();
     expect(screen.getByTestId('model-provider')).not.toBeVisible();
 
-    await user.selectOptions(select, 'model_provider');
+    await pickAstryxOption(user, select, '已绑定 Model Provider');
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
@@ -339,8 +340,9 @@ describe('AgentAuthModeControl', () => {
     );
 
     const select = await screen.findByLabelText('Gemini 鉴权模式');
+    await user.click(select);
     expect(screen.getAllByRole('option')).toHaveLength(7);
-    await user.selectOptions(select, 'vertex_api_key');
+    await user.click(screen.getByRole('option', { name: 'Vertex AI API Key' }));
     expect(screen.getByLabelText('Google API Key')).toBeVisible();
     expect(screen.queryByLabelText('GOOGLE_API_KEY')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存鉴权模式' }));

@@ -446,4 +446,116 @@ describe('AgentDetail', () => {
     await userEvent.click(screen.getByRole('button', { name: '安装更新' }));
     expect(onApplyUpdate).toHaveBeenCalledOnce();
   });
+
+  it('marks all diagnostics read and highlights unread entries', async () => {
+    const onMarkAllDiagnosticsRead = vi.fn();
+    const diagnostics = [
+      {
+        id: 'diag-1',
+        agent_id: 'codex',
+        operation_kind: 'launch_gate',
+        severity: 'error',
+        message: '启动前完整性验证失败',
+        redacted_output: 'locked component failed verification',
+        created_at: '2026-08-05T16:47:30Z',
+        read: false,
+      },
+      {
+        id: 'diag-2',
+        agent_id: 'codex',
+        operation_kind: 'install',
+        severity: 'info',
+        message: '安装完成',
+        redacted_output: null,
+        created_at: '2026-08-05T13:00:00Z',
+        read: true,
+      },
+    ];
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        diagnostics={diagnostics}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+        onMarkAllDiagnosticsRead={onMarkAllDiagnosticsRead}
+      />
+    );
+
+    expect(screen.getByText('操作诊断 · 2')).toBeInTheDocument();
+    expect(screen.getByText('1 条未读')).toBeInTheDocument();
+    const unreadEntry = screen.getByText('启动前完整性验证失败');
+    expect(unreadEntry.closest('li')).toHaveClass('bg-primary/5');
+    // 展开内容不再带顶部边框线。
+    const list = unreadEntry.closest('ul');
+    expect(list).not.toHaveClass('border-t');
+
+    await userEvent.click(screen.getByRole('button', { name: '全部已读' }));
+    expect(onMarkAllDiagnosticsRead).toHaveBeenCalledOnce();
+  });
+
+  it('hides the diagnostic list when operation diagnostics are disabled', async () => {
+    const diagnostics = [
+      {
+        id: 'diag-1',
+        agent_id: 'codex',
+        operation_kind: 'launch_gate',
+        severity: 'error',
+        message: '启动前完整性验证失败',
+        redacted_output: null,
+        created_at: '2026-08-05T16:47:30Z',
+        read: false,
+      },
+    ];
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        diagnostics={diagnostics}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+        onMarkAllDiagnosticsRead={vi.fn()}
+      />
+    );
+
+    const toggle = screen.getByRole('switch', {
+      name: '显示操作诊断',
+    });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText('启动前完整性验证失败')).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument();
+    expect(localStorage.getItem('vibex:operation-diagnostics')).toBe('off');
+  });
 });

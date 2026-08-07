@@ -5,8 +5,8 @@ register: product
 platform: Tauri desktop (React + Tailwind + Radix). macOS Tahoe is the visual target; Windows and Linux degrade gracefully.
 colors:
   # One calm system-blue accent, reserved for state (selected / focused / primary / live).
-  primary: "#A8BEDF"
-  primary-foreground: "#1d2530"
+  primary: "#3F6CC4"
+  primary-foreground: "#ffffff"
   primary-control-foreground: "#ffffff"
   switch-checked-track: "#1d2530"
   switch-checked-thumb: "#ffffff"
@@ -19,7 +19,7 @@ colors:
   control-bg: "#0f172a0f"
   raised-control-bg: "#f6f7f8"
   raised-control-hover: "#f0f1f3"
-  active-bg: "#dceafa"
+  active-bg: "#e0e7f6"
   text-strong: "#1d2530"
   text-primary: "#46505b"
   text-muted: "#727b85"
@@ -149,7 +149,7 @@ components:
   sidebar-nav-row:
     rounded: "14px"
     height: "36px"
-    selectedBackground: "{colors.primary}  # accent fill, dark ink label"
+    selectedBackground: "{colors.primary}  # accent fill, white label"
 ---
 
 # Design System: VibeX Tahoe
@@ -212,7 +212,7 @@ A restrained, system-adaptive neutral palette with one calm blue accent and smal
 
 ### Accent
 
-- **Workbench Blue** (`--primary`, `#A8BEDF`): the calm macOS selection-blue equivalent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Primary buttons use the shared white control-foreground token; non-button accent states keep dark ink.
+- **Workbench Blue** (`--primary`, `#3F6CC4`): the calm macOS selection-blue equivalent. Used for the selected sidebar row, focus rings, primary buttons, active navigation, live state, and drag targets. Accent-filled states use the shared white control-foreground token.
 
 ### Semantic status
 
@@ -298,7 +298,7 @@ Unified Liquid Glass strip, full drag region, hairline beneath. Keep it sparse: 
 
 ### Sidebar
 
-A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a dark ink label** (the macOS System Settings idiom, adjusted for the lighter Workbench Blue). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
+A rounded, inset, glass floating panel — the primary, stable navigation. Rows are scannable and never reflow on hover. Selection is an **accent-filled rounded row with a white label** (the macOS System Settings idiom, adjusted for the deeper Workbench Blue). Where a list of destinations benefits from identity, a row may carry a small **colored app-icon badge** (rounded square, white glyph) — reserved for navigation, never content. Content scrolls behind/under the sidebar.
 
 ### Toolbars
 

@@ -72,7 +72,7 @@
 
 .vu-toast-surface[data-kind='info'] .vu-toast-icon-tile,
 .vu-toast-surface[data-kind='loading'] .vu-toast-icon-tile {
-  color: hsl(var(--primary, 215 50% 55%));
+  color: hsl(var(--primary, 219.7 52.99% 50.78%));
 }
 
 .vu-toast-surface[data-kind='warning'] .vu-toast-icon-tile {
@@ -235,7 +235,7 @@
 
 .vu-toast-action-primary {
   color: hsl(var(--primary-foreground, 0 0% 100%));
-  background: hsl(var(--primary, 215 50% 55%));
+  background: hsl(var(--primary, 219.7 52.99% 50.78%));
 }
 
 .vu-desktop-toast-copy {
@@ -306,7 +306,7 @@
 }
 
 .vu-desktop-toast-input:focus {
-  border-color: hsl(var(--primary, 215 50% 55%) / 0.5);
+  border-color: hsl(var(--primary, 219.7 52.99% 50.78%) / 0.5);
 }
 
 .vu-desktop-toast-input:disabled {
@@ -322,7 +322,7 @@
   justify-content: center;
   padding: 0;
   color: hsl(var(--primary-foreground, 0 0% 100%));
-  background: hsl(var(--primary, 215 50% 55%));
+  background: hsl(var(--primary, 219.7 52.99% 50.78%));
   border: 0;
   border-radius: var(--radius);
   cursor: pointer;
@@ -374,7 +374,7 @@
 .vu-desktop-toast-copy:focus-visible,
 .vu-desktop-toast-input:focus-visible,
 .vu-desktop-toast-send:focus-visible {
-  outline: 2px solid hsl(var(--primary, 215 50% 55%) / 0.48);
+  outline: 2px solid hsl(var(--primary, 219.7 52.99% 50.78%) / 0.48);
   outline-offset: 2px;
 }
 

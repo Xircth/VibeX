@@ -93,7 +93,7 @@ describe('VersionControlSettings', () => {
     mocks.openGithubCliLogin.mockResolvedValue(undefined);
   });
 
-  it('loads Git/GitHub state and persists both CLI and worktree settings', async () => {
+  it('loads Git/GitHub state and persists CLI settings', async () => {
     const user = userEvent.setup();
     render(<VersionControlSettings />);
 
@@ -115,17 +115,6 @@ describe('VersionControlSettings', () => {
       expect(mocks.updateSettings).toHaveBeenCalledWith({
         git_custom_path: '/custom/git',
       });
-    });
-
-    const prefix = screen.getByDisplayValue('codex');
-    await user.clear(prefix);
-    await user.type(prefix, 'feature');
-    await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
-
-    await waitFor(() => {
-      expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
-        expect.objectContaining({ git_branch_prefix: 'feature' })
-      );
     });
   });
 
@@ -156,6 +145,13 @@ describe('VersionControlSettings', () => {
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({ commit_reminder_enabled: false })
+      );
+      // 版本管理页只提交本页字段，绝不带出已迁移到工作树页的全局设置。
+      expect(mocks.updateAndSaveConfig).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspace_dir: expect.anything(),
+          git_branch_prefix: expect.anything(),
+        })
       );
     });
   });

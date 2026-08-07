@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
   writeConfig: vi.fn(),
   writeConfigFile: vi.fn(),
   diagnostics: vi.fn(),
+  markDiagnosticsRead: vi.fn(),
   actions: vi.fn(),
   runAction: vi.fn(),
   authMode: vi.fn(),
@@ -83,6 +84,7 @@ describe('AgentSettings', () => {
       applies_to_next_session: true,
     });
     api.diagnostics.mockResolvedValue([]);
+    api.markDiagnosticsRead.mockResolvedValue(undefined);
     api.actions.mockResolvedValue({ agent_id: 'codex', actions: [] });
     api.authMode.mockResolvedValue({
       agent_id: 'codex',
@@ -316,5 +318,48 @@ describe('AgentSettings', () => {
 
     await user.click(screen.getByRole('button', { name: '编辑定义' }));
     expect(screen.getByLabelText('Agent ID')).toBeDisabled();
+  });
+
+  it('hides read diagnostics and clears the list on mark-all-read', async () => {
+    const user = userEvent.setup();
+    api.diagnostics.mockResolvedValue([
+      {
+        id: 'd1',
+        agent_id: 'codex',
+        operation_kind: 'launch_gate',
+        severity: 'error',
+        message: '启动前完整性验证失败',
+        redacted_output: null,
+        created_at: '2026-08-05T16:47:30Z',
+        read: false,
+      },
+      {
+        id: 'd2',
+        agent_id: 'codex',
+        operation_kind: 'install',
+        severity: 'info',
+        message: '已读记录不显示',
+        redacted_output: null,
+        created_at: '2026-08-05T13:00:00Z',
+        read: true,
+      },
+    ]);
+    render(<AgentSettings />);
+    await screen.findByRole('button', { name: 'Codex' });
+
+    // 已读记录不进入列表,未读记录正常显示。
+    await waitFor(() =>
+      expect(screen.getByText('启动前完整性验证失败')).toBeInTheDocument()
+    );
+    expect(screen.queryByText('已读记录不显示')).not.toBeInTheDocument();
+
+    // 一键已读 = 全部标记已读并清空列表。
+    await user.click(screen.getByRole('button', { name: '全部已读' }));
+    await waitFor(() =>
+      expect(api.markDiagnosticsRead).toHaveBeenCalledWith('codex')
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('启动前完整性验证失败')).not.toBeInTheDocument()
+    );
   });
 });

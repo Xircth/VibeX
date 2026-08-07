@@ -89,6 +89,24 @@ impl InstallationOperationRepository {
         let claims_json = serde_json::to_string(&operation.resource_claims)
             .map_err(|_| AgentManagementRepositoryError::InvalidResourceClaims)?;
         let mut transaction = self.pool.begin().await?;
+        let existing_installation = sqlx::query_as::<_, (String, Option<String>)>(
+            r#"SELECT ownership, current_lock_id
+               FROM agent_installation
+               WHERE agent_id = ?"#,
+        )
+        .bind(operation.agent_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if existing_installation
+            .as_ref()
+            .is_some_and(|(ownership, lock_id)| ownership == "external" && lock_id.is_some())
+        {
+            return Err(
+                AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(
+                    operation.agent_id,
+                ),
+            );
+        }
         sqlx::query(
             r#"INSERT INTO agent_install_operation
                (id, agent_id, operation_kind, status, frozen_plan_json,
@@ -302,6 +320,8 @@ pub enum AgentManagementRepositoryError {
     InvalidOperationId(String),
     #[error("invalid installation operation resource claims")]
     InvalidResourceClaims,
+    #[error("external Agent installation `{0}` must be revalidated instead of managed")]
+    ExternalInstallationRequiresRevalidation(AgentId),
     #[error("invalid installation operation status `{0}`")]
     InvalidOperationStatus(String),
     #[error("reorder must contain every membership exactly once")]

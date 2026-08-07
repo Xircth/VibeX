@@ -178,7 +178,11 @@ describe('SystemSettings', () => {
     });
 
     await user.click(screen.getByRole('switch', { name: '自动检查应用更新' }));
-    await user.click(screen.getByRole('button', { name: '保存设置' }));
+    await user.click(
+      within(screen.getByTestId('settings-action-bar')).getByRole('button', {
+        name: '保存',
+      })
+    );
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -1,8 +1,9 @@
-import { Database, Loader2, RefreshCw } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentId, AgentModelCatalogView } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import {
   agentManagementApi,
@@ -68,7 +69,6 @@ export function AgentModelCatalogControl({
       aria-labelledby="agent-model-catalog-heading"
     >
       <div className="agent-model-catalog-copy">
-        <Database aria-hidden="true" className="h-4 w-4" />
         <strong id="agent-model-catalog-heading">
           {t('agents.modelCatalog')}
         </strong>
@@ -77,26 +77,21 @@ export function AgentModelCatalogControl({
         {catalog?.models.length ? (
           <label>
             <span className="sr-only">{t('agents.selectCatalogModel')}</span>
-            <select
-              aria-label={t('agents.selectCatalogModel')}
-              autoComplete="off"
-              className="raised-control"
+            <AstryxSelect
+              ariaLabel={t('agents.selectCatalogModel')}
               disabled={disabled || loading}
-              name={`${agentId}_catalog_model`}
+              hasClear
+              placeholder={t('agents.selectCatalogModelPlaceholder')}
               value={drafts[fieldId] ?? ''}
-              onChange={(event) => onSelect(fieldId, event.target.value)}
-            >
-              <option value="">
-                {t('agents.selectCatalogModelPlaceholder')}
-              </option>
-              {catalog.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label === model.id
+              options={catalog.models.map((model) => ({
+                value: model.id,
+                label:
+                  model.label === model.id
                     ? model.id
-                    : `${model.label} · ${model.id}`}
-                </option>
-              ))}
-            </select>
+                    : `${model.label} · ${model.id}`,
+              }))}
+              onChange={(value) => onSelect(fieldId, value)}
+            />
           </label>
         ) : null}
         <Button

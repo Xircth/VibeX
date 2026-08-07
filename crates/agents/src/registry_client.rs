@@ -28,6 +28,11 @@ pub struct RegistryPackageDistribution {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// Official package-ecosystem checksum (npm `dist.integrity` etc.). The
+    /// official Registry does not publish one today; when present, managed
+    /// installs persist it as the component's official fingerprint.
+    #[serde(default)]
+    pub integrity: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -416,6 +421,10 @@ struct RawRegistryPackageDistribution {
     args: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// Forward-compatible: a newer official catalog may add an ecosystem
+    /// integrity field; accepting it keeps this build from rejecting it.
+    #[serde(default)]
+    integrity: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,6 +470,7 @@ fn package_distribution(raw: RawRegistryPackageDistribution) -> RegistryPackageD
         package: raw.package,
         args: raw.args,
         env: raw.env,
+        integrity: raw.integrity,
     }
 }
 

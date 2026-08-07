@@ -793,7 +793,7 @@ const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
     text_field(
         "codex_openai_base_url",
         "API URL",
-        "内置 OpenAI provider 的 API 或兼容网关地址",
+        "Codex 使用的 API 或兼容网关地址",
         &["openai_base_url"],
     ),
     text_field("codex_model", "模型", "Codex 默认模型", &["model"]),

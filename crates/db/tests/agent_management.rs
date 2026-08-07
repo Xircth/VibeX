@@ -1,10 +1,10 @@
 use api_types::{AgentId, AgentSource, UserAgentDistributionKind};
 use db::models::agent_management::{
-    AgentMembershipRepository, DiagnosticRecord, DiagnosticRepository, InstallLockRecord,
-    InstallationOperationRepository, InstallationRepository, NewAgentMembership,
-    NewInstallationOperation, RegistryEntryRecord, RegistrySnapshotRecord,
-    RegistrySnapshotRepository, SessionDefaultRecord, SessionDefaultRepository,
-    UserAgentDefinitionRecord, UserAgentDefinitionRepository,
+    AgentManagementRepositoryError, AgentMembershipRepository, DiagnosticRecord,
+    DiagnosticRepository, InstallLockRecord, InstallationOperationRepository,
+    InstallationRepository, NewAgentMembership, NewInstallationOperation, RegistryEntryRecord,
+    RegistrySnapshotRecord, RegistrySnapshotRepository, SessionDefaultRecord,
+    SessionDefaultRepository, UserAgentDefinitionRecord, UserAgentDefinitionRepository,
     conversation_migration::{
         ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
         RetiredAgentHistoryRepository,
@@ -763,6 +763,71 @@ async fn concurrent_enqueues_keep_one_agent_operation_id() {
             .unwrap()
             .id,
         winner.id
+    );
+}
+
+#[tokio::test]
+async fn managed_install_cannot_implicitly_replace_an_external_installation() {
+    let pool = migrated_pool().await;
+    let agent_id = AgentId::parse("claude_code").unwrap();
+    AgentMembershipRepository::new(pool.clone())
+        .add(NewAgentMembership {
+            agent_id: agent_id.clone(),
+            source: AgentSource::BuiltInProfile,
+            built_in: true,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    InstallationRepository::new(pool.clone())
+        .set_current_lock(
+            &InstallLockRecord {
+                id: uuid::Uuid::new_v4(),
+                agent_id: agent_id.clone(),
+                registry_version: "0.64.1".to_string(),
+                platform: "darwin-aarch64".to_string(),
+                distribution_kind: "npx".to_string(),
+                resolved_json: "{}".to_string(),
+                created_at: "2026-08-06T13:00:00Z".to_string(),
+            },
+            "external",
+            "ready",
+        )
+        .await
+        .unwrap();
+
+    let result = InstallationOperationRepository::new(pool.clone())
+        .enqueue(NewInstallationOperation {
+            agent_id: agent_id.clone(),
+            kind: "install".to_string(),
+            frozen_plan_json: r#"{"version":"2.1.222"}"#.to_string(),
+            host_instance_id: "host".to_string(),
+            resource_claims: vec!["agent:claude_code".to_string()],
+            staging_path: None,
+        })
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(
+            ref rejected_agent_id
+        )) if rejected_agent_id == &agent_id
+    ));
+    let installation = sqlx::query_as::<_, (String, String, Option<String>)>(
+        r#"SELECT ownership, lifecycle, active_operation
+           FROM agent_installation WHERE agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        installation,
+        ("external".to_string(), "ready".to_string(), None)
     );
 }
 

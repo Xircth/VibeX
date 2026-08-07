@@ -14,6 +14,7 @@ import type {
   UserAgentDistributionKind,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -192,20 +193,17 @@ export function UserAgentDefinitionEditor({
           />
         </Field>
         <Field label={t('settings:agents.installMethod')}>
-          <select
-            aria-label={t('settings:agents.installMethod')}
-            className="raised-control h-8 w-full px-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+          <AstryxSelect
+            ariaLabel={t('settings:agents.installMethod')}
             value={distributionKind}
-            onChange={(event) =>
-              setDistributionKind(
-                event.target.value as UserAgentDistributionKind
-              )
+            options={['npx', 'uvx', 'binary'].map((kind) => ({
+              value: kind,
+              label: kind,
+            }))}
+            onChange={(next) =>
+              setDistributionKind(next as UserAgentDistributionKind)
             }
-          >
-            <option value="npx">npx</option>
-            <option value="uvx">uvx</option>
-            <option value="binary">binary</option>
-          </select>
+          />
         </Field>
       </div>
 

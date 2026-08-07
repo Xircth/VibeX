@@ -27,9 +27,12 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import type { AgentOperationState } from '@/features/agent-management';
+import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from './AgentManagementIcon';
+
+const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';
 
 type AgentDetailProps = {
   agent: AgentManagementView;
@@ -53,6 +56,7 @@ type AgentDetailProps = {
   onUninstall: () => void;
   onRemove: () => void;
   onExportDiagnostics: () => void;
+  onMarkAllDiagnosticsRead?: () => void;
   onEnvironmentDiagnostics?: () => void;
 };
 
@@ -103,9 +107,20 @@ export function AgentDetail({
   onUninstall,
   onRemove,
   onExportDiagnostics,
+  onMarkAllDiagnosticsRead,
   onEnvironmentDiagnostics,
 }: AgentDetailProps) {
   const { t, i18n } = useTranslation('settings');
+  const [operationDiagnosticsEnabled, setOperationDiagnosticsEnabled] =
+    useState(() => localStorage.getItem(OPERATION_DIAGNOSTICS_KEY) !== 'off');
+  const toggleOperationDiagnostics = (enabled: boolean) => {
+    setOperationDiagnosticsEnabled(enabled);
+    localStorage.setItem(OPERATION_DIAGNOSTICS_KEY, enabled ? 'on' : 'off');
+    void persistFrontendPreference('vibex:operation-diagnostics', enabled);
+  };
+  const unreadDiagnostics = diagnostics.filter(
+    (diagnostic) => !diagnostic.read
+  ).length;
   const busy = operation != null || agent.active_operation != null;
   const items = preflight?.items ?? fallbackPreflight(t, agent);
   const hasRepairableFailure = items.some(
@@ -489,36 +504,80 @@ export function AgentDetail({
 
       {diagnostics.length > 0 ? (
         <details className="settings-surface">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            {t('agents.diagnosticsTitle')} · {diagnostics.length}
+          <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-medium">
+            <span className="flex items-center gap-2">
+              {t('agents.diagnosticsTitle')} · {diagnostics.length}
+              {unreadDiagnostics > 0 ? (
+                <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                  {t('agents.diagnosticsUnread', {
+                    count: unreadDiagnostics,
+                  })}
+                </span>
+              ) : null}
+            </span>
+            <span
+              className="flex items-center gap-3"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                {t('agents.operationDiagnosticsEnabled')}
+                <Switch
+                  checked={operationDiagnosticsEnabled}
+                  onCheckedChange={toggleOperationDiagnostics}
+                  aria-label={t('agents.operationDiagnosticsEnabled')}
+                />
+              </label>
+              {operationDiagnosticsEnabled && onMarkAllDiagnosticsRead ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={unreadDiagnostics === 0}
+                  onClick={onMarkAllDiagnosticsRead}
+                >
+                  {t('agents.markAllDiagnosticsRead')}
+                </Button>
+              ) : null}
+            </span>
           </summary>
-          <ul className="space-y-2 border-t px-4 py-3">
-            {diagnostics.slice(0, 20).map((diagnostic) => (
-              <li className="rounded-md border px-3 py-2" key={diagnostic.id}>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <strong>
-                    {humanizePreflightId(diagnostic.operation_kind)} ·{' '}
-                    {diagnosticSeverity(t, diagnostic.severity)}
-                  </strong>
-                  <time className="text-muted-foreground">
-                    {formatDiagnosticTime(i18n.language, diagnostic.created_at)}
-                  </time>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {localizedDiagnosticMessage(
-                    t,
-                    i18n.resolvedLanguage,
-                    diagnostic
+          {operationDiagnosticsEnabled ? (
+            <ul className="space-y-2 px-4 py-3">
+              {diagnostics.slice(0, 20).map((diagnostic) => (
+                <li
+                  className={cn(
+                    'rounded-md border px-3 py-2',
+                    !diagnostic.read && 'border-primary/40 bg-primary/5'
                   )}
-                </p>
-                {diagnostic.redacted_output ? (
-                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
-                    {diagnostic.redacted_output}
-                  </pre>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+                  key={diagnostic.id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <strong>
+                      {humanizePreflightId(diagnostic.operation_kind)} ·{' '}
+                      {diagnosticSeverity(t, diagnostic.severity)}
+                    </strong>
+                    <time className="text-muted-foreground">
+                      {formatDiagnosticTime(
+                        i18n.language,
+                        diagnostic.created_at
+                      )}
+                    </time>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {localizedDiagnosticMessage(
+                      t,
+                      i18n.resolvedLanguage,
+                      diagnostic
+                    )}
+                  </p>
+                  {diagnostic.redacted_output ? (
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-[11px]">
+                      {diagnostic.redacted_output}
+                    </pre>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </details>
       ) : null}
     </div>
@@ -727,26 +786,31 @@ function PreflightEvidence({
   return (
     <dl className="agent-preflight-evidence">
       {version ? (
-        <div className="agent-preflight-evidence-row">
-          <dt>{t('agents.version')}</dt>
-          <dd>
-            <code className="agent-preflight-evidence-value" title={version}>
-              {version}
-            </code>
-          </dd>
-        </div>
+        <PreflightEvidenceRow label={t('agents.version')} value={version} />
       ) : null}
       {path ? (
-        <div className="agent-preflight-evidence-row">
-          <dt>{t('agents.location')}</dt>
-          <dd>
-            <code className="agent-preflight-evidence-value" title={path}>
-              {path}
-            </code>
-          </dd>
-        </div>
+        <PreflightEvidenceRow label={t('agents.location')} value={path} />
       ) : null}
     </dl>
+  );
+}
+
+function PreflightEvidenceRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="agent-preflight-evidence-row">
+      <dt>{label}</dt>
+      <dd>
+        <code className="agent-preflight-evidence-value" title={value}>
+          {value}
+        </code>
+      </dd>
+    </div>
   );
 }
 
@@ -770,9 +834,7 @@ function fallbackPreflight(
       id: 'runtime',
       label: t('agents.localRuntime'),
       status: agent.runtime_version ? 'pass' : 'fail',
-      detail: agent.runtime_version
-        ? t('agents.versionValue', { version: agent.runtime_version })
-        : t('agents.localRuntimeMissing'),
+      detail: agent.runtime_version ? '' : t('agents.localRuntimeMissing'),
       version: agent.runtime_version,
       path: null,
       repairable: true,
@@ -781,9 +843,7 @@ function fallbackPreflight(
       id: 'acp',
       label: t('agents.runtimeAcp'),
       status: agent.acp_version ? 'pass' : 'fail',
-      detail: agent.acp_version
-        ? t('agents.versionValue', { version: agent.acp_version })
-        : t('agents.acpProbePending'),
+      detail: agent.acp_version ? '' : t('agents.acpProbePending'),
       version: agent.acp_version,
       path: null,
       repairable: true,

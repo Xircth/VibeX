@@ -1838,7 +1838,7 @@ export type OfficePromptBlock = { type: string, text: string, };
 
 export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "qa_mock";
 
-export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, };
+export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
 export type AgentManagementErrorCode = "not_found" | "invalid_state" | "busy" | "registry_unavailable" | "platform_unsupported" | "config_conflict" | "integrity_failure" | "internal";
 
@@ -1986,7 +1986,13 @@ export type CodexModelCatalogConfigView = { customs: Array<CodexCustomModelReque
 
 export type AgentModelProviderSaveRequest = { id: string | null, name: string, agent_id: AgentId, api_url: string, api_key: string | null, model: string, };
 
-export type AgentModelProviderView = { id: string, name: string, agent_id: AgentId, api_url: string, model: string, credential_present: boolean, bound: boolean, };
+export type AgentModelProviderView = { id: string, name: string, agent_id: AgentId, api_url: string, model: string, credential_present: boolean, bound: boolean,
+/**
+ * `true` 表示该 Provider 由 VibeX 的预设存储管理；`false` 表示它只存在于
+ * Agent 原生配置中（例如 Codex `config.toml` 的 `[model_providers.xxx]`），
+ * 只能查看或接管，不能被 VibeX 直接编辑或删除。
+ */
+managed: boolean, };
 
 export type AgentModelProvidersView = { agent_id: AgentId, providers: Array<AgentModelProviderView>, bound_provider_id: string | null, };
 

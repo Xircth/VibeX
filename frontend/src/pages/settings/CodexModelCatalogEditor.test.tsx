@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
 
+import { pickAstryxOption } from './agentSettingsTestUtils';
 import { CodexModelCatalogEditor } from './CodexModelCatalogEditor';
 
 vi.mock('@/features/agent-management', () => ({
@@ -68,7 +69,8 @@ describe('CodexModelCatalogEditor', () => {
     await userEvent.clear(modelId);
     await userEvent.type(modelId, 'gateway/sonnet');
     await userEvent.click(screen.getByText('高级行为与指令覆盖'));
-    await userEvent.selectOptions(
+    await pickAstryxOption(
+      userEvent,
       screen.getByLabelText('自定义模型 1 默认推理强度'),
       'high'
     );
@@ -76,9 +78,10 @@ describe('CodexModelCatalogEditor', () => {
       screen.getByLabelText('自定义模型 1 基础指令'),
       'Use the gateway tools.'
     );
-    await userEvent.selectOptions(
+    await pickAstryxOption(
+      userEvent,
       screen.getByLabelText('Codex 模型清单默认项'),
-      'gateway/sonnet'
+      'gateway/sonnet · 自定义'
     );
     await userEvent.click(screen.getByRole('button', { name: '保存模型清单' }));
 

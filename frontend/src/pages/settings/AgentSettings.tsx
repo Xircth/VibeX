@@ -183,7 +183,10 @@ export function AgentSettings() {
         void refreshManagement().catch(() => undefined);
       }
       if (diagnosticResult.status === 'fulfilled') {
-        setDiagnostics(diagnosticResult.value);
+        // 已读诊断不再显示;未读的新诊断照常出现。
+        setDiagnostics(
+          diagnosticResult.value.filter((diagnostic) => !diagnostic.read)
+        );
       }
       if (actionsResult.status === 'fulfilled') {
         setActions(actionsResult.value);
@@ -407,7 +410,6 @@ export function AgentSettings() {
     if (!selectedAgentId) return;
     try {
       await agentManagementApi.repair(selectedAgentId);
-      setPreflight(null);
       toast.success(t('settings:agents.repairStarted'));
     } catch (error) {
       toast.error(
@@ -420,7 +422,6 @@ export function AgentSettings() {
     if (!selectedAgentId) return;
     try {
       await agentManagementApi.addAndInstall(selectedAgentId);
-      setPreflight(null);
       toast.success(t('settings:agents.installStarted'));
     } catch (error) {
       toast.error(errorMessage(error, t('settings:agents.installStartFailed')));
@@ -432,7 +433,6 @@ export function AgentSettings() {
       if (!selectedAgentId) return;
       try {
         await agentManagementApi.installVersion(selectedAgentId, version);
-        setPreflight(null);
         toast.success(
           t('settings:agents.customVersionInstallStarted', { version })
         );
@@ -685,6 +685,15 @@ export function AgentSettings() {
     toast.success(t('settings:agents.diagnosticsExported'));
   }, [diagnostics, selectedAgentId, t]);
 
+  const markAllDiagnosticsRead = useCallback(() => {
+    if (!selectedAgentId) return;
+    // 一键已读 = 全部标记已读并清空列表;已读记录不再显示,新诊断照常出现。
+    setDiagnostics([]);
+    void agentManagementApi
+      .markDiagnosticsRead(selectedAgentId)
+      .catch(() => undefined);
+  }, [selectedAgentId]);
+
   if (management.loading && management.state.agents.length === 0) {
     return (
       <div className="space-y-4" aria-label={t('settings:agents.loadingAgent')}>
@@ -697,7 +706,7 @@ export function AgentSettings() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+    <div className="agent-settings-scroll flex h-full min-h-0 flex-col gap-4 overflow-y-auto pb-24">
       <div className="flex shrink-0 items-center gap-2">
         <AgentBar
           agents={management.state.agents}
@@ -801,6 +810,7 @@ export function AgentSettings() {
               ) : null
             }
             diagnostics={diagnostics}
+            onMarkAllDiagnosticsRead={markAllDiagnosticsRead}
             checking={checking}
             checkingUpdate={checkingUpdate}
             updateCheck={updateCheck}

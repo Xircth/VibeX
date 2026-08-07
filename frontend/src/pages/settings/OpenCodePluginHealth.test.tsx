@@ -51,4 +51,26 @@ describe('OpenCodePluginHealth', () => {
     expect(await screen.findByText(/已安装 · 1\.2\.3/)).toBeInTheDocument();
     expect(onChanged).toHaveBeenCalledOnce();
   });
+
+  it('shows the config path and cache directory as copyable rows', async () => {
+    vi.spyOn(agentManagementApi, 'openCodePlugins').mockResolvedValue({
+      config_path: '/home/me/.config/opencode/opencode.json',
+      cache_dir: '/home/me/.cache/opencode',
+      has_project_config_hint: false,
+      plugins: [],
+    });
+
+    render(<OpenCodePluginHealth />);
+
+    expect(
+      await screen.findByText('/home/me/.config/opencode/opencode.json')
+    ).toBeInTheDocument();
+    expect(screen.getByText('/home/me/.cache/opencode')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '复制配置路径' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '复制缓存目录' })
+    ).toBeInTheDocument();
+  });
 });

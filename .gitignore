@@ -107,3 +107,6 @@ logs/
 
 # Codex isolated worktrees
 .worktrees/
+
+# Local task execution history (private runtime data)
+.reasonix/

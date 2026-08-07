@@ -1,17 +1,16 @@
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::{BTreeMap, HashMap, HashSet},
+        collections::{BTreeMap, HashMap},
         io::Cursor,
         path::{Path, PathBuf},
         sync::Arc,
     };
 
     use api_types::{
-        AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentNativeConfigFormat,
-        AgentNativeConfigPatchRequest, AgentOperationEvent, AgentOperationKind,
-        AgentOperationStatus, AgentPreflightItemView, OpenCodeProviderConnectRequest,
-        OpenCodeProviderModelRequest,
+        AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentNativeConfigPatchRequest,
+        AgentOperationEvent, AgentOperationKind, AgentOperationStatus, AgentPreflightItemView,
+        OpenCodeProviderConnectRequest, OpenCodeProviderModelRequest,
     };
     use sha2::Digest;
 
@@ -30,15 +29,15 @@ mod tests {
         managed_uv_artifact, managed_uv_executable, managed_uv_version_matches,
         management_command_with_environment, management_error, native_auth_mode_patch,
         native_config_view, opencode_provider_paths, operation_event, pi_runtime_lock_env,
-        preflight_component_is_healthy, project_agent_environment, project_auth_mode_options,
-        project_codex_auth_mode, project_opencode_provider_connections,
-        reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
-        redact_operation_output, redact_sensitive_config_preview, remove_opencode_provider_state,
-        resolve_npm_package_executable, resolve_uv_tool_executable, restore_native_file_rollback,
-        safe_archive_executable, sanitize_custom_version, seed_kimi_synthetic_credential,
-        set_opencode_provider_enabled, should_probe_built_in, sync_native_launch_preferences,
-        validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
-        write_bytes_document,
+        preflight_component_is_healthy, profile_component_distribution_kind,
+        project_agent_environment, project_auth_mode_options, project_codex_auth_mode,
+        project_opencode_provider_connections, reconcile_grok_vibex_configuration,
+        reconcile_kimi_vibex_configuration, redact_operation_output,
+        remove_opencode_provider_state, resolve_npm_package_executable, resolve_uv_tool_executable,
+        restore_native_file_rollback, safe_archive_executable, sanitize_custom_version,
+        seed_kimi_synthetic_credential, set_opencode_provider_enabled, should_probe_built_in,
+        sync_native_launch_preferences, validate_agent_environment_name,
+        validate_native_config_patch, verify_acp_handshake, write_bytes_document,
     };
 
     #[tokio::test]
@@ -349,7 +348,80 @@ mod tests {
             plan.components[0].trust,
             ArtifactTrust::EcosystemIntegrityRequired
         ));
-        assert_eq!(plan.components[1].version, "0.64.1");
+        // ADR-0038 方向 A:acp_adapter 纳入版本覆盖,与 runtime 同规则。
+        assert_eq!(plan.components[1].version, "2.2.0");
+        assert_eq!(
+            plan.components[1].resolved_source,
+            "@agentclientprotocol/claude-agent-acp@2.2.0"
+        );
+        assert!(matches!(
+            plan.components[1].trust,
+            ArtifactTrust::EcosystemIntegrityRequired
+        ));
+    }
+
+    #[test]
+    fn custom_version_override_replaces_the_acp_adapter_component() {
+        // ADR-0038 方向 A:指定版本覆盖作用于 agent_runtime / combined_runtime /
+        // acp_adapter;只有 acp_adapter 的计划也能被替换。
+        let mut plan = ResolvedInstallPlan {
+            agent_id: AgentId::parse("claude_code").unwrap(),
+            source: LockedInstallSource::BuiltInProfile,
+            version: "0.64.1".to_string(),
+            platform: "darwin-aarch64".to_string(),
+            components: vec![PlannedInstallComponent {
+                component_id: "acp_adapter".to_string(),
+                distribution_kind: PlannedDistributionKind::Npx,
+                version: "0.64.1".to_string(),
+                resolved_source: "@agentclientprotocol/claude-agent-acp@0.64.1".to_string(),
+                command: "claude-agent-acp".to_string(),
+                args: Vec::new(),
+                env: BTreeMap::new(),
+                trust: ArtifactTrust::EcosystemIntegrity {
+                    integrity: "sha512-adapter".to_string(),
+                },
+            }],
+        };
+
+        apply_custom_version_override(&mut plan, "2.0.0").unwrap();
+        assert_eq!(plan.version, "2.0.0");
+        assert_eq!(
+            plan.components[0].resolved_source,
+            "@agentclientprotocol/claude-agent-acp@2.0.0"
+        );
+        assert!(matches!(
+            plan.components[0].trust,
+            ArtifactTrust::EcosystemIntegrityRequired
+        ));
+    }
+
+    #[test]
+    fn external_adoption_records_the_profile_declared_distribution_kind() {
+        // ADR-0038 修复:external 采纳按 Profile 的真实分发记录
+        // distribution_kind,不再硬编码 binary——否则 npx 组件(codex-acp)
+        // 会在 reconcile 时走错验证路径。
+        let catalog = agents::BuiltInProfileCatalog::bundled();
+        let codex = catalog.profile(&AgentId::parse("codex").unwrap()).unwrap();
+        assert_eq!(
+            profile_component_distribution_kind(codex, "agent_runtime"),
+            PlannedDistributionKind::Npx
+        );
+        assert_eq!(
+            profile_component_distribution_kind(codex, "acp_adapter"),
+            PlannedDistributionKind::Npx
+        );
+        let opencode = catalog
+            .profile(&AgentId::parse("opencode").unwrap())
+            .unwrap();
+        assert_eq!(
+            profile_component_distribution_kind(opencode, "combined_runtime"),
+            PlannedDistributionKind::Binary
+        );
+        // 未知组件回退 binary(现状兜底)。
+        assert_eq!(
+            profile_component_distribution_kind(codex, "unknown_kind"),
+            PlannedDistributionKind::Binary
+        );
     }
 
     #[test]
@@ -466,7 +538,7 @@ wire_api = "responses"
     }
 
     #[test]
-    fn native_config_ipc_returns_only_a_redacted_sensitive_preview() {
+    fn native_config_ipc_returns_the_sensitive_file_content_for_local_hover_reveal() {
         let agent_id = AgentId::parse("hermes").unwrap();
         let view = native_config_view(
             agent_id.clone(),
@@ -479,7 +551,7 @@ wire_api = "responses"
                 files: vec![agents::NativeConfigFileSnapshot {
                     path: PathBuf::from("/home/example/.hermes/.env"),
                     format: agents::NativeConfigFormat::Dotenv,
-                    content: "OPENAI_API_KEY=must-not-cross-ipc".to_string(),
+                    content: "OPENAI_API_KEY=sk-local-secret".to_string(),
                     sensitive: true,
                     exists: true,
                     revision: "file-revision".to_string(),
@@ -488,36 +560,8 @@ wire_api = "responses"
             },
         );
 
-        assert_eq!(view.files[0].content, "OPENAI_API_KEY=••••••••");
-        assert!(!view.files[0].content.contains("must-not-cross-ipc"));
+        assert_eq!(view.files[0].content, "OPENAI_API_KEY=sk-local-secret");
         assert!(view.files[0].sensitive);
-    }
-
-    #[test]
-    fn sensitive_json_preview_preserves_structure_without_values() {
-        let preview = redact_sensitive_config_preview(
-            AgentNativeConfigFormat::Json,
-            r#"{"OPENAI_API_KEY":"sk-secret","tokens":{"access_token":"oauth-secret"}}"#,
-            &HashSet::from(["OPENAI_API_KEY", "tokens", "access_token"]),
-        );
-
-        assert!(preview.contains("OPENAI_API_KEY"));
-        assert!(preview.contains("access_token"));
-        assert!(!preview.contains("sk-secret"));
-        assert!(!preview.contains("oauth-secret"));
-        assert_eq!(preview.matches("••••••••").count(), 2);
-    }
-
-    #[test]
-    fn sensitive_preview_drops_untrusted_keys() {
-        let preview = redact_sensitive_config_preview(
-            AgentNativeConfigFormat::Json,
-            r#"{"sk-secret-as-a-key":"value"}"#,
-            &HashSet::from(["OPENAI_API_KEY"]),
-        );
-
-        assert!(preview.is_empty());
-        assert!(!preview.contains("sk-secret-as-a-key"));
     }
 
     #[test]
@@ -1718,6 +1762,8 @@ base_url = "https://example.test/v1"
 mod codex_device_auth;
 #[path = "agent_management/environment_diagnostics.rs"]
 mod environment_diagnostics;
+#[path = "agent_management/external_reconcile.rs"]
+mod external_reconcile;
 #[path = "agent_management/model_catalogs.rs"]
 mod model_catalogs;
 #[path = "agent_management/model_providers.rs"]
@@ -1744,9 +1790,9 @@ use agents::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentAutoApproveMode,
     AgentConnectionId, AgentConnectionLaunch, AgentConnectionManager, ArtifactTrust,
     AuthenticationObservationState, BuiltInProfileCatalog, InstallCandidateSource,
-    InstallEnvironment, InstallPlanner, InstallPlanningInput, LockedInstallSource,
-    NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider, NativeFileMutation,
-    NativeFileSystem, OfficialRegistryHttpFetcher, PlannedDistributionKind,
+    InstallEnvironment, InstallPlanner, InstallPlanningInput, LaunchComponentEvidence, LaunchGate,
+    LockedInstallSource, NativeConfigFilePatch, NativeConfigPatch, NativeConfigProvider,
+    NativeFileMutation, NativeFileSystem, OfficialRegistryHttpFetcher, PlannedDistributionKind,
     PlannedInstallComponent, ProfileComponent, ProfileInstallSource, ProfileManagementActionKind,
     ProfileTopology, RegistryCache, RegistryCacheFreshness, RegistrySnapshotClient,
     ResolvedInstallPlan, SessionLaunchLock, ShellFamily, SystemClock, TofuFingerprint,
@@ -2283,11 +2329,113 @@ async fn refresh_agent_management_evidence(
 ) -> Result<(), AgentManagementErrorView> {
     probe_built_in_external_installations(app, pool, force_external_probe).await;
     normalize_optional_profile_authentication(pool).await;
+    // ADR-0038 方向 B:先尝试以官方指纹自动采纳外部组件变更,再对剩余不匹配
+    // 组件执行 fail-closed 完整性刷新(needs_repair)。
+    external_reconcile::reconcile_external_component_changes(app, pool)
+        .await
+        .map_err(internal_error)?;
     AgentManagementApplicationService::new(pool.clone())
         .refresh_component_integrity()
         .await
         .map_err(internal_error)?;
+    revalidate_recoverable_external_installations(app, pool).await;
     Ok(())
+}
+
+async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &sqlx::SqlitePool) {
+    let agent_ids = match sqlx::query_scalar::<_, String>(
+        r#"SELECT agent_id
+           FROM agent_installation
+           WHERE ownership = 'external'
+             AND current_lock_id IS NOT NULL
+             AND active_operation IS NULL
+             AND (
+               lifecycle = 'needs_repair'
+               OR EXISTS (
+                 SELECT 1 FROM agent_diagnostic diagnostic
+                 WHERE diagnostic.agent_id = agent_installation.agent_id
+                   AND diagnostic.read_at IS NULL
+                   AND diagnostic.redacted_output LIKE
+                     'terminal command `%` already resolves to `%` and is not managed by Agent `%`'
+               )
+             )
+           ORDER BY agent_id"#,
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(agent_ids) => agent_ids,
+        Err(error) => {
+            tracing::warn!(%error, "failed to load external Agent revalidation candidates");
+            return;
+        }
+    };
+    for raw_agent_id in agent_ids {
+        let Ok(agent_id) = AgentId::parse(raw_agent_id) else {
+            continue;
+        };
+        let evidence = match sqlx::query_as::<_, (String, String, Option<String>)>(
+            r#"SELECT component.component_kind, component.absolute_path, component.sha256
+               FROM agent_installation installation
+               JOIN agent_install_component component
+                 ON component.lock_id = installation.current_lock_id
+               WHERE installation.agent_id = ?
+               ORDER BY component.component_kind, component.absolute_path"#,
+        )
+        .bind(agent_id.as_str())
+        .fetch_all(pool)
+        .await
+        {
+            Ok(rows) => rows
+                .into_iter()
+                .map(
+                    |(component_kind, absolute_path, expected_sha256)| LaunchComponentEvidence {
+                        component_kind,
+                        absolute_path: PathBuf::from(absolute_path),
+                        expected_sha256: expected_sha256.unwrap_or_default(),
+                    },
+                )
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!(agent_id = %agent_id, %error, "failed to load external Agent components");
+                continue;
+            }
+        };
+        if evidence.is_empty() || LaunchGate::verify_components(&evidence).await.is_err() {
+            continue;
+        }
+        if let Err(error) = record_post_install_probe(app, pool, &agent_id).await {
+            tracing::debug!(
+                agent_id = %agent_id,
+                %error,
+                "external Agent revalidation did not recover the installation"
+            );
+            continue;
+        }
+        let _ = sqlx::query(
+            r#"UPDATE agent_installation
+               SET lifecycle = 'ready', updated_at = CURRENT_TIMESTAMP
+               WHERE agent_id = ?
+                 AND ownership = 'external'
+                 AND lifecycle = 'needs_repair'
+                 AND current_lock_id IS NOT NULL
+                 AND active_operation IS NULL"#,
+        )
+        .bind(agent_id.as_str())
+        .execute(pool)
+        .await;
+        let _ = sqlx::query(
+            r#"UPDATE agent_diagnostic
+               SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+               WHERE agent_id = ?
+                 AND read_at IS NULL
+                 AND redacted_output LIKE
+                   'terminal command `%` already resolves to `%` and is not managed by Agent `%`'"#,
+        )
+        .bind(agent_id.as_str())
+        .execute(pool)
+        .await;
+    }
 }
 
 pub(crate) async fn warm_agent_management(app: &AppHandle, pool: &sqlx::SqlitePool) {
@@ -2323,6 +2471,34 @@ async fn normalize_optional_profile_authentication(pool: &sqlx::SqlitePool) {
             );
         }
     }
+}
+
+fn profile_component_distribution_kind(
+    profile: &agents::BuiltInProfile,
+    component_kind: &str,
+) -> PlannedDistributionKind {
+    profile
+        .install_sources
+        .iter()
+        .find_map(|source| match source {
+            agents::ProfileInstallSource::Npx { component, .. }
+                if profile_component_key(*component) == component_kind =>
+            {
+                Some(PlannedDistributionKind::Npx)
+            }
+            agents::ProfileInstallSource::Uvx { component, .. }
+                if profile_component_key(*component) == component_kind =>
+            {
+                Some(PlannedDistributionKind::Uvx)
+            }
+            agents::ProfileInstallSource::Binary { component, .. }
+                if profile_component_key(*component) == component_kind =>
+            {
+                Some(PlannedDistributionKind::Binary)
+            }
+            _ => None,
+        })
+        .unwrap_or(PlannedDistributionKind::Binary)
 }
 
 async fn probe_one_built_in_external_installation(
@@ -2503,7 +2679,7 @@ async fn probe_one_built_in_external_installation(
             .iter()
             .map(|component| PlannedInstallComponent {
                 component_id: component.kind.clone(),
-                distribution_kind: PlannedDistributionKind::Binary,
+                distribution_kind: profile_component_distribution_kind(profile, &component.kind),
                 version: component.version.clone(),
                 resolved_source: component.absolute_path.display().to_string(),
                 command: component
@@ -2740,6 +2916,16 @@ pub async fn agent_registry_add_and_install(
                 Some(agent_id.clone()),
             )
         })?;
+    if let Some(receipt) = revalidate_external_installation(
+        &app,
+        &state.deployment.db().pool,
+        &agent_id,
+        AgentOperationKind::Install,
+    )
+    .await?
+    {
+        return Ok(receipt);
+    }
     queue_operation(
         &app,
         &state.deployment.db().pool,
@@ -3505,13 +3691,13 @@ pub async fn agent_management_repair(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
-    queue_operation(
-        &app,
-        &state.deployment.db().pool,
-        agent_id,
-        AgentOperationKind::Repair,
-    )
-    .await
+    let pool = &state.deployment.db().pool;
+    if let Some(receipt) =
+        revalidate_external_installation(&app, pool, &agent_id, AgentOperationKind::Repair).await?
+    {
+        return Ok(receipt);
+    }
+    queue_operation(&app, pool, agent_id, AgentOperationKind::Repair).await
 }
 
 #[tauri::command]
@@ -3739,6 +3925,55 @@ async fn queue_operation(
     queue_operation_with_version(app, pool, agent_id, kind, None).await
 }
 
+async fn revalidate_external_installation(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    kind: AgentOperationKind,
+) -> Result<Option<AgentOperationReceipt>, AgentManagementErrorView> {
+    let installation = sqlx::query_as::<_, (String, Option<String>)>(
+        r#"SELECT ownership, current_lock_id
+           FROM agent_installation
+           WHERE agent_id = ?"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_optional(pool)
+    .await
+    .map_err(internal_error)?;
+    if !installation
+        .as_ref()
+        .is_some_and(|(ownership, lock_id)| ownership == "external" && lock_id.is_some())
+    {
+        return Ok(None);
+    }
+
+    // External files remain owned by their installer. The install/repair action
+    // only refreshes evidence and may adopt an official fingerprint; it must
+    // never enter the managed staging or terminal-shim pipeline (ADR-0011/0038).
+    refresh_agent_management_evidence(app, pool, true).await?;
+    let lifecycle = sqlx::query_scalar::<_, String>(
+        "SELECT lifecycle FROM agent_installation WHERE agent_id = ?",
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(internal_error)?;
+    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    if lifecycle != "ready" {
+        return Err(management_error(
+            AgentManagementErrorCode::InvalidState,
+            "外部 Agent 安装未通过官方验证；未执行托管安装，请查看诊断或使用原安装方式修复",
+            Some(agent_id.clone()),
+        ));
+    }
+    Ok(Some(AgentOperationReceipt {
+        operation_id: Uuid::new_v4().to_string(),
+        agent_id: agent_id.clone(),
+        kind,
+        status: AgentOperationStatus::Succeeded,
+    }))
+}
+
 async fn queue_operation_with_version(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
@@ -3779,17 +4014,20 @@ async fn queue_operation_with_version(
             staging_path: None,
         })
         .await
-        .map_err(|error| {
-            let message = error.to_string();
-            if message.contains("UNIQUE constraint failed") {
+        .map_err(|error| match error {
+            db::models::agent_management::AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(_) => {
                 management_error(
-                    AgentManagementErrorCode::Busy,
-                    "Agent 已有正在执行的管理操作，或所需共享资源正被占用",
+                    AgentManagementErrorCode::InvalidState,
+                    "外部 Agent 安装不能被托管操作隐式替换；请先使用原安装方式更新或卸载",
                     Some(agent_id.clone()),
                 )
-            } else {
-                internal_error(error)
             }
+            error if error.to_string().contains("UNIQUE constraint failed") => management_error(
+                AgentManagementErrorCode::Busy,
+                "Agent 已有正在执行的管理操作，或所需共享资源正被占用",
+                Some(agent_id.clone()),
+            ),
+            error => internal_error(error),
         })?;
     let operation_id = operation.id.to_string();
     let cancellation = OperationScheduler::shared()
@@ -3832,7 +4070,11 @@ fn apply_custom_version_override(
     plan: &mut ResolvedInstallPlan,
     requested: &str,
 ) -> Result<(), String> {
-    if !matches!(plan.source, LockedInstallSource::BuiltInProfile) {
+    if !matches!(
+        plan.source,
+        LockedInstallSource::BuiltInProfile
+            | LockedInstallSource::BuiltInProfileWithRegistry { .. }
+    ) {
         return Err("指定版本安装仅适用于内置 Agent".to_string());
     }
     let version = sanitize_custom_version(requested)
@@ -3842,7 +4084,7 @@ fn apply_custom_version_override(
     for component in &mut plan.components {
         if !matches!(
             component.component_id.as_str(),
-            "agent_runtime" | "combined_runtime"
+            "agent_runtime" | "combined_runtime" | "acp_adapter"
         ) {
             continue;
         }
@@ -3991,11 +4233,14 @@ async fn run_install_operation(
                 Some(20),
                 Some("正在安装本地 Runtime 与 ACP".to_string()),
             );
-            let custom_builtin_binary = matches!(plan.source, LockedInstallSource::BuiltInProfile)
-                && plan.components.iter().any(|component| {
-                    component.distribution_kind == PlannedDistributionKind::Binary
-                        && matches!(component.trust, ArtifactTrust::Tofu)
-                });
+            let custom_builtin_binary = matches!(
+                plan.source,
+                LockedInstallSource::BuiltInProfile
+                    | LockedInstallSource::BuiltInProfileWithRegistry { .. }
+            ) && plan.components.iter().any(|component| {
+                component.distribution_kind == PlannedDistributionKind::Binary
+                    && matches!(component.trust, ArtifactTrust::Tofu)
+            });
             let tofu_fingerprints = if custom_builtin_binary {
                 HashMap::new()
             } else {
@@ -4355,7 +4600,31 @@ async fn resolve_install_plan(
         .await?
         .ok_or_else(|| anyhow::anyhow!("Agent 尚未添加"))?;
     let source = match membership.source {
-        AgentSource::BuiltInProfile => InstallCandidateSource::BuiltInProfile,
+        AgentSource::BuiltInProfile => {
+            // ADR-0038 方向 A:存在 fresh Registry snapshot 且该内置 Agent 有
+            // registry binding 时,更新目标解析自 snapshot;离线/过期回退
+            // Profile 锁版本。
+            let store =
+                AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
+            let snapshot = store.load().await?;
+            let registry_target = snapshot
+                .filter(|snapshot| {
+                    Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24)
+                })
+                .and_then(|snapshot| {
+                    agents::registry_target_for_built_in_update(
+                        &agents::BuiltInProfileCatalog::bundled(),
+                        &snapshot,
+                        agent_id,
+                    )
+                });
+            match registry_target {
+                Some(target) => {
+                    InstallCandidateSource::BuiltInProfileWithRegistry(Box::new(target))
+                }
+                None => InstallCandidateSource::BuiltInProfile,
+            }
+        }
         AgentSource::OfficialRegistry => {
             let store =
                 AgentRegistrySnapshotStore::new(RegistrySnapshotRepository::new(pool.clone()));
@@ -5776,6 +6045,14 @@ async fn persist_installed_lock(
         LockedInstallSource::BuiltInProfile => serde_json::json!({
             "kind": "built_in_profile"
         }),
+        LockedInstallSource::BuiltInProfileWithRegistry {
+            snapshot_id,
+            registry_id,
+        } => serde_json::json!({
+            "kind": "built_in_profile_with_registry",
+            "snapshot_id": snapshot_id,
+            "registry_id": registry_id,
+        }),
         LockedInstallSource::OfficialRegistry {
             snapshot_id,
             registry_id,
@@ -5869,15 +6146,19 @@ async fn finish_failed_operation(
     kind: AgentOperationKind,
     message: String,
 ) {
-    let failure_lifecycle = if kind == AgentOperationKind::Update {
-        "ready"
-    } else {
-        "needs_repair"
-    };
     let _ = sqlx::query(
-        "UPDATE agent_installation SET lifecycle = ?, active_operation = NULL, active_operation_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE agent_id = ?",
+        r#"UPDATE agent_installation
+           SET lifecycle = CASE
+                 WHEN ownership = 'external' AND current_lock_id IS NOT NULL THEN 'ready'
+                 WHEN ? = 'update' THEN 'ready'
+                 ELSE 'needs_repair'
+               END,
+               active_operation = NULL,
+               active_operation_id = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE agent_id = ?"#,
     )
-    .bind(failure_lifecycle)
+    .bind(operation_kind_key(kind))
     .bind(agent_id.as_str())
     .execute(pool)
     .await;
@@ -6454,6 +6735,7 @@ pub async fn codex_model_catalog_apply(
 #[tauri::command]
 pub async fn agent_model_providers(
     app: AppHandle,
+    state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
     let store_path = app
@@ -6461,9 +6743,50 @@ pub async fn agent_model_providers(
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    model_providers::list(&store_path, agent_id)
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let codex_home = resolve_agent_home_directory(&home, &environment, "CODEX_HOME", ".codex");
+    model_providers::list_with_native(&store_path, agent_id, Some(&codex_home))
         .await
         .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn agent_model_provider_catalog(
+    app: AppHandle,
+    agent_id: AgentId,
+    provider_id: Option<String>,
+    api_url: String,
+    api_key: Option<String>,
+) -> Result<AgentModelCatalogView, AgentManagementErrorView> {
+    let store_path = app
+        .path()
+        .app_data_dir()
+        .map_err(internal_error)?
+        .join("agent-model-providers.json");
+    let api_key = model_providers::resolve_probe_api_key(
+        &store_path,
+        &agent_id,
+        provider_id.as_deref(),
+        api_key.as_deref(),
+    )
+    .await
+    .map_err(|message| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            message,
+            Some(agent_id.clone()),
+        )
+    })?;
+    model_catalogs::provider(agent_id.clone(), &api_url, &api_key)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id),
+            )
+        })
 }
 
 #[tauri::command]
@@ -6602,6 +6925,7 @@ async fn sync_model_provider_auth_overlay(
 #[tauri::command]
 pub async fn agent_model_provider_delete(
     app: AppHandle,
+    state: tauri::State<'_, AppState>,
     agent_id: AgentId,
     provider_id: String,
 ) -> Result<AgentModelProvidersView, AgentManagementErrorView> {
@@ -6610,9 +6934,39 @@ pub async fn agent_model_provider_delete(
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    model_providers::delete(&store_path, agent_id, &provider_id)
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    // 删除当前绑定的 Provider 会在模型层先解绑并恢复原生投影，默认回到其它
+    // Provider 或官方订阅登录；删除未绑定的 Provider 不影响鉴权模式。
+    let was_bound = model_providers::list(&store_path, agent_id.clone())
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?
+        .bound_provider_id
+        .as_deref()
+        == Some(provider_id.as_str());
+    let result = model_providers::delete(
+        &store_path,
+        &home,
+        &environment,
+        agent_id.clone(),
+        &provider_id,
+    )
+    .await
+    .map_err(internal_error)?;
+    if was_bound {
+        // Provider 已删除，无法像 bind 那样回滚绑定；overlay 同步失败只降级
+        // 为告警，不把已成功的删除整体报错。
+        if let Err(error) =
+            sync_model_provider_auth_overlay(&state.deployment.db().pool, &agent_id, false).await
+        {
+            tracing::warn!(?error, "删除 Model Provider 后同步鉴权模式失败");
+        }
+    }
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "Model Provider 已删除")
+        .await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -7462,9 +7816,10 @@ async fn read_codex_auth_mode_view(
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    let providers = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?;
+    let providers =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
+            .await
+            .map_err(internal_error)?;
     Ok(project_codex_auth_mode(
         agent_id,
         &auth,
@@ -7488,14 +7843,16 @@ async fn set_codex_auth_mode(
     }
     let home = app.path().home_dir().map_err(internal_error)?;
     let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let codex_home = resolve_agent_home_directory(&home, &environment, "CODEX_HOME", ".codex");
     let store_path = app
         .path()
         .app_data_dir()
         .map_err(internal_error)?
         .join("agent-model-providers.json");
-    let providers = model_providers::list(&store_path, agent_id.clone())
-        .await
-        .map_err(internal_error)?;
+    let providers =
+        model_providers::list_with_native(&store_path, agent_id.clone(), Some(&codex_home))
+            .await
+            .map_err(internal_error)?;
 
     if mode == "model_provider" {
         if providers.bound_provider_id.is_none() {
@@ -7508,14 +7865,18 @@ async fn set_codex_auth_mode(
         return read_codex_auth_mode_view(app, &state.deployment.db().pool).await;
     }
 
-    let previous_binding = providers.bound_provider_id;
+    // 解除绑定只针对 VibeX 预设的绑定；原生 config.toml 中的自定义 Provider
+    // 属于 Agent 原生配置，切换模式不触碰它们。
+    let previous_binding = model_providers::list(&store_path, agent_id.clone())
+        .await
+        .map_err(internal_error)?
+        .bound_provider_id;
     if previous_binding.is_some() {
         model_providers::bind(&store_path, &home, &environment, agent_id.clone(), None)
             .await
             .map_err(internal_error)?;
     }
 
-    let codex_home = resolve_agent_home_directory(&home, &environment, "CODEX_HOME", ".codex");
     let mutation_result = match prepare_codex_auth_mode_mutations(&codex_home, mode, api_key).await
     {
         Ok(mutations) => apply_native_file_mutations(&mutations).await,
@@ -7575,7 +7936,13 @@ async fn prepare_codex_auth_mode_mutations(
             } else {
                 toml::from_str::<toml::Table>(text).map_err(internal_error)?
             };
-            let mut changed = table.remove("model_provider").is_some();
+            let mut changed = false;
+            // 只移除 VibeX 投影写入的 `model_provider = "vibex"`；用户在原生
+            // config.toml 中手写的自定义 Provider 属于 Agent 原生配置，切换
+            // 订阅模式不删除它。
+            if table.get("model_provider").and_then(toml::Value::as_str) == Some("vibex") {
+                changed |= table.remove("model_provider").is_some();
+            }
             if let Some(providers) = table
                 .get_mut("model_providers")
                 .and_then(toml::Value::as_table_mut)
@@ -8984,24 +9351,13 @@ fn native_config_view(
                 agents::NativeConfigFormat::Yaml => AgentNativeConfigFormat::Yaml,
                 agents::NativeConfigFormat::Dotenv => AgentNativeConfigFormat::Dotenv,
             };
-            let content = if file.sensitive {
-                let safe_keys = profile
-                    .and_then(|profile| {
-                        profile.native_config.iter().find(|binding| {
-                            file.path.ends_with(binding.override_relative_path)
-                                || file.path.ends_with(binding.home_relative_path)
-                        })
-                    })
-                    .map(sensitive_preview_keys)
-                    .unwrap_or_default();
-                redact_sensitive_config_preview(format, &file.content, &safe_keys)
-            } else {
-                file.content
-            };
+            // Sensitive files cross the boundary verbatim: VibeX is local-first
+            // and the UI masks the preview until hover/focus, so users can
+            // inspect their own credentials instead of a redacted stand-in.
             AgentNativeConfigFileView {
                 path: file.path.display().to_string(),
                 format,
-                content,
+                content: file.content,
                 sensitive: file.sensitive,
                 exists: file.exists,
                 revision: file.revision,
@@ -9021,103 +9377,6 @@ fn native_config_view(
         fields,
         files,
         applies_to_next_session: true,
-    }
-}
-
-const REDACTED_CONFIG_VALUE: &str = "••••••••";
-
-fn sensitive_preview_keys(binding: &agents::NativeConfigBinding) -> HashSet<&str> {
-    binding
-        .fields
-        .iter()
-        .flat_map(|field| {
-            field
-                .path
-                .iter()
-                .copied()
-                .chain(field.object_discriminator.map(|(key, _)| key))
-        })
-        .collect()
-}
-
-fn redact_sensitive_config_preview(
-    format: AgentNativeConfigFormat,
-    content: &str,
-    safe_keys: &HashSet<&str>,
-) -> String {
-    match format {
-        AgentNativeConfigFormat::Json => {
-            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
-                return String::new();
-            };
-            if !redact_json_config_values(&mut value, safe_keys) {
-                return String::new();
-            }
-            serde_json::to_string_pretty(&value).unwrap_or_default()
-        }
-        AgentNativeConfigFormat::Toml => {
-            let Ok(mut value) = toml::from_str::<toml::Value>(content) else {
-                return String::new();
-            };
-            if !redact_toml_config_values(&mut value, safe_keys) {
-                return String::new();
-            }
-            toml::to_string_pretty(&value).unwrap_or_default()
-        }
-        AgentNativeConfigFormat::Dotenv => content
-            .lines()
-            .filter_map(|line| {
-                let line = line.trim();
-                let assignment = line.strip_prefix("export ").unwrap_or(line);
-                let (key, _) = assignment.split_once('=')?;
-                let key = key.trim();
-                safe_keys
-                    .contains(key)
-                    .then(|| format!("{key}={REDACTED_CONFIG_VALUE}"))
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        // YAML permits values in mapping keys and tags. Until those shapes can be
-        // redacted without ambiguity, expose no source text across IPC.
-        AgentNativeConfigFormat::Yaml => String::new(),
-    }
-}
-
-fn redact_json_config_values(value: &mut serde_json::Value, safe_keys: &HashSet<&str>) -> bool {
-    match value {
-        serde_json::Value::Array(values) => {
-            values.retain_mut(|value| redact_json_config_values(value, safe_keys));
-            !values.is_empty()
-        }
-        serde_json::Value::Object(values) => {
-            values.retain(|key, value| {
-                safe_keys.contains(key.as_str()) && redact_json_config_values(value, safe_keys)
-            });
-            !values.is_empty()
-        }
-        _ => {
-            *value = serde_json::Value::String(REDACTED_CONFIG_VALUE.to_string());
-            true
-        }
-    }
-}
-
-fn redact_toml_config_values(value: &mut toml::Value, safe_keys: &HashSet<&str>) -> bool {
-    match value {
-        toml::Value::Array(values) => {
-            values.retain_mut(|value| redact_toml_config_values(value, safe_keys));
-            !values.is_empty()
-        }
-        toml::Value::Table(values) => {
-            values.retain(|key, value| {
-                safe_keys.contains(key) && redact_toml_config_values(value, safe_keys)
-            });
-            !values.is_empty()
-        }
-        _ => {
-            *value = toml::Value::String(REDACTED_CONFIG_VALUE.to_string());
-            true
-        }
     }
 }
 
@@ -9977,8 +10236,19 @@ pub async fn agent_management_diagnostics(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<Vec<AgentDiagnosticView>, AgentManagementErrorView> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, String)>(
-        r#"SELECT id, operation_kind, severity, message, redacted_output, created_at
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+        ),
+    >(
+        r#"SELECT id, operation_kind, severity, message, redacted_output, created_at, read_at
            FROM agent_diagnostic WHERE agent_id = ?
            ORDER BY created_at DESC, id DESC LIMIT 20"#,
     )
@@ -9989,7 +10259,7 @@ pub async fn agent_management_diagnostics(
     Ok(rows
         .into_iter()
         .map(
-            |(id, operation_kind, severity, message, redacted_output, created_at)| {
+            |(id, operation_kind, severity, message, redacted_output, created_at, read_at)| {
                 AgentDiagnosticView {
                     id,
                     agent_id: agent_id.clone(),
@@ -9998,10 +10268,28 @@ pub async fn agent_management_diagnostics(
                     message,
                     redacted_output,
                     created_at,
+                    read: read_at.is_some(),
                 }
             },
         )
         .collect())
+}
+
+#[tauri::command]
+pub async fn agent_management_mark_diagnostics_read(
+    state: tauri::State<'_, AppState>,
+    agent_id: AgentId,
+) -> Result<(), AgentManagementErrorView> {
+    sqlx::query(
+        r#"UPDATE agent_diagnostic
+           SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+           WHERE agent_id = ? AND read_at IS NULL"#,
+    )
+    .bind(agent_id.as_str())
+    .execute(&state.deployment.db().pool)
+    .await
+    .map_err(internal_error)?;
+    Ok(())
 }
 
 #[tauri::command]

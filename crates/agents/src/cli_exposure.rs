@@ -128,7 +128,7 @@ pub fn remove_managed_runtime_cli(
 ) -> Result<(), CliExposureError> {
     let command_name = runtime_command_name(runtime_executable)?;
     let shim_path = terminal_shim_path(&home_dir.join(".local").join("bin"), &command_name);
-    match fs::read_to_string(&shim_path) {
+    match fs::read(&shim_path) {
         Ok(existing) if shim_is_owned_by(&existing, agent_id) => {
             fs::remove_file(shim_path)?;
             Ok(())
@@ -224,7 +224,7 @@ fn ensure_replaceable_shim(
     agent_id: &AgentId,
     command_name: &str,
 ) -> Result<(), CliExposureError> {
-    match fs::read_to_string(shim_path) {
+    match fs::read(shim_path) {
         Ok(existing) if shim_is_owned_by(&existing, agent_id) => Ok(()),
         Ok(_) => Err(CliExposureError::CommandConflict {
             command: command_name.to_string(),
@@ -253,8 +253,7 @@ fn ensure_no_effective_path_conflict(
         Err(error) => return Err(std::io::Error::other(error).into()),
     };
     let existing_is_ours = paths_refer_to_same_file(&existing, shim_path)
-        && fs::read_to_string(shim_path)
-            .is_ok_and(|contents| shim_is_owned_by(&contents, agent_id));
+        && fs::read(shim_path).is_ok_and(|contents| shim_is_owned_by(&contents, agent_id));
     if existing_is_ours || paths_refer_to_same_file(&existing, runtime_executable) {
         return Ok(());
     }
@@ -275,12 +274,12 @@ fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn shim_is_owned_by(contents: &str, agent_id: &AgentId) -> bool {
+fn shim_is_owned_by(contents: &[u8], agent_id: &AgentId) -> bool {
     let unix_marker = format!("{SHIM_MARKER_PREFIX}{}", agent_id.as_str());
     let windows_marker = format!("rem VibeX Agent CLI: {}", agent_id.as_str());
-    contents.lines().any(|line| {
-        let line = line.trim_end_matches('\r');
-        line == unix_marker || line.eq_ignore_ascii_case(&windows_marker)
+    contents.split(|byte| *byte == b'\n').any(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        line == unix_marker.as_bytes() || line.eq_ignore_ascii_case(windows_marker.as_bytes())
     })
 }
 
@@ -457,14 +456,19 @@ fn broadcast_windows_environment_change() {
 }
 
 fn append_managed_profile_block(path: &Path, block: &str) -> Result<(), CliExposureError> {
-    let existing = match fs::read_to_string(path) {
+    // The profile is user-owned free-form text: it may contain bytes that are
+    // not valid UTF-8 (legacy encodings, binary artifacts). Work on raw bytes
+    // so a non-UTF-8 profile can never block the install; we only ever append
+    // the ASCII block and never rewrite the existing content.
+    let marker = PROFILE_BLOCK_START.as_bytes();
+    let existing = match fs::read(path) {
         Ok(existing) => existing,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(error) => return Err(error.into()),
     };
     if existing
-        .lines()
-        .any(|line| line.trim() == PROFILE_BLOCK_START)
+        .split(|byte| *byte == b'\n')
+        .any(|line| line.trim_ascii() == marker)
     {
         return Ok(());
     }
@@ -475,7 +479,7 @@ fn append_managed_profile_block(path: &Path, block: &str) -> Result<(), CliExpos
         .create(true)
         .append(true)
         .open(path)?;
-    if !existing.is_empty() && !existing.ends_with('\n') {
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
         file.write_all(b"\n")?;
     }
     file.write_all(block.as_bytes())?;
@@ -672,6 +676,75 @@ mod tests {
         assert_eq!(
             fs::read_to_string(shim).unwrap(),
             "#!/bin/sh\n# user-owned command\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_profile_is_preserved_and_still_receives_the_managed_block() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/grok-build");
+        let runtime = install_root.join("release/bin/grok");
+        let profile = home.join(".profile");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&runtime, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        // A legacy-encoded / byte-dirty profile must never block the install.
+        let legacy_bytes = b"# shell rc in a legacy encoding\n\xff\xfe\x00\n";
+        fs::write(&profile, legacy_bytes).unwrap();
+
+        publish_for_test(
+            &home,
+            &AgentId::parse("grok-build").unwrap(),
+            &install_root,
+            &runtime,
+            ShellFamily::Posix,
+        )
+        .unwrap();
+
+        let written = fs::read(&profile).unwrap();
+        assert!(
+            written.starts_with(legacy_bytes),
+            "original bytes were rewritten"
+        );
+        assert!(
+            String::from_utf8_lossy(&written).contains(PROFILE_BLOCK_START),
+            "managed block was not appended"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn binary_shim_reports_a_conflict_instead_of_a_utf8_io_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/grok-build");
+        let runtime = install_root.join("release/bin/grok");
+        let shim = home.join(".local/bin/grok");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::create_dir_all(shim.parent().unwrap()).unwrap();
+        fs::write(&runtime, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&shim, [0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01, 0xff]).unwrap();
+
+        let error = publish_for_test(
+            &home,
+            &AgentId::parse("grok-build").unwrap(),
+            &install_root,
+            &runtime,
+            ShellFamily::Posix,
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(error, CliExposureError::CommandConflict { .. }),
+            "expected CommandConflict, got {error}"
         );
     }
 

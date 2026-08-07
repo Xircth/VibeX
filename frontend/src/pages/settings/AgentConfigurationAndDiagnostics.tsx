@@ -9,15 +9,18 @@ import type {
   AgentNativeConfigView,
 } from 'shared/types';
 
+import { AstryxSelect } from '@/components/ui/astryx-select';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
 import { desktopApi } from '@/lib/api';
 
 import { AgentModelCatalogControl } from './AgentModelCatalogControl';
 import { CodexModelCatalogEditor } from './CodexModelCatalogEditor';
+import { CodexQuickSettings, CODEX_QUICK_FIELDS } from './CodexQuickSettings';
 import { PiConfigurationPanel } from './PiConfigurationPanel';
 import { PiProviderBuilder } from './PiProviderBuilder';
 import { SettingsActionBar } from './SettingsUi';
+import { containsCjk, humanizeIdentifier } from './agentConfigLabels';
 
 type Props = {
   config: AgentNativeConfigView | null;
@@ -68,7 +71,6 @@ export function AgentConfigurationAndDiagnostics({
     [config, visibleFields]
   );
   const changedFields = config?.fields.filter((field) => dirty[field.id]) ?? [];
-  const firstConfigPath = config?.paths?.[0];
   const canSave = changedFields.some(
     (field) =>
       removed[field.id] || !field.secret || (drafts[field.id] ?? '').length > 0
@@ -160,23 +162,25 @@ export function AgentConfigurationAndDiagnostics({
     setRemoved((current) => ({ ...current, [field.id]: true }));
   };
 
-  const openConfigFolderButton = firstConfigPath ? (
+  const openConfigFolderButton = (path: string) => (
     <Button
       size="sm"
       variant="ghost"
-      className="h-7"
-      aria-label={t('agents.openConfigFolder')}
+      className="agent-config-open-folder h-7"
+      aria-label={t('agents.openConfigFolderAria', {
+        file: fileName(path),
+      })}
       disabled={saving}
       onClick={() => {
         void desktopApi
-          .revealInFileManager(parentDirectory(firstConfigPath))
+          .revealInFileManager(parentDirectory(path))
           .catch(() => toast.error(t('agents.openConfigFolderFailed')));
       }}
     >
       <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
       {t('agents.openConfigFolder')}
     </Button>
-  ) : null;
+  );
   const actionBar = config?.available ? (
     <SettingsActionBar
       dirty={changedFields.length > 0}
@@ -197,19 +201,12 @@ export function AgentConfigurationAndDiagnostics({
             : 'settings-surface agent-config-surface'
         }
       >
-        {embedded ? (
-          openConfigFolderButton ? (
-            <div className="agent-config-inline-actions">
-              {openConfigFolderButton}
-            </div>
-          ) : null
-        ) : (
+        {embedded ? null : (
           <div className="agent-section-heading">
             <div className="flex items-center gap-2">
               <FileKey2 aria-hidden="true" className="h-4 w-4" />
               <h3>{t('agents.configTitle')}</h3>
             </div>
-            {openConfigFolderButton}
           </div>
         )}
 
@@ -272,6 +269,12 @@ export function AgentConfigurationAndDiagnostics({
                 onDirtyChange={updateCodexCatalogDirty}
               />
             ) : null}
+            <CodexQuickSettings
+              fields={config.fields}
+              drafts={drafts}
+              disabled={saving}
+              onChange={updateDraft}
+            />
             {config.settings_features.includes('pi_configuration') ? (
               <PiConfigurationPanel
                 disabled={saving}
@@ -284,6 +287,7 @@ export function AgentConfigurationAndDiagnostics({
                   <legend>
                     <span>{fileName(path)}</span>
                     <code>{path}</code>
+                    {openConfigFolderButton(path)}
                   </legend>
                   {fields.length > 0 ? (
                     <div className="agent-config-grid">
@@ -339,8 +343,9 @@ function ConfigField({
   const labelId = `${inputId}-label`;
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizeIdentifier(field.id) : field.label;
+  const wide = field.kind === 'json' || field.id === 'pi_custom_providers';
   return (
-    <div className="agent-config-field">
+    <div className={`agent-config-field${wide ? ' is-wide' : ''}`}>
       <div className="agent-config-field-label">
         {field.id === 'pi_custom_providers' ? (
           <span id={labelId}>{label}</span>
@@ -371,24 +376,22 @@ function ConfigField({
             onChange={(event) => onChange(event.target.value)}
           />
         ) : field.kind === 'select' ? (
-          <select
+          <AstryxSelect
             id={inputId}
-            aria-label={label}
-            className="raised-control"
+            ariaLabel={label}
             disabled={saving}
-            name={`agent_config_${field.id}`}
+            hasClear
+            placeholder={t('agents.notSet')}
             value={value}
-            onChange={(event) => onChange(event.target.value)}
-          >
-            <option value="">{t('agents.notSet')}</option>
-            {field.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {english && containsCjk(option.label)
+            options={field.options.map((option) => ({
+              value: option.value,
+              label:
+                english && containsCjk(option.label)
                   ? humanizeIdentifier(option.value)
-                  : option.label}
-              </option>
-            ))}
-          </select>
+                  : option.label,
+            }))}
+            onChange={onChange}
+          />
         ) : field.kind === 'boolean' ? (
           <label className="agent-config-boolean" htmlFor={inputId}>
             <input
@@ -417,20 +420,24 @@ function ConfigField({
                   : 'text'
             }
             name={`agent_config_${field.id}`}
-            value={value}
+            value={
+              field.secret && field.present && !removed && value === ''
+                ? (field.masked_value ?? '••••••••')
+                : value
+            }
             placeholder={
               field.secret && field.present
                 ? t('agents.replaceSecretPlaceholder')
                 : t('agents.notSet')
             }
+            onFocus={
+              field.secret && field.present && !removed
+                ? (event) => event.currentTarget.select()
+                : undefined
+            }
             onChange={(event) => onChange(event.target.value)}
           />
         )}
-        {field.secret && field.present && !removed ? (
-          <span className="agent-config-secret-state">
-            {field.masked_value ?? '••••••••'}
-          </span>
-        ) : null}
         {field.present ? (
           <Button
             size="sm"
@@ -450,34 +457,6 @@ function ConfigField({
       </div>
     </div>
   );
-}
-
-function containsCjk(value: string): boolean {
-  return /[\u3400-\u9fff]/u.test(value);
-}
-
-function humanizeIdentifier(value: string): string {
-  const acronyms = new Map([
-    ['api', 'API'],
-    ['url', 'URL'],
-    ['id', 'ID'],
-    ['mcp', 'MCP'],
-    ['acp', 'ACP'],
-    ['http', 'HTTP'],
-    ['https', 'HTTPS'],
-    ['json', 'JSON'],
-    ['oauth', 'OAuth'],
-    ['ui', 'UI'],
-  ]);
-  return value
-    .split(/[_-]+/u)
-    .filter(Boolean)
-    .map(
-      (word) =>
-        acronyms.get(word.toLowerCase()) ??
-        `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}`
-    )
-    .join(' ');
 }
 
 function ConfigFileEditor({
@@ -501,11 +480,7 @@ function ConfigFileEditor({
     if (file) onDirtyChange?.(file.path, dirty);
   }, [dirty, file, onDirtyChange]);
   const sensitive = file?.sensitive === true && file.exists;
-  const content = !file?.exists
-    ? t('agents.fileNotCreated')
-    : sensitive
-      ? file.content || '••••••••'
-      : file.content;
+  const content = !file?.exists ? t('agents.fileNotCreated') : file.content;
   if (!file) {
     return (
       <div className="agent-config-preview">
@@ -686,13 +661,14 @@ function filterVisibleFields(
   drafts: Record<string, string>
 ): AgentNativeConfigFieldView[] {
   const fields = config?.fields ?? [];
-  if (fields.some((field) => field.id === 'codex_approval_policy')) {
+  if (fields.some((field) => CODEX_QUICK_FIELDS.has(field.id))) {
     const granular = drafts.codex_approval_policy === 'granular';
     return fields.filter(
       (field) =>
-        !CODEX_GRANULAR_APPROVAL_FIELDS.includes(field.id) ||
-        granular ||
-        field.present
+        !CODEX_QUICK_FIELDS.has(field.id) &&
+        (!CODEX_GRANULAR_APPROVAL_FIELDS.includes(field.id) ||
+          granular ||
+          field.present)
     );
   }
   if (config?.settings_features.includes('pi_configuration')) {

@@ -35,7 +35,7 @@ describe('ShortcutSettings', () => {
 
     await user.click(screen.getByRole('combobox'));
     await user.click(screen.getByRole('option', { name: 'Enter' }));
-    await user.click(screen.getByRole('button', { name: '保存设置' }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(

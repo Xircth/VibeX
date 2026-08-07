@@ -2,7 +2,7 @@
 
 /**
  * Cross-platform backend dev:watch launcher.
- * Replaces: DISABLE_WORKTREE_CLEANUP=1 RUST_LOG=debug cargo watch -w crates -x 'run --bin server'
+ * Replaces: DISABLE_WORKTREE_CLEANUP=1 RUST_LOG=debug cargo watch -w crates -x 'run --bin vibex-server'
  */
 
 const { spawn } = require("child_process");
@@ -24,7 +24,7 @@ if (env.CARGO_INCREMENTAL === "0") {
 }
 
 // Don't use shell: true — pass args as an array so they aren't re-split.
-const child = spawn("cargo", ["watch", "-w", "crates", "-x", "run --bin server"], {
+const child = spawn("cargo", ["watch", "-w", "crates", "-x", "run --bin vibex-server"], {
   env,
   stdio: "inherit",
 });

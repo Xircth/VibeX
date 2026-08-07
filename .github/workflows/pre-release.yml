@@ -300,7 +300,7 @@ jobs:
       - name: Build backend (Linux)
         if: runner.os == 'Linux' && !contains(matrix.target, 'windows')
         run: |
-          cargo zigbuild --release --target ${{ matrix.target }} -p server -p review --bin server --bin mcp_task_server --bin review
+          cargo zigbuild --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
 
@@ -312,7 +312,7 @@ jobs:
           elif [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
             export MACOSX_DEPLOYMENT_TARGET=11.0
           fi
-          cargo build --release --target ${{ matrix.target }} -p server -p review --bin server --bin mcp_task_server --bin review
+          cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
 
@@ -327,7 +327,7 @@ jobs:
             export DEFAULT_CC=clang-cl
             export CC_aarch64_pc_windows_msvc="${{ github.workspace }}/scripts/ring-cc-wrapper.sh"
           fi
-          cargo xwin build --cross-compiler clang-cl --release --target ${{ matrix.target }} -p server -p review --bin server --bin mcp_task_server --bin review
+          cargo xwin build --cross-compiler clang-cl --release --target ${{ matrix.target }} -p server -p vibex-mcp -p review --bin vibex-server --bin vibex-mcp --bin review
         env:
           VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
           # Avoid aws-lc-sys CMake failures when Rust's `release` profile includes debug info.
@@ -340,12 +340,12 @@ jobs:
         run: |
           mkdir -p dist
           if [[ "${{ matrix.name }}" == *"windows"* ]]; then
-            cp target/${{ matrix.target }}/release/server.exe dist/vibex-${{ matrix.name }}.exe
-            cp target/${{ matrix.target }}/release/mcp_task_server.exe dist/vibex-mcp-${{ matrix.name }}.exe
+            cp target/${{ matrix.target }}/release/vibex-server.exe dist/vibex-${{ matrix.name }}.exe
+            cp target/${{ matrix.target }}/release/vibex-mcp.exe dist/vibex-mcp-${{ matrix.name }}.exe
             cp target/${{ matrix.target }}/release/review.exe dist/vibex-review-${{ matrix.name }}.exe
           else
-            cp target/${{ matrix.target }}/release/server dist/vibex-${{ matrix.name }}
-            cp target/${{ matrix.target }}/release/mcp_task_server dist/vibex-mcp-${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/vibex-server dist/vibex-${{ matrix.name }}
+            cp target/${{ matrix.target }}/release/vibex-mcp dist/vibex-mcp-${{ matrix.name }}
             cp target/${{ matrix.target }}/release/review dist/vibex-review-${{ matrix.name }}
           fi
 
@@ -365,7 +365,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
         with:
-          input_path: target/${{ matrix.target }}/release/server
+          input_path: target/${{ matrix.target }}/release/vibex-server
           output_path: vibex
           p12_file: certificate.p12
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -380,7 +380,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: BloopAI/apple-code-sign-action@v1
         with:
-          input_path: target/${{ matrix.target }}/release/mcp_task_server
+          input_path: target/${{ matrix.target }}/release/vibex-mcp
           output_path: vibex-mcp
           p12_file: certificate.p12
           p12_password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}

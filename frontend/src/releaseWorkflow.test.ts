@@ -87,6 +87,8 @@ describe('release workflow contract', () => {
     expect(workflow).toContain('bundles: msi,nsis');
     expect(workflow).toContain('bundles: appimage,deb');
     expect(workflow).toContain('bundles: app,dmg');
+    expect(workflow).toContain('xdg-utils');
+    expect(workflow).toContain("printf 'APPLE_SIGNING_IDENTITY=%s\\n'");
     for (const extension of [
       '*.msi',
       '*.exe',

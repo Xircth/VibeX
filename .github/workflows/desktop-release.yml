@@ -143,6 +143,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
+            xdg-utils \
             xauth \
             xvfb
 
@@ -172,6 +173,9 @@ jobs:
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
         run: |
           certificate_path="$RUNNER_TEMP/vibex-release-certificate.p12"
@@ -197,6 +201,9 @@ jobs:
           security list-keychains -d user -s "$keychain_path" login.keychain-db
           security find-identity -v -p codesigning "$keychain_path"
 
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          printf 'APPLE_API_ISSUER=%s\n' "$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          printf 'APPLE_API_KEY=%s\n' "$APPLE_API_KEY" >> "$GITHUB_ENV"
           echo "APPLE_API_KEY_PATH=$api_key_path" >> "$GITHUB_ENV"
           echo "VIBEX_MACOS_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
@@ -247,9 +254,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ (github.event_name == 'push' || inputs.upload_to_release) && secrets.APPLE_API_KEY || '' }}
           APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         run: node scripts/run-tauri-build.js --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 

@@ -290,6 +290,7 @@ jobs:
 
       - name: Smoke-test macOS desktop startup
         if: runner.os == 'macOS'
+        timeout-minutes: 2
         run: |
           app_path="$(find "target/${{ matrix.target }}/release/bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
           test -n "$app_path"

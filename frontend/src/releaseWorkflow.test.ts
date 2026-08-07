@@ -90,6 +90,12 @@ describe('release workflow contract', () => {
     expect(workflow).toContain('xdg-utils');
     expect(workflow).toContain('NODE_OPTIONS: --max-old-space-size=6144');
     expect(workflow).toContain("printf 'APPLE_SIGNING_IDENTITY=%s\\n'");
+    expect(workflow).toMatch(
+      /name: Smoke-test macOS desktop startup[\s\S]*?timeout-minutes: 2/
+    );
+    expect(read('scripts/smoke-macos-desktop.sh')).toContain(
+      'kill -KILL "$app_pid"'
+    );
     for (const extension of [
       '*.msi',
       '*.exe',

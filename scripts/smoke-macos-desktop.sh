@@ -15,6 +15,15 @@ app_pid=$!
 cleanup() {
   if kill -0 "$app_pid" 2>/dev/null; then
     kill -TERM "$app_pid" 2>/dev/null || true
+    for _ in {1..10}; do
+      if ! kill -0 "$app_pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.5
+    done
+    if kill -0 "$app_pid" 2>/dev/null; then
+      kill -KILL "$app_pid" 2>/dev/null || true
+    fi
     wait "$app_pid" 2>/dev/null || true
   fi
 }
@@ -26,4 +35,3 @@ if ! kill -0 "$app_pid" 2>/dev/null; then
   echo "VibeX exited during the macOS startup smoke test." >&2
   exit 1
 fi
-

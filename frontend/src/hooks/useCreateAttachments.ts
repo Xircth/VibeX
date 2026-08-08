@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { imagesApi } from '@/lib/api';
-import type { LocalImageMetadata } from '@/components/ui/wysiwyg/context/task-attempt-context';
+import type { LocalImageMetadata } from '@/types/local-image-metadata';
 import type { ImageResponse } from 'shared/types';
 
 /**

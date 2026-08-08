@@ -5,10 +5,6 @@ import DisplayConversationEntry from './DisplayConversationEntry';
 const useTaskStoppingMock = vi.fn();
 const useUserSystemMock = vi.fn();
 
-vi.mock('@/components/ui/wysiwyg', () => ({
-  default: () => <div />,
-}));
-
 vi.mock('@/contexts/RetryUiContext', () => ({
   useRetryUi: () => ({
     isProcessGreyed: () => false,

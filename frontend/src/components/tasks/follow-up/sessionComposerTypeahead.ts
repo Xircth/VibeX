@@ -4,7 +4,7 @@ import {
   matchSlashCommandTrigger,
   matchTagReferenceTrigger,
   type TypeaheadTriggerMatch,
-} from '@/components/ui/wysiwyg/plugins/typeahead-triggers';
+} from './typeahead-triggers';
 import type { SessionComposerStructuredTokenSegment } from './sessionComposerStructuredTokens';
 import { matchAgentMentionTrigger } from './AgentMention';
 

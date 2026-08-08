@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/tooltip';
 import { approvalsApi } from '@/lib/api';
 import { Check, X } from 'lucide-react';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
 
 import { useTranslation } from 'react-i18next';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -161,14 +161,14 @@ function DenyReasonForm({
   const { t } = useTranslation(['conversation', 'common']);
   return (
     <div className="flex flex-col gap-2 p-4">
-      <WYSIWYGEditor
+      <InlineMarkdownComposer
         value={value}
         onChange={onChange}
         placeholder={t('pendingApproval.denyReasonPlaceholder')}
         disabled={isResponding}
         className="min-h-[80px]"
         projectId={projectId}
-        onCmdEnter={onSubmit}
+        onSubmit={onSubmit}
       />
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button

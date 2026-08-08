@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { AgentId } from 'shared/types';
 import type { BackendTransport } from '@/lib/backendTransport';
-import type { TypeaheadTriggerMatch } from '@/components/ui/wysiwyg/plugins/typeahead-triggers';
+import type { TypeaheadTriggerMatch } from './typeahead-triggers';
 
 export type AgentMention = {
   agent_kind: AgentId;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
 import { useReview, type ReviewDraft } from '@/contexts/ReviewProvider';
 import { Scope, useKeyExit, useKeySubmitComment } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
@@ -76,13 +76,13 @@ export function CommentWidgetLine({
 
   return (
     <div className="p-4 border-y bg-background">
-      <WYSIWYGEditor
+      <InlineMarkdownComposer
         value={value}
         onChange={setValue}
         placeholder="Add a comment... (type # to search tags or files)"
         className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
         projectId={projectId}
-        onCmdEnter={handleSave}
+        onSubmit={handleSave}
         autoFocus
       />
       <div className="mt-2 flex gap-2">

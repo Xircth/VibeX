@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { useReview, type ReviewComment } from '@/contexts/ReviewProvider';
 
@@ -41,13 +41,13 @@ export function ReviewCommentRenderer({
   if (isEditing) {
     return (
       <div className="border-y bg-background p-4">
-        <WYSIWYGEditor
+        <InlineMarkdownComposer
           value={editText}
           onChange={setEditText}
           placeholder="Edit comment... (type # to search tags or files)"
           className="w-full bg-background text-foreground text-sm font-mono min-h-[60px]"
           projectId={projectId}
-          onCmdEnter={handleSave}
+          onSubmit={handleSave}
           autoFocus
         />
         <div className="mt-2 flex gap-2">

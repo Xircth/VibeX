@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import WYSIWYGEditor, {
-  SESSION_INPUT_EDITOR_CLASS_NAME,
-  SESSION_INPUT_MARKDOWN_PRESET,
-} from '@/components/ui/wysiwyg';
+import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -87,15 +84,17 @@ export function RetryEditorInline({
   return (
     <div className="retry-editor-inline space-y-3">
       <div className="relative">
-        <WYSIWYGEditor
+        <InlineMarkdownComposer
           placeholder={t('retryEditor.placeholder')}
           value={message}
           onChange={setMessage}
           disabled={isSending}
-          onCmdEnter={handleCmdEnter}
-          className={cn(SESSION_INPUT_EDITOR_CLASS_NAME, 'retry-editor-input')}
-          markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
-          taskAttemptId={attemptId}
+          onSubmit={handleCmdEnter}
+          className={cn(
+            'min-h-[40px] overflow-y-auto break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]',
+            'retry-editor-input'
+          )}
+          maxRows={4}
         />
         {isSending && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/60">

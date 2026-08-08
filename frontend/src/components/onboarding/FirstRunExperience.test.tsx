@@ -494,4 +494,185 @@ describe('FirstRunExperience', () => {
     await user.click(defaultAgentPicker);
     expect(screen.getByRole('option', { name: 'Codex' })).toBeInTheDocument();
   });
+
+  it('shows a red prompt under the default picker when starting without a default Agent', async () => {
+    const user = userEvent.setup();
+    const onPersist = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={onPersist}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    const claudeToggle = await screen.findByRole('checkbox', {
+      name: '启用 Claude Code',
+    });
+    // 取消默认 Agent 后默认选择被清空；再启用 Codex → 有启用但无默认
+    await user.click(claudeToggle);
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+
+    const startButton = screen.getByRole('button', {
+      name: '开始安装并继续',
+    });
+    expect(startButton).toBeEnabled();
+    await user.click(startButton);
+
+    const prompt = screen.getByText('请选择一个默认 Agent');
+    expect(prompt).toHaveClass('onboarding-default-agent-prompt');
+    expect(prompt).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('combobox', { name: '默认 Agent' })).toHaveClass(
+      'has-error'
+    );
+    expect(managementMock.setEnabled).not.toHaveBeenCalled();
+    expect(managementMock.addAndInstall).not.toHaveBeenCalled();
+    expect(onPersist).not.toHaveBeenCalled();
+
+    // 选择默认 Agent 后红色提示消失，流程可继续
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    expect(screen.queryByText('请选择一个默认 Agent')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: '默认 Agent' })
+    ).not.toHaveClass('has-error');
+  });
+
+  it('prompts to enable Agents first when starting without any enabled Agent', async () => {
+    const user = userEvent.setup();
+    managementMock.refreshBar.mockResolvedValue([
+      agent({
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        lifecycle: 'ready',
+      }),
+      agent({ agent_id: 'codex', display_name: 'Codex' }),
+    ]);
+    const onPersist = vi.fn().mockResolvedValue(undefined);
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={onPersist}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+
+    const startButton = screen.getByRole('button', {
+      name: '开始安装并继续',
+    });
+    expect(startButton).toBeEnabled();
+    await user.click(startButton);
+
+    const prompt = screen.getByText('请先在上方选择希望启用的Agent');
+    expect(prompt).toHaveClass('onboarding-default-agent-prompt');
+    expect(managementMock.setEnabled).not.toHaveBeenCalled();
+    expect(managementMock.addAndInstall).not.toHaveBeenCalled();
+    expect(onPersist).not.toHaveBeenCalled();
+
+    // 启用一个 Agent 后提示消失
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    expect(
+      screen.queryByText('请先在上方选择希望启用的Agent')
+    ).not.toBeInTheDocument();
+  });
+
+  it('refreshes a stale registry snapshot before installing Agents', async () => {
+    const user = userEvent.setup();
+    managementMock.registry.mockResolvedValue({
+      snapshot_id: 'stale',
+      fetched_at: '2026-07-01T00:00:00Z',
+      fresh: false,
+      refresh_error: null,
+      installed: [],
+      uninstalled: [],
+    });
+    managementMock.refreshRegistry.mockResolvedValue({
+      snapshot_id: 'snapshot',
+      fetched_at: '2026-08-04T00:00:00Z',
+      fresh: true,
+      refresh_error: null,
+      installed: [],
+      uninstalled: [],
+    });
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+
+    await waitFor(() => {
+      expect(managementMock.refreshRegistry).toHaveBeenCalled();
+      expect(managementMock.addAndInstall).toHaveBeenCalledWith('codex');
+    });
+  });
+
+  it('continues installation when the registry snapshot check fails', async () => {
+    const user = userEvent.setup();
+    managementMock.registry.mockRejectedValue(new Error('offline'));
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+
+    await waitFor(() => {
+      expect(managementMock.addAndInstall).toHaveBeenCalledWith('codex');
+    });
+  });
+
+  it('keeps the start button disabled while the editor command is invalid', async () => {
+    const user = userEvent.setup();
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={{
+          editor_type: EditorType.CUSTOM,
+          custom_command: '',
+          remote_ssh_host: null,
+          remote_ssh_user: null,
+        }}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+    expect(
+      screen.getByRole('button', { name: '开始安装并继续' })
+    ).toBeDisabled();
+  });
 });

@@ -15,6 +15,11 @@ import { cn } from '@/lib/utils';
 
 import type { OnboardingAgentOption } from './onboardingAgentModel';
 
+export type AgentValidationError =
+  | 'enabled-required'
+  | 'default-required'
+  | null;
+
 const LOADING_AGENT_ROWS = 4;
 
 function DefaultAgentLabel({ agent }: { agent: OnboardingAgentOption }) {
@@ -45,6 +50,7 @@ export function AgentSetupPicker({
   defaultAgentId,
   loading,
   error,
+  validationError,
   onRetry,
   onEnabledChange,
   onDefaultChange,
@@ -54,6 +60,7 @@ export function AgentSetupPicker({
   defaultAgentId: AgentId | null;
   loading: boolean;
   error: string | null;
+  validationError: AgentValidationError;
   onRetry: () => void;
   onEnabledChange: (agentId: AgentId, enabled: boolean) => void;
   onDefaultChange: (agentId: AgentId) => void;
@@ -65,6 +72,13 @@ export function AgentSetupPicker({
     enabledAgentIds.has(agent.agentId)
   );
   const hasEnabledAgents = enabledAgents.length > 0;
+  const showEnabledAgentsPrompt =
+    (showEnableAgentPrompt || validationError === 'enabled-required') &&
+    !hasEnabledAgents;
+  const showDefaultRequiredPrompt =
+    validationError === 'default-required' &&
+    hasEnabledAgents &&
+    defaultAgentId === null;
 
   useEffect(() => {
     if (hasEnabledAgents) {
@@ -208,7 +222,7 @@ export function AgentSetupPicker({
         </label>
         <div className="onboarding-default-agent-control">
           <Select
-            value={defaultAgentId ?? undefined}
+            value={defaultAgentId ?? ''}
             open={defaultAgentOpen}
             onOpenChange={(open) => {
               if (open && !hasEnabledAgents) {
@@ -224,11 +238,14 @@ export function AgentSetupPicker({
               id="onboarding-default-agent"
               aria-disabled={!hasEnabledAgents}
               aria-describedby={
-                showEnableAgentPrompt && !hasEnabledAgents
+                showEnabledAgentsPrompt || showDefaultRequiredPrompt
                   ? 'onboarding-default-agent-prompt'
                   : undefined
               }
-              className={cn(!hasEnabledAgents && 'is-awaiting-agent-selection')}
+              className={cn(
+                !hasEnabledAgents && 'is-awaiting-agent-selection',
+                showDefaultRequiredPrompt && 'has-error'
+              )}
             >
               <SelectValue
                 placeholder={t('onboarding.selectDefaultAgentPlaceholder')}
@@ -245,13 +262,15 @@ export function AgentSetupPicker({
               ))}
             </SelectContent>
           </Select>
-          {showEnableAgentPrompt && !hasEnabledAgents ? (
+          {showEnabledAgentsPrompt || showDefaultRequiredPrompt ? (
             <p
               id="onboarding-default-agent-prompt"
               className="onboarding-default-agent-prompt"
-              role="status"
+              role="alert"
             >
-              {t('onboarding.selectEnabledAgentsFirst')}
+              {showEnabledAgentsPrompt
+                ? t('onboarding.selectEnabledAgentsFirst')
+                : t('onboarding.selectDefaultAgentRequired')}
             </p>
           ) : null}
         </div>

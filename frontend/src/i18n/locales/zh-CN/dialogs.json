@@ -244,6 +244,7 @@
     "enabledAgents": "启用的 Agent",
     "defaultAgent": "默认 Agent",
     "selectDefaultAgentPlaceholder": "选择默认 Agent",
+    "selectDefaultAgentRequired": "请选择一个默认 Agent",
     "selectEnabledAgentsFirst": "请先在上方选择希望启用的Agent",
     "detectingAgents": "正在进行本地Agent检查",
     "agentLoadFailed": "无法读取 Agent 列表",

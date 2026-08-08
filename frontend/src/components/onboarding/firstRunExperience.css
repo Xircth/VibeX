@@ -634,9 +634,13 @@
   cursor: pointer;
 }
 
+.onboarding-default-agent-control .has-error {
+  border-color: hsl(var(--destructive) / 0.7);
+}
+
 .onboarding-default-agent-prompt {
   margin: 0;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--destructive));
   font-size: 10px;
   line-height: 1.4;
   text-align: right;

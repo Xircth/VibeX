@@ -21,6 +21,7 @@ import { settingsWindowApi } from '@/lib/api';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 import { AgentSetupPicker } from './AgentSetupPicker';
+import type { AgentValidationError } from './AgentSetupPicker';
 import {
   buildOnboardingAgentOptions,
   classifyOnboardingInstallResult,
@@ -135,6 +136,8 @@ export function FirstRunExperience({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [validationError, setValidationError] =
+    useState<AgentValidationError>(null);
   const agentCheckStartedRef = useRef(false);
   const handoffCompleteRef = useRef(false);
   const deferredResultsRef = useRef<SetupResult[]>([]);
@@ -311,6 +314,7 @@ export function FirstRunExperience({
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true);
     setLoadError(null);
+    setValidationError(null);
     try {
       const [managedResult, registryResult] = await Promise.allSettled([
         agentManagementApi.refreshBar(),
@@ -495,12 +499,14 @@ export function FirstRunExperience({
     });
     setEnabledAgentIds(normalized.enabledAgentIds);
     setDefaultAgentId(normalized.defaultAgentId);
+    setValidationError(null);
   };
 
   const selectDefault = (agentId: AgentId) => {
     const normalized = selectDefaultOnboardingAgent(enabledAgentIds, agentId);
     setEnabledAgentIds(normalized.enabledAgentIds);
     setDefaultAgentId(normalized.defaultAgentId);
+    setValidationError(null);
   };
 
   const handleSkip = async () => {
@@ -523,7 +529,16 @@ export function FirstRunExperience({
   };
 
   const handleStartSetup = async () => {
-    if (!defaultAgentId || enabledAgentIds.size === 0 || submitting) return;
+    if (submitting || !editorValid) return;
+    if (enabledAgentIds.size === 0) {
+      setValidationError('enabled-required');
+      return;
+    }
+    if (!defaultAgentId) {
+      setValidationError('default-required');
+      return;
+    }
+    setValidationError(null);
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -551,6 +566,16 @@ export function FirstRunExperience({
       const selectedAgents = agents.filter((agent) =>
         enabledAgentIds.has(agent.agentId)
       );
+      if (selectedAgents.some((agent) => agent.needsInstallation)) {
+        try {
+          const registryView = await agentManagementApi.registry();
+          if (!registryView.fresh) {
+            await agentManagementApi.refreshRegistry();
+          }
+        } catch {
+          // Registry 快照不可用时继续：addAndInstall 会返回明确错误，由安装失败提示呈现。
+        }
+      }
       selectedAgents.forEach((agent) => {
         if (!agent.needsInstallation) {
           void agentManagementApi
@@ -607,8 +632,6 @@ export function FirstRunExperience({
 
   const editorValid =
     editor.editor_type !== 'CUSTOM' || Boolean(editor.custom_command?.trim());
-  const canContinue =
-    defaultAgentId !== null && enabledAgentIds.size > 0 && editorValid;
 
   if (!visible) return null;
 
@@ -700,6 +723,7 @@ export function FirstRunExperience({
                     defaultAgentId={defaultAgentId}
                     loading={loadingAgents}
                     error={loadError}
+                    validationError={validationError}
                     onRetry={() => void loadAgents()}
                     onEnabledChange={toggleAgent}
                     onDefaultChange={selectDefault}
@@ -750,7 +774,7 @@ export function FirstRunExperience({
                 <button
                   type="button"
                   className="onboarding-skip-button"
-                  disabled={!canContinue || submitting}
+                  disabled={submitting || !editorValid}
                   onClick={() => void handleStartSetup()}
                 >
                   {submitting

@@ -244,6 +244,7 @@
     "enabledAgents": "Enabled Agents",
     "defaultAgent": "Default Agent",
     "selectDefaultAgentPlaceholder": "Choose a default Agent",
+    "selectDefaultAgentRequired": "Please choose a default Agent",
     "selectEnabledAgentsFirst": "Choose the Agents to enable above first",
     "detectingAgents": "Checking local Agents…",
     "agentLoadFailed": "Unable to load the Agent list",

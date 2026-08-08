@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -180,7 +180,9 @@ describe('PluginActionEditor', () => {
     expect(
       screen.queryByRole('status', { name: 'OfficeCLI 安装进度' })
     ).not.toBeInTheDocument();
-    expect(onReadyChange).toHaveBeenLastCalledWith(true);
+    await waitFor(() =>
+      expect(onReadyChange).toHaveBeenLastCalledWith(true)
+    );
     expect(call).toHaveBeenCalledTimes(3);
   });
 

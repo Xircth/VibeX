@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import type { JSX } from 'react';
 import {
   $createTextNode,
   $getNodeByKey,

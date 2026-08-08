@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import type { JSX } from 'react';
 import { NodeKey, SerializedLexicalNode, Spread, $getNodeByKey } from 'lexical';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { HelpCircle, Loader2, X } from 'lucide-react';

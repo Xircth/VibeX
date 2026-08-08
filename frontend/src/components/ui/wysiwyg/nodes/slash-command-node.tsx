@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import type { JSX } from 'react';
 import {
   DecoratorNode,
   LexicalNode,

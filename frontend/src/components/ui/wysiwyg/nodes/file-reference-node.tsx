@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import type { JSX } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import type { TextMatchTransformer } from '@lexical/markdown';
 import {

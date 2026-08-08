@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { JSX } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, ScrollText, Terminal as TerminalIcon, X } from 'lucide-react';
 import type { IDockviewPanelProps } from 'dockview-react';

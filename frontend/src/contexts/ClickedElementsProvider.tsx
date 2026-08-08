@@ -415,7 +415,7 @@ export function ClickedElementsProvider({
   const [syncedContainerRef, setSyncedContainerRef] = useState<
     string | undefined
   >();
-  const prevAttemptIdRef = useRef<string | undefined>();
+  const prevAttemptIdRef = useRef<string | undefined>(undefined);
 
   // Effective values: prop takes precedence over synced state
   const effectiveAttemptId = attempt?.id ?? syncedAttemptId;

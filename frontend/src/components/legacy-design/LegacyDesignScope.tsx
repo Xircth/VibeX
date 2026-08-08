@@ -2,6 +2,12 @@ import { ReactNode, useState } from 'react';
 import { PortalContainerContext } from '@/contexts/PortalContainerContext';
 import NiceModal from '@ebay/nice-modal-react';
 import { cn } from '@/lib/utils';
+import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
+import { neutralTheme } from '@astryxdesign/theme-neutral/built';
+// Astryx CSS cascade: reset → component styles → theme token overrides.
+import '@astryxdesign/core/reset.css';
+import '@astryxdesign/core/astryx.css';
+import '@astryxdesign/theme-neutral/theme.css';
 import '@/styles/legacy/index.css';
 
 export const TAHOE_DESIGN_SCOPE_CLASS = 'legacy-design';
@@ -31,7 +37,9 @@ export function LegacyDesignScope({
     >
       {container && (
         <PortalContainerContext.Provider value={container}>
-          <NiceModal.Provider>{children}</NiceModal.Provider>
+          <AstryxTheme theme={neutralTheme}>
+            <NiceModal.Provider>{children}</NiceModal.Provider>
+          </AstryxTheme>
         </PortalContainerContext.Provider>
       )}
     </div>

@@ -30,6 +30,12 @@ importers:
 
   frontend:
     dependencies:
+      '@astryxdesign/core':
+        specifier: 0.3.0
+        version: 0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/theme-neutral':
+        specifier: ^0.3.0
+        version: 0.3.0(@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@codemirror/lang-json':
         specifier: ^6.0.2
         version: 6.0.2
@@ -126,6 +132,9 @@ importers:
       '@rjsf/utils':
         specifier: 6.1.1
         version: 6.1.1(react@19.2.8)
+      '@stylexjs/stylex':
+        specifier: ^0.19.0
+        version: 0.19.0
       '@tanstack/react-form':
         specifier: ^1.23.8
         version: 1.23.8(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -424,6 +433,19 @@ packages:
 
   '@asamuzakjp/nwsapi@2.3.9':
     resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
+
+  '@astryxdesign/core@0.3.0':
+    resolution: {integrity: sha512-t2hHvR7AcwW0oKrnxCwbdEEE5Ytgy0Ug61DcYAl9BxAuV5z4XL0/kMo5DiPvX9jbDxzysmOa8ClnXqzxouRUVQ==}
+    peerDependencies:
+      '@stylexjs/stylex': ^0.19.0
+      react: '>=19.0.0'
+      react-dom: '>=19.0.0'
+
+  '@astryxdesign/theme-neutral@0.3.0':
+    resolution: {integrity: sha512-CeKRfmTEtww60WZK4pSlW7bheBNyVPpgEliiXXUHRStXgcXOhwiUA3D/cXhMJlEx+VRgVxnzl0hMbWIr42RaVQ==}
+    peerDependencies:
+      '@astryxdesign/core': 0.3.0
+      react: '>=19'
 
   '@babel/code-frame@7.27.1':
     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
@@ -963,6 +985,15 @@ packages:
 
   '@fontsource-variable/noto-sans-sc@5.3.0':
     resolution: {integrity: sha512-lNar1dF7Ik/lHNPo/7JWG0TolXY29LtsqYgMvEysooZ5bsO9uH4shJmRrwyJ3PjyTPljhpMJEK0jDuLSU4vJ1w==}
+
+  '@formatjs/fast-memoize@3.1.7':
+    resolution: {integrity: sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA==}
+
+  '@formatjs/icu-messageformat-parser@3.5.16':
+    resolution: {integrity: sha512-kl6b/4D56gjGZi4ZewSmvXbalHwjOUI5ogEHPZqw42goeXTTrL7/yuPzvdrvr0QigDtvaOeb+UeMf62jks43Yg==}
+
+  '@formatjs/icu-skeleton-parser@2.1.11':
+    resolution: {integrity: sha512-j8cUmOJzVgkHuS0QiQ6ga76UIoLOFSAMWhs7aZJztH3aAdCOAE6vpC8KVvFB4cU10ON0y2/5oOVmPJ43s2lTwA==}
 
   '@git-diff-view/core@0.0.30':
     resolution: {integrity: sha512-CyYi/y1q543aYeWQO9c+1awfRh47dPF7n4SNQQVl5I6U2NH4Ctg8eON6e2bIEd4dom/awZ1Hb8kTvaesBpfxJA==}
@@ -2008,6 +2039,9 @@ packages:
   '@shikijs/vscode-textmate@10.0.2':
     resolution: {integrity: sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg==}
 
+  '@stylexjs/stylex@0.19.0':
+    resolution: {integrity: sha512-CnUFp7YMaDLDeemsWOfJgoC/gKM5P/yBNMcpJaE6ChJmXr7s0DJwSeGTTlHJcqqwN9OW1qGtmARWLFhGZN1pTA==}
+
   '@tanstack/devtools-event-client@0.3.4':
     resolution: {integrity: sha512-eq+PpuutUyubXu+ycC1GIiVwBs86NF/8yYJJAKSpPcJLWl6R/761F1H4F/9ziX6zKezltFUH1ah3Cz8Ah+KJrw==}
     engines: {node: '>=18'}
@@ -2737,6 +2771,9 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
+  css-mediaquery@0.1.2:
+    resolution: {integrity: sha512-COtn4EROW5dBGlE/4PiKnh6rZpAPxDeFLaEEwt4i10jpDMFt2EhQGS79QmmrO+iKCHv0PU/HrOWEhijFd1x99Q==}
+
   css-tree@3.2.1:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
@@ -3458,6 +3495,12 @@ packages:
     resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
     engines: {node: '>=12'}
 
+  intl-messageformat@11.2.13:
+    resolution: {integrity: sha512-JaPaE6TIX+TAS5XLhDUh41geLw4QfBHX4s5pW8Km+L9fVC8HzB9yOuhbh4EMR/F1+8C6b9qk4763Cv+LdOG1kg==}
+
+  invariant@2.2.4:
+    resolution: {integrity: sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==}
+
   is-alphabetical@2.0.1:
     resolution: {integrity: sha512-FWyyY60MeTNyeSRpkM2Iry0G9hpr7/9kD40mD/cGQEuilcZYS4okz8SN2Q6rLCJ8gbCt6fN+rC+6tMGS99LaxQ==}
 
@@ -3654,6 +3697,11 @@ packages:
 
   lucide-react@0.539.0:
     resolution: {integrity: sha512-VVISr+VF2krO91FeuCrm1rSOLACQUYVy7NQkzrOty52Y8TlTPcXcMdQFj9bYzBgXbWCiywlwSZ3Z8u6a+6bMlg==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lucide-react@1.30.0:
+    resolution: {integrity: sha512-tUIr2jXLbWpCkdtH8XP7P7YppM9ueWgTky99lpWDY6z5REs6B+O6ZQ3U5tHkUUY59ANyOv/PBcs8E4Fe3KO3eA==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -4423,6 +4471,9 @@ packages:
   style-to-object@1.0.14:
     resolution: {integrity: sha512-LIN7rULI0jBscWQYaSswptyderlarFkjQ+t79nzty8tcIAceVomEVlLzH5VP4Cmsv6MtKhs7qaAiwlcp+Mgaxw==}
 
+  styleq@0.2.1:
+    resolution: {integrity: sha512-L0TR0NQb+X4/ktDEKmjWyp27gla+LUYi/by5k5SjKXf6/pvZP7wbwEB5J+tqxdFVPgzbsuz+d4RTScO/QZquBw==}
+
   stylis@4.4.0:
     resolution: {integrity: sha512-5Z9ZpRzfuH6l/UAvCPAPUo3665Nk2wLaZU3x+TLHKVzIz33+sbJqbtrYoC3KD4/uVOr2Zp+L0LySezP9OHV9yA==}
 
@@ -4920,6 +4971,19 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
+  '@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@stylexjs/stylex': 0.19.0
+      intl-messageformat: 11.2.13
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
+
+  '@astryxdesign/theme-neutral@0.3.0(@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@astryxdesign/core': 0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react: 1.30.0(react@19.2.8)
+      react: 19.2.8
+
   '@babel/code-frame@7.27.1':
     dependencies:
       '@babel/helper-validator-identifier': 7.27.1
@@ -5381,6 +5445,14 @@ snapshots:
   '@floating-ui/utils@0.2.10': {}
 
   '@fontsource-variable/noto-sans-sc@5.3.0': {}
+
+  '@formatjs/fast-memoize@3.1.7': {}
+
+  '@formatjs/icu-messageformat-parser@3.5.16':
+    dependencies:
+      '@formatjs/icu-skeleton-parser': 2.1.11
+
+  '@formatjs/icu-skeleton-parser@2.1.11': {}
 
   '@git-diff-view/core@0.0.30':
     dependencies:
@@ -6486,6 +6558,12 @@ snapshots:
 
   '@shikijs/vscode-textmate@10.0.2': {}
 
+  '@stylexjs/stylex@0.19.0':
+    dependencies:
+      css-mediaquery: 0.1.2
+      invariant: 2.2.4
+      styleq: 0.2.1
+
   '@tanstack/devtools-event-client@0.3.4': {}
 
   '@tanstack/form-core@1.24.4':
@@ -7296,6 +7374,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  css-mediaquery@0.1.2: {}
 
   css-tree@3.2.1:
     dependencies:
@@ -8114,6 +8194,15 @@ snapshots:
 
   internmap@2.0.3: {}
 
+  intl-messageformat@11.2.13:
+    dependencies:
+      '@formatjs/fast-memoize': 3.1.7
+      '@formatjs/icu-messageformat-parser': 3.5.16
+
+  invariant@2.2.4:
+    dependencies:
+      loose-envify: 1.4.0
+
   is-alphabetical@2.0.1: {}
 
   is-alphanumerical@2.0.1:
@@ -8293,6 +8382,10 @@ snapshots:
   lru_map@0.4.1: {}
 
   lucide-react@0.539.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
+
+  lucide-react@1.30.0(react@19.2.8):
     dependencies:
       react: 19.2.8
 
@@ -9308,6 +9401,8 @@ snapshots:
   style-to-object@1.0.14:
     dependencies:
       inline-style-parser: 0.2.7
+
+  styleq@0.2.1: {}
 
   stylis@4.4.0: {}
 

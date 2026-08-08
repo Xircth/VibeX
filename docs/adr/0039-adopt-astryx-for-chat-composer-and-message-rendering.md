@@ -57,10 +57,13 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    `components.code` 自定义接入（自研 `MermaidDiagram` 原样复用），随后移除
    `react-markdown` / `remark-*` / `rehype-katex` 依赖。
 6. **tool call 渲染**：`ToolCards` → `ChatToolCalls`，`ToolStatus` 映射到
-   `ChatToolCallStatus`（pending/running/complete/error），专用卡片（`PlanCard`、
-   `UnifiedDiffPreview` 等）映射为 `resultDetail`。`PendingApprovalEntry` 作为
-   审批状态包装器原样保留（审批 UI 自研，与渲染组件正交），其包裹的内容层
-   统一走 `ChatToolCalls`。
+   `ChatToolCallStatus`（pending/running/complete/error）。落地形态（2026-08-08
+   实施核对后修正）：`ToolCardShell` 保持 props API（10 个卡片组件零改动），
+   内部引擎替换为单 call `ChatToolCalls` 行渲染；受控展开、actions（行右侧）、
+   状态 class 保留 —— ChatToolCalls 行级展开不可控，审批 `forceExpanded` 依赖的
+   外部展开状态得以保留，故专用卡片（`PlanCard`、`UnifiedDiffPreview` 等）不改为
+   `resultDetail` 而继续作为 shell 的受控展开内容。`PendingApprovalEntry` 作为
+   审批状态包装器原样保留（审批 UI 自研，与渲染组件正交）。
 
 ## Considered Options
 
@@ -113,12 +116,11 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
      随后删除 `wysiwyg/` 目录与 `lexical` 8 包。交付标准：全仓库无 lexical import，
      相关测试重写完成。
 4. **阶段 3**：替换 `Markdown`（KaTeX/Mermaid 经 `components.code` 自定义接入，
-   移除 `react-markdown`/`remark-*`/`rehype-*`）与 `ChatToolCalls`（内容层替换，
-   `PendingApprovalEntry` 包装器保留）。
-5. **阶段 4**：按清单批量替换其余组件 —— 替换 VibeX 实际使用且 Astryx 有对应物的
-   Radix 封装并删包（`DropdownMenu`/`Popover`/`Selector`/`Switch`/`Tooltip`/
-   `ProgressBar`/`ToggleButtonGroup`/`Accordion`/`Label`/`Breadcrumbs` 等）；
-   `ScrollArea`/`Slot` 无对应物保留；`cmdk` 残留直接删除。
+   移除 `react-markdown`/`remark-*`/`rehype-*`）与 `ChatToolCalls`（落地为
+   `ToolCardShell` 内部引擎替换，`PendingApprovalEntry` 包装器保留）。
+5. **阶段 4**：残留清理 —— `cmdk` 残留直接删除；Radix 封装**保留不替换**（用户决策
+   2026-08-08：11 个 shadcn 封装工作正常且已用 VibeX tokens，替换仅带来视觉变化
+   与适配成本，`ScrollArea`/`Slot` 亦无 Astryx 对应物）。
 
 ## 其他可替换/新增组件（后续阶段候选）
 

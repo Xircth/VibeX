@@ -11,12 +11,10 @@ const imageMocks = vi.hoisted(() => ({
   useImageMetadata: vi.fn(),
 }));
 
-vi.mock('@/components/ui/wysiwyg', () => ({
-  default: ({ value }: { value: string }) => (
-    <div data-testid="readonly-wysiwyg">{value}</div>
+vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
+  AstryxMarkdown: ({ children }: { children: string }) => (
+    <div data-testid="readonly-wysiwyg">{children}</div>
   ),
-  SESSION_INPUT_MARKDOWN_PRESET: {},
-  SESSION_INPUT_TEXT_CLASS_NAME: 'session-input-text',
 }));
 
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({

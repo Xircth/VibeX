@@ -16,11 +16,11 @@ import {
   Pencil,
   Undo2,
 } from 'lucide-react';
-import WYSIWYGEditor, {
-  SESSION_INPUT_MARKDOWN_PRESET,
-  SESSION_INPUT_TEXT_CLASS_NAME,
-} from '@/components/ui/wysiwyg';
+import { AstryxMarkdown } from './AstryxMarkdown';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
+
+const SESSION_INPUT_TEXT_CLASS_NAME =
+  'break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]';
 import { AgentCapability } from '@/lib/api/config';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -540,14 +540,12 @@ const UserMessage = ({
                     data-testid="user-message-structured-tokens"
                   />
                 ) : (
-                  <WYSIWYGEditor
-                    value={displayText}
-                    disabled
-                    className={SESSION_INPUT_TEXT_CLASS_NAME}
-                    markdownPreset={SESSION_INPUT_MARKDOWN_PRESET}
+                  <AstryxMarkdown
                     taskAttemptId={taskAttempt?.id}
-                    hideReadOnlyActions
-                  />
+                    className={SESSION_INPUT_TEXT_CLASS_NAME}
+                  >
+                    {displayText}
+                  </AstryxMarkdown>
                 )}
                 {isCollapseMeasured && needsCollapse && isCollapsed && (
                   <div className="conv-user-collapsible-overlay" />

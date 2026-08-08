@@ -1,7 +1,7 @@
 import '@/styles/conversation.css';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { AstryxMarkdown } from './AstryxMarkdown';
 import {
   ActionType,
   NormalizedEntry,
@@ -183,12 +183,12 @@ function DisplayConversationEntry({
               tool: feedbackEntry.denied_tool,
             })}
           </div>
-          <WYSIWYGEditor
-            value={entry.content}
-            disabled
-            className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
+          <AstryxMarkdown
             taskAttemptId={taskAttempt?.id}
-          />
+            className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
+          >
+            {entry.content}
+          </AstryxMarkdown>
         </div>
       </div>
     );

@@ -1,7 +1,7 @@
 import { Check, Circle, CircleDot, ClipboardList } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ActionType, NormalizedEntry, TodoItem } from 'shared/types';
-import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { AstryxMarkdown } from '../AstryxMarkdown';
 import { useExpandable } from '@/stores/useExpandableStore';
 import {
   ToolCardShell,
@@ -177,12 +177,12 @@ export function PlanCard({
         </ol>
       ) : (
         <div className="conv-tool-details-content font-sans text-sm">
-          <WYSIWYGEditor
-            value={planData.raw}
-            disabled
-            className="whitespace-pre-wrap break-words"
+          <AstryxMarkdown
             taskAttemptId={taskAttemptId}
-          />
+            className="whitespace-pre-wrap break-words"
+          >
+            {planData.raw}
+          </AstryxMarkdown>
         </div>
       )}
     </ToolCardShell>

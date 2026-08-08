@@ -30,9 +30,9 @@ vi.mock('@/components/common/RawLogText', () => ({
   default: ({ content }: { content: string }) => <pre>{content}</pre>,
 }));
 
-vi.mock('@/components/ui/wysiwyg', () => ({
-  default: ({ value }: { value: string }) => (
-    <div data-testid="wysiwyg">{value}</div>
+vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
+  AstryxMarkdown: ({ children }: { children: string }) => (
+    <div data-testid="wysiwyg">{children}</div>
   ),
 }));
 

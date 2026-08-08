@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import WYSIWYGEditor from '@/components/ui/wysiwyg';
+import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { useReview, type ReviewComment } from '@/contexts/ReviewProvider';
 
 interface ReviewCommentRendererProps {
@@ -68,13 +69,15 @@ export function ReviewCommentRenderer({
 
   return (
     <div className="border-y bg-background p-4">
-      <WYSIWYGEditor
-        value={comment.text}
-        disabled={true}
-        className="text-sm"
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
+      <AstryxMarkdown className="text-sm">{comment.text}</AstryxMarkdown>
+      <div className="mt-2 flex gap-2">
+        <Button size="xs" variant="ghost" onClick={handleEdit}>
+          Edit
+        </Button>
+        <Button size="xs" variant="ghost" onClick={handleDelete}>
+          Delete
+        </Button>
+      </div>
     </div>
   );
 }

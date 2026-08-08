@@ -62,7 +62,6 @@
     "@xterm/xterm": "^5.5.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
-    "cmdk": "^1.1.1",
     "dockview": "^5.1.0",
     "dockview-core": "^5.1.0",
     "dockview-react": "^5.1.0",

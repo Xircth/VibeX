@@ -26,6 +26,35 @@ VibeX 会话输入体系(`SessionComposerInput` + Lexical `WYSIWYGEditor` 9 处�
 阶段 4  批量替换 Radix 封装;删除 cmdk 残留
 ```
 
+## 执行状态(2026-08-08 更新)
+
+| 阶段 | 状态 | 提交 |
+| --- | --- | --- |
+| 0 React 19(19.2.8) | ✅ | `d5a51f55` |
+| 1 Astryx 引入 | ✅ | `91a49cc2` |
+| 2a 输入框 → ChatComposerInput | ✅ | `aaef4c71` |
+| 2b 只读渲染 → AstryxMarkdown | ✅ | `4cf34243` |
+| 2c 编辑场景 + 移除 lexical | ✅ | `47df67fd` |
+| 3a Markdown(KaTeX/Mermaid)+ 移除 react-markdown 生态 | ✅ | `b6fc4742` |
+| 4 cmdk 残留清理 | ✅ | `7fb22e49` |
+| 3b ToolCards → ChatToolCalls | ⏳ 待决策 | — |
+| 4 Radix 按需替换 | ⏳ 待决策 | — |
+
+**3b 成本评估(实施前核对)**:`ToolCardShell` 被 10 个卡片组件与 `MessageTurnView`
+深层使用;`ChatToolCalls` 无 actions API(现有卡片的开文件/复制/打开链接等交互
+无处安放)、无 forceExpanded(审批强制展开需受控 isExpanded 兜底)、状态仅 4 态
+(现有 statusAppearance 有 denied/timed_out 细分)。全量替换 = 10+ 组件剥壳 +
+`ToolCards.test.tsx` 18 项重写 + 交互适配。**收益为视觉统一,成本显著**。
+**阶段 4 Radix 评估**:11 个 shadcn 封装重写为 Astryx 兼容层(保持项目内 API 不变)
+工作量大且改变视觉,`ScrollArea`/`Slot` 无对应物保留。
+
+已确认的已知差异(随 2a/3a 测试记录):
+- 受控回填 token 显示为纯文本(Astryx `deserialize` 为预留 API)
+- 无代码围栏感知(`&`/`$` 在代码块内也会触发菜单)
+- 复制 chip 得 label 而非序列化文本;token 后保留 NBSP
+- `$` 菜单不再常显;`!` 无菜单 Header
+- 块级 memo 优化由 Astryx 整体解析替代(流式性能待 GUI 验证)
+
 ## 阶段 0:React 19 升级
 
 - 内容:`react`/`react-dom` 升至 `^19`,`@types/react`/`@types/react-dom` 同步;

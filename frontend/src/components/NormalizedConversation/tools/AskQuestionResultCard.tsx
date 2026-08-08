@@ -52,6 +52,7 @@ export function AskQuestionResultCard({
       detail={answer ? `${question} -> ${answer}` : question}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
+      status={toolEntry.status}
       expanded
       expandable={false}
     >

@@ -60,6 +60,7 @@ type Props = {
   taskAttempt?: WorkspaceWithSession;
   task?: TaskWithAttemptStatus;
   hideToolLabel?: boolean;
+  toolDetailOnly?: boolean;
 };
 
 /*******************
@@ -83,6 +84,7 @@ function DisplayConversationEntry({
   taskAttempt,
   task,
   hideToolLabel = false,
+  toolDetailOnly = false,
 }: Props) {
   const isNormalizedEntry = (
     entry: NormalizedEntry | ProcessStartPayload
@@ -291,7 +293,11 @@ function DisplayConversationEntry({
 
     const content = (
       <div
-        className={`px-4 py-1 text-sm space-y-1 ${greyed ? 'opacity-50 pointer-events-none' : ''}`}
+        className={cn(
+          'text-sm space-y-1',
+          toolDetailOnly ? 'p-0' : 'px-4 py-1',
+          greyed && 'opacity-50 pointer-events-none'
+        )}
       >
         {body}
       </div>
@@ -312,7 +318,11 @@ function DisplayConversationEntry({
   };
 
   if (isToolUse) {
-    return <div className="conv-entry-item">{renderToolUse()}</div>;
+    return toolDetailOnly ? (
+      renderToolUse()
+    ) : (
+      <div className="conv-entry-item">{renderToolUse()}</div>
+    );
   }
 
   // Phase 3: Show thinking blocks for ALL executors (removed CODEX restriction)

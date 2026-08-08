@@ -374,6 +374,34 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('removes a resolved session notice from a realtime row-op batch', () => {
+    const notice = timelineRow('notice:agent-binding-load-failed', 1n, {
+      kind: 'session_notice',
+      notice: {
+        title: '加载代理会话失败',
+        message: 'session/load failed: no rollout found',
+        severity: 'warning',
+      },
+    });
+    let state = loaded([notice]);
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'delete',
+            row_id: notice.row_id,
+            revision: 2n,
+          },
+        ],
+        2n
+      ),
+    });
+
+    expect(sideRowsForEntry(entryOf(state))).toEqual([]);
+  });
+
   it('shows a pending assistant bubble after an optimistic user turn', () => {
     let state = loaded();
     state = conversationStoreReducer(state, {

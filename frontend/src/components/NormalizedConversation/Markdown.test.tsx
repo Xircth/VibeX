@@ -137,6 +137,14 @@ describe('Markdown', () => {
     expect(image).toHaveAttribute('src', 'https://example.com/image.png');
   });
 
+  it('renders bare GFM URLs as links', () => {
+    renderMarkdown('See https://example.com/docs for details.');
+
+    expect(
+      screen.getByRole('link', { name: 'https://example.com/docs' })
+    ).toHaveAttribute('href', 'https://example.com/docs');
+  });
+
   it('renders data-uri markdown images inline', () => {
     renderMarkdown('![Generated image](<data:image/png;base64,abc123>)');
 
@@ -184,6 +192,22 @@ describe('Markdown', () => {
     renderMarkdown('[manager.rs](crates/agents/src/manager.rs)');
 
     fireEvent.click(screen.getByRole('link', { name: 'manager.rs' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/crates/agents/src/manager.rs',
+      {
+        displayPath: 'crates/agents/src/manager.rs',
+        title: 'crates/agents/src/manager.rs',
+      }
+    );
+  });
+
+  it('opens workspace links with the keyboard', () => {
+    renderMarkdown('[manager.rs](crates/agents/src/manager.rs)');
+
+    fireEvent.keyDown(screen.getByRole('link', { name: 'manager.rs' }), {
+      key: 'Enter',
+    });
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
       'C:/workspace/project/crates/agents/src/manager.rs',
@@ -293,6 +317,23 @@ describe('Markdown', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'frontend/src/App.tsx' })
     );
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      'C:/workspace/project/frontend/src/App.tsx',
+      {
+        displayPath: 'frontend/src/App.tsx',
+        title: 'frontend/src/App.tsx',
+      }
+    );
+  });
+
+  it('opens inline code file paths with the keyboard', () => {
+    renderMarkdown('Open `frontend/src/App.tsx`');
+
+    const code = screen.getByRole('button', {
+      name: 'frontend/src/App.tsx',
+    });
+    fireEvent.keyDown(code, { key: 'Enter' });
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
       'C:/workspace/project/frontend/src/App.tsx',

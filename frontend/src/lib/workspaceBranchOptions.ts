@@ -145,16 +145,6 @@ export function matchesWorkspaceBranch(
   return normalizeBranchName(left) === normalizeBranchName(right);
 }
 
-export function getWorkspaceBranchWarning(
-  option: WorkspaceBranchOption | null
-): string | null {
-  if (!option || option.useWorktree) {
-    return null;
-  }
-
-  return i18n.t('app:workspaceBranch.notWorktreeWarning');
-}
-
 export function getWorkspaceBranchCheckoutHint(
   option: WorkspaceBranchOption | null
 ): string | null {

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,7 +10,16 @@ import {
   type MouseEvent,
 } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Image, Loader2, X } from 'lucide-react';
+import {
+  AtSign,
+  Command,
+  Hash,
+  Image,
+  Loader2,
+  Puzzle,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
 import {
@@ -18,7 +28,12 @@ import {
   type ChatComposerToken,
   type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
-import type { SearchableItem, SearchSource } from '@astryxdesign/core/Typeahead';
+import type {
+  SearchableItem,
+  SearchSource,
+} from '@astryxdesign/core/Typeahead';
+import type { BadgeVariant } from '@astryxdesign/core/Badge';
+import { AgentIcon } from '@/components/agents/AgentIcon';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
@@ -63,7 +78,12 @@ import {
   slashCommandsToTypeaheadOptions,
   type ComposerTypeaheadOption,
 } from './sessionComposerTypeaheadOptions';
-import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
+import {
+  formatSessionComposerCommand,
+  getSessionComposerStructuredTokenSegments,
+  type SessionComposerStructuredToken,
+  type SessionComposerStructuredTokenKind,
+} from './sessionComposerStructuredTokens';
 import { useAgentMentions } from './AgentMention';
 
 export type SessionComposerImage = {
@@ -252,17 +272,134 @@ function SessionComposerImageAttachment({
 }
 
 /** Wrap a composer option as a SearchableItem, keeping its insert text. */
-function toSearchableItem(
-  option: ComposerTypeaheadOption
-): SearchableItem {
+function toSearchableItem(option: ComposerTypeaheadOption): SearchableItem {
+  const kind = option.key.startsWith('slash-')
+    ? 'slash'
+    : option.key.startsWith('dollar-')
+      ? 'dollar'
+      : option.key.startsWith('agent-')
+        ? 'agent_mention'
+        : option.key.startsWith('plugin-')
+          ? 'plugin_action'
+          : option.key.startsWith('tag-')
+            ? 'tag'
+            : 'file';
   return {
     id: option.key,
     label: option.label,
     auxiliaryData: {
       insertText: option.insertText,
       description: option.description,
+      kind,
+      agentKind:
+        kind === 'agent_mention'
+          ? option.key.slice('agent-'.length)
+          : undefined,
     },
   };
+}
+
+type ComposerSearchItemData = {
+  insertText?: string;
+  description?: string;
+  kind?: SessionComposerStructuredTokenKind;
+  agentKind?: string;
+};
+
+const TOKEN_VARIANTS: Record<SessionComposerStructuredTokenKind, BadgeVariant> =
+  {
+    slash: 'blue',
+    dollar: 'green',
+    file: 'cyan',
+    tag: 'orange',
+    plugin_action: 'pink',
+    element: 'purple',
+    agent_mention: 'purple',
+  };
+
+function ComposerTokenIcon({
+  token,
+  className = 'h-3 w-3',
+}: {
+  token: Pick<SessionComposerStructuredToken, 'kind' | 'value'>;
+  className?: string;
+}) {
+  switch (token.kind) {
+    case 'slash':
+      return <Command className={className} />;
+    case 'dollar':
+      return <Sparkles className={className} />;
+    case 'file':
+      return <AtSign className={className} />;
+    case 'tag':
+      return <Hash className={className} />;
+    case 'plugin_action':
+      return <Puzzle className={className} />;
+    case 'agent_mention':
+      return <AgentIcon agent={token.value} className={className} />;
+    case 'element':
+      return <AtSign className={className} />;
+  }
+}
+
+function getTokenFromInsertText(
+  insertText: string
+): SessionComposerStructuredToken | null {
+  const segment = getSessionComposerStructuredTokenSegments(insertText).find(
+    (candidate) => candidate.kind === 'token'
+  );
+  return segment?.kind === 'token' ? segment.token : null;
+}
+
+function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
+  const data = item.auxiliaryData as ComposerSearchItemData | undefined;
+  const kind = data?.kind ?? 'file';
+  const iconToken = {
+    kind,
+    value: data?.agentKind ?? '',
+  } satisfies Pick<SessionComposerStructuredToken, 'kind' | 'value'>;
+
+  return (
+    <div
+      className="flex min-w-0 items-center gap-2.5"
+      data-composer-trigger-kind={kind}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+          kind === 'slash' && 'bg-blue-500/10 text-blue-600 dark:text-blue-300',
+          kind === 'dollar' &&
+            'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+          kind === 'file' && 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
+          kind === 'tag' &&
+            'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+          kind === 'plugin_action' &&
+            'bg-pink-500/10 text-pink-700 dark:text-pink-300',
+          (kind === 'agent_mention' || kind === 'element') &&
+            'bg-violet-500/10 text-violet-700 dark:text-violet-300'
+        )}
+      >
+        <ComposerTokenIcon token={iconToken} className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className="composer-trigger-label block truncate font-medium text-foreground"
+          data-composer-trigger-label
+        >
+          {item.label}
+        </span>
+        {data?.description ? (
+          <span
+            className="composer-trigger-description block truncate text-muted-foreground"
+            data-composer-trigger-description
+          >
+            {data.description}
+          </span>
+        ) : null}
+      </span>
+    </div>
+  );
 }
 
 /** File-reference token text for a relative path (matches the legacy `@` syntax). */
@@ -272,6 +409,145 @@ function fileReferenceTokenText(relativePath: string): string {
     key: getFileName(relativePath),
     value: relativePath,
   });
+}
+
+function restoreStructuredTokens(
+  composerRoot: HTMLDivElement,
+  value: string
+): void {
+  const editor = composerRoot.querySelector<HTMLDivElement>(
+    '[contenteditable="true"], [contenteditable="false"][role="combobox"]'
+  );
+  if (!editor) return;
+
+  const segments = getSessionComposerStructuredTokenSegments(value);
+  const tokenSegments = segments.filter((segment) => segment.kind === 'token');
+  if (tokenSegments.length === 0) return;
+
+  const existingTokens = Array.from(
+    editor.querySelectorAll<HTMLElement>('[data-astryx-token]')
+  );
+  if (
+    existingTokens.length === tokenSegments.length &&
+    existingTokens.every(
+      (element, index) =>
+        element.dataset.astryxTokenValue === tokenSegments[index].token.raw
+    )
+  ) {
+    return;
+  }
+
+  const wasFocused = document.activeElement === editor;
+  const fragment = document.createDocumentFragment();
+  for (const segment of segments) {
+    if (segment.kind === 'text') {
+      fragment.append(document.createTextNode(segment.text));
+      continue;
+    }
+
+    const token = document.createElement('span');
+    token.setAttribute('data-astryx-token', '');
+    token.setAttribute('data-astryx-token-value', segment.token.raw);
+    token.setAttribute('data-astryx-restored-token', '');
+    token.setAttribute('data-token-kind', segment.token.kind);
+    token.contentEditable = 'false';
+    token.textContent = segment.token.label;
+    fragment.append(token);
+  }
+  editor.replaceChildren(fragment);
+
+  if (wasFocused) {
+    const selection = window.getSelection();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+}
+
+function syncTriggerMenuWidth(composerRoot: HTMLDivElement): void {
+  const width = composerRoot.getBoundingClientRect().width;
+  if (width <= 0) return;
+
+  const menu = composerRoot.querySelector('.astryx-trigger-menu');
+  const popover = menu?.closest<HTMLElement>('[popover]');
+  if (popover) {
+    popover.style.width = `${Math.round(width)}px`;
+  }
+}
+
+const TOKEN_SPACER_CHARACTERS = /^[\u00A0\u200B\uFEFF]*$/;
+const LEADING_TOKEN_SPACER_CHARACTERS = /^[\u00A0\u200B\uFEFF]+/;
+
+function isTokenSpacerNode(node: Node): node is Text {
+  return (
+    node.nodeType === Node.TEXT_NODE &&
+    TOKEN_SPACER_CHARACTERS.test(node.textContent ?? '')
+  );
+}
+
+function deleteTokenBeforeCaret(editor: HTMLDivElement): boolean {
+  const selection = window.getSelection();
+  if (!selection?.isCollapsed || selection.rangeCount === 0) return false;
+
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.startContainer)) return false;
+
+  const { startContainer, startOffset } = range;
+  let previous: Node | null = null;
+
+  if (startContainer === editor && startOffset > 0) {
+    previous = editor.childNodes.item(startOffset - 1);
+  } else if (startContainer.nodeType === Node.TEXT_NODE) {
+    const text = startContainer.textContent ?? '';
+    if (!TOKEN_SPACER_CHARACTERS.test(text.slice(0, startOffset))) {
+      return false;
+    }
+    previous = startContainer.previousSibling;
+  }
+
+  // Browsers represent a caret after a contenteditable=false token in two
+  // ways: inside Astryx's trailing NBSP text node, or at the parent boundary
+  // after that node. Treat only Astryx's invisible spacer characters as
+  // transparent so ordinary user-entered text still requires deletion first.
+  while (previous && isTokenSpacerNode(previous)) {
+    previous = previous.previousSibling;
+  }
+
+  const token =
+    previous instanceof HTMLElement &&
+    previous.hasAttribute('data-astryx-token')
+      ? previous
+      : null;
+
+  if (!token || token.parentNode !== editor) return false;
+
+  const tokenIndex = Array.from(editor.childNodes).indexOf(token);
+  let following = token.nextSibling;
+  while (following?.nodeType === Node.TEXT_NODE) {
+    const next = following.nextSibling;
+    const text = following.textContent ?? '';
+    const withoutSpacer = text.replace(LEADING_TOKEN_SPACER_CHARACTERS, '');
+    if (withoutSpacer === text) break;
+
+    if (withoutSpacer) {
+      following.textContent = withoutSpacer;
+      break;
+    }
+    following.remove();
+    following = next;
+  }
+  token.remove();
+
+  const nextRange = document.createRange();
+  nextRange.setStart(editor, Math.min(tokenIndex, editor.childNodes.length));
+  nextRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(nextRange);
+  return true;
 }
 
 export function SessionComposerInput({
@@ -299,6 +575,7 @@ export function SessionComposerInput({
     transport = configuredBackendTransport,
   } = context ?? {};
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
+  const composerRootRef = useRef<HTMLDivElement | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
   const agentMentions = useAgentMentions();
   const executor = executorProfile?.executor ?? null;
@@ -308,6 +585,29 @@ export function SessionComposerInput({
     return repoId ? [repoId] : [];
   }, [repoId, repoIds]);
   const primaryRepoId = effectiveRepoIds[0] ?? null;
+
+  useEffect(() => {
+    if (composerRootRef.current) {
+      restoreStructuredTokens(composerRootRef.current, value);
+    }
+  }, [value]);
+
+  useLayoutEffect(() => {
+    const composerRoot = composerRootRef.current;
+    if (!composerRoot) return;
+
+    const sync = () => syncTriggerMenuWidth(composerRoot);
+    sync();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', sync);
+      return () => window.removeEventListener('resize', sync);
+    }
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(composerRoot);
+    return () => observer.disconnect();
+  }, []);
 
   const slashCommandsQuery = useSlashCommands(executorProfile, {
     workspaceId,
@@ -429,7 +729,10 @@ export function SessionComposerInput({
           if (!primaryRepoId) return [];
           const repo = await repoApi.getById(primaryRepoId);
           if (!repo) return [];
-          const entries = await fileTreeApi.listDirectoryChildren(repo.path, '');
+          const entries = await fileTreeApi.listDirectoryChildren(
+            repo.path,
+            ''
+          );
           return rootEntriesToFileReferenceOptions(entries).map(
             toSearchableItem
           );
@@ -466,41 +769,26 @@ export function SessionComposerInput({
     [effectiveRepoIds, projectId]
   );
 
-  const makeToken = useCallback(
-    (item: SearchableItem): ChatComposerToken => {
-      const insertText =
-        (item.auxiliaryData as { insertText?: string } | undefined)
-          ?.insertText ?? '';
-      return {
-        value: insertText,
-        label: item.label,
-      };
-    },
-    []
-  );
+  const makeToken = useCallback((item: SearchableItem): ChatComposerToken => {
+    const data = item.auxiliaryData as ComposerSearchItemData | undefined;
+    const insertText = data?.insertText ?? '';
+    const token = getTokenFromInsertText(insertText);
+    return {
+      value: insertText,
+      label: token?.label ?? item.label,
+      variant: token ? TOKEN_VARIANTS[token.kind] : 'neutral',
+      icon: token ? <ComposerTokenIcon token={token} /> : undefined,
+    };
+  }, []);
   const pluginOnSelect = useCallback((item: SearchableItem): string => {
     const insertText =
-      (item.auxiliaryData as { insertText?: string } | undefined)
-        ?.insertText ?? '';
+      (item.auxiliaryData as { insertText?: string } | undefined)?.insertText ??
+      '';
     return insertText;
   }, []);
 
   const renderItem = useCallback(
-    (item: SearchableItem) => {
-      const description = (item.auxiliaryData as
-        | { description?: string }
-        | undefined)?.description;
-      return (
-        <div>
-          <div className="truncate font-medium">{item.label}</div>
-          {description ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {description}
-            </div>
-          ) : null}
-        </div>
-      );
-    },
+    (item: SearchableItem) => <ComposerTriggerMenuItem item={item} />,
     []
   );
 
@@ -573,7 +861,25 @@ export function SessionComposerInput({
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
-      if (disabled || event.key !== 'Enter') return;
+      if (disabled) return;
+
+      if (
+        event.key === 'Backspace' &&
+        deleteTokenBeforeCaret(event.currentTarget)
+      ) {
+        event.preventDefault();
+        event.currentTarget.dispatchEvent(
+          typeof InputEvent === 'undefined'
+            ? new Event('input', { bubbles: true })
+            : new InputEvent('input', {
+                bubbles: true,
+                inputType: 'deleteContentBackward',
+              })
+        );
+        return;
+      }
+
+      if (event.key !== 'Enter') return;
       if (event.nativeEvent.isComposing || event.keyCode === 229) return;
 
       const shouldSubmit =
@@ -712,11 +1018,12 @@ export function SessionComposerInput({
         data-testid="session-composer-input-surface"
       >
         <ChatComposerInput
+          ref={composerRootRef}
           value={value}
           onChange={onChange}
           isDisabled={disabled}
           className={cn(
-            'min-h-[32px] w-full px-0.5 py-1 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
+            'session-composer-editor min-h-[32px] w-full px-0.5 py-1 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
             className
           )}
           maxRows={4}

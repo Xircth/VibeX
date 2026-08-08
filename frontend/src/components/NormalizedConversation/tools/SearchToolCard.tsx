@@ -121,6 +121,7 @@ export function SearchToolCard({
       actions={actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
+      status={toolEntry.status}
       expanded={effectiveExpanded}
       expandable
       onToggle={toggle}

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, History } from 'lucide-react';
+import { Check, ChevronDown, History, LoaderCircle } from 'lucide-react';
 import type { ExecutorConfigs, ExecutorProfileId } from 'shared/types';
 import type { RepoBranchConfig } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { TerminalProfileControls } from '@/components/tasks/TerminalProfileControls';
 import {
   jsonValueToString,
@@ -26,7 +27,6 @@ import { cn } from '@/lib/utils';
 import {
   findWorkspaceBranchOption,
   getWorkspaceBranchCheckoutHint,
-  getWorkspaceBranchWarning,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
 
@@ -203,8 +203,11 @@ export function SessionCreationForm({
     null
   );
   const [remoteSessionStatus, setRemoteSessionStatus] = useState<
-    'idle' | 'imported' | 'error'
+    'idle' | 'local_imported' | 'remote_connected' | 'error'
   >('idle');
+  const [completedRemoteSessionIds, setCompletedRemoteSessionIds] = useState(
+    () => new Set<string>()
+  );
   useEffect(() => {
     setSelectedMode(null);
     setSelectedConfigValues({});
@@ -215,6 +218,7 @@ export function SessionCreationForm({
     setRemoteSessionsOpen(false);
     setRemoteSessionAction(null);
     setRemoteSessionStatus('idle');
+    setCompletedRemoteSessionIds(new Set());
     backgroundRefreshAgent.current = null;
   }, [controlsWorkspaceId, executor]);
   useEffect(() => {
@@ -436,7 +440,6 @@ export function SessionCreationForm({
       })
     : null;
   const canUseExistingWorkspace = workspaceBranchOptions.length > 0;
-  const workspaceWarning = getWorkspaceBranchWarning(selectedWorkspaceOption);
   const workspaceCheckoutHint = getWorkspaceBranchCheckoutHint(
     selectedWorkspaceOption
   );
@@ -462,7 +465,17 @@ export function SessionCreationForm({
             acpSessionId,
             title
           );
-      setRemoteSessionStatus('imported');
+      setCompletedRemoteSessionIds((current) => {
+        const next = new Set(current);
+        next.add(acpSessionId);
+        return next;
+      });
+      setRemoteSessionStatus(
+        localHistory ? 'local_imported' : 'remote_connected'
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', controlsWorkspaceId],
+      });
       onRemoteSessionImported?.(conversation.id);
     } catch {
       setRemoteSessionStatus('error');
@@ -515,14 +528,9 @@ export function SessionCreationForm({
             className="text-sm"
             dropdownSide={dropdownSide}
           />
-          {workspaceWarning ? (
-            <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-3 py-2 text-[11px] text-[hsl(var(--warning))]">
-              <p>{workspaceWarning}</p>
-              {workspaceCheckoutHint ? (
-                <p className="mt-1 text-[hsl(var(--warning)/0.9)]">
-                  {workspaceCheckoutHint}
-                </p>
-              ) : null}
+          {workspaceCheckoutHint ? (
+            <div className="rounded-md border border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.1)] px-2.5 py-2 text-[10px] leading-4 text-[hsl(var(--warning))]">
+              <p>{workspaceCheckoutHint}</p>
             </div>
           ) : null}
         </div>
@@ -655,51 +663,91 @@ export function SessionCreationForm({
                   {t('sessionCreation.remoteSessionsLoadFailed')}
                 </p>
               ) : remoteSessionsQuery.data?.sessions.length ? (
-                <div className="divide-y divide-border/60">
-                  {remoteSessionsQuery.data.sessions.map((remote) => (
-                    <div
-                      key={remote.acp_session_id}
-                      className="flex items-center justify-between gap-3 px-1 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="line-clamp-2 text-xs leading-5 text-foreground">
-                          {remote.title?.trim() ||
-                            t('sessionCreation.untitledPreviousSession')}
-                        </p>
-                        {isLocalHistoryMeta(remote.meta) ? (
-                          <p className="text-[10px] leading-4 text-muted-foreground">
-                            {t('sessionCreation.localHistoryBadge')}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 shrink-0 px-2 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
-                        disabled={remoteSessionAction !== null}
-                        onClick={() =>
-                          void importPreviousSession(
-                            remote.acp_session_id,
-                            remote.title ?? null,
-                            isLocalHistoryMeta(remote.meta)
-                          )
-                        }
+                <ScrollArea
+                  role="region"
+                  aria-label={t('sessionCreation.previousSessionsList')}
+                  className="h-52 max-h-[35vh] rounded-lg border border-border/60 bg-background"
+                >
+                  <div className="divide-y divide-border/60 pr-2">
+                    {remoteSessionsQuery.data.sessions.map((remote) => (
+                      <div
+                        key={remote.acp_session_id}
+                        className="flex min-h-14 items-center justify-between gap-3 px-3 py-2"
                       >
-                        {isLocalHistoryMeta(remote.meta)
-                          ? t('sessionCreation.importThisSession')
-                          : t('sessionCreation.connectThisSession')}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-xs font-medium leading-5 text-foreground"
+                            title={
+                              remote.title?.trim() ||
+                              t('sessionCreation.untitledPreviousSession')
+                            }
+                          >
+                            {remote.title?.trim() ||
+                              t('sessionCreation.untitledPreviousSession')}
+                          </p>
+                          {isLocalHistoryMeta(remote.meta) ? (
+                            <p className="text-[10px] leading-4 text-muted-foreground">
+                              {t('sessionCreation.localHistoryBadge')}
+                            </p>
+                          ) : null}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 px-2 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
+                          disabled={
+                            remoteSessionAction !== null ||
+                            completedRemoteSessionIds.has(remote.acp_session_id)
+                          }
+                          onClick={() =>
+                            void importPreviousSession(
+                              remote.acp_session_id,
+                              remote.title ?? null,
+                              isLocalHistoryMeta(remote.meta)
+                            )
+                          }
+                        >
+                          {completedRemoteSessionIds.has(
+                            remote.acp_session_id
+                          ) ? (
+                            <>
+                              <Check className="mr-1 h-3.5 w-3.5" />
+                              {isLocalHistoryMeta(remote.meta)
+                                ? t('sessionCreation.sessionImported')
+                                : t('sessionCreation.sessionConnected')}
+                            </>
+                          ) : remoteSessionAction === remote.acp_session_id ? (
+                            <>
+                              <LoaderCircle className="mr-1 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                              {isLocalHistoryMeta(remote.meta)
+                                ? t('sessionCreation.importingSession')
+                                : t('sessionCreation.connectingSession')}
+                            </>
+                          ) : isLocalHistoryMeta(remote.meta) ? (
+                            t('sessionCreation.importThisSession')
+                          ) : (
+                            t('sessionCreation.connectThisSession')
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               ) : (
                 <p className="px-1 py-2 text-[11px] text-muted-foreground">
                   {t('sessionCreation.noRemoteSessions')}
                 </p>
               )
             ) : null}
-            {remoteSessionStatus === 'imported' ? (
+            {remoteSessionStatus === 'local_imported' ? (
+              <p
+                className="px-1 pt-1 text-[11px] text-muted-foreground"
+                role="status"
+              >
+                {t('sessionCreation.localSessionImported')}
+              </p>
+            ) : remoteSessionStatus === 'remote_connected' ? (
               <p
                 className="px-1 pt-1 text-[11px] text-muted-foreground"
                 role="status"

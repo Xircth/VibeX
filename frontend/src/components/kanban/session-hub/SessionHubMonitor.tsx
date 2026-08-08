@@ -1,5 +1,6 @@
-import { AlertCircle, PanelRightOpen, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -41,14 +42,11 @@ export function SessionHubMonitor({
             monitorRecords.length === 0 && 'border border-dashed border-border'
           )}
         >
-          <div className="flex h-8 shrink-0 items-center gap-2 px-3 text-sm font-semibold text-foreground">
-            <span>{t('hubMonitor.title')}</span>
-            {monitorRecords.length > 0 ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                {monitorRecords.length} / 4
-              </span>
-            ) : null}
-          </div>
+          {monitorRecords.length === 0 ? (
+            <div className="flex h-8 shrink-0 items-center px-3 text-sm font-semibold text-foreground">
+              {t('hubMonitor.title')}
+            </div>
+          ) : null}
 
           {monitorRecords.length === 0 ? (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
@@ -73,42 +71,47 @@ export function SessionHubMonitor({
                     getMonitorItemClassName(monitorRecords.length, index)
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2 px-3 pb-1.5 pt-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-baseline gap-2">
-                        <div
-                          className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground"
-                          title={session.fullName}
-                        >
-                          {session.fullName}
-                        </div>
-                        {session.isErrored ? (
-                          <span className="session-monitor-error-badge inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none">
-                            <AlertCircle className="h-3 w-3" />
-                            {t('hubMonitor.failed')}
-                          </span>
-                        ) : null}
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {formatTimeAgo(session.updatedAt)}
+                  <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <Badge
+                        variant="secondary"
+                        className="h-5 min-w-0 max-w-full shrink rounded-lg border-transparent bg-[var(--surface-control)] px-2 text-xs font-semibold text-[var(--text-strong)] hover:bg-[var(--surface-control)]"
+                        title={session.fullName}
+                      >
+                        <span className="truncate">{session.fullName}</span>
+                      </Badge>
+                      {session.isErrored ? (
+                        <span className="session-monitor-error-badge inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none">
+                          <AlertCircle className="h-3 w-3" />
+                          {t('hubMonitor.failed')}
                         </span>
-                      </div>
+                      ) : null}
                     </div>
 
                     <div className="flex shrink-0 items-center gap-1">
+                      <span className="mr-0.5 shrink-0 text-[11px] text-muted-foreground">
+                        {formatTimeAgo(session.updatedAt)}
+                      </span>
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 rounded-full text-muted-foreground hover:bg-background/40 hover:text-foreground"
+                            className="h-6 w-6 rounded-full bg-transparent text-[var(--primary-control-foreground)] hover:bg-transparent hover:text-[var(--primary-control-foreground)]"
                             aria-label={t('hubMonitor.moveToExecutionArea')}
                             onClick={(event) => {
                               event.stopPropagation();
                               onOpenInExecutionArea(session);
                             }}
                           >
-                            <PanelRightOpen className="h-3.5 w-3.5" />
+                            <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[#E5E5E6] transition-opacity hover:opacity-90 motion-reduce:transition-none dark:bg-[var(--switch-checked-track)]">
+                              <ArrowRight
+                                className="h-3 w-3"
+                                strokeWidth={3.25}
+                              />
+                            </span>
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>

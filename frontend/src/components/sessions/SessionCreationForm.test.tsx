@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { AgentManagementView } from 'shared/types';
+import type { WorkspaceBranchOption } from '@/lib/workspaceBranchOptions';
 import {
   SessionCreationForm,
   type SessionControlsPreset,
@@ -62,7 +63,7 @@ vi.mock('@/features/agents/api', () => ({
   },
 }));
 
-const WORKSPACE_OPTION = {
+const WORKSPACE_OPTION: WorkspaceBranchOption = {
   value: 'workspace:workspace-1',
   branch: 'main',
   workspace: null,
@@ -108,7 +109,8 @@ function renderForm(
   executor: 'claude_code' | 'codex' | 'gemini',
   onPreset: (preset: SessionControlsPreset | null) => void,
   mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace',
-  compact = false
+  compact = false,
+  workspaceOption = WORKSPACE_OPTION
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -125,8 +127,8 @@ function renderForm(
     <SessionCreationForm
       mode={selectedMode}
       onModeChange={() => {}}
-      workspaceBranchOptions={[WORKSPACE_OPTION]}
-      selectedWorkspaceValue={WORKSPACE_OPTION.value}
+      workspaceBranchOptions={[workspaceOption]}
+      selectedWorkspaceValue={workspaceOption.value}
       onSelectedWorkspaceValueChange={() => {}}
       sessionName=""
       onSessionNameChange={() => {}}
@@ -208,6 +210,21 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         rollback_available: false,
       } satisfies AgentManagementView,
     ]);
+  });
+
+  it('does not recommend switching away from a non-worktree project branch', async () => {
+    renderForm('codex', vi.fn(), 'existing_workspace', false, {
+      ...WORKSPACE_OPTION,
+      value: 'branch:main',
+      existingWorkspaceId: 'workspace-main',
+      directWorkspaceId: null,
+      useWorktree: false,
+    });
+
+    expect(
+      screen.queryByText('当前分支非 Git Worktree，建议选择 Worktree 分支。')
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(agentManagementBar).toHaveBeenCalled());
   });
 
   it('loads editable controls for the first session in a new workspace', async () => {
@@ -728,7 +745,8 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       next_cursor: null,
       meta: { source: 'local_history' },
     });
-    renderForm('gemini', vi.fn());
+    const view = renderForm('gemini', vi.fn());
+    const invalidateQueries = vi.spyOn(view.client, 'invalidateQueries');
     const user = userEvent.setup();
 
     await user.click(
@@ -739,6 +757,11 @@ describe('SessionCreationForm agent capability catalog controls', () => {
     expect(
       await screen.findByText('Imported local session')
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('region', {
+        name: 'sessionCreation.previousSessionsList',
+      })
+    ).toHaveClass('h-52');
     expect(screen.queryByText('/private/workspace')).not.toBeInTheDocument();
     await user.click(
       screen.getByRole('button', { name: 'sessionCreation.importThisSession' })
@@ -752,6 +775,15 @@ describe('SessionCreationForm agent capability catalog controls', () => {
         'Imported local session'
       )
     );
+    expect(
+      await screen.findByText('sessionCreation.localSessionImported')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'sessionCreation.sessionImported' })
+    ).toBeDisabled();
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['workspaceSessions', 'workspace-1'],
+    });
     expect(listRemoteSessions).not.toHaveBeenCalled();
   });
 });

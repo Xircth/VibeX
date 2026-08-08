@@ -187,6 +187,8 @@ export function RightPanelContent() {
   const { profiles, config } = useUserSystem();
   const effectiveProjectId = projectId ?? routeProjectId;
   const showRightSession = !!visibleRightSession;
+  const rightSessionWorkspaceId = visibleRightSession?.workspaceId ?? '';
+  const rightSessionId = visibleRightSession?.sessionId ?? '';
   const isWorkspaceRoute = effectiveActiveTab === 'workspace' && !!workspaceId;
   const fallbackWorkspaceId =
     activeWorktreeId ?? visibleRightSession?.workspaceId ?? workspaceId;
@@ -537,10 +539,10 @@ export function RightPanelContent() {
   );
   const rightSessionConversationViewProps = useMemo(
     () =>
-      visibleRightSession
+      rightSessionWorkspaceId && rightSessionId
         ? {
-            workspaceId: visibleRightSession.workspaceId ?? '',
-            sessionId: visibleRightSession.sessionId ?? '',
+            workspaceId: rightSessionWorkspaceId,
+            sessionId: rightSessionId,
             interactive: true,
             showSessionSelector: true,
             onSessionCreated: handleCreatedSession,
@@ -550,10 +552,11 @@ export function RightPanelContent() {
           }
         : null,
     [
-      visibleRightSession,
       handleCreatedSession,
       handleSelectedSession,
       openCreateSessionOverlay,
+      rightSessionId,
+      rightSessionWorkspaceId,
     ]
   );
 

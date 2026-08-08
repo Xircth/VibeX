@@ -6,16 +6,17 @@ use agents::{
     AgentElicitationRequest, AgentElicitationResponse, AgentErrorEvent, AgentEvent,
     AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentListedSession,
     AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
-    AgentPermissionResponse, AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished,
-    AgentPromptId, AgentPromptSnapshot, AgentPromptStatus, AgentSessionConfigChoice,
-    AgentSessionConfigDependency, AgentSessionConfigOption, AgentSessionConfigOverride,
-    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage, AgentSessionMode,
-    AgentSessionSnapshot, AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar,
-    AgentTerminalExit, AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot,
-    AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
-    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
-    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
-    ImportedAgentSession, RuntimeSnapshot,
+    AgentPermissionResponse, AgentPlan, AgentPlanUsage, AgentPreparedSessionSnapshot,
+    AgentPromptFinished, AgentPromptId, AgentPromptSnapshot, AgentPromptStatus,
+    AgentSessionConfigChoice, AgentSessionConfigDependency, AgentSessionConfigOption,
+    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage,
+    AgentSessionMode, AgentSessionSnapshot, AgentSessionStatus, AgentTerminalCreateRequest,
+    AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
+    AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
+    AgentUsage, AuthenticationMethod, AuthenticationObservationState, AuthenticationSource,
+    DelegationResultSummary, ImportedAgentMessage, ImportedAgentMessageMetadata,
+    ImportedAgentMessageRole, ImportedAgentSession, PlanCredits, PlanUsageResult,
+    PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
         AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
@@ -266,11 +267,6 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "AgentPreflight",
             "AgentPreflightIssue",
             "AgentPreflightSeverity",
-            "PlanUsageWindow",
-            "PlanCredits",
-            "AgentPlanUsage",
-            "PlanUsageUnavailableReason",
-            "PlanUsageResult",
             "AgentRuntimeComponentInfo",
             "AgentAvailabilityInfo",
             "LocalAgentRuntimeInfo",
@@ -305,6 +301,11 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     // open AgentId contract.
     insert_declaration::<AgentKind>(&mut decls);
     insert_declaration::<AgentId>(&mut decls);
+    insert_declaration::<PlanUsageWindow>(&mut decls);
+    insert_declaration::<PlanCredits>(&mut decls);
+    insert_declaration::<AgentPlanUsage>(&mut decls);
+    insert_declaration::<PlanUsageUnavailableReason>(&mut decls);
+    insert_declaration::<PlanUsageResult>(&mut decls);
     insert_declaration::<AgentSource>(&mut decls);
     insert_declaration::<UserAgentDistributionKind>(&mut decls);
     insert_declaration::<UserAgentDefinitionRequest>(&mut decls);

@@ -530,7 +530,7 @@ pub async fn conversation_timeline_page(
 
 #[tauri::command]
 pub async fn conversation_start_turn(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationStartTurnRequest,
 ) -> Result<ConversationTurnSnapshot, AppError> {
@@ -614,14 +614,7 @@ pub async fn conversation_start_turn(
         )
         .await;
 
-    emit_conversation_events_after(
-        &app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
 
     let (turn, _prompt) = result?;
     Ok(turn)
@@ -642,23 +635,13 @@ async fn conversation_last_sequence(
     .map_err(Into::into)
 }
 
-async fn emit_conversation_events_after(
-    app: &tauri::AppHandle,
-    projectors: &crate::events::ConversationRowProjectors,
+async fn notify_conversation_events_after(
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(
-        app,
-        projectors,
-        pool,
-        conversation_id,
-        after_sequence,
-    )
-    .await;
-    // IM channels still consume the raw event envelopes.
+    // Row ops are published at the core append boundary. IM integrations still
+    // consume raw event envelopes after the command completes.
     if let Ok(page) =
         conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
     {
@@ -679,7 +662,7 @@ async fn emit_conversation_events_after(
 
 #[tauri::command]
 pub async fn conversation_respond_permission(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationPermissionResponseRequest,
 ) -> Result<(), AppError> {
@@ -690,20 +673,13 @@ pub async fn conversation_respond_permission(
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(conversation_id, request.permission_id, request.response)
         .await;
-    emit_conversation_events_after(
-        &app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn conversation_respond_question(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationQuestionResponseRequest,
 ) -> Result<(), AppError> {
@@ -752,14 +728,7 @@ pub async fn conversation_respond_question(
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_question(conversation_id, request.question_id, request.response)
         .await;
-    emit_conversation_events_after(
-        &app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(Into::into)
 }
 
@@ -798,7 +767,7 @@ pub async fn conversation_set_session_config_option(
 
 #[tauri::command]
 pub async fn conversation_cancel_turn(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: ConversationCancelTurnRequest,
 ) -> Result<(), AppError> {
@@ -809,14 +778,7 @@ pub async fn conversation_cancel_turn(
     let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(conversation_id, request.reason)
         .await;
-    emit_conversation_events_after(
-        &app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(Into::into)
 }
 

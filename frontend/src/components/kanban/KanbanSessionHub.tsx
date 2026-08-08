@@ -41,7 +41,7 @@ import {
   findWorkspaceBranchOptionByWorkspaceId,
   type WorkspaceBranchOption,
 } from '@/lib/workspaceBranchOptions';
-import { getFirstAvailableProfile } from '@/utils/executor';
+import { areProfilesEqual, getFirstAvailableProfile } from '@/utils/executor';
 import {
   type SessionControlsPreset,
   type SessionCreationMode,
@@ -333,10 +333,18 @@ export function KanbanSessionHub({
   ]);
 
   useEffect(() => {
-    updateSelectedExecutorProfile(
-      selectedExecutorProfileRef.current ?? defaultExecutorProfile
-    );
-  }, [defaultExecutorProfile, updateSelectedExecutorProfile]);
+    const nextProfile =
+      selectedExecutorProfileRef.current ?? defaultExecutorProfile;
+    if (areProfilesEqual(selectedExecutorProfile, nextProfile)) {
+      return;
+    }
+
+    updateSelectedExecutorProfile(nextProfile);
+  }, [
+    defaultExecutorProfile,
+    selectedExecutorProfile,
+    updateSelectedExecutorProfile,
+  ]);
 
   useEffect(() => {
     if (workspaceBranchOptions.length === 0) {
@@ -405,7 +413,12 @@ export function KanbanSessionHub({
   }, [openingSessionId]);
 
   useEffect(() => {
-    if (isLoading) {
+    // The workspace stream can briefly expose an empty session snapshot while
+    // the active workspace query already has a session. Pruning placements in
+    // that window races KanbanSessionProvider's seeding effect: it removes the
+    // right session and the provider immediately adds it back, causing an
+    // update loop during workspace -> Kanban transitions.
+    if (isLoading || (sessions.length === 0 && activeAttempt?.session?.id)) {
       return;
     }
 
@@ -414,7 +427,13 @@ export function KanbanSessionHub({
       ...pendingCreatedSessionIds,
     ]);
     pruneSessions(availableSessionIds);
-  }, [isLoading, pendingCreatedSessionIds, pruneSessions, sessions]);
+  }, [
+    activeAttempt?.session?.id,
+    isLoading,
+    pendingCreatedSessionIds,
+    pruneSessions,
+    sessions,
+  ]);
 
   useEffect(() => {
     if (pendingCreatedSessionIds.length === 0 || isLoading) {

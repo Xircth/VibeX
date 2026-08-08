@@ -165,6 +165,23 @@ pub trait ConversationHost: Send + Sync {
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError>;
 }
 
+/// Receives a durable conversation event immediately after its append transaction
+/// commits. The desktop shell uses this boundary to publish row operations before
+/// orchestration can trigger any causally-later Agent work; headless compositions
+/// can keep the default no-op implementation and serve projections on demand.
+#[async_trait::async_trait]
+pub trait ConversationEventPublisher: Send + Sync {
+    async fn publish(&self, record: &db::models::conversation_event::ConversationEventRecord);
+}
+
+#[derive(Debug, Default)]
+pub struct NoopConversationEventPublisher;
+
+#[async_trait::async_trait]
+impl ConversationEventPublisher for NoopConversationEventPublisher {
+    async fn publish(&self, _record: &db::models::conversation_event::ConversationEventRecord) {}
+}
+
 /// Everything the orchestration core needs from the shell, decoupled from AppState.
 #[derive(Clone)]
 pub struct ConversationContext {
@@ -176,6 +193,7 @@ pub struct ConversationContext {
     /// closes (`forget_conversation_runtime`). Owned by the shell's `AppState`.
     pub row_projectors: Arc<Mutex<HashMap<Uuid, crate::IncrementalRowProjector>>>,
     pub host: Arc<dyn ConversationHost>,
+    pub event_publisher: Arc<dyn ConversationEventPublisher>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -855,6 +873,14 @@ impl ConversationSessionService {
             .await?;
         SessionCheckpoint::delete_from_ordinal(pool, conversation_id, user_ordinal).await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        // The live projector cursor may now point beyond the truncated event log.
+        // Invalidate it at the mutation boundary so the next committed event seeds a
+        // fresh projector from its actual predecessor sequence.
+        self.ctx
+            .row_projectors
+            .lock()
+            .await
+            .remove(&conversation_id);
 
         self.update_runtime_state(conversation_id, |state| {
             state.active_turn_id = None;
@@ -1224,8 +1250,9 @@ impl ConversationSessionService {
             .to_string();
         let normalized_json = serde_json::to_string(&event)
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
-        ConversationEventAppender::append(
+        append_and_publish_conversation_event(
             &self.ctx.deployment.db().pool,
+            self.ctx.event_publisher.as_ref(),
             AppendConversationEvent {
                 id: Uuid::new_v4(),
                 conversation_id,
@@ -1275,6 +1302,16 @@ impl ConversationSessionService {
             .and_then(parse_agent_connection_id)
             .map(|connection_id| (connection_id, snapshot.active_turn_id))
     }
+}
+
+async fn append_and_publish_conversation_event(
+    pool: &SqlitePool,
+    publisher: &dyn ConversationEventPublisher,
+    input: AppendConversationEvent<'_>,
+) -> Result<db::models::conversation_event::ConversationEventRecord, sqlx::Error> {
+    let record = ConversationEventAppender::append(pool, input).await?;
+    publisher.publish(&record).await;
+    Ok(record)
 }
 
 async fn ensure_conversation_has_no_in_flight_turn(
@@ -1923,14 +1960,18 @@ fn parse_agent_prompt_id(value: &str) -> Option<AgentPromptId> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{str::FromStr, sync::Mutex as StdMutex};
 
     use agents::{
         AgentContentBlock, AgentId, AgentSessionConfigOverride,
-        conversation::{AcpCapabilitySnapshot, ConversationFileChange},
+        conversation::{
+            AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
+            ConversationFileChange,
+        },
     };
     use db::models::{
         conversation::{ConversationRecord, CreateConversationRecord},
+        conversation_event::AppendConversationEvent,
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
         session::{Session, SessionStatus},
     };
@@ -1968,6 +2009,74 @@ mod tests {
             .await
             .expect("disable foreign keys");
         pool
+    }
+
+    #[derive(Default)]
+    struct RecordingConversationEventPublisher {
+        published_sequences: StdMutex<Vec<i64>>,
+    }
+
+    #[async_trait::async_trait]
+    impl super::ConversationEventPublisher for RecordingConversationEventPublisher {
+        async fn publish(&self, record: &db::models::conversation_event::ConversationEventRecord) {
+            self.published_sequences
+                .lock()
+                .expect("publisher lock")
+                .push(record.sequence);
+        }
+    }
+
+    #[tokio::test]
+    async fn append_boundary_publishes_committed_event_before_returning() {
+        let pool = migrated_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: Some("Publish boundary"),
+                initial_prompt: None,
+                status: Some(SessionStatus::InProgress),
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let event = ConversationEvent::AgentConnectionStatusChanged {
+            status: ConversationAgentConnectionStatus::Closed,
+        };
+        let normalized_json = serde_json::to_string(&event).expect("serialize event");
+        let publisher = RecordingConversationEventPublisher::default();
+
+        let record = super::append_and_publish_conversation_event(
+            &pool,
+            &publisher,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "runtime",
+                event_kind: "agent_connection_status_changed",
+                normalized_json: &normalized_json,
+                raw_json: None,
+                idempotency_key: Some("publish-boundary"),
+            },
+        )
+        .await
+        .expect("append and publish");
+
+        assert_eq!(
+            *publisher
+                .published_sequences
+                .lock()
+                .expect("publisher lock"),
+            vec![record.sequence]
+        );
     }
 
     async fn seed_conversation_with_active_turn(pool: &SqlitePool) -> ConversationRecord {

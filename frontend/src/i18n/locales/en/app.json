@@ -173,7 +173,6 @@
     }
   },
   "workspaceBranch": {
-    "notWorktreeWarning": "The current branch is not a Git Worktree. We recommend selecting a Worktree branch.",
     "checkoutHint": "After selecting, it will first check out this branch in the current project directory to ensure the workspace is correct."
   },
   "searchTags": {

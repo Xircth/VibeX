@@ -202,6 +202,7 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
 function ConversationSideRows({
   rows,
   showSessionNotices,
+  dockPendingQuestions,
   onRespondQuestion,
   respondingQuestionId,
   onOpenChild,
@@ -210,6 +211,7 @@ function ConversationSideRows({
 }: {
   rows: TimelineRow[];
   showSessionNotices: boolean;
+  dockPendingQuestions: boolean;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
@@ -228,6 +230,13 @@ function ConversationSideRows({
       entry.row.kind === 'turn_error' ||
       entry.row.kind === 'file_change_summary' ||
       entry.row.kind === 'permission_request'
+    ) {
+      return false;
+    }
+    if (
+      dockPendingQuestions &&
+      entry.row.kind === 'question_request' &&
+      !entry.row.response
     ) {
       return false;
     }
@@ -379,6 +388,7 @@ const AgentTimelineConversation = forwardRef<
   const conversation = useConversationTimeline(sessionId);
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
+  const setConversationStatusQuestion = conversationStatus?.setQuestion;
   const usesComposerStatusDock = conversationStatus?.enabled ?? false;
   const timeline = conversation.timeline;
   const isTurnInFlight = useMemo(
@@ -431,6 +441,35 @@ const AgentTimelineConversation = forwardRef<
     },
     [conversationRespondQuestion]
   );
+  const pendingQuestionRow = useMemo(
+    () =>
+      sideRows
+        .filter(
+          (entry) =>
+            entry.row.kind === 'question_request' && !entry.row.response
+        )
+        .at(-1),
+    [sideRows]
+  );
+  const composerQuestion = useMemo(() => {
+    if (
+      !usesComposerStatusDock ||
+      pendingQuestionRow?.row.kind !== 'question_request'
+    ) {
+      return null;
+    }
+    return {
+      request: pendingQuestionRow.row.request,
+      responding:
+        respondingQuestionId === pendingQuestionRow.row.request.question_id,
+      onRespond: handleRespondQuestion,
+    };
+  }, [
+    handleRespondQuestion,
+    pendingQuestionRow,
+    respondingQuestionId,
+    usesComposerStatusDock,
+  ]);
   // A delegated sub-agent runs in the parent's workspace (the spawner inherits
   // parent.workspace_id), so the child transcript lives at the same project +
   // workspace route — only the session id changes. Open it only when the route
@@ -986,6 +1025,11 @@ const AgentTimelineConversation = forwardRef<
     setConversationStatusNotices?.(composerStatusNotices);
   }, [composerStatusNotices, setConversationStatusNotices]);
 
+  useEffect(() => {
+    setConversationStatusQuestion?.(composerQuestion);
+    return () => setConversationStatusQuestion?.(null);
+  }, [composerQuestion, setConversationStatusQuestion]);
+
   return (
     <div
       ref={containerRef}
@@ -1015,6 +1059,7 @@ const AgentTimelineConversation = forwardRef<
             <ConversationSideRows
               rows={sideRows}
               showSessionNotices={!usesComposerStatusDock}
+              dockPendingQuestions={usesComposerStatusDock}
               onRespondQuestion={handleRespondQuestion}
               respondingQuestionId={respondingQuestionId}
               onOpenChild={handleOpenChild}

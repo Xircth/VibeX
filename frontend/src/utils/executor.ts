@@ -701,8 +701,18 @@ export function formatClaudePermissionLabel(
 }
 
 export function extractProfileFromAction(
-  _action: ExecutorAction | null
+  action: ExecutorAction | null
 ): ExecutorProfileId | null {
+  let current = action;
+  while (current) {
+    if (
+      current.typ.type === 'CodingAgentInitialRequest' ||
+      current.typ.type === 'CodingAgentFollowUpRequest'
+    ) {
+      return current.typ.executor_profile_id;
+    }
+    current = current.next_action;
+  }
   return null;
 }
 

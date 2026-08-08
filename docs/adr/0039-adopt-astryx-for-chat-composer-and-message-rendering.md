@@ -46,9 +46,10 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    `CodexGoalIndicator`、`TokenUsageIndicator`、`TodoListButton`、`SessionSelector`）、
    `ConversationStatusDock`、`ActionBar`、`SessionSettingsSummary` /
    `SessionConfigOptionSelectors`、`AgentMentionProvider` —— 均为输入框的兄弟组件，
-   不依赖 lexical，原样保留；`AgentMentionProvider` 数据改接 trigger `'@'` 的 `SearchSource`。
-4. **命令重写**：六种命令（`@` `/` `$` `#` `!` `&`）映射为 `ChatComposerInput` 的
-   `triggers`（每字符一个 `SearchSource` + `onSelect`）；输入与显示共用同一套
+   不依赖 lexical，原样保留；`AgentMentionProvider` 数据改接 trigger `'&'` 的 `SearchSource`。
+4. **命令重写**：六种命令映射为 `ChatComposerInput` 的 `triggers`：`@` 文件引用、
+   `/` 斜杠命令、`$` 变量/技能、`#` 标签、`!` 插件动作、`&` Agent 提及
+   （每字符一个 `SearchSource` + `onSelect`）；输入与显示共用同一套
    `ChatComposerToken` 定义，展示侧用 `ChatTokenizedText` 或 `Markdown` 的
    `inlinePlugins` 渲染。
 5. **消息渲染**：`Markdown.tsx` → Astryx `Markdown`（原生 `isStreaming` 增量解析 +
@@ -57,13 +58,18 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
    `components.code` 自定义接入（自研 `MermaidDiagram` 原样复用），随后移除
    `react-markdown` / `remark-*` / `rehype-katex` 依赖。
 6. **tool call 渲染**：`ToolCards` → `ChatToolCalls`，`ToolStatus` 映射到
-   `ChatToolCallStatus`（pending/running/complete/error）。落地形态（2026-08-08
-   实施核对后修正）：`ToolCardShell` 保持 props API（10 个卡片组件零改动），
-   内部引擎替换为单 call `ChatToolCalls` 行渲染；受控展开、actions（行右侧）、
-   状态 class 保留 —— ChatToolCalls 行级展开不可控，审批 `forceExpanded` 依赖的
-   外部展开状态得以保留，故专用卡片（`PlanCard`、`UnifiedDiffPreview` 等）不改为
-   `resultDetail` 而继续作为 shell 的受控展开内容。`PendingApprovalEntry` 作为
-   审批状态包装器原样保留（审批 UI 自研，与渲染组件正交）。
+   `ChatToolCallStatus`（pending/running/complete/error）。消息回合中每段连续工具
+   调用统一由 `TurnToolCalls` 一次性传入 `calls`，命令、读取、修改、搜索、网页、
+   子 Agent 与其他调用可混合聚合；标题按类别计数，即使只有一条也保留可展开的
+   聚合外壳。每一行的 `resultDetail` 复用原有专用卡片的详情与 actions，但通过
+   `ToolCallResultDetail` 上下文省略其单调用标题，避免新旧工具行嵌套。
+   `ToolCardShell` 仍服务于消息回合以外的独立调用与审批强制展开场景；
+   `PendingApprovalEntry` 作为审批状态包装器保留。
+7. **用户消息气泡**：消息流中的用户消息统一由 `ChatMessage(sender="user")` +
+   `ChatMessageBubble` 提供语义、对齐和气泡结构；正文使用基于 Astryx `Markdown`
+   的受限语法渲染器，并以内联插件承接结构化 token。VibeX 仅在主题层覆盖亮色
+   `#F3F3F4` / 黑色前景、暗色 `#242424` / 白色前景、固定 Body 字号与紧凑列表
+   缩进，不再维护平行的手写消息气泡结构。
 
 ## Considered Options
 
@@ -95,6 +101,9 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
 - **测试重写量大**：`follow-up/` 40+ UI 测试、`Markdown.test`、`ToolCards.test` 等需
   重写；纯逻辑 `sessionComposer*.test.ts` 可复用。
 - **Beta 依赖风险**：Astryx 当前 0.3.0 Beta，API 可能变动，锁定版本并跟踪 changelog。
+- **0.3.0 补丁**：上游 `ChatToolCalls` 声明了 `label` 却未使用，且单调用强制走
+  无聚合分支；仓库以 pnpm patch 落地 `label` 与 `alwaysGroup`，补丁由单条聚合、
+  混合分类摘要回归测试约束，升级 Astryx 时必须先核对并移除已上游化的部分。
 - **集成方式**：Astryx 为预编译 ESM + 预编译 CSS（`@astryxdesign/core/astryx.css`），
   无需 PostCSS/Babel 构建插件，`className` 可覆盖样式，不影响 VibeX 现有
   Tailwind / design tokens 体系。
@@ -124,8 +133,8 @@ Astryx（Meta 开源设计系统，`@astryxdesign/core`，MIT，GitHub `facebook
 
 ## 其他可替换/新增组件（后续阶段候选）
 
-- **Chat 族**：`ChatComposer`（容器）、`ChatMessage` / `ChatMessageBubble` /
-  `ChatMessageList` / `ChatMessageMetadata` / `ChatSystemMessage`（消息气泡）、
+- **Chat 族**：`ChatComposer`（容器）、`ChatMessageList` /
+  `ChatMessageMetadata` / `ChatSystemMessage`（其余消息体系）、
   `ChatLayout` / `ChatLayoutScrollButton`、`ChatSendButton`、`ChatDictationButton`（新增听写）。
 - **内容**：`CodeBlock`（自研 tokenizer + CSS Custom Highlight API，替换现有
   `CodeBlock` / `CompactCodeBlock`）、`Badge`、`Avatar` / `AvatarGroup`、`StatusDot`、

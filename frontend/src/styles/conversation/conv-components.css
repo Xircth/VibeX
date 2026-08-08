@@ -120,48 +120,11 @@
   max-width: 100%;
 }
 
-/* Top-level tool cards line up with the prose: the legacy DisplayConversationEntry
-   wrapper adds its own px-4, which double-indents tool cards relative to text.
-   Strip it here, but keep the padding inside aggregated timelines (nested). */
-.conv-assistant-body > .conv-entry-item > div:not(.conv-agg-timeline) {
+/* Top-level entries line up with prose; DisplayConversationEntry adds padding
+   for legacy list contexts, so remove the duplicate inset in a message turn. */
+.conv-assistant-body > .conv-entry-item > div {
   padding-left: 0 !important;
   padding-right: 0 !important;
-}
-
-/* =========================================
- * Aggregated Group (Timeline)
- * ========================================= */
-
-.conv-agg-timeline {
-  position: relative;
-  padding-left: 16px;
-  margin-top: 4px;
-}
-
-.conv-agg-timeline::before {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 4px;
-  bottom: 4px;
-  width: 1.5px;
-  background: var(--conv-border-strong);
-}
-
-.conv-agg-timeline-item {
-  position: relative;
-  padding: 2px 0;
-}
-
-.conv-agg-timeline-item::before {
-  content: '';
-  position: absolute;
-  left: -13px;
-  top: 11px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--conv-text-tertiary);
 }
 
 /* Count Badge */
@@ -177,68 +140,6 @@
   font-weight: 600;
   background: var(--conv-surface-control);
   color: var(--conv-text-secondary);
-}
-
-/* =========================================
- * Assistant Message Text — ensure dark readable text
- * ========================================= */
-
-.conv-assistant-msg .ProseMirror,
-.conv-assistant-msg .ProseMirror p,
-.conv-assistant-msg .ProseMirror li,
-.conv-assistant-msg .ProseMirror span,
-.conv-assistant-msg .ProseMirror td,
-.conv-assistant-msg .ProseMirror th {
-  color: var(--conv-text-primary) !important;
-}
-
-.conv-assistant-msg .ProseMirror h1,
-.conv-assistant-msg .ProseMirror h2,
-.conv-assistant-msg .ProseMirror h3,
-.conv-assistant-msg .ProseMirror h4,
-.conv-assistant-msg .ProseMirror h5,
-.conv-assistant-msg .ProseMirror h6 {
-  color: var(--conv-text-primary) !important;
-  font-weight: 600;
-}
-
-.conv-assistant-msg .ProseMirror a {
-  color: var(--conv-tool-icon) !important;
-  text-decoration: underline;
-}
-
-/* =========================================
- * Code Blocks in Conversation
- * ========================================= */
-
-.conv-assistant-msg .ProseMirror code:not([class*='code-highlight']) {
-  background: var(--conv-surface-control) !important;
-  color: var(--conv-text-primary) !important;
-  border: 1px solid var(--conv-border-subtle);
-  border-radius: var(--radius);
-  padding: 1px 5px;
-  font-size: 0.88em;
-}
-
-.conv-assistant-msg .ProseMirror pre,
-.conv-assistant-msg .editor-code {
-  background: var(--conv-code-bg) !important;
-  border: 1px solid var(--conv-border-subtle) !important;
-  border-radius: var(--radius) !important;
-  padding: 12px 14px !important;
-  margin: 8px 0 !important;
-  overflow-x: auto;
-  font-size: 12px !important;
-  line-height: 1.6 !important;
-}
-
-.conv-assistant-msg .ProseMirror pre code,
-.conv-assistant-msg .editor-code code {
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
-  font-size: inherit !important;
-  color: var(--conv-code-text) !important;
 }
 
 /* =========================================

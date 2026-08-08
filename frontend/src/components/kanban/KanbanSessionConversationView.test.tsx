@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { forwardRef, type ReactNode } from 'react';
+import { forwardRef, StrictMode, useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from 'shared/types';
@@ -252,6 +252,145 @@ describe('KanbanSessionConversationView', () => {
 
     expect(onCreateSessionRequested).toHaveBeenCalledTimes(1);
     expect(startNewSession).not.toHaveBeenCalled();
+  });
+
+  it('handles a parent update triggered by a new-session URL request once', () => {
+    const workspace = createWorkspace('workspace-empty');
+    const session = createSession('session-existing', workspace.id);
+    useWorkspaceSessionsMock.mockReturnValue({
+      sessions: [session],
+      selectedSession: undefined,
+      selectedSessionId: undefined,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+
+    function ParentThatRerendersOnRequest() {
+      const [requestCount, setRequestCount] = useState(0);
+
+      return (
+        <div data-testid="request-count" data-count={requestCount}>
+          <KanbanSessionConversationView
+            workspaceId={workspace.id}
+            interactive={true}
+            showSessionSelector={true}
+            onCreateSessionRequested={() => {
+              setRequestCount((count) => count + 1);
+            }}
+          />
+        </div>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={[`/?newSession=1`]}>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationPlacementProvider>
+            <ParentThatRerendersOnRequest />
+          </KanbanSessionConversationPlacementProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('request-count')).toHaveAttribute(
+      'data-count',
+      '1'
+    );
+  });
+
+  it('does not loop when an interactive session moves from workspace to kanban placement', () => {
+    const workspace = createWorkspace('workspace-transition');
+    const session = createSession('session-transition', workspace.id);
+    const onCreateSessionRequested = vi.fn();
+    useWorkspaceSessionsMock.mockImplementation(() => ({
+      sessions: [session],
+      selectedSession: session,
+      selectedSessionId: session.id,
+      selectSession: vi.fn(),
+      selectLatestSession: vi.fn(),
+      isLoading: false,
+      isNewSessionMode: false,
+      isPendingNewSessionMode: false,
+      requestNewSession: vi.fn(),
+      confirmNewSession: vi.fn(),
+      cancelNewSession: vi.fn(),
+      startNewSession: vi.fn(),
+    }));
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+    queryClient.setQueryData(['session', session.id], session);
+
+    function PlacementHarness({
+      placement,
+    }: {
+      placement: 'workspace' | 'kanban';
+    }) {
+      return (
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <KanbanSessionConversationPlacementProvider>
+              {placement === 'workspace' ? (
+                <KanbanSessionConversationView
+                  key={placement}
+                  workspaceId={workspace.id}
+                  sessionId={session.id}
+                  interactive={true}
+                  showSessionSelector={true}
+                  onCreateSessionRequested={onCreateSessionRequested}
+                />
+              ) : (
+                <KanbanSessionConversationView
+                  key={placement}
+                  workspaceId={workspace.id}
+                  sessionId={session.id}
+                  interactive={true}
+                  showSessionSelector={true}
+                  onCreateSessionRequested={onCreateSessionRequested}
+                />
+              )}
+            </KanbanSessionConversationPlacementProvider>
+          </QueryClientProvider>
+        </MemoryRouter>
+      );
+    }
+
+    const { rerender } = render(
+      <StrictMode>
+        <PlacementHarness placement="workspace" />
+      </StrictMode>
+    );
+    expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
+
+    rerender(
+      <StrictMode>
+        <PlacementHarness placement="kanban" />
+      </StrictMode>
+    );
+
+    expect(screen.getByTestId('virtualized-list')).toBeInTheDocument();
   });
 
   it('renders the existing session shell on workspace routes without an explicit session selection', () => {

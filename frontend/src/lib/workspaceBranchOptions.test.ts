@@ -3,7 +3,6 @@ import type { GitBranch, Workspace } from 'shared/types';
 import {
   buildWorkspaceBranchOptions,
   getWorkspaceBranchCheckoutHint,
-  getWorkspaceBranchWarning,
   resolveWorkspaceBranchSelection,
 } from './workspaceBranchOptions';
 
@@ -84,7 +83,7 @@ describe('buildWorkspaceBranchOptions', () => {
     ]);
   });
 
-  it('emits warnings for non-worktree branches and checkout hints for non-current project branches', () => {
+  it('emits checkout hints only for non-current project branches', () => {
     const [currentBranchOption, otherBranchOption] =
       buildWorkspaceBranchOptions({
         workspaces: [],
@@ -99,14 +98,8 @@ describe('buildWorkspaceBranchOptions', () => {
         ],
       });
 
-    expect(getWorkspaceBranchWarning(currentBranchOption)).toBe(
-      '当前分支非 Git Worktree，建议选择 Worktree 分支。'
-    );
     expect(getWorkspaceBranchCheckoutHint(currentBranchOption)).toBeNull();
 
-    expect(getWorkspaceBranchWarning(otherBranchOption)).toBe(
-      '当前分支非 Git Worktree，建议选择 Worktree 分支。'
-    );
     expect(getWorkspaceBranchCheckoutHint(otherBranchOption)).toBe(
       '选择后会先在当前项目目录 checkout 到该分支，以确保工作区正确。'
     );

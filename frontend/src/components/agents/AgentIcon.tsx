@@ -23,18 +23,46 @@ const BUILT_IN_ICON_PATHS: Partial<
     light: '/agents/codex-light.svg',
     dark: '/agents/codex-dark.svg',
   },
+  gemini: {
+    light: '/agents/gemini-light.svg',
+    dark: '/agents/gemini-dark.svg',
+  },
+  openclaw: {
+    light: '/agents/openclaw.svg',
+    dark: '/agents/openclaw.svg',
+  },
   opencode: {
     light: '/agents/opencode-light.svg',
     dark: '/agents/opencode-dark.svg',
   },
+  cline: { light: '/agents/cline.svg', dark: '/agents/cline.svg' },
+  hermes: { light: '/agents/hermes.svg', dark: '/agents/hermes.svg' },
+  codebuddy: {
+    light: '/agents/codebuddy.svg',
+    dark: '/agents/codebuddy.svg',
+  },
+  kimi_code: { light: '/agents/kimi.svg', dark: '/agents/kimi.svg' },
   pi: { light: '/agents/pi.svg', dark: '/agents/pi.svg' },
+  grok: { light: '/agents/grok.svg', dark: '/agents/grok.svg' },
+  cursor: {
+    light: '/agents/cursor-light.svg',
+    dark: '/agents/cursor-dark.svg',
+  },
 };
 
 const BUILT_IN_DISPLAY_NAMES: Partial<Record<string, string>> = {
   claude_code: 'Claude Code',
   codex: 'Codex',
+  gemini: 'Gemini CLI',
+  openclaw: 'OpenClaw',
   opencode: 'OpenCode',
+  cline: 'Cline',
+  hermes: 'Hermes Agent',
+  codebuddy: 'CodeBuddy',
+  kimi_code: 'Kimi Code',
   pi: 'Pi',
+  grok: 'Grok',
+  cursor: 'Cursor',
 };
 
 function getResolvedTheme(theme: ThemeMode): 'light' | 'dark' {

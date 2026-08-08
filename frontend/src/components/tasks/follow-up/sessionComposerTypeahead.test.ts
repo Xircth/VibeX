@@ -3,15 +3,7 @@ import { type SlashCommandDescription } from 'shared/types';
 import type { OfficePluginCatalog } from 'shared/types';
 import { DOLLAR_COMMANDS } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
-import {
-  formatSessionComposerCommand,
-  getSessionComposerStructuredTokenSegments,
-  insertPreviewElementToken,
-} from './sessionComposerStructuredTokens';
-import {
-  getTextareaTypeaheadState,
-  replaceTextareaTypeaheadRange,
-} from './sessionComposerTypeahead';
+import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import {
   dollarCommandsToTypeaheadOptions,
   referenceResultsToTypeaheadOptions,
@@ -20,82 +12,6 @@ import {
   slashCommandsToTypeaheadOptions,
   pluginActionsToTypeaheadOptions,
 } from './sessionComposerTypeaheadOptions';
-
-describe('session composer textarea typeahead', () => {
-  it.each([
-    ['/', 'run /com', '/', 'com'],
-    ['$', 'use $impe', '$', 'impe'],
-    ['@', 'open @src/App', '@', 'src/App'],
-    ['#', 'apply #review', '#', 'review'],
-  ])(
-    'matches %s triggers before the textarea caret',
-    (_label, value, trigger, query) => {
-      const state = getTextareaTypeaheadState(value, value.length);
-
-      expect(state?.trigger).toBe(trigger);
-      expect(state?.match.matchingString).toBe(query);
-    }
-  );
-
-  it('does not match completed trigger text after whitespace', () => {
-    expect(getTextareaTypeaheadState('use $plan now', 13)).toBeNull();
-  });
-
-  it.each(['调用 !', '调用 ！'])(
-    'opens plugin actions for a space followed by %s',
-    (value) => {
-      const state = getTextareaTypeaheadState(value, value.length);
-
-      expect(state?.trigger).toBe('!');
-      expect(state?.match.matchingString).toBe('');
-      expect(state?.match.replaceableString).toBe(value.slice(-1));
-    }
-  );
-
-  it.each(['!', '！', '调用!', '调用！'])(
-    'does not open plugin actions without a preceding space: %s',
-    (value) => {
-      expect(getTextareaTypeaheadState(value, value.length)).toBeNull();
-    }
-  );
-
-  it('supports filtering after the plugin action trigger', () => {
-    const value = '请 ！PPT';
-    const state = getTextareaTypeaheadState(value, value.length);
-
-    expect(state?.trigger).toBe('!');
-    expect(state?.match.matchingString).toBe('PPT');
-    expect(state?.match.replaceableString).toBe('！PPT');
-  });
-
-  it('does not match @ triggers inside preview element tokens', () => {
-    const value = insertPreviewElementToken({
-      value: 'Fix',
-      selectionStart: 3,
-      selectionEnd: 3,
-      componentName: 'GenerateButton',
-      filePath: 'src/App.tsx:12:3',
-      fullMarkdown: 'From preview click:\n- DOM: button',
-    }).value;
-    const segments = getSessionComposerStructuredTokenSegments(value);
-
-    expect(
-      getTextareaTypeaheadState(value, value.trimEnd().length, segments)
-    ).toBeNull();
-  });
-
-  it('replaces only the active trigger range', () => {
-    const value = 'please use $pla tomorrow';
-    const state = getTextareaTypeaheadState(value, 'please use $pla'.length);
-
-    expect(state).not.toBeNull();
-
-    const next = replaceTextareaTypeaheadRange(value, state!.match, '$plan');
-
-    expect(next.value).toBe('please use $plan tomorrow');
-    expect(next.caretOffset).toBe('please use $plan'.length);
-  });
-});
 
 describe('session composer typeahead option derivation', () => {
   it('maps only ready plugin actions into prompt-backed command tokens', () => {

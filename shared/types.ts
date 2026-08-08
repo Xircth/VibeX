@@ -1621,6 +1621,11 @@ export type ConversationPlanEntry = { id: string, content: string, status: strin
 
 export type ConversationQuestionRequest = { question_id: string, prompt: string, options: Array<string>,
 /**
+ * Wall-clock time when the agent asked the question. Optional so events
+ * written before this field existed remain readable.
+ */
+asked_at?: string | null,
+/**
  * ACP form-elicitation requested schema (JSON Schema with primitive-typed
  * properties). When present the frontend renders a structured form; the
  * plain `options` list is a degraded fallback.
@@ -1694,7 +1699,7 @@ export type ConversationDelegationView = { delegation_id: string, parent_tool_ca
 
 export type AgentSessionConfigOverride = { key: string, value: string, };
 
-export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
+export type ConversationRowOp = { "op": "upsert", row: TimelineRow, } | { "op": "delete", row_id: string, revision: bigint, } | { "op": "append_text", row_id: string, revision: bigint, stream: TimelineTextStream, delta: string, };
 
 export type ConversationRowOpBatch = { conversation_id: string, last_sequence: bigint, ops: Array<ConversationRowOp>,
 /**
@@ -2033,3 +2038,19 @@ export type AgentEnvironmentDiagnosticsView = { agent_id: AgentId, verdict_code:
 export type OpenCodeProviderModelRequest = { id: string, name: string, previous_id?: string | null, };
 
 export type OpenCodeProviderModelView = { id: string, name: string, };
+
+export type AgentPlanUsage = { planType: string | null, windows: Array<PlanUsageWindow>, credits: PlanCredits | null, };
+
+export type PlanCredits = { balance: string | null, unlimited: boolean, };
+
+export type PlanUsageResult = { "type": "OK", usage: AgentPlanUsage, } | { "type": "UNAVAILABLE", reason: PlanUsageUnavailableReason, } | { "type": "ERROR", message: string, };
+
+export enum PlanUsageUnavailableReason { UNSUPPORTED_AGENT = "UNSUPPORTED_AGENT", CLI_NOT_FOUND = "CLI_NOT_FOUND", NOT_LOGGED_IN = "NOT_LOGGED_IN", TOKEN_EXPIRED = "TOKEN_EXPIRED" }
+
+export type PlanUsageWindow = {
+/**
+ * Stable window identifier the frontend maps to a localized label.
+ * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
+ * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`.
+ */
+id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };

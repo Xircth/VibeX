@@ -101,6 +101,18 @@ export function CommandToolCard({
       detail={summary.detail || command}
       statusClassName={statusClass}
       statusDotClassName={statusDotClass}
+      status={toolEntry.status}
+      chatStatus={
+        statusClass.includes('conv-tool-card-error')
+          ? 'error'
+          : toolEntry.status.status === 'created'
+            ? 'running'
+            : toolEntry.status.status === 'pending_approval'
+              ? 'pending'
+              : statusClass.includes('conv-tool-card-pending')
+                ? 'running'
+                : 'complete'
+      }
       expanded={effectiveExpanded}
       expandable={hasDetails}
       onToggle={toggle}

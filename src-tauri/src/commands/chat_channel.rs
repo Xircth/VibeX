@@ -1625,23 +1625,13 @@ async fn conversation_last_sequence(
     .map_err(Into::into)
 }
 
-async fn emit_conversation_events_after(
-    app: &AppHandle,
-    projectors: &crate::events::ConversationRowProjectors,
+async fn notify_conversation_events_after(
     pool: &SqlitePool,
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(
-        app,
-        projectors,
-        pool,
-        conversation_id,
-        after_sequence,
-    )
-    .await;
-    // IM channels still consume the raw event envelopes.
+    // Row ops are published at the core append boundary. IM integrations still
+    // consume raw event envelopes after the command completes.
     if let Ok(page) =
         conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
     {
@@ -1806,14 +1796,7 @@ async fn send_task(
         })
         .await;
 
-    emit_conversation_events_after(
-        app,
-        &state.conversation_row_projectors,
-        &pool,
-        target.id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, target.id, previous_last_sequence).await;
 
     match result {
         Ok(_) => format!("✅ 已发送到对话 {}", short_id(&target.id.to_string())),
@@ -1861,14 +1844,7 @@ async fn respond_permission_command(
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(target.id, pending.permission_id.clone(), response)
         .await;
-    emit_conversation_events_after(
-        app,
-        &state.conversation_row_projectors,
-        &pool,
-        target.id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, target.id, previous_last_sequence).await;
 
     match result {
         Ok(_) => match intent {
@@ -1899,14 +1875,7 @@ async fn cancel_command(
     let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(target.id, Some("用户通过 IM 取消".to_string()))
         .await;
-    emit_conversation_events_after(
-        app,
-        &state.conversation_row_projectors,
-        &pool,
-        target.id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_conversation_events_after(&pool, target.id, previous_last_sequence).await;
 
     match result {
         Ok(_) => "🛑 已请求取消当前回合。".to_string(),

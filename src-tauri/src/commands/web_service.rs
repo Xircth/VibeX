@@ -318,23 +318,9 @@ async fn web_conversation_last_sequence(
     .map_err(Into::into)
 }
 
-async fn emit_events_after(
-    app: &tauri::AppHandle,
-    projectors: &crate::events::ConversationRowProjectors,
-    pool: &sqlx::SqlitePool,
-    conversation_id: Uuid,
-    after_sequence: i64,
-) {
-    // Frontend: the single row-op path (消灭双投影).
-    crate::events::emit_conversation_row_ops_after(
-        app,
-        projectors,
-        pool,
-        conversation_id,
-        after_sequence,
-    )
-    .await;
-    // IM channels still consume the raw event envelopes.
+async fn notify_events_after(pool: &sqlx::SqlitePool, conversation_id: Uuid, after_sequence: i64) {
+    // Row ops are published at the core append boundary. IM integrations still
+    // consume raw event envelopes after the HTTP request completes.
     if let Ok(page) =
         conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
     {
@@ -482,14 +468,7 @@ async fn api_start_turn(
             plugin_actions: Vec::new(),
         })
         .await;
-    emit_events_after(
-        &router_state.app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
     let (turn, _) = result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!(turn)))
 }
@@ -510,14 +489,7 @@ async fn api_respond_permission(
     let result = ConversationSessionService::new(state.conversation_context())
         .respond_permission(conversation_id, permission_id, request.response)
         .await;
-    emit_events_after(
-        &router_state.app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -538,14 +510,7 @@ async fn api_cancel_turn(
     let result = ConversationSessionService::new(state.conversation_context())
         .cancel_turn(conversation_id, request.reason)
         .await;
-    emit_events_after(
-        &router_state.app,
-        &state.conversation_row_projectors,
-        &pool,
-        conversation_id,
-        previous_last_sequence,
-    )
-    .await;
+    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(AppError::from).map_err(app_error)?;
     Ok(Json(json!({ "ok": true })))
 }

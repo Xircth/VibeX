@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { ConversationError } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { ConversationStatusDetails } from './ConversationStatusDetails';
 import { cn } from '@/lib/utils';
 
 /**
@@ -43,7 +44,7 @@ export function TurnErrorCard({
       data-tone={view.tone}
       className={cn(
         placement === 'composer'
-          ? 'composer-status-row px-3 py-2 text-xs text-foreground'
+          ? 'composer-status-row text-xs text-foreground'
           : cn(
               'conv-entry-item mb-2 rounded-lg border px-3 py-2.5 text-sm',
               view.tone === 'neutral'
@@ -55,18 +56,41 @@ export function TurnErrorCard({
       <div className="flex items-start gap-2.5">
         <span
           className={cn(
-            'mt-0.5 shrink-0',
-            placement === 'composer' && 'composer-status-icon'
+            'shrink-0',
+            placement === 'composer' ? 'composer-status-icon' : 'mt-0.5'
           )}
         >
           {view.icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-medium">{view.title}</div>
+          <div
+            className={cn(
+              'font-medium',
+              placement === 'composer' && 'composer-status-title'
+            )}
+          >
+            {view.title}
+          </div>
           {view.detail ? (
-            <div className="mt-0.5 whitespace-pre-wrap break-words leading-5 opacity-90">
-              {view.detail}
-            </div>
+            placement === 'composer' ? (
+              <ConversationStatusDetails
+                key={view.detail}
+                title={view.title}
+                label={t('statusDock.showDetails')}
+                accessibleLabel={t('statusDock.showDetailsFor', {
+                  title: view.title,
+                })}
+                mono={view.tone === 'error'}
+              >
+                <div className="whitespace-pre-wrap break-words">
+                  {view.detail}
+                </div>
+              </ConversationStatusDetails>
+            ) : (
+              <div className="mt-0.5 whitespace-pre-wrap break-words leading-5 opacity-90">
+                {view.detail}
+              </div>
+            )
           ) : null}
           {view.canReload && onReload ? (
             <div className="mt-2">

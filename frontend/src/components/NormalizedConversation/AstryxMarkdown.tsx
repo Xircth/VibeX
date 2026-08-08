@@ -1,5 +1,14 @@
-import { memo, useCallback, useMemo, type MouseEvent, type ReactNode } from 'react';
-import { Markdown as AstryxMarkdownBase, type MarkdownProps } from '@astryxdesign/core/Markdown';
+import {
+  memo,
+  useCallback,
+  useMemo,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
+import {
+  Markdown as AstryxMarkdownBase,
+  type MarkdownProps,
+} from '@astryxdesign/core/Markdown';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -10,7 +19,10 @@ import { useOpenLink } from '@/hooks/useOpenLink';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
-import { deriveRelativeFilePath, resolveFilePathFromRoot } from '@/utils/filePaths';
+import {
+  deriveRelativeFilePath,
+  resolveFilePathFromRoot,
+} from '@/utils/filePaths';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
 
@@ -31,7 +43,9 @@ function flattenNodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(flattenNodeText).join('');
   if (typeof node === 'object' && 'props' in node) {
-    return flattenNodeText((node as { props?: { children?: ReactNode } }).props?.children);
+    return flattenNodeText(
+      (node as { props?: { children?: ReactNode } }).props?.children
+    );
   }
   return '';
 }
@@ -395,6 +409,12 @@ function createMarkdownComponents({
         return (
           <code
             onClick={handleClick}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.currentTarget.click();
+              }
+            }}
             role="button"
             tabIndex={0}
             title={pathTarget.displayPath}
@@ -496,6 +516,12 @@ function createMarkdownComponents({
         <a
           href={renderedHref}
           onClick={handleClick}
+          onKeyDown={(event) => {
+            if (!renderedHref && event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.click();
+            }
+          }}
           rel="noopener noreferrer"
           role={renderedHref ? undefined : 'link'}
           tabIndex={renderedHref ? undefined : 0}
@@ -619,6 +645,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
     <div className={`conv-markdown${className ? ` ${className}` : ''}`}>
       <AstryxMarkdownBase
         display="block"
+        autolink="gfm"
         components={components}
         inlinePlugins={inlinePlugins}
         isStreaming={isStreaming}

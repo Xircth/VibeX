@@ -1,4 +1,5 @@
 pub mod agent_management;
+pub mod agent_plan_usage;
 pub mod agent_skills;
 pub mod agents;
 pub mod approvals;

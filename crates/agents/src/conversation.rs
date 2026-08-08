@@ -419,6 +419,10 @@ pub struct ConversationQuestionRequest {
     pub prompt: String,
     #[serde(default)]
     pub options: Vec<String>,
+    /// Wall-clock time when the agent asked the question. Optional so events
+    /// written before this field existed remain readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_at: Option<DateTime<Utc>>,
     /// ACP form-elicitation requested schema (JSON Schema with primitive-typed
     /// properties). When present the frontend renders a structured form; the
     /// plain `options` list is a degraded fallback.
@@ -922,6 +926,8 @@ pub enum ConversationRowOp {
     /// Insert or replace a whole row (new row, status change, tool-call update…).
     /// Applying it clears any accumulated live text for the row.
     Upsert { row: TimelineRow },
+    /// Remove a row that no longer represents current projected state.
+    Delete { row_id: String, revision: i64 },
     /// Append a streaming text chunk to a row's live-text overlay — sent per delta so
     /// long replies don't re-broadcast the full text each frame (O(n²)).
     AppendText {
@@ -1064,6 +1070,7 @@ mod event_sourced_tests {
                     question_id: "q1".to_string(),
                     prompt: "Continue?".to_string(),
                     options: vec!["yes".to_string(), "no".to_string()],
+                    asked_at: None,
                     schema: None,
                 },
             },

@@ -433,6 +433,7 @@ fn map_agent_event(
                     question_id: request.id.to_string(),
                     prompt: request.message.clone(),
                     options: Vec::new(),
+                    asked_at: Some(envelope.created_at),
                     schema: Some(request.requested_schema.clone()),
                 },
             })

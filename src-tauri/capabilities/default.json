@@ -2,22 +2,39 @@
   "$schema": "https://raw.githubusercontent.com/nicktomlin/tauri-v2-schema/refs/heads/main/capabilities.json",
   "identifier": "default",
   "description": "Default capabilities for the main window",
-  "windows": ["main", "settings", "desktop-toast", "project-rail"],
+  "windows": [
+    "main",
+    "settings",
+    "desktop-toast",
+    "project-rail"
+  ],
   "permissions": [
     "core:default",
     "shell:allow-open",
     "fs:default",
     {
       "identifier": "fs:allow-read",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
     },
     {
       "identifier": "fs:allow-write",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
     },
     {
       "identifier": "fs:allow-write-text-file",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
     },
     "dialog:default",
     "updater:default",
@@ -29,6 +46,8 @@
     "core:window:allow-close",
     "core:window:allow-hide",
     "core:window:allow-is-maximized",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "redline:default",
+    "vibex-inspector:default"
   ]
 }

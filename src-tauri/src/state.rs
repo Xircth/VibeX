@@ -27,6 +27,7 @@ pub struct LocalUsageCacheEntry {
 }
 
 pub struct AppState {
+    pub app_handle: tauri::AppHandle,
     pub deployment: Arc<dyn Deployment>,
     /// PTY session registry for terminal commands. A shared (Arc-backed) handle to the
     /// same registry the deployment owns — kept as a first-class field because
@@ -53,7 +54,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new() -> Result<Self, deployment::DeploymentError> {
+    pub async fn new(app_handle: tauri::AppHandle) -> Result<Self, deployment::DeploymentError> {
         let deployment = LocalDeployment::new().await?;
         let pty = deployment.pty().clone();
         let pool = deployment.db().pool.clone();
@@ -87,6 +88,7 @@ impl AppState {
         // the agent auto-calls it) lands in a follow-up.
         let delegation = crate::delegation::build_delegation(agent_runtime.clone(), pool);
         Ok(Self {
+            app_handle,
             deployment: Arc::new(deployment),
             pty,
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
@@ -114,6 +116,11 @@ impl AppState {
             row_projectors: self.conversation_row_projectors.clone(),
             host: Arc::new(crate::conversation_service::AppConversationHost {
                 deployment: self.deployment.clone(),
+            }),
+            event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
+                app_handle: self.app_handle.clone(),
+                deployment: self.deployment.clone(),
+                row_projectors: self.conversation_row_projectors.clone(),
             }),
         }
     }

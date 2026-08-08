@@ -7,6 +7,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { BranchInfoHeader } from './BranchInfoHeader';
 
+const branchHeaderMocks = vi.hoisted(() => ({
+  useTaskAttempt: vi.fn(),
+}));
+
 const legacyStyles = readFileSync(
   resolve(process.cwd(), 'src/styles/legacy/index.css'),
   'utf8'
@@ -62,13 +66,7 @@ vi.mock('@/hooks/useWorkspaceBranchStatus', () => ({
 }));
 
 vi.mock('@/hooks/useTaskAttempt', () => ({
-  useTaskAttempt: () => ({
-    data: {
-      task_id: 'task-1',
-      use_worktree: true,
-      branch: 'feature/liquid-toolbar',
-    },
-  }),
+  useTaskAttempt: branchHeaderMocks.useTaskAttempt,
 }));
 
 vi.mock('@/hooks/useTask', () => ({
@@ -92,6 +90,16 @@ vi.mock('@/hooks/useChangeTargetBranch', () => ({
 }));
 
 describe('BranchInfoHeader', () => {
+  beforeEach(() => {
+    branchHeaderMocks.useTaskAttempt.mockReturnValue({
+      data: {
+        task_id: 'task-1',
+        use_worktree: true,
+        branch: 'feature/liquid-toolbar',
+      },
+    });
+  });
+
   it('keeps the Git workspace controls in a rounded liquid-glass toolbar', () => {
     render(<BranchInfoHeader />);
 
@@ -114,6 +122,32 @@ describe('BranchInfoHeader', () => {
     expect(screen.getByText('main')).toBeVisible();
     expect(screen.queryByText('当前')).not.toBeInTheDocument();
     expect(screen.getByText('feature/liquid-toolbar')).toBeVisible();
+    expect(screen.getByText('–')).toBeVisible();
+
+    const actionsRule =
+      legacyStyles.match(/\.branch-info-actions\s*\{[^}]+\}/u)?.[0] ?? '';
+    const primaryActionRule =
+      legacyStyles.match(/\.branch-info-action-primary\s*\{[^}]+\}/u)?.[0] ??
+      '';
+    expect(actionsRule).not.toContain('border-left');
+    expect(primaryActionRule).toContain('color: #000 !important;');
+  });
+
+  it('does not render Git controls for a workspace without a worktree', () => {
+    branchHeaderMocks.useTaskAttempt.mockReturnValue({
+      data: {
+        task_id: 'task-1',
+        use_worktree: false,
+        branch: 'main',
+      },
+    });
+
+    render(<BranchInfoHeader />);
+
+    expect(
+      screen.queryByRole('toolbar', { name: 'Git workspace controls' })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Git Actions')).not.toBeInTheDocument();
   });
 
   it('reveals the target label when the target branch is hovered', async () => {

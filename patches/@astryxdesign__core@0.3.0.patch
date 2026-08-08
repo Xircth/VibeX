@@ -1,0 +1,134 @@
+diff --git a/src/Chat/ChatToolCalls.tsx b/src/Chat/ChatToolCalls.tsx
+--- a/src/Chat/ChatToolCalls.tsx
++++ b/src/Chat/ChatToolCalls.tsx
+@@ -82,6 +82,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+   calls: ChatToolCallItem[];
+   /** Custom summary label for groups. Auto-generated from count if omitted. */
+   label?: string;
++  /** Keep the collapsible group chrome when the array contains one call. */
++  alwaysGroup?: boolean;
+   /** Whether the group is expanded. Uncontrolled by default. */
+   isExpanded?: boolean;
+   /** Default expanded state. @default true for ≤3 calls, false for >3. */
+@@ -508,6 +510,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+   const {
+     calls,
+     label: _customLabel,
++    alwaysGroup = false,
+     isExpanded: controlledExpanded,
+     defaultIsExpanded,
+     onExpandedChange,
+@@ -536,8 +539,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+     return null;
+   }
+ 
+-  // Single call: render inline, no group chrome
+-  if (calls.length === 1) {
++  // Single calls render inline unless the consumer requests a consistent group.
++  if (calls.length === 1 && !alwaysGroup) {
+     return (
+       <div
+         ref={ref}
+@@ -556,6 +559,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+   // Multiple calls: latest call at surface with chevron to expand all
+   const latestCall = calls[calls.length - 1];
+   const latestStatus = latestCall.status ?? 'complete';
++  const showSummary = isExpanded || _customLabel != null;
+ 
+   return (
+     <div
+@@ -581,13 +585,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+           }
+         }}
+         {...stylex.props(styles.callRow, styles.callRowToggle)}>
+-        {isExpanded ? (
++        {showSummary ? (
+           <>
+             <span {...stylex.props(styles.groupIcon)}>
+               <Icon icon="wrench" size="sm" color="inherit" />
+             </span>
+             <span {...stylex.props(styles.groupLabel)}>
+-              {t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
++              {_customLabel ??
++                t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
+             </span>
+           </>
+         ) : (
+@@ -620,7 +625,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+           </>
+         )}
+         <span {...stylex.props(styles.callCount)}>
+-          {!isExpanded && (
++          {!showSummary && (
+             <>
+               <Icon icon="wrench" size="xsm" color="inherit" />
+               {calls.length}
+diff --git a/dist/Chat/ChatToolCalls.d.ts b/dist/Chat/ChatToolCalls.d.ts
+--- a/dist/Chat/ChatToolCalls.d.ts
++++ b/dist/Chat/ChatToolCalls.d.ts
+@@ -52,6 +52,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+     calls: ChatToolCallItem[];
+     /** Custom summary label for groups. Auto-generated from count if omitted. */
+     label?: string;
++    /** Keep the collapsible group chrome when the array contains one call. */
++    alwaysGroup?: boolean;
+     /** Whether the group is expanded. Uncontrolled by default. */
+     isExpanded?: boolean;
+     /** Default expanded state. @default true for ≤3 calls, false for >3. */
+diff --git a/dist/Chat/ChatToolCalls.js b/dist/Chat/ChatToolCalls.js
+--- a/dist/Chat/ChatToolCalls.js
++++ b/dist/Chat/ChatToolCalls.js
+@@ -260,6 +260,7 @@ export function ChatToolCalls(props) {
+   const {
+     calls,
+     label: _customLabel,
++    alwaysGroup = false,
+     isExpanded: controlledExpanded,
+     defaultIsExpanded,
+     onExpandedChange,
+@@ -285,8 +286,8 @@ export function ChatToolCalls(props) {
+     return null;
+   }
+ 
+-  // Single call: render inline, no group chrome
+-  if (calls.length === 1) {
++  // Single calls render inline unless the consumer requests a consistent group.
++  if (calls.length === 1 && !alwaysGroup) {
+     return /*#__PURE__*/_jsx("div", {
+       ref: ref,
+       ...mergeProps(themeProps('chat-tool-calls'), stylex.props(styles.root, xstyle), className, style),
+@@ -300,6 +301,7 @@ export function ChatToolCalls(props) {
+   // Multiple calls: latest call at surface with chevron to expand all
+   const latestCall = calls[calls.length - 1];
+   const latestStatus = latestCall.status ?? 'complete';
++  const showSummary = isExpanded || _customLabel != null;
+   return /*#__PURE__*/_jsxs("div", {
+     ref: ref,
+     ...mergeProps(themeProps('chat-tool-calls'), stylex.props(styles.root, xstyle), className, style),
+@@ -319,7 +321,7 @@ export function ChatToolCalls(props) {
+       ...{
+         className: "x78zum5 x6s0dn4 x1s4dlld xjwf9q1 x13f7esw x1ypdohk"
+       },
+-      children: [isExpanded ? /*#__PURE__*/_jsxs(_Fragment, {
++      children: [showSummary ? /*#__PURE__*/_jsxs(_Fragment, {
+         children: [/*#__PURE__*/_jsx("span", {
+           ...{
+             className: "x3nfvp2 x6s0dn4 xl56j7k x2lah0s x1kky2od xlup9mm xv1l7n4"
+@@ -333,7 +335,7 @@ export function ChatToolCalls(props) {
+           ...{
+             className: "x141an7d x1ltkj2j x9ynric x1e4wzip xv1l7n4"
+           },
+-          children: t('@astryx.chatToolCalls.groupLabel', {
++          children: _customLabel ?? t('@astryx.chatToolCalls.groupLabel', {
+             count: calls.length
+           })
+         })]
+@@ -377,7 +379,7 @@ export function ChatToolCalls(props) {
+         ...{
+           className: "x3nfvp2 x6s0dn4 x1lsbc85 x141an7d x1ltkj2j x9ynric xnbbluu x2lah0s"
+         },
+-        children: !isExpanded && /*#__PURE__*/_jsxs(_Fragment, {
++        children: !showSummary && /*#__PURE__*/_jsxs(_Fragment, {
+           children: [/*#__PURE__*/_jsx(Icon, {
+             icon: "wrench",
+             size: "xsm",

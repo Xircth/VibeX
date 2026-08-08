@@ -551,6 +551,9 @@ fn parse_codex_rollout(
             _ => None,
         };
         if let Some((role, content)) = parsed {
+            if role == ImportedAgentMessageRole::User && is_codex_injected_context(&content) {
+                continue;
+            }
             messages.push(ImportedAgentMessage {
                 role,
                 content,
@@ -568,11 +571,36 @@ fn parse_codex_rollout(
         title: messages
             .iter()
             .find(|message| message.role == ImportedAgentMessageRole::User)
-            .map(|message| title_from_content(&message.content)),
+            .map(|message| codex_title_from_content(&message.content)),
         workspace_path,
         messages,
         raw_source_path: Some(path.to_path_buf()),
     }])
+}
+
+fn is_codex_injected_context(content: &str) -> bool {
+    let content = content.trim_start();
+    [
+        "<recommended_plugins>",
+        "# AGENTS.md instructions for ",
+        "<environment_context>",
+        "<permissions instructions>",
+        "<app-context>",
+        "<skills_instructions>",
+        "<apps_instructions>",
+        "<plugins_instructions>",
+    ]
+    .iter()
+    .any(|prefix| content.starts_with(prefix))
+}
+
+fn codex_title_from_content(content: &str) -> String {
+    let content = content
+        .split_once("## My request:")
+        .map(|(_, request)| request.trim_start())
+        .filter(|request| !request.is_empty())
+        .unwrap_or(content);
+    title_from_content(content)
 }
 
 fn codex_response_item(payload: &serde_json::Value) -> Option<(ImportedAgentMessageRole, String)> {
@@ -1910,6 +1938,38 @@ mod tests {
             sessions[0].messages[1].role,
             ImportedAgentMessageRole::Assistant
         );
+    }
+
+    #[test]
+    fn codex_title_skips_injected_recommended_plugins_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rollout-with-context.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"session_meta","payload":{"id":"codex-context-1"}}"#,
+                "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\n- GitHub\n</recommended_plugins>\n# AGENTS.md instructions"}]}}"#,
+                "\n",
+                r##"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# Files mentioned by the user:\n\n- picker.png\n\n## My request:\nFix the previous-session picker"}]}}"##,
+                "\n",
+                r#"{"type":"event_msg","payload":{"type":"agent_message","message":"Done"}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let sessions = import_history_source(&AgentHistorySource {
+            agent_type: AgentKind::Codex,
+            path,
+        })
+        .unwrap();
+
+        assert_eq!(
+            sessions[0].title.as_deref(),
+            Some("Fix the previous-session picker")
+        );
+        assert_eq!(sessions[0].messages.len(), 2);
     }
 
     #[test]

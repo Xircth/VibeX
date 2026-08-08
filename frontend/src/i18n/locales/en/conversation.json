@@ -129,11 +129,32 @@
     "interruptedDescription": "This turn was interrupted by an app restart while generating and did not complete.",
     "collapsedMessages": "Collapsed {{count}} messages",
     "toolCall": "Tool call",
-    "generatingAgents": "Generating {{count}} agents"
+    "generatingAgents": "Generating {{count}} agents",
+    "toolSummary": {
+      "commands_one": "Ran {{count}} command",
+      "commands_other": "Ran {{count}} commands",
+      "reads_one": "Read {{count}} file",
+      "reads_other": "Read {{count}} files",
+      "edits_one": "Changed {{count}} file",
+      "edits_other": "Changed {{count}} files",
+      "searches_one": "Completed {{count}} search",
+      "searches_other": "Completed {{count}} searches",
+      "webFetches_one": "Fetched {{count}} web page",
+      "webFetches_other": "Fetched {{count}} web pages",
+      "agents_one": "Started {{count}} agent",
+      "agents_other": "Started {{count}} agents",
+      "other_one": "{{count}} other tool call",
+      "other_other": "{{count}} other tool calls",
+      "separator": ", ",
+      "failed": "Tool call failed"
+    }
   },
   "statusDock": {
     "dismiss": "Dismiss notice",
     "dismissLocalError": "Dismiss local error",
+    "localErrorTitle": "Action failed",
+    "showDetails": "Show details",
+    "showDetailsFor": "Show details: {{title}}",
     "newerEventTitle": "This conversation includes a record from a newer version",
     "newerEventDescription": "This version cannot display one record yet. The rest of the conversation is unaffected. Update VibeX to view it.",
     "unreadableEventTitle": "Some conversation history cannot be displayed",
@@ -231,8 +252,16 @@
   },
   "questionRequestCard": {
     "title": "Agent question",
-    "submit": "Submit",
+    "expand": "Expand agent question",
+    "collapse": "Collapse agent question",
+    "recommended": "Recommended",
+    "customAnswer": "Type an answer",
+    "customPlaceholder": "Enter your answer",
+    "previous": "Previous",
+    "next": "Next",
+    "submit": "Submit answer",
     "decline": "Decline",
-    "answered": "Answered"
+    "answered": "Answered",
+    "justNow": "Now"
   }
 }

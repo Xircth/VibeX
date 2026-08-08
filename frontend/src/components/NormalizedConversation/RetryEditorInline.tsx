@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer';
+import { SessionComposerInput } from '@/components/tasks/follow-up/SessionComposerInput';
+import { AgentMentionProvider } from '@/components/tasks/follow-up/AgentMention';
+import { configuredBackendTransport } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -84,18 +86,34 @@ export function RetryEditorInline({
   return (
     <div className="retry-editor-inline space-y-3">
       <div className="relative">
-        <InlineMarkdownComposer
-          placeholder={t('retryEditor.placeholder')}
-          value={message}
-          onChange={setMessage}
-          disabled={isSending}
-          onSubmit={handleCmdEnter}
-          className={cn(
-            'min-h-[40px] overflow-y-auto break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]',
-            'retry-editor-input'
-          )}
-          maxRows={4}
-        />
+        <AgentMentionProvider
+          transport={configuredBackendTransport}
+          conversationId={sessionId}
+        >
+          <SessionComposerInput
+            value={message}
+            onChange={setMessage}
+            disabled={isSending}
+            onSubmit={handleCmdEnter}
+            context={{
+              sendShortcut: 'ModifierEnter',
+              taskAttemptId: attemptId,
+              taskId: attempt.task_id,
+              workspaceId: attemptId,
+              projectId: attempt.project_id,
+              executorProfile: processProfile,
+              sessionId,
+              transport: configuredBackendTransport,
+            }}
+            images={[]}
+            onAttachImages={() => undefined}
+            onRemoveImage={() => undefined}
+            className={cn(
+              'min-h-[40px] overflow-y-auto break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]',
+              'retry-editor-input'
+            )}
+          />
+        </AgentMentionProvider>
         {isSending && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-background/60">
             <Loader2 className="h-4 w-4 animate-spin" />

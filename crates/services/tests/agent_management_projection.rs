@@ -118,6 +118,87 @@ async fn agent_management_list_reads_persisted_projection_without_disk_probe() {
 }
 
 #[tokio::test]
+async fn agent_management_list_merges_an_explicit_registry_binding_into_its_stable_agent() {
+    let pool = migrated_pool().await;
+    let repository = AgentMembershipRepository::new(pool.clone());
+    repository
+        .add(NewAgentMembership {
+            agent_id: AgentId::parse("grok").unwrap(),
+            source: AgentSource::BuiltInProfile,
+            built_in: true,
+            retired: false,
+            enabled: true,
+            position: 0,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    repository
+        .add(NewAgentMembership {
+            agent_id: AgentId::parse("grok-build").unwrap(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 1,
+            retained_metadata_json: Some(
+                serde_json::json!({
+                    "name": "Grok Build",
+                    "registry_id": "grok-build"
+                })
+                .to_string(),
+            ),
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    repository
+        .add(NewAgentMembership {
+            agent_id: AgentId::parse("kimi_code").unwrap(),
+            source: AgentSource::BuiltInProfile,
+            built_in: true,
+            retired: false,
+            enabled: true,
+            position: 2,
+            retained_metadata_json: None,
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+    repository
+        .add(NewAgentMembership {
+            agent_id: AgentId::parse("kimi-code").unwrap(),
+            source: AgentSource::OfficialRegistry,
+            built_in: false,
+            retired: false,
+            enabled: true,
+            position: 3,
+            retained_metadata_json: Some(
+                serde_json::json!({
+                    "name": "Kimi CLI",
+                    "registry_id": "kimi-code"
+                })
+                .to_string(),
+            ),
+            retained_icon_svg: None,
+        })
+        .await
+        .unwrap();
+
+    let views = AgentManagementApplicationService::new(pool)
+        .list()
+        .await
+        .unwrap();
+
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].agent_id, AgentId::parse("grok").unwrap());
+    assert_eq!(views[0].display_name, "Grok");
+    assert_eq!(views[1].agent_id, AgentId::parse("kimi_code").unwrap());
+    assert_eq!(views[1].display_name, "Kimi Code");
+}
+
+#[tokio::test]
 async fn component_integrity_refresh_marks_the_next_snapshot_as_needing_repair() {
     let pool = migrated_pool().await;
     seed_ready_agent_with_unreadable_component(&pool).await;

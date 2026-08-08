@@ -1,0 +1,3 @@
+[default]
+description = "Allow the VibeX development inspector bridge"
+permissions = ["allow-submit-capture", "allow-take-control"]

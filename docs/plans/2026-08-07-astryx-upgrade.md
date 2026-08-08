@@ -1,6 +1,6 @@
 # Astryx 组件库采纳与 React 19 升级计划
 
-日期:2026-08-07 · 决策依据:[ADR-0039](docs/adr/0039-adopt-astryx-for-chat-composer-and-message-rendering.md)(accepted)、[ADR-0040](docs/adr/0040-upgrade-react-19-for-astryx.md)(proposed)
+日期:2026-08-07 · 决策依据:[ADR-0039](docs/adr/0039-adopt-astryx-for-chat-composer-and-message-rendering.md)(accepted)、[ADR-0040](docs/adr/0040-upgrade-react-19-for-astryx.md)(accepted)
 
 ## 背景
 
@@ -28,17 +28,18 @@ VibeX 会话输入体系(`SessionComposerInput` + Lexical `WYSIWYGEditor` 9 处�
 
 ## 执行状态(2026-08-08 更新)
 
-| 阶段 | 状态 | 提交 |
-| --- | --- | --- |
-| 0 React 19(19.2.8) | ✅ | `d5a51f55` |
-| 1 Astryx 引入 | ✅ | `91a49cc2` |
-| 2a 输入框 → ChatComposerInput | ✅ | `aaef4c71` |
-| 2b 只读渲染 → AstryxMarkdown | ✅ | `4cf34243` |
-| 2c 编辑场景 + 移除 lexical | ✅ | `47df67fd` |
-| 3a Markdown(KaTeX/Mermaid)+ 移除 react-markdown 生态 | ✅ | `b6fc4742` |
-| 3b ToolCardShell → ChatToolCalls | ✅ | `966688a4` |
-| 4 cmdk 残留清理 | ✅ | `7fb22e49` |
-| 4 Radix 按需替换 | ⏸️ 保留(用户决策 2026-08-08) | — |
+| 阶段                                                 | 状态                         | 提交       |
+| ---------------------------------------------------- | ---------------------------- | ---------- |
+| 0 React 19(19.2.8)                                   | ✅                           | `d5a51f55` |
+| 1 Astryx 引入                                        | ✅                           | `91a49cc2` |
+| 2a 输入框 → ChatComposerInput                        | ✅                           | `aaef4c71` |
+| 2b 只读渲染 → AstryxMarkdown                         | ✅                           | `4cf34243` |
+| 2c 编辑场景 + 移除 lexical                           | ✅                           | `47df67fd` |
+| 3a Markdown(KaTeX/Mermaid)+ 移除 react-markdown 生态 | ✅                           | `b6fc4742` |
+| 3b ToolCardShell → ChatToolCalls                     | ✅                           | `966688a4` |
+| 3c 用户消息 → ChatMessage / ChatMessageBubble        | ✅                           | —          |
+| 4 cmdk 残留清理                                      | ✅                           | `7fb22e49` |
+| 4 Radix 按需替换                                     | ⏸️ 保留(用户决策 2026-08-08) | —          |
 
 **3b 成本评估(实施前核对)**:`ToolCardShell` 被 10 个卡片组件与 `MessageTurnView`
 深层使用;`ChatToolCalls` 无 actions API(现有卡片的开文件/复制/打开链接等交互
@@ -48,13 +49,16 @@ VibeX 会话输入体系(`SessionComposerInput` + Lexical `WYSIWYGEditor` 9 处�
 **阶段 4 Radix 评估**:11 个 shadcn 封装重写为 Astryx 兼容层(保持项目内 API 不变)
 工作量大且改变视觉,`ScrollArea`/`Slot` 无对应物保留。
 
-**3b 落地形态(实施后)**:`ToolCardShell` 保持其 props API(10 个卡片组件零改动),
-内部引擎替换为单 call `ChatToolCalls` 行渲染;受控展开、actions(行右侧)、状态
-class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` 依赖的外部
-展开状态得以保留。**Radix 决策**:shadcn 封装保留,radix 依赖不替换(用户决策)。
+**3b 落地形态(2026-08-08 追补)**:消息回合的连续调用由 `TurnToolCalls` 直接映射为
+一个 `ChatToolCalls.calls` 数组,不同工具类型不再拆组,单条调用也保留聚合 disclosure;
+聚合标题按命令/读取/修改/搜索/网页/子 Agent/其他分类计数。原有专用卡片通过
+`resultDetail` 继续提供命令输出、文件 actions 与 diff,并由上下文省略重复的单调用
+标题。Astryx 0.3.0 的未生效 `label` 与单条无聚合限制通过 pnpm patch 补齐。
+`ToolCardShell` 继续服务于消息回合以外和审批强制展开场景。**Radix 决策**:shadcn
+封装保留,radix 依赖不替换(用户决策)。
 
 已确认的已知差异(随 2a/3a 测试记录):
-- 受控回填 token 显示为纯文本(Astryx `deserialize` 为预留 API)
+
 - 无代码围栏感知(`&`/`$` 在代码块内也会触发菜单)
 - 复制 chip 得 label 而非序列化文本;token 后保留 NBSP
 - `$` 菜单不再常显;`!` 无菜单 Header
@@ -90,15 +94,15 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
 - `SessionComposerInput`(`frontend/src/components/tasks/follow-up/`)→
   Astryx `ChatComposerInput`。
 - 六种命令映射为 `triggers` 数组(每字符一个 `{ character, searchSource,
-  onSelect, renderItem }`):
+onSelect, renderItem }`):
   | trigger | 数据源 | 说明 |
   | --- | --- | --- |
-  | `@` | `AgentMentionProvider` 数据改接 `SearchSource` | agent 提及 |
+  | `@` | 文件/仓库搜索 | 文件引用 |
   | `/` | 命令列表 | 斜杠命令 |
-  | `$` | 变量/环境 | 现有 `$` 命令数据源 |
-  | `#` | tag/文件引用 | 文件引用搜索 |
-  | `!` | 工具调用 | 现有 `!` 命令数据源 |
-  | `&` | 会话引用 | 现有 `&` 命令数据源 |
+  | `$` | 变量/本地技能 | 现有 `$` 命令数据源 |
+  | `#` | 标签搜索 | 标签引用 |
+  | `!` | 插件动作目录 | 插件动作 |
+  | `&` | `AgentMentionProvider` | Agent 提及 |
 - token:输入与展示共用 `ChatComposerToken` 定义;展示侧 `ChatTokenizedText`
   或 `Markdown` 的 `inlinePlugins` 渲染;草稿持久化与发送格式(markdown 字符串 +
   序列化 token)不变。
@@ -111,13 +115,13 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
 
 ### 2b:只读渲染替换(5 处)
 
-| 位置 | 现状 | 替换为 | 适配点 |
-| --- | --- | --- | --- |
-| `UserMessage.tsx:543` | WYSIWYGEditor(disabled) | Astryx `Markdown` | 结构化 token 分支保留 `SessionComposerStructuredText`;无 token 走 Markdown |
-| `DisplayConversationEntry.tsx:186` | user_feedback 卡片 | Astryx `Markdown` | — |
-| `ToolResultView.tsx:16` | tool markdown 结果 | Astryx `Markdown` | — |
-| `PlanCard.tsx:180` | plan raw | Astryx `Markdown` | — |
-| `ReviewCommentRenderer.tsx:71` | 评论查看(disabled + onEdit/onDelete) | Astryx `Markdown` | 保留 onEdit/onDelete 操作条(自研小部件) |
+| 位置                               | 现状                                 | 替换为            | 适配点                                                                     |
+| ---------------------------------- | ------------------------------------ | ----------------- | -------------------------------------------------------------------------- |
+| `UserMessage.tsx:543`              | WYSIWYGEditor(disabled)              | Astryx `Markdown` | 结构化 token 分支保留 `SessionComposerStructuredText`;无 token 走 Markdown |
+| `DisplayConversationEntry.tsx:186` | user_feedback 卡片                   | Astryx `Markdown` | —                                                                          |
+| `ToolResultView.tsx:16`            | tool markdown 结果                   | Astryx `Markdown` | —                                                                          |
+| `PlanCard.tsx:180`                 | plan raw                             | Astryx `Markdown` | —                                                                          |
+| `ReviewCommentRenderer.tsx:71`     | 评论查看(disabled + onEdit/onDelete) | Astryx `Markdown` | 保留 onEdit/onDelete 操作条(自研小部件)                                    |
 
 - 全局适配:`components` 承接 Tauri `convertFileSrc` 路径转换与图片预览;
   行内代码点击(`findMatchingDiffPath`/`onCodeClick`)如需保留,经
@@ -128,12 +132,12 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
 
 ### 2c:编辑输入替换(4 处)+ 移除 lexical
 
-| 位置 | 场景 | 替换为 | 所需 triggers |
-| --- | --- | --- | --- |
-| `CommentWidgetLine.tsx:79` | diff 行内评论 | `ChatComposerInput`(轻量) | `#`(文件引用) |
-| `ReviewCommentRenderer.tsx:43` | 评论编辑 | `ChatComposerInput` | `#`(tag/文件),保留 `onCmdEnter` 提交(经 `onKeyDown` seam) |
-| `RetryEditorInline.tsx:90` | 重试前编辑 | `ChatComposerInput` | 与主输入框一致(6 种) |
-| `PendingApprovalEntry.tsx:164` | 审批拒绝原因 | `ChatComposerInput` 或 `TextArea`(纯文本) | 无 |
+| 位置                           | 场景          | 替换为                                    | 所需 triggers                                             |
+| ------------------------------ | ------------- | ----------------------------------------- | --------------------------------------------------------- |
+| `CommentWidgetLine.tsx:79`     | diff 行内评论 | `ChatComposerInput`(轻量)                 | `#`(文件引用)                                             |
+| `ReviewCommentRenderer.tsx:43` | 评论编辑      | `ChatComposerInput`                       | `#`(tag/文件),保留 `onCmdEnter` 提交(经 `onKeyDown` seam) |
+| `RetryEditorInline.tsx:90`     | 重试前编辑    | `ChatComposerInput`                       | 与主输入框一致(6 种)                                      |
+| `PendingApprovalEntry.tsx:164` | 审批拒绝原因  | `ChatComposerInput` 或 `TextArea`(纯文本) | 无                                                        |
 
 - 全部接受"所见即所得 → 纯文本 + token"体验变化(已确认)。
 - 移除:`frontend/src/components/ui/wysiwyg/` 目录(51 文件)、`lexical` +
@@ -156,7 +160,8 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
     关闭(需 `autolink: 'gfm'`),块级语法差异以测试兜底。
 - **ChatToolCalls**:`ToolCards`(11 张卡片)内容层 → `ChatToolCalls`;
   `ToolStatus`(shared/types.ts:1277)映射 `ChatToolCallStatus`
-  (pending/running/complete/error);专用卡片(`PlanCard`、`UnifiedDiffPreview`)
+  (pending/running/complete/error);消息回合按连续调用段传入多 call 数组,标题按工具
+  类型分类计数,单 call 同样聚合;专用卡片(`PlanCard`、`UnifiedDiffPreview`)
   映射 `resultDetail`;`PendingApprovalEntry` 包装器保留(审批 UI 自研不动)。
 - 测试:重写 `ToolCards.test.tsx`、`Markdown.test.tsx` 其余用例;`messageTurnTool.test.ts`
   等纯逻辑测试保留。
@@ -181,7 +186,7 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
   | scroll-area | 无对应物 | ❌ 保留 |
   | slot | 无对应物 | ❌ 保留 |
 - `cmdk` 为残留依赖(全仓库零使用):直接删除,无需替换。
-- 候选增强(可选):`ChatMessage` 族消息气泡、`CodeBlock`(CSS Custom Highlight
+- 候选增强(可选):其余 `ChatMessage` 族消息容器、`CodeBlock`(CSS Custom Highlight
   替换自研)、`SegmentedControl`(替换 `ComposerSelect`/`SessionModeSelector`)、
   `CommandPalette`(如未来引入全局命令面板)、`ChatDictationButton`(听写)。
 - 验收:`pnpm run check`/`lint`/`test` 通过;被替换封装无使用残留;依赖清单
@@ -189,14 +194,14 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
 
 ## 依赖变化总览
 
-| 动作 | 依赖 |
-| --- | --- |
-| 新增 | `@astryxdesign/core@0.3.0`(锁定)、`@astryxdesign/theme-neutral`、`@stylexjs/stylex@^0.19.0` |
-| 升级 | `react`/`react-dom` → 19.x、`@types/react`/`@types/react-dom` |
-| 移除(2c) | `lexical`、`@lexical/*`(8 包) |
-| 移除(阶段 3) | `react-markdown`、`remark-gfm`、`remark-math`、`rehype-katex` |
-| 移除(阶段 4) | `cmdk`、被替换的 Radix 包 |
-| 保留 | `katex`、`mermaid`、`shiki`、`dompurify`、`marked`、`@radix-ui/react-scroll-area`、`@radix-ui/react-slot` |
+| 动作         | 依赖                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| 新增         | `@astryxdesign/core@0.3.0`(锁定)、`@astryxdesign/theme-neutral`、`@stylexjs/stylex@^0.19.0`               |
+| 升级         | `react`/`react-dom` → 19.x、`@types/react`/`@types/react-dom`                                             |
+| 移除(2c)     | `lexical`、`@lexical/*`(8 包)                                                                             |
+| 移除(阶段 3) | `react-markdown`、`remark-gfm`、`remark-math`、`rehype-katex`                                             |
+| 移除(阶段 4) | `cmdk`、被替换的 Radix 包                                                                                 |
+| 保留         | `katex`、`mermaid`、`shiki`、`dompurify`、`marked`、`@radix-ui/react-scroll-area`、`@radix-ui/react-slot` |
 
 ## 测试重写范围
 
@@ -208,14 +213,14 @@ class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` �
 
 ## 风险与缓解
 
-| 风险 | 缓解 |
-| --- | --- |
-| Astryx 0.3.0 Beta API 变动 | 精确锁定版本;每阶段升级前核对 changelog;阶段 1 先行验证集成面 |
-| Astryx Markdown 自研 parser 与 remark 行为差异 | 2b 先落地渲染等价性测试;autolink 显式配置 `'gfm'`;差异清单随测试沉淀 |
-| 纯文本 + token 编辑的体验回退 | 已产品确认;2a 先行、2c 跟进,分步验证 |
-| `ChatComposerInput` 无自定义 undo/redo(依赖浏览器原生) | 受控 `value` 覆写会打断 undo 栈——输入框保持非受控或最小受控面 |
-| jsdom 中 Astryx 组件渲染 | 阶段 1 先行验证;必要时按组件 mock |
-| `WYSIWYGEditor` 只读渲染的历史富文本 | 数据模型本就是 markdown 字符串,渲染切换无损;file-reference/图片适配兜底 |
+| 风险                                                   | 缓解                                                                    |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Astryx 0.3.0 Beta API 变动                             | 精确锁定版本;每阶段升级前核对 changelog;阶段 1 先行验证集成面           |
+| Astryx Markdown 自研 parser 与 remark 行为差异         | 2b 先落地渲染等价性测试;autolink 显式配置 `'gfm'`;差异清单随测试沉淀    |
+| 纯文本 + token 编辑的体验回退                          | 已产品确认;2a 先行、2c 跟进,分步验证                                    |
+| `ChatComposerInput` 无自定义 undo/redo(依赖浏览器原生) | 受控 `value` 覆写会打断 undo 栈——输入框保持非受控或最小受控面           |
+| jsdom 中 Astryx 组件渲染                               | 阶段 1 先行验证;必要时按组件 mock                                       |
+| `WYSIWYGEditor` 只读渲染的历史富文本                   | 数据模型本就是 markdown 字符串,渲染切换无损;file-reference/图片适配兜底 |
 
 ## 执行顺序与依赖
 

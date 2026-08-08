@@ -44,6 +44,7 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
       detail={summary}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
+      status={toolEntry.status}
       expanded
       expandable={false}
     >

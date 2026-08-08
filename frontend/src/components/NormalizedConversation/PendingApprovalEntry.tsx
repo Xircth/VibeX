@@ -23,7 +23,6 @@ import { useTranslation } from 'react-i18next';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { TabNavContext } from '@/contexts/TabNavigationContext';
 import { useKeyApproveRequest, useKeyDenyApproval, Scope } from '@/keyboard';
-import { useProject } from '@/contexts/ProjectContext';
 import { useApprovalForm } from '@/contexts/ApprovalFormContext';
 import { dateTimestamp } from '@/utils/date';
 
@@ -149,14 +148,12 @@ function DenyReasonForm({
   onChange,
   onCancel,
   onSubmit,
-  projectId,
 }: {
   isResponding: boolean;
   value: string;
   onChange: (v: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
-  projectId?: string;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
   return (
@@ -167,7 +164,6 @@ function DenyReasonForm({
         placeholder={t('pendingApproval.denyReasonPlaceholder')}
         disabled={isResponding}
         className="min-h-[80px]"
-        projectId={projectId}
         onSubmit={onSubmit}
       />
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -205,8 +201,6 @@ const PendingApprovalEntry = ({
     setDenyReason,
     clear,
   } = useApprovalForm(pendingStatus.approval_id);
-
-  const { projectId } = useProject();
 
   const { enableScope, disableScope, activeScopes } = useHotkeysContext();
   const tabNav = useContext(TabNavContext);
@@ -393,7 +387,6 @@ const PendingApprovalEntry = ({
                 onChange={setDenyReason}
                 onCancel={handleCancelDeny}
                 onSubmit={handleSubmitDeny}
-                projectId={projectId}
               />
             )}
           </TooltipProvider>

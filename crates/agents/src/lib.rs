@@ -32,6 +32,7 @@ pub mod npm_registry;
 pub mod operations;
 pub mod parsers;
 pub mod permissions;
+pub mod plan_usage;
 pub mod profiles;
 pub mod registry_client;
 pub mod runtime;
@@ -150,6 +151,10 @@ pub use permissions::{
     AgentAutoApproveMode, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
     AgentPermissionResponse, RemotePermissionIntent, decide_auto_permission_response,
     decide_remote_permission_response,
+};
+pub use plan_usage::{
+    AgentPlanUsage, PlanCredits, PlanUsageResult, PlanUsageUnavailableReason, PlanUsageWindow,
+    probe_plan_usage,
 };
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,

@@ -27,7 +27,9 @@ use uuid::Uuid;
 // legacy capability/agent-binding events and Artifact revision timeline rows.
 // Rebuild either predecessor's v3 snapshot so neither placeholder notices nor
 // previously skipped Artifact events survive the merge.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 4;
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 5;
+
+const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 
 pub struct ConversationEventAppender;
 
@@ -751,6 +753,7 @@ impl ProjectionFold {
         let turns = &mut self.turns;
         let turn_order = &mut self.turn_order;
         let side_rows = &mut self.side_rows;
+        let mut deleted_rows = Vec::new();
 
         match event {
             ConversationEvent::UserTurnCreated { blocks, .. } => {
@@ -1142,10 +1145,24 @@ impl ProjectionFold {
                         severity: "warning".into(),
                     },
                 };
-                side_rows.push(side_row(
-                    record.sequence,
-                    ConversationTimelineRow::SessionNotice { notice },
-                ));
+                side_rows.retain(|row| row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
+                side_rows.push(TimelineRow {
+                    row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
+                    revision: record.sequence,
+                    row: ConversationTimelineRow::SessionNotice { notice },
+                });
+            }
+            ConversationEvent::AgentBindingReady { .. } => {
+                if let Some(index) = side_rows
+                    .iter()
+                    .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
+                {
+                    side_rows.remove(index);
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                    });
+                }
             }
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
                 side_rows.push(side_row(
@@ -1179,7 +1196,7 @@ impl ProjectionFold {
         // Every row this event touched carries `revision == record.sequence` now, so
         // emit an `Upsert` for each — the message row(s) of the touched turn and any
         // created/modified side row. (Streaming text already returned early above.)
-        let mut ops = Vec::new();
+        let mut ops = deleted_rows;
         if let Some(turn_id) = record.turn_id
             && let Some(turn) = self.turns.get(&turn_id)
             && turn.revision == record.sequence
@@ -1443,8 +1460,8 @@ mod tests {
     use std::str::FromStr;
 
     use agents::{
-        AgentId, AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind,
-        AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
+        AcpCapabilitySnapshot, AgentId, AgentPermissionId, AgentPermissionOption,
+        AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentSessionId,
         conversation::{
             ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
             ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
@@ -1535,6 +1552,71 @@ mod tests {
         .await
         .expect("create turn");
         (conversation_id, turn.id)
+    }
+
+    #[tokio::test]
+    async fn successful_cold_start_clears_the_recoverable_load_failure_notice() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_turn(&pool).await;
+
+        let load_failure = append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AgentBindingLoadFailed {
+                reason: SessionLoadFailureReason::Other {
+                    message: "session/load failed: no rollout found".into(),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let failed_timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project load failure");
+        assert!(
+            failed_timeline
+                .rows
+                .iter()
+                .any(|row| matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
+        );
+        let mut realtime_projector =
+            IncrementalRowProjector::load(&pool, conversation_id, load_failure.sequence)
+                .await
+                .expect("load realtime projector after failure");
+
+        let binding_ready = append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AgentBindingReady {
+                acp_session_id: "cold-start-session".into(),
+                capabilities: AcpCapabilitySnapshot::default(),
+            },
+            None,
+        )
+        .await;
+        let ops = realtime_projector
+            .apply(&binding_ready)
+            .expect("project successful binding in realtime");
+        assert!(ops.iter().any(|op| matches!(
+            op,
+            ConversationRowOp::Delete { row_id, .. }
+                if row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+        )));
+
+        let recovered_timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project successful cold start");
+        assert!(
+            recovered_timeline
+                .rows
+                .iter()
+                .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
+        );
     }
 
     async fn append_event(
@@ -2816,6 +2898,7 @@ mod tests {
                     question_id: "question-1".into(),
                     prompt: "Pick one".into(),
                     options: vec!["A".into(), "B".into()],
+                    asked_at: None,
                     schema: None,
                 },
             },
@@ -3496,6 +3579,7 @@ mod tests {
                     question_id: "q1".into(),
                     prompt: "Pick".into(),
                     options: vec!["A".into(), "B".into()],
+                    asked_at: None,
                     schema: None,
                 },
             },

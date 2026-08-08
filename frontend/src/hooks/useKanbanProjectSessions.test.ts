@@ -1,7 +1,69 @@
-import { describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { createElement, StrictMode, type ReactNode } from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TFunction } from 'i18next';
+import type { Workspace, WorkspaceWithStatus } from 'shared/types';
 import type { SessionSummary } from '@/lib/api';
-import { buildDefaultSessionName } from './useKanbanProjectSessions';
+
+const mocks = vi.hoisted(() => ({
+  getSummariesByWorkspace: vi.fn(),
+  translate: vi.fn((key: string) =>
+    key === 'kanbanSessions.sessionFallback' ? '新会话' : key
+  ),
+}));
+
+const workspace: Workspace = {
+  id: 'workspace-1',
+  project_id: 'project-1',
+  task_id: 'task-1',
+  parent_workspace_id: null,
+  container_ref: null,
+  branch: 'main',
+  use_worktree: false,
+  agent_working_dir: null,
+  setup_completed_at: null,
+  created_at: '2026-07-27T00:00:00Z',
+  updated_at: '2026-07-27T00:00:00Z',
+  archived: false,
+  pinned: false,
+  name: 'Workspace',
+};
+const workspaceWithStatus: WorkspaceWithStatus = {
+  ...workspace,
+  is_running: false,
+  is_errored: false,
+};
+const workspaces = [workspace];
+const workspacesWithStatus = [workspaceWithStatus];
+
+vi.mock('@/lib/api', () => ({
+  sessionsApi: {
+    getSummariesByWorkspace: mocks.getSummariesByWorkspace,
+  },
+}));
+
+vi.mock('./useProjectWorkspacesStream', () => ({
+  useProjectWorkspacesStream: () => ({
+    workspaces,
+    workspacesWithStatus,
+    workspacesById: { [workspace.id]: workspace },
+    isLoading: false,
+    isConnected: true,
+    error: null,
+  }),
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: mocks.translate,
+  }),
+}));
+
+import {
+  buildDefaultSessionName,
+  useKanbanProjectSessions,
+} from './useKanbanProjectSessions';
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -50,5 +112,49 @@ describe('buildDefaultSessionName', () => {
       source: 'fallback',
       prompt: null,
     });
+  });
+});
+
+describe('useKanbanProjectSessions', () => {
+  beforeEach(() => {
+    mocks.getSummariesByWorkspace.mockReset();
+    mocks.getSummariesByWorkspace.mockResolvedValue([summary()]);
+  });
+
+  it('keeps derived sessions stable and seeds caches only once across rerenders', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    const setQueryDataSpy = vi.spyOn(queryClient, 'setQueryData');
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(StrictMode, null, children)
+      );
+
+    const { result, rerender } = renderHook(
+      () => useKanbanProjectSessions('project-1'),
+      { wrapper }
+    );
+
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    const sessionsAfterLoad = result.current.sessions;
+    const sessionCacheWritesAfterLoad = setQueryDataSpy.mock.calls.filter(
+      ([queryKey]) => Array.isArray(queryKey) && queryKey[0] === 'session'
+    ).length;
+
+    rerender();
+    rerender();
+
+    expect(result.current.sessions).toBe(sessionsAfterLoad);
+    expect(
+      setQueryDataSpy.mock.calls.filter(
+        ([queryKey]) => Array.isArray(queryKey) && queryKey[0] === 'session'
+      )
+    ).toHaveLength(sessionCacheWritesAfterLoad);
+    expect(sessionCacheWritesAfterLoad).toBe(1);
   });
 });

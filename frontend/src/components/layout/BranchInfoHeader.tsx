@@ -86,7 +86,13 @@ export function BranchInfoHeader() {
     enabled: !!workspace?.task_id,
   });
 
-  if (!effectiveWorktreeId || !branchStatus?.length) return null;
+  if (
+    !effectiveWorktreeId ||
+    !branchStatus?.length ||
+    !workspace?.use_worktree
+  ) {
+    return null;
+  }
 
   const repo = branchStatus[0];
   const gitActionsTask: TaskWithAttemptStatus | undefined = task
@@ -135,10 +141,10 @@ export function BranchInfoHeader() {
                 <TargetBranchDropdown
                   repo={repo}
                   worktreeId={effectiveWorktreeId}
-                  useWorktree={Boolean(workspace?.use_worktree)}
+                  useWorktree
                 />
                 <span className="branch-info-direction" aria-hidden="true">
-                  &rarr;
+                  –
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>

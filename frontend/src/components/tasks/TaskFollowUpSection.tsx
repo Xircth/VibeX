@@ -33,6 +33,7 @@ import { ReviewCommentsPreview } from './follow-up/ReviewCommentsPreview';
 import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
+import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
 import {
   areConfigValuesEqual,
   sanitizeDependentConfigValues,
@@ -374,7 +375,8 @@ export function TaskFollowUpSection({
     [cancelQueue, setAttachedImages, setLocalMessage]
   );
 
-  const { notices: conversationStatusNotices } = useConversationStatus();
+  const { notices: conversationStatusNotices, question: pendingAgentQuestion } =
+    useConversationStatus();
   // Live ACP session state is the sole source for composer controls. A global
   // agent catalog cannot account for workspace/provider/account differences.
   const displaySessionModes = sessionModes;
@@ -753,102 +755,114 @@ export function TaskFollowUpSection({
         />
 
         {/* Input area with buttons inside */}
-        <div
-          className="composer-shell relative z-10 mx-3 mb-3 mt-2 flex shrink-0 flex-col gap-1 overflow-visible rounded-xl p-2"
-          data-typeahead-surface="composer"
-          onFocus={handleComposerFocus}
-          onBlur={handleComposerBlur}
-        >
-          {/* Top bar */}
-          {showTopbar && (
-            <SessionComposerTopbar
-              executorProfile={effectiveExecutorProfile}
-              sessionExecutor={session?.executor}
-              showChangedFileSummary={showChangedFileSummary}
-              changedFileCount={fileCount}
-              added={added}
-              deleted={deleted}
-              codexGoalState={codexGoalState}
-              tokenUsageInfo={tokenUsageInfo}
-              todos={todos}
-              showSessionSelector={showSessionSelector}
-              sessions={sessions}
-              selectedSessionId={selectedSessionId}
-              compactSessionLabel={compactSessionLabel}
-              selectedSessionLabel={selectedSessionLabel}
-              onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
-              onSelectSession={handleSelectSession}
-              onStartNewSession={() => onCreateSessionRequested?.()}
-              onRenameSession={handleRenameSession}
+        <div className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0">
+          {pendingAgentQuestion ? (
+            <AgentQuestionCard
+              key={pendingAgentQuestion.request.question_id}
+              request={pendingAgentQuestion.request}
+              responding={pendingAgentQuestion.responding}
+              onRespond={pendingAgentQuestion.onRespond}
             />
-          )}
-          <AgentMentionProvider
-            transport={configuredBackendTransport}
-            conversationId={sessionId}
+          ) : null}
+          <div
+            className="composer-shell relative z-10 flex flex-col gap-1 overflow-visible rounded-xl p-2"
+            data-typeahead-surface="composer"
+            onFocus={handleComposerFocus}
+            onBlur={handleComposerBlur}
           >
-            <SessionComposerInput
-              value={localMessage}
-              onChange={handleEditorChange}
-              disabled={!isEditable}
-              context={{
-                sendShortcut: config?.send_message_shortcut ?? 'Enter',
-                taskAttemptId: workspaceId,
-                taskId: taskId ?? undefined,
-                workspaceId: workspaceIdValue,
-                repoId: summaryRepoId ?? undefined,
-                repoIds: repos.map((repo) => repo.id),
-                executorProfile: effectiveExecutorProfile,
-                sessionId,
-                transport: configuredBackendTransport,
-              }}
-              images={attachedImages}
-              onSubmit={handleSubmitShortcut}
-              onAttachImages={handleAttachImages}
-              onRemoveImage={handleRemoveImage}
-            />
-          </AgentMentionProvider>
+            {/* Top bar */}
+            {showTopbar && (
+              <SessionComposerTopbar
+                executorProfile={effectiveExecutorProfile}
+                sessionExecutor={session?.executor}
+                showChangedFileSummary={showChangedFileSummary}
+                changedFileCount={fileCount}
+                added={added}
+                deleted={deleted}
+                codexGoalState={codexGoalState}
+                tokenUsageInfo={tokenUsageInfo}
+                todos={todos}
+                showSessionSelector={showSessionSelector}
+                sessions={sessions}
+                selectedSessionId={selectedSessionId}
+                compactSessionLabel={compactSessionLabel}
+                selectedSessionLabel={selectedSessionLabel}
+                onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
+                onSelectSession={handleSelectSession}
+                onStartNewSession={() => onCreateSessionRequested?.()}
+                onRenameSession={handleRenameSession}
+              />
+            )}
+            <AgentMentionProvider
+              transport={configuredBackendTransport}
+              conversationId={sessionId}
+            >
+              <SessionComposerInput
+                value={localMessage}
+                onChange={handleEditorChange}
+                disabled={!isEditable}
+                context={{
+                  sendShortcut: config?.send_message_shortcut ?? 'Enter',
+                  taskAttemptId: workspaceId,
+                  taskId: taskId ?? undefined,
+                  workspaceId: workspaceIdValue,
+                  repoId: summaryRepoId ?? undefined,
+                  repoIds: repos.map((repo) => repo.id),
+                  executorProfile: effectiveExecutorProfile,
+                  sessionId,
+                  transport: configuredBackendTransport,
+                }}
+                images={attachedImages}
+                onSubmit={handleSubmitShortcut}
+                onAttachImages={handleAttachImages}
+                onRemoveImage={handleRemoveImage}
+              />
+            </AgentMentionProvider>
 
-          <ActionBar
-            profiles={profiles}
-            effectiveExecutorProfile={effectiveExecutorProfile}
-            onChangeExecutorProfile={setSelectedExecutorProfile}
-            showProfileControls={true}
-            sessionModes={displaySessionModes}
-            selectedMode={selectedMode}
-            onSelectMode={handleSelectMode}
-            sessionConfigOptions={displaySessionConfigOptions}
-            selectedConfigValues={selectedConfigValues}
-            onSelectConfigOption={handleSelectConfigOption}
-            isEditable={isEditable}
-            isAttemptRunning={isComposerExecutionRunning}
-            isQueued={queueIndicatorState.isQueued}
-            isQueueLoading={isQueueLoading}
-            canCompactContext={canCompactContext}
-            isCompactingContext={isCompactingContext}
-            isStopping={isStopping}
-            isSendingFollowUp={isSendingFollowUp}
-            canSendFollowUp={canSendFollowUp}
-            isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
-            promptEnhancementEnabled={
-              config?.prompt_enhancement_enabled ?? false
-            }
-            isEnhancingPrompt={isEnhancingPrompt}
-            canEnhancePrompt={canEnhancePrompt}
-            sessionId={sessionId}
-            localMessage={localMessage}
-            attachmentCount={attachedImages.length}
-            conflictResolutionInstructions={conflictResolutionInstructions}
-            reviewMarkdown={reviewMarkdown}
-            comments={comments}
-            onCompactContext={handleCompactContext}
-            onQueueMessage={handleQueueMessage}
-            onCancelQueue={cancelQueue}
-            onStopExecution={stopExecution}
-            onSendFollowUp={onSendFollowUp}
-            onEnhancePrompt={handleEnhancePrompt}
-            onClearComments={clearComments}
-            onAttachImages={handleAttachImages}
-          />
+            <ActionBar
+              profiles={profiles}
+              effectiveExecutorProfile={effectiveExecutorProfile}
+              onChangeExecutorProfile={setSelectedExecutorProfile}
+              showProfileControls={true}
+              sessionModes={displaySessionModes}
+              selectedMode={selectedMode}
+              onSelectMode={handleSelectMode}
+              sessionConfigOptions={displaySessionConfigOptions}
+              selectedConfigValues={selectedConfigValues}
+              onSelectConfigOption={handleSelectConfigOption}
+              isEditable={isEditable}
+              isAttemptRunning={isComposerExecutionRunning}
+              isQueued={queueIndicatorState.isQueued}
+              isQueueLoading={isQueueLoading}
+              canCompactContext={canCompactContext}
+              isCompactingContext={isCompactingContext}
+              isStopping={isStopping}
+              isSendingFollowUp={isSendingFollowUp}
+              canSendFollowUp={canSendFollowUp}
+              isAwaitingNewSessionConfirmation={
+                isAwaitingNewSessionConfirmation
+              }
+              promptEnhancementEnabled={
+                config?.prompt_enhancement_enabled ?? false
+              }
+              isEnhancingPrompt={isEnhancingPrompt}
+              canEnhancePrompt={canEnhancePrompt}
+              sessionId={sessionId}
+              localMessage={localMessage}
+              attachmentCount={attachedImages.length}
+              conflictResolutionInstructions={conflictResolutionInstructions}
+              reviewMarkdown={reviewMarkdown}
+              comments={comments}
+              onCompactContext={handleCompactContext}
+              onQueueMessage={handleQueueMessage}
+              onCancelQueue={cancelQueue}
+              onStopExecution={stopExecution}
+              onSendFollowUp={onSendFollowUp}
+              onEnhancePrompt={handleEnhancePrompt}
+              onClearComments={clearComments}
+              onAttachImages={handleAttachImages}
+            />
+          </div>
         </div>
       </div>
     </TooltipProvider>

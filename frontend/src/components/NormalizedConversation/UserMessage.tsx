@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 import {
   Check,
   ChevronDown,
@@ -16,11 +17,11 @@ import {
   Pencil,
   Undo2,
 } from 'lucide-react';
-import { AstryxMarkdown } from './AstryxMarkdown';
+import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
 
 const SESSION_INPUT_TEXT_CLASS_NAME =
-  'break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]';
+  'break-words overflow-wrap-anywhere leading-5 tracking-[0.005em]';
 import { AgentCapability } from '@/lib/api/config';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -38,8 +39,6 @@ import {
   getExecutorContinuityMode,
 } from '@/utils/sessionContinuity';
 import { stripTagReferenceAppendix } from '@/lib/tagReferenceMarkers';
-import { SessionComposerStructuredText } from '@/components/tasks/follow-up/SessionComposerStructuredText';
-import { getSessionComposerStructuredTokenSegments } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 const COLLAPSED_MAX_HEIGHT = 120;
 const EXPANDED_BOTTOM_SAFE_SPACE = 28;
@@ -379,14 +378,6 @@ const UserMessage = ({
     () => splitDisplayContentImages(displayContent),
     [displayContent]
   );
-  const structuredSegments = useMemo(
-    () => getSessionComposerStructuredTokenSegments(displayText),
-    [displayText]
-  );
-  const hasStructuredTokens = structuredSegments.some(
-    (segment) => segment.kind === 'token'
-  );
-
   useLayoutEffect(() => {
     const element = contentRef.current;
     if (!element) return;
@@ -518,98 +509,98 @@ const UserMessage = ({
           )}
 
           {hasTextBubble && (
-            <div className="conv-user-bubble relative">
-              <div
-                ref={contentRef}
-                className="conv-user-collapsible"
-                style={{
-                  maxHeight:
-                    isCollapsed && needsCollapse
-                      ? `${COLLAPSED_MAX_HEIGHT}px`
-                      : undefined,
-                  paddingBottom:
-                    !isCollapsed && needsCollapse
-                      ? `${EXPANDED_BOTTOM_SAFE_SPACE}px`
-                      : undefined,
-                }}
+            <ChatMessage
+              sender="user"
+              density="compact"
+              className="vibex-user-message"
+            >
+              <ChatMessageBubble
+                className="conv-user-bubble relative"
+                data-testid="user-message-bubble"
               >
-                {hasStructuredTokens ? (
-                  <SessionComposerStructuredText
-                    segments={structuredSegments}
-                    className={`${SESSION_INPUT_TEXT_CLASS_NAME} whitespace-pre-wrap break-words`}
-                    data-testid="user-message-structured-tokens"
-                  />
-                ) : (
-                  <AstryxMarkdown
+                <div
+                  ref={contentRef}
+                  className="conv-user-collapsible"
+                  style={{
+                    maxHeight:
+                      isCollapsed && needsCollapse
+                        ? `${COLLAPSED_MAX_HEIGHT}px`
+                        : undefined,
+                    paddingBottom:
+                      !isCollapsed && needsCollapse
+                        ? `${EXPANDED_BOTTOM_SAFE_SPACE}px`
+                        : undefined,
+                  }}
+                >
+                  <UserMessageMarkdown
                     value={displayText}
-                    taskAttemptId={taskAttempt?.id}
                     className={SESSION_INPUT_TEXT_CLASS_NAME}
                   />
-                )}
-                {isCollapseMeasured && needsCollapse && isCollapsed && (
-                  <div className="conv-user-collapsible-overlay" />
-                )}
-              </div>
-
-              {isCollapseMeasured && needsCollapse && (
-                <button
-                  className="conv-user-toggle"
-                  title={
-                    isCollapsed
-                      ? t('userMessage.viewFullMessage')
-                      : t('userMessage.collapseMessage')
-                  }
-                  aria-label={
-                    isCollapsed
-                      ? t('userMessage.viewFullMessage')
-                      : t('userMessage.collapseMessage')
-                  }
-                  onClick={() => setIsCollapsed((value) => !value)}
-                >
-                  <ChevronDown
-                    className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
-                  />
-                </button>
-              )}
-
-              {showActionRail && (
-                <div className="absolute right-full top-2 mr-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                  <button
-                    onClick={handleCopy}
-                    className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                    title={copied ? 'Copied!' : 'Copy as Markdown'}
-                    aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
-                  >
-                    {copied ? (
-                      <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
-                    ) : (
-                      <Clipboard className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-                  {canRetry && (
-                    <button
-                      onClick={startRetry}
-                      className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                      title={continuityCopy.retryLabel}
-                      aria-label={continuityCopy.retryLabel}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {canRetry && (
-                    <button
-                      onClick={handleRollback}
-                      disabled={isRollingBack}
-                      className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
-                      title={t('userMessage.rollbackToHere')}
-                      aria-label={t('userMessage.rollbackToHere')}
-                    >
-                      <Undo2 className="h-3.5 w-3.5" />
-                    </button>
+                  {isCollapseMeasured && needsCollapse && isCollapsed && (
+                    <div className="conv-user-collapsible-overlay" />
                   )}
                 </div>
-              )}
-            </div>
+
+                {isCollapseMeasured && needsCollapse && (
+                  <button
+                    className="conv-user-toggle"
+                    title={
+                      isCollapsed
+                        ? t('userMessage.viewFullMessage')
+                        : t('userMessage.collapseMessage')
+                    }
+                    aria-label={
+                      isCollapsed
+                        ? t('userMessage.viewFullMessage')
+                        : t('userMessage.collapseMessage')
+                    }
+                    onClick={() => setIsCollapsed((value) => !value)}
+                  >
+                    <ChevronDown
+                      className={`h-3 w-3 conv-user-toggle-icon ${!isCollapsed ? 'is-expanded' : ''}`}
+                    />
+                  </button>
+                )}
+
+                {showActionRail && (
+                  <div className="absolute right-full top-2 mr-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      onClick={handleCopy}
+                      className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                      title={copied ? 'Copied!' : 'Copy as Markdown'}
+                      aria-label={copied ? 'Copied!' : 'Copy as Markdown'}
+                    >
+                      {copied ? (
+                        <Check className="h-3.5 w-3.5 text-[hsl(var(--success))]" />
+                      ) : (
+                        <Clipboard className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    {canRetry && (
+                      <button
+                        onClick={startRetry}
+                        className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                        title={continuityCopy.retryLabel}
+                        aria-label={continuityCopy.retryLabel}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {canRetry && (
+                      <button
+                        onClick={handleRollback}
+                        disabled={isRollingBack}
+                        className="p-1 rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                        title={t('userMessage.rollbackToHere')}
+                        aria-label={t('userMessage.rollbackToHere')}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </ChatMessageBubble>
+            </ChatMessage>
           )}
         </div>
       </div>

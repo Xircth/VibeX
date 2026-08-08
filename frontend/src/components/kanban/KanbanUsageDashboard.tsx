@@ -20,6 +20,7 @@ import {
   X,
   Clock,
   Zap,
+  Package,
 } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useProjects } from '@/hooks/useProjects';
@@ -29,6 +30,7 @@ import {
   type ProjectUsageStatistics,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PlanUsageDashboard } from './PlanUsageDashboard';
 
 type UsageTab = 'overview' | 'models' | 'sessions' | 'plan';
 type DateRange = '7d' | '30d' | 'all';
@@ -298,6 +300,12 @@ export function KanbanUsageDashboard() {
       icon: List,
       activeColor: 'is-active',
     },
+    {
+      key: 'plan' as UsageTab,
+      label: t('usageDashboard.tabPlan'),
+      icon: Package,
+      activeColor: 'is-active',
+    },
   ];
 
   const selectedProjectName =
@@ -412,6 +420,7 @@ export function KanbanUsageDashboard() {
                 key={tab.key}
                 type="button"
                 title={tab.label}
+                aria-label={tab.label}
                 className={cn(
                   'kanban-usage-tab flex items-center justify-center rounded-md px-2 py-3 transition-colors',
                   activeTab === tab.key ? tab.activeColor : ''
@@ -478,6 +487,8 @@ export function KanbanUsageDashboard() {
               <p className="text-base">{t('usageDashboard.noData')}</p>
             </div>
           ) : null}
+
+          {activeTab === 'plan' ? <PlanUsageDashboard /> : null}
 
           {statistics && activeTab === 'overview' ? (
             <div className="space-y-5">

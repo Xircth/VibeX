@@ -2,6 +2,7 @@ import { ReactNode, useState } from 'react';
 import { PortalContainerContext } from '@/contexts/PortalContainerContext';
 import NiceModal from '@ebay/nice-modal-react';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/components/ThemeProvider';
 import { Theme as AstryxTheme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 // Astryx CSS cascade: reset → component styles → theme token overrides.
@@ -29,6 +30,7 @@ export function LegacyDesignScope({
   className,
 }: LegacyDesignScopeProps) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
+  const { resolvedTheme } = useTheme();
 
   return (
     <div
@@ -37,7 +39,7 @@ export function LegacyDesignScope({
     >
       {container && (
         <PortalContainerContext.Provider value={container}>
-          <AstryxTheme theme={neutralTheme}>
+          <AstryxTheme theme={neutralTheme} mode={resolvedTheme}>
             <NiceModal.Provider>{children}</NiceModal.Provider>
           </AstryxTheme>
         </PortalContainerContext.Provider>

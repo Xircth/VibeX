@@ -6,82 +6,38 @@ import {
 } from 'dockview-react';
 import { X } from 'lucide-react';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
+import DockviewAIChatPanel from '@/components/panels/DockviewAIChatPanel';
+import DockviewDiffsReviewPanel from '@/components/panels/DockviewDiffsReviewPanel';
+import DockviewFileTreePanel from '@/components/panels/DockviewFileTreePanel';
+import DockviewGitPanel from '@/components/panels/DockviewGitPanel';
+import DockviewKanbanPanel from '@/components/panels/DockviewKanbanPanel';
+import DockviewLogsPanel from '@/components/panels/DockviewLogsPanel';
+import DockviewNotesPanel from '@/components/panels/DockviewNotesPanel';
 import DockviewPreviewPanel from '@/components/panels/DockviewPreviewPanel';
+import DockviewSearchPanel from '@/components/panels/DockviewSearchPanel';
+import DockviewTerminalPanel from '@/components/panels/DockviewTerminalPanel';
+import DockviewWebPreviewPanel from '@/components/panels/DockviewWebPreviewPanel';
+import DockviewWelcomePanel from '@/components/panels/DockviewWelcomePanel';
+import WorkspaceSessionListPanel from '@/components/workspace-session-list/WorkspaceSessionListPanel';
 
-/**
- * Lazy-loaded panel components.
- * Each panel is imported dynamically for code splitting.
- */
-const LazyKanbanPanel = React.lazy(
-  () => import('@/components/panels/DockviewKanbanPanel')
-);
-const LazyFileTreePanel = React.lazy(
-  () => import('@/components/panels/DockviewFileTreePanel')
-);
-const LazyWebPreviewPanel = React.lazy(
-  () => import('@/components/panels/DockviewWebPreviewPanel')
-);
-const LazyDiffPanel = React.lazy(
-  () => import('@/components/panels/DockviewDiffsReviewPanel')
-);
-const LazyTerminalPanel = React.lazy(
-  () => import('@/components/panels/DockviewTerminalPanel')
-);
-const LazyAIChatPanel = React.lazy(
-  () => import('@/components/panels/DockviewAIChatPanel')
-);
-const LazyGitPanel = React.lazy(
-  () => import('@/components/panels/DockviewGitPanel')
-);
-const LazyWelcomePanel = React.lazy(
-  () => import('@/components/panels/DockviewWelcomePanel')
-);
-const LazyLogsPanel = React.lazy(
-  () => import('@/components/panels/DockviewLogsPanel')
-);
-const LazyNotesPanel = React.lazy(
-  () => import('@/components/panels/DockviewNotesPanel')
-);
-const LazySearchPanel = React.lazy(
-  () => import('@/components/panels/DockviewSearchPanel')
-);
-const LazyWorkspaceSessionListPanel = React.lazy(
-  () => import('@/components/workspace-session-list/WorkspaceSessionListPanel')
-);
-
-/**
- * Fallback component shown while panels are loading.
- */
-function PanelLoadingFallback() {
-  return (
-    <div className="flex items-center justify-center h-full w-full text-muted-foreground text-sm bg-background">
-      Loading...
-    </div>
-  );
-}
-
-/**
- * Registry mapping panel component IDs to their lazy-loaded React components.
- */
+/** Registry mapping panel component IDs to their React components. */
 const PANEL_COMPONENT_MAP: Record<
   PanelId,
   React.ComponentType<IDockviewPanelProps>
 > = {
-  [PANEL_IDS.KANBAN]: LazyKanbanPanel,
-  [PANEL_IDS.FILE_TREE]: LazyFileTreePanel,
-  // Keep Preview eagerly loaded to avoid occasional unresolved lazy chunk state
-  // in packaged desktop builds.
+  [PANEL_IDS.KANBAN]: DockviewKanbanPanel,
+  [PANEL_IDS.FILE_TREE]: DockviewFileTreePanel,
   [PANEL_IDS.PREVIEW]: DockviewPreviewPanel,
-  [PANEL_IDS.WEB_PREVIEW]: LazyWebPreviewPanel,
-  [PANEL_IDS.DIFFS]: LazyDiffPanel,
-  [PANEL_IDS.TERMINAL]: LazyTerminalPanel,
-  [PANEL_IDS.AI_CHAT]: LazyAIChatPanel,
-  [PANEL_IDS.GIT]: LazyGitPanel,
-  [PANEL_IDS.WELCOME]: LazyWelcomePanel,
-  [PANEL_IDS.LOGS]: LazyLogsPanel,
-  [PANEL_IDS.NOTES]: LazyNotesPanel,
-  [PANEL_IDS.SEARCH]: LazySearchPanel,
-  [PANEL_IDS.SESSION_LIST]: LazyWorkspaceSessionListPanel,
+  [PANEL_IDS.WEB_PREVIEW]: DockviewWebPreviewPanel,
+  [PANEL_IDS.DIFFS]: DockviewDiffsReviewPanel,
+  [PANEL_IDS.TERMINAL]: DockviewTerminalPanel,
+  [PANEL_IDS.AI_CHAT]: DockviewAIChatPanel,
+  [PANEL_IDS.GIT]: DockviewGitPanel,
+  [PANEL_IDS.WELCOME]: DockviewWelcomePanel,
+  [PANEL_IDS.LOGS]: DockviewLogsPanel,
+  [PANEL_IDS.NOTES]: DockviewNotesPanel,
+  [PANEL_IDS.SEARCH]: DockviewSearchPanel,
+  [PANEL_IDS.SESSION_LIST]: WorkspaceSessionListPanel,
 };
 
 /**
@@ -92,14 +48,10 @@ export const panelComponents: Record<
   string,
   React.FC<IDockviewPanelProps>
 > = Object.fromEntries(
-  Object.entries(PANEL_COMPONENT_MAP).map(([id, LazyComponent]) => [
+  Object.entries(PANEL_COMPONENT_MAP).map(([id, PanelComponent]) => [
     id,
     function PanelWrapper(props: IDockviewPanelProps) {
-      return (
-        <React.Suspense fallback={<PanelLoadingFallback />}>
-          <LazyComponent {...props} />
-        </React.Suspense>
-      );
+      return <PanelComponent {...props} />;
     },
   ])
 );

@@ -129,11 +129,25 @@
     "interruptedDescription": "此回合在生成过程中因应用重启而中断，未能完成。",
     "collapsedMessages": "已折叠 {{count}} 条消息",
     "toolCall": "工具调用",
-    "generatingAgents": "正在生成 {{count}} 个智能体"
+    "generatingAgents": "正在生成 {{count}} 个智能体",
+    "toolSummary": {
+      "commands": "运行 {{count}} 个命令",
+      "reads": "已读 {{count}} 个文件",
+      "edits": "已改 {{count}} 个文件",
+      "searches": "完成 {{count}} 次搜索",
+      "webFetches": "获取 {{count}} 个网页",
+      "agents": "启动 {{count}} 个智能体",
+      "other": "{{count}} 次其他工具调用",
+      "separator": "、",
+      "failed": "工具调用失败"
+    }
   },
   "statusDock": {
     "dismiss": "关闭提示",
     "dismissLocalError": "关闭本地错误提示",
+    "localErrorTitle": "操作失败",
+    "showDetails": "查看详细信息",
+    "showDetailsFor": "查看详细信息：{{title}}",
     "newerEventTitle": "此会话包含较新版本的记录",
     "newerEventDescription": "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。",
     "unreadableEventTitle": "部分会话记录无法显示",
@@ -231,8 +245,16 @@
   },
   "questionRequestCard": {
     "title": "智能体提问",
-    "submit": "提交",
+    "expand": "展开智能体提问",
+    "collapse": "收起智能体提问",
+    "recommended": "推荐",
+    "customAnswer": "输入回答",
+    "customPlaceholder": "请输入回答内容",
+    "previous": "上一个",
+    "next": "下一个",
+    "submit": "提交回答",
     "decline": "拒绝回答",
-    "answered": "已回答"
+    "answered": "已回答",
+    "justNow": "刚刚"
   }
 }

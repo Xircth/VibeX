@@ -31,12 +31,72 @@ function renderComposerInput(
 
 function getEditor(): HTMLDivElement {
   const surface = screen.getByTestId('session-composer-editor');
-  return surface.querySelector(
-    '[contenteditable="true"]'
-  ) as HTMLDivElement;
+  return surface.querySelector('[contenteditable="true"]') as HTMLDivElement;
 }
 
 describe('SessionComposerInput (Astryx)', () => {
+  it('constrains the trigger menu to the composer width', async () => {
+    const user = userEvent.setup();
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({
+        bottom: 180,
+        height: 40,
+        left: 24,
+        right: 444,
+        top: 140,
+        width: 420,
+        x: 24,
+        y: 140,
+        toJSON: () => ({}),
+      });
+
+    renderComposerInput();
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '/');
+
+    const menu = await screen.findByRole('listbox');
+    expect(menu.closest('[popover]')).toHaveStyle({ width: '420px' });
+
+    rectSpy.mockRestore();
+  });
+
+  it('renders compact, semantically identified trigger rows', async () => {
+    const user = userEvent.setup();
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '$');
+
+    const option = (await screen.findAllByRole('option'))[0];
+    const row = option.querySelector('[data-composer-trigger-kind="dollar"]');
+    expect(row).toBeInTheDocument();
+    expect(row?.querySelector('[data-composer-trigger-label]')).toHaveClass(
+      'composer-trigger-label'
+    );
+    expect(
+      row?.querySelector('[data-composer-trigger-description]')
+    ).toHaveClass('composer-trigger-description');
+  });
+
+  it('restores serialized structured tokens as token chips', async () => {
+    renderComposerInput({
+      value: 'Review [@:App.tsx](src/App.tsx) before sending',
+    });
+
+    const editor = getEditor();
+    await waitFor(() => {
+      const token = editor.querySelector('[data-astryx-token]');
+      expect(token).toHaveAttribute(
+        'data-astryx-token-value',
+        '[@:App.tsx](src/App.tsx)'
+      );
+      expect(token).toHaveTextContent('App.tsx');
+    });
+  });
+
   it('reports contenteditable text changes as Text content', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -170,6 +230,82 @@ describe('SessionComposerInput (Astryx)', () => {
 
     const [afterBackspace] = onChange.mock.calls.at(-1) as [string];
     expect(afterBackspace).toBe('Use ');
+  });
+
+  it('deletes a token in one Backspace when the caret is at the following text node boundary', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderComposerInput({ onChange });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'Use $');
+    const options = await screen.findAllByRole('option');
+    await user.click(options[0]);
+
+    const tokenSpan = editor.querySelector('[data-astryx-token]');
+    const followingText = tokenSpan?.nextSibling;
+    expect(followingText?.nodeType).toBe(Node.TEXT_NODE);
+    if (!followingText) throw new Error('Expected text after token');
+
+    const range = document.createRange();
+    range.setStart(followingText, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await user.keyboard('{Backspace}');
+
+    expect(editor.querySelector('[data-astryx-token]')).not.toBeInTheDocument();
+    const [afterBackspace] = onChange.mock.calls.at(-1) as [string];
+    expect(afterBackspace).toBe('Use ');
+  });
+
+  it('deletes a token in one Backspace when the caret is after its spacer node', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderComposerInput({ onChange });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '$');
+    const options = await screen.findAllByRole('option');
+    await user.click(options[0]);
+
+    const tokenSpan = editor.querySelector('[data-astryx-token]');
+    expect(tokenSpan?.nextSibling?.textContent).toBe('\u00A0');
+
+    // WebKit can represent the caret after an atomic contenteditable token as
+    // a parent boundary after Astryx's trailing NBSP instead of inside it.
+    const range = document.createRange();
+    range.setStart(editor, editor.childNodes.length);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    await user.keyboard('{Backspace}');
+
+    expect(editor.querySelector('[data-astryx-token]')).not.toBeInTheDocument();
+    const [afterBackspace] = onChange.mock.calls.at(-1) as [string];
+    expect(afterBackspace).toBe('');
+  });
+
+  it('uses distinct token tones instead of rendering every token neutral', async () => {
+    const user = userEvent.setup();
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'Use $');
+    const options = await screen.findAllByRole('option');
+    await user.click(options[0]);
+
+    expect(editor.querySelector('.astryx-badge')).toHaveAttribute(
+      'data-variant',
+      'green'
+    );
   });
 
   it('accepts file-tree custom drops and inserts an @ command token', async () => {

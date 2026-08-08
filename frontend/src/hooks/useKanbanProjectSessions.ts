@@ -106,6 +106,22 @@ function getWorkspaceName(workspace: Workspace, summary: SessionSummary) {
   return workspace.name ?? summary.workspace_name ?? workspace.branch;
 }
 
+const EMPTY_SESSION_SUMMARIES: SessionSummary[] = [];
+
+function combineSessionSummaryQueries(
+  results: readonly {
+    data: SessionSummary[] | undefined;
+    isLoading: boolean;
+  }[]
+) {
+  return {
+    summariesByWorkspace: results.map(
+      (result) => result.data ?? EMPTY_SESSION_SUMMARIES
+    ),
+    isLoading: results.some((result) => result.isLoading),
+  };
+}
+
 export function useKanbanProjectSessions(projectId: string | undefined) {
   const queryClient = useQueryClient();
   const { t } = useTranslation(['app', 'common']);
@@ -115,25 +131,27 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     isLoading: isWorkspacesLoading,
   } = useProjectWorkspacesStream(projectId ?? '');
 
-  const sessionSummaryQueries = useQueries({
-    queries: workspaces.map((workspace) => ({
-      queryKey: ['workspaceSessions', workspace.id, 'summaries'],
-      queryFn: () => sessionsApi.getSummariesByWorkspace(workspace.id),
-      enabled: !!workspace.id,
-    })),
-  });
+  const { summariesByWorkspace, isLoading: isSessionSummariesLoading } =
+    useQueries({
+      queries: workspaces.map((workspace) => ({
+        queryKey: ['workspaceSessions', workspace.id, 'summaries'],
+        queryFn: () => sessionsApi.getSummariesByWorkspace(workspace.id),
+        enabled: !!workspace.id,
+      })),
+      combine: combineSessionSummaryQueries,
+    });
 
   const sessionSummaries = useMemo(
-    () => sessionSummaryQueries.flatMap((query) => query.data ?? []),
-    [sessionSummaryQueries]
+    () => summariesByWorkspace.flat(),
+    [summariesByWorkspace]
   );
 
   useEffect(() => {
     workspaces.forEach((workspace) => {
-      queryClient.setQueryData<Workspace>(
-        ['taskAttempt', workspace.id],
-        (current) => current ?? workspace
-      );
+      const queryKey = ['taskAttempt', workspace.id] as const;
+      if (!queryClient.getQueryData<Workspace>(queryKey)) {
+        queryClient.setQueryData<Workspace>(queryKey, workspace);
+      }
     });
 
     sessionSummaries.forEach((summary) => {
@@ -154,15 +172,10 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         updated_at: summary.updated_at,
       };
 
-      queryClient.setQueryData<Session>(['session', summary.id], (current) => {
-        if (!current) {
-          return session;
-        }
-        return {
-          ...session,
-          ...current,
-        };
-      });
+      const queryKey = ['session', summary.id] as const;
+      if (!queryClient.getQueryData<Session>(queryKey)) {
+        queryClient.setQueryData<Session>(queryKey, session);
+      }
     });
   }, [queryClient, sessionSummaries, workspaces]);
 
@@ -180,7 +193,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
 
     const baseSessions = workspaces
       .flatMap((workspace, index) => {
-        const summaries = sessionSummaryQueries[index]?.data ?? [];
+        const summaries = summariesByWorkspace[index] ?? [];
 
         return summaries.map((summary) => {
           const derivedName = buildDefaultSessionName(summary, t);
@@ -295,7 +308,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
         shortName: truncateSessionName(resolvedName),
       };
     });
-  }, [sessionSummaryQueries, t, workspaces, workspacesWithStatus]);
+  }, [summariesByWorkspace, t, workspaces, workspacesWithStatus]);
 
   const sessionsById = useMemo(
     () =>
@@ -314,8 +327,6 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
     sessionsById,
     workspaces,
     workspacesWithStatus,
-    isLoading:
-      isWorkspacesLoading ||
-      sessionSummaryQueries.some((query) => query.isLoading),
+    isLoading: isWorkspacesLoading || isSessionSummariesLoading,
   };
 }

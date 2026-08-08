@@ -126,6 +126,47 @@ impl AgentManagementApplicationService {
             .map(|definition| (definition.agent_id.clone(), definition))
             .collect::<HashMap<_, _>>();
         let profiles = BuiltInProfileCatalog::bundled();
+        let membership_ids = memberships
+            .iter()
+            .map(|membership| membership.agent_id.clone())
+            .collect::<HashSet<_>>();
+        let canonical_by_registry_id = profiles
+            .profiles()
+            .iter()
+            .filter_map(|profile| {
+                profile
+                    .registry_binding
+                    .as_ref()
+                    .map(|binding| (binding.registry_id, &profile.agent_id))
+            })
+            .collect::<HashMap<_, _>>();
+        let memberships = memberships
+            .into_iter()
+            .filter(|membership| {
+                if membership.source != AgentSource::OfficialRegistry {
+                    return true;
+                }
+                let retained_registry_id = membership
+                    .retained_metadata_json
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                    .and_then(|value| {
+                        value
+                            .get("registry_id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string)
+                    });
+                let registry_id = retained_registry_id
+                    .as_deref()
+                    .unwrap_or(membership.agent_id.as_str());
+                canonical_by_registry_id
+                    .get(registry_id)
+                    .is_none_or(|canonical_id| {
+                        *canonical_id == &membership.agent_id
+                            || !membership_ids.contains(*canonical_id)
+                    })
+            })
+            .collect::<Vec<_>>();
 
         let mut views = Vec::with_capacity(memberships.len());
         for membership in memberships {

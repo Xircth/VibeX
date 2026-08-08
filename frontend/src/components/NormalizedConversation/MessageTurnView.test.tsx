@@ -9,12 +9,27 @@ const conversationMessageStyles = readFileSync(
   'utf8'
 );
 
-const { markdownMock } = vi.hoisted(() => ({
+const { markdownMock, userMarkdownMock } = vi.hoisted(() => ({
   markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
+  userMarkdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
 }));
+
+function toolUseBlock(index: number, toolName: string, input: unknown) {
+  return {
+    type: 'tool_use' as const,
+    tool_use_id: `tool-${index}`,
+    tool_name: toolName,
+    input_preview: JSON.stringify(input),
+    meta: null,
+  };
+}
 
 vi.mock('./AstryxMarkdown', () => ({
   AstryxMarkdown: markdownMock,
+}));
+
+vi.mock('./UserMessageMarkdown', () => ({
+  UserMessageMarkdown: userMarkdownMock,
 }));
 
 vi.mock('./ThinkingEntry', () => ({
@@ -25,6 +40,11 @@ vi.mock('./tools/ToolCardShell', () => ({
   ToolCardShell: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
+  ToolCallResultDetail: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  getToolChatStatus: (status: { status: string }) =>
+    status.status === 'created' ? 'running' : 'complete',
 }));
 
 vi.mock('./TimelinePlanCard', () => ({
@@ -38,6 +58,44 @@ vi.mock('./DisplayConversationEntry', () => ({
 describe('MessageTurnView', () => {
   beforeEach(() => {
     markdownMock.mockClear();
+    userMarkdownMock.mockClear();
+  });
+
+  it('renders a user turn with the Astryx user-message semantics', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-1:user',
+            role: 'user',
+            blocks: [{ type: 'text', text: 'Inspect this project' }],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+
+    expect(
+      screen.getByRole('article', { name: 'Message from user' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
+      'Inspect this project'
+    );
+
+    const bubbleRule =
+      conversationMessageStyles.match(
+        /\.vibex-user-message \.conv-user-bubble\s*\{[^}]+\}/u
+      )?.[0] ?? '';
+    expect(bubbleRule).toContain('font-size: 0.875rem;');
+    expect(bubbleRule).toContain('line-height: 1.43;');
+    expect(bubbleRule).toContain('background: var(--conv-user-bg);');
+    expect(bubbleRule).toContain('color: var(--conv-user-text);');
+    expect(userMarkdownMock).toHaveBeenCalledWith(
+      expect.objectContaining({ value: 'Inspect this project' }),
+      undefined
+    );
   });
 
   it('renders a thinking placeholder for an empty streaming assistant turn', () => {
@@ -110,7 +168,7 @@ describe('MessageTurnView', () => {
       screen.getByRole('status', { name: 'AI 正在输出...' })
     ).toBeInTheDocument();
     expect(markdownMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ value })
+      expect.objectContaining({ value, isStreaming: true })
     );
   });
 
@@ -134,7 +192,7 @@ describe('MessageTurnView', () => {
     );
 
     expect(markdownMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ value })
+      expect.objectContaining({ value, isStreaming: false })
     );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
@@ -340,5 +398,72 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('inspect the project')).toBeInTheDocument();
     expect(screen.queryByText('因重启中断')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '重发' })).toBeNull();
+  });
+
+  it('keeps one tool call inside the Astryx aggregate disclosure', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-single-tool:assistant',
+            role: 'assistant',
+            blocks: [toolUseBlock(1, 'bash', { command: 'git status' })],
+            timestamp: '2026-08-08T00:00:00.000Z',
+          } as never
+        }
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess={false}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: /运行 1 个命令/ })
+    ).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('summarizes a mixed consecutive run by tool category', () => {
+    const blocks = [
+      ...Array.from({ length: 5 }, (_, index) =>
+        toolUseBlock(index, 'bash', { command: `echo ${index}` })
+      ),
+      ...Array.from({ length: 3 }, (_, index) =>
+        toolUseBlock(10 + index, 'Read', { file_path: `src/${index}.ts` })
+      ),
+      ...Array.from({ length: 2 }, (_, index) =>
+        toolUseBlock(20 + index, 'Edit', {
+          file_path: `src/${index}.ts`,
+          old_string: 'before',
+          new_string: 'after',
+        })
+      ),
+    ];
+
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-mixed-tools:assistant',
+            role: 'assistant',
+            blocks,
+            timestamp: '2026-08-08T00:00:00.000Z',
+          } as never
+        }
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess={false}
+      />
+    );
+
+    const disclosure = screen.getByRole('button', {
+      name: /运行 5 个命令、已读 3 个文件、已改 2 个文件/,
+    });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByText('Terminal')).toHaveLength(5);
   });
 });

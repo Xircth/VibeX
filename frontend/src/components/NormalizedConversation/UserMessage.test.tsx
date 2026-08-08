@@ -11,12 +11,6 @@ const imageMocks = vi.hoisted(() => ({
   useImageMetadata: vi.fn(),
 }));
 
-vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
-  AstryxMarkdown: ({ value }: { value: string }) => (
-    <div data-testid="readonly-wysiwyg">{value}</div>
-  ),
-}));
-
 vi.mock('@/components/dialogs/wysiwyg/ImagePreviewDialog', () => ({
   ImagePreviewDialog: { show: imageMocks.showPreview },
 }));
@@ -79,6 +73,17 @@ describe('UserMessage', () => {
     );
   });
 
+  it('renders legacy timeline entries with the Astryx user-message semantics', () => {
+    render(<UserMessage content="Inspect this project" />);
+
+    expect(
+      screen.getByRole('article', { name: 'Message from user' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('user-message-bubble')).toHaveTextContent(
+      'Inspect this project'
+    );
+  });
+
   it('keeps structured composer tokens as chips after send', () => {
     const fileCommand = formatSessionComposerCommand({
       type: '@',
@@ -95,10 +100,10 @@ describe('UserMessage', () => {
       <UserMessage content={`Review ${fileCommand} with ${dollarCommand}`} />
     );
 
-    expect(screen.queryByTestId('readonly-wysiwyg')).not.toBeInTheDocument();
-    expect(
-      screen.getByTestId('user-message-structured-tokens')
-    ).toBeInTheDocument();
+    expect(screen.getByRole('document')).toBeInTheDocument();
+    expect(screen.getAllByTestId('session-composer-token-chip')).toHaveLength(
+      2
+    );
     expect(screen.getByText('App.tsx')).toBeInTheDocument();
     expect(screen.getByText('$plan')).toBeInTheDocument();
     expect(
@@ -127,7 +132,6 @@ describe('UserMessage', () => {
 
     render(<UserMessage content={content} />);
 
-    expect(screen.queryByTestId('readonly-wysiwyg')).not.toBeInTheDocument();
     expect(screen.getByText('SaveButton')).toBeInTheDocument();
     expect(
       screen
@@ -156,7 +160,7 @@ describe('UserMessage', () => {
       />
     );
 
-    expect(screen.getByTestId('readonly-wysiwyg')).toHaveTextContent(
+    expect(screen.getByRole('document')).toHaveTextContent(
       'Please inspect this.'
     );
     expect(screen.getByRole('img', { name: 'screen' })).toHaveAttribute(

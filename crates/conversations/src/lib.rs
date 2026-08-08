@@ -29,8 +29,9 @@ pub use search::{
     ConversationSearchHit, backfill_missing, reindex_from_projection, search_conversations,
 };
 pub use service::{
-    AgentRuntimeLaunchSettings, ConversationContext, ConversationHost, ConversationRuntimeState,
-    ConversationServiceError, ConversationSessionService, ConversationStartTurnInput,
-    ConversationTurnSnapshot, CreateDelegatedConversation, create_delegated_conversation,
+    AgentRuntimeLaunchSettings, ConversationContext, ConversationEventPublisher, ConversationHost,
+    ConversationRuntimeState, ConversationServiceError, ConversationSessionService,
+    ConversationStartTurnInput, ConversationTurnSnapshot, CreateDelegatedConversation,
+    NoopConversationEventPublisher, create_delegated_conversation,
     finalize_checkpoint_file_changes, preview_checkpoint_file_changes,
 };

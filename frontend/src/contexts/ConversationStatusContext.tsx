@@ -6,7 +6,9 @@ import {
   type ReactNode,
 } from 'react';
 import type {
+  AgentElicitationResponse,
   ConversationError,
+  ConversationQuestionRequest,
   ConversationSessionNotice,
 } from 'shared/types';
 
@@ -28,10 +30,18 @@ export type ConversationStatusNotice =
       notice: ConversationSessionNotice;
     };
 
+export type PendingConversationQuestion = {
+  request: ConversationQuestionRequest;
+  responding: boolean;
+  onRespond: (questionId: string, response: AgentElicitationResponse) => void;
+};
+
 type ConversationStatusContextValue = {
   enabled: boolean;
   notices: ConversationStatusNotice[];
   setNotices: (notices: ConversationStatusNotice[]) => void;
+  question: PendingConversationQuestion | null;
+  setQuestion: (question: PendingConversationQuestion | null) => void;
 };
 
 const ConversationStatusContext =
@@ -45,9 +55,12 @@ export function ConversationStatusProvider({
   enabled?: boolean;
 }) {
   const [notices, setNotices] = useState<ConversationStatusNotice[]>([]);
+  const [question, setQuestion] = useState<PendingConversationQuestion | null>(
+    null
+  );
   const value = useMemo(
-    () => ({ enabled, notices, setNotices }),
-    [enabled, notices]
+    () => ({ enabled, notices, setNotices, question, setQuestion }),
+    [enabled, notices, question]
   );
 
   return (

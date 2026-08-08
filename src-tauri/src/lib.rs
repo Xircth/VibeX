@@ -223,7 +223,15 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     crash_reports::install_panic_hook();
     install_rustls_crypto_provider();
 
-    tauri::Builder::default()
+    {
+        let mut builder = tauri::Builder::default();
+        if cfg!(debug_assertions) {
+            builder = builder
+                .plugin(tauri_plugin_redline::init())
+                .plugin(tauri_plugin_vibex_inspector::init());
+        }
+        builder
+    }
         // single-instance MUST come first and before deep-link (P2-5): it forwards
         // a second launch's args (carrying the vibex:// URL on Windows/Linux) into
         // the running instance.
@@ -251,7 +259,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             // e.g. codex-acp can't reach OpenAI.
             tauri::async_runtime::block_on(commands::system_settings::init_system_proxy());
 
-            let state = tauri::async_runtime::block_on(AppState::new())
+            let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
                 .expect("Failed to initialize app state");
             // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
             // process lifecycle before the UI connects. Best-effort — a failure here
@@ -626,6 +634,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             commands::agent_management::agent_management_bar,
             commands::agent_management::agent_management_refresh,
             commands::agent_management::agent_management_detail,
+            commands::agent_plan_usage::agent_plan_usage,
             commands::agent_management::agent_registry_view,
             commands::agent_management::agent_registry_refresh,
             commands::agent_management::agent_registry_add_and_install,

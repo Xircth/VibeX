@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-take-control"
+description = "Enables the take_control command without any pre-configured scope."
+commands.allow = ["take_control"]
+
+[[permission]]
+identifier = "deny-take-control"
+description = "Denies the take_control command without any pre-configured scope."
+commands.deny = ["take_control"]

@@ -11,7 +11,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Check,
   ChevronDown,
-  ChevronRight,
   Clipboard,
   Loader2,
   Pencil,
@@ -19,6 +18,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { type MessageTurn, type TaskWithAttemptStatus } from 'shared/types';
+import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { cn } from '@/lib/utils';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -26,6 +26,7 @@ import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import { AstryxMarkdown } from './AstryxMarkdown';
+import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
 import { TimelinePlanCard } from './TimelinePlanCard';
@@ -37,16 +38,10 @@ import {
   type ToolResultBlock,
   type TurnRenderItem,
 } from './messageTurnBlocks';
-import {
-  AGGREGATION_LABELS,
-  splitAssistantCommandOutput,
-} from './conversation-entry-utils';
+import { splitAssistantCommandOutput } from './conversation-entry-utils';
 import { AssistantCommandOutputEntry } from './MessageCard';
-import {
-  groupTurnRenderItems,
-  type IndexedTurnItem,
-  type TurnAggregationType,
-} from './messageTurnAggregate';
+import { groupTurnRenderItems } from './messageTurnAggregate';
+import { TurnToolCalls } from './TurnToolCalls';
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
@@ -77,6 +72,7 @@ function OrphanToolResultCard({
       label="tool result"
       statusClassName={isError ? 'conv-tool-card-error' : ''}
       statusDotClassName={isError ? 'conv-tool-dot conv-tool-dot-error' : ''}
+      chatStatus={isError ? 'error' : 'complete'}
       expandable={Boolean(output)}
       expanded={expanded}
       onToggle={() => setExpanded((value) => !value)}
@@ -96,7 +92,8 @@ function OrphanToolResultCard({
 function renderItem(
   item: TurnRenderItem,
   key: string,
-  context: MessageTurnContext
+  context: MessageTurnContext,
+  isStreaming: boolean
 ): ReactNode {
   switch (item.kind) {
     case 'markdown':
@@ -107,6 +104,7 @@ function renderItem(
           taskAttemptId={context.taskAttemptId}
           taskId={context.taskId}
           workspacePath={context.workspacePath}
+          isStreaming={isStreaming}
         />
       );
     case 'thinking':
@@ -396,89 +394,6 @@ function CollapsedProcessGroup({
   );
 }
 
-/**
- * Folds a run of same-kind tool calls into one "终端 N"-style card with a count
- * badge, expanding to the individual cards on a timeline. Mirrors the pre-ACP
- * AggregatedGroupCard look (same classes/tokens), driven by the turn's blocks.
- */
-function TurnToolGroupCard({
-  turnId,
-  groupKey,
-  offset,
-  aggregationType,
-  items,
-  renderTurnItem: render,
-}: {
-  turnId: string;
-  groupKey: number;
-  offset: number;
-  aggregationType: TurnAggregationType;
-  items: IndexedTurnItem[];
-  renderTurnItem: (
-    item: TurnRenderItem,
-    key: string,
-    hideToolLabel?: boolean
-  ) => ReactNode;
-}) {
-  const { t } = useTranslation(['conversation', 'common']);
-  const [expanded, toggle] = useExpandable(
-    `turn-tool-group:${turnId}:${groupKey}`,
-    false
-  );
-  // Generic tool calls have no AGGREGATION_LABELS entry — give them a Wrench.
-  const { icon, label } =
-    aggregationType === 'tool'
-      ? {
-          icon: <Wrench className="h-3 w-3" />,
-          label: t('messageTurnView.toolCall'),
-        }
-      : AGGREGATION_LABELS[aggregationType];
-  // Sub-agent groups fold the count into the label (no separate badge), matching
-  // the pre-ACP AggregatedGroupCard.
-  const isTaskCreate = aggregationType === 'task_create';
-  const displayLabel = isTaskCreate
-    ? t('messageTurnView.generatingAgents', { count: items.length })
-    : label;
-  return (
-    <div className="conv-entry-item">
-      <button
-        type="button"
-        onClick={() => toggle()}
-        aria-expanded={expanded}
-        className="conv-tool-card flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-sm"
-      >
-        <span className="conv-tool-icon shrink-0">{icon}</span>
-        <span className="conv-tool-label shrink-0">{displayLabel}</span>
-        {isTaskCreate ? null : (
-          <span className="conv-count-badge">{items.length}</span>
-        )}
-        <ChevronRight
-          className={cn(
-            'ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-            expanded && 'rotate-90'
-          )}
-        />
-      </button>
-      {expanded ? (
-        <div className="conv-agg-timeline mt-1">
-          {items.map(({ item, index }) => (
-            <div
-              key={`${turnId}-${offset + index}`}
-              className="conv-agg-timeline-item"
-            >
-              {render(
-                item,
-                `${turnId}-${offset + index}`,
-                aggregationType === 'command_run'
-              )}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export const MessageTurnView = memo(function MessageTurnView({
   turn,
   phase = 'persisted',
@@ -536,14 +451,18 @@ export const MessageTurnView = memo(function MessageTurnView({
             onRetry={onRetry}
             onEdit={onEditRetry ? () => setEditing(true) : undefined}
           />
-          <div className="conv-user-bubble">
-            <AstryxMarkdown
-              value={text}
-              taskAttemptId={context.taskAttemptId}
-              taskId={context.taskId}
-              workspacePath={context.workspacePath}
-            />
-          </div>
+          <ChatMessage
+            sender="user"
+            density="compact"
+            className="vibex-user-message"
+          >
+            <ChatMessageBubble
+              className="conv-user-bubble"
+              data-testid="user-message-bubble"
+            >
+              <UserMessageMarkdown value={text} />
+            </ChatMessageBubble>
+          </ChatMessage>
         </div>
         {phase === 'interrupted' && showInterruptedNotice ? (
           <InterruptedTurnNotice onResend={onRetry} />
@@ -587,10 +506,10 @@ export const MessageTurnView = memo(function MessageTurnView({
         />
       );
     }
-    return renderItem(item, key, context);
+    return renderItem(item, key, context, phase === 'streaming');
   };
 
-  // Fold consecutive same-kind tool calls into "终端 N" group cards (early style).
+  // Every uninterrupted run uses Astryx's aggregate, including runs of one.
   const renderUnits = (list: TurnRenderItem[], offset: number): ReactNode[] =>
     groupTurnRenderItems(list).map((unit) => {
       if (unit.kind === 'single') {
@@ -598,14 +517,14 @@ export const MessageTurnView = memo(function MessageTurnView({
       }
       const startIndex = offset + unit.items[0].index;
       return (
-        <TurnToolGroupCard
+        <TurnToolCalls
           key={`${turn.id}-toolgroup-${startIndex}`}
           turnId={turn.id}
-          groupKey={startIndex}
+          timestamp={turn.timestamp}
           offset={offset}
-          aggregationType={unit.aggregationType}
           items={unit.items}
-          renderTurnItem={renderTurnItem}
+          attempt={attempt}
+          task={task}
         />
       );
     });

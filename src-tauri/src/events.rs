@@ -47,14 +47,15 @@ pub mod channels {
 /// `AppState`; fed only through [`emit_conversation_row_ops_after`].
 pub type ConversationRowProjectors = Arc<Mutex<HashMap<Uuid, IncrementalRowProjector>>>;
 
-/// Emit the frontend row-op batch for every event appended after `after_sequence`.
+/// Publish committed events as frontend row operations in durable sequence order.
 /// This is the single realtime path to the frontend (消灭双投影): the frontend consumes
 /// `ConversationRowOpBatch` and never folds raw events. It feeds the conversation's
 /// cached incremental projector so ops are produced in O(1) amortized (no per-frame
-/// re-projection). Best-effort — a dropped batch is self-healed by the hook's
+/// re-projection). `after_sequence` seeds a missing projector; once active, the
+/// projector's own cursor is authoritative so a later notifier cannot skip or overtake
+/// an earlier committed event. Best-effort — a dropped batch is self-healed by the hook's
 /// subscribe-time row backfill (`rows_since`) and by a full reload (`conversation_detail`),
-/// both of which reproject from the same fold. There is no sequence-gap detection during
-/// streaming, so a batch lost mid-turn only surfaces on the next reload/backfill.
+/// both of which reproject from the same fold.
 pub async fn emit_conversation_row_ops_after(
     app: &AppHandle,
     projectors: &ConversationRowProjectors,
@@ -62,8 +63,17 @@ pub async fn emit_conversation_row_ops_after(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
+    // The cursor read, durable-event read, fold, and Tauri enqueue form one ordered
+    // publication critical section. Locking only the fold allowed a notifier for a
+    // later sequence to read first and initialize the projector beyond an earlier
+    // committed event.
+    let mut map = projectors.lock().await;
+    let publish_after = map
+        .get(&conversation_id)
+        .map(IncrementalRowProjector::last_sequence)
+        .unwrap_or(after_sequence);
     let new_records =
-        match ConversationEventRecord::events_since(pool, conversation_id, after_sequence, 2000)
+        match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
             .await
         {
             Ok(records) => records,
@@ -78,13 +88,12 @@ pub async fn emit_conversation_row_ops_after(
     let last_sequence = new_records
         .last()
         .map(|record| record.sequence)
-        .unwrap_or(after_sequence);
+        .unwrap_or(publish_after);
 
     // Session control state (modes / config options) is not a timeline row, so carry
     // the latest of each in the batch rather than on a separate channel. Also detect
     // whether the batch settles a turn — the projector is a pure cache and can be
-    // dropped once its turn is terminal. Parsed here (no projector needed) so the lock
-    // below is held only around the fold + emit.
+    // dropped once its turn is terminal.
     let mut session_modes = None;
     let mut session_config_options = None;
     let mut settled = false;
@@ -108,21 +117,8 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
-    // The projector lock is held across BOTH the fold and the `app.emit`. Emitting under
-    // the lock makes realtime delivery order match fold order: two emitters racing for one
-    // conversation are serialized here, so a later fold can never enqueue its batch ahead
-    // of an earlier one. Emitting after releasing the lock allowed exactly that reorder —
-    // a late-delivered older batch would rewind/duplicate streamed text (the append-only
-    // liveText overlay is order-sensitive). `app.emit` is a cheap synchronous enqueue.
-    let mut map = projectors.lock().await;
-    // (Re)position the projector at `after_sequence` when it is missing or out of sync
-    // (first activation, a settled-turn eviction, or a truncate/retry rewind).
-    let needs_load = map
-        .get(&conversation_id)
-        .map(|projector| projector.last_sequence() != after_sequence)
-        .unwrap_or(true);
-    if needs_load {
-        match IncrementalRowProjector::load(pool, conversation_id, after_sequence).await {
+    if !map.contains_key(&conversation_id) {
+        match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
             Ok(projector) => {
                 map.insert(conversation_id, projector);
             }
@@ -159,8 +155,8 @@ pub async fn emit_conversation_row_ops_after(
     }
 
     // A settled turn's projector holds the whole folded timeline but is a pure cache —
-    // drop it to bound memory. The next event for this conversation reloads it via the
-    // `needs_load` path above. Without this, one projector leaked per conversation ever
+    // drop it to bound memory. The next committed event reloads it from that event's
+    // predecessor sequence. Without this, one projector leaked per conversation ever
     // streamed (the map is only otherwise cleared by `close_conversation`, which the UI
     // never calls). Done under the lock, after emit.
     if settled {
@@ -1087,6 +1083,7 @@ fn map_agent_event_to_conversation_event(
                     question_id: request.id.to_string(),
                     prompt: request.message.clone(),
                     options: Vec::new(),
+                    asked_at: Some(envelope.created_at),
                     schema: Some(request.requested_schema.clone()),
                 },
             })
@@ -1683,6 +1680,34 @@ mod tests {
         assert!(matches!(
             super::map_agent_event_to_conversation_event(&terminal, Some(Uuid::new_v4())),
             Some(agents::conversation::ConversationEvent::TerminalUpdated { .. })
+        ));
+    }
+
+    #[test]
+    fn acp_question_mapping_preserves_the_time_it_was_asked() {
+        let session_id = AgentSessionId::new();
+        let asked_at = now();
+        let envelope = AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(session_id),
+            event: AgentEvent::ElicitationRequested {
+                request: agents::AgentElicitationRequest {
+                    id: agents::AgentElicitationId::new(),
+                    session_id,
+                    message: "Choose a direction".into(),
+                    requested_schema: serde_json::json!({ "type": "object" }),
+                },
+            },
+            created_at: asked_at,
+        };
+
+        let mapped = super::map_agent_event_to_conversation_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::QuestionRequested { request })
+                if request.asked_at == Some(asked_at)
         ));
     }
 

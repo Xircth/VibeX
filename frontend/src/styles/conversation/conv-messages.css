@@ -20,7 +20,6 @@
 .dark,
 .legacy-design.dark,
 .dark .legacy-design {
-  --conv-user-bg: hsl(220 53% 24%);
   --conv-user-action-button-color: rgba(255, 255, 255, 0.72);
   --conv-user-action-button-bg: rgba(255, 255, 255, 0.1);
   --conv-user-action-button-border: rgba(255, 255, 255, 0.18);
@@ -182,19 +181,68 @@
   }
 }
 
-.conv-user-bubble {
-  background:
-    linear-gradient(180deg, hsl(var(--primary-foreground) / 0.12), transparent),
-    var(--conv-user-bg);
+.vibex-user-message {
+  width: 100%;
+}
+
+.vibex-user-message .conv-user-bubble {
+  background: var(--conv-user-bg);
   color: var(--conv-user-text);
   border-radius: var(--radius);
-  border: 1px solid hsl(var(--primary-foreground) / 0.1);
+  border: 0;
   max-width: 100%;
   padding: 10px 14px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 0.875rem;
+  line-height: 1.43;
   word-break: break-word;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: none;
+}
+
+.vibex-user-message .conv-user-bubble .conv-markdown {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit !important;
+}
+
+.vibex-user-message .conv-user-markdown :where(ul, ol) {
+  margin-block: 0.25rem !important;
+  padding-inline-start: 0.25rem !important;
+}
+
+.vibex-user-message .conv-user-markdown :where(ul, ol) :where(ul, ol) {
+  margin-block: 0.125rem !important;
+  padding-inline-start: 0.21875rem !important;
+}
+
+.vibex-user-message .conv-user-markdown .astryx-markdown-list {
+  margin-inline: 0 !important;
+}
+
+.vibex-user-message .conv-user-markdown .astryx-list-item {
+  gap: 0.125rem !important;
+  padding-inline-start: 0 !important;
+  padding-inline-end: 0 !important;
+}
+
+.vibex-user-message .conv-user-markdown .astryx-list-item > span:first-child {
+  width: 0.5rem !important;
+  color: var(--conv-user-text) !important;
+}
+
+.vibex-user-message
+  .conv-user-markdown
+  [data-list-style='decimal']
+  > .astryx-list-item
+  > span:first-child {
+  width: 1rem !important;
+}
+
+.vibex-user-message
+  .conv-user-markdown
+  .astryx-list-item
+  > span:first-child
+  > span {
+  background-color: var(--conv-user-text) !important;
 }
 
 .conv-user-bubble > div.absolute button {
@@ -209,61 +257,27 @@
   background: var(--conv-user-action-button-hover-bg);
 }
 
-.conv-user-bubble .wysiwyg,
 .conv-user-bubble [contenteditable='false'],
-.conv-user-bubble .ProseMirror,
-.conv-user-bubble .ProseMirror p,
-.conv-user-bubble .ProseMirror li,
-.conv-user-bubble .ProseMirror span,
-.conv-user-bubble [data-lexical-editor],
-.conv-user-bubble [data-lexical-editor] p,
-.conv-user-bubble [data-lexical-editor] li,
-.conv-user-bubble [data-lexical-editor] span,
 .conv-user-bubble [class*='text-foreground'],
 .conv-user-bubble [class*='text-muted-foreground'],
-.conv-user-bubble h1,
-.conv-user-bubble h2,
-.conv-user-bubble h3,
-.conv-user-bubble h4,
-.conv-user-bubble h5,
-.conv-user-bubble h6,
 .conv-user-bubble strong,
-.conv-user-bubble em {
+.conv-user-bubble u {
   color: var(--conv-user-text) !important;
 }
 
-/* The bubble now renders via the Markdown component (.conv-markdown), not the
-   legacy editor — force white-on-blue for its prose too. */
+/* Keep every Astryx prose node on the adaptive user-message foreground. */
 .conv-user-bubble .conv-markdown,
-.conv-user-bubble
-  .conv-markdown
-  :where(
-    p,
-    li,
-    span,
-    strong,
-    em,
-    h1,
-    h2,
-    h3,
-    h4,
-    h5,
-    h6,
-    td,
-    th,
-    blockquote,
-    a
-  ) {
+.conv-user-bubble .conv-markdown [role='paragraph'],
+.conv-user-bubble .conv-markdown :where(p, li, span, strong, u) {
   color: var(--conv-user-text) !important;
 }
 
-/* Inline code inside user bubble — transparent bg + subtle border only */
-.conv-user-bubble .ProseMirror code,
+/* Inline code inside user bubbles stays readable on the charcoal surface. */
 .conv-user-bubble code {
-  background: var(--conv-surface-card) !important;
-  background-color: var(--conv-surface-card) !important;
-  color: var(--conv-code-text) !important;
-  border: 1px solid var(--conv-border-subtle) !important;
+  background: var(--conv-user-code-bg) !important;
+  background-color: var(--conv-user-code-bg) !important;
+  color: var(--conv-user-text) !important;
+  border: 1px solid var(--conv-user-code-border) !important;
   border-radius: var(--radius);
   padding: 1px 5px;
   font-weight: 500;
@@ -271,12 +285,11 @@
   -webkit-box-decoration-break: clone;
 }
 
-/* Code block inside user bubble (Lexical CodeNode uses bg-secondary) */
-.conv-user-bubble .editor-code,
+/* Code blocks inside the current markdown-rendered user bubble. */
 .conv-user-bubble [class*='bg-secondary'],
-.conv-user-bubble .ProseMirror pre {
-  background: hsl(var(--primary) / 0.18) !important;
-  border: 1px solid hsl(var(--primary-foreground) / 0.15) !important;
+.conv-user-bubble .user-message-code-block {
+  background: var(--conv-user-code-bg) !important;
+  border: 1px solid var(--conv-user-code-border) !important;
   border-radius: var(--radius) !important;
   padding: 8px 10px !important;
   margin: 6px 0 !important;
@@ -284,9 +297,9 @@
 }
 
 /* Code text inside code blocks in user bubble */
-.conv-user-bubble .editor-code code,
-.conv-user-bubble .editor-code span,
-.conv-user-bubble .ProseMirror pre code {
+.conv-user-bubble [class*='bg-secondary'] code,
+.conv-user-bubble [class*='bg-secondary'] span,
+.conv-user-bubble .user-message-code-block code {
   background: none !important;
   border: none !important;
   padding: 0 !important;
@@ -300,11 +313,6 @@
   );
   font-size: 12px;
   line-height: 1.5;
-}
-
-.conv-user-bubble .ProseMirror a {
-  color: var(--conv-user-text) !important;
-  text-decoration: underline;
 }
 
 /* Legacy composer chip compatibility: these selectors catch previously emitted

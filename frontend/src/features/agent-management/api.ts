@@ -32,6 +32,7 @@ import type {
   PiConfigurationView,
   PiCredentialsSaveRequest,
   PiRuntimeSaveRequest,
+  PlanUsageResult,
 } from 'shared/types';
 
 import { backendCall } from '@/lib/backendTransport';
@@ -45,6 +46,9 @@ export const agentManagementApi = {
 
   detail: (agentId: AgentId): Promise<AgentManagementView> =>
     backendCall('agent_management_detail', { agentId }),
+
+  planUsage: (agentId: AgentId): Promise<PlanUsageResult> =>
+    backendCall('agent_plan_usage', { agentId }),
 
   registry: (): Promise<AgentRegistryView> =>
     backendCall('agent_registry_view'),

@@ -252,6 +252,11 @@ user-configurable code-font setting.
 - **Label** (500 / 0.75rem): metadata, chips, compact controls, timestamps, helper text.
 - **Mono** (400 / 0.75rem): paths, terminal output, code references, branch names, structured logs.
 
+Trigger and suggestion menus default to the compact label scale: item labels
+use `0.75rem / 1rem` and supporting descriptions use `0.625rem / 0.875rem`.
+Library menu primitives must override their body-text default at the menu root
+so custom and fallback rows inherit the same density.
+
 ### Named Rules
 
 **The Compact Scale Rule.** Product UI uses a fixed compact scale. No viewport-scaled type in panels, sidebars, dialogs, or dashboards.

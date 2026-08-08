@@ -132,6 +132,7 @@ export function KanbanSessionConversationPlacementProvider({
       }
 
       let record = recordsRef.current.get(key);
+      const recordCreated = !record;
       if (!record) {
         record = {
           key,
@@ -141,57 +142,21 @@ export function KanbanSessionConversationPlacementProvider({
           activeSlotId: null,
         };
         recordsRef.current.set(key, record);
-        record.container.parentElement !== target &&
-          target.appendChild(record.container);
-        bumpVersion();
-        return () => {
-          const currentRecord = recordsRef.current.get(key);
-          if (!currentRecord) {
-            return;
-          }
-
-          currentRecord.slots.delete(slotId);
-          if (currentRecord.activeSlotId === slotId) {
-            const nextSlots = Array.from(currentRecord.slots.entries());
-            const nextSlot = nextSlots[nextSlots.length - 1];
-            currentRecord.activeSlotId = nextSlot?.[0] ?? null;
-            if (nextSlot) {
-              nextSlot[1].appendChild(currentRecord.container);
-            }
-          }
-
-          if (currentRecord.slots.size > 0) {
-            bumpVersion();
-            return;
-          }
-
-          const timer = setTimeout(() => {
-            const latestRecord = recordsRef.current.get(key);
-            if (!latestRecord || latestRecord.slots.size > 0) {
-              return;
-            }
-
-            latestRecord.container.remove();
-            recordsRef.current.delete(key);
-            removalTimersRef.current.delete(key);
-            bumpVersion();
-          }, 250);
-          removalTimersRef.current.set(key, timer);
-        };
       }
 
       const propsChanged = record.props !== props;
+      const slotChanged =
+        record.slots.get(slotId) !== target || record.activeSlotId !== slotId;
       record.props = props;
       record.slots.set(slotId, target);
       record.activeSlotId = slotId;
       if (record.container.parentElement !== target) {
         target.appendChild(record.container);
       }
-      // Only re-render the portal surface when its props actually changed —
-      // bumping on every call (even with identical props) makes consumers
-      // that mount slots from an effect keyed on unstable references loop
-      // into "Maximum update depth exceeded".
-      if (propsChanged) {
+      // The portal needs a render for new records, changed props, or a slot
+      // relocation. Avoiding redundant bumps keeps layout-effect registration
+      // idempotent when an ancestor re-renders with equivalent values.
+      if (recordCreated || propsChanged || slotChanged) {
         bumpVersion();
       }
 
@@ -298,16 +263,31 @@ function KanbanSessionConversationContent({
   const logsRef = useRef<VirtualizedListRef | null>(null);
   const [isAtConversationBottom, setIsAtConversationBottom] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
+  const handledNewSessionRequestRef = useRef<string | null>(null);
+  const searchParamsKey = searchParams.toString();
 
   useEffect(() => {
-    if (!interactive) return;
-    if (searchParams.get('newSession') !== '1') return;
+    if (!interactive || searchParams.get('newSession') !== '1') {
+      handledNewSessionRequestRef.current = null;
+      return;
+    }
+    if (handledNewSessionRequestRef.current === searchParamsKey) {
+      return;
+    }
+
+    handledNewSessionRequestRef.current = searchParamsKey;
 
     onCreateSessionRequested?.();
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('newSession');
     setSearchParams(nextSearchParams, { replace: true });
-  }, [interactive, onCreateSessionRequested, searchParams, setSearchParams]);
+  }, [
+    interactive,
+    onCreateSessionRequested,
+    searchParams,
+    searchParamsKey,
+    setSearchParams,
+  ]);
 
   const activeSession = interactive
     ? resolveActiveSession(attempt.session, sessionState)
@@ -487,22 +467,47 @@ export function KanbanSessionConversationView(
   }
   const slotId = slotIdRef.current;
   const interactive = props.interactive ?? false;
+  const {
+    workspaceId,
+    sessionId,
+    showSessionSelector,
+    onSessionCreated,
+    onSessionSelected,
+    onCreateSessionRequested,
+    className,
+  } = props;
   const sessionState = useWorkspaceSessions(props.workspaceId, {
-    initialSessionId: props.sessionId,
+    initialSessionId: sessionId,
     enabled: interactive,
     autoSelectFirstSession: interactive,
   });
   const surfaceProps = useMemo<KanbanSessionConversationSurfaceProps>(
     () => ({
-      ...props,
+      workspaceId,
+      sessionId,
       interactive,
+      showSessionSelector,
+      onSessionCreated,
+      onSessionSelected,
+      onCreateSessionRequested,
+      className,
       sessionState,
     }),
-    [interactive, props, sessionState]
+    [
+      className,
+      interactive,
+      onCreateSessionRequested,
+      onSessionCreated,
+      onSessionSelected,
+      sessionId,
+      sessionState,
+      showSessionSelector,
+      workspaceId,
+    ]
   );
   const placementKey = buildPlacementKey(
-    props.workspaceId,
-    getPlacementSessionId(props.sessionId, interactive, sessionState)
+    workspaceId,
+    getPlacementSessionId(sessionId, interactive, sessionState)
   );
 
   useLayoutEffect(() => {
@@ -523,6 +528,6 @@ export function KanbanSessionConversationView(
   }
 
   return (
-    <div ref={slotRef} className={`h-full min-h-0 ${props.className ?? ''}`} />
+    <div ref={slotRef} className={`h-full min-h-0 ${className ?? ''}`} />
   );
 }

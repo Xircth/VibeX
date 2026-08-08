@@ -57,6 +57,97 @@ describe('ConversationStatusDock', () => {
     expect(onReload).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps warning details collapsed until the user asks to inspect them', () => {
+    render(
+      <ConversationStatusDock
+        notices={[
+          {
+            id: 'notice-load-failed',
+            kind: 'session-notice',
+            notice: {
+              title: '加载代理会话失败',
+              message: 'session/load failed: no rollout found',
+              severity: 'warning',
+            },
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('加载代理会话失败')).toBeInTheDocument();
+    expect(
+      screen.queryByText('session/load failed: no rollout found')
+    ).not.toBeInTheDocument();
+
+    const detailsButton = screen.getByRole('button', {
+      name: '查看详细信息：加载代理会话失败',
+    });
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(detailsButton);
+
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByText('session/load failed: no rollout found')
+    ).toBeInTheDocument();
+  });
+
+  it('keeps local, turn, and interruption details behind disclosure controls', () => {
+    render(
+      <ConversationStatusDock
+        localError="prompt enhancement failed: request timed out"
+        notices={[
+          {
+            id: 'error-turn-1',
+            kind: 'turn-error',
+            error: {
+              message: 'agent connection closed unexpectedly',
+              code: 'connection_closed',
+              raw: null,
+            },
+          },
+          {
+            id: 'interrupted-turn-2',
+            kind: 'interrupted-turn',
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText('操作失败')).toBeInTheDocument();
+    expect(screen.getByText('连接已断开')).toBeInTheDocument();
+    expect(screen.getByText('因重启中断')).toBeInTheDocument();
+    expect(
+      screen.queryByText('prompt enhancement failed: request timed out')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('agent connection closed unexpectedly')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('此回合在生成过程中因应用重启而中断，未能完成。')
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '查看详细信息：操作失败' })
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: '查看详细信息：连接已断开' })
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: '查看详细信息：因重启中断' })
+    );
+
+    expect(
+      screen.getByText('prompt enhancement failed: request timed out')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('agent connection closed unexpectedly')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('此回合在生成过程中因应用重启而中断，未能完成。')
+    ).toBeInTheDocument();
+  });
+
   it('keeps a dismissed session notice hidden while allowing newer notices', () => {
     const { rerender, unmount } = render(
       <ConversationStatusDock

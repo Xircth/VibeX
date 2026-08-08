@@ -9,6 +9,7 @@ import { FileToolCard } from './FileToolCard';
 import { GenericToolCard } from './GenericToolCard';
 import { SearchToolCard } from './SearchToolCard';
 import { UnifiedDiffPreview } from './UnifiedDiffPreview';
+import { getToolChatStatus, ToolCallResultDetail } from './ToolCardShell';
 
 const panelMocks = vi.hoisted(() => ({
   openFilePreview: vi.fn(),
@@ -103,6 +104,17 @@ describe('conversation tool cards', () => {
     });
   });
 
+  it.each([
+    [{ status: 'created' }, 'running'],
+    [{ status: 'pending_approval' }, 'pending'],
+    [{ status: 'success' }, 'complete'],
+    [{ status: 'failed' }, 'error'],
+    [{ status: 'denied' }, 'error'],
+    [{ status: 'timed_out' }, 'error'],
+  ] as const)('maps tool status %o to Astryx status %s', (status, expected) => {
+    expect(getToolChatStatus(status as ToolStatus)).toBe(expected);
+  });
+
   it('renders command output inside an expandable command card', () => {
     render(
       <CommandToolCard
@@ -128,6 +140,34 @@ describe('conversation tool cards', () => {
     expect(screen.getAllByText('命令')).toHaveLength(1);
     expect(screen.getByText('Terminal')).toBeInTheDocument();
     expect(screen.getAllByText('pnpm test')).toHaveLength(2);
+    expect(screen.getByText('输出')).toBeInTheDocument();
+    expect(screen.getByText('all green')).toBeInTheDocument();
+  });
+
+  it('renders only rich detail when hosted by an Astryx aggregate row', () => {
+    render(
+      <ToolCallResultDetail>
+        <CommandToolCard
+          entry={toolEntry({
+            toolName: 'shell',
+            content: 'pnpm test',
+            actionType: {
+              action: 'command_run',
+              category: 'other',
+              command: 'pnpm test',
+              result: {
+                exit_status: { type: 'exit_code', code: 0 },
+                output: 'all green',
+              },
+            },
+          })}
+          expansionKey="aggregate-command-detail"
+        />
+      </ToolCallResultDetail>
+    );
+
+    expect(screen.queryByText('Terminal')).not.toBeInTheDocument();
+    expect(screen.getByText('命令')).toBeInTheDocument();
     expect(screen.getByText('输出')).toBeInTheDocument();
     expect(screen.getByText('all green')).toBeInTheDocument();
   });
@@ -199,6 +239,9 @@ describe('conversation tool cards', () => {
 
     expect(container.querySelector('.conv-tool-card-pending')).toBeTruthy();
     expect(container.querySelector('.conv-tool-dot-pending')).toBeTruthy();
+    expect(
+      container.querySelector('[data-tool-status="running"]')
+    ).toBeTruthy();
   });
 
   it('keeps install script command output expanded by default', () => {

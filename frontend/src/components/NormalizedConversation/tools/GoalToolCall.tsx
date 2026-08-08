@@ -45,6 +45,7 @@ export function GoalToolCall({ entry }: { entry: NormalizedEntry }) {
       detail={status ? `${status}: ${objective}` : objective}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
+      status={toolEntry.status}
       expanded
       expandable={false}
     >

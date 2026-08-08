@@ -154,13 +154,6 @@ function createManualChunks(id: string): string | undefined {
     return 'vendor-codemirror';
   }
 
-  if (
-    normalizedId.includes('/node_modules/lexical/') ||
-    normalizedId.includes('/node_modules/@lexical/')
-  ) {
-    return 'vendor-lexical';
-  }
-
   if (normalizedId.includes('/node_modules/highlight.js/es/languages/')) {
     const language = path.basename(normalizedId, '.js');
     if (
@@ -188,20 +181,6 @@ function createManualChunks(id: string): string | undefined {
 
   if (normalizedId.includes('/node_modules/prismjs/')) {
     return 'vendor-prism';
-  }
-
-  if (
-    normalizedId.includes('/node_modules/react-markdown/') ||
-    normalizedId.includes('/node_modules/remark-') ||
-    normalizedId.includes('/node_modules/rehype-') ||
-    normalizedId.includes('/node_modules/micromark') ||
-    normalizedId.includes('/node_modules/mdast-') ||
-    normalizedId.includes('/node_modules/hast-') ||
-    normalizedId.includes('/node_modules/unified/') ||
-    normalizedId.includes('/node_modules/unist-') ||
-    normalizedId.includes('/node_modules/vfile')
-  ) {
-    return 'vendor-markdown';
   }
 
   if (
@@ -287,7 +266,7 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    exclude: ['wa-sqlite', '@lexical/code'],
+    exclude: ['wa-sqlite'],
   },
   build: {
     sourcemap: true,

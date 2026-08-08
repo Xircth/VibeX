@@ -141,6 +141,7 @@ impl HeadlessServer {
                 HashMap::<uuid::Uuid, IncrementalRowProjector>::new(),
             )),
             host: Arc::new(DefaultConversationHost),
+            event_publisher: Arc::new(conversations::NoopConversationEventPublisher),
         };
         let agent_event_task = start_agent_event_persistence(conversation_context.clone());
         let delegation_runtime =

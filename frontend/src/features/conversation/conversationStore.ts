@@ -237,6 +237,17 @@ function applyRowOpBatch(
           op.row.row.turn
         );
       }
+    } else if (op.op === 'delete') {
+      const revision = toBigInt(op.revision);
+      const existing = rows.find((row) => row.row_id === op.row_id);
+      if (existing && revision >= toBigInt(existing.revision)) {
+        rows = rows.filter((row) => row.row_id !== op.row_id);
+      }
+      const overlay = liveText[op.row_id];
+      if (overlay && revision >= overlay.revision) {
+        liveText = { ...liveText };
+        delete liveText[op.row_id];
+      }
     } else {
       liveText = appendLiveText(liveText, op);
     }

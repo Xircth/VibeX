@@ -1,5 +1,13 @@
-import type { KeyboardEvent, ReactNode } from 'react';
-import { ChatToolCalls, type ChatToolCallStatus } from '@astryxdesign/core/Chat';
+import {
+  createContext,
+  useContext,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
+import {
+  ChatToolCalls,
+  type ChatToolCallStatus,
+} from '@astryxdesign/core/Chat';
 import type { ToolStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
 
@@ -10,11 +18,23 @@ type ToolCardShellProps = {
   actions?: ReactNode;
   statusClassName?: string;
   statusDotClassName?: string;
+  status?: ToolStatus | null;
+  chatStatus?: ChatToolCallStatus;
   expanded?: boolean;
   expandable?: boolean;
   onToggle?: () => void;
   children?: ReactNode;
 };
+
+const ToolCallResultDetailContext = createContext(false);
+
+export function ToolCallResultDetail({ children }: { children: ReactNode }) {
+  return (
+    <ToolCallResultDetailContext.Provider value>
+      {children}
+    </ToolCallResultDetailContext.Provider>
+  );
+}
 
 export function getToolStatusClassName(status?: ToolStatus | null): string {
   if (!status) return '';
@@ -60,6 +80,24 @@ function statusClassNameToChatStatus(
   return 'complete';
 }
 
+export function getToolChatStatus(
+  status?: ToolStatus | null
+): ChatToolCallStatus {
+  if (!status) return 'complete';
+  switch (status.status) {
+    case 'created':
+      return 'running';
+    case 'pending_approval':
+      return 'pending';
+    case 'failed':
+    case 'denied':
+    case 'timed_out':
+      return 'error';
+    case 'success':
+      return 'complete';
+  }
+}
+
 function handleRowKeyDown(
   event: KeyboardEvent<HTMLDivElement>,
   onToggle?: () => void
@@ -74,8 +112,8 @@ function handleRowKeyDown(
  * Tool card shell rendered through Astryx ChatToolCalls.
  *
  * Card components keep passing their existing props. The shell renders a
- * single ChatToolCallItem row (label → name, string detail → target, status
- * class → ChatToolCallStatus) through ChatToolCalls, keeps actions visible
+ * single ChatToolCallItem row (label → name, string detail → target, domain
+ * ToolStatus → ChatToolCallStatus) through ChatToolCalls, keeps actions visible
  * next to the row, and drives expansion under its own controlled `expanded`
  * state — ChatToolCalls row expansion is internal and cannot honor the
  * approval-forced expansion (`forceExpanded`) approval flows depend on.
@@ -86,18 +124,47 @@ export function ToolCardShell({
   actions,
   statusClassName,
   statusDotClassName,
+  status,
+  chatStatus,
   expanded = false,
   expandable = false,
   onToggle,
   children,
 }: ToolCardShellProps) {
+  const isResultDetail = useContext(ToolCallResultDetailContext);
   const stringDetail =
     typeof detail === 'string' || typeof detail === 'number'
       ? String(detail)
       : undefined;
+  const effectiveChatStatus =
+    chatStatus ??
+    (status
+      ? getToolChatStatus(status)
+      : statusClassNameToChatStatus(statusClassName));
+
+  if (isResultDetail) {
+    return (
+      <div className="vibex-tool-call-result-detail">
+        {actions ? (
+          <div className="mb-1 flex items-center justify-end gap-1">
+            {actions}
+          </div>
+        ) : null}
+        {children ? (
+          <div className="conv-tool-details text-xs font-mono">{children}</div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className={cn('w-full', statusClassName, statusDotClassName)}>
+    <div
+      className={cn('w-full', statusClassName, statusDotClassName)}
+      data-tool-status={effectiveChatStatus}
+      aria-busy={
+        effectiveChatStatus === 'running' || effectiveChatStatus === 'pending'
+      }
+    >
       <div className="flex items-center">
         <div
           role={expandable ? 'button' : undefined}
@@ -121,7 +188,7 @@ export function ToolCardShell({
               {
                 name: label,
                 target: stringDetail,
-                status: statusClassNameToChatStatus(statusClassName),
+                status: effectiveChatStatus,
               },
             ]}
           />
@@ -131,9 +198,7 @@ export function ToolCardShell({
         ) : null}
       </div>
       {(expanded || !expandable) && (
-        <div className="conv-tool-details text-xs font-mono">
-          {children}
-        </div>
+        <div className="conv-tool-details text-xs font-mono">{children}</div>
       )}
     </div>
   );

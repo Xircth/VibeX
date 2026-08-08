@@ -11,6 +11,8 @@ qa-mode = ["executors/qa-mode"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+tauri-plugin-redline = "=0.1.0"
+tauri-plugin-vibex-inspector = { path = "../.vibex/tauri-plugin-vibex-inspector" }
 tauri = { version = "2", features = ["devtools", "image-png", "tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"

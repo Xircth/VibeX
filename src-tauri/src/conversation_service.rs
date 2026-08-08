@@ -16,8 +16,9 @@ pub use conversations::{
     ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
     finalize_checkpoint_file_changes,
 };
-use db::models::{repo::Repo, workspace::Workspace};
+use db::models::{conversation_event::ConversationEventRecord, repo::Repo, workspace::Workspace};
 use sqlx::SqlitePool;
+use tauri::AppHandle;
 
 fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError {
     match error {
@@ -35,6 +36,29 @@ fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError
 /// `AppState` and the command layer.
 pub struct AppConversationHost {
     pub deployment: Arc<dyn deployment::Deployment>,
+}
+
+/// Desktop projection publisher injected at the conversation-core commit boundary.
+/// Awaiting this publisher makes a committed user event visible before the core can
+/// dispatch the causally-later Agent prompt.
+pub struct AppConversationEventPublisher {
+    pub app_handle: AppHandle,
+    pub deployment: Arc<dyn deployment::Deployment>,
+    pub row_projectors: crate::events::ConversationRowProjectors,
+}
+
+#[async_trait::async_trait]
+impl conversations::ConversationEventPublisher for AppConversationEventPublisher {
+    async fn publish(&self, record: &ConversationEventRecord) {
+        crate::events::emit_conversation_row_ops_after(
+            &self.app_handle,
+            &self.row_projectors,
+            &self.deployment.db().pool,
+            record.conversation_id,
+            record.sequence - 1,
+        )
+        .await;
+    }
 }
 
 #[async_trait::async_trait]

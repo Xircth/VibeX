@@ -10,6 +10,11 @@ overrides:
   lodash: 4.18.1
   lodash-es: 4.18.1
 
+patchedDependencies:
+  '@astryxdesign/core@0.3.0':
+    hash: 7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6
+    path: patches/@astryxdesign__core@0.3.0.patch
+
 importers:
 
   .:
@@ -32,10 +37,10 @@ importers:
     dependencies:
       '@astryxdesign/core':
         specifier: 0.3.0
-        version: 0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 0.3.0(patch_hash=7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@astryxdesign/theme-neutral':
         specifier: ^0.3.0
-        version: 0.3.0(@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+        version: 0.3.0(@astryxdesign/core@0.3.0(patch_hash=7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@codemirror/lang-json':
         specifier: ^6.0.2
         version: 6.0.2
@@ -4274,16 +4279,16 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/core@0.3.0(patch_hash=7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@stylexjs/stylex': 0.19.0
       intl-messageformat: 11.2.13
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@astryxdesign/theme-neutral@0.3.0(@astryxdesign/core@0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+  '@astryxdesign/theme-neutral@0.3.0(@astryxdesign/core@0.3.0(patch_hash=7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@astryxdesign/core': 0.3.0(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@astryxdesign/core': 0.3.0(patch_hash=7c8629f862fe9292231e78d7307e076497f1101226a2581f35b65e761f476dc6)(@stylexjs/stylex@0.19.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lucide-react: 1.30.0(react@19.2.8)
       react: 19.2.8
 

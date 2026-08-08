@@ -2,6 +2,7 @@ import { Info, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
+import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
 
@@ -46,7 +47,22 @@ export function ConversationStatusDock({
               ) : null
             }
           >
-            <p className="break-words">{localError}</p>
+            <div className="min-w-0">
+              <p className="composer-status-title text-foreground">
+                {t('statusDock.localErrorTitle')}
+              </p>
+              <ConversationStatusDetails
+                key={localError}
+                title={t('statusDock.localErrorTitle')}
+                label={t('statusDock.showDetails')}
+                accessibleLabel={t('statusDock.showDetailsFor', {
+                  title: t('statusDock.localErrorTitle'),
+                })}
+                mono
+              >
+                <p className="whitespace-pre-wrap break-words">{localError}</p>
+              </ConversationStatusDetails>
+            </div>
           </StatusSurface>
         ) : null}
 
@@ -65,6 +81,7 @@ export function ConversationStatusDock({
           }
 
           if (notice.kind === 'interrupted-turn') {
+            const title = t('messageTurnView.interruptedTitle');
             return (
               <StatusSurface
                 key={notice.id}
@@ -93,12 +110,19 @@ export function ConversationStatusDock({
                 }
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-foreground">
-                    {t('messageTurnView.interruptedTitle')}
+                  <p className="composer-status-title text-foreground">
+                    {title}
                   </p>
-                  <p className="mt-1 break-words text-muted-foreground">
-                    {t('messageTurnView.interruptedDescription')}
-                  </p>
+                  <ConversationStatusDetails
+                    key={t('messageTurnView.interruptedDescription')}
+                    title={title}
+                    label={t('statusDock.showDetails')}
+                    accessibleLabel={t('statusDock.showDetailsFor', { title })}
+                  >
+                    <p className="break-words">
+                      {t('messageTurnView.interruptedDescription')}
+                    </p>
+                  </ConversationStatusDetails>
                 </div>
               </StatusSurface>
             );
@@ -125,11 +149,23 @@ export function ConversationStatusDock({
               }
             >
               <div className="min-w-0">
-                <p className="font-medium text-foreground">{copy.title}</p>
+                <p className="composer-status-title text-foreground">
+                  {copy.title}
+                </p>
                 {copy.message ? (
-                  <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">
-                    {copy.message}
-                  </p>
+                  <ConversationStatusDetails
+                    key={copy.message}
+                    title={copy.title}
+                    label={t('statusDock.showDetails')}
+                    accessibleLabel={t('statusDock.showDetailsFor', {
+                      title: copy.title,
+                    })}
+                    mono={tone !== 'info'}
+                  >
+                    <p className="whitespace-pre-wrap break-words">
+                      {copy.message}
+                    </p>
+                  </ConversationStatusDetails>
                 ) : null}
               </div>
             </StatusSurface>
@@ -175,14 +211,14 @@ function StatusSurface({
 }) {
   return (
     <div
-      className="composer-status-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 px-3 py-2 text-xs"
+      className="composer-status-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 text-xs"
       data-tone={tone}
       role={role}
     >
-      <span className="composer-status-icon mt-0.5 shrink-0">{icon}</span>
+      <span className="composer-status-icon shrink-0">{icon}</span>
       {children}
       {action ? (
-        <div className="composer-status-action-slot self-center">{action}</div>
+        <div className="composer-status-action-slot self-start">{action}</div>
       ) : null}
     </div>
   );

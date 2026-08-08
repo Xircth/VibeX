@@ -102,3 +102,24 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }));
+
+// jsdom 28 ships its own Popover API whose UA styles keep `[popover]` at
+// `display: none` and whose visibility state does not respond to the `open`
+// attribute alone. Override unconditionally so popover content is visible to
+// testing-library queries in jsdom.
+Object.defineProperty(HTMLElement.prototype, 'showPopover', {
+  configurable: true,
+  writable: true,
+  value: function showPopover() {
+    this.setAttribute('open', '');
+    this.style.setProperty('display', 'block', 'important');
+  },
+});
+Object.defineProperty(HTMLElement.prototype, 'hidePopover', {
+  configurable: true,
+  writable: true,
+  value: function hidePopover() {
+    this.removeAttribute('open');
+    this.style.setProperty('display', '', 'important');
+  },
+});

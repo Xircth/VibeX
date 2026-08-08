@@ -14,7 +14,7 @@ describe('Agent E desktop journey', () => {
   it('runs two mentions, restores success and cancellation, and opens a child', async () => {
     const user = userEvent.setup();
     const firstRender = render(<AgentEJourneyFixture />);
-    const editor = await screen.findByRole('textbox');
+    const editor = await screen.findByRole('combobox');
     await user.click(editor);
     await user.type(editor, 'Ask &Co');
     await user.click(await screen.findByRole('option', { name: /Codex/ }));

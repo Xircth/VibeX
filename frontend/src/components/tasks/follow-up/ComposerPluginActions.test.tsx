@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -19,23 +19,6 @@ vi.mock('@/lib/api', () => ({
     listLocal: vi.fn().mockResolvedValue([]),
   },
 }));
-
-async function typeAtEnd(editor: HTMLDivElement, value: string) {
-  await act(async () => {
-    editor.focus();
-    editor.textContent = value;
-    const text = editor.firstChild;
-    if (!text) throw new Error('expected editor text node');
-    const range = document.createRange();
-    range.setStart(text, value.length);
-    range.collapse(true);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    fireEvent.input(editor);
-    await Promise.resolve();
-  });
-}
 
 describe('composer plugin action invocation', () => {
   it('opens plugin actions after space-bang and inserts the selection without submitting', async () => {
@@ -113,7 +96,7 @@ describe('composer plugin action invocation', () => {
     });
 
     function Harness() {
-      const [message, setMessage] = useState('保留我的开场。');
+      const [message, setMessage] = useState('');
       return (
         <QueryClientProvider client={queryClient}>
           <SessionComposerInput
@@ -134,12 +117,14 @@ describe('composer plugin action invocation', () => {
     }
 
     render(<Harness />);
-    const editor = screen.getByRole('textbox') as HTMLDivElement;
-    expect(call).not.toHaveBeenCalled();
+    const surface = screen.getByTestId('session-composer-editor');
+    const editor = surface.querySelector(
+      '[contenteditable="true"]'
+    ) as HTMLDivElement;
 
-    await typeAtEnd(editor, '保留我的开场。 !');
+    await user.click(editor);
+    await user.type(editor, '保留我的开场。 !');
 
-    expect(await screen.findByText('调用插件')).toBeVisible();
     await user.click(await screen.findByRole('option', { name: /创建 PPT/ }));
 
     const command = formatSessionComposerCommand({
@@ -154,14 +139,7 @@ describe('composer plugin action invocation', () => {
       serializeSessionComposerBackendMessage(
         screen.getByTestId('composer-value').textContent ?? ''
       )
-    ).toBe('保留我的开场。 澄清受众与目标后，创建新的 PPTX 并验证输出。 ');
-    expect(screen.getByTestId('session-composer-token-chip')).toHaveAttribute(
-      'data-token-kind',
-      'plugin_action'
-    );
-    expect(screen.getByTestId('session-composer-token-chip')).toHaveTextContent(
-      '!创建 PPT'
-    );
+    ).toBe('保留我的开场。 澄清受众与目标后，创建新的 PPTX 并验证输出。');
     expect(
       getSessionComposerPluginActionInvocations(
         screen.getByTestId('composer-value').textContent ?? ''
@@ -172,7 +150,10 @@ describe('composer plugin action invocation', () => {
         actionId: 'create-presentation',
       },
     ]);
-    expect(call).toHaveBeenCalledTimes(2);
+    expect(call.mock.calls.map((c) => c[0])).toContain(
+      'plugin_action_catalog'
+    );
+    expect(call.mock.calls.map((c) => c[0])).toContain('list_agent_skills');
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

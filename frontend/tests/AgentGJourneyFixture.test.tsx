@@ -22,7 +22,7 @@ describe('Agent G desktop journey', () => {
       screen.getByRole('textbox', { name: '名称' }),
       'Office 周报'
     );
-    const composer = screen.getByRole('textbox', { name: '消息' });
+    const composer = screen.getByRole('combobox', { name: '消息' });
     composer.textContent = '汇总本周进展，创建一份可编辑的管理层 PPT。';
     fireEvent.input(composer);
     await user.click(await screen.findByRole('button', { name: '创建 PPT' }));

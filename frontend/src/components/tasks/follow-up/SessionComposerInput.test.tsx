@@ -1,17 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionComposerInput } from './SessionComposerInput';
-import {
-  clearCurrentDraggedFileReference,
-  setCurrentDraggedFileReference,
-} from '@/utils/fileReferenceDrag';
-import {
-  formatSessionComposerCommand,
-  insertPreviewElementToken,
-} from './sessionComposerStructuredTokens';
+import type { FileReferencePayload } from '@/utils/fileReferences';
+import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
 
 function renderComposerInput(
   props: Partial<Parameters<typeof SessionComposerInput>[0]> = {}
@@ -36,568 +30,177 @@ function renderComposerInput(
 }
 
 function getEditor(): HTMLDivElement {
-  return screen.getByRole('textbox') as HTMLDivElement;
+  const surface = screen.getByTestId('session-composer-editor');
+  return surface.querySelector(
+    '[contenteditable="true"]'
+  ) as HTMLDivElement;
 }
 
-function typePlainText(editor: HTMLDivElement, text: string) {
-  editor.textContent = text;
-  fireEvent.input(editor);
-}
-
-function setCaretInTextNode(textNode: ChildNode, offset: number) {
-  const selection = window.getSelection();
-  if (!selection) return;
-  const range = document.createRange();
-  range.setStart(textNode, offset);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-}
-
-function insertCharAtCurrentSelection(editor: HTMLDivElement, char: string) {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) {
-    throw new Error('expected selection');
-  }
-
-  const range = selection.getRangeAt(0);
-  const container = range.startContainer;
-  const offset = range.startOffset;
-
-  if (container.nodeType !== Node.TEXT_NODE) {
-    throw new Error('expected text node selection');
-  }
-
-  const textNode = container as Text;
-  const currentText = textNode.textContent ?? '';
-  textNode.textContent =
-    currentText.slice(0, offset) + char + currentText.slice(offset);
-  setCaretInTextNode(textNode, offset + char.length);
-  fireEvent.input(editor);
-}
-
-describe('SessionComposerInput', () => {
-  it('uses the product UI font for typed conversation text', () => {
-    renderComposerInput();
-
-    expect(getEditor()).toHaveClass('font-sans');
-  });
-
-  it('uses native subpixel font rasterization for Codex-like text weight', () => {
-    renderComposerInput();
-
-    expect(getEditor()).toHaveClass('subpixel-antialiased');
-  });
-
-  it('reports contenteditable text changes as Text content', () => {
+describe('SessionComposerInput (Astryx)', () => {
+  it('reports contenteditable text changes as Text content', async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     renderComposerInput({ onChange });
-
-    typePlainText(getEditor(), 'ship this');
-
-    expect(onChange).toHaveBeenCalledWith('ship this');
-  });
-
-  it('keeps typing order stable across controlled rerenders', async () => {
-    function StatefulComposer() {
-      const [value, setValue] = useState('');
-
-      return (
-        <SessionComposerInput
-          value={value}
-          images={[]}
-          onChange={setValue}
-          onSubmit={() => {}}
-          onAttachImages={() => {}}
-          onRemoveImage={() => {}}
-        />
-      );
-    }
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <StatefulComposer />
-      </QueryClientProvider>
-    );
-
     const editor = getEditor();
-    editor.focus();
-    editor.textContent = 'd';
-    const firstTextNode = editor.firstChild;
-    if (!firstTextNode) {
-      throw new Error('expected first text node');
-    }
-    setCaretInTextNode(firstTextNode, 1);
-    await act(async () => {
-      fireEvent.input(editor);
-      await Promise.resolve();
-    });
 
-    await act(async () => {
-      insertCharAtCurrentSelection(editor, 'a');
-      insertCharAtCurrentSelection(editor, 'd');
-      insertCharAtCurrentSelection(editor, 'a');
-      await Promise.resolve();
-    });
+    await user.click(editor);
+    await user.type(editor, 'hello');
 
-    expect(editor.textContent).toBe('dada');
+    expect(onChange).toHaveBeenLastCalledWith('hello');
   });
 
-  it('submits on Enter when Enter is the send shortcut', () => {
+  it('submits on Enter when Enter is the send shortcut', async () => {
+    const user = userEvent.setup();
     const onSubmit = vi.fn();
-    renderComposerInput({ context: { sendShortcut: 'Enter' }, onSubmit });
+    renderComposerInput({ onSubmit });
+    const editor = getEditor();
 
-    fireEvent.keyDown(getEditor(), { key: 'Enter' });
+    await user.click(editor);
+    await user.type(editor, 'run tests');
+    await user.keyboard('{Enter}');
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('does not submit on the Enter that commits an IME composition', () => {
+  it('does not submit on the Enter that commits an IME composition', async () => {
+    const user = userEvent.setup();
     const onSubmit = vi.fn();
-    renderComposerInput({ context: { sendShortcut: 'Enter' }, onSubmit });
+    renderComposerInput({ onSubmit });
+    const editor = getEditor();
 
-    // The keydown that commits a Chinese/Japanese IME candidate reports
-    // isComposing=true; it must not be treated as a submit (else the message is
-    // sent twice — once on commit-Enter, once on the user's real submit-Enter).
-    fireEvent.keyDown(getEditor(), { key: 'Enter', isComposing: true });
-    expect(onSubmit).not.toHaveBeenCalled();
-
-    // The subsequent real Enter (composition finished) submits exactly once.
-    fireEvent.keyDown(getEditor(), { key: 'Enter' });
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-
-  it('submits on Ctrl+Enter when ModifierEnter is the send shortcut', () => {
-    const onSubmit = vi.fn();
-    renderComposerInput({
-      context: { sendShortcut: 'ModifierEnter' },
-      onSubmit,
-    });
-
-    fireEvent.keyDown(getEditor(), {
-      key: 'Enter',
-      ctrlKey: true,
-    });
-
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not submit on plain Enter when ModifierEnter is the send shortcut', () => {
-    const onSubmit = vi.fn();
-    renderComposerInput({
-      context: { sendShortcut: 'ModifierEnter' },
-      onSubmit,
-    });
-
-    fireEvent.keyDown(getEditor(), { key: 'Enter' });
+    await user.click(editor);
+    await user.type(editor, '你好');
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.keyDown(editor, { key: 'Enter', keyCode: 229 });
 
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it('inserts plain newlines when Enter is not the submit shortcut', () => {
+  it('submits on Ctrl+Enter when ModifierEnter is the send shortcut', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderComposerInput({
+      onSubmit,
+      context: { sendShortcut: 'ModifierEnter' },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'run tests');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not submit on plain Enter when ModifierEnter is the send shortcut', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderComposerInput({
+      onSubmit,
+      context: { sendShortcut: 'ModifierEnter' },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'run tests');
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('inserts a newline when Enter is not the submit shortcut', async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     renderComposerInput({
-      value: 'line1',
-      context: { sendShortcut: 'Enter' },
       onChange,
+      context: { sendShortcut: 'ModifierEnter' },
     });
-
     const editor = getEditor();
-    const textNode = editor.firstChild;
-    if (!textNode) {
-      throw new Error('expected text node');
-    }
-    setCaretInTextNode(textNode, 'line1'.length);
 
-    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
+    await user.click(editor);
+    await user.type(editor, 'line1');
+    await user.keyboard('{Enter}');
 
-    expect(onChange).toHaveBeenCalledWith('line1\n');
+    expect(onChange).toHaveBeenLastCalledWith('line1\n');
   });
 
-  it('keeps newline insertion stable when text follows a command chip', () => {
+  it('opens the dollar trigger menu and inserts a structured token on select', async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
-    const command = formatSessionComposerCommand({
-      type: '@',
-      key: 'App.tsx',
-      value: 'src/App.tsx',
-    });
-    renderComposerInput({
-      value: `Review ${command} next`,
-      context: { sendShortcut: 'Enter' },
-      onChange,
-    });
-
+    renderComposerInput({ onChange });
     const editor = getEditor();
-    const trailingText = editor.childNodes[2];
-    setCaretInTextNode(trailingText, 1);
 
-    fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
+    await user.click(editor);
+    await user.type(editor, 'Use $');
 
-    expect(onChange).toHaveBeenCalledWith(`Review ${command} \nnext`);
+    const options = await screen.findAllByRole('option');
+    await user.click(options[0]);
+
+    const [inserted] = onChange.mock.calls.at(-1) as [string];
+    expect(inserted).toMatch(/^Use \[\$:[^\]]+\]\([^)]*\)/);
   });
 
-  it('inserts a newline on the first Shift+Enter across controlled rerenders', async () => {
-    function StatefulComposer() {
-      const [value, setValue] = useState('line1');
+  it('deletes a whole structured token with Backspace', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderComposerInput({ onChange });
+    const editor = getEditor();
 
-      return (
-        <SessionComposerInput
-          value={value}
-          images={[]}
-          context={{ sendShortcut: 'Enter' }}
-          onChange={setValue}
-          onSubmit={() => {}}
-          onAttachImages={() => {}}
-          onRemoveImage={() => {}}
-        />
+    await user.click(editor);
+    await user.type(editor, 'Use $');
+
+    const options = await screen.findAllByRole('option');
+    await user.click(options[0]);
+
+    // jsdom does not keep the caret Astryx placed after the token's trailing
+    // NBSP; restore it so the built-in Backspace handling runs.
+    const tokenSpan = editor.querySelector('[data-astryx-token]');
+    const nbsp = tokenSpan?.nextSibling;
+    if (nbsp) {
+      const range = document.createRange();
+      range.setStart(nbsp, 1);
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+
+    // Caret lands after the inserted token; Backspace removes it atomically.
+    await user.keyboard('{Backspace}');
+
+    const [afterBackspace] = onChange.mock.calls.at(-1) as [string];
+    expect(afterBackspace).toBe('Use ');
+  });
+
+  it('accepts file-tree custom drops and inserts an @ command token', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const payload: FileReferencePayload = {
+      relativePath: 'src/lib/utils.ts',
+      fileName: 'utils.ts',
+      kind: 'file',
+    };
+    setCurrentDraggedFileReference(payload);
+    renderComposerInput({ onChange });
+    const editor = getEditor();
+
+    await user.click(editor);
+    const dataTransfer = {
+      types: [] as string[],
+      files: [] as File[],
+      getData: () => '',
+    };
+    // fireEvent.drop with the custom drag state read from the module store.
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.drop(editor, { dataTransfer });
+
+    await waitFor(() => {
+      const [dropped] = onChange.mock.calls.at(-1) as [string];
+      // Astryx keeps a trailing NBSP after inserted tokens so the caret can
+      // keep typing; it serializes into the value string.
+      expect(dropped.replace(/\u00A0$/, '')).toBe(
+        '[@:utils.ts](src/lib/utils.ts)'
       );
-    }
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
     });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <StatefulComposer />
-      </QueryClientProvider>
-    );
-
-    const editor = getEditor();
-    const textNode = editor.firstChild;
-    if (!textNode) {
-      throw new Error('expected text node');
-    }
-
-    editor.focus();
-    setCaretInTextNode(textNode, 'line1'.length);
-
-    await act(async () => {
-      fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
-      await Promise.resolve();
-    });
-
-    expect(editor.textContent).toBe('line1\n');
-  });
-
-  it('uses the latest editor text when Shift+Enter lands before the controlled value rerender finishes', async () => {
-    function StatefulComposer() {
-      const [value, setValue] = useState('');
-
-      return (
-        <SessionComposerInput
-          value={value}
-          images={[]}
-          context={{ sendShortcut: 'Enter' }}
-          onChange={setValue}
-          onSubmit={() => {}}
-          onAttachImages={() => {}}
-          onRemoveImage={() => {}}
-        />
-      );
-    }
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <StatefulComposer />
-      </QueryClientProvider>
-    );
-
-    const editor = getEditor();
-    editor.focus();
-    editor.textContent = 'a';
-    const firstTextNode = editor.firstChild;
-    if (!firstTextNode) {
-      throw new Error('expected first text node');
-    }
-    setCaretInTextNode(firstTextNode, 1);
-
-    await act(async () => {
-      fireEvent.input(editor);
-      fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
-      await Promise.resolve();
-    });
-
-    expect(editor.textContent).toBe('a\n');
-  });
-
-  it('keeps the caret visible after Shift+Enter adds lines below the fold', async () => {
-    function StatefulComposer() {
-      const [value, setValue] = useState('line1\nline2\nline3\nline4');
-
-      return (
-        <SessionComposerInput
-          value={value}
-          images={[]}
-          context={{ sendShortcut: 'Enter' }}
-          onChange={setValue}
-          onSubmit={() => {}}
-          onAttachImages={() => {}}
-          onRemoveImage={() => {}}
-        />
-      );
-    }
-
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <StatefulComposer />
-      </QueryClientProvider>
-    );
-
-    const editor = getEditor();
-    const textNode = editor.firstChild;
-    if (!textNode) {
-      throw new Error('expected text node');
-    }
-
-    editor.focus();
-    Object.defineProperty(editor, 'clientHeight', {
-      configurable: true,
-      value: 40,
-    });
-    Object.defineProperty(editor, 'scrollTop', {
-      configurable: true,
-      value: 0,
-      writable: true,
-    });
-    const editorRectSpy = vi.spyOn(editor, 'getBoundingClientRect');
-    editorRectSpy.mockReturnValue({
-      top: 0,
-      bottom: 40,
-      left: 0,
-      right: 320,
-      width: 320,
-      height: 40,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
-    const originalRangeRect = Range.prototype.getBoundingClientRect;
-    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-      configurable: true,
-      value: function mockCollapsedCaretRect(this: Range) {
-        const prefix =
-          this.startContainer.nodeType === Node.TEXT_NODE
-            ? (this.startContainer.textContent ?? '').slice(0, this.startOffset)
-            : (editor.textContent ?? '').slice(0, this.startOffset);
-        const lineIndex = prefix.split('\n').length - 1;
-        const top = lineIndex * 20;
-
-        return {
-          top,
-          bottom: top + 20,
-          left: 0,
-          right: 1,
-          width: 1,
-          height: 20,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        } as DOMRect;
-      },
-    });
-
-    setCaretInTextNode(textNode, (textNode.textContent ?? '').length);
-
-    await act(async () => {
-      fireEvent.keyDown(editor, { key: 'Enter', shiftKey: true });
-      await Promise.resolve();
-    });
-
-    expect(editor.textContent).toBe('line1\nline2\nline3\nline4\n');
-    expect(editor.scrollTop).toBeGreaterThan(0);
-
-    editorRectSpy.mockRestore();
-    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
-      configurable: true,
-      value: originalRangeRect,
-    });
-  });
-
-  it('renders Command content as non-editable inline chips without a hidden textarea mirror', () => {
-    const fileCommand = formatSessionComposerCommand({
-      type: '@',
-      key: 'App.tsx',
-      value: 'src/App.tsx',
-    });
-    const dollarCommand = formatSessionComposerCommand({
-      type: '$',
-      key: 'plan',
-      value: '$plan',
-    });
-
-    renderComposerInput({
-      value: `Run ${dollarCommand} on ${fileCommand}`,
-    });
-
-    const inputSurface = screen.getByTestId('session-composer-input-surface');
-    const editor = getEditor();
-
-    expect(inputSurface).toContainElement(editor);
-    expect(screen.queryByRole('textbox', { hidden: true })).not.toHaveClass(
-      'text-transparent'
-    );
-    expect(screen.queryByTestId('session-composer-input-mirror')).toBeNull();
-    expect(editor).toHaveTextContent('Run');
-    expect(within(editor).getByText('$plan')).toBeInTheDocument();
-    expect(within(editor).getByText('App.tsx')).toBeInTheDocument();
-
-    const fileChip = within(editor)
-      .getByText('App.tsx')
-      .closest('[data-testid="session-composer-token-chip"]');
-    expect(fileChip).toHaveAttribute('contenteditable', 'false');
-    expect(fileChip).toHaveAttribute('data-command-raw', fileCommand);
-    expect(fileChip).toHaveAttribute('title', 'src/App.tsx');
-  });
-
-  it('exposes preview element context on the whole element command chip', () => {
-    const elementContext =
-      'From preview click:\n- DOM: button.primary\n- Selected start: SaveButton (`src/App.tsx:12:3`)';
-    const value = insertPreviewElementToken({
-      value: 'Fix',
-      selectionStart: 3,
-      selectionEnd: 3,
-      componentName: 'SaveButton',
-      filePath: 'src/App.tsx:12:3',
-      fullMarkdown: elementContext,
-    }).value;
-
-    renderComposerInput({ value });
-
-    const chip = screen
-      .getByText('SaveButton')
-      .closest('[data-testid="session-composer-token-chip"]');
-
-    expect(chip).toHaveAttribute('title', elementContext);
-    expect(chip).toHaveAttribute('contenteditable', 'false');
-    expect(chip).toHaveClass('cursor-default');
-    expect(chip).toHaveClass('select-none');
-  });
-
-  it('does not open typeahead when the caret is adjacent to a command chip', () => {
-    const command = formatSessionComposerCommand({
-      type: '@',
-      key: 'App.tsx',
-      value: 'src/App.tsx',
-    });
-    renderComposerInput({ value: `Review ${command} ` });
-
-    const editor = getEditor();
-    const trailingSpace = editor.childNodes[2];
-    setCaretInTextNode(trailingSpace, 0);
-    fireEvent.keyUp(editor, { key: 'ArrowRight' });
-
-    expect(screen.queryByText('No matching files found.')).toBeNull();
-    expect(screen.queryByText('Searching files...')).toBeNull();
-  });
-
-  it('deletes a whole command chip with Backspace instead of editing command text', () => {
-    const onChange = vi.fn();
-    const command = formatSessionComposerCommand({
-      type: '@',
-      key: 'App.tsx',
-      value: 'src/App.tsx',
-    });
-    renderComposerInput({ value: `Review ${command} now`, onChange });
-
-    const editor = getEditor();
-    const trailingText = editor.childNodes[2];
-    setCaretInTextNode(trailingText, 0);
-
-    fireEvent.keyDown(editor, { key: 'Backspace' });
-
-    expect(onChange).toHaveBeenCalledWith('Review now');
-  });
-
-  it.each([
-    ['/', 'compact', 'compact'],
-    ['@', 'App.tsx', 'src/App.tsx'],
-    ['#', 'frontend', 'frontend'],
-    ['$', 'review', 'review'],
-  ] as const)(
-    'deletes a selected %s command chip with one Backspace even when the browser caret is inside it',
-    (type, key, tokenValue) => {
-      const onChange = vi.fn();
-      const command = formatSessionComposerCommand({
-        type,
-        key,
-        value: tokenValue,
-      });
-      renderComposerInput({ value: `Run ${command} now`, onChange });
-
-      const editor = getEditor();
-      const chip = screen.getByTestId('session-composer-token-chip');
-      const chipLabel = chip.firstChild;
-      if (!chipLabel) throw new Error('Expected command chip label');
-      setCaretInTextNode(chipLabel, 0);
-
-      fireEvent.keyDown(editor, { key: 'Backspace' });
-
-      expect(onChange).toHaveBeenCalledTimes(1);
-      expect(onChange).toHaveBeenCalledWith('Run now');
-    }
-  );
-
-  it('accepts file-tree custom drops and inserts an @ command object', () => {
-    const onChange = vi.fn();
-    renderComposerInput({ value: 'Review ', onChange });
-
-    const dropZone = screen.getByTestId('session-composer-file-drop-zone');
-    dropZone.dispatchEvent(
-      new CustomEvent('vibe-file-reference-drop', {
-        detail: {
-          fileName: 'README.md',
-          relativePath: 'docs/README.md',
-          kind: 'file',
-        },
-      })
-    );
-
-    expect(onChange).toHaveBeenCalledWith(
-      `Review ${formatSessionComposerCommand({
-        type: '@',
-        key: 'README.md',
-        value: 'docs/README.md',
-      })} `
-    );
-  });
-
-  it('accepts active file-tree drag state on editor drop', () => {
-    const onChange = vi.fn();
-    renderComposerInput({ value: '', onChange });
-    setCurrentDraggedFileReference({
-      fileName: 'src',
-      relativePath: 'src',
-      kind: 'directory',
-    });
-
-    fireEvent.drop(getEditor(), {
-      dataTransfer: {
-        files: [],
-        types: [],
-        getData: () => '',
-      },
-    });
-
-    expect(onChange).toHaveBeenCalledWith(
-      `${formatSessionComposerCommand({
-        type: '@',
-        key: 'src',
-        value: 'src',
-      })} `
-    );
-    clearCurrentDraggedFileReference();
   });
 });

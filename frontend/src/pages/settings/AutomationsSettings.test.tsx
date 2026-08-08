@@ -313,7 +313,7 @@ describe('AutomationsSettings', () => {
     await user.click(await screen.findByRole('button', { name: '新建自动化' }));
     await user.type(screen.getByRole('textbox', { name: '名称' }), '检查变更');
 
-    const composer = screen.getByRole('textbox', { name: '消息' });
+    const composer = screen.getByRole('combobox', { name: '消息' });
     composer.textContent = '检查当前分支并总结风险。';
     fireEvent.input(composer);
 
@@ -393,7 +393,7 @@ describe('AutomationsSettings', () => {
 
     await user.click(await screen.findByRole('button', { name: '新建自动化' }));
     await user.type(screen.getByRole('textbox', { name: '名称' }), '生成周报');
-    const composer = screen.getByRole('textbox', { name: '消息' });
+    const composer = screen.getByRole('combobox', { name: '消息' });
     composer.textContent = '根据本周记录生成汇报。';
     fireEvent.input(composer);
 

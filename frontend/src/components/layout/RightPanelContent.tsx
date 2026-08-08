@@ -536,16 +536,19 @@ export function RightPanelContent() {
     ]
   );
   const rightSessionConversationViewProps = useMemo(
-    () => ({
-      workspaceId: visibleRightSession!.workspaceId!,
-      sessionId: visibleRightSession!.sessionId!,
-      interactive: true,
-      showSessionSelector: true,
-      onSessionCreated: handleCreatedSession,
-      onSessionSelected: handleSelectedSession,
-      onCreateSessionRequested: openCreateSessionOverlay,
-      className: 'h-full',
-    }),
+    () =>
+      visibleRightSession
+        ? {
+            workspaceId: visibleRightSession.workspaceId ?? '',
+            sessionId: visibleRightSession.sessionId ?? '',
+            interactive: true,
+            showSessionSelector: true,
+            onSessionCreated: handleCreatedSession,
+            onSessionSelected: handleSelectedSession,
+            onCreateSessionRequested: openCreateSessionOverlay,
+            className: 'h-full',
+          }
+        : null,
     [
       visibleRightSession,
       handleCreatedSession,
@@ -604,7 +607,9 @@ export function RightPanelContent() {
                   {...workspaceConversationViewProps}
                 />
               </div>
-            ) : showRightSession && visibleRightSession ? (
+            ) : showRightSession &&
+              visibleRightSession &&
+              rightSessionConversationViewProps ? (
               <div className="h-full min-h-0 overflow-hidden">
                 <KanbanSessionConversationView
                   {...rightSessionConversationViewProps}

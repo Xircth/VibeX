@@ -77,6 +77,18 @@ describe('conversation tool cards', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // restoreAllMocks clears the setup's matchMedia vi.fn() implementation —
+    // reinstall it so Astryx useMediaQuery (Spinner/theme) keeps working.
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
     panelMocks.openFilePreview.mockReset();
     clipboardWrite.mockReset();
     imageMocks.showPreview.mockReset();

@@ -512,6 +512,48 @@ export function RightPanelContent() {
     handleCreateOverlayOpenChange(true);
   }, [handleCreateOverlayOpenChange]);
 
+  // Stable props for the conversation view: the view mounts placement slots
+  // from a useLayoutEffect keyed on these props — fresh object literals per
+  // render would re-run that effect every render and, combined with the
+  // placement provider's version bump, loop into "Maximum update depth".
+  const workspaceConversationViewProps = useMemo(
+    () => ({
+      workspaceId: workspaceId!,
+      sessionId,
+      interactive: true,
+      showSessionSelector: true,
+      onSessionCreated: handleCreatedSession,
+      onSessionSelected: handleSelectedSession,
+      onCreateSessionRequested: openCreateSessionOverlay,
+      className: 'h-full',
+    }),
+    [
+      workspaceId,
+      sessionId,
+      handleCreatedSession,
+      handleSelectedSession,
+      openCreateSessionOverlay,
+    ]
+  );
+  const rightSessionConversationViewProps = useMemo(
+    () => ({
+      workspaceId: visibleRightSession!.workspaceId!,
+      sessionId: visibleRightSession!.sessionId!,
+      interactive: true,
+      showSessionSelector: true,
+      onSessionCreated: handleCreatedSession,
+      onSessionSelected: handleSelectedSession,
+      onCreateSessionRequested: openCreateSessionOverlay,
+      className: 'h-full',
+    }),
+    [
+      visibleRightSession,
+      handleCreatedSession,
+      handleSelectedSession,
+      openCreateSessionOverlay,
+    ]
+  );
+
   const handleSessionControlsPresetChange = useCallback(
     (preset: SessionControlsPreset | null) => {
       sessionControlsPresetRef.current = preset;
@@ -559,27 +601,13 @@ export function RightPanelContent() {
             {isWorkspaceRoute && workspaceId ? (
               <div className="h-full min-h-0 overflow-hidden">
                 <KanbanSessionConversationView
-                  workspaceId={workspaceId}
-                  sessionId={sessionId}
-                  interactive={true}
-                  showSessionSelector={true}
-                  onSessionCreated={handleCreatedSession}
-                  onSessionSelected={handleSelectedSession}
-                  onCreateSessionRequested={openCreateSessionOverlay}
-                  className="h-full"
+                  {...workspaceConversationViewProps}
                 />
               </div>
             ) : showRightSession && visibleRightSession ? (
               <div className="h-full min-h-0 overflow-hidden">
                 <KanbanSessionConversationView
-                  workspaceId={visibleRightSession.workspaceId}
-                  sessionId={visibleRightSession.sessionId}
-                  interactive={true}
-                  showSessionSelector={true}
-                  onSessionCreated={handleCreatedSession}
-                  onSessionSelected={handleSelectedSession}
-                  onCreateSessionRequested={openCreateSessionOverlay}
-                  className="h-full"
+                  {...rightSessionConversationViewProps}
                 />
               </div>
             ) : isRightSessionPending ? (

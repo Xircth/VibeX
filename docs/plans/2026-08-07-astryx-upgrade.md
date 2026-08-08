@@ -36,17 +36,22 @@ VibeX 会话输入体系(`SessionComposerInput` + Lexical `WYSIWYGEditor` 9 处�
 | 2b 只读渲染 → AstryxMarkdown | ✅ | `4cf34243` |
 | 2c 编辑场景 + 移除 lexical | ✅ | `47df67fd` |
 | 3a Markdown(KaTeX/Mermaid)+ 移除 react-markdown 生态 | ✅ | `b6fc4742` |
+| 3b ToolCardShell → ChatToolCalls | ✅ | `966688a4` |
 | 4 cmdk 残留清理 | ✅ | `7fb22e49` |
-| 3b ToolCards → ChatToolCalls | ⏳ 待决策 | — |
-| 4 Radix 按需替换 | ⏳ 待决策 | — |
+| 4 Radix 按需替换 | ⏸️ 保留(用户决策 2026-08-08) | — |
 
 **3b 成本评估(实施前核对)**:`ToolCardShell` 被 10 个卡片组件与 `MessageTurnView`
 深层使用;`ChatToolCalls` 无 actions API(现有卡片的开文件/复制/打开链接等交互
-无处安放)、无 forceExpanded(审批强制展开需受控 isExpanded 兜底)、状态仅 4 态
+无处安放)、无 forceExpanded(审批强制展开需受控兜底)、状态仅 4 态
 (现有 statusAppearance 有 denied/timed_out 细分)。全量替换 = 10+ 组件剥壳 +
 `ToolCards.test.tsx` 18 项重写 + 交互适配。**收益为视觉统一,成本显著**。
 **阶段 4 Radix 评估**:11 个 shadcn 封装重写为 Astryx 兼容层(保持项目内 API 不变)
 工作量大且改变视觉,`ScrollArea`/`Slot` 无对应物保留。
+
+**3b 落地形态(实施后)**:`ToolCardShell` 保持其 props API(10 个卡片组件零改动),
+内部引擎替换为单 call `ChatToolCalls` 行渲染;受控展开、actions(行右侧)、状态
+class 保留 —— ChatToolCalls 行级展开不可控,审批 `forceExpanded` 依赖的外部
+展开状态得以保留。**Radix 决策**:shadcn 封装保留,radix 依赖不替换(用户决策)。
 
 已确认的已知差异(随 2a/3a 测试记录):
 - 受控回填 token 显示为纯文本(Astryx `deserialize` 为预留 API)

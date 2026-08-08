@@ -141,15 +141,59 @@ export function KanbanSessionConversationPlacementProvider({
           activeSlotId: null,
         };
         recordsRef.current.set(key, record);
+        record.container.parentElement !== target &&
+          target.appendChild(record.container);
+        bumpVersion();
+        return () => {
+          const currentRecord = recordsRef.current.get(key);
+          if (!currentRecord) {
+            return;
+          }
+
+          currentRecord.slots.delete(slotId);
+          if (currentRecord.activeSlotId === slotId) {
+            const nextSlots = Array.from(currentRecord.slots.entries());
+            const nextSlot = nextSlots[nextSlots.length - 1];
+            currentRecord.activeSlotId = nextSlot?.[0] ?? null;
+            if (nextSlot) {
+              nextSlot[1].appendChild(currentRecord.container);
+            }
+          }
+
+          if (currentRecord.slots.size > 0) {
+            bumpVersion();
+            return;
+          }
+
+          const timer = setTimeout(() => {
+            const latestRecord = recordsRef.current.get(key);
+            if (!latestRecord || latestRecord.slots.size > 0) {
+              return;
+            }
+
+            latestRecord.container.remove();
+            recordsRef.current.delete(key);
+            removalTimersRef.current.delete(key);
+            bumpVersion();
+          }, 250);
+          removalTimersRef.current.set(key, timer);
+        };
       }
 
+      const propsChanged = record.props !== props;
       record.props = props;
       record.slots.set(slotId, target);
       record.activeSlotId = slotId;
       if (record.container.parentElement !== target) {
         target.appendChild(record.container);
       }
-      bumpVersion();
+      // Only re-render the portal surface when its props actually changed —
+      // bumping on every call (even with identical props) makes consumers
+      // that mount slots from an effect keyed on unstable references loop
+      // into "Maximum update depth exceeded".
+      if (propsChanged) {
+        bumpVersion();
+      }
 
       return () => {
         const currentRecord = recordsRef.current.get(key);

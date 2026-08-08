@@ -280,18 +280,39 @@ export function useWorkspaceSessions(
     setIsPendingNewSessionMode(false);
   }, []);
 
-  return {
-    sessions,
-    selectedSession,
-    selectedSessionId,
-    selectSession,
-    selectLatestSession,
-    isLoading,
-    isNewSessionMode,
-    isPendingNewSessionMode,
-    requestNewSession,
-    confirmNewSession,
-    cancelNewSession,
-    startNewSession,
-  };
+  // Stable reference: consumers use this value in effect/memo dependency
+  // arrays (e.g. KanbanSessionConversationSurface mounts placement slots in
+  // useLayoutEffect keyed on the session state). A fresh object literal per
+  // render would re-run those effects every render and, combined with the
+  // placement provider's version bump, can loop into "Maximum update depth".
+  return useMemo(
+    () => ({
+      sessions,
+      selectedSession,
+      selectedSessionId,
+      selectSession,
+      selectLatestSession,
+      isLoading,
+      isNewSessionMode,
+      isPendingNewSessionMode,
+      requestNewSession,
+      confirmNewSession,
+      cancelNewSession,
+      startNewSession,
+    }),
+    [
+      sessions,
+      selectedSession,
+      selectedSessionId,
+      selectSession,
+      selectLatestSession,
+      isLoading,
+      isNewSessionMode,
+      isPendingNewSessionMode,
+      requestNewSession,
+      confirmNewSession,
+      cancelNewSession,
+      startNewSession,
+    ]
+  );
 }

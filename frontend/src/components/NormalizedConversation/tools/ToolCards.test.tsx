@@ -31,8 +31,8 @@ vi.mock('@/components/common/RawLogText', () => ({
 }));
 
 vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
-  AstryxMarkdown: ({ children }: { children: string }) => (
-    <div data-testid="wysiwyg">{children}</div>
+  AstryxMarkdown: ({ value }: { value: string }) => (
+    <div data-testid="wysiwyg">{value}</div>
   ),
 }));
 

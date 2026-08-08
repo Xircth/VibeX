@@ -541,11 +541,10 @@ const UserMessage = ({
                   />
                 ) : (
                   <AstryxMarkdown
+                    value={displayText}
                     taskAttemptId={taskAttempt?.id}
                     className={SESSION_INPUT_TEXT_CLASS_NAME}
-                  >
-                    {displayText}
-                  </AstryxMarkdown>
+                  />
                 )}
                 {isCollapseMeasured && needsCollapse && isCollapsed && (
                   <div className="conv-user-collapsible-overlay" />

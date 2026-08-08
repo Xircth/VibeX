@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Brain, ChevronRight } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { Markdown } from './Markdown';
+import { AstryxMarkdown } from './AstryxMarkdown';
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -76,7 +76,7 @@ export const ThinkingEntry: React.FC<{
         </button>
         {expanded && (
           <div className="conv-thinking-content">
-            <Markdown value={content} />
+            <AstryxMarkdown value={content} />
           </div>
         )}
       </div>

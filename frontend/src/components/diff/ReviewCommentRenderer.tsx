@@ -69,7 +69,7 @@ export function ReviewCommentRenderer({
 
   return (
     <div className="border-y bg-background p-4">
-      <AstryxMarkdown className="text-sm">{comment.text}</AstryxMarkdown>
+      <AstryxMarkdown value={comment.text} className="text-sm" />
       <div className="mt-2 flex gap-2">
         <Button size="xs" variant="ghost" onClick={handleEdit}>
           Edit

@@ -13,8 +13,8 @@ const { markdownMock } = vi.hoisted(() => ({
   markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
 }));
 
-vi.mock('./Markdown', () => ({
-  Markdown: markdownMock,
+vi.mock('./AstryxMarkdown', () => ({
+  AstryxMarkdown: markdownMock,
 }));
 
 vi.mock('./ThinkingEntry', () => ({

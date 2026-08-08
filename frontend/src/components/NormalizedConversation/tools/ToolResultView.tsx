@@ -13,9 +13,10 @@ export function ToolResultView({
 
   if (result.type.type === 'markdown' && result.value) {
     return (
-      <AstryxMarkdown taskAttemptId={taskAttemptId}>
-        {result.value.toString()}
-      </AstryxMarkdown>
+      <AstryxMarkdown
+        value={result.value.toString()}
+        taskAttemptId={taskAttemptId}
+      />
     );
   }
 

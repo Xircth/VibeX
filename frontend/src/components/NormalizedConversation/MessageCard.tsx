@@ -1,7 +1,7 @@
 import React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { Markdown } from './Markdown';
+import { AstryxMarkdown } from './AstryxMarkdown';
 import type {
   CardVariant,
   CollapsibleVariant,
@@ -91,7 +91,7 @@ export const CollapsibleEntry: React.FC<{
 
   const Inner = (
     <div className={contentClassName}>
-      {markdown ? <Markdown value={content} {...markdownContext} /> : content}
+      {markdown ? <AstryxMarkdown value={content} {...markdownContext} /> : content}
     </div>
   );
 
@@ -99,7 +99,7 @@ export const CollapsibleEntry: React.FC<{
   const PreviewInner = (
     <div className={contentClassName}>
       {markdown ? (
-        <Markdown value={firstLine} {...markdownContext} />
+        <AstryxMarkdown value={firstLine} {...markdownContext} />
       ) : (
         firstLine
       )}
@@ -162,7 +162,7 @@ export const PlainNoticeEntry: React.FC<{
     className={`conv-plain-notice${className ? ` ${className}` : ''}`}
     title={title}
   >
-    {markdown ? <Markdown value={content} {...markdownContext} /> : content}
+    {markdown ? <AstryxMarkdown value={content} {...markdownContext} /> : content}
   </div>
 );
 
@@ -201,10 +201,10 @@ export const AssistantCommandOutputEntry: React.FC<{
       ) : null}
       {hasPrefix && expanded ? (
         <div className="mb-2">
-          <Markdown value={prefix} {...markdownContext} />
+          <AstryxMarkdown value={prefix} {...markdownContext} />
         </div>
       ) : null}
-      <Markdown value={output} {...markdownContext} />
+      <AstryxMarkdown value={output} {...markdownContext} />
     </>
   );
 };

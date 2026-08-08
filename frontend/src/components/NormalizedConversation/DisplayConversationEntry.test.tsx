@@ -23,8 +23,8 @@ vi.mock('./FileChangeRenderer', () => ({
   default: () => <div />,
 }));
 
-vi.mock('./Markdown', () => ({
-  Markdown: ({ value }: { value: string }) => <div>{value}</div>,
+vi.mock('./AstryxMarkdown', () => ({
+  AstryxMarkdown: ({ value }: { value: string }) => <div>{value}</div>,
 }));
 
 vi.mock('./UserMessage', () => ({

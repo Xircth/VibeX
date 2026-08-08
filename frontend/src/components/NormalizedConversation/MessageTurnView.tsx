@@ -25,7 +25,7 @@ import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
-import { Markdown } from './Markdown';
+import { AstryxMarkdown } from './AstryxMarkdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
 import { TimelinePlanCard } from './TimelinePlanCard';
@@ -82,7 +82,7 @@ function OrphanToolResultCard({
       onToggle={() => setExpanded((value) => !value)}
     >
       {output ? (
-        <Markdown
+        <AstryxMarkdown
           value={output}
           taskAttemptId={context.taskAttemptId}
           taskId={context.taskId}
@@ -101,7 +101,7 @@ function renderItem(
   switch (item.kind) {
     case 'markdown':
       return (
-        <Markdown
+        <AstryxMarkdown
           key={key}
           value={item.text}
           taskAttemptId={context.taskAttemptId}
@@ -537,7 +537,7 @@ export const MessageTurnView = memo(function MessageTurnView({
             onEdit={onEditRetry ? () => setEditing(true) : undefined}
           />
           <div className="conv-user-bubble">
-            <Markdown
+            <AstryxMarkdown
               value={text}
               taskAttemptId={context.taskAttemptId}
               taskId={context.taskId}

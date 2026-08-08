@@ -178,11 +178,10 @@ export function PlanCard({
       ) : (
         <div className="conv-tool-details-content font-sans text-sm">
           <AstryxMarkdown
+            value={planData.raw}
             taskAttemptId={taskAttemptId}
             className="whitespace-pre-wrap break-words"
-          >
-            {planData.raw}
-          </AstryxMarkdown>
+          />
         </div>
       )}
     </ToolCardShell>

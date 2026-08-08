@@ -10,7 +10,6 @@ import {
 } from 'shared/types.ts';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import type { ProcessStartPayload } from '@/types/logs';
-import { Markdown } from './Markdown';
 import UserMessage from './UserMessage';
 import PendingApprovalEntry from './PendingApprovalEntry';
 import { cn } from '@/lib/utils';
@@ -184,11 +183,10 @@ function DisplayConversationEntry({
             })}
           </div>
           <AstryxMarkdown
+            value={entry.content}
             taskAttemptId={taskAttempt?.id}
             className="whitespace-pre-wrap break-words flex flex-col gap-1 font-light"
-          >
-            {entry.content}
-          </AstryxMarkdown>
+          />
         </div>
       </div>
     );
@@ -462,7 +460,7 @@ function DisplayConversationEntry({
           <div className="relative">
             <div className={getContentClassName(entryType)}>
               {shouldRenderMarkdown(entryType) ? (
-                <Markdown
+                <AstryxMarkdown
                   value={leadingImpeccablePreflightNotice.remainder}
                   {...markdownContext}
                 />
@@ -501,7 +499,7 @@ function DisplayConversationEntry({
           <div className="relative">
             <div className={getContentClassName(entryType)}>
               {shouldRenderMarkdown(entryType) ? (
-                <Markdown
+                <AstryxMarkdown
                   value={leadingTransportNotice.remainder}
                   {...markdownContext}
                 />
@@ -559,7 +557,7 @@ function DisplayConversationEntry({
           <div className="relative">
             <div className={getContentClassName(entryType)}>
               {shouldRenderMarkdown(entryType) ? (
-                <Markdown
+                <AstryxMarkdown
                   value={leadingCodexUnstableFeatureNotice.remainder}
                   {...markdownContext}
                 />
@@ -605,7 +603,7 @@ function DisplayConversationEntry({
       <div className="relative">
         <div className={getContentClassName(entryType)}>
           {shouldRenderMarkdown(entryType) ? (
-            <Markdown value={contentText} {...markdownContext} />
+            <AstryxMarkdown value={contentText} {...markdownContext} />
           ) : (
             contentText
           )}

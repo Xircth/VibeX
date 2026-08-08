@@ -12,8 +12,8 @@ const imageMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/components/NormalizedConversation/AstryxMarkdown', () => ({
-  AstryxMarkdown: ({ children }: { children: string }) => (
-    <div data-testid="readonly-wysiwyg">{children}</div>
+  AstryxMarkdown: ({ value }: { value: string }) => (
+    <div data-testid="readonly-wysiwyg">{value}</div>
   ),
 }));
 

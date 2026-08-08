@@ -47,7 +47,7 @@ import { OfficePreview } from '@/components/previews/OfficePreview';
 import { ReadonlyDocumentPreview } from '@/components/previews/ReadonlyDocumentPreview';
 
 const LazyMarkdown = lazy(
-  () => import('@/components/NormalizedConversation/Markdown')
+  () => import('@/components/NormalizedConversation/AstryxMarkdown')
 );
 const LazyFileContentView = lazy(
   () => import('@/components/NormalizedConversation/FileContentView')

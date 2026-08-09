@@ -47,6 +47,17 @@
     "collapse": "Collapse",
     "filesCount": "{{count}} files"
   },
+  "webPreviewPanel": {
+    "emptyTitle": "Start browsing",
+    "emptyDescription": "Enter a URL to open a page"
+  },
+  "tabCreation": {
+    "newTab": "New tab",
+    "browser": "Browser",
+    "review": "Review",
+    "note": "Note",
+    "terminal": "Terminal"
+  },
   "kanbanPanel": {
     "backToBoard": "Back to board",
     "backToSessionHub": "Back to session hub",

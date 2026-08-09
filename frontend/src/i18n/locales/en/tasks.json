@@ -1,6 +1,12 @@
 {
   "composer": {
-    "inputLabel": "Message"
+    "inputLabel": "Message",
+    "elementToken": {
+      "type": "Page element",
+      "source": "Source",
+      "selector": "Selector",
+      "html": "Element HTML"
+    }
   },
   "agentMention": {
     "companionUnsupported": "The current parent agent does not support the VibeX companion, so this mention will not start a delegation.",

@@ -310,7 +310,16 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                     .await;
                     commands::agent_management::reconcile_managed_cli_exposures(&handle, &pool)
                         .await;
-                    commands::agent_management::warm_agent_management(&handle, &pool).await;
+                    let agent_management_runtime = handle
+                        .state::<state::AppState>()
+                        .agent_management_runtime
+                        .clone();
+                    commands::agent_management::warm_agent_management(
+                        &handle,
+                        &pool,
+                        &agent_management_runtime,
+                    )
+                    .await;
                 });
             }
             // Bidirectional IM channels: run inbound loops + conversation command dispatch.

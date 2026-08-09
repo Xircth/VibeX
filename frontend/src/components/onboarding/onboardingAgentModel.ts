@@ -61,7 +61,9 @@ export function buildOnboardingAgentOptions(
       const registry = registryById.get(agentId);
       const lifecycle = managed?.lifecycle ?? 'uninstalled';
       const runtimeInstalled = Boolean(
-        managed?.runtime_version || registry?.installed
+        managed?.runtime_version ||
+          registry?.installed ||
+          COMPLETE_INSTALLATION_STATES.has(lifecycle)
       );
 
       return {
@@ -84,15 +86,15 @@ export function buildOnboardingAgentOptions(
     })
     .filter((agent) => agent.platformSupported)
     .sort((left, right) => {
+      if (left.runtimeInstalled !== right.runtimeInstalled) {
+        return left.runtimeInstalled ? -1 : 1;
+      }
       const leftRecommendedRank =
         RECOMMENDED_AGENT_RANK.get(left.agentId) ?? Number.MAX_SAFE_INTEGER;
       const rightRecommendedRank =
         RECOMMENDED_AGENT_RANK.get(right.agentId) ?? Number.MAX_SAFE_INTEGER;
       if (leftRecommendedRank !== rightRecommendedRank) {
         return leftRecommendedRank - rightRecommendedRank;
-      }
-      if (left.runtimeInstalled !== right.runtimeInstalled) {
-        return left.runtimeInstalled ? -1 : 1;
       }
       if (left.builtIn !== right.builtIn) return left.builtIn ? -1 : 1;
       return left.displayName.localeCompare(right.displayName);

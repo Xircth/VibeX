@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { describe, expect, it, vi } from 'vitest';
 import { RightPanelSlotContext } from '@/contexts/RightPanelSlotContext';
@@ -6,6 +6,7 @@ import DockviewWebPreviewPanel from './DockviewWebPreviewPanel';
 
 const {
   browserPanelMock,
+  openWebPreviewMock,
   useKanbanSessionContextMock,
   usePreviewSettingsMock,
   useWorktreeMock,
@@ -16,6 +17,8 @@ const {
       requestNonce: number;
       workspaceId?: string;
       visible: boolean;
+      onFaviconChange?: (faviconUrl: string | null) => void;
+      onOpenExternalTab?: (url: string) => void;
     }) => (
       <div
         data-testid="browser-panel"
@@ -23,9 +26,25 @@ const {
         data-request-nonce={props.requestNonce}
         data-workspace-id={props.workspaceId}
         data-visible={props.visible}
-      />
+      >
+        <button
+          type="button"
+          onClick={() =>
+            props.onFaviconChange?.('https://example.test/favicon.ico')
+          }
+        >
+          Update favicon
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onOpenExternalTab?.('https://outer.test')}
+        >
+          Open outer preview
+        </button>
+      </div>
     )
   ),
+  openWebPreviewMock: vi.fn(),
   useKanbanSessionContextMock: vi.fn(() => ({
     visibleRightSession: { workspaceId: 'workspace-session' },
   })),
@@ -37,6 +56,12 @@ const {
 
 vi.mock('@/features/browser/BrowserPanel', () => ({
   BrowserPanel: browserPanelMock,
+}));
+
+vi.mock('@/contexts/PanelActionsContext', () => ({
+  useOptionalPanelActionsContext: () => ({
+    openWebPreview: openWebPreviewMock,
+  }),
 }));
 
 vi.mock('@/contexts/WorktreeContext', () => ({
@@ -88,6 +113,11 @@ function panelProps(): IDockviewPanelProps {
       onDidVisibilityChange: vi.fn(() => disposable),
       onDidDimensionsChange: vi.fn(() => disposable),
       onDidActiveChange: vi.fn(() => disposable),
+      getParameters: vi.fn(() => ({
+        requestedUrl: 'https://example.test',
+        requestedUrlNonce: 7,
+      })),
+      updateParameters: vi.fn(),
       setTitle: vi.fn(),
     },
   } as unknown as IDockviewPanelProps;
@@ -124,9 +154,25 @@ describe('DockviewWebPreviewPanel', () => {
     expect(browserPanelMock.mock.calls.at(-1)?.[0]).toEqual(
       expect.objectContaining({ initialUrl: null })
     );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open outer preview' }));
+    expect(openWebPreviewMock).toHaveBeenCalledWith('https://outer.test');
   });
 
-  it('keeps the browser surface visible when the panel loses focus', () => {
+  it('publishes browser favicon changes to the Dockview tab parameters', () => {
+    const props = panelProps();
+    render(<DockviewWebPreviewPanel {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update favicon' }));
+
+    expect(props.api.updateParameters).toHaveBeenCalledWith({
+      requestedUrl: 'https://example.test',
+      requestedUrlNonce: 7,
+      faviconUrl: 'https://example.test/favicon.ico',
+    });
+  });
+
+  it('keeps the native browser surface visible when its outer tab loses focus', () => {
     const props = panelProps();
     let notifyActiveChange: (() => void) | undefined;
     vi.mocked(props.api.onDidActiveChange).mockImplementation((listener) => {

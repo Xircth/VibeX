@@ -86,6 +86,7 @@ pub struct BrowserTab {
     pub id: BrowserTabId,
     pub url: String,
     pub title: String,
+    pub favicon_url: Option<String>,
     pub loading: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
@@ -236,6 +237,10 @@ pub enum BrowserEngineEvent {
         can_go_back: bool,
         can_go_forward: bool,
     },
+    FaviconChanged {
+        tab_id: BrowserTabId,
+        favicon_url: Option<String>,
+    },
     Failed {
         tab_id: BrowserTabId,
         code: String,
@@ -348,6 +353,7 @@ impl BrowserRuntime {
             id: BrowserTabId::new(),
             url: request.initial_url,
             title: String::new(),
+            favicon_url: None,
             loading: true,
             can_go_back: false,
             can_go_forward: false,
@@ -503,6 +509,7 @@ impl BrowserRuntime {
                     id: BrowserTabId::new(),
                     url,
                     title: String::new(),
+                    favicon_url: None,
                     loading: true,
                     can_go_back: false,
                     can_go_forward: false,
@@ -585,11 +592,35 @@ impl BrowserRuntime {
                     let tab = tabs
                         .get_mut(&tab_id)
                         .ok_or_else(|| BrowserError::TabNotFound(tab_id.clone()))?;
+                    if tab.url != url {
+                        tab.favicon_url = None;
+                    }
                     tab.url = url;
                     tab.title = title;
                     tab.loading = loading;
                     tab.can_go_back = can_go_back;
                     tab.can_go_forward = can_go_forward;
+                    tab.clone()
+                };
+                let _ = self.events.send(BrowserEvent::TabUpdated { tab });
+                Ok(())
+            }
+            BrowserEngineEvent::FaviconChanged {
+                tab_id,
+                favicon_url,
+            } => {
+                let tab = {
+                    let mut tabs = self
+                        .tabs
+                        .lock()
+                        .map_err(|_| BrowserError::StateUnavailable)?;
+                    let tab = tabs
+                        .get_mut(&tab_id)
+                        .ok_or_else(|| BrowserError::TabNotFound(tab_id.clone()))?;
+                    if tab.favicon_url == favicon_url {
+                        return Ok(());
+                    }
+                    tab.favicon_url = favicon_url;
                     tab.clone()
                 };
                 let _ = self.events.send(BrowserEvent::TabUpdated { tab });

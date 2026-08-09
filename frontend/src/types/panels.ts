@@ -36,6 +36,8 @@ export interface WebPreviewPanelParams {
   requestedUrl: string | null;
   /** Monotonic marker so re-opening the same URL re-applies it. */
   requestedUrlNonce: number;
+  /** Favicon published by the active CEF page for the outer workspace tab. */
+  faviconUrl?: string | null;
 }
 
 export function buildPreviewPanelParams(

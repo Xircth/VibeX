@@ -1,6 +1,12 @@
 {
   "composer": {
-    "inputLabel": "消息"
+    "inputLabel": "消息",
+    "elementToken": {
+      "type": "页面元素",
+      "source": "源码",
+      "selector": "选择器",
+      "html": "元素 HTML"
+    }
   },
   "agentMention": {
     "companionUnsupported": "当前父 Agent 不支持 VibeX companion，Mention 不会启动委派。",

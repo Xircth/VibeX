@@ -84,7 +84,7 @@ export interface PanelActions {
     imageUrl: string,
     options?: { title?: string | null }
   ) => void;
-  openWebPreview: (url: string) => void;
+  openWebPreview: (url?: string | null) => void;
   revealInFileTree: (path: string, options?: RevealInFileTreeOptions) => void;
   openDiffPreview: () => void;
   openDiffPreviewAtPath: (
@@ -93,6 +93,7 @@ export interface PanelActions {
   ) => void;
   openCommitDiff: () => void;
   openNewTerminal: () => void;
+  showTerminal: () => void;
   toggleEditorArea: () => void;
   openPanelInNewEditorGroup: (panelId: string) => boolean;
   canOpenPanelInNewEditorGroup: (panelId: string) => boolean;
@@ -401,26 +402,23 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const openWebPreview = useCallback(
-    (url: string) => {
+    (url?: string | null) => {
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 
-      webPreviewRequestNonceRef.current += 1;
+      let panelId: string;
+      do {
+        webPreviewRequestNonceRef.current += 1;
+        panelId = `${PANEL_IDS.WEB_PREVIEW}:${webPreviewRequestNonceRef.current}`;
+      } while (dockviewApi.getPanel(panelId));
+
       const params = {
-        requestedUrl: url,
+        requestedUrl: url?.trim() || null,
         requestedUrlNonce: webPreviewRequestNonceRef.current,
       };
 
-      const existingPanel = dockviewApi.getPanel(PANEL_IDS.WEB_PREVIEW);
-      if (existingPanel) {
-        existingPanel.api.updateParameters(params);
-        existingPanel.group.api.setVisible(true);
-        existingPanel.api.setActive();
-        return;
-      }
-
       const panel = addPanelToActiveEditorGroup({
-        id: PANEL_IDS.WEB_PREVIEW,
+        id: panelId,
         component: PANEL_IDS.WEB_PREVIEW,
         title: 'Web Preview',
         params,
@@ -526,25 +524,65 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const openNewTerminal = useCallback(() => {
-    const dockviewApi = apiRef.current;
-    if (!dockviewApi) return;
+  const setTerminalVisibility = useCallback(
+    (toggleExisting: boolean) => {
+      const dockviewApi = apiRef.current;
+      if (!dockviewApi) return;
 
-    const existingTerminal = dockviewApi.getPanel(PANEL_IDS.TERMINAL);
-    let bottomGroup = getBottomGroup(dockviewApi);
+      const existingTerminal = dockviewApi.getPanel(PANEL_IDS.TERMINAL);
+      let bottomGroup = getBottomGroup(dockviewApi);
 
-    if (existingTerminal && bottomGroup) {
-      const nextVisible = !bottomGroup.api.isVisible;
-      bottomGroup.api.setVisible(nextVisible);
-      if (nextVisible) {
-        existingTerminal.api.setActive();
-        applyDefaultTerminalHeight(bottomGroup);
+      if (existingTerminal && bottomGroup) {
+        const nextVisible = toggleExisting ? !bottomGroup.api.isVisible : true;
+        bottomGroup.api.setVisible(nextVisible);
+        if (nextVisible) {
+          existingTerminal.api.setActive();
+          applyDefaultTerminalHeight(bottomGroup);
+        }
+        return;
       }
-      return;
-    }
 
-    if (bottomGroup && !existingTerminal) {
-      bottomGroup.api.setVisible(true);
+      if (bottomGroup && !existingTerminal) {
+        bottomGroup.api.setVisible(true);
+        const terminalPanel = dockviewApi.addPanel({
+          id: PANEL_IDS.TERMINAL,
+          component: PANEL_IDS.TERMINAL,
+          title: 'Terminal',
+          position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
+        });
+        terminalPanel.api.setActive();
+        applyDefaultTerminalHeight(bottomGroup);
+        normalizeEditorGroupIds(dockviewApi);
+        return;
+      }
+
+      if (existingTerminal && !bottomGroup) {
+        // The terminal panel exists but its group wasn't recognized (e.g. a
+        // transient state during a layout transform): control its own group
+        // instead of re-adding a duplicate panel, which would throw.
+        const group = existingTerminal.group;
+        const nextVisible = toggleExisting ? !group.api.isVisible : true;
+        group.api.setVisible(nextVisible);
+        if (nextVisible) {
+          existingTerminal.api.setActive();
+        }
+        return;
+      }
+
+      const targetGroup =
+        getEditorGroups(dockviewApi)[0] ?? ensureWelcomeEditorGroup();
+      const referencePanel = targetGroup?.panels[0];
+      if (!referencePanel) return;
+
+      bottomGroup = dockviewApi.addGroup({
+        id: GROUP_IDS.BOTTOM,
+        referencePanel,
+        direction: 'below',
+        locked: 'no-drop-target',
+        initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
+      });
+      bottomGroup.locked = 'no-drop-target';
+
       const terminalPanel = dockviewApi.addPanel({
         id: PANEL_IDS.TERMINAL,
         component: PANEL_IDS.TERMINAL,
@@ -553,54 +591,27 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       });
       terminalPanel.api.setActive();
       applyDefaultTerminalHeight(bottomGroup);
+
       normalizeEditorGroupIds(dockviewApi);
-      return;
-    }
+    },
+    [
+      applyDefaultTerminalHeight,
+      ensureWelcomeEditorGroup,
+      getBottomGroup,
+      getEditorGroups,
+      normalizeEditorGroupIds,
+    ]
+  );
 
-    if (existingTerminal && !bottomGroup) {
-      // The terminal panel exists but its group wasn't recognized (e.g. a
-      // transient state during a layout transform): toggle its own group
-      // instead of re-adding a duplicate panel, which would throw.
-      const group = existingTerminal.group;
-      const nextVisible = !group.api.isVisible;
-      group.api.setVisible(nextVisible);
-      if (nextVisible) {
-        existingTerminal.api.setActive();
-      }
-      return;
-    }
+  const openNewTerminal = useCallback(
+    () => setTerminalVisibility(true),
+    [setTerminalVisibility]
+  );
 
-    const targetGroup =
-      getEditorGroups(dockviewApi)[0] ?? ensureWelcomeEditorGroup();
-    const referencePanel = targetGroup?.panels[0];
-    if (!referencePanel) return;
-
-    bottomGroup = dockviewApi.addGroup({
-      id: GROUP_IDS.BOTTOM,
-      referencePanel,
-      direction: 'below',
-      locked: 'no-drop-target',
-      initialHeight: DEFAULT_TERMINAL_PANEL_HEIGHT,
-    });
-    bottomGroup.locked = 'no-drop-target';
-
-    const terminalPanel = dockviewApi.addPanel({
-      id: PANEL_IDS.TERMINAL,
-      component: PANEL_IDS.TERMINAL,
-      title: 'Terminal',
-      position: { referenceGroup: GROUP_IDS.BOTTOM, direction: 'within' },
-    });
-    terminalPanel.api.setActive();
-    applyDefaultTerminalHeight(bottomGroup);
-
-    normalizeEditorGroupIds(dockviewApi);
-  }, [
-    applyDefaultTerminalHeight,
-    ensureWelcomeEditorGroup,
-    getBottomGroup,
-    getEditorGroups,
-    normalizeEditorGroupIds,
-  ]);
+  const showTerminal = useCallback(
+    () => setTerminalVisibility(false),
+    [setTerminalVisibility]
+  );
 
   const toggleEditorArea = useCallback(() => {
     const dockviewApi = apiRef.current;
@@ -1157,6 +1168,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       openDiffPreviewAtPath,
       openCommitDiff,
       openNewTerminal,
+      showTerminal,
       toggleEditorArea,
       openPanelInNewEditorGroup,
       canOpenPanelInNewEditorGroup,
@@ -1188,6 +1200,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
       revealInFileTree,
       openLogs,
       openNewTerminal,
+      showTerminal,
       openNotes,
       openOrFocusPanel,
       openPanelInNewEditorGroup,

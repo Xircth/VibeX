@@ -35,7 +35,11 @@ export function LegacyDesignScope({
   return (
     <div
       ref={setContainer}
-      className={cn(TAHOE_DESIGN_SCOPE_CLASS, 'min-h-screen w-full', className)}
+      className={cn(
+        TAHOE_DESIGN_SCOPE_CLASS,
+        'h-full min-h-0 w-full overflow-hidden',
+        className
+      )}
     >
       {container && (
         <PortalContainerContext.Provider value={container}>

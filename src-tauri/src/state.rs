@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::AgentRuntime;
+use agents::{AgentId, AgentRuntime};
 use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
 use tokio::sync::Mutex;
@@ -26,6 +26,35 @@ pub struct LocalUsageCacheEntry {
     pub scanned_at_ms: i64,
 }
 
+#[derive(Default)]
+pub struct AgentManagementRuntimeState {
+    warmup_complete: Mutex<bool>,
+    built_in_probes: Mutex<HashSet<AgentId>>,
+}
+
+impl AgentManagementRuntimeState {
+    pub async fn run_warmup_once<Fut>(&self, work: Fut)
+    where
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut complete = self.warmup_complete.lock().await;
+        if *complete {
+            return;
+        }
+        work.await;
+        *complete = true;
+    }
+
+    pub async fn reset(&self) {
+        *self.warmup_complete.lock().await = false;
+        self.built_in_probes.lock().await.clear();
+    }
+
+    pub async fn should_probe_built_in(&self, agent_id: &AgentId, force: bool) -> bool {
+        self.built_in_probes.lock().await.insert(agent_id.clone()) || force
+    }
+}
+
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
     pub deployment: Arc<dyn Deployment>,
@@ -38,6 +67,7 @@ pub struct AppState {
     pub conversation_streams: Arc<Mutex<HashSet<String>>>,
     pub desktop_toast_state: Arc<Mutex<DesktopToastRuntimeState>>,
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
+    pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
     pub delegation: crate::delegation::DelegationState,
     pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
@@ -95,6 +125,7 @@ impl AppState {
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
             desktop_toast_state: Arc::new(Mutex::new(DesktopToastRuntimeState::default())),
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
+            agent_management_runtime: Arc::new(AgentManagementRuntimeState::default()),
             agent_runtime,
             delegation,
             conversation_turn_locks: Arc::new(Mutex::new(HashMap::new())),
@@ -123,5 +154,57 @@ impl AppState {
                 row_projectors: self.conversation_row_projectors.clone(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::AgentManagementRuntimeState;
+
+    #[tokio::test]
+    async fn local_data_reset_allows_agent_discovery_to_run_again() {
+        let runtime = AgentManagementRuntimeState::default();
+        let runs = Arc::new(AtomicUsize::new(0));
+
+        let first_runs = runs.clone();
+        runtime
+            .run_warmup_once(async move {
+                first_runs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+        runtime
+            .run_warmup_once(async {
+                panic!("warmup must remain shared before reset");
+            })
+            .await;
+
+        runtime.reset().await;
+
+        let second_runs = runs.clone();
+        runtime
+            .run_warmup_once(async move {
+                second_runs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn local_data_reset_forgets_previous_agent_probe_attempts() {
+        let runtime = AgentManagementRuntimeState::default();
+        let claude = agents::AgentId::parse("claude_code").unwrap();
+
+        assert!(runtime.should_probe_built_in(&claude, false).await);
+        assert!(!runtime.should_probe_built_in(&claude, false).await);
+
+        runtime.reset().await;
+
+        assert!(runtime.should_probe_built_in(&claude, false).await);
     }
 }

@@ -388,7 +388,11 @@
   html,
   body,
   #root {
-    @apply min-h-screen w-full;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   html,
@@ -397,7 +401,7 @@
   }
 
   .legacy-design {
-    @apply min-h-screen w-full bg-background text-foreground font-sans antialiased;
+    @apply h-full min-h-0 w-full bg-background text-foreground font-sans antialiased;
   }
 
   .legacy-design [data-astryx-theme] {
@@ -467,6 +471,27 @@
     ) {
     background: hsl(var(--primary) / 0.12);
     color: hsl(var(--primary));
+  }
+
+  .legacy-design .session-composer-editor [data-preview-element-token] {
+    cursor: help;
+    transition:
+      background-color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .legacy-design
+    .session-composer-editor
+    [data-preview-element-token]:is(:hover, :focus-visible) {
+    background: hsl(var(--primary) / 0.19);
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.18);
+    outline: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .legacy-design .session-composer-editor [data-preview-element-token] {
+      transition: none;
+    }
   }
 
   .legacy-design .session-composer-editor [popover]:has(.astryx-trigger-menu) {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import NiceModal, { useModal } from '@ebay/nice-modal-react';
+import { TextArea } from '@astryxdesign/core/TextArea';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { AlertCircle, FolderOpen, GitBranch, Loader2 } from 'lucide-react';
@@ -16,9 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useProjectMutations } from '@/hooks/useProjectMutations';
 import { repoApi } from '@/lib/api';
 import { defineModal } from '@/lib/modals';
@@ -31,6 +31,45 @@ export interface ProjectFormDialogProps {
 export type ProjectFormDialogResult =
   | { status: 'saved'; project: Project }
   | { status: 'canceled' };
+
+const textInputSurfaceStyle = {
+  backgroundColor: 'var(--surface-control)',
+  borderRadius: 'var(--radius)',
+};
+
+function setReadOnly(input: HTMLInputElement | null) {
+  if (input) input.readOnly = true;
+}
+
+interface ProjectPathPreviewProps {
+  label: string;
+  placeholder: string;
+  value: string;
+}
+
+function ProjectPathPreview({
+  label,
+  placeholder,
+  value,
+}: ProjectPathPreviewProps) {
+  return (
+    <div className="min-w-0 flex-1" title={normalizeDisplayPath(value)}>
+      <TextInput
+        ref={setReadOnly}
+        label={label}
+        isLabelHidden
+        size="sm"
+        value={value}
+        placeholder={placeholder}
+        onChange={() => undefined}
+        width="100%"
+        aria-readonly="true"
+        className="[&_input]:cursor-default [&_input]:truncate [&_input]:font-mono [&_input]:text-xs [&_input]:text-muted-foreground"
+        style={textInputSurfaceStyle}
+      />
+    </div>
+  );
+}
 
 function getPathName(path: string): string {
   const normalized = normalizeDisplayPath(path).replace(/[\\/]+$/, '');
@@ -392,20 +431,20 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => void handlePickFolder()}
                     disabled={isBusy}
-                    className="h-9"
+                    className="gap-1.5 bg-[var(--surface-control-hover)] text-foreground hover:bg-foreground/[0.14]"
                   >
-                    <FolderOpen className="mr-2 h-4 w-4" />
+                    <FolderOpen className="h-3.5 w-3.5" />
                     {t('projectForm.chooseFolder')}
                   </Button>
-                  <div
-                    className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground"
-                    title={normalizeDisplayPath(selectedFolderPath)}
-                  >
-                    {selectedFolderPath || t('projectForm.noFolderSelected')}
-                  </div>
+                  <ProjectPathPreview
+                    label={t('projectForm.folderLabel')}
+                    value={selectedFolderPath}
+                    placeholder={t('projectForm.noFolderSelected')}
+                  />
                 </div>
                 {selectedFolderPath && selectedFolderIsGitRepo !== null ? (
                   <p
@@ -424,32 +463,34 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="project-name">
-                    {t('projectForm.nameLabel')}
-                  </Label>
-                  <Input
-                    id="project-name"
+                  <Label>{t('projectForm.nameLabel')}</Label>
+                  <TextInput
+                    label={t('projectForm.nameLabel')}
+                    isLabelHidden
                     value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
+                    onChange={setProjectName}
                     placeholder={t('projectForm.namePlaceholder')}
-                    disabled={isBusy}
-                    autoFocus
+                    isDisabled={isBusy}
+                    hasAutoFocus
+                    width="100%"
+                    className="[&_input]:text-sm"
+                    style={textInputSurfaceStyle}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="project-description">
-                    {t('projectForm.descriptionLabel')}
-                  </Label>
-                  <Textarea
-                    id="project-description"
+                  <Label>{t('projectForm.descriptionLabel')}</Label>
+                  <TextArea
+                    label={t('projectForm.descriptionLabel')}
+                    isLabelHidden
                     value={projectDescription}
-                    onChange={(event) =>
-                      setProjectDescription(event.target.value)
-                    }
+                    onChange={setProjectDescription}
                     placeholder={t('projectForm.descriptionPlaceholder')}
-                    disabled={isBusy}
-                    className="min-h-20 resize-none"
+                    rows={4}
+                    isDisabled={isBusy}
+                    width="100%"
+                    className="[&_textarea]:resize-none [&_textarea]:text-sm"
+                    style={textInputSurfaceStyle}
                   />
                 </div>
 
@@ -458,20 +499,20 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => void handlePickFolder()}
                       disabled={isBusy}
-                      className="h-9"
+                      className="gap-1.5 bg-[var(--surface-control-hover)] text-foreground hover:bg-foreground/[0.14]"
                     >
-                      <FolderOpen className="mr-2 h-4 w-4" />
+                      <FolderOpen className="h-3.5 w-3.5" />
                       {t('projectForm.chooseLocation')}
                     </Button>
-                    <div
-                      className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border px-3 text-xs text-muted-foreground"
-                      title={normalizeDisplayPath(parentFolderPath)}
-                    >
-                      {parentFolderPath || t('projectForm.noLocationSelected')}
-                    </div>
+                    <ProjectPathPreview
+                      label={t('projectForm.locationLabel')}
+                      value={parentFolderPath}
+                      placeholder={t('projectForm.noLocationSelected')}
+                    />
                   </div>
                   {targetProjectPath ? (
                     <p className="truncate text-xs text-muted-foreground">

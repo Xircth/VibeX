@@ -317,7 +317,7 @@ export function FirstRunExperience({
     setValidationError(null);
     try {
       const [managedResult, registryResult] = await Promise.allSettled([
-        agentManagementApi.refreshBar(),
+        agentManagementApi.bar(),
         agentManagementApi.registry(),
       ]);
       if (managedResult.status === 'rejected') throw managedResult.reason;
@@ -344,7 +344,9 @@ export function FirstRunExperience({
         ? initialDefaultAgentId
         : null;
       const nextEnabled = new Set(
-        options.filter((agent) => agent.enabled).map((agent) => agent.agentId)
+        options
+          .filter((agent) => agent.runtimeInstalled)
+          .map((agent) => agent.agentId)
       );
       const nextDefault =
         configuredDefault && nextEnabled.has(configuredDefault)

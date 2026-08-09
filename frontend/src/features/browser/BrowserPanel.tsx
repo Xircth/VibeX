@@ -12,14 +12,16 @@ import {
   ChevronDown,
   ChevronUp,
   Crosshair,
+  Globe2,
   LoaderCircle,
-  Plus,
   RefreshCw,
   Search,
   Square,
   X,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { useWorkspaceOverlay } from '@/contexts/WorkspaceOverlayContext';
 import { cn } from '@/lib/utils';
 import { browserApi } from './browserApi';
 import { BrowserDevToolsSession } from './devToolsSession';
@@ -52,7 +54,9 @@ interface BrowserPanelProps {
   layoutVersion?: number;
   className?: string;
   onTitleChange?: (title: string) => void;
+  onFaviconChange?: (faviconUrl: string | null) => void;
   onInspectElement?: (element: OpenInEditorPayload) => void;
+  onOpenExternalTab?: (url: string) => void;
 }
 
 interface DescribedNode {
@@ -168,17 +172,29 @@ function surfacesEqual(left: BrowserSurface, right: BrowserSurface): boolean {
   );
 }
 
+function clippedSurfaceRect(
+  surface: DOMRect,
+  panel: DOMRect,
+  toolbar: DOMRect
+) {
+  const left = Math.max(surface.left, panel.left);
+  const top = Math.max(surface.top, panel.top, toolbar.bottom);
+  const right = Math.min(surface.right, panel.right);
+  const bottom = Math.min(surface.bottom, panel.bottom);
+  return {
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
 function browserProfile(workspaceId?: string): BrowserProfile {
   return workspaceId ? { kind: 'workspace', workspaceId } : { kind: 'global' };
 }
 
 function browserAddress(url: string): string {
   return url === BLANK_PAGE ? '' : url;
-}
-
-function browserTabLabel(tab: BrowserTab): string {
-  if (tab.title) return tab.title;
-  return tab.url === BLANK_PAGE ? 'New Tab' : tab.url || 'New Tab';
 }
 
 function zoomLevelForPercent(percent: number): number {
@@ -230,32 +246,38 @@ export function BrowserPanel({
   layoutVersion,
   className,
   onTitleChange,
+  onFaviconChange,
   onInspectElement,
+  onOpenExternalTab,
 }: BrowserPanelProps) {
+  const { t } = useTranslation('panels');
+  const { subscribeNativeSurfaceOcclusion } = useWorkspaceOverlay();
+  const panelElementRef = useRef<HTMLDivElement>(null);
+  const toolbarElementRef = useRef<HTMLDivElement>(null);
   const surfaceElementRef = useRef<HTMLDivElement>(null);
   const surfaceSchedulerRef = useRef<FrameScheduler | null>(null);
   const currentSurfaceRef = useRef<BrowserSurface | null>(null);
   const tabIdRef = useRef<string | null>(null);
-  const knownTabIdsRef = useRef(new Set<string>());
-  const tabsRef = useRef<BrowserTab[]>([]);
   const devToolsSessionRef = useRef<BrowserDevToolsSession | null>(null);
   const editingAddressRef = useRef(false);
   const intersectionVisibleRef = useRef(true);
   const panelVisibleRef = useRef(visible);
+  const overlayOccludedRef = useRef(false);
   const surfaceBlockedRef = useRef(false);
+  const blankPageVisibleRef = useRef(initialUrl === null);
   const onInspectElementRef = useRef(onInspectElement);
-  const initialUrlRef = useRef(initialUrl);
+  const onOpenExternalTabRef = useRef(onOpenExternalTab);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const findInputRef = useRef<HTMLInputElement>(null);
   const horizontalScrollbarRef = useRef<HTMLDivElement>(null);
   const desiredPageXRef = useRef(0);
   const scrollCommandInFlightRef = useRef(false);
   const [surfaceReady, setSurfaceReady] = useState(false);
+  const [showBlankPage, setShowBlankPage] = useState(initialUrl === null);
+  const [tabBootstrapUrl, setTabBootstrapUrl] = useState(initialUrl);
   const [tab, setTab] = useState<BrowserTab | null>(null);
-  const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [address, setAddress] = useState(initialUrl ?? '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [creatingTab, setCreatingTab] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState('');
@@ -283,6 +305,12 @@ export function BrowserPanel({
     surfaceSchedulerRef.current?.request();
   }, []);
 
+  const updateBlankPageVisibility = useCallback((nextVisible: boolean) => {
+    blankPageVisibleRef.current = nextVisible;
+    setShowBlankPage(nextVisible);
+    surfaceSchedulerRef.current?.request();
+  }, []);
+
   const applyIntent = useCallback(
     (intent: BrowserIntent) => {
       const tabId = tabIdRef.current;
@@ -300,17 +328,14 @@ export function BrowserPanel({
 
     const hiddenSurface = { ...currentSurface, visible: false };
     currentSurfaceRef.current = hiddenSurface;
-    const tabIds = new Set(knownTabIdsRef.current);
-    if (tabIdRef.current) tabIds.add(tabIdRef.current);
-
-    for (const tabId of tabIds) {
-      void browserApi
-        .applyIntent(tabId, {
-          type: 'setSurface',
-          surface: hiddenSurface,
-        })
-        .catch((error: unknown) => showError(commandErrorMessage(error)));
-    }
+    const tabId = tabIdRef.current;
+    if (!tabId) return;
+    void browserApi
+      .applyIntent(tabId, {
+        type: 'setSurface',
+        surface: hiddenSurface,
+      })
+      .catch((error: unknown) => showError(commandErrorMessage(error)));
   }, [showError]);
 
   const attachDevToolsSession = useCallback(
@@ -378,38 +403,26 @@ export function BrowserPanel({
     flush();
   }, []);
 
-  const activateTab = useCallback(
-    (nextTab: BrowserTab) => {
-      const previousTabId = tabIdRef.current;
-      const surface = currentSurfaceRef.current;
-      if (surface && previousTabId && previousTabId !== nextTab.id) {
-        void browserApi
-          .applyIntent(previousTabId, {
-            type: 'setSurface',
-            surface: { ...surface, visible: false },
-          })
-          .catch((error: unknown) => showError(commandErrorMessage(error)));
-      }
-      if (surface && previousTabId !== nextTab.id) {
-        void browserApi
-          .applyIntent(nextTab.id, { type: 'setSurface', surface })
-          .catch((error: unknown) => showError(commandErrorMessage(error)));
-      }
-      tabIdRef.current = nextTab.id;
-      attachDevToolsSession(nextTab.id);
-      setTab(nextTab);
-      setAddress(browserAddress(nextTab.url));
-      onTitleChange?.(nextTab.title);
-      if (nextTab.url === BLANK_PAGE) {
-        requestAnimationFrame(() => addressInputRef.current?.focus());
-      }
-    },
-    [attachDevToolsSession, onTitleChange, showError]
-  );
-
   useEffect(() => {
     onInspectElementRef.current = onInspectElement;
   }, [onInspectElement]);
+
+  useEffect(() => {
+    onOpenExternalTabRef.current = onOpenExternalTab;
+  }, [onOpenExternalTab]);
+
+  useEffect(() => {
+    if (!initialUrl || tabIdRef.current || tabBootstrapUrl) return;
+    lastRequestTokenRef.current = requestToken;
+    updateBlankPageVisibility(false);
+    setTabBootstrapUrl(initialUrl);
+  }, [initialUrl, requestToken, tabBootstrapUrl, updateBlankPageVisibility]);
+
+  useEffect(() => {
+    if (!surfaceReady || tabBootstrapUrl || tabIdRef.current) return;
+    updateBlankPageVisibility(true);
+    requestAnimationFrame(() => addressInputRef.current?.focus());
+  }, [surfaceReady, tabBootstrapUrl, updateBlankPageVisibility]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -425,9 +438,15 @@ export function BrowserPanel({
 
   const syncSurface = useCallback(() => {
     const element = surfaceElementRef.current;
-    if (!element) return;
+    const panelElement = panelElementRef.current;
+    const toolbarElement = toolbarElementRef.current;
+    if (!element || !panelElement || !toolbarElement) return;
 
-    const rect = element.getBoundingClientRect();
+    const rect = clippedSurfaceRect(
+      element.getBoundingClientRect(),
+      panelElement.getBoundingClientRect(),
+      toolbarElement.getBoundingClientRect()
+    );
     const previous = currentSurfaceRef.current;
     const hasSize = rect.width >= 1 && rect.height >= 1;
     if (!hasSize && !previous) return;
@@ -442,7 +461,9 @@ export function BrowserPanel({
         hasSize &&
         panelVisibleRef.current &&
         intersectionVisibleRef.current &&
+        !overlayOccludedRef.current &&
         !surfaceBlockedRef.current &&
+        !blankPageVisibleRef.current &&
         document.visibilityState !== 'hidden',
     };
 
@@ -456,7 +477,9 @@ export function BrowserPanel({
 
   useLayoutEffect(() => {
     const element = surfaceElementRef.current;
-    if (!element) return;
+    const panelElement = panelElementRef.current;
+    const toolbarElement = toolbarElementRef.current;
+    if (!element || !panelElement || !toolbarElement) return;
 
     const scheduler = createFrameScheduler(syncSurface);
     surfaceSchedulerRef.current = scheduler;
@@ -467,6 +490,8 @@ export function BrowserPanel({
       scheduleSurfaceSync();
     });
     resizeObserver.observe(element);
+    resizeObserver.observe(panelElement);
+    resizeObserver.observe(toolbarElement);
     intersectionObserver.observe(element);
     window.addEventListener('resize', scheduleSurfaceSync);
     window.addEventListener('scroll', scheduleSurfaceSync, true);
@@ -496,14 +521,34 @@ export function BrowserPanel({
     surfaceSchedulerRef.current?.request();
   }, [hideNativeSurfaces, layoutVersion, visible]);
 
+  useLayoutEffect(
+    () =>
+      subscribeNativeSurfaceOcclusion((occluded) => {
+        overlayOccludedRef.current = occluded;
+        if (occluded) {
+          surfaceSchedulerRef.current?.cancel();
+          hideNativeSurfaces();
+          return;
+        }
+        surfaceSchedulerRef.current?.request();
+      }),
+    [hideNativeSurfaces, subscribeNativeSurfaceOcclusion]
+  );
+
   useEffect(() => {
-    if (!surfaceReady || !currentSurfaceRef.current) return;
+    if (!surfaceReady || !currentSurfaceRef.current || !tabBootstrapUrl) return;
 
     let disposed = false;
     let createdTabId: string | null = null;
     let unlisten: (() => void) | undefined;
     const pendingEvents: BrowserEvent[] = [];
-    const ownedTabIds = knownTabIdsRef.current;
+    const pendingPopupTabIds = new Set<string>();
+
+    const openPopupExternally = (popupTab: BrowserTab) => {
+      pendingPopupTabIds.delete(popupTab.id);
+      void browserApi.closeTab(popupTab.id);
+      onOpenExternalTabRef.current?.(popupTab.url);
+    };
 
     const acceptEvent = (event: BrowserEvent) => {
       if (!createdTabId) {
@@ -511,11 +556,19 @@ export function BrowserPanel({
         return;
       }
       if (event.type === 'popupCreated') {
-        if (!ownedTabIds.has(event.openerTabId)) return;
-        ownedTabIds.add(event.tab.id);
-        tabsRef.current = [...tabsRef.current, event.tab];
-        setTabs(tabsRef.current);
-        activateTab(event.tab);
+        if (event.openerTabId !== createdTabId) return;
+        if (event.tab.url === BLANK_PAGE) {
+          pendingPopupTabIds.add(event.tab.id);
+        } else {
+          openPopupExternally(event.tab);
+        }
+        return;
+      }
+      if (
+        (event.type === 'tabUpdated' || event.type === 'tabFailed') &&
+        pendingPopupTabIds.has(event.tab.id)
+      ) {
+        if (event.tab.url !== BLANK_PAGE) openPopupExternally(event.tab);
         return;
       }
       const eventTabId =
@@ -524,7 +577,7 @@ export function BrowserPanel({
         event.type === 'tabFailed'
           ? event.tab.id
           : event.tabId;
-      if (!ownedTabIds.has(eventTabId)) return;
+      if (eventTabId !== createdTabId) return;
 
       if (event.type === 'devToolsResult' || event.type === 'devToolsEvent') {
         devToolsSessionRef.current?.receive(event);
@@ -546,37 +599,25 @@ export function BrowserPanel({
         return;
       }
       if (event.type === 'tabClosed') {
-        ownedTabIds.delete(event.tabId);
-        const remainingTabs = tabsRef.current.filter(
-          (candidate) => candidate.id !== event.tabId
-        );
-        tabsRef.current = remainingTabs;
-        setTabs(remainingTabs);
         setPermissionRequest((request) =>
           request?.tabId === event.tabId ? undefined : request
         );
         setDownloads((current) =>
           current.filter((download) => download.tabId !== event.tabId)
         );
-        if (tabIdRef.current === event.tabId) {
-          devToolsSessionRef.current?.dispose();
-          devToolsSessionRef.current = null;
-          tabIdRef.current = null;
-          const replacement = remainingTabs.at(-1);
-          if (replacement) activateTab(replacement);
-          else setTab(null);
-        }
+        devToolsSessionRef.current?.dispose();
+        devToolsSessionRef.current = null;
+        tabIdRef.current = null;
+        setTab(null);
         return;
       }
-      tabsRef.current = tabsRef.current.map((candidate) =>
-        candidate.id === event.tab.id ? event.tab : candidate
-      );
-      setTabs(tabsRef.current);
       if (tabIdRef.current === event.tab.id) {
+        updateBlankPageVisibility(event.tab.url === BLANK_PAGE);
         setTab(event.tab);
         if (!editingAddressRef.current)
           setAddress(browserAddress(event.tab.url));
         onTitleChange?.(event.tab.title);
+        onFaviconChange?.(event.tab.faviconUrl);
         if (event.type === 'tabFailed') showError(event.message);
         if (event.type === 'tabUpdated') {
           if (event.tab.loading) setHorizontalPageScroll(null);
@@ -593,7 +634,7 @@ export function BrowserPanel({
           return;
         }
         const createdTab = await browserApi.createTab({
-          initialUrl: normalizeBrowserUrl(initialUrlRef.current ?? BLANK_PAGE),
+          initialUrl: normalizeBrowserUrl(tabBootstrapUrl),
           profile: browserProfile(workspaceId),
           surface: { ...currentSurfaceRef.current!, visible: false },
         });
@@ -602,17 +643,21 @@ export function BrowserPanel({
           await browserApi.closeTab(createdTab.id);
           return;
         }
-        ownedTabIds.add(createdTab.id);
-        tabsRef.current = [createdTab];
-        setTabs([createdTab]);
         tabIdRef.current = createdTab.id;
         attachDevToolsSession(createdTab.id);
         setTab(createdTab);
+        updateBlankPageVisibility(createdTab.url === BLANK_PAGE);
         setAddress(browserAddress(createdTab.url));
         onTitleChange?.(createdTab.title);
+        onFaviconChange?.(createdTab.faviconUrl);
         await browserApi.applyIntent(createdTab.id, {
           type: 'setSurface',
-          surface: currentSurfaceRef.current!,
+          surface: {
+            ...currentSurfaceRef.current!,
+            visible:
+              currentSurfaceRef.current!.visible &&
+              createdTab.url !== BLANK_PAGE,
+          },
         });
         if (createdTab.url === BLANK_PAGE) {
           requestAnimationFrame(() => addressInputRef.current?.focus());
@@ -629,18 +674,20 @@ export function BrowserPanel({
       devToolsSessionRef.current?.dispose();
       devToolsSessionRef.current = null;
       tabIdRef.current = null;
-      const tabIds = [...ownedTabIds];
-      ownedTabIds.clear();
-      tabsRef.current = [];
-      for (const tabId of tabIds) void browserApi.closeTab(tabId);
+      if (createdTabId) void browserApi.closeTab(createdTabId);
+      for (const popupTabId of pendingPopupTabIds) {
+        void browserApi.closeTab(popupTabId);
+      }
     };
   }, [
-    activateTab,
     attachDevToolsSession,
     onTitleChange,
+    onFaviconChange,
     refreshHorizontalPageScroll,
     showError,
     surfaceReady,
+    tabBootstrapUrl,
+    updateBlankPageVisibility,
     workspaceId,
   ]);
 
@@ -650,9 +697,10 @@ export function BrowserPanel({
     }
     lastRequestTokenRef.current = requestToken;
     const url = normalizeBrowserUrl(initialUrl);
+    updateBlankPageVisibility(url === BLANK_PAGE);
     setAddress(url);
     applyIntent({ type: 'navigate', url });
-  }, [applyIntent, initialUrl, requestToken, tab]);
+  }, [applyIntent, initialUrl, requestToken, tab, updateBlankPageVisibility]);
 
   useLayoutEffect(() => {
     const scrollbar = horizontalScrollbarRef.current;
@@ -670,38 +718,25 @@ export function BrowserPanel({
 
   const navigate = () => {
     const url = normalizeBrowserUrl(address);
-    setAddress(url);
     editingAddressRef.current = false;
     clearError();
+    const openExternalTab = onOpenExternalTabRef.current;
+    if (url !== BLANK_PAGE && openExternalTab) {
+      openExternalTab(url);
+      setAddress(tab ? browserAddress(tab.url) : '');
+      return;
+    }
+    updateBlankPageVisibility(url === BLANK_PAGE);
+    setAddress(url);
+    if (!tab) {
+      if (url === BLANK_PAGE) {
+        requestAnimationFrame(() => addressInputRef.current?.focus());
+        return;
+      }
+      setTabBootstrapUrl(url);
+      return;
+    }
     applyIntent({ type: 'navigate', url });
-  };
-
-  const createNewTab = () => {
-    const surface = currentSurfaceRef.current;
-    if (!surface || creatingTab) return;
-
-    setCreatingTab(true);
-    clearError();
-    void browserApi
-      .createTab({
-        initialUrl: BLANK_PAGE,
-        profile: browserProfile(workspaceId),
-        surface: { ...surface, visible: false },
-      })
-      .then(async (createdTab) => {
-        if (!surfaceElementRef.current) {
-          await browserApi.closeTab(createdTab.id);
-          return;
-        }
-        knownTabIdsRef.current.add(createdTab.id);
-        tabsRef.current = [...tabsRef.current, createdTab];
-        setTabs(tabsRef.current);
-        activateTab(createdTab);
-      })
-      .catch((error: unknown) => showError(commandErrorMessage(error)))
-      .finally(() => {
-        if (surfaceElementRef.current) setCreatingTab(false);
-      });
   };
 
   const stopElementInspection = () => {
@@ -779,13 +814,23 @@ export function BrowserPanel({
     });
   };
 
-  const loading = tab?.loading ?? !errorMessage;
+  const loading = tab?.loading ?? (tabBootstrapUrl !== null && !errorMessage);
 
   return (
     <div
-      className={cn('flex h-full min-h-0 flex-col bg-background', className)}
+      ref={panelElementRef}
+      data-testid="browser-panel-root"
+      className={cn(
+        'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background',
+        className
+      )}
     >
-      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border bg-muted/40 px-1.5">
+      <div
+        ref={toolbarElementRef}
+        role="toolbar"
+        aria-label="Browser controls"
+        className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border bg-muted/40 px-1.5"
+      >
         <Button
           aria-label="Back"
           title="Back"
@@ -920,62 +965,6 @@ export function BrowserPanel({
           onClick={() => applyIntent({ type: 'openDevTools' })}
         >
           <Bug className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      <div
-        role="tablist"
-        aria-label="Browser Tabs"
-        className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-1"
-      >
-        {tabs.map((candidate) => {
-          const label = browserTabLabel(candidate);
-          const active = candidate.id === tab?.id;
-          return (
-            <div
-              key={candidate.id}
-              className={cn(
-                'flex h-7 min-w-24 max-w-48 items-center rounded-md border px-1',
-                active
-                  ? 'border-border bg-background text-foreground'
-                  : 'border-transparent text-muted-foreground hover:bg-muted'
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-label={label}
-                aria-selected={active}
-                className="min-w-0 flex-1 truncate px-1 text-left text-xs"
-                onClick={() => activateTab(candidate)}
-              >
-                {label}
-              </button>
-              <button
-                type="button"
-                aria-label={`Close ${label}`}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-muted"
-                onClick={() => void browserApi.closeTab(candidate.id)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          );
-        })}
-        <Button
-          aria-label="New Tab"
-          title="New Tab"
-          variant="icon"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          disabled={!tab || creatingTab}
-          onClick={createNewTab}
-        >
-          {creatingTab ? (
-            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Plus className="h-3.5 w-3.5" />
-          )}
         </Button>
       </div>
 
@@ -1127,6 +1116,7 @@ export function BrowserPanel({
           ref={surfaceElementRef}
           data-testid="native-browser-surface"
           aria-busy={loading}
+          aria-hidden={showBlankPage || !!errorMessage ? 'true' : undefined}
           className="absolute inset-0 bg-background"
           onPointerDown={() => applyIntent({ type: 'focus' })}
         />
@@ -1136,6 +1126,22 @@ export function BrowserPanel({
               className="h-5 w-5 animate-spin"
               aria-label="Loading browser"
             />
+          </div>
+        )}
+        {showBlankPage && !errorMessage && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background px-8 text-center">
+            <div className="flex -translate-y-6 flex-col items-center">
+              <Globe2
+                className="mb-5 h-11 w-11 stroke-[1.5] text-muted-foreground"
+                aria-hidden="true"
+              />
+              <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">
+                {t('webPreviewPanel.emptyTitle')}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t('webPreviewPanel.emptyDescription')}
+              </p>
+            </div>
           </div>
         )}
         {errorMessage && (

@@ -35,6 +35,7 @@ const DEFAULT_COLLAPSE: DiffCollapseDefaults = {
   permissionChange: true,
 };
 const COLLAPSE_MAX_LINES = 200;
+const LARGE_CHANGESET_MAX_LINES = 10_000;
 
 const exceedsMax = (d: Diff, max: number) =>
   d.additions != null || d.deletions != null
@@ -146,6 +147,20 @@ function DockviewDiffsReviewPanel() {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stickyFileId, setStickyFileId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const ids = useMemo(() => diffs.map((d, i) => getDiffId(d, i)), [diffs]);
+  const isLargeChangeSet = useMemo(
+    () =>
+      diffs.reduce(
+        (total, diff) => total + (diff.additions ?? 0) + (diff.deletions ?? 0),
+        0
+      ) > LARGE_CHANGESET_MAX_LINES,
+    [diffs]
+  );
+  const activeLargeDiffId = isLargeChangeSet
+    ? selectedFileId && ids.includes(selectedFileId)
+      ? selectedFileId
+      : (ids[0] ?? null)
+    : null;
 
   // Reset collapse state when switching modes or commit
   useEffect(() => {
@@ -184,8 +199,10 @@ function DockviewDiffsReviewPanel() {
     const newIds = newDiffs.map(({ id }) => id);
     const toCollapse = newDiffs
       .filter(
-        ({ diff }) =>
-          DEFAULT_COLLAPSE[diff.change] || exceedsMax(diff, COLLAPSE_MAX_LINES)
+        ({ diff, id }) =>
+          id !== activeLargeDiffId &&
+          (DEFAULT_COLLAPSE[diff.change] ||
+            exceedsMax(diff, COLLAPSE_MAX_LINES))
       )
       .map(({ id }) => id);
 
@@ -193,9 +210,7 @@ function DockviewDiffsReviewPanel() {
     if (toCollapse.length > 0) {
       setCollapsedIds((prev) => new Set([...prev, ...toCollapse]));
     }
-  }, [diffs, processedIds]);
-
-  const ids = useMemo(() => diffs.map((d, i) => getDiffId(d, i)), [diffs]);
+  }, [activeLargeDiffId, diffs, processedIds]);
 
   const toggle = useCallback((id: string) => {
     setCollapsedIds((prev) => {
@@ -213,18 +228,16 @@ function DockviewDiffsReviewPanel() {
 
   const scrollToFile = useCallback(
     (id: string, behavior: ScrollBehavior = 'smooth') => {
+      setSelectedFileId(id);
+      setCollapsedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       const el = diffRefs.current.get(id);
       if (el) {
         el.scrollIntoView({ behavior, block: 'start' });
-        setSelectedFileId(id);
-        setCollapsedIds((prev) => {
-          if (prev.has(id)) {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          }
-          return prev;
-        });
       }
     },
     []
@@ -427,21 +440,23 @@ function DockviewDiffsReviewPanel() {
             </span>
             <div className="ml-auto flex items-center gap-1">
               <DiffViewSwitch />
-              <button
-                onClick={handleCollapseAll}
-                className="p-1 rounded hover:bg-accent text-muted-foreground"
-                title={
-                  allCollapsed
-                    ? t('diffsReviewPanel.expandAll')
-                    : t('diffsReviewPanel.collapseAll')
-                }
-              >
-                {allCollapsed ? (
-                  <ChevronsDown className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronsUp className="h-3.5 w-3.5" />
-                )}
-              </button>
+              {!isLargeChangeSet && (
+                <button
+                  onClick={handleCollapseAll}
+                  className="p-1 rounded hover:bg-accent text-muted-foreground"
+                  title={
+                    allCollapsed
+                      ? t('diffsReviewPanel.expandAll')
+                      : t('diffsReviewPanel.collapseAll')
+                  }
+                >
+                  {allCollapsed ? (
+                    <ChevronsDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronsUp className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -493,26 +508,34 @@ function DockviewDiffsReviewPanel() {
               )}
             </div>
           ) : (
-            diffs.map((diff, idx) => {
-              const id = getDiffId(diff, idx);
-              return (
-                <div
-                  key={id}
-                  data-diff-id={id}
-                  ref={(el) => {
-                    if (el) diffRefs.current.set(id, el);
-                    else diffRefs.current.delete(id);
-                  }}
-                >
-                  <DiffCard
-                    diff={diff}
-                    expanded={!collapsedIds.has(id)}
-                    onToggle={() => toggle(id)}
-                    selectedAttempt={isCommitMode ? null : (workspace ?? null)}
-                  />
-                </div>
-              );
-            })
+            diffs
+              .map((diff, idx) => ({ diff, idx }))
+              .filter(({ diff, idx }) => {
+                if (!isLargeChangeSet) return true;
+                return getDiffId(diff, idx) === activeLargeDiffId;
+              })
+              .map(({ diff, idx }) => {
+                const id = getDiffId(diff, idx);
+                return (
+                  <div
+                    key={id}
+                    data-diff-id={id}
+                    ref={(el) => {
+                      if (el) diffRefs.current.set(id, el);
+                      else diffRefs.current.delete(id);
+                    }}
+                  >
+                    <DiffCard
+                      diff={diff}
+                      expanded={!collapsedIds.has(id)}
+                      onToggle={() => toggle(id)}
+                      selectedAttempt={
+                        isCommitMode ? null : (workspace ?? null)
+                      }
+                    />
+                  </div>
+                );
+              })
           )}
         </div>
       </div>
@@ -561,7 +584,9 @@ function DockviewDiffsReviewPanel() {
                       deletions: diff.deletions,
                     };
                   })}
-                  activeFileId={selectedFileId}
+                  activeFileId={
+                    isLargeChangeSet ? activeLargeDiffId : selectedFileId
+                  }
                   onFileClick={(id) => scrollToFile(id)}
                 />
               </div>

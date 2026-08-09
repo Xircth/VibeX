@@ -923,6 +923,18 @@ cef::wrap_display_handler! {
                 None,
             );
         }
+
+        fn on_favicon_urlchange(
+            &self,
+            _browser: Option<&mut Browser>,
+            icon_urls: Option<&mut CefStringList>,
+        ) {
+            let favicon_url = icon_urls.and_then(first_string_list_value);
+            let _ = self.runtime.apply_engine_event(BrowserEngineEvent::FaviconChanged {
+                tab_id: self.tab_id.clone(),
+                favicon_url,
+            });
+        }
     }
 }
 
@@ -990,6 +1002,16 @@ fn publish_navigation_state(
         can_go_back: can_go_back.unwrap_or(tab.can_go_back),
         can_go_forward: can_go_forward.unwrap_or(tab.can_go_forward),
     });
+}
+
+fn first_string_list_value(values: &mut CefStringList) -> Option<String> {
+    if string_list_size(Some(values)) == 0 {
+        return None;
+    }
+    let mut value = CefString::from("");
+    (string_list_value(Some(values), 0, Some(&mut value)) != 0)
+        .then(|| value.to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn path_to_cef_string(path: &Path) -> CefString {

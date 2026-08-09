@@ -20,17 +20,20 @@
     var(--surface-card) 20%
   );
   --dv-theme-border: var(--border-subtle);
-  --dv-theme-border-strong: var(--border-strong);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);
   --dv-theme-subtle: var(--text-subtle);
   --dv-theme-hover: var(--surface-control-hover);
+  --dv-tab-state-background: color-mix(
+    in srgb,
+    var(--text-strong) 9%,
+    transparent
+  );
   --dv-theme-active: var(--surface-active);
-  --dv-theme-shadow: 0 8px 18px hsl(220 36% 8% / 0.08);
 
   --dv-paneview-active-outline-color: hsl(var(--primary) / 0.62);
   --dv-tabs-and-actions-container-font-size: 12px;
-  --dv-tabs-and-actions-container-height: 31px;
+  --dv-tabs-and-actions-container-height: 36px;
   --dv-drag-over-background-color: var(--dv-theme-active);
   --dv-drag-over-border-color: hsl(var(--primary) / 0.64);
   --dv-tabs-container-scrollbar-color: color-mix(
@@ -175,10 +178,14 @@
     var(--surface-card) 18%
   );
   --dv-theme-border: var(--border-subtle);
-  --dv-theme-border-strong: var(--border-strong);
   --dv-theme-text: var(--text-strong);
   --dv-theme-muted: var(--text-muted);
   --dv-theme-subtle: var(--text-subtle);
+  --dv-tab-state-background: color-mix(
+    in srgb,
+    var(--text-strong) 12%,
+    transparent
+  );
 
   --dv-paneview-active-outline-color: hsl(var(--primary) / 0.7);
   --dv-icon-hover-background-color: var(--dv-theme-hover);
@@ -238,7 +245,7 @@
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: transparent !important;
   color: var(--dv-theme-text) !important;
 }
 
@@ -257,8 +264,56 @@
 }
 
 [class*='dockview-theme-ayu'] .dv-tabs-and-actions-container > .dv-scrollable {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+}
+
+[class*='dockview-theme-ayu']
+  .dv-tabs-and-actions-container
+  > .dv-left-actions-container {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-add-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  margin: 4px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--dv-theme-muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-add-button > svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.75;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-add-button:hover,
+[class*='dockview-theme-ayu'] .workspace-tab-add-button[data-state='open'] {
+  background-color: var(--dv-theme-hover);
+  color: var(--dv-theme-text);
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-add-button:focus-visible {
+  outline: 2px solid var(--dv-paneview-active-outline-color);
+  outline-offset: -2px;
+}
+
+.workspace-tab-add-menu {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  animation: none !important;
+  transition: none !important;
 }
 
 [class*='dockview-theme-ayu']
@@ -279,27 +334,72 @@
   .dv-tabs-and-actions-container
   .dv-right-actions-container:not(:empty) {
   border-left: 1px solid var(--dv-tab-divider-color);
-  padding-inline: 2px;
+  padding-inline: 4px;
 }
 
-[class*='dockview-theme-ayu'] .dv-tabs-container.dv-horizontal > .dv-tab {
+/* Dockview 5.1 omits .dv-horizontal for the default horizontal direction. */
+[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) {
+  gap: 1px;
+  padding: 4px;
+}
+
+[class*='dockview-theme-ayu'] .dv-tabs-container:not(.dv-vertical) > .dv-tab {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  height: calc(var(--dv-tabs-and-actions-container-height) - 6px);
-  margin: 2px 3px;
-  padding: 0 8px;
-  border: 1px solid transparent;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent !important;
+  border-radius: var(--radius);
+  color: var(--dv-theme-muted) !important;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-surface {
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 0 4px 0 8px;
   border-radius: var(--radius);
   transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease;
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  stroke-width: 1.75;
+}
+
+[class*='dockview-theme-ayu'] .workspace-tab-icon > img,
+[class*='dockview-theme-ayu'] .workspace-tab-icon > .file-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+[class*='dockview-theme-ayu'] .dv-tab:focus::after,
+[class*='dockview-theme-ayu'] .dv-tab:focus-within::after {
+  border-radius: var(--radius);
+  outline: none !important;
+}
+
+[class*='dockview-theme-ayu'] .dv-tab:focus-visible::after {
+  outline: 2px solid var(--dv-paneview-active-outline-color) !important;
+  outline-offset: -2px;
+}
+
+[class*='dockview-theme-ayu'] .dv-default-tab-content {
+  margin-right: 0;
 }
 
 [class*='dockview-theme-ayu']
-  .dv-tabs-container.dv-horizontal
+  .dv-tabs-container:not(.dv-vertical)
   > .dv-tab::before {
   display: none !important;
 }
@@ -307,24 +407,28 @@
 [class*='dockview-theme-ayu'] .dv-tab.dv-inactive-tab {
   background-color: transparent !important;
   color: var(--dv-theme-muted) !important;
-  border-color: transparent !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: transparent !important;
   color: var(--dv-theme-text) !important;
-  border-color: var(--dv-theme-border-strong) !important;
-  box-shadow: var(--dv-theme-shadow);
 }
 
-[class*='dockview-theme-ayu'] .dv-tabs-container.dv-horizontal > .dv-tab:hover {
+[class*='dockview-theme-ayu']
+  .dv-tabs-container:not(.dv-vertical)
+  > .dv-tab:hover {
   color: var(--dv-theme-text) !important;
-  background-color: var(--dv-theme-hover) !important;
+  background-color: transparent !important;
+}
+
+[class*='dockview-theme-ayu'] .dv-tab.dv-active-tab .workspace-tab-surface,
+[class*='dockview-theme-ayu'] .workspace-tab-surface:hover {
+  background-color: var(--dv-tab-state-background) !important;
 }
 
 [class*='dockview-theme-ayu'] .dv-default-tab-content {
   display: block;
-  max-width: 9ch;
+  max-width: 14ch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -348,22 +452,19 @@
 .dark [class*='dockview-theme-ayu'] .dv-tab.dv-inactive-tab {
   background-color: transparent !important;
   color: var(--dv-theme-muted) !important;
-  border-color: transparent !important;
 }
 
 .dark [class*='dockview-theme-ayu'] .dv-tab.dv-active-tab {
-  background-color: var(--dv-theme-bg) !important;
+  background-color: transparent !important;
   color: var(--dv-theme-text) !important;
-  border-color: var(--dv-theme-border-strong) !important;
-  box-shadow: var(--dv-theme-shadow);
 }
 
 .dark
   [class*='dockview-theme-ayu']
-  .dv-tabs-container.dv-horizontal
+  .dv-tabs-container:not(.dv-vertical)
   > .dv-tab:hover {
   color: var(--dv-theme-text) !important;
-  background-color: var(--dv-theme-hover) !important;
+  background-color: transparent !important;
 }
 
 /* Hide tab header for groups marked with dv-header-hidden class (e.g. left sidebar) */

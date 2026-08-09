@@ -6,6 +6,10 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  useWorkspaceOverlay,
+  WorkspaceOverlayProvider,
+} from '@/contexts/WorkspaceOverlayContext';
 import { BrowserPanel } from './BrowserPanel';
 import type { BrowserEvent, BrowserTab } from './browserTypes';
 
@@ -39,11 +43,26 @@ const initialSurface = {
   visible: true,
 };
 
+function rect(x: number, y: number, width: number, height: number): DOMRect {
+  return {
+    x,
+    y,
+    top: y,
+    left: x,
+    right: x + width,
+    bottom: y + height,
+    width,
+    height,
+    toJSON: () => ({}),
+  };
+}
+
 function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
   return {
     id: 'browser-tab-1',
     url: 'https://example.test/',
     title: 'Example',
+    faviconUrl: null,
     loading: false,
     canGoBack: false,
     canGoForward: false,
@@ -54,21 +73,35 @@ function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
   };
 }
 
+function WorkspaceMenuTrigger() {
+  const { setTabCreationMenuOpen } = useWorkspaceOverlay();
+  return (
+    <button type="button" onClick={() => setTabCreationMenuOpen(true)}>
+      Open workspace menu
+    </button>
+  );
+}
+
 describe('BrowserPanel', () => {
   let browserEventListener: ((event: BrowserEvent) => void) | undefined;
 
   beforeEach(() => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      x: initialSurface.x,
-      y: initialSurface.y,
-      top: initialSurface.y,
-      left: initialSurface.x,
-      right: initialSurface.x + initialSurface.width,
-      bottom: initialSurface.y + initialSurface.height,
-      width: initialSurface.width,
-      height: initialSurface.height,
-      toJSON: () => ({}),
-    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === 'browser-panel-root') {
+          return rect(12, 12, 800, 636);
+        }
+        if (this.getAttribute('role') === 'toolbar') {
+          return rect(12, 12, 800, 36);
+        }
+        return rect(
+          initialSurface.x,
+          initialSurface.y,
+          initialSurface.width,
+          initialSurface.height
+        );
+      }
+    );
     vi.stubGlobal('devicePixelRatio', initialSurface.scaleFactor);
     vi.stubGlobal(
       'ResizeObserver',
@@ -200,6 +233,31 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('reports CEF favicon changes to the outer workspace tab', async () => {
+    const onFaviconChange = vi.fn();
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onFaviconChange={onFaviconChange}
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({ faviconUrl: 'https://example.test/favicon.ico' }),
+      });
+    });
+
+    expect(onFaviconChange).toHaveBeenLastCalledWith(
+      'https://example.test/favicon.ico'
+    );
+  });
+
   it('replays CEF events emitted before createTab returns to the frontend', async () => {
     let resolveCreate: ((createdTab: BrowserTab) => void) | undefined;
     createBrowserTabMock.mockImplementation(
@@ -240,7 +298,7 @@ describe('BrowserPanel', () => {
   it('reconciles the native child surface after Chromium creates the tab', async () => {
     render(
       <BrowserPanel
-        initialUrl={null}
+        initialUrl="https://example.test"
         requestNonce={1}
         workspaceId="workspace-1"
         visible
@@ -256,10 +314,117 @@ describe('BrowserPanel', () => {
     );
   });
 
-  it('opens a fresh browser on a focused empty address field', async () => {
-    createBrowserTabMock.mockResolvedValue(
-      tab({ url: 'about:blank', title: '', loading: false })
+  it('clips the native surface below the toolbar and inside its outer panel', async () => {
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === 'browser-panel-root') {
+          return rect(12, 12, 800, 636);
+        }
+        if (this.getAttribute('role') === 'toolbar') {
+          return rect(12, 12, 800, 36);
+        }
+        return rect(-20, 20, 1030, 700);
+      }
     );
+
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() =>
+      expect(createBrowserTabMock).toHaveBeenCalledWith({
+        initialUrl: 'https://example.test',
+        profile: { kind: 'workspace', workspaceId: 'workspace-1' },
+        surface: {
+          x: 12,
+          y: 48,
+          width: 800,
+          height: 600,
+          scaleFactor: 2,
+          visible: false,
+        },
+      })
+    );
+  });
+
+  it('keeps the initial Web Preview as a launcher without creating an about:blank tab', async () => {
+    const onOpenExternalTab = vi.fn();
+    render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onOpenExternalTab={onOpenExternalTab}
+      />
+    );
+
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    await waitFor(() => expect(address).toHaveValue(''));
+    expect(address).toHaveFocus();
+    expect(createBrowserTabMock).not.toHaveBeenCalled();
+    expect(listenToBrowserEventsMock).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('tablist', { name: 'Browser Tabs' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('native-browser-surface')).toHaveClass(
+      'bg-background'
+    );
+    expect(screen.getByTestId('native-browser-surface')).not.toHaveClass(
+      'bg-transparent'
+    );
+    expect(
+      screen.getByRole('heading', { name: /Start browsing|开始浏览/ })
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Enter a URL to open a page|输入 URL 以打开页面/)
+    ).toBeVisible();
+    expect(screen.getByTestId('native-browser-surface')).toHaveAttribute(
+      'aria-hidden',
+      'true'
+    );
+
+    fireEvent.change(address, { target: { value: 'localhost:5173' } });
+    fireEvent.submit(address.closest('form')!);
+
+    expect(onOpenExternalTab).toHaveBeenCalledWith('http://localhost:5173');
+    expect(createBrowserTabMock).not.toHaveBeenCalled();
+  });
+
+  it('lazily creates the browser tab when a dev-server URL is detected', async () => {
+    const view = render(
+      <BrowserPanel
+        initialUrl={null}
+        requestNonce={0}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    expect(createBrowserTabMock).not.toHaveBeenCalled();
+
+    view.rerender(
+      <BrowserPanel
+        initialUrl="http://localhost:5173"
+        requestNonce={0}
+        workspaceId="workspace-1"
+        visible
+      />
+    );
+
+    await waitFor(() =>
+      expect(createBrowserTabMock).toHaveBeenCalledWith(
+        expect.objectContaining({ initialUrl: 'http://localhost:5173' })
+      )
+    );
+  });
+
+  it('uses a fixed browser controls toolbar without glass spacing', async () => {
     render(
       <BrowserPanel
         initialUrl={null}
@@ -269,26 +434,22 @@ describe('BrowserPanel', () => {
       />
     );
 
-    await waitFor(() =>
-      expect(createBrowserTabMock).toHaveBeenCalledWith(
-        expect.objectContaining({ initialUrl: 'about:blank' })
-      )
+    const toolbar = screen.getByRole('toolbar', {
+      name: 'Browser controls',
+    });
+    expect(toolbar).toHaveClass(
+      'h-9',
+      'border-b',
+      'border-border',
+      'bg-muted/40'
     );
-    const address = screen.getByRole('textbox', { name: 'Address' });
-    await waitFor(() => expect(address).toHaveValue(''));
-    expect(address).toHaveFocus();
-    expect(screen.getByTestId('native-browser-surface')).toHaveClass(
-      'bg-background'
-    );
-    expect(screen.getByTestId('native-browser-surface')).not.toHaveClass(
-      'bg-transparent'
-    );
+    expect(toolbar).not.toHaveClass('web-preview-toolbar');
   });
 
   it('resizes and repositions the native surface with its Dockview panel', async () => {
     const view = render(
       <BrowserPanel
-        initialUrl={null}
+        initialUrl="https://example.test"
         requestNonce={1}
         workspaceId="workspace-1"
         visible
@@ -306,21 +467,26 @@ describe('BrowserPanel', () => {
       scaleFactor: initialSurface.scaleFactor,
       visible: true,
     };
-    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
-      x: resizedSurface.x,
-      y: resizedSurface.y,
-      top: resizedSurface.y,
-      left: resizedSurface.x,
-      right: resizedSurface.x + resizedSurface.width,
-      bottom: resizedSurface.y + resizedSurface.height,
-      width: resizedSurface.width,
-      height: resizedSurface.height,
-      toJSON: () => ({}),
-    });
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === 'browser-panel-root') {
+          return rect(36, 48, 520, 376);
+        }
+        if (this.getAttribute('role') === 'toolbar') {
+          return rect(36, 48, 520, 36);
+        }
+        return rect(
+          resizedSurface.x,
+          resizedSurface.y,
+          resizedSurface.width,
+          resizedSurface.height
+        );
+      }
+    );
 
     view.rerender(
       <BrowserPanel
-        initialUrl={null}
+        initialUrl="https://example.test"
         requestNonce={1}
         workspaceId="workspace-1"
         visible
@@ -376,6 +542,41 @@ describe('BrowserPanel', () => {
         workspaceId="workspace-1"
         visible={false}
       />
+    );
+
+    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
+      type: 'setSurface',
+      surface: { ...initialSurface, visible: false },
+    });
+  });
+
+  it('hides the native surface through the overlay bridge without changing panel visibility', async () => {
+    render(
+      <WorkspaceOverlayProvider>
+        <BrowserPanel
+          initialUrl="https://example.test"
+          requestNonce={1}
+          workspaceId="workspace-1"
+          visible
+        />
+        <WorkspaceMenuTrigger />
+      </WorkspaceOverlayProvider>
+    );
+
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(applyBrowserIntentMock).toHaveBeenCalledWith(
+        'browser-tab-1',
+        expect.objectContaining({
+          type: 'setSurface',
+          surface: expect.objectContaining({ visible: true }),
+        })
+      )
+    );
+    applyBrowserIntentMock.mockClear();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open workspace menu' })
     );
 
     expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
@@ -452,13 +653,15 @@ describe('BrowserPanel', () => {
     );
   });
 
-  it('keeps popup navigation in a managed native tab strip', async () => {
+  it('forwards popup navigation to an outer preview tab', async () => {
+    const onOpenExternalTab = vi.fn();
     render(
       <BrowserPanel
         initialUrl="https://example.test"
         requestNonce={1}
         workspaceId="workspace-1"
         visible
+        onOpenExternalTab={onOpenExternalTab}
       />
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
@@ -476,89 +679,76 @@ describe('BrowserPanel', () => {
       });
     });
 
-    expect(await screen.findByRole('tab', { name: 'Popup' })).toHaveAttribute(
-      'aria-selected',
-      'true'
+    expect(onOpenExternalTab).toHaveBeenCalledWith(
+      'https://example.test/popup'
     );
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
-      type: 'setSurface',
-      surface: { ...initialSurface, visible: false },
-    });
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-2', {
-      type: 'setSurface',
-      surface: initialSurface,
-    });
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Example' }));
-    expect(screen.getByRole('tab', { name: 'Example' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
+    expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-2');
+    expect(
+      screen.queryByRole('tablist', { name: 'Browser Tabs' })
+    ).not.toBeInTheDocument();
   });
 
-  it('opens an explicit blank Chromium tab from the browser tab strip', async () => {
-    createBrowserTabMock.mockResolvedValueOnce(tab()).mockResolvedValueOnce(
-      tab({
-        id: 'browser-tab-2',
-        url: 'about:blank',
-        title: '',
-        surface: { ...initialSurface, visible: false },
-      })
-    );
-    render(
-      <BrowserPanel
-        initialUrl={null}
-        requestNonce={1}
-        workspaceId="workspace-1"
-        visible
-      />
-    );
-    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
-    await waitFor(() =>
-      expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
-        type: 'setSurface',
-        surface: initialSurface,
-      })
-    );
-    applyBrowserIntentMock.mockClear();
-
-    fireEvent.click(screen.getByRole('button', { name: 'New Tab' }));
-
-    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledTimes(2));
-    expect(createBrowserTabMock).toHaveBeenLastCalledWith({
-      initialUrl: 'about:blank',
-      profile: { kind: 'workspace', workspaceId: 'workspace-1' },
-      surface: { ...initialSurface, visible: false },
-    });
-    expect(await screen.findByRole('tab', { name: 'New Tab' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-1', {
-      type: 'setSurface',
-      surface: { ...initialSurface, visible: false },
-    });
-    expect(applyBrowserIntentMock).toHaveBeenCalledWith('browser-tab-2', {
-      type: 'setSurface',
-      surface: initialSurface,
-    });
-  });
-
-  it('closes a browser-strip tab through the owned browser runtime', async () => {
+  it('waits for a blank popup to receive its destination before opening an outer tab', async () => {
+    const onOpenExternalTab = vi.fn();
     render(
       <BrowserPanel
         initialUrl="https://example.test"
         requestNonce={1}
         workspaceId="workspace-1"
         visible
+        onOpenExternalTab={onOpenExternalTab}
       />
     );
     await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close Example' }));
+    act(() => {
+      browserEventListener?.({
+        type: 'popupCreated',
+        openerTabId: 'browser-tab-1',
+        tab: tab({ id: 'browser-tab-2', url: 'about:blank', title: '' }),
+      });
+    });
+    expect(onOpenExternalTab).not.toHaveBeenCalled();
 
-    expect(closeBrowserTabMock).toHaveBeenCalledOnce();
-    expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-1');
+    act(() => {
+      browserEventListener?.({
+        type: 'tabUpdated',
+        tab: tab({
+          id: 'browser-tab-2',
+          url: 'https://example.test/redirected-popup',
+          title: 'Redirected popup',
+        }),
+      });
+    });
+
+    expect(onOpenExternalTab).toHaveBeenCalledWith(
+      'https://example.test/redirected-popup'
+    );
+    expect(closeBrowserTabMock).toHaveBeenCalledWith('browser-tab-2');
+  });
+
+  it('opens an address-bar destination in an outer preview tab', async () => {
+    const onOpenExternalTab = vi.fn();
+    render(
+      <BrowserPanel
+        initialUrl="https://example.test"
+        requestNonce={1}
+        workspaceId="workspace-1"
+        visible
+        onOpenExternalTab={onOpenExternalTab}
+      />
+    );
+    await waitFor(() => expect(createBrowserTabMock).toHaveBeenCalledOnce());
+    const address = screen.getByRole('textbox', { name: 'Address' });
+    fireEvent.change(address, { target: { value: 'example.org/docs' } });
+    fireEvent.submit(address.closest('form')!);
+
+    expect(onOpenExternalTab).toHaveBeenCalledWith('https://example.org/docs');
+    expect(applyBrowserIntentMock).not.toHaveBeenCalledWith(
+      'browser-tab-1',
+      expect.objectContaining({ type: 'navigate' })
+    );
+    expect(createBrowserTabMock).toHaveBeenCalledOnce();
   });
 
   it('requires an explicit user decision for Chromium permissions', async () => {

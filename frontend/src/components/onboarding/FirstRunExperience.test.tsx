@@ -8,6 +8,7 @@ import i18n from '@/i18n';
 import { FirstRunExperience } from './FirstRunExperience';
 
 const managementMock = vi.hoisted(() => ({
+  bar: vi.fn(),
   refreshBar: vi.fn(),
   registry: vi.fn(),
   refreshRegistry: vi.fn(),
@@ -125,7 +126,7 @@ describe('FirstRunExperience', () => {
     configApiMock.checkEditorAvailability.mockResolvedValue({
       available: true,
     });
-    managementMock.refreshBar.mockResolvedValue([
+    const startupAgents = [
       agent({
         agent_id: 'claude_code',
         display_name: 'Claude Code',
@@ -135,7 +136,9 @@ describe('FirstRunExperience', () => {
         acp_version: '0.63.0',
       }),
       agent({ agent_id: 'codex', display_name: 'Codex' }),
-    ]);
+    ];
+    managementMock.bar.mockResolvedValue(startupAgents);
+    managementMock.refreshBar.mockResolvedValue(startupAgents);
     managementMock.registry.mockResolvedValue({
       snapshot_id: 'snapshot',
       fetched_at: '2026-08-04T00:00:00Z',
@@ -186,6 +189,80 @@ describe('FirstRunExperience', () => {
     expect(
       screen.queryByTestId('liquid-glass-surface')
     ).not.toBeInTheDocument();
+  });
+
+  it('reuses the completed startup Agent snapshot without forcing a second probe', async () => {
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(managementMock.bar).toHaveBeenCalledTimes(1));
+    expect(managementMock.refreshBar).not.toHaveBeenCalled();
+  });
+
+  it('selects and prioritizes only installed Agents on first entry', async () => {
+    const user = userEvent.setup();
+    managementMock.bar.mockResolvedValue([
+      agent({
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        enabled: true,
+      }),
+      agent({
+        agent_id: 'codex',
+        display_name: 'Codex',
+        enabled: false,
+        lifecycle: 'ready',
+        runtime_version: '0.145.0',
+        acp_version: '1.1.9',
+      }),
+      agent({
+        agent_id: 'opencode',
+        display_name: 'OpenCode',
+        enabled: false,
+        lifecycle: 'ready',
+        runtime_version: '1.18.2',
+        acp_version: '1.18.2',
+      }),
+      agent({ agent_id: 'pi', display_name: 'Pi', enabled: true }),
+    ]);
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+
+    const rows = screen.getAllByRole('listitem');
+    expect(
+      rows.map((row) =>
+        within(row).getByRole('checkbox').getAttribute('aria-label')
+      )
+    ).toEqual(['启用 Codex', '启用 OpenCode', '启用 Claude Code', '启用 Pi']);
+    expect(screen.getByRole('checkbox', { name: '启用 Codex' })).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: '启用 OpenCode' })
+    ).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: '启用 Claude Code' })
+    ).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '启用 Pi' })).not.toBeChecked();
+    expect(
+      screen.getByRole('combobox', { name: '默认 Agent' })
+    ).toHaveTextContent('Codex');
   });
 
   it('skips the entire first-run flow through the public persistence boundary', async () => {
@@ -256,13 +333,13 @@ describe('FirstRunExperience', () => {
 
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
-    expect(managementMock.refreshBar).toHaveBeenCalledTimes(1);
+    expect(managementMock.bar).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await i18n.changeLanguage('en');
     });
 
-    expect(managementMock.refreshBar).toHaveBeenCalledTimes(1);
+    expect(managementMock.bar).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await i18n.changeLanguage('zh-CN');
@@ -273,7 +350,7 @@ describe('FirstRunExperience', () => {
     const user = userEvent.setup();
     let resolveAgents: (agents: AgentManagementView[]) => void = () =>
       undefined;
-    managementMock.refreshBar.mockReturnValue(
+    managementMock.bar.mockReturnValue(
       new Promise<AgentManagementView[]>((resolve) => {
         resolveAgents = resolve;
       })
@@ -437,7 +514,7 @@ describe('FirstRunExperience', () => {
 
   it('prioritizes recommended Agents and explains why the default picker cannot open yet', async () => {
     const user = userEvent.setup();
-    managementMock.refreshBar.mockResolvedValue([
+    managementMock.bar.mockResolvedValue([
       agent({ agent_id: 'pi', display_name: 'Pi' }),
       agent({ agent_id: 'opencode', display_name: 'OpenCode' }),
       agent({ agent_id: 'codex', display_name: 'Codex' }),
@@ -543,11 +620,10 @@ describe('FirstRunExperience', () => {
 
   it('prompts to enable Agents first when starting without any enabled Agent', async () => {
     const user = userEvent.setup();
-    managementMock.refreshBar.mockResolvedValue([
+    managementMock.bar.mockResolvedValue([
       agent({
         agent_id: 'claude_code',
         display_name: 'Claude Code',
-        lifecycle: 'ready',
       }),
       agent({ agent_id: 'codex', display_name: 'Codex' }),
     ]);

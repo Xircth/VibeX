@@ -4,7 +4,24 @@ import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
 } from 'dockview-react';
-import { X } from 'lucide-react';
+import {
+  Columns3,
+  File,
+  FileDiff,
+  FolderTree,
+  GitBranch,
+  Globe2,
+  House,
+  List,
+  MessageSquare,
+  NotebookPen,
+  ScrollText,
+  Search,
+  SquareTerminal,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import FileIcon from '@/components/FileIcon';
 import { PANEL_IDS, type PanelId } from '@/stores/useLayoutStore';
 import DockviewAIChatPanel from '@/components/panels/DockviewAIChatPanel';
 import DockviewDiffsReviewPanel from '@/components/panels/DockviewDiffsReviewPanel';
@@ -61,27 +78,111 @@ export const panelComponents: Record<
 // component id still resolves.
 panelComponents['dev-preview'] = panelComponents[PANEL_IDS.WEB_PREVIEW];
 
-const MAX_WORKSPACE_TAB_TITLE_CHARS = 6;
-
 type WorkspaceDockviewTabProps = IDockviewPanelHeaderProps &
   React.HTMLAttributes<HTMLDivElement> & {
     hideClose?: boolean;
     closeActionOverride?: () => void;
   };
 
-function truncateWorkspaceTabTitle(title: string): string {
-  const chars = Array.from(title);
-  if (chars.length <= MAX_WORKSPACE_TAB_TITLE_CHARS) {
-    return title;
+interface WorkspaceTabParams {
+  faviconUrl?: string | null;
+  filePath?: string | null;
+  mode?: 'editor' | 'diff';
+}
+
+const PANEL_TAB_ICONS: Partial<Record<PanelId, [LucideIcon, string]>> = {
+  [PANEL_IDS.AI_CHAT]: [MessageSquare, 'chat'],
+  [PANEL_IDS.DIFFS]: [FileDiff, 'diff'],
+  [PANEL_IDS.FILE_TREE]: [FolderTree, 'file-tree'],
+  [PANEL_IDS.GIT]: [GitBranch, 'git'],
+  [PANEL_IDS.KANBAN]: [Columns3, 'kanban'],
+  [PANEL_IDS.LOGS]: [ScrollText, 'logs'],
+  [PANEL_IDS.NOTES]: [NotebookPen, 'note'],
+  [PANEL_IDS.SEARCH]: [Search, 'search'],
+  [PANEL_IDS.SESSION_LIST]: [List, 'session-list'],
+  [PANEL_IDS.TERMINAL]: [SquareTerminal, 'terminal'],
+  [PANEL_IDS.WELCOME]: [House, 'welcome'],
+};
+
+function WorkspaceTabIcon({
+  component,
+  params,
+}: {
+  component: string;
+  params: WorkspaceTabParams;
+}) {
+  const faviconUrl = params.faviconUrl?.trim() || null;
+  const [failedFaviconUrl, setFailedFaviconUrl] = React.useState<string | null>(
+    null
+  );
+  React.useEffect(() => {
+    setFailedFaviconUrl(null);
+  }, [faviconUrl]);
+  const usableFavicon =
+    component === PANEL_IDS.WEB_PREVIEW &&
+    faviconUrl !== null &&
+    failedFaviconUrl !== faviconUrl;
+
+  if (usableFavicon) {
+    return (
+      <span
+        className="workspace-tab-icon"
+        data-tab-icon="browser-favicon"
+        data-testid="workspace-tab-icon"
+      >
+        <img
+          alt=""
+          data-testid="workspace-tab-favicon"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          src={faviconUrl}
+          onError={() => setFailedFaviconUrl(faviconUrl)}
+        />
+      </span>
+    );
   }
 
-  return `${chars.slice(0, MAX_WORKSPACE_TAB_TITLE_CHARS).join('')}...`;
+  if (component === PANEL_IDS.PREVIEW && params.filePath) {
+    if (params.mode === 'diff') {
+      return (
+        <FileDiff
+          aria-hidden="true"
+          className="workspace-tab-icon"
+          data-tab-icon="diff"
+          data-testid="workspace-tab-icon"
+        />
+      );
+    }
+    return (
+      <span
+        className="workspace-tab-icon"
+        data-tab-icon="file"
+        data-testid="workspace-tab-icon"
+      >
+        <FileIcon filePath={params.filePath} />
+      </span>
+    );
+  }
+
+  const [Icon, iconKind] =
+    component === PANEL_IDS.WEB_PREVIEW
+      ? ([Globe2, 'browser'] as const)
+      : (PANEL_TAB_ICONS[component as PanelId] ?? ([File, 'file'] as const));
+
+  return (
+    <Icon
+      aria-hidden="true"
+      className="workspace-tab-icon"
+      data-tab-icon={iconKind}
+      data-testid="workspace-tab-icon"
+    />
+  );
 }
 
 export function WorkspaceDockviewTab({
   api,
   containerApi: _containerApi,
-  params: _params,
+  params,
   tabLocation: _tabLocation,
   hideClose,
   closeActionOverride,
@@ -91,6 +192,9 @@ export function WorkspaceDockviewTab({
   ...rest
 }: WorkspaceDockviewTabProps) {
   const [title, setTitle] = React.useState(api.title ?? '');
+  const [tabParams, setTabParams] = React.useState<WorkspaceTabParams>(
+    params ?? {}
+  );
   const isMiddleMouseButton = React.useRef(false);
 
   React.useEffect(() => {
@@ -104,6 +208,13 @@ export function WorkspaceDockviewTab({
 
     return () => disposable.dispose();
   }, [api, title]);
+
+  React.useEffect(() => {
+    const disposable = api.onDidParametersChange((nextParams) => {
+      setTabParams(nextParams as WorkspaceTabParams);
+    });
+    return () => disposable.dispose();
+  }, [api]);
 
   const onClose = React.useCallback(
     (event: React.PointerEvent | React.MouseEvent) => {
@@ -122,7 +233,7 @@ export function WorkspaceDockviewTab({
       {...rest}
       data-testid="dockview-dv-default-tab"
       title={title}
-      className="dv-default-tab"
+      className="dv-default-tab workspace-tab-surface"
       onPointerDown={(event) => {
         isMiddleMouseButton.current = event.button === 1;
         onPointerDown?.(event);
@@ -139,9 +250,8 @@ export function WorkspaceDockviewTab({
         onPointerLeave?.(event);
       }}
     >
-      <span className="dv-default-tab-content">
-        {truncateWorkspaceTabTitle(title)}
-      </span>
+      <WorkspaceTabIcon component={api.component} params={tabParams} />
+      <span className="dv-default-tab-content">{title}</span>
       {!hideClose && (
         <div
           className="dv-default-tab-action"

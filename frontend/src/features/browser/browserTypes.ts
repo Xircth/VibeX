@@ -24,6 +24,7 @@ export interface BrowserTab {
   id: BrowserTabId;
   url: string;
   title: string;
+  faviconUrl: string | null;
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;

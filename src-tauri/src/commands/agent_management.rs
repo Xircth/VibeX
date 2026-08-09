@@ -4,7 +4,10 @@ mod tests {
         collections::{BTreeMap, HashMap},
         io::Cursor,
         path::{Path, PathBuf},
-        sync::Arc,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
     use api_types::{
@@ -17,12 +20,13 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::clear_macos_quarantine;
     use super::{
-        ArtifactTrust, LockedInstallSource, MANAGED_UV_VERSION, NativeFileRollback,
-        OperationCancellationRegistry, PlannedDistributionKind, PlannedInstallComponent,
-        ResolvedInstallPlan, agent_process_command, apply_codex_auth_document,
-        apply_config_transition_then, apply_custom_version_override,
-        apply_opencode_provider_connection, bind_profile_runtime_executable,
-        build_launch_environment, cancellable_command_output, codex_provider_config_is_projected,
+        AgentManagementRuntimeState, ArtifactTrust, BuiltInProbeAction, LockedInstallSource,
+        MANAGED_UV_VERSION, NativeFileRollback, OperationCancellationRegistry,
+        PlannedDistributionKind, PlannedInstallComponent, ResolvedInstallPlan,
+        agent_process_command, apply_codex_auth_document, apply_config_transition_then,
+        apply_custom_version_override, apply_opencode_provider_connection,
+        bind_profile_runtime_executable, build_launch_environment, built_in_probe_action,
+        cancellable_command_output, codex_provider_config_is_projected,
         compare_and_set_agent_environment, configure_uv_tool_install_command,
         dependency_version_satisfied, detect_account_login, extract_binary_archive,
         install_locked_plan, managed_install_root, managed_node_artifact, managed_node_executables,
@@ -34,11 +38,84 @@ mod tests {
         project_opencode_provider_connections, reconcile_grok_vibex_configuration,
         reconcile_kimi_vibex_configuration, redact_operation_output,
         remove_opencode_provider_state, resolve_npm_package_executable, resolve_uv_tool_executable,
-        restore_native_file_rollback, safe_archive_executable, sanitize_custom_version,
-        seed_kimi_synthetic_credential, set_opencode_provider_enabled, should_probe_built_in,
-        sync_native_launch_preferences, validate_agent_environment_name,
-        validate_native_config_patch, verify_acp_handshake, write_bytes_document,
+        restore_native_file_rollback, run_agent_management_warmup_once, run_bounded_agent_probes,
+        safe_archive_executable, sanitize_custom_version, seed_kimi_synthetic_credential,
+        set_opencode_provider_enabled, sync_native_launch_preferences,
+        validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
+        write_bytes_document,
     };
+
+    #[tokio::test]
+    async fn startup_management_warmup_is_shared_by_concurrent_readers() {
+        let warmup = AgentManagementRuntimeState::default();
+        let runs = Arc::new(AtomicUsize::new(0));
+
+        let first_runs = runs.clone();
+        let first = run_agent_management_warmup_once(&warmup, async move {
+            first_runs.fetch_add(1, Ordering::SeqCst);
+        });
+        let second_runs = runs.clone();
+        let second = run_agent_management_warmup_once(&warmup, async move {
+            second_runs.fetch_add(1, Ordering::SeqCst);
+        });
+
+        tokio::join!(first, second);
+
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn startup_agent_probes_use_bounded_parallelism() {
+        let (started_tx, mut started_rx) = tokio::sync::mpsc::unbounded_channel();
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let probe_release = release.clone();
+
+        let jobs = (0..6)
+            .map(move |probe_id| {
+                let started_tx = started_tx.clone();
+                let release = probe_release.clone();
+                async move {
+                    started_tx.send(probe_id).unwrap();
+                    let _permit = release.acquire().await.unwrap();
+                }
+            })
+            .collect();
+        let runner = tokio::spawn(run_bounded_agent_probes(jobs, 4));
+
+        for _ in 0..4 {
+            tokio::time::timeout(std::time::Duration::from_secs(1), started_rx.recv())
+                .await
+                .expect("four probes should start concurrently")
+                .expect("probe start channel should remain open");
+        }
+        assert!(started_rx.try_recv().is_err());
+
+        release.add_permits(4);
+        for _ in 0..2 {
+            tokio::time::timeout(std::time::Duration::from_secs(1), started_rx.recv())
+                .await
+                .expect("queued probes should start after capacity is released")
+                .expect("probe start channel should remain open");
+        }
+        release.add_permits(2);
+        runner.await.unwrap();
+    }
+
+    #[test]
+    fn startup_refreshes_existing_installation_evidence() {
+        assert_eq!(
+            built_in_probe_action(true, false),
+            BuiltInProbeAction::RefreshExisting
+        );
+        assert_eq!(
+            built_in_probe_action(true, true),
+            BuiltInProbeAction::KeepExisting
+        );
+        assert_eq!(
+            built_in_probe_action(false, false),
+            BuiltInProbeAction::Discover
+        );
+    }
 
     #[tokio::test]
     async fn agent_process_command_runs_platform_scripts() {
@@ -500,14 +577,14 @@ wire_api = "responses"
         assert!(!preflight_component_is_healthy(&path, Some(&expected)).await);
     }
 
-    #[test]
-    fn manual_preflight_retries_a_previously_attempted_built_in_probe() {
+    #[tokio::test]
+    async fn manual_preflight_retries_a_previously_attempted_built_in_probe() {
         let agent_id = AgentId::parse("codex").unwrap();
-        let mut attempted = std::collections::HashSet::new();
+        let runtime = AgentManagementRuntimeState::default();
 
-        assert!(should_probe_built_in(&mut attempted, &agent_id, false));
-        assert!(!should_probe_built_in(&mut attempted, &agent_id, false));
-        assert!(should_probe_built_in(&mut attempted, &agent_id, true));
+        assert!(runtime.should_probe_built_in(&agent_id, false).await);
+        assert!(!runtime.should_probe_built_in(&agent_id, false).await);
+        assert!(runtime.should_probe_built_in(&agent_id, true).await);
     }
 
     #[test]
@@ -1835,7 +1912,7 @@ use tokio::sync::{Mutex as AsyncMutex, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::state::AppState;
+use crate::state::{AgentManagementRuntimeState, AppState};
 
 const MANAGEMENT_EVENT: &str = "agent-management-event";
 const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
@@ -1844,6 +1921,39 @@ const MANAGED_NODE_VERSION: &str = "22.22.3";
 const MAX_MANAGED_NODE_BYTES: usize = 128 * 1024 * 1024;
 const MANAGED_UV_VERSION: &str = "0.8.10";
 const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
+const MAX_CONCURRENT_EXTERNAL_AGENT_PROBES: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltInProbeAction {
+    Discover,
+    RefreshExisting,
+    KeepExisting,
+}
+
+fn built_in_probe_action(installed: bool, force: bool) -> BuiltInProbeAction {
+    match (installed, force) {
+        (false, _) => BuiltInProbeAction::Discover,
+        (true, false) => BuiltInProbeAction::RefreshExisting,
+        (true, true) => BuiltInProbeAction::KeepExisting,
+    }
+}
+
+async fn run_agent_management_warmup_once<Fut>(runtime: &AgentManagementRuntimeState, work: Fut)
+where
+    Fut: std::future::Future<Output = ()>,
+{
+    runtime.run_warmup_once(work).await;
+}
+
+async fn run_bounded_agent_probes<Fut>(jobs: Vec<Fut>, limit: usize)
+where
+    Fut: std::future::Future<Output = ()>,
+{
+    futures::stream::iter(jobs)
+        .buffer_unordered(limit)
+        .collect::<Vec<_>>()
+        .await;
+}
 
 struct ManagedNodeArtifact {
     target: &'static str,
@@ -1982,20 +2092,11 @@ fn managed_uv_executable(app_data_dir: &Path) -> Option<PathBuf> {
 }
 static EVENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static OPERATION_SCHEDULER: OnceLock<OperationScheduler> = OnceLock::new();
-static BUILT_IN_PROBES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
 static CLI_EXPOSURES: OnceLock<AsyncMutex<HashSet<AgentId>>> = OnceLock::new();
 static HOST_INSTANCE_ID: OnceLock<String> = OnceLock::new();
 
 fn agent_process_command(program: impl AsRef<Path>) -> tokio::process::Command {
     utils::process::new_hidden_tokio_command(program, std::iter::empty::<&str>())
-}
-
-fn should_probe_built_in(
-    attempted: &mut HashSet<AgentId>,
-    agent_id: &AgentId,
-    force: bool,
-) -> bool {
-    attempted.insert(agent_id.clone()) || force
 }
 
 fn host_instance_id() -> &'static str {
@@ -2288,38 +2389,58 @@ async fn probe_built_in_external_installations(
         let _ = utils::shell::refresh_process_path_after_install().await;
     }
     let profiles = BuiltInProfileCatalog::bundled();
+    let runtime = app.state::<AppState>().agent_management_runtime.clone();
+    let mut candidates = Vec::new();
     for profile in profiles.profiles() {
-        let should_probe = {
-            let mut attempted = BUILT_IN_PROBES
-                .get_or_init(|| AsyncMutex::new(HashSet::new()))
-                .lock()
-                .await;
-            should_probe_built_in(&mut attempted, &profile.agent_id, force)
-        };
+        let should_probe = runtime
+            .should_probe_built_in(&profile.agent_id, force)
+            .await;
         if !should_probe {
             continue;
         }
-        let installed = sqlx::query_scalar::<_, bool>(
-            r#"SELECT EXISTS(
-                 SELECT 1 FROM agent_installation
-                 WHERE agent_id = ? AND current_lock_id IS NOT NULL
-               )"#,
-        )
-        .bind(profile.agent_id.as_str())
-        .fetch_one(pool)
-        .await
-        .unwrap_or(false);
-        if installed {
-            continue;
-        }
-        if let Err(error) = probe_one_built_in_external_installation(app, pool, profile).await {
-            tracing::debug!(
-                agent_id = %profile.agent_id,
-                %error,
-                "built-in external Agent candidate was not adopted"
-            );
-        }
+        candidates.push(profile.clone());
     }
+    let jobs = candidates
+        .into_iter()
+        .map(|profile| async move {
+            let installed = sqlx::query_scalar::<_, bool>(
+                r#"SELECT EXISTS(
+                     SELECT 1 FROM agent_installation
+                     WHERE agent_id = ? AND current_lock_id IS NOT NULL
+                   )"#,
+            )
+            .bind(profile.agent_id.as_str())
+            .fetch_one(pool)
+            .await
+            .unwrap_or(false);
+            match built_in_probe_action(installed, force) {
+                BuiltInProbeAction::Discover => {
+                    if let Err(error) =
+                        probe_one_built_in_external_installation(app, pool, &profile).await
+                    {
+                        tracing::debug!(
+                            agent_id = %profile.agent_id,
+                            %error,
+                            "built-in external Agent candidate was not adopted"
+                        );
+                    }
+                }
+                BuiltInProbeAction::RefreshExisting => {
+                    if let Err(error) =
+                        record_post_install_probe(app, pool, &profile.agent_id).await
+                    {
+                        tracing::debug!(
+                            agent_id = %profile.agent_id,
+                            %error,
+                            "built-in external Agent startup evidence refresh failed"
+                        );
+                    }
+                }
+                BuiltInProbeAction::KeepExisting => {}
+            }
+        })
+        .collect();
+    run_bounded_agent_probes(jobs, MAX_CONCURRENT_EXTERNAL_AGENT_PROBES).await;
 }
 
 async fn refresh_agent_management_evidence(
@@ -2438,13 +2559,28 @@ async fn revalidate_recoverable_external_installations(app: &AppHandle, pool: &s
     }
 }
 
-pub(crate) async fn warm_agent_management(app: &AppHandle, pool: &sqlx::SqlitePool) {
-    if let Err(error) = refresh_agent_management_evidence(app, pool, false).await {
-        tracing::warn!(
-            message = %error.message,
-            "Agent management startup warmup failed"
-        );
-    }
+async fn ensure_agent_management_warmup(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    runtime: &AgentManagementRuntimeState,
+) {
+    run_agent_management_warmup_once(runtime, async {
+        if let Err(error) = refresh_agent_management_evidence(app, pool, false).await {
+            tracing::warn!(
+                message = %error.message,
+                "Agent management startup warmup failed"
+            );
+        }
+    })
+    .await;
+}
+
+pub(crate) async fn warm_agent_management(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    runtime: &AgentManagementRuntimeState,
+) {
+    ensure_agent_management_warmup(app, pool, runtime).await;
     if let Err(error) = app.emit(MANAGEMENT_INVALIDATED_EVENT, ()) {
         tracing::warn!(%error, "failed to emit Agent management snapshot invalidation");
     }
@@ -2807,8 +2943,15 @@ fn emit_operation(
 
 #[tauri::command]
 pub async fn agent_management_bar(
+    app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
+    ensure_agent_management_warmup(
+        &app,
+        &state.deployment.db().pool,
+        &state.agent_management_runtime,
+    )
+    .await;
     AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await

@@ -52,7 +52,7 @@ function registry(
 }
 
 describe('onboarding Agent model', () => {
-  it('puts the four recommended Agents first in product order', () => {
+  it('puts installed Agents first and preserves product order within each group', () => {
     const options = buildOnboardingAgentOptions(
       [
         managed({
@@ -65,7 +65,11 @@ describe('onboarding Agent model', () => {
           runtime_version: '0.146.0',
           lifecycle: 'needs_repair',
         }),
-        managed({ agent_id: 'opencode', display_name: 'OpenCode' }),
+        managed({
+          agent_id: 'opencode',
+          display_name: 'OpenCode',
+          lifecycle: 'needs_auth',
+        }),
         managed({ agent_id: 'pi', display_name: 'Pi' }),
       ],
       [
@@ -80,23 +84,25 @@ describe('onboarding Agent model', () => {
     );
 
     expect(options.map((option) => option.agentId)).toEqual([
-      'claude_code',
       'codex',
       'opencode',
-      'pi',
       'kimi',
+      'claude_code',
+      'pi',
       'cursor',
     ]);
     expect(options[0]).toMatchObject({
       recommended: true,
-      runtimeInstalled: false,
+      runtimeInstalled: true,
       needsInstallation: true,
       builtIn: true,
     });
-    expect(options.slice(0, 4).every((option) => option.recommended)).toBe(
+    expect(options.slice(0, 3).every((option) => option.runtimeInstalled)).toBe(
       true
     );
-    expect(options.slice(4).every((option) => !option.recommended)).toBe(true);
+    expect(options.slice(3).every((option) => !option.runtimeInstalled)).toBe(
+      true
+    );
   });
 
   it('keeps the default Agent enabled and chooses a new default when it is disabled', () => {

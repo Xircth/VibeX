@@ -1,14 +1,19 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
+  type FocusEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   AtSign,
@@ -16,6 +21,7 @@ import {
   Hash,
   Image,
   Loader2,
+  MousePointer2,
   Puzzle,
   Sparkles,
   X,
@@ -36,6 +42,7 @@ import type { BadgeVariant } from '@astryxdesign/core/Badge';
 import { AgentIcon } from '@/components/agents/AgentIcon';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
+import { usePortalContainer } from '@/contexts/PortalContainerContext';
 import { useSlashCommands } from '@/hooks/useSlashCommands';
 import {
   fileTreeApi,
@@ -351,6 +358,184 @@ function getTokenFromInsertText(
   return segment?.kind === 'token' ? segment.token : null;
 }
 
+type PreviewElementTokenDetails = {
+  dom?: string;
+  selector?: string;
+  source?: string;
+  html?: string;
+};
+
+function parsePreviewElementTokenDetails(
+  token: SessionComposerStructuredToken
+): PreviewElementTokenDetails {
+  const context = token.value;
+  const dom = context.match(/^- DOM:\s*(.+)$/m)?.[1]?.trim();
+  const selector = context
+    .match(/^- Selector:\s*(.+)$/m)?.[1]
+    ?.trim()
+    .replace(/^`|`$/g, '');
+  const source = context
+    .match(/^- Selected start:.*?\((?:`([^`]+)`|([^\n)]+))\)$/m)
+    ?.slice(1)
+    .find(Boolean)
+    ?.trim();
+  const html = context
+    .match(/^- Element source:\s*\n```html\s*\n([\s\S]*?)\n```/m)?.[1]
+    ?.trim();
+
+  return { dom, selector, source, html };
+}
+
+function getElementTokenFromEventTarget(
+  target: EventTarget | null
+): HTMLElement | null {
+  return target instanceof Element
+    ? target.closest<HTMLElement>(
+        '[data-astryx-token][data-token-kind="element"]'
+      )
+    : null;
+}
+
+function getStructuredElementToken(
+  element: HTMLElement
+): SessionComposerStructuredToken | null {
+  const raw = element.dataset.astryxTokenValue;
+  if (!raw) return null;
+  const token = getTokenFromInsertText(raw);
+  return token?.kind === 'element' ? token : null;
+}
+
+function PreviewElementTokenTooltip({
+  anchor,
+  id,
+  token,
+}: {
+  anchor: HTMLElement;
+  id: string;
+  token: SessionComposerStructuredToken;
+}) {
+  const { t } = useTranslation('tasks');
+  const portalContainer = usePortalContainer();
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const [position, setPosition] = useState<CSSProperties>({
+    left: 0,
+    top: 0,
+    visibility: 'hidden',
+  });
+  const details = useMemo(
+    () => parsePreviewElementTokenDetails(token),
+    [token]
+  );
+
+  useLayoutEffect(() => {
+    const updatePosition = () => {
+      const tooltip = tooltipRef.current;
+      if (!tooltip || !anchor.isConnected) return;
+
+      const anchorRect = anchor.getBoundingClientRect();
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = document.documentElement.clientHeight;
+      const margin = 8;
+      const gap = 7;
+      const width = tooltipRect.width || 320;
+      const height = tooltipRect.height || 160;
+      const centeredLeft = anchorRect.left + anchorRect.width / 2 - width / 2;
+      const left = Math.min(
+        Math.max(margin, centeredLeft),
+        Math.max(margin, viewportWidth - width - margin)
+      );
+      const preferredTop = anchorRect.top - height - gap;
+      const top =
+        preferredTop >= margin
+          ? preferredTop
+          : Math.min(
+              anchorRect.bottom + gap,
+              Math.max(margin, viewportHeight - height - margin)
+            );
+
+      setPosition({ left, top, visibility: 'visible' });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchor]);
+
+  const content = (
+    <div
+      ref={tooltipRef}
+      id={id}
+      role="tooltip"
+      className="pointer-events-none fixed z-50 w-[min(22rem,calc(100vw-1rem))] rounded-lg bg-[var(--surface-glass-solid)] p-3 text-xs text-foreground shadow-[var(--shadow-card)] ring-1 ring-[var(--border-strong)]"
+      style={position}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--primary)/0.12)] text-primary">
+          <MousePointer2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate font-medium text-foreground">
+            {token.label}
+          </span>
+          <span className="block text-[11px] text-muted-foreground">
+            {t('composer.elementToken.type')}
+          </span>
+        </span>
+      </div>
+
+      <dl className="mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1.5">
+        {details.dom ? (
+          <>
+            <dt className="text-muted-foreground">DOM</dt>
+            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+              {details.dom}
+            </dd>
+          </>
+        ) : null}
+        {details.source ? (
+          <>
+            <dt className="text-muted-foreground">
+              {t('composer.elementToken.source')}
+            </dt>
+            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+              {details.source}
+            </dd>
+          </>
+        ) : null}
+        {details.selector ? (
+          <>
+            <dt className="text-muted-foreground">
+              {t('composer.elementToken.selector')}
+            </dt>
+            <dd className="min-w-0 truncate font-mono text-[11px] text-foreground">
+              {details.selector}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+
+      {details.html ? (
+        <div className="mt-2.5 border-t border-border/60 pt-2">
+          <div className="mb-1 text-[11px] text-muted-foreground">
+            {t('composer.elementToken.html')}
+          </div>
+          <pre className="max-h-20 overflow-hidden whitespace-pre-wrap break-all rounded-md bg-[var(--surface-control)] px-2 py-1.5 font-mono text-[11px] leading-4 text-foreground">
+            {details.html.slice(0, 600)}
+            {details.html.length > 600 ? '…' : ''}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return createPortal(content, portalContainer ?? document.body);
+}
+
 function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
   const data = item.auxiliaryData as ComposerSearchItemData | undefined;
   const kind = data?.kind ?? 'file';
@@ -411,6 +596,20 @@ function fileReferenceTokenText(relativePath: string): string {
   });
 }
 
+function decorateStructuredTokenElement(
+  element: HTMLElement,
+  token: SessionComposerStructuredToken
+) {
+  element.dataset.tokenKind = token.kind;
+  if (token.kind === 'element') {
+    element.dataset.previewElementToken = '';
+    element.tabIndex = 0;
+  } else {
+    delete element.dataset.previewElementToken;
+    element.removeAttribute('tabindex');
+  }
+}
+
 function restoreStructuredTokens(
   composerRoot: HTMLDivElement,
   value: string
@@ -434,6 +633,9 @@ function restoreStructuredTokens(
         element.dataset.astryxTokenValue === tokenSegments[index].token.raw
     )
   ) {
+    existingTokens.forEach((element, index) => {
+      decorateStructuredTokenElement(element, tokenSegments[index].token);
+    });
     return;
   }
 
@@ -449,9 +651,9 @@ function restoreStructuredTokens(
     token.setAttribute('data-astryx-token', '');
     token.setAttribute('data-astryx-token-value', segment.token.raw);
     token.setAttribute('data-astryx-restored-token', '');
-    token.setAttribute('data-token-kind', segment.token.kind);
     token.contentEditable = 'false';
     token.textContent = segment.token.label;
+    decorateStructuredTokenElement(token, segment.token);
     fragment.append(token);
   }
   editor.replaceChildren(fragment);
@@ -577,6 +779,11 @@ export function SessionComposerInput({
   const composerHandleRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRootRef = useRef<HTMLDivElement | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
+  const elementTokenTooltipId = useId();
+  const [activeElementToken, setActiveElementToken] = useState<{
+    anchor: HTMLElement;
+    token: SessionComposerStructuredToken;
+  } | null>(null);
   const agentMentions = useAgentMentions();
   const executor = executorProfile?.executor ?? null;
   const effectiveRepoIds = useMemo(() => {
@@ -586,11 +793,95 @@ export function SessionComposerInput({
   }, [repoId, repoIds]);
   const primaryRepoId = effectiveRepoIds[0] ?? null;
 
+  const showElementTokenDetails = useCallback((target: EventTarget | null) => {
+    const anchor = getElementTokenFromEventTarget(target);
+    if (!anchor) return;
+    const token = getStructuredElementToken(anchor);
+    if (!token) return;
+    setActiveElementToken((current) =>
+      current?.anchor === anchor ? current : { anchor, token }
+    );
+  }, []);
+
+  const hideElementTokenDetails = useCallback((anchor: HTMLElement) => {
+    setActiveElementToken((current) =>
+      current?.anchor === anchor ? null : current
+    );
+  }, []);
+
+  const handleElementTokenPointerOver = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      showElementTokenDetails(event.target);
+    },
+    [showElementTokenDetails]
+  );
+
+  const handleElementTokenPointerOut = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const anchor = getElementTokenFromEventTarget(event.target);
+      if (!anchor) return;
+      if (
+        event.relatedTarget instanceof Node &&
+        anchor.contains(event.relatedTarget)
+      ) {
+        return;
+      }
+      hideElementTokenDetails(anchor);
+    },
+    [hideElementTokenDetails]
+  );
+
+  const handleElementTokenFocus = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      showElementTokenDetails(event.target);
+    },
+    [showElementTokenDetails]
+  );
+
+  const handleElementTokenBlur = useCallback(
+    (event: FocusEvent<HTMLDivElement>) => {
+      const anchor = getElementTokenFromEventTarget(event.target);
+      if (anchor) hideElementTokenDetails(anchor);
+    },
+    [hideElementTokenDetails]
+  );
+
   useEffect(() => {
     if (composerRootRef.current) {
       restoreStructuredTokens(composerRootRef.current, value);
     }
   }, [value]);
+
+  useEffect(() => {
+    const anchor = activeElementToken?.anchor;
+    if (!anchor) return undefined;
+
+    const previousDescription = anchor.getAttribute('aria-describedby');
+    const descriptionIds = new Set(
+      previousDescription?.split(/\s+/).filter(Boolean) ?? []
+    );
+    descriptionIds.add(elementTokenTooltipId);
+    anchor.setAttribute(
+      'aria-describedby',
+      Array.from(descriptionIds).join(' ')
+    );
+
+    return () => {
+      const remainingIds = new Set(
+        anchor.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ??
+          []
+      );
+      remainingIds.delete(elementTokenTooltipId);
+      if (remainingIds.size > 0) {
+        anchor.setAttribute(
+          'aria-describedby',
+          Array.from(remainingIds).join(' ')
+        );
+      } else {
+        anchor.removeAttribute('aria-describedby');
+      }
+    };
+  }, [activeElementToken, elementTokenTooltipId]);
 
   useLayoutEffect(() => {
     const composerRoot = composerRootRef.current;
@@ -1016,6 +1307,10 @@ export function SessionComposerInput({
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
+        onPointerOver={handleElementTokenPointerOver}
+        onPointerOut={handleElementTokenPointerOut}
+        onFocusCapture={handleElementTokenFocus}
+        onBlurCapture={handleElementTokenBlur}
       >
         <ChatComposerInput
           ref={composerRootRef}
@@ -1048,6 +1343,13 @@ export function SessionComposerInput({
           }}
           data-testid="session-composer-editor"
         />
+        {activeElementToken ? (
+          <PreviewElementTokenTooltip
+            anchor={activeElementToken.anchor}
+            id={elementTokenTooltipId}
+            token={activeElementToken.token}
+          />
+        ) : null}
       </div>
     </div>
   );

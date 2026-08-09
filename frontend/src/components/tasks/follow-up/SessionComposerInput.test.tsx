@@ -1,9 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SessionComposerInput } from './SessionComposerInput';
+import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
 
@@ -95,6 +102,57 @@ describe('SessionComposerInput (Astryx)', () => {
       );
       expect(token).toHaveTextContent('App.tsx');
     });
+  });
+
+  it('shows Web Preview element details when its token is hovered', async () => {
+    const elementContext = [
+      'From preview click:',
+      '- DOM: button#save.primary@button',
+      '- Selector: `button#save`',
+      '- Selected start: SaveButton (`src/App.tsx:12:3`)',
+      '- Element source:',
+      '```html',
+      '<button id="save" class="primary">Save</button>',
+      '```',
+    ].join('\n');
+    const elementToken = formatSessionComposerCommand({
+      type: '@',
+      key: 'SaveButton',
+      value: elementContext,
+    });
+    renderComposerInput({ value: `Fix ${elementToken}` });
+
+    const editor = getEditor();
+    const token = await waitFor(() => {
+      const restoredToken = editor.querySelector<HTMLElement>(
+        '[data-token-kind="element"]'
+      );
+      expect(restoredToken).not.toBeNull();
+      return restoredToken!;
+    });
+
+    fireEvent.pointerOver(token);
+
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent('SaveButton');
+    expect(tooltip).toHaveTextContent('button#save.primary@button');
+    expect(tooltip).toHaveTextContent('src/App.tsx:12:3');
+    expect(tooltip).toHaveTextContent('button#save');
+    expect(tooltip).toHaveTextContent(
+      '<button id="save" class="primary">Save</button>'
+    );
+
+    fireEvent.pointerOut(token);
+    await waitFor(() => {
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      token.focus();
+    });
+    expect(token).toHaveFocus();
+    expect(token).toHaveAttribute('tabindex', '0');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('SaveButton');
   });
 
   it('reports contenteditable text changes as Text content', async () => {

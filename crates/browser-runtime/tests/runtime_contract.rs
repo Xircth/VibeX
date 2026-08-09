@@ -255,6 +255,54 @@ fn closing_a_tab_closes_chromium_before_removing_runtime_state() {
 }
 
 #[test]
+fn favicon_changes_update_the_existing_tab_and_emit_once() {
+    let runtime = BrowserRuntime::new(RecordingEngine::default());
+    let mut events = runtime.subscribe();
+    let tab = runtime
+        .create_tab(CreateBrowserTab {
+            initial_url: "https://example.com".to_string(),
+            profile: BrowserProfile::Global,
+            surface: BrowserSurface {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+                scale_factor: 1.0,
+                visible: true,
+            },
+        })
+        .expect("tab should be created");
+    events.try_recv().expect("initial event");
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::FaviconChanged {
+            tab_id: tab.id.clone(),
+            favicon_url: Some("https://example.com/favicon.ico".to_string()),
+        })
+        .expect("favicon change should be accepted");
+
+    let BrowserEvent::TabUpdated { tab: updated } = events.try_recv().expect("tab-updated event")
+    else {
+        panic!("expected tab-updated event");
+    };
+    assert_eq!(
+        updated.favicon_url.as_deref(),
+        Some("https://example.com/favicon.ico")
+    );
+
+    runtime
+        .apply_engine_event(BrowserEngineEvent::FaviconChanged {
+            tab_id: updated.id,
+            favicon_url: Some("https://example.com/favicon.ico".to_string()),
+        })
+        .expect("duplicate favicon change should be ignored");
+    assert!(
+        events.try_recv().is_err(),
+        "duplicate event should not emit"
+    );
+}
+
+#[test]
 fn focus_and_devtools_intents_target_the_native_browser() {
     let engine = RecordingEngine::default();
     let runtime = BrowserRuntime::new(engine.clone());

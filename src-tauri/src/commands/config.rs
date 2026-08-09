@@ -315,6 +315,7 @@ pub async fn clear_local_app_data(
     state.file_tree_watchers.lock().await.clear();
     state.conversation_streams.lock().await.clear();
     state.local_usage_cache.lock().await.clear();
+    state.agent_management_runtime.reset().await;
     *state.desktop_toast_state.lock().await = Default::default();
 
     Ok(ClearLocalDataResponse {

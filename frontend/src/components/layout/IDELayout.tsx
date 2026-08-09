@@ -28,6 +28,7 @@ import {
   WorkspaceDockviewTab,
   panelComponents,
 } from '@/components/layout/panels/PanelRegistry';
+import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
   EDITOR_GROUP_PREFIX,
@@ -43,6 +44,7 @@ import {
   type SessionPanelPlacement,
 } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
+import { WorkspaceOverlayProvider } from '@/contexts/WorkspaceOverlayContext';
 import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
@@ -81,7 +83,7 @@ import {
   LEFT_PANEL_IDS,
   SESSION_PANEL_IDS,
 } from '@/utils/dockviewGroupPolicy';
-import DOCKVIEW_AYU_CSS from '@/styles/dockview-ayu.css?raw';
+import '@/styles/dockview-ayu.css';
 import {
   defaultSessionPanelWidth,
   layoutDockviewPreservingGroupWidths,
@@ -1185,7 +1187,6 @@ export function IDELayout({
     }),
     [effectiveActiveTab, rightPanelContent, sessionContentHost]
   );
-
   useEffect(() => {
     const root = dockviewRootRef.current;
     if (!root) return;
@@ -1246,20 +1247,6 @@ export function IDELayout({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [tabContextMenu]);
-
-  useEffect(() => {
-    const styleId = 'dockview-ayu-overrides';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = DOCKVIEW_AYU_CSS;
-    document.head.appendChild(style);
-
-    return () => {
-      style.remove();
-    };
-  }, []);
 
   useWorkspaceShortcuts();
 
@@ -1329,60 +1316,65 @@ export function IDELayout({
         ) : null}
 
         <RightPanelSlotContext.Provider value={sessionPlacement}>
-          <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
-            <div className="h-full">
-              <DockviewReact
-                components={panelComponents}
-                defaultTabComponent={WorkspaceDockviewTab}
-                onReady={handleReady}
-                className="dockview-theme-light dockview-theme-ayu"
-                disableAutoResizing={true}
-                disableFloatingGroups={true}
-              />
-            </div>
+          <WorkspaceOverlayProvider
+            nativeSurfaceOccluded={tabContextMenu !== null}
+          >
+            <div className="relative flex-1 min-w-0" ref={dockviewRootRef}>
+              <div className="h-full">
+                <DockviewReact
+                  components={panelComponents}
+                  defaultTabComponent={WorkspaceDockviewTab}
+                  leftHeaderActionsComponent={WorkspaceTabAddMenu}
+                  onReady={handleReady}
+                  className="dockview-theme-light dockview-theme-ayu"
+                  disableAutoResizing={true}
+                  disableFloatingGroups={true}
+                />
+              </div>
 
-            {effectiveActiveTab === 'kanban' && (
-              <div className="kanban-overlay absolute inset-0 z-10">
-                <Suspense
-                  fallback={
-                    <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
-                      <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
-                        <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                        <span>Loading Kanban...</span>
+              {effectiveActiveTab === 'kanban' && (
+                <div className="kanban-overlay absolute inset-0 z-10">
+                  <Suspense
+                    fallback={
+                      <div className="kanban-loading-state flex h-full w-full items-center justify-center p-6 text-sm">
+                        <div className="workspace-loading-panel flex items-center gap-3 px-4 py-3">
+                          <div className="h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                          <span>Loading Kanban...</span>
+                        </div>
                       </div>
-                    </div>
-                  }
-                >
-                  <LazyKanbanBoard />
-                </Suspense>
-              </div>
-            )}
-
-            {tabContextMenu && (
-              <div
-                ref={tabContextMenuRef}
-                className="fixed z-50 min-w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
-                style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
-              >
-                <div className="px-2 py-1 text-xs text-muted-foreground">
-                  {tabContextMenu.title}
+                    }
+                  >
+                    <LazyKanbanBoard />
+                  </Suspense>
                 </div>
-                <button
-                  type="button"
-                  className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={
-                    !canOpenPanelInNewEditorGroup(tabContextMenu.panelId)
-                  }
-                  onClick={() => {
-                    openPanelInNewEditorGroup(tabContextMenu.panelId);
-                    setTabContextMenu(null);
-                  }}
+              )}
+
+              {tabContextMenu && (
+                <div
+                  ref={tabContextMenuRef}
+                  className="fixed z-50 min-w-56 rounded-md border border-border bg-popover p-1 shadow-lg"
+                  style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
                 >
-                  {t('ideLayout.openInNewEditorGroup')}
-                </button>
-              </div>
-            )}
-          </div>
+                  <div className="px-2 py-1 text-xs text-muted-foreground">
+                    {tabContextMenu.title}
+                  </div>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={
+                      !canOpenPanelInNewEditorGroup(tabContextMenu.panelId)
+                    }
+                    onClick={() => {
+                      openPanelInNewEditorGroup(tabContextMenu.panelId);
+                      setTabContextMenu(null);
+                    }}
+                  >
+                    {t('ideLayout.openInNewEditorGroup')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </WorkspaceOverlayProvider>
         </RightPanelSlotContext.Provider>
       </div>
 

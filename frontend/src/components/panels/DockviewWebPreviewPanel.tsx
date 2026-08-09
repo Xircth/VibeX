@@ -6,6 +6,7 @@ import {
 } from '@/contexts/ExecutionProcessesContext';
 import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
 import { BrowserPanel } from '@/features/browser/BrowserPanel';
@@ -32,6 +33,7 @@ function WorkspaceBrowserPanel({
   workspaceId,
 }: WorkspaceBrowserPanelProps) {
   const { addElement } = useClickedElements();
+  const panelActions = useOptionalPanelActionsContext();
   const { executionProcessesVisible } = useExecutionProcessesContext();
   const primaryDevServer = executionProcessesVisible
     .filter(
@@ -49,6 +51,15 @@ function WorkspaceBrowserPanel({
     },
     [api]
   );
+  const updateFavicon = useCallback(
+    (faviconUrl: string | null) => {
+      api.updateParameters({
+        ...api.getParameters<WebPreviewPanelParams>(),
+        faviconUrl,
+      });
+    },
+    [api]
+  );
 
   return (
     <BrowserPanel
@@ -58,7 +69,9 @@ function WorkspaceBrowserPanel({
       visible={visible}
       layoutVersion={layoutVersion}
       onTitleChange={updateTitle}
+      onFaviconChange={updateFavicon}
       onInspectElement={addElement}
+      onOpenExternalTab={panelActions?.openWebPreview}
     />
   );
 }
@@ -78,14 +91,14 @@ export default function DockviewWebPreviewPanel(props: IDockviewPanelProps) {
   }));
 
   useEffect(() => {
-    const syncLayout = (nextVisible = props.api.isVisible) => {
+    const syncLayout = (next: { visible?: boolean } = {}) => {
       setLayoutState((current) => ({
         version: current.version + 1,
-        visible: nextVisible,
+        visible: next.visible ?? current.visible,
       }));
     };
     const visibility = props.api.onDidVisibilityChange((event) => {
-      syncLayout(event.isVisible);
+      syncLayout({ visible: event.isVisible });
     });
     const dimensions = props.api.onDidDimensionsChange(() => syncLayout());
     const active = props.api.onDidActiveChange(() => syncLayout());

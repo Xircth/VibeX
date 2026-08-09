@@ -62,6 +62,12 @@ pub async fn resolve_executable_path(executable: &str) -> Option<PathBuf> {
         return Some(found);
     }
 
+    if let Some(home) = dirs::home_dir()
+        && let Some(found) = find_executable_in_user_bin(executable, &home)
+    {
+        return Some(found);
+    }
+
     // A desktop process is commonly launched with a smaller PATH than an
     // interactive shell. Refresh it once for the whole process, rather than
     // paying for several login-shell subprocesses for every missing command
@@ -150,6 +156,17 @@ async fn which(executable: &str) -> Option<PathBuf> {
         .await
         .ok()
         .and_then(|result| result.ok())
+}
+
+#[cfg(unix)]
+fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf> {
+    let search_path = join_paths([home.join(".local/bin"), home.join(".cargo/bin")]).ok()?;
+    which::which_in(executable, Some(search_path), home).ok()
+}
+
+#[cfg(not(unix))]
+fn find_executable_in_user_bin(_executable: &str, _home: &Path) -> Option<PathBuf> {
+    None
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -369,4 +386,28 @@ fn get_fresh_path_blocking() -> Option<String> {
         .into_iter()
         .reduce(|a, b| merge_paths(&a, &b))
         .map(|merged| merged.to_string_lossy().into_owned())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::find_executable_in_user_bin;
+
+    #[test]
+    fn resolves_vibex_stable_user_command_without_a_login_shell() {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("codex");
+        std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+
+        assert_eq!(
+            find_executable_in_user_bin("codex", home.path()),
+            Some(executable)
+        );
+    }
 }

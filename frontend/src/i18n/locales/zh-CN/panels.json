@@ -47,6 +47,17 @@
     "collapse": "收起",
     "filesCount": "{{count}} 个文件"
   },
+  "webPreviewPanel": {
+    "emptyTitle": "开始浏览",
+    "emptyDescription": "输入 URL 以打开页面"
+  },
+  "tabCreation": {
+    "newTab": "新建标签页",
+    "browser": "浏览器",
+    "review": "审阅",
+    "note": "笔记",
+    "terminal": "终端"
+  },
   "kanbanPanel": {
     "backToBoard": "返回看板",
     "backToSessionHub": "返回会话中心",

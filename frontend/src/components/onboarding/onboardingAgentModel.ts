@@ -61,7 +61,8 @@ export function buildOnboardingAgentOptions(
       const registry = registryById.get(agentId);
       const lifecycle = managed?.lifecycle ?? 'uninstalled';
       const runtimeInstalled = Boolean(
-        managed?.runtime_version ||
+        managed?.local_runtime ||
+          managed?.runtime_version ||
           registry?.installed ||
           COMPLETE_INSTALLATION_STATES.has(lifecycle)
       );

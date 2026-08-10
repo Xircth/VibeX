@@ -1849,7 +1849,7 @@ export type AgentManagementErrorCode = "not_found" | "invalid_state" | "busy" | 
 
 export type AgentManagementErrorView = { code: AgentManagementErrorCode, message: string, agent_id: AgentId | null, preflight_item_id: string | null, };
 
-export type AgentManagementView = { agent_id: AgentId, display_name: string, description: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, source: AgentSource, built_in: boolean, retired: boolean, enabled: boolean, position: number, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, runtime_version: string | null, acp_version: string | null, active_operation: AgentOperationKind | null, rollback_available: boolean, settings_features?: Array<AgentSettingsFeature>, };
+export type AgentManagementView = { agent_id: AgentId, display_name: string, description: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, source: AgentSource, built_in: boolean, retired: boolean, enabled: boolean, position: number, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, runtime_version: string | null, acp_version: string | null, local_runtime?: AgentLocalRuntimeView, active_operation: AgentOperationKind | null, rollback_available: boolean, settings_features?: Array<AgentSettingsFeature>, };
 
 export type AgentNativeConfigFieldView = { id: string, label: string, description: string, kind: AgentNativeConfigFieldKind, options: Array<AgentNativeConfigOptionView>, secret: boolean, path: string, present: boolean, value: string | null, masked_value: string | null, revision: string, };
 
@@ -2054,3 +2054,5 @@ export type PlanUsageWindow = {
  * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`.
  */
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
+
+export type AgentLocalRuntimeView = { path: string, version: string | null, };

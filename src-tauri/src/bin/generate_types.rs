@@ -43,10 +43,10 @@ use api_types::{
     AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
     AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
     AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView, AgentId,
-    AgentKind, AgentLifecycleState, AgentManagementActionKind, AgentManagementActionReceipt,
-    AgentManagementActionView, AgentManagementActionsView, AgentManagementErrorCode,
-    AgentManagementErrorView, AgentManagementIdentity, AgentManagementView,
-    AgentModelCatalogItemView, AgentModelCatalogSource, AgentModelCatalogView,
+    AgentKind, AgentLifecycleState, AgentLocalRuntimeView, AgentManagementActionKind,
+    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
+    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementIdentity,
+    AgentManagementView, AgentModelCatalogItemView, AgentModelCatalogSource, AgentModelCatalogView,
     AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
     AgentNativeConfigFieldKind, AgentNativeConfigFieldView, AgentNativeConfigFileView,
     AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat, AgentNativeConfigOptionView,
@@ -318,6 +318,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentManagementIdentity>(&mut decls);
     insert_declaration::<AgentOperationKind>(&mut decls);
     insert_declaration::<AgentOperationStatus>(&mut decls);
+    insert_declaration::<AgentLocalRuntimeView>(&mut decls);
     insert_declaration::<AgentManagementView>(&mut decls);
     insert_declaration::<AgentRegistryViewRow>(&mut decls);
     insert_declaration::<AgentRegistryView>(&mut decls);

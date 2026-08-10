@@ -30,7 +30,7 @@ VibeX 将 Claude Code、Codex、OpenCode、Pi 与 ACP Registry Agent 接入同�
 项目围绕三个核心目标构建：接入更多 Agent、隔离并行任务、集中完成开发交付。开发者可以在一个应用中组织会话、创建 worktree、委派子任务、检查代码，并使用浏览器、Git、终端和会话看板持续推进工作。
 
 > [!IMPORTANT]
-> **本地运行与隐私**：VibeX 是纯本地的 Agent 托管应用，不设置 VibeX 云端数据托管，也不会自动将项目、会话、配置或诊断数据上传到 VibeX 服务器。
+> **本地运行与隐私**：VibeX 是本地优先的 Agent 托管应用，不运营 VibeX 云端数据托管，也不会自动将项目、会话、配置或诊断数据上传到 VibeX 运营的服务。用户显式让远程客户端连接自己控制的桌面或 Headless Host 时，所选远程流程需要的数据会传输到该 Host。
 >
 > **测试阶段提示**：VibeX 正处于测试阶段。请谨慎管理个人项目资料，使用版本控制并做好备份，在提交、同步或合并前检查 Agent 产生的变更。
 >
@@ -71,8 +71,19 @@ Agent 通过 [Agent Client Protocol（ACP）](https://agentclientprotocol.com/) 
 | **集成终端**               | 管理多个终端会话，运行开发服务器、测试和项目脚本。                                                  |
 | **MCP、Skills 与 Plugins** | 管理 Agent 工具、技能和结构化工作流动作，扩展会话能力。                                             |
 | **自动化**                 | 保存 Agent、工作区、分支和动作配置，按计划启动隔离任务并保留运行记录。                              |
-| **消息渠道与远程设备**     | 将会话通知接入外部渠道，并通过授权设备查看或处理受支持的远程流程。                                  |
+| **消息渠道与远程基础**     | 将会话通知接入外部渠道；版本化 Remote Protocol 与 Headless Host 基础支持已测试的远程流程。           |
 | **Office 产物预览**        | 通过托管的 OfficeCLI 能力预览 `.docx`、`.xlsx` 与 `.pptx` 产物。                                    |
+
+### 远程访问状态
+
+VibeX 已有版本化 Remote Protocol、设备配对与撤销、持久会话补放，以及可从源码构建的
+`vibex-server`。一等桌面 Server Profile、官方 Server 容器/独立发行物和 Android 伴随端
+属于已经确认但尚未发布的路线图，不应视为当前发行版功能。详见
+[P0/P1 远程产品化计划](./docs/plans/2026-08-09-remote-productization-p0-p1.md)与
+[当前 Headless 部署说明](./docs/deployment/headless-server.md)。
+
+VibeX 不运营云中继。远程客户端连接用户控制的桌面或 Headless Host；没有 Host 在线时，
+只能使用受支持的只读离线数据。
 
 ## 下载与安装
 
@@ -158,7 +169,7 @@ crates/          会话、自动化、插件、产物与服务模块
 shared/          从 Rust 生成的 TypeScript 类型
 ```
 
-VibeX 使用 Tauri、Rust 和 React 构建。VibeX 管理的应用数据保存在本机，不会自动上传至 VibeX 服务器。所选 Agent、模型服务、MCP、插件、消息渠道与浏览器访问可能连接外部服务，其数据处理与账户策略由对应服务提供方决定。
+VibeX 使用 Tauri、Rust 和 React 构建。VibeX 管理的应用数据保存在用户选择并控制的 Host，不会自动上传到 VibeX 运营的服务。所选 Agent、模型服务、MCP、插件、消息渠道与浏览器访问可能连接外部服务，其数据处理与账户策略由对应服务提供方决定。
 
 `shared/types.ts` 属于生成文件。修改共享 Rust 类型后请运行 `pnpm run generate-types`。
 

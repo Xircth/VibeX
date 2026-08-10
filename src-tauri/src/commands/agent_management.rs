@@ -10,10 +10,12 @@ mod tests {
         },
     };
 
+    use agents::{ProfileComponent, ProfileExternalCandidate};
     use api_types::{
-        AgentId, AgentManagementErrorCode, AgentManagementErrorView, AgentNativeConfigPatchRequest,
-        AgentOperationEvent, AgentOperationKind, AgentOperationStatus, AgentPreflightItemView,
-        OpenCodeProviderConnectRequest, OpenCodeProviderModelRequest,
+        AgentId, AgentLocalRuntimeView, AgentManagementErrorCode, AgentManagementErrorView,
+        AgentNativeConfigPatchRequest, AgentOperationEvent, AgentOperationKind,
+        AgentOperationStatus, AgentPreflightItemView, OpenCodeProviderConnectRequest,
+        OpenCodeProviderModelRequest,
     };
     use sha2::Digest;
 
@@ -32,13 +34,14 @@ mod tests {
         install_locked_plan, managed_install_root, managed_node_artifact, managed_node_executables,
         managed_uv_artifact, managed_uv_executable, managed_uv_version_matches,
         management_command_with_environment, management_error, native_auth_mode_patch,
-        native_config_view, opencode_provider_paths, operation_event, pi_runtime_lock_env,
-        preflight_component_is_healthy, profile_component_distribution_kind,
-        project_agent_environment, project_auth_mode_options, project_codex_auth_mode,
-        project_opencode_provider_connections, reconcile_grok_vibex_configuration,
-        reconcile_kimi_vibex_configuration, redact_operation_output,
-        remove_opencode_provider_state, resolve_npm_package_executable, resolve_uv_tool_executable,
-        restore_native_file_rollback, run_agent_management_warmup_once, run_bounded_agent_probes,
+        native_config_view, npm_executable, opencode_provider_paths, operation_event,
+        pi_runtime_lock_env, preflight_component_is_healthy, probe_local_runtime_candidate,
+        profile_component_distribution_kind, project_agent_environment, project_auth_mode_options,
+        project_codex_auth_mode, project_opencode_provider_connections,
+        reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
+        redact_operation_output, remove_opencode_provider_state, resolve_npm_package_executable,
+        resolve_uv_tool_executable, restore_native_file_rollback, run_agent_management_warmup_once,
+        run_bounded_agent_probes, run_local_runtime_discovery_once, runtime_preflight_facts,
         safe_archive_executable, sanitize_custom_version, seed_kimi_synthetic_credential,
         set_opencode_provider_enabled, sync_native_launch_preferences,
         validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
@@ -62,6 +65,37 @@ mod tests {
         tokio::join!(first, second);
 
         assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn local_runtime_discovery_does_not_wait_for_management_warmup() {
+        let runtime = Arc::new(AgentManagementRuntimeState::default());
+        let warmup_started = Arc::new(tokio::sync::Notify::new());
+        let release_warmup = Arc::new(tokio::sync::Semaphore::new(0));
+
+        let warmup_runtime = runtime.clone();
+        let warmup_started_task = warmup_started.clone();
+        let release_warmup_task = release_warmup.clone();
+        let warmup_local_runtime = runtime.clone();
+        let warmup = tokio::spawn(async move {
+            run_agent_management_warmup_once(&warmup_runtime, async move {
+                run_local_runtime_discovery_once(&warmup_local_runtime, async {}).await;
+                warmup_started_task.notify_one();
+                let _permit = release_warmup_task.acquire().await.unwrap();
+            })
+            .await;
+        });
+        warmup_started.notified().await;
+
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            run_local_runtime_discovery_once(&runtime, async {}),
+        )
+        .await
+        .expect("local Runtime discovery must not share the heavyweight warmup lock");
+
+        release_warmup.add_permits(1);
+        warmup.await.unwrap();
     }
 
     #[tokio::test]
@@ -124,7 +158,7 @@ mod tests {
         #[cfg(windows)]
         let script = {
             let script = temp.path().join("agent probe.cmd");
-            std::fs::write(&script, "@echo off\r\n<nul set /p =ok:%1\r\n").unwrap();
+            std::fs::write(&script, "@echo off\r\n<nul set /p =ok:%1\r\nexit /b 0\r\n").unwrap();
             script
         };
 
@@ -149,6 +183,56 @@ mod tests {
 
         assert!(output.status.success());
         assert_eq!(String::from_utf8_lossy(&output.stdout), "ok:argument");
+    }
+
+    #[tokio::test]
+    async fn local_runtime_discovery_succeeds_without_an_acp_candidate() {
+        let temp = tempfile::tempdir().unwrap();
+
+        #[cfg(windows)]
+        let script = {
+            let script = temp.path().join("detected-runtime.cmd");
+            std::fs::write(&script, "@echo off\r\necho runtime-1.2.3\r\n").unwrap();
+            script
+        };
+
+        #[cfg(unix)]
+        let script = {
+            use std::os::unix::fs::PermissionsExt;
+
+            let script = temp.path().join("detected-runtime");
+            std::fs::write(&script, "#!/bin/sh\nprintf 'runtime-1.2.3'\n").unwrap();
+            let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&script, permissions).unwrap();
+            script
+        };
+
+        let executable = Box::leak(script.to_string_lossy().into_owned().into_boxed_str());
+        let evidence = probe_local_runtime_candidate(&ProfileExternalCandidate {
+            component: ProfileComponent::AgentRuntime,
+            executable,
+            version_args: &["--version"],
+        })
+        .await
+        .expect("the runnable CLI is independent Runtime evidence");
+
+        assert_eq!(evidence.path, std::fs::canonicalize(script).unwrap());
+        assert_eq!(evidence.version.as_deref(), Some("runtime-1.2.3"));
+    }
+
+    #[test]
+    fn settings_runtime_preflight_uses_discovered_cli_without_an_install_lock() {
+        let local_runtime = AgentLocalRuntimeView {
+            path: r"C:\Users\developer\AppData\Roaming\npm\codex.cmd".to_string(),
+            version: Some("codex-cli 0.138.0".to_string()),
+        };
+
+        let facts = runtime_preflight_facts(None, Some(&local_runtime));
+
+        assert!(facts.available);
+        assert_eq!(facts.version.as_deref(), Some("codex-cli 0.138.0"));
+        assert_eq!(facts.path.as_deref(), Some(local_runtime.path.as_str()));
     }
 
     #[tokio::test]
@@ -1332,7 +1416,8 @@ base_url = "https://example.test/v1"
         )
         .await
         .unwrap();
-        tokio::fs::write(bin_dir.join("grok"), b"#!/bin/sh\n")
+        let grok_executable = npm_executable(&bin_dir, "grok");
+        tokio::fs::write(&grok_executable, b"#!/bin/sh\n")
             .await
             .unwrap();
 
@@ -1341,7 +1426,7 @@ base_url = "https://example.test/v1"
                 .await
                 .unwrap();
 
-        assert_eq!(executable, bin_dir.join("grok"));
+        assert_eq!(executable, grok_executable);
     }
 
     #[tokio::test]
@@ -1361,10 +1446,11 @@ base_url = "https://example.test/v1"
         )
         .await
         .unwrap();
-        tokio::fs::write(bin_dir.join("cbc"), b"#!/bin/sh\n")
+        let cbc_executable = npm_executable(&bin_dir, "cbc");
+        tokio::fs::write(&cbc_executable, b"#!/bin/sh\n")
             .await
             .unwrap();
-        tokio::fs::write(bin_dir.join("codebuddy"), b"#!/bin/sh\n")
+        tokio::fs::write(npm_executable(&bin_dir, "codebuddy"), b"#!/bin/sh\n")
             .await
             .unwrap();
 
@@ -1376,7 +1462,7 @@ base_url = "https://example.test/v1"
         .await
         .unwrap();
 
-        assert_eq!(executable, bin_dir.join("cbc"));
+        assert_eq!(executable, cbc_executable);
     }
 
     #[tokio::test]
@@ -1881,9 +1967,9 @@ use api_types::{
     AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
     AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
     AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView, AgentId,
-    AgentLifecycleState, AgentManagementActionKind, AgentManagementActionReceipt,
-    AgentManagementActionView, AgentManagementActionsView, AgentManagementErrorCode,
-    AgentManagementErrorView, AgentManagementView, AgentModelCatalogView,
+    AgentLifecycleState, AgentLocalRuntimeView, AgentManagementActionKind,
+    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
+    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementView, AgentModelCatalogView,
     AgentModelProviderSaveRequest, AgentModelProvidersView, AgentNativeConfigFieldKind,
     AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
     AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
@@ -1912,7 +1998,7 @@ use tokio::sync::{Mutex as AsyncMutex, Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::state::{AgentManagementRuntimeState, AppState};
+use crate::state::{AgentManagementRuntimeState, AppState, LocalRuntimeEvidence};
 
 const MANAGEMENT_EVENT: &str = "agent-management-event";
 const MANAGEMENT_INVALIDATED_EVENT: &str = "agent-management-snapshot-invalidated";
@@ -1922,6 +2008,11 @@ const MAX_MANAGED_NODE_BYTES: usize = 128 * 1024 * 1024;
 const MANAGED_UV_VERSION: &str = "0.8.10";
 const MAX_MANAGED_UV_BYTES: usize = 128 * 1024 * 1024;
 const MAX_CONCURRENT_EXTERNAL_AGENT_PROBES: usize = 4;
+const MAX_CONCURRENT_LOCAL_RUNTIME_PROBES: usize = 12;
+const LOCAL_RUNTIME_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const LOCAL_RUNTIME_DISCOVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+const EXTERNAL_COMPONENT_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const REGISTRY_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltInProbeAction {
@@ -1943,6 +2034,20 @@ where
     Fut: std::future::Future<Output = ()>,
 {
     runtime.run_warmup_once(work).await;
+}
+
+async fn run_local_runtime_discovery_once<Fut>(runtime: &AgentManagementRuntimeState, work: Fut)
+where
+    Fut: std::future::Future<Output = ()>,
+{
+    runtime.run_local_runtime_discovery_once(work).await;
+}
+
+async fn refresh_local_runtime_discovery_once<Fut>(runtime: &AgentManagementRuntimeState, work: Fut)
+where
+    Fut: std::future::Future<Output = ()>,
+{
+    runtime.refresh_local_runtime_discovery(work).await;
 }
 
 async fn run_bounded_agent_probes<Fut>(jobs: Vec<Fut>, limit: usize)
@@ -2380,63 +2485,140 @@ pub(crate) async fn reconcile_managed_cli_exposures(app: &AppHandle, pool: &sqlx
     let _ = utils::shell::refresh_process_path_after_install().await;
 }
 
+async fn discover_built_in_local_runtimes(
+    pool: &sqlx::SqlitePool,
+    runtime: &AgentManagementRuntimeState,
+) {
+    let profiles = BuiltInProfileCatalog::bundled();
+    let candidates = profiles.profiles().iter().cloned().collect::<Vec<_>>();
+    for profile in &candidates {
+        runtime
+            .replace_local_runtime(profile.agent_id.clone(), None)
+            .await;
+    }
+    let jobs = candidates
+        .into_iter()
+        .map(|profile| {
+            let runtime = runtime;
+            async move {
+                let local_runtime = match discover_profile_local_runtime(pool, &profile).await {
+                    Ok(evidence) => Some(evidence),
+                    Err(error) => {
+                        tracing::debug!(
+                            agent_id = %profile.agent_id,
+                            %error,
+                            "built-in local Runtime candidate was not discovered"
+                        );
+                        None
+                    }
+                };
+                runtime
+                    .replace_local_runtime(profile.agent_id.clone(), local_runtime)
+                    .await;
+            }
+        })
+        .collect();
+
+    if tokio::time::timeout(
+        LOCAL_RUNTIME_DISCOVERY_TIMEOUT,
+        run_bounded_agent_probes(jobs, MAX_CONCURRENT_LOCAL_RUNTIME_PROBES),
+    )
+    .await
+    .is_err()
+    {
+        tracing::warn!(
+            timeout_secs = LOCAL_RUNTIME_DISCOVERY_TIMEOUT.as_secs(),
+            "local Agent Runtime discovery reached its startup time budget"
+        );
+    }
+}
+
+async fn ensure_local_runtime_discovery(
+    pool: &sqlx::SqlitePool,
+    runtime: &AgentManagementRuntimeState,
+) {
+    run_local_runtime_discovery_once(runtime, discover_built_in_local_runtimes(pool, runtime))
+        .await;
+}
+
 async fn probe_built_in_external_installations(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
     force: bool,
 ) {
+    let runtime = app.state::<AppState>().agent_management_runtime.clone();
     if force {
         let _ = utils::shell::refresh_process_path_after_install().await;
+        refresh_local_runtime_discovery_once(
+            &runtime,
+            discover_built_in_local_runtimes(pool, &runtime),
+        )
+        .await;
+    } else {
+        ensure_local_runtime_discovery(pool, &runtime).await;
     }
+
     let profiles = BuiltInProfileCatalog::bundled();
-    let runtime = app.state::<AppState>().agent_management_runtime.clone();
     let mut candidates = Vec::new();
     for profile in profiles.profiles() {
         let should_probe = runtime
             .should_probe_built_in(&profile.agent_id, force)
             .await;
-        if !should_probe {
-            continue;
+        if should_probe {
+            candidates.push(profile.clone());
         }
-        candidates.push(profile.clone());
     }
     let jobs = candidates
         .into_iter()
-        .map(|profile| async move {
-            let installed = sqlx::query_scalar::<_, bool>(
-                r#"SELECT EXISTS(
+        .map(|profile| {
+            let runtime = runtime.clone();
+            async move {
+                let local_runtime = runtime.local_runtime(&profile.agent_id).await;
+                let installed = sqlx::query_scalar::<_, bool>(
+                    r#"SELECT EXISTS(
                      SELECT 1 FROM agent_installation
                      WHERE agent_id = ? AND current_lock_id IS NOT NULL
                    )"#,
-            )
-            .bind(profile.agent_id.as_str())
-            .fetch_one(pool)
-            .await
-            .unwrap_or(false);
-            match built_in_probe_action(installed, force) {
-                BuiltInProbeAction::Discover => {
-                    if let Err(error) =
-                        probe_one_built_in_external_installation(app, pool, &profile).await
-                    {
-                        tracing::debug!(
-                            agent_id = %profile.agent_id,
-                            %error,
-                            "built-in external Agent candidate was not adopted"
-                        );
+                )
+                .bind(profile.agent_id.as_str())
+                .fetch_one(pool)
+                .await
+                .unwrap_or(false);
+                match built_in_probe_action(installed, force) {
+                    BuiltInProbeAction::Discover => {
+                        let result = match local_runtime.as_ref() {
+                            Some(local_runtime) => {
+                                probe_one_built_in_external_installation(
+                                    app,
+                                    pool,
+                                    &profile,
+                                    local_runtime,
+                                )
+                                .await
+                            }
+                            None => Err(anyhow::anyhow!("external local Runtime is missing")),
+                        };
+                        if let Err(error) = result {
+                            tracing::debug!(
+                                agent_id = %profile.agent_id,
+                                %error,
+                                "built-in external Agent candidate was not adopted"
+                            );
+                        }
                     }
-                }
-                BuiltInProbeAction::RefreshExisting => {
-                    if let Err(error) =
-                        record_post_install_probe(app, pool, &profile.agent_id).await
-                    {
-                        tracing::debug!(
-                            agent_id = %profile.agent_id,
-                            %error,
-                            "built-in external Agent startup evidence refresh failed"
-                        );
+                    BuiltInProbeAction::RefreshExisting => {
+                        if let Err(error) =
+                            record_post_install_probe(app, pool, &profile.agent_id).await
+                        {
+                            tracing::debug!(
+                                agent_id = %profile.agent_id,
+                                %error,
+                                "built-in external Agent startup evidence refresh failed"
+                            );
+                        }
                     }
+                    BuiltInProbeAction::KeepExisting => {}
                 }
-                BuiltInProbeAction::KeepExisting => {}
             }
         })
         .collect();
@@ -2637,10 +2819,97 @@ fn profile_component_distribution_kind(
         .unwrap_or(PlannedDistributionKind::Binary)
 }
 
+async fn probe_local_runtime_candidate(
+    candidate: &agents::ProfileExternalCandidate,
+) -> anyhow::Result<LocalRuntimeEvidence> {
+    if !matches!(
+        candidate.component,
+        ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
+    ) {
+        anyhow::bail!("candidate is not a local Runtime component");
+    }
+
+    let executable = utils::shell::resolve_executable_path(candidate.executable)
+        .await
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "external Agent Runtime candidate `{}` was not found",
+                candidate.executable
+            )
+        })?;
+    probe_resolved_local_runtime_candidate(candidate, executable).await
+}
+
+async fn probe_resolved_local_runtime_candidate(
+    candidate: &agents::ProfileExternalCandidate,
+    executable: PathBuf,
+) -> anyhow::Result<LocalRuntimeEvidence> {
+    let executable = tokio::fs::canonicalize(executable).await?;
+    if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
+        anyhow::bail!("external Runtime candidate is not an absolute executable file");
+    }
+
+    let mut command = agent_process_command(&executable);
+    command.kill_on_drop(true);
+    command.args(candidate.version_args);
+    let output = tokio::time::timeout(LOCAL_RUNTIME_VERSION_TIMEOUT, command.output())
+        .await
+        .map_err(|_| anyhow::anyhow!("external Runtime version probe timed out"))??;
+    ensure_success("external Runtime version probe", &output)?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let version = [stdout, stderr].into_iter().find(|value| !value.is_empty());
+
+    Ok(LocalRuntimeEvidence {
+        path: executable,
+        version,
+    })
+}
+
+async fn discover_profile_local_runtime(
+    pool: &sqlx::SqlitePool,
+    profile: &agents::BuiltInProfile,
+) -> anyhow::Result<LocalRuntimeEvidence> {
+    let candidate = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| {
+            matches!(
+                candidate.component,
+                ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
+            )
+        })
+        .ok_or_else(|| anyhow::anyhow!("Profile does not declare a local Runtime candidate"))?;
+
+    if profile.agent_id.as_str() == "pi" && candidate.component == ProfileComponent::AgentRuntime {
+        let configured_env_json = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT env_json FROM agent_setting WHERE agent_type = ?",
+        )
+        .bind(profile.agent_id.as_str())
+        .fetch_optional(pool)
+        .await?
+        .flatten();
+        let configured_env = parse_agent_env(configured_env_json.as_deref())?;
+        if let Some(command) = configured_env
+            .get("PI_ACP_PI_COMMAND")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+        {
+            let executable = pi_configuration::resolve_command(command)
+                .ok_or_else(|| anyhow::anyhow!("custom Pi Runtime `{command}` was not found"))?;
+            return probe_resolved_local_runtime_candidate(candidate, executable).await;
+        }
+    }
+
+    probe_local_runtime_candidate(candidate).await
+}
+
 async fn probe_one_built_in_external_installation(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
     profile: &agents::BuiltInProfile,
+    local_runtime: &LocalRuntimeEvidence,
 ) -> anyhow::Result<()> {
     let configured_env_json = sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = ?",
@@ -2652,27 +2921,12 @@ async fn probe_one_built_in_external_installation(
     let configured_env = parse_agent_env(configured_env_json.as_deref())?;
     let mut components = Vec::new();
     for candidate in profile.external_candidates {
-        let executable = if profile.agent_id.as_str() == "pi"
-            && candidate.component == ProfileComponent::AgentRuntime
-        {
-            match configured_env
-                .get("PI_ACP_PI_COMMAND")
-                .map(String::as_str)
-                .map(str::trim)
-                .filter(|command| !command.is_empty())
-            {
-                Some(command) => pi_configuration::resolve_command(command).ok_or_else(|| {
-                    anyhow::anyhow!("custom Pi Runtime `{command}` was not found")
-                })?,
-                None => utils::shell::resolve_executable_path(candidate.executable)
-                    .await
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "external Agent candidate `{}` was not found",
-                            candidate.executable
-                        )
-                    })?,
-            }
+        let is_runtime_candidate = matches!(
+            candidate.component,
+            ProfileComponent::AgentRuntime | ProfileComponent::CombinedRuntime
+        );
+        let executable = if is_runtime_candidate {
+            local_runtime.path.clone()
         } else {
             utils::shell::resolve_executable_path(candidate.executable)
                 .await
@@ -2687,11 +2941,23 @@ async fn probe_one_built_in_external_installation(
         if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
             anyhow::bail!("external candidate is not an absolute executable file");
         }
-        let mut command = agent_process_command(&executable);
-        command.args(candidate.version_args);
-        let output = command.output().await?;
-        ensure_success("external Agent version probe", &output)?;
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let version = if is_runtime_candidate {
+            local_runtime.version.clone().unwrap_or_default()
+        } else {
+            let mut command = agent_process_command(&executable);
+            command.kill_on_drop(true);
+            command.args(candidate.version_args);
+            let output = tokio::time::timeout(EXTERNAL_COMPONENT_VERSION_TIMEOUT, command.output())
+                .await
+                .map_err(|_| anyhow::anyhow!("external Agent version probe timed out"))??;
+            ensure_success("external Agent version probe", &output)?;
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            [stdout, stderr]
+                .into_iter()
+                .find(|value| !value.is_empty())
+                .unwrap_or_default()
+        };
         if version.is_empty() {
             anyhow::bail!("external Agent version probe returned no version");
         }
@@ -2941,21 +3207,34 @@ fn emit_operation(
     }
 }
 
+async fn overlay_local_runtime_evidence(
+    runtime: &AgentManagementRuntimeState,
+    views: &mut [AgentManagementView],
+) {
+    let local_runtimes = runtime.local_runtimes().await;
+    for view in views {
+        view.local_runtime =
+            local_runtimes
+                .get(&view.agent_id)
+                .map(|evidence| AgentLocalRuntimeView {
+                    path: evidence.path.display().to_string(),
+                    version: evidence.version.clone(),
+                });
+    }
+}
+
 #[tauri::command]
 pub async fn agent_management_bar(
-    app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
-    ensure_agent_management_warmup(
-        &app,
-        &state.deployment.db().pool,
-        &state.agent_management_runtime,
-    )
-    .await;
-    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+    ensure_local_runtime_discovery(&state.deployment.db().pool, &state.agent_management_runtime)
+        .await;
+    let mut views = AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    overlay_local_runtime_evidence(&state.agent_management_runtime, &mut views).await;
+    Ok(views)
 }
 
 #[tauri::command]
@@ -2964,10 +3243,12 @@ pub async fn agent_management_refresh(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<AgentManagementView>, AgentManagementErrorView> {
     refresh_agent_management_evidence(&app, &state.deployment.db().pool, true).await?;
-    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+    let mut views = AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
-        .map_err(internal_error)
+        .map_err(internal_error)?;
+    overlay_local_runtime_evidence(&state.agent_management_runtime, &mut views).await;
+    Ok(views)
 }
 
 #[tauri::command]
@@ -2975,10 +3256,12 @@ pub async fn agent_management_detail(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentManagementView, AgentManagementErrorView> {
-    AgentManagementApplicationService::new(state.deployment.db().pool.clone())
+    let mut views = AgentManagementApplicationService::new(state.deployment.db().pool.clone())
         .list()
         .await
-        .map_err(internal_error)?
+        .map_err(internal_error)?;
+    overlay_local_runtime_evidence(&state.agent_management_runtime, &mut views).await;
+    views
         .into_iter()
         .find(|view| view.agent_id == agent_id)
         .ok_or_else(|| {
@@ -3031,14 +3314,36 @@ pub async fn agent_registry_refresh(
         Arc::new(OfficialRegistryHttpFetcher::default()),
         Arc::new(SystemClock),
     );
-    let view = client.refresh(&mut cache).await;
-    if view.refresh_error.is_none()
-        && let Some(snapshot) = cache.snapshot()
-    {
+    let cached_freshness = cache
+        .snapshot()
+        .map(|snapshot| {
+            if Utc::now().signed_duration_since(snapshot.fetched_at) <= Duration::hours(24) {
+                RegistryCacheFreshness::Fresh
+            } else {
+                RegistryCacheFreshness::Stale
+            }
+        })
+        .unwrap_or(RegistryCacheFreshness::Empty);
+    let (freshness, refresh_error, should_save) =
+        match tokio::time::timeout(REGISTRY_REFRESH_TIMEOUT, client.refresh(&mut cache)).await {
+            Ok(view) => {
+                let should_save = view.refresh_error.is_none();
+                (view.freshness, view.refresh_error, should_save)
+            }
+            Err(_) => (
+                cached_freshness,
+                Some(format!(
+                    "Registry refresh timed out after {} seconds",
+                    REGISTRY_REFRESH_TIMEOUT.as_secs()
+                )),
+                false,
+            ),
+        };
+    if should_save && let Some(snapshot) = cache.snapshot() {
         store.save(snapshot).await.map_err(internal_error)?;
     }
     AgentManagementApplicationService::new(state.deployment.db().pool.clone())
-        .registry_view(view.freshness, view.refresh_error)
+        .registry_view(freshness, refresh_error)
         .await
         .map_err(internal_error)
 }
@@ -3181,6 +3486,38 @@ pub async fn agent_management_reorder(
         .map_err(internal_error)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimePreflightFacts {
+    available: bool,
+    version: Option<String>,
+    path: Option<String>,
+}
+
+fn runtime_preflight_facts(
+    installed: Option<(&Path, &str, bool)>,
+    discovered: Option<&AgentLocalRuntimeView>,
+) -> RuntimePreflightFacts {
+    if let Some((path, version, true)) = installed {
+        return RuntimePreflightFacts {
+            available: true,
+            version: Some(version.to_string()),
+            path: Some(path.display().to_string()),
+        };
+    }
+    if let Some(discovered) = discovered {
+        return RuntimePreflightFacts {
+            available: true,
+            version: discovered.version.clone(),
+            path: Some(discovered.path.clone()),
+        };
+    }
+    RuntimePreflightFacts {
+        available: false,
+        version: installed.map(|(_, version, _)| version.to_string()),
+        path: installed.map(|(path, _, _)| path.display().to_string()),
+    }
+}
+
 #[tauri::command]
 pub async fn agent_management_preflight(
     app: AppHandle,
@@ -3241,7 +3578,12 @@ pub async fn agent_management_preflight(
     };
     let runtime = find_component(&["agent_runtime", "combined_runtime"]);
     let acp = find_component(&["acp_adapter", "combined_runtime"]);
-    let mut runtime_ok = find_healthy_component(&["agent_runtime", "combined_runtime"]).is_some();
+    let discovered_runtime = view.local_runtime.clone();
+    let runtime_facts = runtime_preflight_facts(
+        runtime.map(|(_, path, version, healthy)| (path.as_path(), version.as_str(), *healthy)),
+        discovered_runtime.as_ref(),
+    );
+    let mut runtime_ok = runtime_facts.available;
     let healthy_acp = find_healthy_component(&["acp_adapter", "combined_runtime"]);
     let mut acp_ok = false;
     let mut authentication_observation = None;
@@ -3573,19 +3915,23 @@ pub async fn agent_management_preflight(
                 } else {
                     format!("自定义命令 `{command}` 无法解析为可执行文件。")
                 }
-            } else if runtime.is_none() {
+            } else if runtime.is_none() && discovered_runtime.is_none() {
                 "未发现有效的当前安装锁。".to_string()
+            } else if runtime.is_some_and(|(_, _, _, healthy)| !healthy)
+                && discovered_runtime.is_some()
+            {
+                "当前安装锁中的 Runtime 异常，但检测到可执行的本地 CLI Runtime。".to_string()
             } else {
                 String::new()
             },
             version: pi_runtime_validation
                 .as_ref()
                 .and_then(|(_, validation)| validation.version.clone())
-                .or_else(|| runtime.map(|(_, _, version, _)| version.clone())),
+                .or_else(|| runtime_facts.version.clone()),
             path: pi_runtime_validation
                 .as_ref()
                 .and_then(|(_, validation)| validation.resolved_path.clone())
-                .or_else(|| runtime.map(|(_, path, _, _)| path.display().to_string())),
+                .or_else(|| runtime_facts.path.clone()),
             repairable: true,
         },
         AgentPreflightItemView {

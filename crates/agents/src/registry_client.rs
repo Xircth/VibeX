@@ -1,6 +1,6 @@
 //! Official ACP Registry parsing, validation and cached refresh semantics.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration as StdDuration};
 
 use api_types::AgentId;
 use async_trait::async_trait;
@@ -20,6 +20,8 @@ const OFFICIAL_ICON_PREFIX: &str = "https://cdn.agentclientprotocol.com/registry
 const FRESH_FOR: Duration = Duration::hours(24);
 const MAX_REGISTRY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ICON_BYTES: usize = 128 * 1024;
+const REGISTRY_CONNECT_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+const REGISTRY_REQUEST_TIMEOUT: StdDuration = StdDuration::from_secs(10);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryPackageDistribution {
@@ -186,7 +188,12 @@ impl OfficialRegistryHttpFetcher {
 impl Default for OfficialRegistryHttpFetcher {
     fn default() -> Self {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        Self::new(reqwest::Client::new())
+        let client = reqwest::Client::builder()
+            .connect_timeout(REGISTRY_CONNECT_TIMEOUT)
+            .timeout(REGISTRY_REQUEST_TIMEOUT)
+            .build()
+            .expect("static ACP Registry HTTP client configuration must be valid");
+        Self::new(client)
     }
 }
 

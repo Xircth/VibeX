@@ -8251,6 +8251,7 @@ dependencies = [
  "command-group",
  "directories",
  "dirs 5.0.1",
+ "dunce",
  "futures",
  "git2",
  "json-patch 2.0.0",

@@ -54,7 +54,9 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 ## Conversation domain
 
 - **Conversation（会话）** — 用户与一个 agent 之间的持久对话。其完整历史由事件日志权威记录，与任何 agent 进程的存活无关。
-- **Turn（回合）** — 会话内一次"用户发起 → agent 应答完毕"的完整周期。同一会话内同一时刻至多一个 turn 在途。
+- **Conversation panel（会话面板）** — 在 Server-bound window 中呈现一个 Conversation 的唯一 Dockview 视图；同一窗口重复打开只聚焦已有面板，关闭或移动面板只改变布局，不取消在途 Turn，也不删除 Conversation。
+- **Conversation draft（会话草稿）** — 属于 Server 上某个 Conversation、可由已授权设备继续编辑的未提交 Composer 内容；每次保存基于 revision，冲突必须保留服务器版本与本机版本，不能静默覆盖。
+- **Turn（回合）** — 会话内一次“用户发起 → agent 应答完毕”的完整周期。同一会话内同一时刻至多一个 turn 在途。
 - **In-flight turn（在途回合）** — 已开始、尚未到达终态的 turn。
 - **Turn 终态** — 每个 turn 最终恰好落在以下四个终态之一：
   - **Completed（完成）** — agent 正常应答完毕。
@@ -101,10 +103,20 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 ## Remote and device domain
 
 - **Application Core（应用核心）** — 不依赖 Tauri 或 Axum 的用例门面；desktop command、Web route 与 Remote Desktop adapter 都只能做认证、DTO/错误转换后调用同一公共 seam。
+- **Server owner（服务器所有者）** — 对一个 VibeX Server 数据目录及其配对设备拥有最终管理权的单一主体；P0/P1 不把不同设备解释为不同用户，也不提供团队成员或多租户数据隔离。
+- **VibeX Host（VibeX 主机）** — 当前拥有一个 VibeX 数据目录并对客户端提供 Remote protocol 的运行实例，可以是桌面应用或 Headless Server；同一数据目录同一时刻只能有一个 Host。
+- **Server profile（服务器档案）** — 用户可选择的一个 VibeX Server 身份与连接目标；本机是默认的 Local Profile，远端档案只保存非秘密连接元数据，访问凭据独立受保护。
+- **Server-bound window（服务器绑定窗口）** — 只呈现并操作一个 Server Profile 所属资源的应用窗口；Project、Workspace、Conversation、Agent、设置与运行状态不得在同一窗口跨 Server 混用，访问另一档案必须使用另一窗口。
+- **Remote disconnect（远程断开）** — 只结束 Server-bound window 的当前网络连接，不删除 Server Profile、缓存、device credential 或 Paired device 关系；关闭窗口、退出应用和临时断网都属于这一语义。
+- **Forget server（忘记服务器）** — 用户要求客户端删除一个远端 Server Profile、其只读缓存与系统凭据的本地操作；它与 Remote disconnect 不同，并应在可达时先请求撤销本设备。
+- **Remote coding loop（远程编码闭环）** — 用户在 Server-bound window 中从选择 Project/Workspace 到运行 Agent、处理交互、编辑文件、审阅 Diff、操作 Git 与终端的完整日常任务；它是远程桌面首版的产品完成边界，不等于所有桌面专属能力的协议镜像。
+- **Mobile companion（移动伴随端）** — 连接在线 VibeX Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。首个交付平台为 Android，iOS 复用同一 Remote protocol 后续交付。
 - **Remote protocol（远程协议）** — `remote-protocol` 的版本化稳定 ID、error envelope、capabilities、typed command 与 durable subscription DTO。v1 Schema/OpenAPI 位于 `docs/protocol/v1/`。
 - **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
-- **Device pairing（设备配对）** — 管理员生成五分钟、只可兑换一次的 pairing secret；Server 只存 hash。兑换产生绑定 credential/device id 与批准 scopes 的 device token。
-- **Device revocation（设备撤销）** — 撤销后新 HTTP 请求和已经建立的 WebSocket 都必须失效；主 token 或 device token 不得出现在 URL、事件或日志。
+- **Device pairing（设备配对）** — 管理员生成五分钟、只可兑换一次的 pairing secret，以批准 scopes 在一个 Server Profile 与一台设备之间建立长期信任关系；临时 secret 到期不会使已经配对的设备失效。
+- **Paired device（已配对设备）** — 代表同一 Server owner 的一个客户端身份，持有长期、可撤销的 device credential；断开、应用重启、网络变化或 Server 管理员 token 轮换都不结束配对关系，Device 不是 User。
+- **Device permission preset（设备权限预设）** — 配对时向用户展示并审批的一组稳定用途，例如可完成 Remote coding loop 的 Developer Device；预设只组织细粒度 scopes，不直接参与授权判断，也不隐含 Server 管理权。
+- **Device revocation（设备撤销）** — 管理员显式终止已配对设备的长期信任关系；撤销后新 HTTP 请求和已经建立的 WebSocket 都必须失效，主 token 或 device token 不得出现在 URL、事件或日志。
 - **Offline conversation cache（离线会话缓存）** — 仅包含持久 sequence 与 open events 的只读缓存；`read_only` 必须为 true，不能离线排队写操作。
 - **Terminal notification summary（终态通知摘要）** — 只包含 Conversation/Automation 稳定 ID、终态、时间与 operation id 的无 secret 投影；不包含 prompt、输出、诊断或文件路径，也不直接接入 APNs/FCM。
 

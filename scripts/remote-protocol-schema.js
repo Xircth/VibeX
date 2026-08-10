@@ -734,8 +734,10 @@ if (roundTrip.kind !== event.kind) throw new Error('unknown event round trip fai
       2,
     )}\n`,
   );
-  const tsc = path.join(root, 'frontend', 'node_modules', '.bin', 'tsc');
-  run(tsc, ['--project', tsconfig]);
+  const tsc = require.resolve('typescript/bin/tsc', {
+    paths: [path.join(root, 'frontend')],
+  });
+  run(process.execPath, [tsc, '--project', tsconfig]);
   run(process.execPath, [path.join(typescriptOutput, 'RemoteProtocolSmoke.js')]);
 
   const swiftc = commandOnPath('swiftc');

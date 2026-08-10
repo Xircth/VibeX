@@ -105,6 +105,33 @@ describe('onboarding Agent model', () => {
     );
   });
 
+  it('selects a discovered local Runtime even when ACP installation is still required', () => {
+    const options = buildOnboardingAgentOptions(
+      [
+        managed({
+          agent_id: 'claude_code',
+          display_name: 'Claude Code',
+          local_runtime: {
+            path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\claude.cmd',
+            version: '2.1.173 (Claude Code)',
+          },
+        }),
+        managed({ agent_id: 'codex', display_name: 'Codex' }),
+      ],
+      []
+    );
+
+    expect(options[0]).toMatchObject({
+      agentId: 'claude_code',
+      runtimeInstalled: true,
+      needsInstallation: true,
+    });
+    expect(options[1]).toMatchObject({
+      agentId: 'codex',
+      runtimeInstalled: false,
+    });
+  });
+
   it('keeps the default Agent enabled and chooses a new default when it is disabled', () => {
     expect(
       normalizeOnboardingAgentSelection({

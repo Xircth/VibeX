@@ -94,6 +94,10 @@ pub fn new_hidden_tokio_command(
 
     #[cfg(windows)]
     {
+        // `std::fs::canonicalize` returns verbatim (`\\?\`) paths on Windows.
+        // `CreateProcess` accepts those paths, but cmd.exe does not reliably
+        // resolve them when invoking npm's .cmd/.bat shims.
+        let program = dunce::simplified(program);
         if is_windows_batch_script(program) {
             let mut command = tokio::process::Command::new("cmd.exe");
             configure_tokio_command_no_window(&mut command);
@@ -130,6 +134,7 @@ pub fn new_hidden_std_command(
 
     #[cfg(windows)]
     {
+        let program = dunce::simplified(program);
         if is_windows_batch_script(program) {
             let mut command = std::process::Command::new("cmd.exe");
             configure_std_command_no_window(&mut command);

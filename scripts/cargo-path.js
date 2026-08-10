@@ -88,6 +88,63 @@ function resolveWixBin(env) {
   );
 }
 
+function listDirectories(directory) {
+  try {
+    return fs
+      .readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(directory, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function resolveVisualStudioCmakePaths(env) {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+
+  const installationRoots = [];
+  if (env.VSINSTALLDIR) {
+    installationRoots.push(env.VSINSTALLDIR);
+  }
+
+  const programFilesRoots = [env['ProgramFiles(x86)'], env.ProgramFiles].filter(
+    Boolean
+  );
+  for (const programFilesRoot of programFilesRoots) {
+    const visualStudioRoot = path.join(
+      programFilesRoot,
+      'Microsoft Visual Studio'
+    );
+    const versions = listDirectories(visualStudioRoot).sort().reverse();
+    for (const version of versions) {
+      installationRoots.push(...listDirectories(version).sort().reverse());
+    }
+  }
+
+  for (const installationRoot of installationRoots) {
+    const cmakeRoot = path.join(
+      installationRoot,
+      'Common7',
+      'IDE',
+      'CommonExtensions',
+      'Microsoft',
+      'CMake'
+    );
+    const cmakeBin = path.join(cmakeRoot, 'CMake', 'bin');
+    const ninjaBin = path.join(cmakeRoot, 'Ninja');
+    if (
+      fs.existsSync(path.join(cmakeBin, 'cmake.exe')) &&
+      fs.existsSync(path.join(ninjaBin, 'ninja.exe'))
+    ) {
+      return [cmakeBin, ninjaBin];
+    }
+  }
+
+  return [];
+}
+
 function resolveDatabaseUrl(env) {
   if (env.DATABASE_URL) {
     return null;
@@ -117,7 +174,12 @@ function withNativeBuildEnv(env = process.env) {
     };
   }
 
-  return prependPathEntry(nextEnv, resolveWixBin(nextEnv));
+  nextEnv = prependPathEntry(nextEnv, resolveWixBin(nextEnv));
+  for (const toolPath of resolveVisualStudioCmakePaths(nextEnv)) {
+    nextEnv = prependPathEntry(nextEnv, toolPath);
+  }
+
+  return nextEnv;
 }
 
 module.exports = { withCargoBinOnPath, withNativeBuildEnv };

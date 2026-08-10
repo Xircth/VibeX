@@ -158,15 +158,69 @@ async fn which(executable: &str) -> Option<PathBuf> {
         .and_then(|result| result.ok())
 }
 
-#[cfg(unix)]
-fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf> {
-    let search_path = join_paths([home.join(".local/bin"), home.join(".cargo/bin")]).ok()?;
-    which::which_in(executable, Some(search_path), home).ok()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserBinPlatform {
+    Windows,
+    Unix,
 }
 
-#[cfg(not(unix))]
-fn find_executable_in_user_bin(_executable: &str, _home: &Path) -> Option<PathBuf> {
-    None
+fn user_bin_directories(
+    platform: UserBinPlatform,
+    home: &Path,
+    mut read_env: impl FnMut(&str) -> Option<OsString>,
+) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !path.as_os_str().is_empty() && !directories.contains(&path) {
+            directories.push(path);
+        }
+    };
+
+    if let Some(pnpm_home) = read_env("PNPM_HOME") {
+        push(PathBuf::from(pnpm_home));
+    }
+    if let Some(npm_prefix) = read_env("NPM_CONFIG_PREFIX") {
+        let prefix = PathBuf::from(npm_prefix);
+        push(match platform {
+            UserBinPlatform::Windows => prefix,
+            UserBinPlatform::Unix => prefix.join("bin"),
+        });
+    }
+
+    match platform {
+        UserBinPlatform::Windows => {
+            let app_data = read_env("APPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("AppData/Roaming"));
+            let local_app_data = read_env("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join("AppData/Local"));
+            push(app_data.join("npm"));
+            push(local_app_data.join("pnpm"));
+        }
+        UserBinPlatform::Unix => {
+            push(home.join(".local/bin"));
+            push(home.join(".local/share/pnpm"));
+            push(home.join(".npm-global/bin"));
+        }
+    }
+
+    push(home.join(".bun/bin"));
+    push(home.join(".cargo/bin"));
+    directories
+}
+
+fn find_executable_in_user_bin(executable: &str, home: &Path) -> Option<PathBuf> {
+    let platform = if cfg!(windows) {
+        UserBinPlatform::Windows
+    } else {
+        UserBinPlatform::Unix
+    };
+    let search_path = join_paths(user_bin_directories(platform, home, |name| {
+        std::env::var_os(name)
+    }))
+    .ok()?;
+    which::which_in(executable, Some(search_path), home).ok()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -388,26 +442,92 @@ fn get_fresh_path_blocking() -> Option<String> {
         .map(|merged| merged.to_string_lossy().into_owned())
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
+    use std::{collections::HashMap, ffi::OsString, path::Path};
 
-    use super::find_executable_in_user_bin;
+    use super::{UserBinPlatform, user_bin_directories};
 
     #[test]
-    fn resolves_vibex_stable_user_command_without_a_login_shell() {
-        let home = tempfile::tempdir().unwrap();
-        let bin = home.path().join(".local/bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        let executable = bin.join("codex");
-        std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
-        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&executable, permissions).unwrap();
+    fn windows_user_bins_include_npm_pnpm_bun_and_cargo_locations() {
+        let home = Path::new(r"C:\Users\developer");
+        let environment = HashMap::from([
+            (
+                "APPDATA",
+                OsString::from(r"C:\Users\developer\AppData\Roaming"),
+            ),
+            (
+                "LOCALAPPDATA",
+                OsString::from(r"C:\Users\developer\AppData\Local"),
+            ),
+            ("PNPM_HOME", OsString::from(r"D:\pnpm")),
+            ("NPM_CONFIG_PREFIX", OsString::from(r"D:\npm-prefix")),
+        ]);
+
+        let directories = user_bin_directories(UserBinPlatform::Windows, home, |name| {
+            environment.get(name).cloned()
+        });
 
         assert_eq!(
-            find_executable_in_user_bin("codex", home.path()),
-            Some(executable)
+            directories,
+            vec![
+                Path::new(r"D:\pnpm").to_path_buf(),
+                Path::new(r"D:\npm-prefix").to_path_buf(),
+                Path::new(r"C:\Users\developer\AppData\Roaming\npm").to_path_buf(),
+                Path::new(r"C:\Users\developer\AppData\Local\pnpm").to_path_buf(),
+                home.join(".bun/bin"),
+                home.join(".cargo/bin"),
+            ]
         );
+    }
+
+    #[test]
+    fn unix_user_bins_include_pnpm_npm_bun_and_cargo_locations() {
+        let home = Path::new("/home/developer");
+        let environment = HashMap::from([
+            ("PNPM_HOME", OsString::from("/opt/pnpm")),
+            ("NPM_CONFIG_PREFIX", OsString::from("/opt/npm")),
+        ]);
+
+        let directories = user_bin_directories(UserBinPlatform::Unix, home, |name| {
+            environment.get(name).cloned()
+        });
+
+        assert_eq!(
+            directories,
+            vec![
+                Path::new("/opt/pnpm").to_path_buf(),
+                Path::new("/opt/npm/bin").to_path_buf(),
+                home.join(".local/bin"),
+                home.join(".local/share/pnpm"),
+                home.join(".npm-global/bin"),
+                home.join(".bun/bin"),
+                home.join(".cargo/bin"),
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    mod unix_resolution {
+        use std::os::unix::fs::PermissionsExt;
+
+        use super::super::find_executable_in_user_bin;
+
+        #[test]
+        fn resolves_vibex_stable_user_command_without_a_login_shell() {
+            let home = tempfile::tempdir().unwrap();
+            let bin = home.path().join(".local/bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            let executable = bin.join("codex");
+            std::fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+            let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o755);
+            std::fs::set_permissions(&executable, permissions).unwrap();
+
+            assert_eq!(
+                find_executable_in_user_bin("codex", home.path()),
+                Some(executable)
+            );
+        }
     }
 }

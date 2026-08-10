@@ -4,6 +4,32 @@
 SQLite data directory, Agent runtime, Delegation companion, Plugin/Artifact
 services, and Automation Engine used by desktop VibeX. It does not load Tauri.
 
+## Distribution status
+
+The repository currently provides the source build and package-smoke path below.
+Official container images, Compose deployment, signed standalone Server binaries,
+and verified installers are the accepted P1 distribution target; they are not yet
+available release artifacts. The complete scope and release gates are defined in the
+[remote productization P0/P1 plan](../plans/2026-08-09-remote-productization-p0-p1.md).
+
+## P1 distribution contract
+
+- Publish official Linux `amd64` and `arm64` container images to GHCR and provide
+  a Compose deployment with a persistent data volume, health check, graceful
+  shutdown, and a documented pre-upgrade backup step.
+- Publish signed, checksummed standalone `vibex-server` binaries for Windows x64,
+  macOS arm64/x64, and Linux amd64/arm64.
+- Installation helpers may download only an explicit release artifact and must
+  verify its signature or checksum before installation. They must not silently
+  select and execute an unverified latest build.
+- Keep loopback as the default. LAN or public exposure remains explicit and uses
+  an external TLS termination layer such as Caddy, Traefik, or Nginx.
+- Release documentation must cover first start, device pairing, upgrade, backup,
+  restore, rollback, and device revocation.
+
+P1 does not promise Kubernetes, multi-node or high-availability operation,
+managed cloud hosting, or built-in public TLS termination.
+
 ## Build and package smoke
 
 ```bash

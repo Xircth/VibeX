@@ -206,7 +206,7 @@ describe('FirstRunExperience', () => {
     expect(managementMock.refreshBar).not.toHaveBeenCalled();
   });
 
-  it('selects and prioritizes only installed Agents on first entry', async () => {
+  it('selects and prioritizes only locally detected Agents on first entry', async () => {
     const user = userEvent.setup();
     managementMock.bar.mockResolvedValue([
       agent({
@@ -218,17 +218,19 @@ describe('FirstRunExperience', () => {
         agent_id: 'codex',
         display_name: 'Codex',
         enabled: false,
-        lifecycle: 'ready',
-        runtime_version: '0.145.0',
-        acp_version: '1.1.9',
+        local_runtime: {
+          path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd',
+          version: 'codex-cli 0.145.0',
+        },
       }),
       agent({
         agent_id: 'opencode',
         display_name: 'OpenCode',
         enabled: false,
-        lifecycle: 'ready',
-        runtime_version: '1.18.2',
-        acp_version: '1.18.2',
+        local_runtime: {
+          path: '/home/developer/.local/bin/opencode',
+          version: '1.18.2',
+        },
       }),
       agent({ agent_id: 'pi', display_name: 'Pi', enabled: true }),
     ]);
@@ -384,6 +386,43 @@ describe('FirstRunExperience', () => {
       ]);
     });
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+  });
+
+  it('shows locally detected Agents without waiting for a stale Registry refresh', async () => {
+    const user = userEvent.setup();
+    managementMock.registry.mockResolvedValue({
+      snapshot_id: 'stale-snapshot',
+      fetched_at: '2026-08-01T00:00:00Z',
+      fresh: false,
+      refresh_error: null,
+      installed: [],
+      uninstalled: [],
+    });
+    managementMock.refreshRegistry.mockReturnValue(new Promise(() => {}));
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByRole(
+        'checkbox',
+        { name: '启用 Claude Code' },
+        { timeout: 250 }
+      )
+    ).toBeInTheDocument();
+    expect(managementMock.refreshRegistry).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole('status', { name: '正在进行本地Agent检查' })
+    ).not.toBeInTheDocument();
   });
 
   it('enforces enabled/default selection and starts installation before welcome', async () => {

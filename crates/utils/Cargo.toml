@@ -37,6 +37,7 @@ command-group = { workspace = true }
 nix = { version = "0.29", features = ["signal", "process"] }
 
 [target.'cfg(windows)'.dependencies]
+dunce = "1.0"
 winreg = "0.55"
 windows-sys = { version = "0.61", features = ["Win32_System_Environment"] }
 

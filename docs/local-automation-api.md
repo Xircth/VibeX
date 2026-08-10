@@ -1,8 +1,14 @@
 # VibeX 本机自动化 API
 
-> **定位（2026-07-04 决策，方案 B）**：VibeX 的 web 服务是一个**仅本机**（`127.0.0.1`）的自动化控制 API，
-> 供本机脚本、快捷指令、编辑器集成等调用。它**不是**远程/多用户部署形态——不提供浏览器 UI、不监听外部地址、
-> 无 Docker。远程可达性由 IM 通道承担。
+> 本文只描述桌面应用内嵌的 legacy loopback automation API：它默认监听
+> `127.0.0.1:17891`，供同机脚本、快捷指令和编辑器集成调用。它不是 VibeX Remote
+> Protocol，也不是 `vibex-server` 的部署说明。版本化远程协议见
+> [Remote Protocol v1](protocol/v1/README.md)，Headless Host 见
+> [Headless Server Deployment](deployment/headless-server.md)，远程产品化范围见
+> [P0/P1 改进计划](plans/2026-08-09-remote-productization-p0-p1.md)。
+
+VibeX 的远程访问不再由本文定义，也不只依赖 IM 通道。legacy API 与 Remote Protocol
+必须保持不同的端口、认证、DTO 和生命周期，不能把下面的旧端点当作未版本化远程后门。
 
 ## 启用与鉴权
 

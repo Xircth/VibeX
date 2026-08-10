@@ -818,6 +818,9 @@ function fallbackPreflight(
   t: TFunction<'settings'>,
   agent: AgentManagementView
 ): AgentPreflightItemView[] {
+  const runtimeAvailable = Boolean(
+    agent.runtime_version || agent.local_runtime
+  );
   return [
     {
       id: 'membership',
@@ -833,10 +836,10 @@ function fallbackPreflight(
     {
       id: 'runtime',
       label: t('agents.localRuntime'),
-      status: agent.runtime_version ? 'pass' : 'fail',
-      detail: agent.runtime_version ? '' : t('agents.localRuntimeMissing'),
-      version: agent.runtime_version,
-      path: null,
+      status: runtimeAvailable ? 'pass' : 'fail',
+      detail: runtimeAvailable ? '' : t('agents.localRuntimeMissing'),
+      version: agent.runtime_version ?? agent.local_runtime?.version ?? null,
+      path: agent.local_runtime?.path ?? null,
       repairable: true,
     },
     {

@@ -4,7 +4,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use tauri::{command, plugin::Builder, plugin::TauriPlugin, Runtime};
+use tauri::{
+    command,
+    plugin::{Builder, TauriPlugin},
+    Runtime,
+};
 
 fn project_root() -> Result<PathBuf, String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

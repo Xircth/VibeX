@@ -159,6 +159,13 @@ pub enum AgentOperationStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct AgentLocalRuntimeView {
+    pub path: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentManagementView {
     pub agent_id: AgentId,
     pub display_name: String,
@@ -175,6 +182,9 @@ pub struct AgentManagementView {
     pub authentication: AgentAuthenticationStatus,
     pub runtime_version: Option<String>,
     pub acp_version: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub local_runtime: Option<AgentLocalRuntimeView>,
     pub active_operation: Option<AgentOperationKind>,
     pub rollback_available: bool,
     #[serde(default)]

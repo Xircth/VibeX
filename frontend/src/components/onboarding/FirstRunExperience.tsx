@@ -139,6 +139,7 @@ export function FirstRunExperience({
   const [validationError, setValidationError] =
     useState<AgentValidationError>(null);
   const agentCheckStartedRef = useRef(false);
+  const agentLoadRequestRef = useRef(0);
   const handoffCompleteRef = useRef(false);
   const deferredResultsRef = useRef<SetupResult[]>([]);
   const trackedOperationsRef = useRef(
@@ -312,6 +313,7 @@ export function FirstRunExperience({
   }, [publishSetupResult]);
 
   const loadAgents = useCallback(async () => {
+    const requestId = ++agentLoadRequestRef.current;
     setLoadingAgents(true);
     setLoadError(null);
     setValidationError(null);
@@ -320,18 +322,29 @@ export function FirstRunExperience({
         agentManagementApi.bar(),
         agentManagementApi.registry(),
       ]);
+      if (agentLoadRequestRef.current !== requestId) return;
       if (managedResult.status === 'rejected') throw managedResult.reason;
 
       const managedAgents: AgentManagementView[] = managedResult.value;
       let registryAgents: AgentRegistryViewRow[] = [];
       if (registryResult.status === 'fulfilled') {
-        let registry = registryResult.value;
-        if (!registry.fresh) {
-          registry = await agentManagementApi
-            .refreshRegistry()
-            .catch(() => registry);
-        }
+        const registry = registryResult.value;
         registryAgents = [...registry.installed, ...registry.uninstalled];
+
+        if (!registry.fresh) {
+          void agentManagementApi
+            .refreshRegistry()
+            .then((refreshed) => {
+              if (agentLoadRequestRef.current !== requestId) return;
+              setAgents(
+                buildOnboardingAgentOptions(managedAgents, [
+                  ...refreshed.installed,
+                  ...refreshed.uninstalled,
+                ])
+              );
+            })
+            .catch(() => undefined);
+        }
       }
 
       const options = buildOnboardingAgentOptions(
@@ -357,15 +370,26 @@ export function FirstRunExperience({
       setEnabledAgentIds(nextEnabled);
       setDefaultAgentId(nextDefault ?? null);
     } catch (error) {
-      setLoadError(
-        error instanceof Error
-          ? error.message
-          : t('dialogs:onboarding.agentLoadFailed')
-      );
+      if (agentLoadRequestRef.current === requestId) {
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : t('dialogs:onboarding.agentLoadFailed')
+        );
+      }
     } finally {
-      setLoadingAgents(false);
+      if (agentLoadRequestRef.current === requestId) {
+        setLoadingAgents(false);
+      }
     }
   }, [initialDefaultAgentId, t]);
+
+  useEffect(
+    () => () => {
+      agentLoadRequestRef.current += 1;
+    },
+    []
+  );
 
   useEffect(() => {
     if (!visible || agentCheckStartedRef.current) return;

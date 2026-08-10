@@ -7,6 +7,8 @@ const { withNativeBuildEnv } = require('./cargo-path');
 const { getPorts } = require('./setup-dev-environment');
 
 const GENERATED_TAURI_DEV_CONFIG = 'src-tauri/tauri.dev.generated.conf.json';
+const WORKSPACE_ROOT = path.join(__dirname, '..');
+const SQLX_OFFLINE_DIR = path.join(WORKSPACE_ROOT, 'crates', 'db', '.sqlx');
 
 function runCommand(command, args, options = {}) {
   if (process.platform === 'win32') {
@@ -20,12 +22,14 @@ function runCommand(command, args, options = {}) {
   return spawn(command, args, options);
 }
 
-function createCargoLeanDevEnv(ports) {
+function createCargoLeanDevEnv(ports, baseEnv = process.env) {
   return withNativeBuildEnv({
-    ...process.env,
-    CARGO_INCREMENTAL: process.env.CARGO_INCREMENTAL || '0',
+    ...baseEnv,
+    CARGO_INCREMENTAL: baseEnv.CARGO_INCREMENTAL || '0',
     FRONTEND_PORT: String(ports.frontend),
     BACKEND_PORT: String(ports.backend),
+    SQLX_OFFLINE: baseEnv.SQLX_OFFLINE || 'true',
+    SQLX_OFFLINE_DIR: baseEnv.SQLX_OFFLINE_DIR || SQLX_OFFLINE_DIR,
   });
 }
 
@@ -234,7 +238,11 @@ async function runTauriDesktopDev() {
   });
 }
 
-runTauriDesktopDev().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  runTauriDesktopDev().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = { createCargoLeanDevEnv };

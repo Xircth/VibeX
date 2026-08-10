@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -29,7 +30,15 @@ pub struct LocalUsageCacheEntry {
 #[derive(Default)]
 pub struct AgentManagementRuntimeState {
     warmup_complete: Mutex<bool>,
+    local_runtime_discovery_complete: Mutex<bool>,
     built_in_probes: Mutex<HashSet<AgentId>>,
+    local_runtimes: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalRuntimeEvidence {
+    pub path: PathBuf,
+    pub version: Option<String>,
 }
 
 impl AgentManagementRuntimeState {
@@ -45,13 +54,60 @@ impl AgentManagementRuntimeState {
         *complete = true;
     }
 
+    pub async fn run_local_runtime_discovery_once<Fut>(&self, work: Fut)
+    where
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut complete = self.local_runtime_discovery_complete.lock().await;
+        if *complete {
+            return;
+        }
+        work.await;
+        *complete = true;
+    }
+
+    pub async fn refresh_local_runtime_discovery<Fut>(&self, work: Fut)
+    where
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut complete = self.local_runtime_discovery_complete.lock().await;
+        work.await;
+        *complete = true;
+    }
+
     pub async fn reset(&self) {
         *self.warmup_complete.lock().await = false;
+        *self.local_runtime_discovery_complete.lock().await = false;
         self.built_in_probes.lock().await.clear();
+        self.local_runtimes.lock().await.clear();
     }
 
     pub async fn should_probe_built_in(&self, agent_id: &AgentId, force: bool) -> bool {
         self.built_in_probes.lock().await.insert(agent_id.clone()) || force
+    }
+
+    pub async fn replace_local_runtime(
+        &self,
+        agent_id: AgentId,
+        evidence: Option<LocalRuntimeEvidence>,
+    ) {
+        let mut local_runtimes = self.local_runtimes.lock().await;
+        match evidence {
+            Some(evidence) => {
+                local_runtimes.insert(agent_id, evidence);
+            }
+            None => {
+                local_runtimes.remove(&agent_id);
+            }
+        }
+    }
+
+    pub async fn local_runtime(&self, agent_id: &AgentId) -> Option<LocalRuntimeEvidence> {
+        self.local_runtimes.lock().await.get(agent_id).cloned()
+    }
+
+    pub async fn local_runtimes(&self) -> HashMap<AgentId, LocalRuntimeEvidence> {
+        self.local_runtimes.lock().await.clone()
     }
 }
 
@@ -164,12 +220,13 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use super::AgentManagementRuntimeState;
+    use super::{AgentManagementRuntimeState, LocalRuntimeEvidence};
 
     #[tokio::test]
     async fn local_data_reset_allows_agent_discovery_to_run_again() {
         let runtime = AgentManagementRuntimeState::default();
         let runs = Arc::new(AtomicUsize::new(0));
+        let local_runs = Arc::new(AtomicUsize::new(0));
 
         let first_runs = runs.clone();
         runtime
@@ -182,6 +239,13 @@ mod tests {
                 panic!("warmup must remain shared before reset");
             })
             .await;
+        let first_local_runs = local_runs.clone();
+        runtime
+            .run_local_runtime_discovery_once(async move {
+                first_local_runs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
+        runtime.run_local_runtime_discovery_once(async {}).await;
 
         runtime.reset().await;
 
@@ -191,8 +255,15 @@ mod tests {
                 second_runs.fetch_add(1, Ordering::SeqCst);
             })
             .await;
+        let second_local_runs = local_runs.clone();
+        runtime
+            .run_local_runtime_discovery_once(async move {
+                second_local_runs.fetch_add(1, Ordering::SeqCst);
+            })
+            .await;
 
         assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert_eq!(local_runs.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -202,9 +273,20 @@ mod tests {
 
         assert!(runtime.should_probe_built_in(&claude, false).await);
         assert!(!runtime.should_probe_built_in(&claude, false).await);
+        runtime
+            .replace_local_runtime(
+                claude.clone(),
+                Some(LocalRuntimeEvidence {
+                    path: r"C:\Users\developer\AppData\Roaming\npm\claude.cmd".into(),
+                    version: Some("2.1.173".to_string()),
+                }),
+            )
+            .await;
+        assert!(runtime.local_runtime(&claude).await.is_some());
 
         runtime.reset().await;
 
         assert!(runtime.should_probe_built_in(&claude, false).await);
+        assert!(runtime.local_runtime(&claude).await.is_none());
     }
 }

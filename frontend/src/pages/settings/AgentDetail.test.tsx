@@ -62,6 +62,57 @@ const preflight: AgentPreflightView = {
 };
 
 describe('AgentDetail', () => {
+  it('shows a discovered CLI Runtime as available before ACP is installed', () => {
+    render(
+      <AgentDetail
+        agent={{
+          ...agent,
+          runtime_version: null,
+          acp_version: null,
+          local_runtime: {
+            path: 'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd',
+            version: 'codex-cli 0.138.0',
+          },
+        }}
+        operation={null}
+        preflight={null}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    const runtimeResult = screen.getByRole('listitem', {
+      name: '本地 Runtime 检查结果',
+    });
+    expect(within(runtimeResult).getByText('可用')).toBeInTheDocument();
+    expect(
+      within(runtimeResult).getByTitle('codex-cli 0.138.0')
+    ).toBeInTheDocument();
+    expect(
+      within(runtimeResult).getByTitle(
+        'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd'
+      )
+    ).toBeInTheDocument();
+
+    const acpResult = screen.getByRole('listitem', {
+      name: 'ACP 适配器 检查结果',
+    });
+    expect(within(acpResult).getByText('需处理')).toBeInTheDocument();
+  });
+
   it('renders state-driven repair and preflight actions without a detail banner', async () => {
     const onRepair = vi.fn();
     const onPreflight = vi.fn();

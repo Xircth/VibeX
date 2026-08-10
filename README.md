@@ -30,7 +30,7 @@ VibeX brings Claude Code, Codex, OpenCode, Pi, and ACP Registry agents into one 
 The project is built around three goals: connect more agents, isolate parallel work, and bring software delivery into one place. Developers can organize conversations, create worktrees, delegate subtasks, review code, and use the integrated browser, Git tools, terminals, and session board without leaving the application.
 
 > [!IMPORTANT]
-> **Local operation and privacy:** VibeX is a local-first agent host. VibeX does not provide cloud storage for your data and does not automatically upload projects, conversations, configuration, or diagnostics to a VibeX server.
+> **Local operation and privacy:** VibeX is a local-first agent host. VibeX does not operate cloud storage and does not automatically upload projects, conversations, configuration, or diagnostics to a VibeX-operated service. When you explicitly connect a remote client to a user-controlled desktop or Headless Host, the data required for the selected remote workflows is sent to that Host.
 >
 > **Testing-stage notice:** VibeX is still in testing. Use version control, keep backups of important projects, and review agent-generated changes before committing, syncing, or merging them.
 >
@@ -71,8 +71,21 @@ Agents join the shared conversation pipeline through the [Agent Client Protocol 
 | **Integrated terminal** | Manage multiple terminal sessions and run development servers, tests, and project scripts. |
 | **MCP, skills, and plugins** | Manage agent tools, reusable skills, and structured workflow actions. |
 | **Automations** | Save agent, workspace, branch, and action settings; launch isolated scheduled work and retain run history. |
-| **Messaging and remote devices** | Send conversation notifications to external channels and use authorized devices for supported remote workflows. |
+| **Messaging and remote foundations** | Send conversation notifications to external channels; a versioned Remote Protocol and headless Host foundation are available for tested remote workflows. |
 | **Office artifact previews** | Preview `.docx`, `.xlsx`, and `.pptx` artifacts through the managed OfficeCLI capability. |
+
+### Remote access status
+
+VibeX contains a versioned Remote Protocol, device pairing and revocation, durable
+conversation replay, and a source-build `vibex-server`. First-class desktop Server
+Profiles, official Server containers/binaries, and the Android companion are accepted
+roadmap work and are not yet released product surfaces. See the
+[P0/P1 remote productization plan](./docs/plans/2026-08-09-remote-productization-p0-p1.md)
+and [current headless deployment notes](./docs/deployment/headless-server.md).
+
+VibeX does not operate a cloud relay. Remote clients connect to a user-controlled
+desktop or Headless Host; without an online Host they can only use supported read-only
+offline data.
 
 ## Download and Installation
 
@@ -165,7 +178,7 @@ crates/          Conversations, automations, plugins, artifacts, and services
 shared/          TypeScript types generated from Rust
 ```
 
-VibeX is built with Tauri, Rust, and React. Application data managed by VibeX stays on the local machine and is not automatically uploaded to a VibeX server. Selected agents, model providers, MCP servers, plugins, messaging channels, and browser sessions may connect to external services under their respective data and account policies.
+VibeX is built with Tauri, Rust, and React. Application data managed by VibeX stays on the selected user-controlled Host and is not automatically uploaded to a VibeX-operated service. Selected agents, model providers, MCP servers, plugins, messaging channels, and browser sessions may connect to external services under their respective data and account policies.
 
 `shared/types.ts` is generated. Run `pnpm run generate-types` after changing shared Rust types.
 

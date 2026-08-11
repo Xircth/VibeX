@@ -40,18 +40,19 @@ use agents::{
 };
 use api_types::{
     AgentAuthModeOptionView, AgentAuthModeView, AgentAuthenticationStatus, AgentDiagnosticView,
-    AgentEnvironmentDiagnosticCheckView, AgentEnvironmentDiagnosticLevel,
-    AgentEnvironmentDiagnosticSectionView, AgentEnvironmentDiagnosticsView,
-    AgentEnvironmentEntryView, AgentEnvironmentPatchRequest, AgentEnvironmentView, AgentId,
-    AgentKind, AgentLifecycleState, AgentLocalRuntimeView, AgentManagementActionKind,
-    AgentManagementActionReceipt, AgentManagementActionView, AgentManagementActionsView,
-    AgentManagementErrorCode, AgentManagementErrorView, AgentManagementIdentity,
-    AgentManagementView, AgentModelCatalogItemView, AgentModelCatalogSource, AgentModelCatalogView,
-    AgentModelProviderSaveRequest, AgentModelProviderView, AgentModelProvidersView,
-    AgentNativeConfigFieldKind, AgentNativeConfigFieldView, AgentNativeConfigFileView,
-    AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat, AgentNativeConfigOptionView,
-    AgentNativeConfigPatchRequest, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
-    AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightView,
+    AgentDiscoveryPhase, AgentDiscoveryProgressView, AgentEnvironmentDiagnosticCheckView,
+    AgentEnvironmentDiagnosticLevel, AgentEnvironmentDiagnosticSectionView,
+    AgentEnvironmentDiagnosticsView, AgentEnvironmentEntryView, AgentEnvironmentPatchRequest,
+    AgentEnvironmentView, AgentId, AgentKind, AgentLifecycleState, AgentLocalRuntimeView,
+    AgentManagementActionKind, AgentManagementActionReceipt, AgentManagementActionView,
+    AgentManagementActionsView, AgentManagementErrorCode, AgentManagementErrorView,
+    AgentManagementIdentity, AgentManagementView, AgentModelCatalogItemView,
+    AgentModelCatalogSource, AgentModelCatalogView, AgentModelProviderSaveRequest,
+    AgentModelProviderView, AgentModelProvidersView, AgentNativeConfigFieldKind,
+    AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
+    AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
+    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
+    AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource, AgentPreflightView,
     AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
     AgentUpdateCheckView, CodexCustomModelRequest, CodexDeviceCodePollView, CodexDeviceCodeView,
     CodexModelCatalogConfigRequest, CodexModelCatalogConfigView, OpenCodeCatalogModelView,
@@ -87,7 +88,7 @@ use remote_protocol::{
     ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
     SubscriptionResource, SubscriptionSnapshot,
 };
-use services::services::config::{Config, LinkOpenBehavior};
+use services::services::config::{CommitReminderMode, Config, LinkOpenBehavior};
 use ts_rs::TS;
 use vibex::{
     commands::{
@@ -180,7 +181,8 @@ fn workspace_root() -> PathBuf {
 }
 
 fn render_merged_types(existing: &str) -> String {
-    let (_, existing_decls) = parse_declarations(existing);
+    let existing = remove_legacy_commit_reminder_constant(existing);
+    let (_, existing_decls) = parse_declarations(&existing);
     let mut replacements = replacement_declarations();
     let tombstones = removed_declarations();
     let mut merged = Vec::with_capacity(existing_decls.len() + replacements.len());
@@ -284,6 +286,19 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
     })
 }
 
+fn remove_legacy_commit_reminder_constant(existing: &str) -> String {
+    let Some(start) = existing.find("\nexport const DEFAULT_COMMIT_REMINDER_PROMPT =") else {
+        return existing.to_string();
+    };
+    let Some(relative_end) =
+        existing[start + 1..].find("\nexport const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE =")
+    else {
+        return existing.to_string();
+    };
+    let end = start + 1 + relative_end;
+    format!("{}{}", &existing[..start], &existing[end..])
+}
+
 fn replacement_declarations() -> BTreeMap<String, String> {
     let mut decls = BTreeMap::new();
     insert_declaration::<SessionStatus>(&mut decls);
@@ -293,6 +308,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
     insert_declaration::<LinkOpenBehavior>(&mut decls);
+    insert_declaration::<CommitReminderMode>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
     insert_declaration::<ActionType>(&mut decls);
@@ -319,6 +335,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentOperationKind>(&mut decls);
     insert_declaration::<AgentOperationStatus>(&mut decls);
     insert_declaration::<AgentLocalRuntimeView>(&mut decls);
+    insert_declaration::<AgentDiscoveryPhase>(&mut decls);
+    insert_declaration::<AgentDiscoveryProgressView>(&mut decls);
     insert_declaration::<AgentManagementView>(&mut decls);
     insert_declaration::<AgentRegistryViewRow>(&mut decls);
     insert_declaration::<AgentRegistryView>(&mut decls);
@@ -326,6 +344,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentOperationEvent>(&mut decls);
     insert_declaration::<AgentManagementErrorCode>(&mut decls);
     insert_declaration::<AgentManagementErrorView>(&mut decls);
+    insert_declaration::<AgentPreflightSource>(&mut decls);
     insert_declaration::<AgentPreflightItemView>(&mut decls);
     insert_declaration::<AgentPreflightView>(&mut decls);
     insert_declaration::<AgentManagementActionKind>(&mut decls);
@@ -650,5 +669,15 @@ mod tests {
         let twice = render_merged_types(&once);
 
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn generation_removes_the_legacy_commit_reminder_prompt_constant() {
+        let existing = "export type ResetMode = \"soft\";\n\nexport const DEFAULT_COMMIT_REMINDER_PROMPT =\n  \"legacy\";\n\nexport const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE =\n  \"merge\";\n\nexport type Config = {};\n";
+
+        let generated = render_merged_types(existing);
+
+        assert!(!generated.contains("DEFAULT_COMMIT_REMINDER_PROMPT"));
+        assert!(generated.contains("DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE"));
     }
 }

@@ -88,7 +88,11 @@ impl InstallationOperationRepository {
         let id = Uuid::new_v4();
         let claims_json = serde_json::to_string(&operation.resource_claims)
             .map_err(|_| AgentManagementRepositoryError::InvalidResourceClaims)?;
-        let mut transaction = self.pool.begin().await?;
+        // This operation reads the current installation before writing the queue rows.
+        // In WAL mode a deferred transaction can acquire a read snapshot, lose the writer
+        // race to startup warmup, and then fail immediately with SQLITE_BUSY_SNAPSHOT when
+        // upgraded. Claim the writer slot up front so SQLite's busy timeout can serialize it.
+        let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
         let existing_installation = sqlx::query_as::<_, (String, Option<String>)>(
             r#"SELECT ownership, current_lock_id
                FROM agent_installation

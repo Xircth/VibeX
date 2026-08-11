@@ -185,6 +185,7 @@ export function buildQueuedFollowUp({
   executorProfile: ExecutorProfileId | null;
 }): {
   message: string;
+  displayMessage: string;
   images: string[];
   executorProfile: ExecutorProfileId;
   pluginActions: SessionComposerPluginActionInvocation[];
@@ -205,9 +206,14 @@ export function buildQueuedFollowUp({
     serializeSessionComposerBackendMessage(message),
     [conflictMarkdown, reviewMarkdown].filter(Boolean)
   );
+  const { prompt: displayMessage } = buildAgentPrompt(message.trim(), [
+    conflictMarkdown,
+    reviewMarkdown,
+  ]);
 
   return {
     message: prompt,
+    displayMessage,
     images,
     executorProfile,
     pluginActions: getSessionComposerPluginActionInvocations(message),

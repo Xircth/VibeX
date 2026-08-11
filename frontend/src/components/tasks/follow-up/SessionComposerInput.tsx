@@ -54,13 +54,14 @@ import {
   configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
-import { createPluginApi } from '@/lib/api/plugins';
+import { createPluginApi, createPluginControlApi } from '@/lib/api/plugins';
 import { DOLLAR_COMMANDS, mergeDollarCommands } from '@/lib/dollarCommands';
 import {
   agentAvailableCommandsToSlashCommands,
   localSkillsToDollarCommands,
   localSkillsToSlashCommands,
   mergeComposerSlashCommands,
+  pluginInvocationsToSlashCommands,
 } from '@/lib/conversation-rendering/commandSources';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
@@ -302,6 +303,7 @@ function toSearchableItem(option: ComposerTypeaheadOption): SearchableItem {
         kind === 'agent_mention'
           ? option.key.slice('agent-'.length)
           : undefined,
+      commandSourceKind: option.sourceKind,
     },
   };
 }
@@ -311,6 +313,7 @@ type ComposerSearchItemData = {
   description?: string;
   kind?: SessionComposerStructuredTokenKind;
   agentKind?: string;
+  commandSourceKind?: 'native' | 'skill' | 'plugin';
 };
 
 const TOKEN_VARIANTS: Record<SessionComposerStructuredTokenKind, BadgeVariant> =
@@ -537,6 +540,7 @@ function PreviewElementTokenTooltip({
 }
 
 function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
+  const { t } = useTranslation('tasks');
   const data = item.auxiliaryData as ComposerSearchItemData | undefined;
   const kind = data?.kind ?? 'file';
   const iconToken = {
@@ -580,6 +584,11 @@ function ComposerTriggerMenuItem({ item }: { item: SearchableItem }) {
             data-composer-trigger-description
           >
             {data.description}
+          </span>
+        ) : null}
+        {data?.commandSourceKind ? (
+          <span className="mt-1 inline-flex rounded border border-border/70 bg-muted/45 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+            {t(`composer.commandSource.${data.commandSourceKind}`)}
           </span>
         ) : null}
       </span>
@@ -905,9 +914,18 @@ export function SessionComposerInput({
     repoId,
   });
   const pluginApi = useMemo(() => createPluginApi(transport), [transport]);
+  const pluginControlApi = useMemo(
+    () => createPluginControlApi(transport),
+    [transport]
+  );
   const { data: pluginCatalog } = useQuery({
     queryKey: ['session-composer-plugin-actions', transport.environment],
     queryFn: () => pluginApi.catalog(),
+    staleTime: 5_000,
+  });
+  const { data: pluginControlCatalog } = useQuery({
+    queryKey: ['session-composer-plugin-control', transport.environment],
+    queryFn: () => pluginControlApi.catalog(),
     staleTime: 5_000,
   });
   const { data: pluginAgentSkills } = useQuery({
@@ -942,8 +960,14 @@ export function SessionComposerInput({
         runtimeCommands:
           agentAvailableCommandsToSlashCommands(availableCommands),
         skillCommands: localSkillsToSlashCommands(localSkills),
+        pluginCommands: pluginInvocationsToSlashCommands(pluginControlCatalog),
       }),
-    [availableCommands, localSkills, slashCommandsQuery.commands]
+    [
+      availableCommands,
+      localSkills,
+      pluginControlCatalog,
+      slashCommandsQuery.commands,
+    ]
   );
   const allDollarCommands = useMemo(
     () =>

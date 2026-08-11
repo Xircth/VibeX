@@ -45,6 +45,9 @@ beforeEach(async () => {
 // Mock Tauri API - all invoke calls return undefined by default
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
+  Channel: class MockChannel<T> {
+    onmessage: (message: T) => void = () => undefined;
+  },
 }));
 
 vi.mock('@tauri-apps/api/event', () => ({

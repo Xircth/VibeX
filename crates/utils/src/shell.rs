@@ -105,6 +105,18 @@ pub fn merge_paths(primary: impl AsRef<OsStr>, secondary: impl AsRef<OsStr>) -> 
     join_paths(merged).unwrap_or_default()
 }
 
+/// Expose a user-global binary directory to subsequently launched Agent
+/// processes without adding any VibeX-private directory.
+pub fn expose_user_bin_to_process_path(directory: &Path) {
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let merged = merge_paths(directory.as_os_str(), &existing);
+    if merged != existing {
+        unsafe {
+            std::env::set_var("PATH", merged);
+        }
+    }
+}
+
 async fn refresh_path() -> bool {
     let Some(refreshed) = get_fresh_path().await else {
         return false;
@@ -473,8 +485,8 @@ mod tests {
             vec![
                 Path::new(r"D:\pnpm").to_path_buf(),
                 Path::new(r"D:\npm-prefix").to_path_buf(),
-                Path::new(r"C:\Users\developer\AppData\Roaming\npm").to_path_buf(),
-                Path::new(r"C:\Users\developer\AppData\Local\pnpm").to_path_buf(),
+                Path::new(r"C:\Users\developer\AppData\Roaming").join("npm"),
+                Path::new(r"C:\Users\developer\AppData\Local").join("pnpm"),
                 home.join(".bun/bin"),
                 home.join(".cargo/bin"),
             ]

@@ -50,7 +50,8 @@ describe('sendAgentRuntimeTurn', () => {
         variant: null,
         model: 'gpt-5.4',
       },
-      text: 'visible text',
+      text: 'backend text',
+      displayText: 'visible text',
       images: ['.vibe-images/screen.png'],
       modeOverride: 'plan',
       configOverrides: [],
@@ -86,6 +87,8 @@ describe('sendAgentRuntimeTurn', () => {
 
     expect(startTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        text: 'hello',
+        displayText: 'hello',
         modeOverride: null,
         configOverrides: [],
         pluginActions: [],

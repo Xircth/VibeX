@@ -33,6 +33,7 @@ export type ConversationStartTurnRequest = {
   conversationId: string;
   executorProfileId?: ExecutorProfileId | null;
   text: string;
+  displayText?: string;
   images?: string[];
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];

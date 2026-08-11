@@ -11,6 +11,7 @@ export type QueueStatusQueryKey = readonly [
 export type QueueMutationInput = {
   sessionId: string;
   message: string;
+  agentMessage?: string;
   images: string[];
   executorProfileId: ExecutorProfileId;
   pluginActions: SessionComposerPluginActionInvocation[];
@@ -29,6 +30,7 @@ export type QueuedMessage = {
   executorProfileId: ExecutorProfileId;
   data: {
     message: string;
+    agentMessage?: string;
     images: string[];
     pluginActions?: SessionComposerPluginActionInvocation[];
   };
@@ -52,12 +54,14 @@ export function getQueueStatusQueryKey(
 export function buildQueueMutationInput({
   sessionId,
   message,
+  agentMessage,
   images,
   executorProfileId,
   pluginActions = [],
 }: {
   sessionId: string | undefined;
   message: string;
+  agentMessage?: string;
   images: string[];
   executorProfileId: ExecutorProfileId;
   pluginActions?: SessionComposerPluginActionInvocation[];
@@ -67,6 +71,7 @@ export function buildQueueMutationInput({
   return {
     sessionId,
     message,
+    agentMessage,
     images,
     executorProfileId,
     pluginActions,

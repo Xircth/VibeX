@@ -10,6 +10,14 @@ type IconAgent = {
   icon_svg: string | null;
 };
 
+const AGENT_ICON_CALIBRATION_CLASS: Partial<Record<string, string>> = {
+  cline: 'is-cline',
+  hermes: 'is-hermes',
+  codebuddy: 'is-codebuddy',
+  grok: 'is-grok',
+  cursor: 'is-cursor',
+};
+
 export function AgentManagementIcon({
   agent,
   className,
@@ -17,6 +25,12 @@ export function AgentManagementIcon({
   agent: IconAgent;
   className?: string;
 }) {
+  const iconClassName = cn(
+    'agent-management-brand-icon',
+    AGENT_ICON_CALIBRATION_CLASS[agent.agent_id],
+    className
+  );
+
   if (
     agent.agent_id === 'claude_code' ||
     agent.agent_id === 'codex' ||
@@ -30,7 +44,7 @@ export function AgentManagementIcon({
     return (
       <span
         aria-hidden="true"
-        className={cn('agent-management-svg-icon', className)}
+        className={cn('agent-management-svg-icon', iconClassName)}
         dangerouslySetInnerHTML={{ __html: agent.icon_svg }}
       />
     );
@@ -40,10 +54,16 @@ export function AgentManagementIcon({
     const light = agent.icon_light ?? agent.icon_dark ?? '';
     const dark = agent.icon_dark ?? agent.icon_light ?? '';
     return (
-      <picture aria-hidden="true" className={className}>
-        <source media="(prefers-color-scheme: dark)" srcSet={dark} />
-        <img alt="" className="h-full w-full object-contain" src={light} />
-      </picture>
+      <span aria-hidden="true" className={iconClassName}>
+        <picture className="agent-management-brand-picture">
+          <source media="(prefers-color-scheme: dark)" srcSet={dark} />
+          <img
+            alt=""
+            className="agent-management-brand-artwork object-contain"
+            src={light}
+          />
+        </picture>
+      </span>
     );
   }
 

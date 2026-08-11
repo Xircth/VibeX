@@ -25,6 +25,30 @@ stable_id!(ToolId);
 stable_id!(SkillId);
 stable_id!(ActionId);
 
+impl PluginId {
+    pub(crate) fn from_string(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl ToolId {
+    pub(crate) fn from_string(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl SkillId {
+    pub(crate) fn from_string(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl ActionId {
+    pub(crate) fn from_string(value: String) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ManifestSource {
     Bundled,

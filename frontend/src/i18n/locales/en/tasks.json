@@ -1,6 +1,11 @@
 {
   "composer": {
     "inputLabel": "Message",
+    "commandSource": {
+      "plugin": "Plugin",
+      "skill": "Skill",
+      "native": "Native"
+    },
     "elementToken": {
       "type": "Page element",
       "source": "Source",

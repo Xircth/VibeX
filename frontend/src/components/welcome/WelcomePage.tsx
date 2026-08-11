@@ -244,7 +244,7 @@ export function WelcomePage() {
   }, [contextMenu, isDeletingProject, t]);
 
   return (
-    <div className="h-full overflow-auto bg-background">
+    <div className="welcome-page-surface h-full overflow-auto">
       <div className="mx-auto max-w-2xl px-8 py-16">
         <div className="mb-12 flex items-start justify-between gap-4">
           <div className="-ml-3 flex items-center gap-3">

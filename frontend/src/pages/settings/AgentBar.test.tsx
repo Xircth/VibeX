@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse } from 'postcss';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
@@ -30,6 +33,23 @@ function agent(
     active_operation: null,
     rollback_available: false,
   };
+}
+
+function installAgentBarStyles() {
+  const stylesheet = readFileSync(
+    resolve(process.cwd(), 'src/styles/legacy/index.css'),
+    'utf8'
+  );
+  const relevantRules: string[] = [];
+  parse(stylesheet).walkRules((rule) => {
+    if (rule.selector.includes('.agent-management')) {
+      relevantRules.push(rule.toString());
+    }
+  });
+  const style = document.createElement('style');
+  style.textContent = relevantRules.join('\n');
+  document.head.append(style);
+  return style;
 }
 
 describe('AgentBar', () => {
@@ -124,5 +144,116 @@ describe('AgentBar', () => {
     ).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Vendor Agent' }));
     expect(onSelect).toHaveBeenCalledWith('vendor.agent');
+  });
+
+  it('calibrates brand marks and keeps the outside scrollbar hidden until hover', () => {
+    const style = installAgentBarStyles();
+    const rendered = render(
+      <div className="settings-page">
+        <AgentBar
+          agents={[
+            {
+              ...agent('cline', 'Cline', 0),
+              icon_light: '/agents/cline.svg',
+              icon_dark: '/agents/cline.svg',
+            },
+            {
+              ...agent('hermes', 'Hermes Agent', 1),
+              icon_light: '/agents/hermes.png',
+              icon_dark: '/agents/hermes.png',
+            },
+            {
+              ...agent('codebuddy', 'CodeBuddy', 2),
+              icon_light: '/agents/codebuddy.svg',
+              icon_dark: '/agents/codebuddy.svg',
+            },
+            {
+              ...agent('grok', 'Grok', 3),
+              icon_light: '/agents/grok.svg',
+              icon_dark: '/agents/grok.svg',
+            },
+            {
+              ...agent('cursor', 'Cursor', 4),
+              icon_light: '/agents/cursor-light.svg',
+              icon_dark: '/agents/cursor-dark.svg',
+            },
+          ]}
+          selectedAgentId="hermes"
+          registryOpen={false}
+          onSelect={vi.fn()}
+          onOpenRegistry={vi.fn()}
+        />
+      </div>
+    );
+
+    try {
+      for (const name of ['Cline', 'CodeBuddy', 'Grok']) {
+        const artwork = screen
+          .getByRole('button', { name })
+          .querySelector('img');
+        expect(artwork).not.toBeNull();
+        expect(getComputedStyle(artwork!).width).toBe('22px');
+        expect(getComputedStyle(artwork!).height).toBe('22px');
+      }
+
+      const hermesArtwork = screen
+        .getByRole('button', { name: 'Hermes Agent' })
+        .querySelector('img');
+      expect(hermesArtwork).toHaveAttribute('src', '/agents/hermes.png');
+      expect(getComputedStyle(hermesArtwork!).width).toBe('28px');
+      expect(getComputedStyle(hermesArtwork!).height).toBe('28px');
+
+      const cursorArtwork = screen
+        .getByRole('button', { name: 'Cursor' })
+        .querySelector('img');
+      expect(getComputedStyle(cursorArtwork!).width).toBe('20px');
+      expect(getComputedStyle(cursorArtwork!).height).toBe('20px');
+
+      for (const name of [
+        'Cline',
+        'Hermes Agent',
+        'CodeBuddy',
+        'Grok',
+        'Cursor',
+      ]) {
+        const button = screen.getByRole('button', { name });
+        const frame = button.querySelector('.agent-management-brand-icon');
+        const artwork = button.querySelector('img');
+        expect(frame?.tagName).toBe('SPAN');
+        expect(frame).toContainElement(artwork);
+        expect(getComputedStyle(frame!).position).toBe('relative');
+        expect(getComputedStyle(artwork!).position).toBe('absolute');
+        expect(getComputedStyle(artwork!).top).toBe('50%');
+        expect(getComputedStyle(artwork!).left).toBe('50%');
+        expect(getComputedStyle(artwork!).transform).toBe(
+          'translate(-50%, -50%)'
+        );
+      }
+
+      const rail = document.querySelector('.agent-management-bar-surface');
+      const scroller = document.querySelector('.agent-management-bar-scroll');
+      expect(rail).not.toBeNull();
+      expect(scroller).not.toBeNull();
+      expect(rail!.contains(scroller)).toBe(false);
+      expect(getComputedStyle(rail!).bottom).toBe('8px');
+      expect(getComputedStyle(scroller!).height).toBe('60px');
+      expect(getComputedStyle(scroller!).scrollbarWidth).toBe('thin');
+      expect(getComputedStyle(scroller!).scrollbarColor).toBe(
+        'transparent transparent'
+      );
+      expect(style.textContent).toContain(
+        '.agent-management-bar-scroll::-webkit-scrollbar'
+      );
+      expect(style.textContent).toContain('height: 4px');
+      expect(style.textContent).toMatch(
+        /agent-management-bar-scroll::-webkit-scrollbar-thumb\s*{[^}]*background:\s*transparent;/
+      );
+      expect(style.textContent).toMatch(
+        /agent-management-bar-scroll:hover::-webkit-scrollbar-thumb\s*{[^}]*background:\s*hsl\(var\(--border-strong\) \/ 0\.55\);/
+      );
+    } finally {
+      rendered.unmount();
+      style.remove();
+    }
   });
 });

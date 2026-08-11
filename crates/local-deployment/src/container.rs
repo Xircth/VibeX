@@ -31,7 +31,7 @@ use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
 use services::services::{
     approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
-    config::{Config, DEFAULT_COMMIT_REMINDER_PROMPT},
+    config::Config,
     container::{ContainerError, ContainerRef, ContainerService},
     diff_stream::{self, DiffStreamHandle},
     image::ImageService,
@@ -905,18 +905,7 @@ impl LocalContainerService {
         let repo_names: Vec<String> = repos.iter().map(|r| r.name.clone()).collect();
         let repo_context = RepoContext::new(current_dir, repo_names);
 
-        let config = self.config.read().await;
-        let commit_reminder_enabled = config.commit_reminder_enabled;
-        let commit_reminder_prompt = config
-            .commit_reminder_prompt
-            .clone()
-            .unwrap_or_else(|| DEFAULT_COMMIT_REMINDER_PROMPT.to_string());
-        drop(config);
-        let mut env = ExecutionEnv::new(
-            repo_context,
-            commit_reminder_enabled,
-            commit_reminder_prompt,
-        );
+        let mut env = ExecutionEnv::new(repo_context);
 
         let task = workspace
             .parent_task(&self.db.pool)

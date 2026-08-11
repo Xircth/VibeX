@@ -36,7 +36,7 @@ const BUILT_IN_ICON_PATHS: Partial<
     dark: '/agents/opencode-dark.svg',
   },
   cline: { light: '/agents/cline.svg', dark: '/agents/cline.svg' },
-  hermes: { light: '/agents/hermes.svg', dark: '/agents/hermes.svg' },
+  hermes: { light: '/agents/hermes.png', dark: '/agents/hermes.png' },
   codebuddy: {
     light: '/agents/codebuddy.svg',
     dark: '/agents/codebuddy.svg',

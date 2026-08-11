@@ -4,6 +4,7 @@ import {
   isAgentSlashCommandVisible,
   type AgentSlashCommandIconKey,
 } from '@/features/agents/slashCommands';
+import type { ComposerSlashCommand } from '@/lib/conversation-rendering/commandSources';
 
 export type SlashCommandIconKey = AgentSlashCommandIconKey;
 
@@ -29,9 +30,13 @@ export function getSlashCommandPresentation(
   command: SlashCommandDescription,
   executor: string | null | undefined
 ): SlashCommandPresentation {
-  const providerCommand = agentSlashCommandCatalog(executor).find(
-    (item) => item.name === command.name
-  );
+  const composerCommand = command as Partial<ComposerSlashCommand>;
+  const providerCommand =
+    composerCommand.sourceKind === 'plugin' || command.kind === 'SKILL'
+      ? undefined
+      : agentSlashCommandCatalog(executor).find(
+          (item) => item.name === command.name
+        );
   const providerPresentation = providerCommand
     ? {
         label: providerCommand.label ?? providerCommand.name,
@@ -46,7 +51,7 @@ export function getSlashCommandPresentation(
   }
 
   return {
-    label: command.name,
+    label: composerCommand.displayLabel ?? command.name,
     description: command.description ?? null,
     iconKey: null,
     isSkill: isSlashCommandSkill(command),

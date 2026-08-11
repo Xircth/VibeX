@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Check, Download, Loader2, ShieldCheck } from 'lucide-react';
+import {
+  Check,
+  CircleAlert,
+  Download,
+  Loader2,
+  ShieldCheck,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { AgentId } from 'shared/types';
+import type { AgentDiscoveryProgressView, AgentId } from 'shared/types';
 
 import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import {
@@ -49,6 +55,7 @@ export function AgentSetupPicker({
   enabledAgentIds,
   defaultAgentId,
   loading,
+  discoveryProgress,
   error,
   validationError,
   onRetry,
@@ -59,6 +66,7 @@ export function AgentSetupPicker({
   enabledAgentIds: ReadonlySet<AgentId>;
   defaultAgentId: AgentId | null;
   loading: boolean;
+  discoveryProgress: AgentDiscoveryProgressView | null;
   error: string | null;
   validationError: AgentValidationError;
   onRetry: () => void;
@@ -79,6 +87,10 @@ export function AgentSetupPicker({
     validationError === 'default-required' &&
     hasEnabledAgents &&
     defaultAgentId === null;
+  const discoveryActive =
+    discoveryProgress?.phase === 'pending' ||
+    discoveryProgress?.phase === 'checking';
+  const checkedAgentIds = new Set(discoveryProgress?.checked_agent_ids ?? []);
 
   useEffect(() => {
     if (hasEnabledAgents) {
@@ -93,9 +105,16 @@ export function AgentSetupPicker({
       <div
         className="onboarding-agent-loading"
         role="status"
-        aria-label={t('onboarding.detectingAgents')}
+        aria-label={t('onboarding.loadingAgentCatalog')}
         aria-live="polite"
       >
+        <div className="onboarding-agent-loading-indicator">
+          <Loader2
+            className="h-4 w-4 motion-safe:animate-spin"
+            aria-hidden="true"
+          />
+          <strong>{t('onboarding.loadingAgentCatalog')}</strong>
+        </div>
         <div
           className="onboarding-agent-loading-preview"
           data-testid="agent-loading-preview"
@@ -118,13 +137,6 @@ export function AgentSetupPicker({
             <span />
           </div>
         </div>
-        <div className="onboarding-agent-loading-indicator">
-          <Loader2
-            className="h-4 w-4 motion-safe:animate-spin"
-            aria-hidden="true"
-          />
-          <strong>{t('onboarding.detectingAgents')}</strong>
-        </div>
       </div>
     );
   }
@@ -142,11 +154,81 @@ export function AgentSetupPicker({
 
   return (
     <div className="onboarding-agent-picker">
+      {discoveryActive && discoveryProgress ? (
+        <div className="onboarding-discovery-progress">
+          <div className="onboarding-discovery-progress-heading">
+            <span className="onboarding-discovery-progress-title">
+              <Loader2
+                className="h-4 w-4 motion-safe:animate-spin"
+                aria-hidden="true"
+              />
+              <strong>{t('onboarding.detectingAgents')}</strong>
+            </span>
+            {discoveryProgress.total > 0 ? (
+              <span>
+                {t('onboarding.discoveryProgress', {
+                  completed: discoveryProgress.completed,
+                  total: discoveryProgress.total,
+                })}
+              </span>
+            ) : (
+              <span>{t('onboarding.discoveryPreparing')}</span>
+            )}
+          </div>
+          <div
+            className={cn(
+              'onboarding-discovery-progress-track',
+              discoveryProgress.total === 0 && 'is-indeterminate'
+            )}
+            role="progressbar"
+            aria-label={t('onboarding.discoveryProgressAria')}
+            aria-valuemin={0}
+            aria-valuenow={
+              discoveryProgress.total > 0
+                ? discoveryProgress.completed
+                : undefined
+            }
+            aria-valuemax={
+              discoveryProgress.total > 0 ? discoveryProgress.total : undefined
+            }
+          >
+            <span
+              style={
+                discoveryProgress.total > 0
+                  ? {
+                      width: `${Math.min(
+                        100,
+                        (discoveryProgress.completed /
+                          discoveryProgress.total) *
+                          100
+                      )}%`,
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <div className="onboarding-discovery-progress-meta">
+            <span>
+              {t('onboarding.discoveryFound', {
+                count: discoveryProgress.found,
+              })}
+            </span>
+            <span>{t('onboarding.discoveryNonBlocking')}</span>
+          </div>
+        </div>
+      ) : discoveryProgress?.timed_out ? (
+        <div className="onboarding-discovery-timeout" role="status">
+          <CircleAlert aria-hidden="true" />
+          <span>{t('onboarding.discoveryTimedOut')}</span>
+        </div>
+      ) : null}
       <div className="onboarding-agent-stage">
         <h3>{t('onboarding.enabledAgents')}</h3>
         <div className="onboarding-agent-list" role="list">
           {agents.map((agent) => {
             const enabled = enabledAgentIds.has(agent.agentId);
+            const checking =
+              discoveryActive && !checkedAgentIds.has(agent.agentId);
             return (
               <article
                 key={agent.agentId}
@@ -187,7 +269,15 @@ export function AgentSetupPicker({
                 <div className="onboarding-agent-copy">
                   <div className="onboarding-agent-name-line">
                     <strong>{agent.displayName}</strong>
-                    {agent.runtimeInstalled ? (
+                    {checking ? (
+                      <span className="onboarding-status-badge is-checking">
+                        <Loader2
+                          className="motion-safe:animate-spin"
+                          aria-hidden="true"
+                        />
+                        {t('onboarding.checking')}
+                      </span>
+                    ) : agent.runtimeInstalled ? (
                       <span className="onboarding-status-badge is-installed">
                         <ShieldCheck aria-hidden="true" />
                         {t('onboarding.installed')}

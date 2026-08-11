@@ -44,12 +44,24 @@ pub struct PublishedCliCommand {
     pub shim_path: PathBuf,
 }
 
+struct CliPublication<'a> {
+    home_dir: &'a Path,
+    agent_id: &'a AgentId,
+    managed_install_root: &'a Path,
+    runtime_executable: &'a Path,
+    runtime_path_entries: &'a [PathBuf],
+    shell: ShellFamily,
+    effective_path: Option<&'a OsStr>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliExposureError {
     #[error("managed Runtime executable does not exist: {0}")]
     RuntimeMissing(PathBuf),
     #[error("managed Runtime executable is outside its Agent installation: {0}")]
     RuntimeOutsideInstallation(PathBuf),
+    #[error("locked base Runtime PATH entry is not an absolute directory: {0}")]
+    InvalidRuntimePath(PathBuf),
     #[error("managed Runtime executable has no safe terminal command name: {0}")]
     UnsafeCommandName(String),
     #[error(
@@ -69,27 +81,33 @@ pub fn publish_managed_runtime_cli(
     agent_id: &AgentId,
     managed_install_root: &Path,
     runtime_executable: &Path,
+    runtime_path_entries: &[PathBuf],
     shell: ShellFamily,
 ) -> Result<PublishedCliCommand, CliExposureError> {
     let effective_path = std::env::var_os("PATH");
-    publish_managed_runtime_cli_with_path(
+    publish_managed_runtime_cli_with_path(CliPublication {
         home_dir,
         agent_id,
         managed_install_root,
         runtime_executable,
+        runtime_path_entries,
         shell,
-        effective_path.as_deref(),
-    )
+        effective_path: effective_path.as_deref(),
+    })
 }
 
 fn publish_managed_runtime_cli_with_path(
-    home_dir: &Path,
-    agent_id: &AgentId,
-    managed_install_root: &Path,
-    runtime_executable: &Path,
-    shell: ShellFamily,
-    effective_path: Option<&OsStr>,
+    publication: CliPublication<'_>,
 ) -> Result<PublishedCliCommand, CliExposureError> {
+    let CliPublication {
+        home_dir,
+        agent_id,
+        managed_install_root,
+        runtime_executable,
+        runtime_path_entries,
+        shell,
+        effective_path,
+    } = publication;
     if !runtime_executable.is_file() {
         return Err(CliExposureError::RuntimeMissing(
             runtime_executable.to_path_buf(),
@@ -100,6 +118,7 @@ fn publish_managed_runtime_cli_with_path(
             runtime_executable.to_path_buf(),
         ));
     }
+    validate_runtime_path_entries(runtime_path_entries)?;
     let command_name = runtime_command_name(runtime_executable)?;
     let bin_dir = home_dir.join(".local").join("bin");
     fs::create_dir_all(&bin_dir)?;
@@ -114,7 +133,12 @@ fn publish_managed_runtime_cli_with_path(
         agent_id,
     )?;
     ensure_shell_path(home_dir, shell)?;
-    write_shim_atomically(&shim_path, agent_id, runtime_executable)?;
+    write_shim_atomically(
+        &shim_path,
+        agent_id,
+        runtime_executable,
+        runtime_path_entries,
+    )?;
     Ok(PublishedCliCommand {
         command_name,
         shim_path,
@@ -145,37 +169,32 @@ pub fn switch_managed_runtime_cli(
     managed_install_root: &Path,
     previous_runtime: Option<&Path>,
     next_runtime: &Path,
+    runtime_path_entries: &[PathBuf],
     shell: ShellFamily,
 ) -> Result<PublishedCliCommand, CliExposureError> {
     let effective_path = std::env::var_os("PATH");
     switch_managed_runtime_cli_with_path(
-        home_dir,
-        agent_id,
-        managed_install_root,
+        CliPublication {
+            home_dir,
+            agent_id,
+            managed_install_root,
+            runtime_executable: next_runtime,
+            runtime_path_entries,
+            shell,
+            effective_path: effective_path.as_deref(),
+        },
         previous_runtime,
-        next_runtime,
-        shell,
-        effective_path.as_deref(),
     )
 }
 
 fn switch_managed_runtime_cli_with_path(
-    home_dir: &Path,
-    agent_id: &AgentId,
-    managed_install_root: &Path,
+    publication: CliPublication<'_>,
     previous_runtime: Option<&Path>,
-    next_runtime: &Path,
-    shell: ShellFamily,
-    effective_path: Option<&OsStr>,
 ) -> Result<PublishedCliCommand, CliExposureError> {
-    let published = publish_managed_runtime_cli_with_path(
-        home_dir,
-        agent_id,
-        managed_install_root,
-        next_runtime,
-        shell,
-        effective_path,
-    )?;
+    let home_dir = publication.home_dir;
+    let agent_id = publication.agent_id;
+    let next_runtime = publication.runtime_executable;
+    let published = publish_managed_runtime_cli_with_path(publication)?;
     if let Some(previous_runtime) = previous_runtime
         && runtime_command_name(previous_runtime)? != published.command_name
         && let Err(error) = remove_managed_runtime_cli(home_dir, agent_id, previous_runtime)
@@ -287,6 +306,7 @@ fn write_shim_atomically(
     shim_path: &Path,
     agent_id: &AgentId,
     runtime_executable: &Path,
+    runtime_path_entries: &[PathBuf],
 ) -> Result<(), CliExposureError> {
     let temporary = shim_path.with_file_name(format!(
         ".{}.vibex-{}.tmp",
@@ -296,17 +316,11 @@ fn write_shim_atomically(
             .unwrap_or("agent"),
         Uuid::new_v4()
     ));
-    #[cfg(not(windows))]
-    let contents = format!(
-        "#!/bin/sh\n{SHIM_MARKER_PREFIX}{}\nexec {} \"$@\"\n",
-        agent_id.as_str(),
-        shell_quote(runtime_executable)
-    );
-    #[cfg(windows)]
-    let contents = format!(
-        "@echo off\r\nrem VibeX Agent CLI: {}\r\n\"{}\" %*\r\n",
-        agent_id.as_str(),
-        runtime_executable.display()
+    let contents = render_shim(
+        native_shim_format(),
+        agent_id,
+        runtime_executable,
+        runtime_path_entries,
     );
     fs::write(&temporary, contents)?;
     #[cfg(unix)]
@@ -319,6 +333,81 @@ fn write_shim_atomically(
         return Err(error.into());
     }
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn native_shim_format() -> ShellFamily {
+    ShellFamily::Posix
+}
+
+#[cfg(windows)]
+fn native_shim_format() -> ShellFamily {
+    ShellFamily::Windows
+}
+
+fn validate_runtime_path_entries(entries: &[PathBuf]) -> Result<(), CliExposureError> {
+    for entry in entries {
+        if !entry.is_absolute() || !entry.is_dir() {
+            return Err(CliExposureError::InvalidRuntimePath(entry.clone()));
+        }
+        let contains_path_separator = if cfg!(windows) {
+            entry.to_string_lossy().contains(';')
+        } else {
+            entry.to_string_lossy().contains(':')
+        };
+        if contains_path_separator {
+            return Err(CliExposureError::InvalidRuntimePath(entry.clone()));
+        }
+    }
+    Ok(())
+}
+
+fn render_shim(
+    format: ShellFamily,
+    agent_id: &AgentId,
+    runtime_executable: &Path,
+    runtime_path_entries: &[PathBuf],
+) -> String {
+    match format {
+        ShellFamily::Windows => {
+            let path_binding = if runtime_path_entries.is_empty() {
+                String::new()
+            } else {
+                let prefix = runtime_path_entries
+                    .iter()
+                    .map(|entry| escape_windows_batch_value(&entry.to_string_lossy()))
+                    .collect::<Vec<_>>()
+                    .join(";");
+                format!("set \"PATH={prefix};%PATH%\"\r\n")
+            };
+            format!(
+                "@echo off\r\nsetlocal DisableDelayedExpansion\r\nrem VibeX Agent CLI: {}\r\n{path_binding}\"{}\" %*\r\nexit /b %ERRORLEVEL%\r\n",
+                agent_id.as_str(),
+                escape_windows_batch_value(&runtime_executable.to_string_lossy())
+            )
+        }
+        ShellFamily::Zsh | ShellFamily::Bash | ShellFamily::Fish | ShellFamily::Posix => {
+            let path_binding = if runtime_path_entries.is_empty() {
+                String::new()
+            } else {
+                let prefix = runtime_path_entries
+                    .iter()
+                    .map(|entry| shell_quote(entry))
+                    .collect::<Vec<_>>()
+                    .join(":");
+                format!("PATH={prefix}:\"$PATH\"\nexport PATH\n")
+            };
+            format!(
+                "#!/bin/sh\n{SHIM_MARKER_PREFIX}{}\n{path_binding}exec {} \"$@\"\n",
+                agent_id.as_str(),
+                shell_quote(runtime_executable)
+            )
+        }
+    }
+}
+
+fn escape_windows_batch_value(value: &str) -> String {
+    value.replace('%', "%%")
 }
 
 #[cfg(not(windows))]
@@ -353,7 +442,6 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> std::io::Res
     Ok(())
 }
 
-#[cfg(not(windows))]
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\"'\"'"))
 }
@@ -500,14 +588,15 @@ mod tests {
         runtime_executable: &Path,
         shell: ShellFamily,
     ) -> Result<PublishedCliCommand, CliExposureError> {
-        publish_managed_runtime_cli_with_path(
+        publish_managed_runtime_cli_with_path(CliPublication {
             home_dir,
             agent_id,
             managed_install_root,
             runtime_executable,
+            runtime_path_entries: &[],
             shell,
-            Some(OsStr::new("")),
-        )
+            effective_path: Some(OsStr::new("")),
+        })
     }
 
     #[cfg(unix)]
@@ -550,6 +639,50 @@ mod tests {
             String::from_utf8_lossy(&output.stdout),
             format!("{}\ngrok 0.2.115\n", published.shim_path.display())
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_runtime_cli_binds_its_locked_base_runtime_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let install_root = temp.path().join("app-data/agents/claude-code");
+        let runtime = install_root.join("release/bin/claude");
+        let node_bin = temp.path().join("managed node/bin");
+        let node = node_bin.join("node");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::create_dir_all(&node_bin).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::write(&runtime, "#!/usr/bin/env node\n").unwrap();
+        fs::write(&node, "#!/bin/sh\nprintf 'managed-node:%s\\n' \"$2\"\n").unwrap();
+        for executable in [&runtime, &node] {
+            fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let published = publish_managed_runtime_cli(
+            &home,
+            &AgentId::parse("claude-code").unwrap(),
+            &install_root,
+            &runtime,
+            std::slice::from_ref(&node_bin),
+            ShellFamily::Posix,
+        )
+        .unwrap();
+
+        let output = Command::new(&published.shim_path)
+            .env("PATH", published.shim_path.parent().unwrap())
+            .arg("--version")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"managed-node:--version\n");
     }
 
     #[cfg(unix)]
@@ -617,13 +750,16 @@ mod tests {
         .unwrap();
 
         let current = switch_managed_runtime_cli_with_path(
-            &home,
-            &agent_id,
-            &install_root,
+            CliPublication {
+                home_dir: &home,
+                agent_id: &agent_id,
+                managed_install_root: &install_root,
+                runtime_executable: &next_runtime,
+                runtime_path_entries: &[],
+                shell: ShellFamily::Posix,
+                effective_path: Some(OsStr::new("")),
+            },
             Some(&old_runtime),
-            &next_runtime,
-            ShellFamily::Posix,
-            Some(OsStr::new("")),
         )
         .unwrap();
 
@@ -645,6 +781,21 @@ mod tests {
             ShellFamily::Fish
         );
         assert_eq!(ShellFamily::from_shell_path(None), ShellFamily::Posix);
+    }
+
+    #[test]
+    fn windows_shim_binds_locked_runtime_without_changing_the_user_path() {
+        let agent_id = AgentId::parse("claude-code").unwrap();
+        let contents = render_shim(
+            ShellFamily::Windows,
+            &agent_id,
+            Path::new(r"C:\Users\Dev%20\VibeX\agents\claude.cmd"),
+            &[PathBuf::from(r"C:\Users\Dev%20\VibeX\node")],
+        );
+
+        assert!(contents.contains("set \"PATH=C:\\Users\\Dev%%20\\VibeX\\node;%PATH%\"\r\n"));
+        assert!(contents.contains("\"C:\\Users\\Dev%%20\\VibeX\\agents\\claude.cmd\" %*\r\n"));
+        assert!(contents.ends_with("exit /b %ERRORLEVEL%\r\n"));
     }
 
     #[cfg(unix)]
@@ -827,14 +978,16 @@ mod tests {
         fs::set_permissions(&runtime, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&foreign_command, fs::Permissions::from_mode(0o755)).unwrap();
 
-        let error = publish_managed_runtime_cli_with_path(
-            &home,
-            &AgentId::parse("grok-build").unwrap(),
-            &install_root,
-            &runtime,
-            ShellFamily::Posix,
-            Some(foreign_bin.as_os_str()),
-        )
+        let agent_id = AgentId::parse("grok-build").unwrap();
+        let error = publish_managed_runtime_cli_with_path(CliPublication {
+            home_dir: &home,
+            agent_id: &agent_id,
+            managed_install_root: &install_root,
+            runtime_executable: &runtime,
+            runtime_path_entries: &[],
+            shell: ShellFamily::Posix,
+            effective_path: Some(foreign_bin.as_os_str()),
+        })
         .unwrap_err();
 
         assert!(matches!(

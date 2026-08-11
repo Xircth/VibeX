@@ -34,6 +34,8 @@ interface SettingsSectionProps {
   action?: ReactNode;
   /** Optional contrast override for the explanatory copy. */
   descriptionClassName?: string;
+  /** Render children without the default settings-card wrapper. */
+  bare?: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ export function SettingsSection({
   className,
   action,
   descriptionClassName,
+  bare = false,
 }: SettingsSectionProps) {
   return (
     <section className="settings-section space-y-3">
@@ -70,13 +73,17 @@ export function SettingsSection({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      <div
-        className={`settings-card overflow-hidden rounded-lg border${
-          className ? ` ${className}` : ''
-        }`}
-      >
-        {children}
-      </div>
+      {bare ? (
+        <div className={className}>{children}</div>
+      ) : (
+        <div
+          className={`settings-card overflow-hidden rounded-lg border${
+            className ? ` ${className}` : ''
+          }`}
+        >
+          {children}
+        </div>
+      )}
     </section>
   );
 }

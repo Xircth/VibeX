@@ -213,6 +213,8 @@ pub struct ConversationRuntimeState {
     pub current_mode: Option<String>,
     pub event_sequence: i64,
     pub pending_user_message: Option<String>,
+    #[serde(default)]
+    pub commit_reminder_pending: bool,
     pub turn_in_flight: bool,
     pub config_stale: bool,
     pub connection_status: Option<String>,
@@ -237,6 +239,7 @@ pub struct ConversationStartTurnInput {
     pub conversation_id: Uuid,
     pub executor_profile_id: Option<ExecutorProfileId>,
     pub text: String,
+    pub display_text: Option<String>,
     pub images: Vec<String>,
     /// User-selected session mode for this turn (from the composer's mode
     /// picker, sourced from the agent's advertised `session_modes`). Applied via
@@ -278,9 +281,19 @@ impl ConversationSessionService {
         input: ConversationStartTurnInput,
         origin: &str,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
-        if input.text.trim().is_empty() && input.images.is_empty() {
+        let display_text = input
+            .display_text
+            .as_deref()
+            .unwrap_or(&input.text)
+            .to_string();
+        if display_text.trim().is_empty() && input.images.is_empty() {
             return Err(ConversationServiceError::BadRequest(
                 "Prompt must include text or an image".to_string(),
+            ));
+        }
+        if input.text.trim().is_empty() && input.images.is_empty() {
+            return Err(ConversationServiceError::BadRequest(
+                "Agent prompt must include text or an image".to_string(),
             ));
         }
 
@@ -321,16 +334,33 @@ impl ConversationSessionService {
             &repos,
             &working_dir,
         );
+        let smart_reminder = crate::commit_reminder::pending_smart_reminder_prompt(
+            &self.ctx,
+            input.conversation_id,
+            workspace.clone(),
+            origin,
+        )
+        .await?;
+        let agent_text = match smart_reminder.as_deref() {
+            Some(reminder) if !input.text.trim().is_empty() => {
+                format!("{}\n\n{}", input.text, reminder)
+            }
+            Some(reminder) => reminder.to_string(),
+            None => input.text.clone(),
+        };
         let agent_blocks = self
             .ctx
             .host
-            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images)
+            .build_prompt_blocks(&working_dir, agent_text, &input.images)
             .await?;
-        let conversation_blocks = conversation_input_blocks(&agent_blocks);
+        let conversation_blocks =
+            conversation_input_blocks_with_display_text(&agent_blocks, &display_text);
 
-        let conversation = self.ensure_conversation(pool, &input).await?;
+        let conversation = self
+            .ensure_conversation(pool, &input, &display_text)
+            .await?;
         ensure_conversation_has_no_in_flight_turn(pool, &conversation).await?;
-        ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &input.text)
+        ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &display_text)
             .await?;
         ConversationRecord::update_status(pool, input.conversation_id, SessionStatus::InProgress)
             .await?;
@@ -342,7 +372,7 @@ impl ConversationSessionService {
             CreateConversationTurn {
                 conversation_id: input.conversation_id,
                 prompt_id: None,
-                text_preview: Some(&input.text),
+                text_preview: Some(&display_text),
                 input_blocks_json: &serde_json::to_string(&conversation_blocks)
                     .map_err(|error| ConversationServiceError::Internal(error.to_string()))?,
             },
@@ -369,7 +399,7 @@ impl ConversationSessionService {
         self.update_runtime_state(input.conversation_id, |state| {
             state.conversation_id = Some(input.conversation_id);
             state.active_turn_id = Some(turn.id);
-            state.pending_user_message = Some(input.text.clone());
+            state.pending_user_message = Some(display_text.clone());
             state.turn_in_flight = true;
             state.event_sequence = created.sequence;
         })
@@ -387,6 +417,13 @@ impl ConversationSessionService {
 
         match result {
             Ok(prompt) => {
+                if smart_reminder.is_some() {
+                    crate::commit_reminder::clear_pending_smart_reminder(
+                        &self.ctx,
+                        input.conversation_id,
+                    )
+                    .await;
+                }
                 self.append_event(
                     input.conversation_id,
                     Some(turn.id),
@@ -1015,6 +1052,7 @@ impl ConversationSessionService {
         &self,
         pool: &SqlitePool,
         input: &ConversationStartTurnInput,
+        display_text: &str,
     ) -> Result<ConversationRecord, ConversationServiceError> {
         if let Some(existing) = ConversationRecord::find_by_id(pool, input.conversation_id).await? {
             return Ok(existing);
@@ -1027,7 +1065,7 @@ impl ConversationSessionService {
                 workspace_id: input.workspace_id,
                 task_id: None,
                 title: None,
-                initial_prompt: Some(&input.text),
+                initial_prompt: Some(display_text),
                 status: Some(SessionStatus::InProgress),
                 executor: Some("agent"),
             },
@@ -1861,26 +1899,33 @@ fn checkpoint_file_change_summary(files: &[ConversationFileChange]) -> String {
     )
 }
 
-fn conversation_input_blocks(blocks: &[AgentContentBlock]) -> Vec<ConversationInputBlock> {
-    blocks
-        .iter()
-        .map(|block| match block {
-            AgentContentBlock::Text { text } => ConversationInputBlock::Text { text: text.clone() },
-            AgentContentBlock::Image { mime_type, uri, .. } => ConversationInputBlock::Image {
-                uri: uri.clone().unwrap_or_else(|| "inline-image".to_string()),
-                mime_type: mime_type.clone(),
-                title: None,
-            },
-            AgentContentBlock::Resource { uri, title } => ConversationInputBlock::Resource {
-                uri: uri.clone(),
-                title: title.clone(),
-                mime_type: None,
-            },
-            AgentContentBlock::Protocol { content } => ConversationInputBlock::Protocol {
-                content: content.clone(),
-            },
-        })
-        .collect()
+fn conversation_input_blocks_with_display_text(
+    blocks: &[AgentContentBlock],
+    display_text: &str,
+) -> Vec<ConversationInputBlock> {
+    let mut visible = Vec::with_capacity(blocks.len());
+    if !display_text.trim().is_empty() {
+        visible.push(ConversationInputBlock::Text {
+            text: display_text.to_string(),
+        });
+    }
+    visible.extend(blocks.iter().filter_map(|block| match block {
+        AgentContentBlock::Text { .. } => None,
+        AgentContentBlock::Image { mime_type, uri, .. } => Some(ConversationInputBlock::Image {
+            uri: uri.clone().unwrap_or_else(|| "inline-image".to_string()),
+            mime_type: mime_type.clone(),
+            title: None,
+        }),
+        AgentContentBlock::Resource { uri, title } => Some(ConversationInputBlock::Resource {
+            uri: uri.clone(),
+            title: title.clone(),
+            mime_type: None,
+        }),
+        AgentContentBlock::Protocol { content } => Some(ConversationInputBlock::Protocol {
+            content: content.clone(),
+        }),
+    }));
+    visible
 }
 
 /// Layer the composer's explicit selection on top of profile/slash defaults.
@@ -1986,7 +2031,7 @@ mod tests {
     use super::{
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
         checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
-        conversation_input_blocks, diff_to_conversation_file_change,
+        conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
         ensure_conversation_has_no_in_flight_turn, known_acp_session_id,
         merge_user_prompt_overrides,
     };
@@ -2166,17 +2211,44 @@ mod tests {
 
     #[test]
     fn conversation_start_turn_maps_agent_blocks_to_input_blocks() {
-        let blocks = conversation_input_blocks(&[
-            AgentContentBlock::Text {
-                text: "hello".to_string(),
-            },
-            AgentContentBlock::Image {
-                data: "abc".to_string(),
-                mime_type: "image/png".to_string(),
-                uri: Some("image.png".to_string()),
-            },
-        ]);
+        let blocks = conversation_input_blocks_with_display_text(
+            &[
+                AgentContentBlock::Text {
+                    text: "hello".to_string(),
+                },
+                AgentContentBlock::Image {
+                    data: "abc".to_string(),
+                    mime_type: "image/png".to_string(),
+                    uri: Some("image.png".to_string()),
+                },
+            ],
+            "hello",
+        );
 
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn hidden_agent_suffix_is_not_persisted_in_the_visible_user_message() {
+        let blocks = conversation_input_blocks_with_display_text(
+            &[
+                AgentContentBlock::Text {
+                    text: "visible request\n\nhidden commit instruction".to_string(),
+                },
+                AgentContentBlock::Image {
+                    data: "abc".to_string(),
+                    mime_type: "image/png".to_string(),
+                    uri: Some("image.png".to_string()),
+                },
+            ],
+            "visible request",
+        );
+
+        assert!(matches!(
+            &blocks[0],
+            agents::conversation::ConversationInputBlock::Text { text }
+                if text == "visible request"
+        ));
         assert_eq!(blocks.len(), 2);
     }
 

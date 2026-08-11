@@ -71,12 +71,14 @@ export function useSessionComposerQueue({
     mutationFn: ({
       sessionId,
       message,
+      agentMessage,
       images,
       executorProfileId,
       pluginActions,
     }: {
       sessionId: string;
       message: string;
+      agentMessage?: string;
       images: string[];
       executorProfileId: ExecutorProfileId;
       pluginActions: SessionComposerPluginActionInvocation[];
@@ -84,7 +86,8 @@ export function useSessionComposerQueue({
       sendAgentRuntimeTurn({
         workspaceId: workspaceId ?? '',
         sessionId,
-        text: message,
+        text: agentMessage ?? message,
+        displayText: message,
         images,
         executorProfileId,
         pluginActions,
@@ -118,6 +121,7 @@ export function useSessionComposerQueue({
     void startQueuedTurnMutation.mutateAsync({
       sessionId,
       message: queuedMessage.data.message,
+      agentMessage: queuedMessage.data.agentMessage,
       images: queuedMessage.data.images,
       executorProfileId: queuedMessage.executorProfileId,
       pluginActions: queuedMessage.data.pluginActions ?? [],
@@ -134,18 +138,21 @@ export function useSessionComposerQueue({
     mutationFn: async ({
       sessionId,
       message,
+      agentMessage,
       images,
       executorProfileId,
       pluginActions,
     }: {
       sessionId: string;
       message: string;
+      agentMessage?: string;
       images: string[];
       executorProfileId: ExecutorProfileId;
       pluginActions: SessionComposerPluginActionInvocation[];
     }) => ({
       sessionId,
       message,
+      agentMessage,
       images,
       executorProfileId,
       pluginActions,
@@ -161,6 +168,7 @@ export function useSessionComposerQueue({
           executorProfileId: message.executorProfileId,
           data: {
             message: message.message,
+            agentMessage: message.agentMessage,
             images: message.images,
             pluginActions: message.pluginActions,
           },
@@ -190,11 +198,13 @@ export function useSessionComposerQueue({
       message: string,
       executorProfileId: ExecutorProfileId,
       images: string[] = [],
-      pluginActions: SessionComposerPluginActionInvocation[] = []
+      pluginActions: SessionComposerPluginActionInvocation[] = [],
+      agentMessage?: string
     ) => {
       const queueInput = buildQueueMutationInput({
         sessionId,
         message,
+        agentMessage,
         images,
         executorProfileId,
         pluginActions,

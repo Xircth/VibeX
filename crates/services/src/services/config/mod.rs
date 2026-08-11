@@ -24,7 +24,11 @@ Analyze the changes in this branch and write:
 
 Use the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps)."#;
 
-pub const DEFAULT_COMMIT_REMINDER_PROMPT: &str = r#"There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.
+pub const COMMIT_CHANGES_INSTRUCTION_ID: &str = "commit_changes";
+pub const COMMIT_CHANGES_INSTRUCTION_COMMAND: &str = "#commit_changes";
+pub const COMMIT_CHANGES_INSTRUCTION_DESCRIPTION: &str =
+    "检查未提交更改，并在验证后创建规范的 Git 提交。";
+pub const COMMIT_CHANGES_INSTRUCTION_CONTENT: &str = r#"There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.
 
 Generate a commit message following this format:
 - First line: a short header under 50 characters in the format `<type>(<scope>): <subject>`
@@ -58,6 +62,7 @@ pub type UiLanguage = versions::v9::UiLanguage;
 pub type ShowcaseState = versions::v9::ShowcaseState;
 pub type SendMessageShortcut = versions::v9::SendMessageShortcut;
 pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
+pub type CommitReminderMode = versions::v9::CommitReminderMode;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &Path) -> Config {

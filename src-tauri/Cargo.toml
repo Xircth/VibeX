@@ -49,7 +49,10 @@ toml = "0.8"
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 prost = "0.13"
 sha2 = "0.10"
+tempfile = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1.0"
 # Optional passphrase encryption for portable backups (P3-4).
 aes-gcm = { version = "0.10", features = ["stream"] }
 argon2 = "0.5"

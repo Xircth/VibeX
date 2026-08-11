@@ -38,7 +38,8 @@ export function useSessionComposerSubmitActions({
     message: string,
     executorProfileId: ExecutorProfileId,
     images?: string[],
-    pluginActions?: SessionComposerPluginActionInvocation[]
+    pluginActions?: SessionComposerPluginActionInvocation[],
+    agentMessage?: string
   ) => Promise<void> | void;
   onAfterQueueCleanup: () => void | Promise<void>;
   onSendFollowUp: () => void;
@@ -57,10 +58,11 @@ export function useSessionComposerSubmitActions({
     cancelDebouncedSave();
     await saveToScratch(localMessage, effectiveExecutorProfile);
     await queueMessage(
-      queuedFollowUp.message,
+      queuedFollowUp.displayMessage,
       queuedFollowUp.executorProfile,
       queuedFollowUp.images,
-      queuedFollowUp.pluginActions
+      queuedFollowUp.pluginActions,
+      queuedFollowUp.message
     );
     await onAfterQueueCleanup();
   }, [

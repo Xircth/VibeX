@@ -71,6 +71,20 @@ export class TauriTransport implements BackendTransport {
     return tauriInvoke(command, args);
   }
 
+  async stream<T>(
+    command: string,
+    args: Record<string, unknown>,
+    onMessage: (message: unknown) => void
+  ): Promise<T> {
+    const [{ Channel }, { tauriInvoke }] = await Promise.all([
+      import('@tauri-apps/api/core'),
+      import('@/lib/tauriApi'),
+    ]);
+    const channel = new Channel<unknown>();
+    channel.onmessage = onMessage;
+    return tauriInvoke<T>(command, { ...args, onEvent: channel });
+  }
+
   async capabilities(): Promise<ServerCapabilities> {
     return {
       server_version: 'desktop',

@@ -1,6 +1,11 @@
 {
   "composer": {
     "inputLabel": "消息",
+    "commandSource": {
+      "plugin": "插件",
+      "skill": "技能",
+      "native": "原生"
+    },
     "elementToken": {
       "type": "页面元素",
       "source": "源码",

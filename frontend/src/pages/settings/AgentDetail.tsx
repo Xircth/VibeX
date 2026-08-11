@@ -1,8 +1,6 @@
 import {
   ArrowDown,
   ArrowUp,
-  CheckCircle2,
-  CircleAlert,
   Download,
   FileDown,
   Loader2,
@@ -31,6 +29,7 @@ import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 
 import { AgentManagementIcon } from './AgentManagementIcon';
+import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
 
 const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';
 
@@ -597,7 +596,6 @@ function PreflightCard({ item }: { item: AgentPreflightItemView }) {
   const { t, i18n } = useTranslation('settings');
   const passed = item.status === 'pass';
   const warning = item.status === 'warning';
-  const Icon = passed ? CheckCircle2 : CircleAlert;
   const english = i18n.resolvedLanguage?.startsWith('en') ?? false;
   const label = english ? humanizePreflightId(item.id) : item.label;
   const detail =
@@ -610,39 +608,7 @@ function PreflightCard({ item }: { item: AgentPreflightItemView }) {
             ? t('agents.preflightDetailRepairable', { label })
             : t('agents.preflightDetailFail', { label })
       : item.detail;
-  return (
-    <li aria-label={t('agents.preflightResultAria', { label })}>
-      <div className="agent-preflight-card-heading">
-        <Icon
-          aria-hidden="true"
-          className={cn(
-            'h-4 w-4 shrink-0',
-            passed
-              ? 'text-success'
-              : warning
-                ? 'text-warning'
-                : 'text-destructive'
-          )}
-        />
-        <strong>{label}</strong>
-        <span
-          className={passed ? 'is-pass' : warning ? 'is-warning' : 'is-fail'}
-        >
-          {passed
-            ? t('agents.available')
-            : warning
-              ? t('agents.optionalWarning')
-              : t('agents.needsAction')}
-        </span>
-      </div>
-      <div className="agent-preflight-card-detail">
-        {item.version || item.path ? (
-          <PreflightEvidence version={item.version} path={item.path} />
-        ) : null}
-        {detail ? <p>{detail}</p> : null}
-      </div>
-    </li>
-  );
+  return <AgentPreflightCheckItem detail={detail} item={item} label={label} />;
 }
 
 function humanizePreflightId(value: string): string {
@@ -775,45 +741,6 @@ function formatDiagnosticTime(language: string, value: string): string {
   }).format(date);
 }
 
-function PreflightEvidence({
-  version,
-  path,
-}: {
-  version: string | null;
-  path: string | null;
-}) {
-  const { t } = useTranslation('settings');
-  return (
-    <dl className="agent-preflight-evidence">
-      {version ? (
-        <PreflightEvidenceRow label={t('agents.version')} value={version} />
-      ) : null}
-      {path ? (
-        <PreflightEvidenceRow label={t('agents.location')} value={path} />
-      ) : null}
-    </dl>
-  );
-}
-
-function PreflightEvidenceRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="agent-preflight-evidence-row">
-      <dt>{label}</dt>
-      <dd>
-        <code className="agent-preflight-evidence-value" title={value}>
-          {value}
-        </code>
-      </dd>
-    </div>
-  );
-}
-
 function fallbackPreflight(
   t: TFunction<'settings'>,
   agent: AgentManagementView
@@ -831,6 +758,7 @@ function fallbackPreflight(
         : t('agents.agentAdded'),
       version: null,
       path: null,
+      source: null,
       repairable: false,
     },
     {
@@ -840,6 +768,7 @@ function fallbackPreflight(
       detail: runtimeAvailable ? '' : t('agents.localRuntimeMissing'),
       version: agent.runtime_version ?? agent.local_runtime?.version ?? null,
       path: agent.local_runtime?.path ?? null,
+      source: null,
       repairable: true,
     },
     {
@@ -849,6 +778,7 @@ function fallbackPreflight(
       detail: agent.acp_version ? '' : t('agents.acpProbePending'),
       version: agent.acp_version,
       path: null,
+      source: null,
       repairable: true,
     },
   ];

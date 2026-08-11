@@ -113,6 +113,8 @@ pub struct ConversationStartTurnRequest {
     pub executor_profile_id: Option<ExecutorProfileId>,
     pub text: String,
     #[serde(default)]
+    pub display_text: Option<String>,
+    #[serde(default)]
     pub images: Vec<String>,
     /// Composer-selected session mode (from the agent's advertised modes).
     #[serde(default)]
@@ -534,6 +536,10 @@ pub async fn conversation_start_turn(
     state: tauri::State<'_, AppState>,
     request: ConversationStartTurnRequest,
 ) -> Result<ConversationTurnSnapshot, AppError> {
+    let display_text = request
+        .display_text
+        .clone()
+        .unwrap_or_else(|| request.text.clone());
     let workspace_id = Uuid::parse_str(&request.workspace_id)
         .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
     let conversation_id = Uuid::parse_str(&request.conversation_id)
@@ -545,17 +551,18 @@ pub async fn conversation_start_turn(
     let mut plugin_actions = Vec::with_capacity(request.plugin_actions.len());
     for invocation in &request.plugin_actions {
         let action = state
-            .office_runtime
-            .resolve_bundled_action_for_agent(
-                &invocation.plugin_id,
-                &invocation.action_id,
-                request.agent_id.as_str(),
-            )
+            .plugin_control_plane
+            .resolve_action(&invocation.plugin_id, &invocation.action_id)
             .await
             .map_err(|error| AppError::BadRequest(error.to_string()))?;
-        let manifest = state.office_runtime.bundled_plugin();
+        let plugin = state
+            .plugin_control_plane
+            .plugin(&invocation.plugin_id)
+            .await
+            .map_err(|error| AppError::BadRequest(error.to_string()))?
+            .ok_or_else(|| AppError::NotFound(invocation.plugin_id.clone()))?;
         plugin_actions.push(PluginActionRef {
-            plugin_id: manifest.id.clone(),
+            plugin_id: plugin.id.clone(),
             action,
         });
     }
@@ -564,7 +571,7 @@ pub async fn conversation_start_turn(
             prompt_blocks: vec![PromptBlock::Text {
                 text: request.text.clone(),
             }],
-            display_text: request.text.clone(),
+            display_text: display_text.clone(),
             agent: AgentSelectionIntent {
                 agent_id: request.agent_id.clone(),
                 executor_profile_id: request.executor_profile_id.clone(),
@@ -596,6 +603,7 @@ pub async fn conversation_start_turn(
                 conversation_id,
                 executor_profile_id: request.executor_profile_id,
                 text: request.text,
+                display_text: Some(display_text),
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides: request.config_overrides,

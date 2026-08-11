@@ -306,6 +306,7 @@ describe('session composer submit helpers', () => {
       })
     ).toEqual({
       message: 'conflicts\n\nreview\n\ncontinue',
+      displayMessage: 'conflicts\n\nreview\n\ncontinue',
       images: ['vibe://image-1'],
       executorProfile: profile,
       pluginActions: [],
@@ -321,6 +322,7 @@ describe('session composer submit helpers', () => {
       })
     ).toEqual({
       message: '/status',
+      displayMessage: '/status',
       images: [],
       executorProfile: profile,
       pluginActions: [],
@@ -363,6 +365,7 @@ describe('session composer submit helpers', () => {
       })
     ).toEqual({
       message: 'Review src/App.tsx with $plan',
+      displayMessage: 'Review [@:App.tsx](src/App.tsx) with $plan',
       images: [],
       executorProfile: profile,
       pluginActions: [],
@@ -386,6 +389,8 @@ describe('session composer submit helpers', () => {
       })
     ).toEqual({
       message: '生成季度复盘',
+      displayMessage:
+        '[!:vibex.office/create-presentation|创建 PPT]()生成季度复盘',
       images: [],
       executorProfile: profile,
       pluginActions: [

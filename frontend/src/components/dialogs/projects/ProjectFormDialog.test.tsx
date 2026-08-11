@@ -19,7 +19,7 @@ function renderDialog(props: ProjectFormDialogProps = {}) {
     defaultOptions: { queries: { retry: false } },
   });
 
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <HotkeysProvider initiallyActiveScopes={['dialog', 'kanban', 'projects']}>
         <NiceModal.Provider>
@@ -39,12 +39,14 @@ describe('ProjectFormDialog', () => {
     });
 
     expect(descriptionInput.tagName).toBe('TEXTAREA');
-    expect(descriptionInput.closest('.astryx-textarea')).not.toBeNull();
+    expect(descriptionInput.closest('.astryx-textarea')).toHaveClass(
+      'project-form-description-field'
+    );
     expect(descriptionInput).toHaveAttribute('rows', '4');
   });
 
   it('uses Astryx fields and a compact location row', async () => {
-    renderDialog();
+    const { container } = renderDialog();
 
     const nameInput = await screen.findByRole('textbox', {
       name: '项目名称',
@@ -56,7 +58,9 @@ describe('ProjectFormDialog', () => {
 
     const nameField = nameInput.closest('.astryx-text-input');
     const locationField = locationPreview.closest('.astryx-text-input');
+    const dialogSurface = container.querySelector('[role="dialog"]');
 
+    expect(dialogSurface).toHaveClass('welcome-project-form-surface');
     expect(nameField).toHaveClass('[&_input]:text-sm');
     expect(nameField).toHaveStyle({
       backgroundColor: 'var(--surface-control)',
@@ -75,7 +79,7 @@ describe('ProjectFormDialog', () => {
   });
 
   it('uses the same compact folder picker row for existing projects', async () => {
-    renderDialog({ autoOpenFolderPicker: true });
+    const { container } = renderDialog({ autoOpenFolderPicker: true });
 
     await screen.findByRole('heading', { name: '选择文件夹' });
 
@@ -84,7 +88,9 @@ describe('ProjectFormDialog', () => {
     });
     const folderButton = screen.getByRole('button', { name: '选择文件夹' });
     const folderField = folderPreview.closest('.astryx-text-input');
+    const dialogSurface = container.querySelector('[role="dialog"]');
 
+    expect(dialogSurface).toHaveClass('welcome-project-form-surface');
     expect(folderField).toHaveAttribute('data-size', 'sm');
     expect(folderField).toHaveStyle({
       backgroundColor: 'var(--surface-control)',

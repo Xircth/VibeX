@@ -6,7 +6,12 @@ import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import { getSlashCommandPresentation } from '@/lib/slashCommandPresentation';
+import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
+import type {
+  ComposerSlashCommand,
+  ComposerSlashCommandSourceKind,
+} from '@/lib/conversation-rendering/commandSources';
 import {
   serializeAgentMention,
   type AgentMentionCandidate,
@@ -17,26 +22,36 @@ export type ComposerTypeaheadOption = {
   label: string;
   description?: string;
   insertText: string;
+  sourceKind?: ComposerSlashCommandSourceKind;
 };
 
 export const MAX_TYPEAHEAD_OPTIONS = 50;
 export const MAX_REFERENCE_OPTIONS = 10;
 
 export function pluginActionsToTypeaheadOptions(
-  catalog: OfficePluginCatalog | null | undefined,
+  catalog:
+    | {
+        actions: OfficePluginCatalog['actions'];
+        readiness?: OfficePluginCatalog['readiness'];
+      }
+    | null
+    | undefined,
   query: string,
   hostedSkillIds: ReadonlySet<string>
 ): ComposerTypeaheadOption[] {
+  if (!catalog) return [];
+  const readiness = catalog.readiness;
   if (
-    !catalog?.readiness.enabled ||
-    catalog.readiness.overall !== 'ready' ||
-    catalog.readiness.dependency.status !== 'ready'
+    readiness &&
+    (!readiness.enabled ||
+      readiness.overall !== 'ready' ||
+      readiness.dependency.status !== 'ready')
   ) {
     return [];
   }
 
   const readySkills = new Set(
-    catalog.readiness.skills
+    (readiness?.skills ?? [])
       .filter((skill) => skill.status === 'ready')
       .map((skill) => skill.id)
   );
@@ -45,13 +60,15 @@ export function pluginActionsToTypeaheadOptions(
   return catalog.actions
     .filter(
       (action) =>
-        action.requiredSkills.every((skill) => readySkills.has(skill)) &&
+        (!readiness ||
+          action.requiredSkills.every((skill) => readySkills.has(skill))) &&
         action.requiredSkills.every((skill) => hostedSkillIds.has(skill)) &&
-        action.requiredTools.every(
-          (tool) =>
-            tool === catalog.readiness.dependency.id &&
-            catalog.readiness.dependency.status === 'ready'
-        )
+        (!readiness ||
+          action.requiredTools.every(
+            (tool) =>
+              tool === readiness.dependency.id &&
+              readiness.dependency.status === 'ready'
+          ))
     )
     .filter((action) => {
       if (!normalized) return true;
@@ -143,7 +160,7 @@ export function filterSlashCommands(
 }
 
 export function slashCommandsToTypeaheadOptions(
-  all: SlashCommandDescription[],
+  all: Array<SlashCommandDescription | ComposerSlashCommand>,
   query: string,
   executor: string | null | undefined
 ): ComposerTypeaheadOption[] {
@@ -160,15 +177,24 @@ export function slashCommandsToTypeaheadOptions(
   ].slice(0, MAX_TYPEAHEAD_OPTIONS);
 
   return ordered.map((command) => {
+    const composerCommand = command as Partial<ComposerSlashCommand>;
+    const sourceKind =
+      composerCommand.sourceKind ??
+      (command.kind === 'SKILL' ? 'skill' : 'native');
+    const sourceId = composerCommand.sourceId ?? command.name;
     const presentation = getSlashCommandPresentation(command, executor);
     return {
-      key: `slash-${command.name}`,
+      key: `slash-${sourceKind}-${sourceId}-${command.name}`,
       label: `/${presentation.label}`,
       description: presentation.description ?? command.description ?? undefined,
+      sourceKind,
       insertText: formatSessionComposerCommand({
         type: '/',
-        key: command.name,
-        value: `/${command.name}`,
+        key: `${sourceKind}:${sourceId}:${command.name}`,
+        value:
+          sourceKind === 'plugin'
+            ? (composerCommand.prompt ?? `/${command.name}`)
+            : `/${command.name}`,
       }),
     };
   });
@@ -220,7 +246,11 @@ export function searchResultToTypeaheadOption(
       insertText: formatSessionComposerCommand({
         type: '#',
         key: item.tag.tag_name,
-        value: `#${item.tag.tag_name}`,
+        value: serializeTagReferenceMarker({
+          tagId: item.tag.id,
+          tagName: item.tag.tag_name,
+          content: item.tag.content ?? '',
+        }),
       }),
     };
   }

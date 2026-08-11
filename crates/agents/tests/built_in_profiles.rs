@@ -20,6 +20,17 @@ fn native_field<'a>(
 }
 
 #[test]
+fn hermes_profile_uses_the_official_desktop_brand_icon() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let hermes = catalog
+        .profile(&AgentId::parse("hermes").unwrap())
+        .expect("bundled Hermes profile");
+
+    assert_eq!(hermes.icon.light, "/agents/hermes.png");
+    assert_eq!(hermes.icon.dark, "/agents/hermes.png");
+}
+
+#[test]
 fn codeg_pinned_distribution_matrix_is_exact() {
     let catalog = BuiltInProfileCatalog::bundled();
     let profile = |id: &str| catalog.profile(&AgentId::parse(id).unwrap()).unwrap();

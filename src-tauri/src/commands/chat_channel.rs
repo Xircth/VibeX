@@ -1789,6 +1789,7 @@ async fn send_task(
             conversation_id: target.id,
             executor_profile_id: None,
             text: args.to_string(),
+            display_text: None,
             images: Vec::new(),
             mode_override: None,
             config_overrides: Vec::new(),

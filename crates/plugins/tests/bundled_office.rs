@@ -1,4 +1,4 @@
-use plugins::{ManifestSource, PluginService};
+use plugins::{ManifestSource, PackageFormat, PluginPackage, PluginService, PluginSourceKind};
 
 #[test]
 fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
@@ -60,4 +60,16 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
             .iter()
             .any(|media_type| media_type.ends_with("spreadsheetml.sheet"))
     );
+}
+
+#[test]
+fn bundled_office_is_a_portable_skill_first_package() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/office");
+    let package =
+        PluginPackage::inspect(&root, PluginSourceKind::Builtin).expect("portable Office package");
+
+    assert_eq!(package.id.as_str(), "vibex.office");
+    assert_eq!(package.formats, vec![PackageFormat::VibeX]);
+    assert_eq!(package.skills.len(), 3);
+    assert_eq!(package.runtimes[0].command, "officecli");
 }

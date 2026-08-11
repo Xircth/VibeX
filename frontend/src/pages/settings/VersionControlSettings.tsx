@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Bell,
   CheckCircle2,
+  Download,
   GitPullRequest,
   Github,
   Loader2,
@@ -13,11 +14,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
-import {
-  DEFAULT_COMMIT_REMINDER_PROMPT,
-  DEFAULT_PR_DESCRIPTION_PROMPT,
-  type Config,
-} from 'shared/types';
+import { DEFAULT_PR_DESCRIPTION_PROMPT, type Config } from 'shared/types';
 
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
@@ -87,6 +84,7 @@ export function VersionControlSettings() {
   const [gitLoading, setGitLoading] = useState(false);
   const [gitSaving, setGitSaving] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
+  const [githubInstalling, setGithubInstalling] = useState(false);
 
   useEffect(() => {
     if (config && !dirty) {
@@ -228,7 +226,8 @@ export function VersionControlSettings() {
       // 全局设置（workspace_dir / git_branch_prefix 已迁移到工作树页）。
       const saved = await updateAndSaveConfig({
         commit_reminder_enabled: draft.commit_reminder_enabled,
-        commit_reminder_prompt: draft.commit_reminder_prompt,
+        commit_reminder_mode: draft.commit_reminder_mode,
+        commit_reminder_line_threshold: draft.commit_reminder_line_threshold,
         pr_auto_description_enabled: draft.pr_auto_description_enabled,
         pr_auto_description_prompt: draft.pr_auto_description_prompt,
       });
@@ -323,6 +322,27 @@ export function VersionControlSettings() {
             ? error.message
             : t('versionControl.githubLoginStartFailed'),
       });
+    }
+  };
+
+  const handleInstallGithubCli = async () => {
+    try {
+      setGithubInstalling(true);
+      const status = await versionControlApi.installGithubCli(githubHost);
+      setGithubStatus(status);
+      setGithubHost(status.host);
+      toast.success(t('versionControl.githubCliInstalled'), {
+        description: status.gh_path ?? undefined,
+      });
+    } catch (error) {
+      toast.error(t('versionControl.githubCliInstallFailed'), {
+        description:
+          error instanceof Error
+            ? error.message
+            : t('versionControl.githubCliInstallFailedDesc'),
+      });
+    } finally {
+      setGithubInstalling(false);
     }
   };
 
@@ -453,7 +473,9 @@ export function VersionControlSettings() {
         >
           <div className="settings-row">
             <div>
-              <Label>{t('versionControl.enableCommitReminderLabel')}</Label>
+              <Label id="commit-reminder-enabled-label">
+                {t('versionControl.enableCommitReminderLabel')}
+              </Label>
               <p className="settings-row__description">
                 {t('versionControl.enableCommitReminderDescription')}
               </p>
@@ -466,38 +488,77 @@ export function VersionControlSettings() {
               }
             />
           </div>
-          {draft.commit_reminder_enabled ? (
-            <div className="space-y-4">
-              <div className="settings-row">
-                <div>
-                  <Label>{t('versionControl.customCommitPromptLabel')}</Label>
-                  <p className="settings-row__description">
-                    {t('versionControl.customCommitPromptDescription')}
-                  </p>
-                </div>
-                <Switch
-                  checked={draft.commit_reminder_prompt != null}
-                  onCheckedChange={(checked) =>
+          <fieldset
+            className="settings-subrows"
+            aria-labelledby="commit-reminder-enabled-label"
+            disabled={!draft.commit_reminder_enabled}
+          >
+            <div className="settings-row">
+              <div className="settings-row__copy">
+                <Label htmlFor="commit-reminder-mode">
+                  {t('versionControl.commitReminderModeLabel')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('versionControl.commitReminderModeDescription')}
+                </p>
+              </div>
+              <select
+                id="commit-reminder-mode"
+                aria-label={t('versionControl.commitReminderModeLabel')}
+                className="raised-control h-8 min-w-32 rounded-lg px-3 text-sm"
+                value={draft.commit_reminder_mode ?? 'separate_turn'}
+                onChange={(event) =>
+                  updateDraft({
+                    commit_reminder_mode: event.target.value as
+                      | 'separate_turn'
+                      | 'smart',
+                  })
+                }
+              >
+                <option value="separate_turn">
+                  {t('versionControl.commitReminderModeSeparate')}
+                </option>
+                <option value="smart">
+                  {t('versionControl.commitReminderModeSmart')}
+                </option>
+              </select>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row__copy">
+                <Label htmlFor="commit-reminder-threshold">
+                  {t('versionControl.commitReminderThresholdLabel')}
+                </Label>
+                <p className="settings-row__description">
+                  {t('versionControl.commitReminderThresholdDescription')}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="commit-reminder-threshold"
+                  aria-label={t('versionControl.commitReminderThresholdLabel')}
+                  className="w-28 text-right tabular-nums"
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={draft.commit_reminder_line_threshold ?? 10000}
+                  onChange={(event) =>
                     updateDraft({
-                      commit_reminder_prompt: checked
-                        ? DEFAULT_COMMIT_REMINDER_PROMPT
-                        : null,
+                      commit_reminder_line_threshold: Math.max(
+                        0,
+                        Math.min(
+                          4_294_967_295,
+                          Number.parseInt(event.target.value || '0', 10)
+                        )
+                      ),
                     })
                   }
                 />
+                <span className="text-xs text-muted-foreground">
+                  {t('versionControl.linesUnit')}
+                </span>
               </div>
-              <Textarea
-                value={
-                  draft.commit_reminder_prompt ?? DEFAULT_COMMIT_REMINDER_PROMPT
-                }
-                disabled={draft.commit_reminder_prompt == null}
-                onChange={(event) =>
-                  updateDraft({ commit_reminder_prompt: event.target.value })
-                }
-                rows={7}
-              />
             </div>
-          ) : null}
+          </fieldset>
         </SettingsSection>
 
         <SettingsSection
@@ -566,16 +627,34 @@ export function VersionControlSettings() {
                     t('versionControl.loginStatusFallback')}
                 </p>
               </div>
-              <StatusLine
-                ok={Boolean(githubStatus?.authenticated)}
-                loading={githubLoading}
-              >
-                {githubStatus?.authenticated
-                  ? (githubStatus.username ?? t('versionControl.loggedIn'))
-                  : githubStatus?.gh_installed
-                    ? (githubStatus.message ?? t('versionControl.notLoggedIn'))
-                    : t('versionControl.ghNotInstalled')}
-              </StatusLine>
+              <div className="flex shrink-0 items-center gap-3">
+                <StatusLine
+                  ok={Boolean(githubStatus?.authenticated)}
+                  loading={githubLoading}
+                >
+                  {githubStatus?.authenticated
+                    ? (githubStatus.username ?? t('versionControl.loggedIn'))
+                    : githubStatus?.gh_installed
+                      ? t('versionControl.notLoggedIn')
+                      : t('versionControl.ghNotInstalled')}
+                </StatusLine>
+                {!githubLoading && githubStatus?.gh_installed === false && (
+                  <Button
+                    type="button"
+                    onClick={handleInstallGithubCli}
+                    disabled={githubInstalling}
+                  >
+                    {githubInstalling ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-2 h-4 w-4" />
+                    )}
+                    {githubInstalling
+                      ? t('versionControl.installingGithubCli')
+                      : t('versionControl.installGithubCli')}
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="settings-row settings-row--stacked">
@@ -590,13 +669,14 @@ export function VersionControlSettings() {
                   value={githubHost}
                   onChange={(event) => setGithubHost(event.target.value)}
                   placeholder="github.com"
+                  disabled={githubInstalling}
                 />
                 <div className="flex shrink-0 gap-2">
                   <Button
                     variant="outline"
                     type="button"
                     onClick={refreshGithub}
-                    disabled={githubLoading}
+                    disabled={githubLoading || githubInstalling}
                   >
                     {githubLoading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -609,7 +689,11 @@ export function VersionControlSettings() {
                     variant="outline"
                     type="button"
                     onClick={handleOpenGithubLogin}
-                    disabled={githubLoading}
+                    disabled={
+                      githubLoading ||
+                      githubInstalling ||
+                      !githubStatus?.gh_installed
+                    }
                   >
                     <LogIn className="mr-2 h-4 w-4" />
                     {t('versionControl.login')}
@@ -618,7 +702,11 @@ export function VersionControlSettings() {
                     variant="outline"
                     type="button"
                     onClick={handleGithubLogout}
-                    disabled={githubLoading || !githubStatus?.authenticated}
+                    disabled={
+                      githubLoading ||
+                      githubInstalling ||
+                      !githubStatus?.authenticated
+                    }
                   >
                     <LogOut className="mr-2 h-4 w-4" />
                     {t('versionControl.logout')}

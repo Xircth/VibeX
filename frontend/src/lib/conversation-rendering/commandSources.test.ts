@@ -4,6 +4,7 @@ import {
   localSkillsToDollarCommands,
   localSkillsToSlashCommands,
   mergeComposerSlashCommands,
+  pluginInvocationsToSlashCommands,
 } from './commandSources';
 
 describe('composer command sources', () => {
@@ -19,11 +20,15 @@ describe('composer command sources', () => {
         name: 'compact',
         description: 'Compact context',
         kind: 'COMMAND',
+        sourceKind: 'native',
+        sourceId: 'runtime:compact',
       },
       {
         name: 'review',
         description: undefined,
         kind: 'COMMAND',
+        sourceKind: 'native',
+        sourceId: 'runtime:review',
       },
     ]);
   });
@@ -43,6 +48,8 @@ describe('composer command sources', () => {
         name: 'impeccable',
         description: 'Polish UI',
         kind: 'SKILL',
+        sourceKind: 'skill',
+        sourceId: 'skills/impeccable/SKILL.md',
       },
     ]);
     expect(localSkillsToDollarCommands(skills)).toEqual([
@@ -53,20 +60,106 @@ describe('composer command sources', () => {
     ]);
   });
 
-  it('merges catalog, runtime, and skill commands in source priority order', () => {
+  it('keeps same-name plugin, skill, and native candidates with structured identity', () => {
     expect(
       mergeComposerSlashCommands({
         catalogCommands: [{ name: 'review', description: 'Built in' }],
         runtimeCommands: [
-          { name: '/review', description: 'Runtime override' },
-          { name: '/compact', description: 'Runtime compact' },
+          {
+            name: '/review',
+            description: 'Runtime override',
+            sourceKind: 'native',
+            sourceId: 'runtime:review',
+          },
+          {
+            name: '/compact',
+            description: 'Runtime compact',
+            sourceKind: 'native',
+            sourceId: 'runtime:compact',
+          },
         ],
-        skillCommands: [{ name: 'impeccable', kind: 'SKILL' }],
+        pluginCommands: [
+          {
+            name: 'review',
+            displayLabel: 'Review workflow',
+            sourceKind: 'plugin',
+            sourceId: 'dev.vibex.review/review',
+          },
+        ],
+        skillCommands: [
+          {
+            name: 'review',
+            kind: 'SKILL',
+            sourceKind: 'skill',
+            sourceId: '/skills/review/SKILL.md',
+          },
+        ],
       })
     ).toEqual([
-      { name: 'review', description: 'Runtime override' },
-      { name: 'compact', description: 'Runtime compact' },
-      { name: 'impeccable', kind: 'SKILL' },
+      {
+        name: 'review',
+        description: 'Runtime override',
+        sourceKind: 'native',
+        sourceId: 'runtime:review',
+      },
+      {
+        name: 'compact',
+        description: 'Runtime compact',
+        sourceKind: 'native',
+        sourceId: 'runtime:compact',
+      },
+      {
+        name: 'review',
+        displayLabel: 'Review workflow',
+        sourceKind: 'plugin',
+        sourceId: 'dev.vibex.review/review',
+      },
+      {
+        name: 'review',
+        kind: 'SKILL',
+        sourceKind: 'skill',
+        sourceId: '/skills/review/SKILL.md',
+      },
+    ]);
+  });
+
+  it('maps enabled PluginAction and Plugin Command contributions to slash candidates', () => {
+    expect(
+      pluginInvocationsToSlashCommands({
+        plugins: [
+          {
+            id: 'dev.vibex.review',
+            name: 'Review',
+            version: '1.0.0',
+            description: null,
+            enabled: true,
+            builtin: false,
+            shellTrusted: false,
+            sourceKind: 'snapshot',
+            sourcePath: '/plugins/review',
+            formats: ['vibex'],
+            skills: [],
+            runtimes: [],
+            warnings: [],
+            invocations: [
+              {
+                id: 'review',
+                label: 'Review',
+                prompt: 'Review this.',
+                kind: 'action',
+              },
+            ],
+          },
+        ],
+        runtimes: [],
+      })
+    ).toMatchObject([
+      {
+        name: 'review',
+        sourceKind: 'plugin',
+        sourceId: 'dev.vibex.review/review',
+        prompt: 'Review this.',
+      },
     ]);
   });
 });

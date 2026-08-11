@@ -10,6 +10,7 @@ artifacts = { path = "../artifacts" }
 async-trait = { workspace = true }
 conversations = { path = "../conversations" }
 db = { path = "../db" }
+dirs = { workspace = true }
 plugins = { path = "../plugins" }
 reqwest = { workspace = true }
 rustls = { workspace = true }

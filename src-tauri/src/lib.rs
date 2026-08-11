@@ -304,19 +304,30 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                     .db()
                     .pool
                     .clone();
-                commands::agent_management::recover_interrupted_agent_operations(&handle, &pool)
-                    .await;
-                commands::agent_management::reconcile_managed_cli_exposures(&handle, &pool).await;
                 let agent_management_runtime = handle
                     .state::<state::AppState>()
                     .agent_management_runtime
                     .clone();
-                commands::agent_management::warm_agent_management(
+                let local_discovery = commands::agent_management::warm_local_runtime_discovery(
                     &handle,
                     &pool,
                     &agent_management_runtime,
-                )
-                .await;
+                );
+                let recovery_and_warmup = async {
+                    commands::agent_management::recover_interrupted_agent_operations(
+                        &handle, &pool,
+                    )
+                    .await;
+                    commands::agent_management::reconcile_managed_cli_exposures(&handle, &pool)
+                        .await;
+                    commands::agent_management::warm_agent_management(
+                        &handle,
+                        &pool,
+                        &agent_management_runtime,
+                    )
+                    .await;
+                };
+                tokio::join!(local_discovery, recovery_and_warmup);
             });
         }
         // Bidirectional IM channels: run inbound loops + conversation command dispatch.
@@ -636,6 +647,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::desktop_toast::desktop_toast_window_ready,
         // Open Agent management and official ACP Registry
         commands::agent_management::agent_management_bar,
+        commands::agent_management::agent_management_discovery_progress,
         commands::agent_management::agent_management_refresh,
         commands::agent_management::agent_management_detail,
         commands::agent_plan_usage::agent_plan_usage,
@@ -698,6 +710,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::version_control::detect_git_version,
         commands::version_control::test_git_path,
         commands::version_control::get_github_cli_status,
+        commands::version_control::install_github_cli,
         commands::version_control::open_github_cli_login,
         commands::version_control::logout_github_cli,
         commands::system_settings::get_system_proxy_settings,
@@ -804,7 +817,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::file_tree::create_directory,
         commands::file_tree::search_workspace_text,
         // Office preview (OfficeCLI) commands
-        commands::office_tools::plugin_action_catalog,
+        commands::plugin_control::plugin_action_catalog,
         commands::office_tools::plugin_skills_configure,
         commands::office_tools::office_plugin_set_enabled,
         commands::office_tools::officecli_detect,
@@ -815,6 +828,20 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::office_tools::officecli_uninstall,
         commands::office_tools::start_office_watch,
         commands::office_tools::stop_office_watch,
+        // Unified VibeX/Codex/Claude Code Plugin control plane
+        commands::plugin_control::plugin_control_catalog,
+        commands::plugin_control::plugin_control_contributions,
+        commands::plugin_control::plugin_control_preview_import,
+        commands::plugin_control::plugin_control_import_cli,
+        commands::plugin_control::plugin_control_preview_runtime_install,
+        commands::plugin_control::plugin_control_import,
+        commands::plugin_control::plugin_control_install_runtime,
+        commands::plugin_control::plugin_control_set_enabled,
+        commands::plugin_control::plugin_control_update,
+        commands::plugin_control::plugin_control_set_shell_trust,
+        commands::plugin_control::plugin_control_configure_agents,
+        commands::plugin_control::plugin_control_configure_mcp,
+        commands::plugin_control::plugin_control_uninstall,
         // Skills commands
         commands::skills::list_local_agent_skills,
         commands::agent_skills::list_agent_skills,

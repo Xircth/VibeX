@@ -32,7 +32,8 @@ const mocks = vi.hoisted(() => ({
   setSkillHosting: vi.fn(),
   uninstallSkill: vi.fn(),
   pluginCatalog: vi.fn(),
-  configurePluginSkills: vi.fn(),
+  configurePluginAgents: vi.fn(),
+  configurePluginMcp: vi.fn(),
 }));
 
 vi.mock('@/features/agent-management', () => ({
@@ -69,9 +70,10 @@ vi.mock('@/lib/api', () => ({
 }));
 
 vi.mock('@/lib/api/plugins', () => ({
-  pluginV2Api: {
+  pluginControlApi: {
     catalog: mocks.pluginCatalog,
-    configureSkills: mocks.configurePluginSkills,
+    configureAgents: mocks.configurePluginAgents,
+    configureMcp: mocks.configurePluginMcp,
   },
 }));
 
@@ -219,6 +221,42 @@ describe('McpSettings', () => {
       'changing an uncontrolled input to be controlled'
     );
   });
+
+  it('configures a plugin built-in MCP for selected Agents', async () => {
+    const user = userEvent.setup();
+    mocks.agentOptions = [
+      { value: 'codex', label: 'Codex' },
+      { value: 'claude_code', label: 'Claude Code' },
+    ];
+    mocks.pluginCatalog.mockResolvedValue({
+      plugins: [
+        {
+          id: 'dev.vibex.research',
+          name: 'Research Toolkit',
+          skills: [{ id: 'research', path: 'skills/research/SKILL.md' }],
+        },
+      ],
+      runtimes: [],
+    });
+    mocks.configurePluginMcp.mockResolvedValue({ mcpErrors: [] });
+    renderSettings(<McpSettings />, [
+      '/settings/mcp?plugin=dev.vibex.research',
+    ]);
+
+    expect(
+      await screen.findByText('配置 Research Toolkit 的 MCP 目标')
+    ).toBeVisible();
+    await user.click(await screen.findByLabelText('Codex'));
+    await user.click(screen.getByRole('button', { name: '保存 MCP 目标' }));
+
+    await waitFor(() => {
+      expect(mocks.configurePluginMcp).toHaveBeenCalledWith(
+        'dev.vibex.research',
+        false,
+        ['codex']
+      );
+    });
+  });
 });
 
 describe('SkillsSettings', () => {
@@ -240,10 +278,17 @@ describe('SkillsSettings', () => {
     ];
     const pluginSkills = ['office-pptx', 'office-docx', 'office-xlsx'];
     mocks.pluginCatalog.mockResolvedValue({
-      plugin: { id: 'vibex.office', name: 'Office' },
-      readiness: {
-        skills: pluginSkills.map((id) => ({ id, status: 'ready' })),
-      },
+      plugins: [
+        {
+          id: 'vibex.office',
+          name: 'Office',
+          skills: pluginSkills.map((id) => ({
+            id,
+            path: `skills/${id}/SKILL.md`,
+          })),
+        },
+      ],
+      runtimes: [],
     });
     mocks.scanSkills.mockResolvedValue(
       pluginSkills.map((id) => ({
@@ -256,7 +301,7 @@ describe('SkillsSettings', () => {
         path: `/tmp/${id}/SKILL.md`,
       }))
     );
-    mocks.configurePluginSkills.mockResolvedValue([]);
+    mocks.configurePluginAgents.mockResolvedValue([]);
 
     renderSettings(<SkillsSettings />, [
       '/settings/skills?plugin=vibex.office',
@@ -272,12 +317,11 @@ describe('SkillsSettings', () => {
     await user.click(screen.getByRole('button', { name: '保存 Agent 分配' }));
 
     await waitFor(() => {
-      expect(mocks.configurePluginSkills).toHaveBeenCalledWith({
-        pluginId: 'vibex.office',
-        apps: ['codex', 'claude_code'],
-        allAgents: false,
-        link: false,
-      });
+      expect(mocks.configurePluginAgents).toHaveBeenCalledWith(
+        'vibex.office',
+        false,
+        ['codex', 'claude_code']
+      );
     });
   });
 

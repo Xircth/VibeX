@@ -1,4 +1,12 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorType, type AgentManagementView } from 'shared/types';
@@ -9,6 +17,7 @@ import { FirstRunExperience } from './FirstRunExperience';
 
 const managementMock = vi.hoisted(() => ({
   bar: vi.fn(),
+  discoveryProgress: vi.fn(),
   refreshBar: vi.fn(),
   registry: vi.fn(),
   refreshRegistry: vi.fn(),
@@ -17,8 +26,18 @@ const managementMock = vi.hoisted(() => ({
   preflight: vi.fn(),
 }));
 
+const transportMock = vi.hoisted(() => ({
+  listeners: new Map<string, (payload: unknown) => void>(),
+}));
+
 const configApiMock = vi.hoisted(() => ({
   checkEditorAvailability: vi.fn(),
+}));
+
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
 }));
 
 const animationMock = vi.hoisted(() => {
@@ -50,7 +69,8 @@ const animationMock = vi.hoisted(() => {
   };
 });
 
-vi.mock('@/features/agent-management', () => ({
+vi.mock('@/features/agent-management', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/agent-management')>()),
   agentManagementApi: managementMock,
 }));
 
@@ -60,7 +80,16 @@ vi.mock('@/lib/api', () => ({
 }));
 
 vi.mock('@/lib/backendTransport', () => ({
-  backendListen: vi.fn().mockResolvedValue(vi.fn()),
+  backendListen: vi.fn(
+    async (event: string, handler: (payload: unknown) => void) => {
+      transportMock.listeners.set(event, handler);
+      return () => transportMock.listeners.delete(event);
+    }
+  ),
+}));
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: toastMock,
 }));
 
 vi.mock('@/hooks/useMediaQuery', () => ({
@@ -122,6 +151,8 @@ describe('FirstRunExperience', () => {
     animationMock.timeline.to.mockClear();
     animationMock.timeline.fromTo.mockClear();
     for (const mock of Object.values(managementMock)) mock.mockReset();
+    for (const mock of Object.values(toastMock)) mock.mockReset();
+    transportMock.listeners.clear();
     configApiMock.checkEditorAvailability.mockReset();
     configApiMock.checkEditorAvailability.mockResolvedValue({
       available: true,
@@ -138,6 +169,14 @@ describe('FirstRunExperience', () => {
       agent({ agent_id: 'codex', display_name: 'Codex' }),
     ];
     managementMock.bar.mockResolvedValue(startupAgents);
+    managementMock.discoveryProgress.mockResolvedValue({
+      phase: 'complete',
+      completed: 12,
+      total: 12,
+      found: 1,
+      checked_agent_ids: ['claude_code', 'codex'],
+      timed_out: false,
+    });
     managementMock.refreshBar.mockResolvedValue(startupAgents);
     managementMock.registry.mockResolvedValue({
       snapshot_id: 'snapshot',
@@ -163,13 +202,16 @@ describe('FirstRunExperience', () => {
           label: 'Runtime',
           status: 'pass',
           detail: '',
+          version: null,
+          path: null,
+          source: null,
           repairable: true,
         },
       ],
     });
   });
 
-  it('renders the localized product promise and plain-text intro actions', () => {
+  it('renders the localized product promise and plain-text intro actions', async () => {
     render(
       <FirstRunExperience
         open
@@ -179,6 +221,8 @@ describe('FirstRunExperience', () => {
         onFinish={vi.fn()}
       />
     );
+
+    await waitFor(() => expect(managementMock.registry).toHaveBeenCalled());
 
     expect(screen.getByText('集成且全能的Agent开发平台')).toBeInTheDocument();
     expect(screen.getByText('Kimi Code')).toBeInTheDocument();
@@ -204,6 +248,107 @@ describe('FirstRunExperience', () => {
 
     await waitFor(() => expect(managementMock.bar).toHaveBeenCalledTimes(1));
     expect(managementMock.refreshBar).not.toHaveBeenCalled();
+  });
+
+  it('completes the initial Agent catalog load under React StrictMode', async () => {
+    const user = userEvent.setup();
+    let resolveAgents: ((agents: AgentManagementView[]) => void) | undefined;
+    managementMock.bar.mockReturnValue(
+      new Promise<AgentManagementView[]>((resolve) => {
+        resolveAgents = resolve;
+      })
+    );
+
+    render(
+      <StrictMode>
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={vi.fn()}
+        />
+      </StrictMode>
+    );
+
+    await waitFor(() => expect(managementMock.bar).toHaveBeenCalledTimes(1));
+    act(() => {
+      resolveAgents?.([
+        agent({
+          agent_id: 'claude_code',
+          display_name: 'Claude Code',
+          local_runtime: {
+            path: '/usr/local/bin/claude',
+            version: '2.1.220',
+          },
+        }),
+      ]);
+    });
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('正在加载 Agent 列表')).not.toBeInTheDocument();
+  });
+
+  it('does not restart the initial catalog request on startup invalidations', async () => {
+    const user = userEvent.setup();
+    let resolveAgents: ((agents: AgentManagementView[]) => void) | undefined;
+    managementMock.bar.mockReturnValue(
+      new Promise<AgentManagementView[]>((resolve) => {
+        resolveAgents = resolve;
+      })
+    );
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        transportMock.listeners.has('agent-management-snapshot-invalidated')
+      ).toBe(true)
+    );
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    expect(
+      screen.getByRole('status', { name: '正在加载 Agent 列表' })
+    ).toBeInTheDocument();
+    act(() => {
+      transportMock.listeners.get('agent-management-snapshot-invalidated')?.(
+        undefined
+      );
+      transportMock.listeners.get('agent-management-snapshot-invalidated')?.(
+        undefined
+      );
+    });
+
+    expect(managementMock.bar).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      resolveAgents?.([
+        agent({
+          agent_id: 'claude_code',
+          display_name: 'Claude Code',
+          local_runtime: {
+            path: '/usr/local/bin/claude',
+            version: '2.1.220',
+          },
+        }),
+      ]);
+    });
+
+    expect(
+      await screen.findByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('正在加载 Agent 列表')).not.toBeInTheDocument();
   });
 
   it('selects and prioritizes only locally detected Agents on first entry', async () => {
@@ -348,7 +493,7 @@ describe('FirstRunExperience', () => {
     });
   });
 
-  it('shows the local Agent check over a blurred list preview', async () => {
+  it('uses a catalog loading state before the Agent list is available', async () => {
     const user = userEvent.setup();
     let resolveAgents: (agents: AgentManagementView[]) => void = () =>
       undefined;
@@ -371,7 +516,7 @@ describe('FirstRunExperience', () => {
     await user.click(screen.getByRole('button', { name: '下一步' }));
 
     expect(
-      screen.getByRole('status', { name: '正在进行本地Agent检查' })
+      screen.getByRole('status', { name: '正在加载 Agent 列表' })
     ).toBeInTheDocument();
     expect(screen.getByTestId('agent-loading-preview')).toHaveClass(
       'onboarding-agent-loading-preview'
@@ -386,6 +531,139 @@ describe('FirstRunExperience', () => {
       ]);
     });
     await screen.findByRole('checkbox', { name: '启用 Claude Code' });
+  });
+
+  it('keeps the Agent list usable while showing real local check progress', async () => {
+    const user = userEvent.setup();
+    managementMock.discoveryProgress.mockResolvedValue({
+      phase: 'checking',
+      completed: 3,
+      total: 12,
+      found: 1,
+      checked_agent_ids: ['claude_code', 'codex', 'gemini'],
+      timed_out: false,
+    });
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeInTheDocument();
+    const progress = await screen.findByRole('progressbar', {
+      name: '本地 Agent 检查进度',
+    });
+    expect(progress).toHaveAttribute('aria-valuenow', '3');
+    expect(progress).toHaveAttribute('aria-valuemax', '12');
+    expect(screen.getByText('已检查 3 / 12')).toBeInTheDocument();
+    expect(screen.getByText('已发现 1 个可用 Agent')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '外部编辑器' })).toBeEnabled();
+  });
+
+  it('updates local check progress from backend events without hiding the list', async () => {
+    const user = userEvent.setup();
+    managementMock.discoveryProgress.mockResolvedValue({
+      phase: 'checking',
+      completed: 1,
+      total: 12,
+      found: 0,
+      checked_agent_ids: ['claude_code'],
+      timed_out: false,
+    });
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByText('已检查 1 / 12');
+    await waitFor(() =>
+      expect(
+        transportMock.listeners.has('agent-management-discovery-progress')
+      ).toBe(true)
+    );
+
+    act(() => {
+      transportMock.listeners.get('agent-management-discovery-progress')?.({
+        phase: 'checking',
+        completed: 8,
+        total: 12,
+        found: 2,
+        checked_agent_ids: ['claude_code', 'codex'],
+        timed_out: false,
+      });
+    });
+
+    expect(screen.getByText('已检查 8 / 12')).toBeInTheDocument();
+    expect(
+      screen.getByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeInTheDocument();
+  });
+
+  it('merges discovered Agents without overwriting the user selection', async () => {
+    const user = userEvent.setup();
+    managementMock.bar.mockResolvedValueOnce([
+      agent({ agent_id: 'claude_code', display_name: 'Claude Code' }),
+      agent({ agent_id: 'codex', display_name: 'Codex' }),
+    ]);
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    const codex = await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(codex);
+
+    managementMock.bar.mockResolvedValue([
+      agent({
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        local_runtime: {
+          path: '/usr/local/bin/claude',
+          version: '2.1.220',
+        },
+      }),
+      agent({ agent_id: 'codex', display_name: 'Codex' }),
+    ]);
+    await waitFor(() =>
+      expect(
+        transportMock.listeners.has('agent-management-snapshot-invalidated')
+      ).toBe(true)
+    );
+
+    act(() => {
+      transportMock.listeners.get('agent-management-snapshot-invalidated')?.(
+        undefined
+      );
+    });
+
+    await waitFor(() => expect(managementMock.bar).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getByRole('checkbox', { name: '启用 Claude Code' })
+    ).toBeChecked();
+    expect(codex).toBeChecked();
   });
 
   it('shows locally detected Agents without waiting for a stale Registry refresh', async () => {
@@ -422,6 +700,92 @@ describe('FirstRunExperience', () => {
     expect(managementMock.refreshRegistry).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole('status', { name: '正在进行本地Agent检查' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows locally detected Agents without waiting for the Registry snapshot', async () => {
+    const user = userEvent.setup();
+    managementMock.registry.mockReturnValue(new Promise(() => {}));
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(
+      await screen.findByRole(
+        'checkbox',
+        { name: '启用 Claude Code' },
+        { timeout: 250 }
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('status', { name: '正在进行本地Agent检查' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers retry instead of loading the Agent catalog forever', async () => {
+    vi.useFakeTimers();
+    managementMock.bar.mockReturnValue(new Promise(() => {}));
+
+    try {
+      render(
+        <FirstRunExperience
+          open
+          initialEditor={editor}
+          initialDefaultAgentId="claude_code"
+          onPersist={vi.fn().mockResolvedValue(undefined)}
+          onFinish={vi.fn()}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+      expect(
+        screen.getByRole('status', { name: '正在加载 Agent 列表' })
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Agent 列表加载超时，请重试'
+      );
+      expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a recoverable error instead of a completed empty Agent list', async () => {
+    const user = userEvent.setup();
+    managementMock.bar.mockResolvedValue([]);
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '未能加载 Agent 列表，请重试'
+    );
+    expect(screen.getByRole('button', { name: '重试' })).toBeEnabled();
+    expect(
+      screen.queryByRole('combobox', { name: '默认 Agent' })
     ).not.toBeInTheDocument();
   });
 
@@ -549,6 +913,48 @@ describe('FirstRunExperience', () => {
       kind: 'install',
       status: 'queued',
     });
+  });
+
+  it('shows the message from a structured Agent installation error', async () => {
+    const user = userEvent.setup();
+    managementMock.addAndInstall.mockRejectedValue({
+      code: 'internal',
+      message: '托管 Node.js 无法启动',
+      agent_id: 'codex',
+    });
+
+    render(
+      <FirstRunExperience
+        open
+        initialEditor={editor}
+        initialDefaultAgentId="claude_code"
+        onPersist={vi.fn().mockResolvedValue(undefined)}
+        onFinish={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByRole('checkbox', { name: '启用 Codex' });
+    await user.click(screen.getByRole('checkbox', { name: '启用 Codex' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent' }));
+    await user.click(screen.getByRole('option', { name: 'Codex' }));
+    await user.click(screen.getByRole('button', { name: '开始安装并继续' }));
+
+    await waitFor(
+      () => {
+        expect(toastMock.error).toHaveBeenCalledWith(
+          'Codex Agent 安装失败，请在设置中查看',
+          expect.objectContaining({
+            details: [
+              expect.objectContaining({
+                description: '托管 Node.js 无法启动',
+              }),
+            ],
+          })
+        );
+      },
+      { timeout: 2_500 }
+    );
   });
 
   it('prioritizes recommended Agents and explains why the default picker cannot open yet', async () => {

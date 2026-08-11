@@ -20,9 +20,9 @@ use conversations::ConversationEventAppender;
 use db::models::conversation_event::AppendConversationEvent;
 use plugins::{
     ManagedTool, ManifestSource, Platform, PluginAction, PluginActivation, PluginManifest,
-    PluginReadiness, PluginRuntimeError, PluginService, ResolvedToolDistribution,
-    SkillAvailabilityPort, SkillDeclaration, ToolDependencyResolver, ToolRuntimeAdapter,
-    ToolRuntimePort,
+    PluginPackage, PluginReadiness, PluginRuntimeError, PluginService, PluginSourceKind,
+    ResolvedToolDistribution, SkillAvailabilityPort, SkillDeclaration, ToolDependencyResolver,
+    ToolRuntimeAdapter, ToolRuntimePort,
 };
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -36,6 +36,8 @@ use uuid::Uuid;
 
 const OFFICE_MANIFEST: &str =
     include_str!("../../../assets/plugins/office/manifest.vibex-plugin.json");
+const OFFICE_PORTABLE_MANIFEST: &str =
+    include_str!("../../../assets/plugins/office/.vibex-plugin/plugin.json");
 const OFFICE_SKILLS: [(&str, &str); 3] = [
     (
         "office-pptx",
@@ -50,6 +52,29 @@ const OFFICE_SKILLS: [(&str, &str); 3] = [
         include_str!("../../../assets/plugins/office/skills/office-xlsx/SKILL.md"),
     ),
 ];
+
+/// Materialize embedded built-in assets so installed hosts never depend on a
+/// source checkout when projecting Office skills into Agent-native locations.
+pub fn materialize_bundled_plugin_package(
+    root: &Path,
+) -> Result<PluginPackage, OfficeRuntimeError> {
+    let manifest_dir = root.join(".vibex-plugin");
+    std::fs::create_dir_all(&manifest_dir)
+        .map_err(|error| OfficeRuntimeError::new("BUILTIN_PACKAGE_FAILED", error.to_string()))?;
+    std::fs::write(manifest_dir.join("plugin.json"), OFFICE_PORTABLE_MANIFEST)
+        .map_err(|error| OfficeRuntimeError::new("BUILTIN_PACKAGE_FAILED", error.to_string()))?;
+    for (skill_id, contents) in OFFICE_SKILLS {
+        let skill_dir = root.join("skills").join(skill_id);
+        std::fs::create_dir_all(&skill_dir).map_err(|error| {
+            OfficeRuntimeError::new("BUILTIN_PACKAGE_FAILED", error.to_string())
+        })?;
+        std::fs::write(skill_dir.join("SKILL.md"), contents).map_err(|error| {
+            OfficeRuntimeError::new("BUILTIN_PACKAGE_FAILED", error.to_string())
+        })?;
+    }
+    PluginPackage::inspect(root, PluginSourceKind::Builtin)
+        .map_err(|error| OfficeRuntimeError::new("BUILTIN_PACKAGE_FAILED", error.to_string()))
+}
 
 struct OfficePluginRuntime {
     inner: Arc<ToolRuntimeAdapter>,
@@ -356,6 +381,7 @@ impl OfficeRuntime {
                 "bundled Office plugin did not reach ready state",
             ));
         }
+        self.publish_global_executable(&lock).await?;
         self.persist_enabled(true).await?;
         Ok(lock)
     }
@@ -600,6 +626,71 @@ impl OfficeRuntime {
         Ok(())
     }
 
+    pub fn global_executable_path(&self) -> Result<PathBuf, OfficeRuntimeError> {
+        let home = dirs::home_dir().ok_or_else(|| {
+            OfficeRuntimeError::new(
+                "GLOBAL_INSTALL_FAILED",
+                "user home directory is unavailable",
+            )
+        })?;
+        Ok(home.join(".local/bin").join(office_executable_name()))
+    }
+
+    async fn publish_global_executable(
+        &self,
+        lock: &ToolInstallationLock,
+    ) -> Result<PathBuf, OfficeRuntimeError> {
+        let target = self.global_executable_path()?;
+        let parent = target.parent().ok_or_else(|| {
+            OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", "global executable has no parent")
+        })?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", error.to_string()))?;
+        let staging = target.with_extension("vibex-incoming");
+        tokio::fs::copy(&lock.executable_path, &staging)
+            .await
+            .map_err(|error| OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", error.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755))
+                .await
+                .map_err(|error| {
+                    OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", error.to_string())
+                })?;
+        }
+        if tokio::fs::symlink_metadata(&target).await.is_ok() {
+            tokio::fs::remove_file(&target).await.map_err(|error| {
+                OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", error.to_string())
+            })?;
+        }
+        tokio::fs::rename(&staging, &target)
+            .await
+            .map_err(|error| OfficeRuntimeError::new("GLOBAL_INSTALL_FAILED", error.to_string()))?;
+        utils::shell::expose_user_bin_to_process_path(parent);
+        let _ = utils::shell::refresh_process_path_after_install().await;
+        let resolved = utils::shell::resolve_executable_path(office_executable_name())
+            .await
+            .ok_or_else(|| {
+                OfficeRuntimeError::new(
+                    "GLOBAL_INSTALL_FAILED",
+                    "OfficeCLI is not visible in the Agent environment after installation",
+                )
+            })?;
+        if resolved != target {
+            return Err(OfficeRuntimeError::new(
+                "GLOBAL_INSTALL_FAILED",
+                format!(
+                    "Agent environment resolves OfficeCLI to `{}` instead of `{}`",
+                    resolved.display(),
+                    target.display()
+                ),
+            ));
+        }
+        Ok(target)
+    }
+
     pub fn bundled_plugin_snapshot(&self) -> Result<plugins::PluginSnapshot, plugins::PluginError> {
         self.plugins.snapshot(self.office_manifest.id.as_str())
     }
@@ -812,6 +903,14 @@ fn office_tool_request() -> Result<ToolRequest, OfficeRuntimeError> {
         executable_name: executable_name.into(),
         probe_args: resolved.probe,
     })
+}
+
+fn office_executable_name() -> &'static str {
+    if cfg!(windows) {
+        "officecli.exe"
+    } else {
+        "officecli"
+    }
 }
 
 fn lock_evidence(lock: &ToolInstallationLock) -> ToolLockEvidence {
@@ -1060,7 +1159,19 @@ impl ProcessProbe for OfficeCliProbe {
 mod tests {
     use std::collections::HashSet;
 
-    use super::{OfficeRuntime, first_missing_required_skill};
+    use super::{OfficeRuntime, first_missing_required_skill, materialize_bundled_plugin_package};
+
+    #[test]
+    fn portable_office_package_materializes_from_embedded_assets() {
+        let root = tempfile::tempdir().expect("portable package root");
+
+        let package = materialize_bundled_plugin_package(root.path()).expect("materialize package");
+
+        assert_eq!(package.id.as_str(), "vibex.office");
+        assert_eq!(package.skills.len(), 3);
+        assert!(root.path().join(".vibex-plugin/plugin.json").is_file());
+        assert!(root.path().join("skills/office-pptx/SKILL.md").is_file());
+    }
 
     #[test]
     fn required_skill_guard_reports_the_first_unhosted_skill() {

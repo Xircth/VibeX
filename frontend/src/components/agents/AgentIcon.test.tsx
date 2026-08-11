@@ -8,7 +8,7 @@ describe('AgentIcon', () => {
     ['gemini', 'Gemini CLI', '/agents/gemini-light.svg'],
     ['openclaw', 'OpenClaw', '/agents/openclaw.svg'],
     ['cline', 'Cline', '/agents/cline.svg'],
-    ['hermes', 'Hermes Agent', '/agents/hermes.svg'],
+    ['hermes', 'Hermes Agent', '/agents/hermes.png'],
     ['codebuddy', 'CodeBuddy', '/agents/codebuddy.svg'],
     ['kimi_code', 'Kimi Code', '/agents/kimi.svg'],
     ['grok', 'Grok', '/agents/grok.svg'],

@@ -697,7 +697,9 @@ export function AgentSettings() {
   if (management.loading && management.state.agents.length === 0) {
     return (
       <div className="space-y-4" aria-label={t('settings:agents.loadingAgent')}>
-        <div className="agent-management-bar h-[54px] animate-pulse" />
+        <div className="agent-management-bar animate-pulse">
+          <span aria-hidden="true" className="agent-management-bar-surface" />
+        </div>
         <div className="settings-surface flex min-h-40 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>

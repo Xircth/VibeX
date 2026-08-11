@@ -2362,8 +2362,8 @@ fn hermes_profile() -> BuiltInProfile {
         display_name: "Hermes Agent",
         description: "Nous Research Hermes self-improving agent via ACP",
         icon: ProfileIcon {
-            light: "/agents/hermes.svg",
-            dark: "/agents/hermes.svg",
+            light: "/agents/hermes.png",
+            dark: "/agents/hermes.png",
         },
         registry_binding: Some(ProfileRegistryBinding {
             registry_id: "hermes",

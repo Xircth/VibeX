@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
     workspace_dir: '/workspace',
     git_branch_prefix: 'codex',
     commit_reminder_enabled: true,
-    commit_reminder_prompt: null,
+    commit_reminder_mode: 'separate_turn',
+    commit_reminder_line_threshold: 10000,
     pr_auto_description_enabled: false,
     pr_auto_description_prompt: null,
   } as Config,
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   detectGit: vi.fn(),
   testGitPath: vi.fn(),
   getGithubCliStatus: vi.fn(),
+  installGithubCli: vi.fn(),
   openGithubCliLogin: vi.fn(),
   logoutGithubCli: vi.fn(),
   folderPicker: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock('@/lib/api', () => ({
     detectGit: mocks.detectGit,
     testGitPath: mocks.testGitPath,
     getGithubCliStatus: mocks.getGithubCliStatus,
+    installGithubCli: mocks.installGithubCli,
     openGithubCliLogin: mocks.openGithubCliLogin,
     logoutGithubCli: mocks.logoutGithubCli,
   },
@@ -135,11 +138,87 @@ describe('VersionControlSettings', () => {
     });
   });
 
-  it('persists the commit reminder toggle through the application config', async () => {
+  it('shows a concise status when GitHub CLI is not authenticated', async () => {
+    const diagnostic =
+      'To get started with GitHub CLI, please run: gh auth login Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.';
+    mocks.getGithubCliStatus.mockResolvedValue({
+      ...githubStatus,
+      message: diagnostic,
+    });
+    render(<VersionControlSettings />);
+
+    expect(await screen.findByText('未登录')).toBeVisible();
+    expect(screen.queryByText(diagnostic)).not.toBeInTheDocument();
+  });
+
+  it('installs a missing GitHub CLI in one click and reports success', async () => {
+    const user = userEvent.setup();
+    mocks.getGithubCliStatus.mockResolvedValue({
+      ...githubStatus,
+      gh_installed: false,
+      gh_path: null,
+    });
+    mocks.installGithubCli.mockResolvedValue(githubStatus);
+    render(<VersionControlSettings />);
+
+    await user.click(
+      await screen.findByRole('button', { name: '安装 GitHub CLI' })
+    );
+
+    await waitFor(() => {
+      expect(mocks.installGithubCli).toHaveBeenCalledOnce();
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        'GitHub CLI 安装成功',
+        expect.objectContaining({ description: '/opt/homebrew/bin/gh' })
+      );
+    });
+    expect(
+      screen.queryByRole('button', { name: '安装 GitHub CLI' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('reports a one-click GitHub CLI installation failure', async () => {
+    const user = userEvent.setup();
+    mocks.getGithubCliStatus.mockResolvedValue({
+      ...githubStatus,
+      gh_installed: false,
+      gh_path: null,
+    });
+    mocks.installGithubCli.mockRejectedValue(new Error('network failed'));
+    render(<VersionControlSettings />);
+
+    await user.click(
+      await screen.findByRole('button', { name: '安装 GitHub CLI' })
+    );
+
+    await waitFor(() => {
+      expect(mocks.toastError).toHaveBeenCalledWith('GitHub CLI 安装失败', {
+        description: 'network failed',
+      });
+    });
+    expect(
+      screen.getByRole('button', { name: '安装 GitHub CLI' })
+    ).toBeEnabled();
+  });
+
+  it('keeps commit reminder options visible but disabled when reminders are off', async () => {
     const user = userEvent.setup();
     render(<VersionControlSettings />);
 
+    expect(
+      screen.getByText(
+        '检测未提交更改数量并通过设置-指令中的 #commit_changes 发送提醒'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText('提交指令')).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('switch', { name: '启用提交提醒' }));
+
+    expect(screen.getByRole('combobox', { name: '提醒方式' })).toBeDisabled();
+    expect(
+      screen.getByRole('spinbutton', { name: '更改行数边界' })
+    ).toBeDisabled();
+
     await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
 
     await waitFor(() => {
@@ -151,6 +230,31 @@ describe('VersionControlSettings', () => {
         expect.objectContaining({
           workspace_dir: expect.anything(),
           git_branch_prefix: expect.anything(),
+        })
+      );
+    });
+  });
+
+  it('persists the reminder mode and changed-line threshold', async () => {
+    const user = userEvent.setup();
+    render(<VersionControlSettings />);
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: '提醒方式' }),
+      'smart'
+    );
+    const threshold = screen.getByRole('spinbutton', {
+      name: '更改行数边界',
+    });
+    await user.clear(threshold);
+    await user.type(threshold, '2500');
+    await user.click(screen.getAllByRole('button', { name: '保存' }).at(-1)!);
+
+    await waitFor(() => {
+      expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commit_reminder_mode: 'smart',
+          commit_reminder_line_threshold: 2500,
         })
       );
     });

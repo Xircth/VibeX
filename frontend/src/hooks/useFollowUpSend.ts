@@ -117,7 +117,7 @@ export function useFollowUpSend({
           workspace_id: workspaceId,
           executor: executorProfileId.executor,
           name: newSessionName?.trim() ? newSessionName.trim() : null,
-          initial_prompt: prompt,
+          initial_prompt: displayPrompt,
         });
 
         targetSessionId = session.id;

@@ -1,0 +1,55 @@
+{
+  "$schema": "vibex-plugin/v3",
+  "id": "vibex.office",
+  "version": "2.0.0",
+  "name": "VibeX Office",
+  "description": "Create, edit, analyze, and preview PPTX, DOCX, and XLSX artifacts.",
+  "author": "VibeX",
+  "runtimes": [
+    {
+      "id": "officecli",
+      "command": "officecli",
+      "version": "1.0.140",
+      "probe": ["--version"],
+      "install": { "type": "existing" }
+    }
+  ],
+  "actions": [
+    {
+      "id": "create-presentation",
+      "label": "创建 PPT",
+      "skill": "office-pptx",
+      "prompt": "澄清受众与目标后，创建新的 PPTX 并验证输出。"
+    },
+    {
+      "id": "modify-presentation",
+      "label": "修改 PPT",
+      "skill": "office-pptx",
+      "prompt": "按要求修改现有 PPTX，保留未指定内容并验证输出。"
+    },
+    {
+      "id": "create-document",
+      "label": "创建 DOCX",
+      "skill": "office-docx",
+      "prompt": "根据用户目标创建结构清晰的 DOCX 并验证输出。"
+    },
+    {
+      "id": "modify-document",
+      "label": "修改 DOCX",
+      "skill": "office-docx",
+      "prompt": "按要求修改现有 DOCX，保留未指定内容并验证输出。"
+    },
+    {
+      "id": "analyze-spreadsheet",
+      "label": "分析 Excel",
+      "skill": "office-xlsx",
+      "prompt": "检查工作表结构和数据质量，分析 XLSX 并给出可追溯结论。"
+    },
+    {
+      "id": "generate-spreadsheet",
+      "label": "生成 Excel",
+      "skill": "office-xlsx",
+      "prompt": "根据用户需求生成 XLSX，校验公式、格式与关键结果。"
+    }
+  ]
+}

@@ -47,6 +47,35 @@ describe('TauriTransport application command adapter', () => {
     expect(tauriInvoke).toHaveBeenCalledWith('health_check', undefined);
   });
 
+  it('scopes streamed command output to its invocation channel', async () => {
+    const onMessage = vi.fn();
+    tauriInvoke.mockImplementation(async (_command, args) => {
+      const channel = (
+        args as { onEvent: { onmessage: (value: unknown) => void } }
+      ).onEvent;
+      channel.onmessage({ event: 'log', line: 'installed' });
+      return { success: true };
+    });
+
+    await expect(
+      new TauriTransport().stream(
+        'plugin_control_import_cli',
+        { ecosystem: 'codex', command: 'codex plugin add browser@official' },
+        onMessage
+      )
+    ).resolves.toEqual({ success: true });
+
+    expect(onMessage).toHaveBeenCalledWith({
+      event: 'log',
+      line: 'installed',
+    });
+    expect(tauriInvoke).toHaveBeenCalledWith('plugin_control_import_cli', {
+      ecosystem: 'codex',
+      command: 'codex plugin add browser@official',
+      onEvent: expect.any(Object),
+    });
+  });
+
   it('preserves the desktop companion-aware question adapter', async () => {
     tauriInvoke.mockResolvedValue(undefined);
     const request = {

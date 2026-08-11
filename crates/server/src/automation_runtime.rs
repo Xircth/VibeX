@@ -22,7 +22,6 @@ use deployment::Deployment;
 use local_deployment::LocalDeployment;
 use office_runtime::OfficeRuntime;
 use plugins::PromptBlock;
-use tool_runtime::{FileInstallationLockStore, InstallationLockStore};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -30,7 +29,6 @@ pub(crate) struct HeadlessAutomationRuntime {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
     store: SqliteAutomationStore,
-    tool_locks: Arc<FileInstallationLockStore>,
     office: Arc<OfficeRuntime>,
 }
 
@@ -38,14 +36,13 @@ impl HeadlessAutomationRuntime {
     pub(crate) fn new(
         deployment: Arc<LocalDeployment>,
         conversation_context: conversations::ConversationContext,
-        managed_tools_root: PathBuf,
+        _managed_tools_root: PathBuf,
         office: Arc<OfficeRuntime>,
     ) -> Self {
         Self {
             store: SqliteAutomationStore::new(deployment.db().pool.clone()),
             deployment,
             conversation_context,
-            tool_locks: Arc::new(FileInstallationLockStore::new(managed_tools_root)),
             office,
         }
     }
@@ -119,7 +116,6 @@ impl HeadlessAutomationRuntime {
             ServerTurnLauncher {
                 deployment: self.deployment.clone(),
                 conversation_context: self.conversation_context.clone(),
-                tool_locks: self.tool_locks.clone(),
                 office: self.office.clone(),
             },
         );
@@ -485,7 +481,6 @@ async fn find_or_create_shared_workspace(
 struct ServerTurnLauncher {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
-    tool_locks: Arc<FileInstallationLockStore>,
     office: Arc<OfficeRuntime>,
 }
 
@@ -509,39 +504,97 @@ impl TurnLauncherPort for ServerTurnLauncher {
         .map_err(launcher_error)?;
         let mut plugins = Vec::new();
         let mut tool_locks = Vec::new();
-        for action in &spec.plugin_actions {
-            let resolved_action = self
-                .office
-                .resolve_bundled_action_for_agent(
-                    action.plugin_id.as_str(),
-                    action.action.id.as_str(),
-                    spec.agent.agent_id.as_str(),
-                )
+        let control_plane = plugins::PluginControlPlane::new(Arc::new(
+            plugins::SqlitePluginRegistry::new(pool.clone()),
+        ));
+        if control_plane
+            .plugin("vibex.office")
+            .await
+            .map_err(launcher_error)?
+            .is_none()
+        {
+            let package = office_runtime::materialize_bundled_plugin_package(
+                &utils::assets::asset_dir().join("plugins/office"),
+            )
+            .map_err(launcher_error)?;
+            control_plane
+                .import(package, plugins::ConflictDecision::Reject)
                 .await
                 .map_err(launcher_error)?;
-            let manifest = self.office.bundled_plugin();
+        }
+        let legacy_office_enabled: bool = sqlx::query_scalar(
+            "SELECT COALESCE(enabled, 0) FROM plugin_v2_activation WHERE plugin_id = 'vibex.office'",
+        )
+        .fetch_optional(pool)
+        .await
+        .map_err(launcher_error)?
+        .unwrap_or(false);
+        if legacy_office_enabled {
+            control_plane
+                .set_enabled("vibex.office", true)
+                .await
+                .map_err(launcher_error)?;
+            if let Some(lock) = self.office.detect().await.map_err(launcher_error)? {
+                control_plane
+                    .record_runtime(plugins::RuntimeInstallation {
+                        id: lock.tool_id,
+                        version: lock.version,
+                        executable_path: self
+                            .office
+                            .global_executable_path()
+                            .map_err(launcher_error)?,
+                        installer: "vibex_bundled_binary".to_owned(),
+                        probe: vec!["--version".to_owned()],
+                    })
+                    .await
+                    .map_err(launcher_error)?;
+            }
+        }
+        let runtime_inventory = control_plane
+            .runtime_inventory()
+            .await
+            .map_err(launcher_error)?;
+        for action in &spec.plugin_actions {
+            control_plane
+                .resolve_action(action.plugin_id.as_str(), action.action.id.as_str())
+                .await
+                .map_err(launcher_error)?;
+            let plugin = control_plane
+                .plugin(action.plugin_id.as_str())
+                .await
+                .map_err(launcher_error)?
+                .ok_or_else(|| {
+                    RunError::Launcher(format!(
+                        "plugin {} is unavailable",
+                        action.plugin_id.as_str()
+                    ))
+                })?;
             plugins.push(ComponentVersionEvidence {
                 id: action.plugin_id.as_str().to_string(),
-                version: manifest.version.clone(),
+                version: plugin.version.clone(),
             });
-            for tool_id in &resolved_action.required_tools {
-                let lock = self
-                    .tool_locks
-                    .load_current(tool_id.as_str())
-                    .await
-                    .map_err(launcher_error)?
+            for required in &plugin.runtimes {
+                let lock = runtime_inventory
+                    .iter()
+                    .find(|runtime| {
+                        runtime.id == required.id
+                            && required
+                                .version
+                                .as_deref()
+                                .is_none_or(|version| version == runtime.version)
+                    })
                     .ok_or_else(|| {
                         RunError::Launcher(format!(
-                            "plugin {} has no resolved ToolInstallationLock for {}",
+                            "plugin {} Runtime {} is not ready",
                             action.plugin_id.as_str(),
-                            tool_id.as_str()
+                            required.id
                         ))
                     })?;
                 tool_locks.push(ToolLockVersionEvidence {
-                    tool_id: lock.tool_id,
-                    version: lock.version,
-                    target: lock.target,
-                    sha256: lock.sha256,
+                    tool_id: lock.id.clone(),
+                    version: lock.version.clone(),
+                    target: "user-global".to_owned(),
+                    sha256: String::new(),
                 });
             }
         }
@@ -614,14 +667,24 @@ impl TurnLauncherPort for ServerTurnLauncher {
         conversation_id: Uuid,
         _connection_id: &str,
     ) -> Result<Uuid, RunError> {
-        let text = spec
+        let mut prompt_parts = spec
             .prompt_blocks
             .iter()
             .map(|block| match block {
                 PromptBlock::Text { text } => text.as_str(),
             })
-            .collect::<Vec<_>>()
-            .join("\n");
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>();
+        prompt_parts.extend(spec.plugin_actions.iter().flat_map(|reference| {
+            reference
+                .action
+                .prompt_blocks
+                .iter()
+                .map(|block| match block {
+                    PromptBlock::Text { text } => text.as_str(),
+                })
+        }));
+        let text = prompt_parts.join("\n");
         let (turn, _) =
             conversations::ConversationSessionService::new(self.conversation_context.clone())
                 .start_turn_with_origin(
@@ -631,6 +694,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                         conversation_id,
                         executor_profile_id: spec.agent.executor_profile_id.clone(),
                         text,
+                        display_text: Some(spec.display_text.clone()),
                         images: Vec::new(),
                         mode_override: spec.mode_id.clone(),
                         config_overrides: spec.config_values.clone(),

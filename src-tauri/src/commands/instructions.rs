@@ -2,6 +2,10 @@ use std::{collections::HashMap, path::PathBuf};
 
 use db::models::tag::{CreateTag, Tag, UpdateTag};
 use serde::{Deserialize, Serialize};
+use services::services::config::{
+    COMMIT_CHANGES_INSTRUCTION_CONTENT, COMMIT_CHANGES_INSTRUCTION_DESCRIPTION,
+    COMMIT_CHANGES_INSTRUCTION_ID,
+};
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -178,6 +182,12 @@ fn tag_to_instruction(tag: Tag, metadata: &InstructionMetadata) -> Instruction {
 fn official_instructions() -> Vec<OfficialInstruction> {
     vec![
         OfficialInstruction {
+            id: COMMIT_CHANGES_INSTRUCTION_ID,
+            name: COMMIT_CHANGES_INSTRUCTION_ID,
+            description: COMMIT_CHANGES_INSTRUCTION_DESCRIPTION,
+            content: COMMIT_CHANGES_INSTRUCTION_CONTENT,
+        },
+        OfficialInstruction {
             id: "review_changes",
             name: "review_changes",
             description: "审查当前变更，优先指出风险、回归和缺失验证。",
@@ -338,4 +348,20 @@ pub async fn install_official_instruction(
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::official_instructions;
+
+    #[test]
+    fn official_market_contains_the_commit_changes_instruction() {
+        let instruction = official_instructions()
+            .into_iter()
+            .find(|instruction| instruction.id == "commit_changes")
+            .expect("commit_changes must be available in the official market");
+
+        assert_eq!(instruction.name, "commit_changes");
+        assert!(instruction.content.contains("git diff --staged"));
+    }
 }

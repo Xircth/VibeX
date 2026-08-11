@@ -2133,6 +2133,7 @@ checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+ "zlib-rs",
 ]
 
 [[package]]
@@ -4451,6 +4452,7 @@ dependencies = [
  "async-trait",
  "conversations",
  "db",
+ "dirs 5.0.1",
  "plugins",
  "reqwest 0.12.28",
  "rustls",
@@ -4963,14 +4965,22 @@ name = "plugins"
 version = "0.1.3"
 dependencies = [
  "async-trait",
+ "dirs 5.0.1",
+ "flate2",
  "semver",
  "serde",
  "serde_json",
+ "sha2",
+ "shlex",
+ "sqlx",
+ "tar",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tool-runtime",
  "url",
+ "utils",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -6203,6 +6213,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "utils",
  "uuid",
 ]
 
@@ -8339,6 +8350,7 @@ dependencies = [
  "deployment",
  "dirs 5.0.1",
  "executors",
+ "flate2",
  "futures",
  "git",
  "git2",
@@ -8364,6 +8376,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "strum 0.27.2",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -9733,9 +9746,17 @@ checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
 dependencies = [
  "arbitrary",
  "crc32fast",
+ "flate2",
  "indexmap 2.14.0",
  "memchr",
+ "zopfli",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34b31d188d9d685a4f9c7b46d6e36631b07058d2cfe190267adce54dc230bf12"
 
 [[package]]
 name = "zmij"

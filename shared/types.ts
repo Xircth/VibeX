@@ -755,7 +755,7 @@ export type DirectoryListResponse = {
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_mode: CommitReminderMode, commit_reminder_line_threshold: number, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
 /**
  * Opt-in entry for connecting a newly created VibeX conversation to an
  * existing Agent-managed ACP session in the selected workspace.
@@ -1368,9 +1368,6 @@ export type ResetMode = "soft" | "mixed" | "hard";
 export const DEFAULT_PR_DESCRIPTION_PROMPT =
   'Update the PR that was just created with a better title and description.\nThe PR number is #{pr_number} and the URL is {pr_url}.\n\nAnalyze the changes in this branch and write:\n1. A concise, descriptive title that summarizes the changes, postfixed with "(VibeX)"\n2. A detailed description that explains:\n   - What changes were made\n   - Why they were made (based on the task context)\n   - Any important implementation details\n   - At the end, include a note: "This PR was written using [VibeX](https://vibex.com)"\n\nUse the appropriate CLI tool to update the PR (gh pr edit for GitHub, az repos pr update for Azure DevOps).';
 
-export const DEFAULT_COMMIT_REMINDER_PROMPT =
-  "There are uncommitted changes. Please review the diff with `git diff` and `git diff --staged`, then stage and commit them.\n\nGenerate a commit message following this format:\n- First line: a short header under 50 characters in the format `<type>(<scope>): <subject>`\n  - Use types: feat (features), fix (bug fixes), docs (documentation), style (formatting), refactor (restructuring), perf (performance), test (tests), chore (maintenance), revert (rollbacks)\n  - Include scope to specify the affected area\n- Second line: blank\n- Third line onwards: a full summary explaining the change in detail, including the problem, solution, and context, wrapping lines at 72 characters\n\nBase the commit message on the actual code changes shown in the diff.";
-
 export const DEFAULT_MERGE_COMMIT_MESSAGE_TEMPLATE =
   "{title} (VibeX {id})\n\n{description}";
 
@@ -1865,7 +1862,7 @@ export type AgentOperationReceipt = { operation_id: string, agent_id: AgentId, k
 
 export type AgentOperationStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "interrupted";
 
-export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, version: string | null, path: string | null, repairable: boolean, };
+export type AgentPreflightItemView = { id: string, label: string, status: string, detail: string, version: string | null, path: string | null, source: AgentPreflightSource | null, repairable: boolean, };
 
 export type AgentPreflightView = { agent_id: AgentId, checked_at: string, items: Array<AgentPreflightItemView>, };
 
@@ -2056,3 +2053,11 @@ export type PlanUsageWindow = {
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
 
 export type AgentLocalRuntimeView = { path: string, version: string | null, };
+
+export type AgentDiscoveryPhase = "pending" | "checking" | "complete";
+
+export type AgentDiscoveryProgressView = { phase: AgentDiscoveryPhase, completed: number, total: number, found: number, checked_agent_ids: Array<AgentId>, timed_out: boolean, };
+
+export type AgentPreflightSource = "system" | "vibex_managed";
+
+export type CommitReminderMode = "separate_turn" | "smart";

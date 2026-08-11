@@ -215,6 +215,11 @@ export const versionControlApi = {
       host: host ?? null,
     });
   },
+  installGithubCli: async (host?: string | null): Promise<GitHubCliStatus> => {
+    return backendCall<GitHubCliStatus>('install_github_cli', {
+      host: host ?? null,
+    });
+  },
   openGithubCliLogin: async (host?: string | null): Promise<void> => {
     return backendCall<void>('open_github_cli_login', { host: host ?? null });
   },

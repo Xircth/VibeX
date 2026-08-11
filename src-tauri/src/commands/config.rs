@@ -1,7 +1,9 @@
 use std::{collections::HashMap, path::Path};
 
 use agents::{AgentCapability, agent_capabilities};
-use db::models::execution_process::ExecutionProcess;
+use db::models::{
+    agent_management::legacy_migration::LegacyAgentMigration, execution_process::ExecutionProcess,
+};
 use executors::profile::ExecutorConfigs;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -273,12 +275,23 @@ async fn clear_database_rows(pool: &sqlx::SqlitePool) -> Result<(), AppError> {
     Ok(())
 }
 
+async fn reset_database_rows(pool: &sqlx::SqlitePool) -> Result<(), AppError> {
+    clear_database_rows(pool).await?;
+    LegacyAgentMigration::run(pool).await.map_err(|error| {
+        AppError::Internal(format!(
+            "Failed to restore built-in Agents after local data reset: {error}"
+        ))
+    })?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn clear_local_app_data(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<ClearLocalDataResponse, AppError> {
-    let pool = &state.deployment.db().pool;
-    let running_processes = ExecutionProcess::find_running(pool).await?;
+    let pool = state.deployment.db().pool.clone();
+    let running_processes = ExecutionProcess::find_running(&pool).await?;
     if !running_processes.is_empty() {
         state
             .deployment
@@ -286,7 +299,7 @@ pub async fn clear_local_app_data(
             .kill_all_running_processes()
             .await?;
 
-        let still_running = ExecutionProcess::find_running(pool).await?;
+        let still_running = ExecutionProcess::find_running(&pool).await?;
         if !still_running.is_empty() {
             return Err(AppError::Conflict(
                 "Some running processes could not be stopped. Please stop them manually and try again."
@@ -301,7 +314,7 @@ pub async fn clear_local_app_data(
     }
     ExecutorConfigs::reload();
 
-    clear_database_rows(pool).await?;
+    reset_database_rows(&pool).await?;
 
     let default_config = Config::default();
     remove_path_if_exists(&utils::assets::settings_path())?;
@@ -316,6 +329,15 @@ pub async fn clear_local_app_data(
     state.conversation_streams.lock().await.clear();
     state.local_usage_cache.lock().await.clear();
     state.agent_management_runtime.reset().await;
+    let agent_management_runtime = state.agent_management_runtime.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::commands::agent_management::warm_agent_management(
+            &app,
+            &pool,
+            &agent_management_runtime,
+        )
+        .await;
+    });
     *state.desktop_toast_state.lock().await = Default::default();
 
     Ok(ClearLocalDataResponse {
@@ -577,7 +599,7 @@ mod tests {
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     };
 
-    use super::clear_database_rows;
+    use super::{clear_database_rows, reset_database_rows};
 
     async fn seeded_pool() -> (tempfile::TempDir, SqlitePool) {
         let temp = tempfile::tempdir().unwrap();
@@ -670,5 +692,35 @@ mod tests {
         clear_database_rows(&pool).await.unwrap();
 
         assert_database_was_cleared(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn local_data_reset_restores_the_built_in_agent_catalog() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(":memory:")
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        sqlx::migrate!("../crates/db/migrations")
+            .run(&pool)
+            .await
+            .unwrap();
+
+        reset_database_rows(&pool).await.unwrap();
+
+        let agent_ids = sqlx::query_scalar::<_, String>(
+            "SELECT agent_id FROM agent_membership ORDER BY position, agent_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(agent_ids.len(), 12);
+        assert!(agent_ids.iter().any(|agent_id| agent_id == "claude_code"));
+        assert!(agent_ids.iter().any(|agent_id| agent_id == "codex"));
+        assert!(agent_ids.iter().any(|agent_id| agent_id == "cursor"));
     }
 }

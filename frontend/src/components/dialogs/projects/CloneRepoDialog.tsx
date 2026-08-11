@@ -83,8 +83,12 @@ const CloneRepoDialogImpl = NiceModal.create<Record<string, never>>(() => {
   };
 
   return (
-    <Dialog open={modal.visible} onOpenChange={(o) => !o && cancel()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog
+      open={modal.visible}
+      onOpenChange={(o) => !o && cancel()}
+      className="welcome-project-form-surface border-0 sm:max-w-lg"
+    >
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('cloneRepo.title')}</DialogTitle>
           <DialogDescription>{t('cloneRepo.description')}</DialogDescription>

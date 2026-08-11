@@ -278,7 +278,6 @@ fn office_plugin_catalog(state: &AppState) -> Result<OfficePluginCatalog, AppErr
     })
 }
 
-#[tauri::command]
 pub fn plugin_action_catalog(state: State<'_, AppState>) -> Result<OfficePluginCatalog, AppError> {
     office_plugin_catalog(&state)
 }

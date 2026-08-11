@@ -71,7 +71,8 @@ describe('useSessionComposerSubmitActions', () => {
       'conflicts\n\nreview\n\ncontinue',
       profile,
       ['vibe://image'],
-      []
+      [],
+      'conflicts\n\nreview\n\ncontinue'
     );
     expect(onAfterQueueCleanup).toHaveBeenCalledOnce();
   });

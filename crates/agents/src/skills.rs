@@ -119,6 +119,14 @@ const ALL_AGENTS: [AgentKind; 12] = [
     AgentKind::Cursor,
 ];
 
+pub fn skill_capable_agent_ids() -> Vec<String> {
+    ALL_AGENTS
+        .into_iter()
+        .filter(|agent| skills_surface(*agent).global_supported)
+        .map(|agent| agent.as_str().to_owned())
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSkillScope {
@@ -852,6 +860,24 @@ pub struct LocalSkillContent {
     pub content: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum PluginSkillProjectionStatus {
+    Projected,
+    Removed,
+    Collision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct PluginSkillProjectionResult {
+    pub skill_id: String,
+    pub agent_id: String,
+    pub status: PluginSkillProjectionStatus,
+    pub message: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillMarketDetail {
     pub description: Option<String>,
@@ -1297,6 +1323,142 @@ fn configure_bundled_skills_with_layout(
     })();
     let _ = std::fs::remove_dir_all(&staging);
     result
+}
+
+/// Project a portable Plugin's Skill directories without overwriting entries
+/// not owned by that Plugin. Sources are first copied into a stable VibeX
+/// provenance store, then linked to Agent directories with copy fallback.
+pub fn project_plugin_skills(
+    plugin_id: &str,
+    skills: &[(String, PathBuf)],
+    agents: Vec<String>,
+    link: bool,
+) -> Result<Vec<PluginSkillProjectionResult>, SkillError> {
+    let agents = parse_agent_keys(&agents, &[])?;
+    project_plugin_skills_with_layout(
+        plugin_id,
+        skills,
+        &agents,
+        link,
+        &system_skill_hosting_layout(),
+    )
+}
+
+pub fn remove_plugin_skill_projections(
+    plugin_id: &str,
+    skill_ids: &[String],
+) -> Result<(), SkillError> {
+    remove_plugin_skill_projections_with_layout(
+        plugin_id,
+        skill_ids,
+        &system_skill_hosting_layout(),
+    )
+}
+
+fn remove_plugin_skill_projections_with_layout(
+    plugin_id: &str,
+    skill_ids: &[String],
+    layout: &SkillHostingLayout,
+) -> Result<(), SkillError> {
+    validate_plugin_projection_id(plugin_id)?;
+    for skill_id in skill_ids {
+        let skill_id = validate_skill_id(skill_id)?;
+        for directory in layout.agent_dirs.values() {
+            let destination = physical_path_key(&directory.join(&skill_id));
+            if owned_plugin_projection(&destination, plugin_id) {
+                remove_if_exists(&destination)?;
+            }
+        }
+    }
+    let store = layout.store.join(".plugins").join(plugin_id);
+    remove_if_exists(&store)
+}
+
+fn project_plugin_skills_with_layout(
+    plugin_id: &str,
+    skills: &[(String, PathBuf)],
+    agents: &BTreeSet<String>,
+    link: bool,
+    layout: &SkillHostingLayout,
+) -> Result<Vec<PluginSkillProjectionResult>, SkillError> {
+    validate_plugin_projection_id(plugin_id)?;
+    let mut results = Vec::new();
+    for (skill_id, skill_file) in skills {
+        let skill_id = validate_skill_id(skill_id)?;
+        if skill_file.file_name().and_then(|name| name.to_str()) != Some("SKILL.md")
+            || !skill_file.is_file()
+        {
+            return Err(SkillError::Validation(format!(
+                "Plugin Skill source is missing: {}",
+                display_path(skill_file)
+            )));
+        }
+        let source = skill_file
+            .parent()
+            .ok_or_else(|| SkillError::Validation("Plugin Skill has no parent directory".into()))?;
+        let stable = layout
+            .store
+            .join(".plugins")
+            .join(plugin_id)
+            .join(&skill_id);
+        place_skill(source, &stable, false)?;
+        std::fs::write(stable.join(".vibex-plugin-owner"), plugin_id)
+            .map_err(|error| SkillError::Other(format!("记录插件 Skill 来源失败: {error}")))?;
+
+        for (agent_id, directory) in &layout.agent_dirs {
+            let destination = physical_path_key(&directory.join(&skill_id));
+            if agents.contains(agent_id) {
+                if std::fs::symlink_metadata(&destination).is_ok()
+                    && !owned_plugin_projection(&destination, plugin_id)
+                {
+                    results.push(PluginSkillProjectionResult {
+                        skill_id: skill_id.clone(),
+                        agent_id: agent_id.clone(),
+                        status: PluginSkillProjectionStatus::Collision,
+                        message: Some(format!(
+                            "Skill `{skill_id}` already exists and is not owned by plugin `{plugin_id}`"
+                        )),
+                    });
+                    continue;
+                }
+                place_skill(&stable, &destination, link)?;
+                results.push(PluginSkillProjectionResult {
+                    skill_id: skill_id.clone(),
+                    agent_id: agent_id.clone(),
+                    status: PluginSkillProjectionStatus::Projected,
+                    message: None,
+                });
+            } else if owned_plugin_projection(&destination, plugin_id) {
+                remove_if_exists(&destination)?;
+                results.push(PluginSkillProjectionResult {
+                    skill_id: skill_id.clone(),
+                    agent_id: agent_id.clone(),
+                    status: PluginSkillProjectionStatus::Removed,
+                    message: None,
+                });
+            }
+        }
+    }
+    Ok(results)
+}
+
+fn validate_plugin_projection_id(plugin_id: &str) -> Result<(), SkillError> {
+    if plugin_id.is_empty()
+        || !plugin_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+        })
+    {
+        return Err(SkillError::Validation(format!(
+            "Invalid plugin ID for Skill projection: {plugin_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn owned_plugin_projection(path: &Path, plugin_id: &str) -> bool {
+    std::fs::read_to_string(path.join(".vibex-plugin-owner"))
+        .map(|owner| owner == plugin_id)
+        .unwrap_or(false)
 }
 
 fn parse_agent_keys(
@@ -1848,6 +2010,95 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(temp.path().join("claude/office-pptx/SKILL.md")).unwrap(),
             "---\nname: office-pptx\n---\nupdated"
+        );
+    }
+
+    #[test]
+    fn plugin_projection_never_overwrites_an_unowned_same_name_skill() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([
+                ("codex".to_string(), temp.path().join("codex")),
+                ("claude_code".to_string(), temp.path().join("claude")),
+            ]),
+        };
+        let source = temp.path().join("source/research");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), "plugin skill").unwrap();
+        let user_skill = temp.path().join("codex/research");
+        std::fs::create_dir_all(&user_skill).unwrap();
+        std::fs::write(user_skill.join("SKILL.md"), "user skill").unwrap();
+
+        let results = project_plugin_skills_with_layout(
+            "dev.vibex.research",
+            &[("research".to_string(), source.join("SKILL.md"))],
+            &BTreeSet::from(["codex".to_string(), "claude_code".to_string()]),
+            true,
+            &layout,
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(user_skill.join("SKILL.md")).unwrap(),
+            "user skill"
+        );
+        assert!(results.iter().any(|result| {
+            result.agent_id == "codex" && result.status == PluginSkillProjectionStatus::Collision
+        }));
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("claude/research/SKILL.md")).unwrap(),
+            "plugin skill"
+        );
+        assert!(owned_plugin_projection(
+            &temp.path().join("claude/research"),
+            "dev.vibex.research"
+        ));
+    }
+
+    #[test]
+    fn removing_a_plugin_deletes_only_its_owned_skill_projections() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = SkillHostingLayout {
+            store: temp.path().join("store"),
+            agent_dirs: BTreeMap::from([
+                ("codex".to_string(), temp.path().join("codex")),
+                ("claude_code".to_string(), temp.path().join("claude")),
+            ]),
+        };
+        let source = temp.path().join("source/research");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("SKILL.md"), "plugin skill").unwrap();
+        project_plugin_skills_with_layout(
+            "dev.vibex.research",
+            &[("research".to_string(), source.join("SKILL.md"))],
+            &BTreeSet::from(["codex".to_string(), "claude_code".to_string()]),
+            true,
+            &layout,
+        )
+        .unwrap();
+        let user_skill = temp.path().join("codex/notes");
+        std::fs::create_dir_all(&user_skill).unwrap();
+        std::fs::write(user_skill.join("SKILL.md"), "user skill").unwrap();
+
+        remove_plugin_skill_projections_with_layout(
+            "dev.vibex.research",
+            &["research".to_owned(), "notes".to_owned()],
+            &layout,
+        )
+        .unwrap();
+
+        assert!(!temp.path().join("codex/research").exists());
+        assert!(!temp.path().join("claude/research").exists());
+        assert!(
+            !temp
+                .path()
+                .join("store/.plugins/dev.vibex.research")
+                .exists()
+        );
+        assert_eq!(
+            std::fs::read_to_string(user_skill.join("SKILL.md")).unwrap(),
+            "user skill"
         );
     }
 

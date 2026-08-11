@@ -98,6 +98,11 @@ export type ApplicationCommandResult<C extends ApplicationCommandName> =
 export interface BackendTransport {
   readonly environment: BackendEnvironment;
   call(command: string, args?: Record<string, unknown>): Promise<unknown>;
+  stream?<T>(
+    command: string,
+    args: Record<string, unknown>,
+    onMessage: (message: unknown) => void
+  ): Promise<T>;
   subscribe?(request: SubscriptionRequest): AsyncIterable<RemoteEvent>;
   capabilities?(): Promise<ServerCapabilities>;
   createDevicePairing?(

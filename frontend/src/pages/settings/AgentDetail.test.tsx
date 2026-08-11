@@ -1,5 +1,8 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { parse } from 'postcss';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentManagementView, AgentPreflightView } from 'shared/types';
 
@@ -38,6 +41,7 @@ const preflight: AgentPreflightView = {
       detail: '',
       version: '1.0.0',
       path: '/opt/vibex/bin/codex',
+      source: null,
       repairable: false,
     },
     {
@@ -47,6 +51,7 @@ const preflight: AgentPreflightView = {
       detail: '',
       version: '1.1.0',
       path: '/opt/vibex/bin/codex-acp',
+      source: null,
       repairable: true,
     },
     {
@@ -56,13 +61,135 @@ const preflight: AgentPreflightView = {
       detail: '当前版本不满足 >=22。',
       version: 'v20.18.0',
       path: '/usr/local/bin/node',
+      source: 'system',
       repairable: false,
     },
   ],
 };
 
 describe('AgentDetail', () => {
-  it('shows a discovered CLI Runtime as available before ACP is installed', () => {
+  it('keeps the version row on the same grid line while details expand', async () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), 'src/styles/legacy/index.css'),
+      'utf8'
+    );
+    const relevantRules: string[] = [];
+    parse(stylesheet).walkRules((rule) => {
+      if (rule.parent?.type === 'atrule' && rule.parent.name === 'container') {
+        return;
+      }
+      if (
+        rule.selector.includes(
+          "button:not([role='switch']):not([role='checkbox'])"
+        ) ||
+        rule.selector === '.settings-page .agent-preflight-layout' ||
+        rule.selector === '.settings-page .agent-preflight-trigger' ||
+        rule.selector === '.settings-page .agent-preflight-identity' ||
+        rule.selector === '.settings-page .agent-preflight-identity strong' ||
+        rule.selector === '.settings-page .agent-preflight-information-list' ||
+        rule.selector === '.settings-page .agent-preflight-information' ||
+        rule.selector === '.settings-page .agent-preflight-information-label' ||
+        rule.selector === '.settings-page .agent-preflight-evidence-value'
+      ) {
+        relevantRules.push(rule.toString());
+      }
+    });
+    const style = document.createElement('style');
+    style.textContent = relevantRules.join('\n');
+    document.head.append(style);
+
+    const rendered = render(
+      <div className="settings-page">
+        <AgentDetail
+          agent={agent}
+          operation={null}
+          preflight={preflight}
+          checking={false}
+          checkingUpdate={false}
+          updateCheck={null}
+          onSetEnabled={vi.fn()}
+          onMove={vi.fn()}
+          onPreflight={vi.fn()}
+          onInstall={vi.fn()}
+          onRepair={vi.fn()}
+          onCheckUpdate={vi.fn()}
+          onApplyUpdate={vi.fn()}
+          onRollback={vi.fn()}
+          onCancelOperation={vi.fn()}
+          onUninstall={vi.fn()}
+          onRemove={vi.fn()}
+          onExportDiagnostics={vi.fn()}
+        />
+      </div>
+    );
+
+    try {
+      const runtimeResult = screen.getByRole('listitem', {
+        name: '本地 Runtime 检查结果',
+      });
+      const runtimeToggle = screen.getByRole('button', {
+        name: '展开 本地 Runtime 的检查详情',
+      });
+      const layout = runtimeResult.querySelector('.agent-preflight-layout');
+      expect(layout).not.toBeNull();
+      expect(getComputedStyle(layout!).minHeight).toBe('52px');
+      expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
+        '160px minmax(320px, 1fr) auto'
+      );
+      expect(
+        getComputedStyle(screen.getByRole('button', { name: '检查更新' }))
+          .minHeight
+      ).toBe('2rem');
+      expect(
+        getComputedStyle(screen.getByText('本地 Runtime')).overflowWrap
+      ).toBe('anywhere');
+      expect(
+        getComputedStyle(within(runtimeResult).getByTitle('1.0.0')).whiteSpace
+      ).toBe('normal');
+
+      const informationStack = within(runtimeResult).getByRole('group', {
+        name: '本地 Runtime 完整检查信息',
+      });
+      const versionToken = within(informationStack).getByText('版本');
+      const versionRow = versionToken.parentElement!;
+      expect(getComputedStyle(informationStack).display).toBe('grid');
+      expect(getComputedStyle(informationStack).gridTemplateColumns).toBe(
+        '1fr'
+      );
+      expect(getComputedStyle(versionRow).gridTemplateColumns).toBe(
+        '64px minmax(0, 1fr)'
+      );
+
+      await userEvent.click(runtimeToggle);
+      expect(getComputedStyle(layout!).gridTemplateColumns).toBe(
+        '160px minmax(320px, 1fr) auto'
+      );
+      expect(within(runtimeResult).getByText('版本')).toBe(versionToken);
+      expect(
+        getComputedStyle(
+          within(runtimeResult).getByText('本地 Runtime').parentElement!
+        ).alignSelf
+      ).toBe('stretch');
+
+      const informationRows = Array.from(informationStack.children);
+      expect(
+        within(informationStack)
+          .getAllByRole('term')
+          .map((term) => term.textContent)
+      ).toEqual(['版本', '位置']);
+      for (const informationRow of informationRows) {
+        expect(getComputedStyle(informationRow).width).toBe('100%');
+        expect(getComputedStyle(informationRow).gridTemplateColumns).toBe(
+          '64px minmax(0, 1fr)'
+        );
+      }
+    } finally {
+      rendered.unmount();
+      style.remove();
+    }
+  });
+
+  it('shows a discovered CLI Runtime as available before ACP is installed', async () => {
     render(
       <AgentDetail
         agent={{
@@ -94,6 +221,10 @@ describe('AgentDetail', () => {
       />
     );
 
+    expect(
+      screen.getByRole('listitem', { name: '运行入口 检查结果' })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('agents.runtimeEntry')).not.toBeInTheDocument();
     const runtimeResult = screen.getByRole('listitem', {
       name: '本地 Runtime 检查结果',
     });
@@ -101,6 +232,16 @@ describe('AgentDetail', () => {
     expect(
       within(runtimeResult).getByTitle('codex-cli 0.138.0')
     ).toBeInTheDocument();
+    expect(
+      within(runtimeResult).queryByTitle(
+        'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd'
+      )
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(runtimeResult).getByRole('button', {
+        name: '展开 本地 Runtime 的检查详情',
+      })
+    );
     expect(
       within(runtimeResult).getByTitle(
         'C:\\Users\\developer\\AppData\\Roaming\\npm\\codex.cmd'
@@ -149,17 +290,27 @@ describe('AgentDetail', () => {
       name: 'Node.js 检查结果',
     });
     expect(within(nodeResult).getByText('可选提醒')).toBeInTheDocument();
-    expect(
-      within(nodeResult).getByText('当前版本不满足 >=22。')
-    ).toBeInTheDocument();
     const runtimeResult = screen.getByRole('listitem', {
       name: '本地 Runtime 检查结果',
     });
-    expect(within(runtimeResult).getByText('版本')).toBeInTheDocument();
-    expect(within(runtimeResult).getByText('位置')).toBeInTheDocument();
     expect(within(runtimeResult).getByTitle('1.0.0')).toHaveClass(
       'agent-preflight-evidence-value'
     );
+    expect(
+      within(runtimeResult).queryByTitle('/opt/vibex/bin/codex')
+    ).not.toBeInTheDocument();
+    expect(within(nodeResult).queryByText('来源')).not.toBeInTheDocument();
+    expect(
+      within(nodeResult).queryByText('当前版本不满足 >=22。')
+    ).not.toBeInTheDocument();
+
+    const runtimeToggle = within(runtimeResult).getByRole('button', {
+      name: '展开 本地 Runtime 的检查详情',
+    });
+    expect(runtimeToggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(runtimeToggle);
+    expect(runtimeToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(runtimeResult).getByText('位置')).toBeInTheDocument();
     expect(
       within(runtimeResult).getByTitle('/opt/vibex/bin/codex')
     ).toHaveClass('agent-preflight-evidence-value');
@@ -169,7 +320,18 @@ describe('AgentDetail', () => {
     });
     expect(within(acpResult).getByTitle('1.1.0')).toBeInTheDocument();
     expect(
-      within(acpResult).getByTitle('/opt/vibex/bin/codex-acp')
+      within(acpResult).queryByTitle('/opt/vibex/bin/codex-acp')
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      within(nodeResult).getByRole('button', {
+        name: '展开 Node.js 的检查详情',
+      })
+    );
+    expect(within(nodeResult).getByText('来源')).toBeInTheDocument();
+    expect(within(nodeResult).getByText('系统环境')).toBeInTheDocument();
+    expect(
+      within(nodeResult).getByText('当前版本不满足 >=22。')
     ).toBeInTheDocument();
     expect(screen.queryByText(/握手成功/)).not.toBeInTheDocument();
     expect(screen.queryByText('安装管理')).not.toBeInTheDocument();
@@ -181,6 +343,49 @@ describe('AgentDetail', () => {
     expect(onPreflight).toHaveBeenCalled();
     expect(onEnvironmentDiagnostics).toHaveBeenCalled();
     expect(onRepair).toHaveBeenCalled();
+  });
+
+  it('groups expanded preflight evidence into one accessible information stack', async () => {
+    render(
+      <AgentDetail
+        agent={agent}
+        operation={null}
+        preflight={preflight}
+        checking={false}
+        checkingUpdate={false}
+        updateCheck={null}
+        onSetEnabled={vi.fn()}
+        onMove={vi.fn()}
+        onPreflight={vi.fn()}
+        onInstall={vi.fn()}
+        onRepair={vi.fn()}
+        onCheckUpdate={vi.fn()}
+        onApplyUpdate={vi.fn()}
+        onRollback={vi.fn()}
+        onCancelOperation={vi.fn()}
+        onUninstall={vi.fn()}
+        onRemove={vi.fn()}
+        onExportDiagnostics={vi.fn()}
+      />
+    );
+
+    const nodeResult = screen.getByRole('listitem', {
+      name: 'Node.js 检查结果',
+    });
+    await userEvent.click(
+      within(nodeResult).getByRole('button', {
+        name: '展开 Node.js 的检查详情',
+      })
+    );
+
+    const informationStack = within(nodeResult).getByRole('group', {
+      name: 'Node.js 完整检查信息',
+    });
+    expect(
+      within(informationStack)
+        .getAllByRole('term')
+        .map((term) => term.textContent)
+    ).toEqual(['版本', '来源', '位置', '检查说明']);
   });
 
   it('places the composed authentication manager before preflight', () => {
@@ -345,6 +550,16 @@ describe('AgentDetail', () => {
       expect(
         screen.getByText('Installing the Agent runtime and ACP adapter…')
       ).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          'Node.js is optional; related capabilities may be unavailable until it is configured.'
+        )
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole('button', {
+          name: 'Expand check details for Node.js',
+        })
+      );
       expect(
         screen.getByText(
           'Node.js is optional; related capabilities may be unavailable until it is configured.'

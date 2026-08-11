@@ -462,6 +462,7 @@ async fn api_start_turn(
             conversation_id,
             executor_profile_id: request.executor_profile_id,
             text: request.text,
+            display_text: None,
             images: request.images,
             mode_override: request.mode_override,
             config_overrides: request.config_overrides,

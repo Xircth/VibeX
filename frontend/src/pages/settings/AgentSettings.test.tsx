@@ -211,6 +211,7 @@ describe('AgentSettings', () => {
           detail: 'Agent 已加入本地列表。',
           version: null,
           path: null,
+          source: null,
           repairable: false,
         },
         {
@@ -220,6 +221,7 @@ describe('AgentSettings', () => {
           detail: '未发现有效的当前安装锁。',
           version: null,
           path: null,
+          source: null,
           repairable: true,
         },
         {
@@ -229,6 +231,7 @@ describe('AgentSettings', () => {
           detail: '未通过 ACP 探测。',
           version: null,
           path: null,
+          source: null,
           repairable: true,
         },
       ],

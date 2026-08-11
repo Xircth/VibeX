@@ -100,6 +100,7 @@ export function AgentBar({
         aria-label={t('agents.agentListAria')}
         className="agent-management-bar"
       >
+        <span aria-hidden="true" className="agent-management-bar-surface" />
         <div
           ref={scrollRef}
           className={cn(

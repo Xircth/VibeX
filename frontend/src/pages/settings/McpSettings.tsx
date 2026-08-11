@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   CheckCircle2,
@@ -63,6 +64,7 @@ import {
 } from '@/lib/api';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
+import { pluginControlApi, type PluginControlItem } from '@/lib/api/plugins';
 
 /* ── constants & helpers ─────────────────────────────────── */
 
@@ -205,6 +207,7 @@ function TargetSelector({
           >
             <input
               type="checkbox"
+              aria-label={app.label}
               checked={global || Boolean(apps[app.value])}
               disabled={global}
               onChange={(event) => onToggleApp(app.value, event.target.checked)}
@@ -222,12 +225,49 @@ function TargetSelector({
 
 export function McpSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pluginId = searchParams.get('plugin');
   const agentOptions = useManagedAgentOptions('native_mcp');
   const [leftTab, setLeftTab] = useState<LeftTab>('local');
   const [selection, setSelection] = useState<Selection>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, triggerSuccess] = useTemporaryFlag(2500);
   const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [pluginContext, setPluginContext] = useState<PluginControlItem | null>(
+    null
+  );
+  const [pluginMcpGlobal, setPluginMcpGlobal] = useState(false);
+  const [pluginMcpApps, setPluginMcpApps] = useState<AppsDraft>({});
+  const [pluginMcpLoading, setPluginMcpLoading] = useState(false);
+
+  useEffect(() => {
+    if (!pluginId) {
+      setPluginContext(null);
+      return;
+    }
+    let active = true;
+    setPluginMcpLoading(true);
+    void pluginControlApi
+      .catalog()
+      .then((catalog) => {
+        if (!active) return;
+        const plugin = catalog.plugins.find((item) => item.id === pluginId);
+        if (!plugin) {
+          throw new Error(t('mcp.pluginNotFound', { id: pluginId }));
+        }
+        setPluginContext(plugin);
+        setPluginMcpApps(emptyApps(agentOptions));
+      })
+      .catch((cause) => {
+        if (active) setError(errorMessage(cause));
+      })
+      .finally(() => {
+        if (active) setPluginMcpLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [agentOptions, pluginId, t]);
 
   // Local servers
   const [installedServers, setInstalledServers] = useState<LocalMcpServer[]>(
@@ -286,6 +326,41 @@ export function McpSettings() {
       setLocalLoading(false);
     }
   }, []);
+
+  const savePluginMcpTargets = useCallback(async () => {
+    if (!pluginContext) return;
+    setRunningAction('plugin-mcp');
+    setError(null);
+    try {
+      const result = await pluginControlApi.configureMcp(
+        pluginContext.id,
+        pluginMcpGlobal,
+        selectedApps(agentOptions, pluginMcpApps)
+      );
+      if (result.mcpErrors.length) {
+        throw new Error(result.mcpErrors.join('\n'));
+      }
+      triggerSuccess();
+      const next = new URLSearchParams(searchParams);
+      next.delete('plugin');
+      setSearchParams(next, { replace: true });
+      setPluginContext(null);
+      await refreshLocal();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setRunningAction(null);
+    }
+  }, [
+    agentOptions,
+    pluginContext,
+    pluginMcpApps,
+    pluginMcpGlobal,
+    refreshLocal,
+    searchParams,
+    setSearchParams,
+    triggerSuccess,
+  ]);
 
   useEffect(() => {
     void refreshLocal();
@@ -639,6 +714,53 @@ export function McpSettings() {
 
       {/* Right panel */}
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+        {pluginId ? (
+          <div className="shrink-0 space-y-3 border-b bg-muted/20 px-4 py-3">
+            <div>
+              <strong className="text-sm">
+                {t('mcp.pluginTargetsTitle', {
+                  name: pluginContext?.name ?? pluginId,
+                })}
+              </strong>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t('mcp.pluginTargetsDescription')}
+              </p>
+            </div>
+            {pluginMcpLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t('mcp.pluginTargetsLoading')}
+              </div>
+            ) : pluginContext ? (
+              <>
+                <TargetSelector
+                  global={pluginMcpGlobal}
+                  apps={pluginMcpApps}
+                  options={agentOptions}
+                  onGlobalChange={setPluginMcpGlobal}
+                  onToggleApp={(app, next) =>
+                    setPluginMcpApps((current) => ({
+                      ...current,
+                      [app]: next,
+                    }))
+                  }
+                />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    disabled={runningAction === 'plugin-mcp'}
+                    onClick={() => void savePluginMcpTargets()}
+                  >
+                    {runningAction === 'plugin-mcp' ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {t('mcp.savePluginTargets')}
+                  </Button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         {error ? (
           <div className="shrink-0 px-4 pt-4">
             <Alert variant="destructive">

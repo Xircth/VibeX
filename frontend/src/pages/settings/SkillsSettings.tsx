@@ -53,7 +53,7 @@ import {
   type LocalSkill,
   type SkillMarketItem,
 } from '@/lib/api';
-import { pluginV2Api, type PluginActionCatalog } from '@/lib/api/plugins';
+import { pluginControlApi, type PluginControlItem } from '@/lib/api/plugins';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { cn } from '@/lib/utils';
 
@@ -187,8 +187,9 @@ export function SkillsSettings() {
   const [error, setError] = useState<string | null>(null);
   const [success, triggerSuccess] = useTemporaryFlag(2500);
   const [runningAction, setRunningAction] = useState<string | null>(null);
-  const [pluginCatalog, setPluginCatalog] =
-    useState<PluginActionCatalog | null>(null);
+  const [pluginCatalog, setPluginCatalog] = useState<PluginControlItem | null>(
+    null
+  );
   const [pluginAssignmentOpen, setPluginAssignmentOpen] = useState(false);
   const [pluginAssignmentLoading, setPluginAssignmentLoading] = useState(false);
   const [pluginAgents, setPluginAgents] = useState<AgentsDraft>({});
@@ -279,13 +280,14 @@ export function SkillsSettings() {
     setPluginAssignmentOpen(true);
     setPluginAssignmentLoading(true);
     setError(null);
-    void Promise.all([pluginV2Api.catalog(), skillsMarketApi.scanLocal()])
+    void Promise.all([pluginControlApi.catalog(), skillsMarketApi.scanLocal()])
       .then(([catalog, localSkills]) => {
         if (!alive) return;
-        if (catalog.plugin.id !== pluginId) {
+        const plugin = catalog.plugins.find((item) => item.id === pluginId);
+        if (!plugin) {
           throw new Error(t('skills.pluginAssignmentNotFound', { pluginId }));
         }
-        const skillIds = catalog.readiness.skills.map((skill) => skill.id);
+        const skillIds = plugin.skills.map((skill) => skill.id);
         const draft = emptyAgents(agentOptions);
         for (const agent of agentOptions) {
           draft[agent.value] =
@@ -298,7 +300,7 @@ export function SkillsSettings() {
               );
             });
         }
-        setPluginCatalog(catalog);
+        setPluginCatalog(plugin);
         setPluginAgents(draft);
         setSkills(localSkills);
       })
@@ -537,12 +539,12 @@ export function SkillsSettings() {
     setRunningAction('plugin-skills');
     setError(null);
     try {
-      const list = await pluginV2Api.configureSkills({
-        pluginId: pluginCatalog.plugin.id,
-        apps: selectedAgents(agentOptions, pluginAgents),
-        allAgents: false,
-        link,
-      });
+      await pluginControlApi.configureAgents(
+        pluginCatalog.id,
+        false,
+        selectedAgents(agentOptions, pluginAgents)
+      );
+      const list = await skillsMarketApi.scanLocal();
       setSkills(list);
       triggerSuccess();
       closePluginAssignment();
@@ -554,7 +556,6 @@ export function SkillsSettings() {
   }, [
     agentOptions,
     closePluginAssignment,
-    link,
     pluginAgents,
     pluginCatalog,
     triggerSuccess,
@@ -745,7 +746,7 @@ export function SkillsSettings() {
             </div>
             <DialogTitle id="plugin-skill-assignment-title">
               {t('skills.pluginAssignmentTitle', {
-                name: pluginCatalog?.plugin.name ?? pluginId,
+                name: pluginCatalog?.name ?? pluginId,
               })}
             </DialogTitle>
             <DialogDescription>
@@ -765,7 +766,7 @@ export function SkillsSettings() {
                   {t('skills.pluginSkills')}
                 </Label>
                 <div className="flex flex-wrap gap-1.5">
-                  {pluginCatalog?.readiness.skills.map((skill) => (
+                  {pluginCatalog?.skills.map((skill) => (
                     <Badge key={skill.id} variant="secondary">
                       {skill.id}
                     </Badge>

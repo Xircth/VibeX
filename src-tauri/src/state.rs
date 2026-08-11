@@ -31,6 +31,7 @@ pub struct LocalUsageCacheEntry {
 pub struct AgentManagementRuntimeState {
     warmup_complete: Mutex<bool>,
     local_runtime_discovery_complete: Mutex<bool>,
+    local_runtime_discovery_progress: Mutex<LocalRuntimeDiscoveryProgress>,
     built_in_probes: Mutex<HashSet<AgentId>>,
     local_runtimes: Mutex<HashMap<AgentId, LocalRuntimeEvidence>>,
 }
@@ -39,6 +40,17 @@ pub struct AgentManagementRuntimeState {
 pub struct LocalRuntimeEvidence {
     pub path: PathBuf,
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalRuntimeDiscoveryProgress {
+    pub started: bool,
+    pub running: bool,
+    pub completed: u32,
+    pub total: u32,
+    pub found: u32,
+    pub checked_agent_ids: HashSet<AgentId>,
+    pub timed_out: bool,
 }
 
 impl AgentManagementRuntimeState {
@@ -78,8 +90,40 @@ impl AgentManagementRuntimeState {
     pub async fn reset(&self) {
         *self.warmup_complete.lock().await = false;
         *self.local_runtime_discovery_complete.lock().await = false;
+        *self.local_runtime_discovery_progress.lock().await = Default::default();
         self.built_in_probes.lock().await.clear();
         self.local_runtimes.lock().await.clear();
+    }
+
+    pub async fn begin_local_runtime_discovery(&self, total: u32) {
+        *self.local_runtime_discovery_progress.lock().await = LocalRuntimeDiscoveryProgress {
+            started: true,
+            running: true,
+            total,
+            ..Default::default()
+        };
+    }
+
+    pub async fn record_local_runtime_discovery(&self, agent_id: AgentId, found: bool) {
+        let mut progress = self.local_runtime_discovery_progress.lock().await;
+        if progress.checked_agent_ids.insert(agent_id) {
+            progress.completed =
+                u32::try_from(progress.checked_agent_ids.len()).unwrap_or(u32::MAX);
+            if found {
+                progress.found = progress.found.saturating_add(1);
+            }
+        }
+    }
+
+    pub async fn finish_local_runtime_discovery(&self, timed_out: bool) {
+        let mut progress = self.local_runtime_discovery_progress.lock().await;
+        progress.started = true;
+        progress.running = false;
+        progress.timed_out = timed_out;
+    }
+
+    pub async fn local_runtime_discovery_progress(&self) -> LocalRuntimeDiscoveryProgress {
+        self.local_runtime_discovery_progress.lock().await.clone()
     }
 
     pub async fn should_probe_built_in(&self, agent_id: &AgentId, force: bool) -> bool {
@@ -136,6 +180,7 @@ pub struct AppState {
     pub conversation_row_projectors:
         Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
     pub office_runtime: Arc<crate::office_runtime::OfficeRuntime>,
+    pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
 }
 
@@ -155,17 +200,70 @@ impl AppState {
             )
             .await?,
         );
+        let plugin_control_plane = Arc::new(plugins::PluginControlPlane::new(Arc::new(
+            plugins::SqlitePluginRegistry::new(pool.clone()),
+        )));
+        let bundled_office = office_runtime::materialize_bundled_plugin_package(
+            &utils::assets::asset_dir().join("plugins/office"),
+        )
+        .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+        if plugin_control_plane
+            .plugin(bundled_office.id.as_str())
+            .await
+            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?
+            .is_none()
+        {
+            plugin_control_plane
+                .import(bundled_office, plugins::ConflictDecision::Reject)
+                .await
+                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+        }
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
         );
         if office_runtime.should_restore_enabled_on_startup() {
             let runtime = office_runtime.clone();
+            let control_plane = plugin_control_plane.clone();
             tokio::spawn(async move {
                 if let Err(error) = runtime.restore_enabled_on_startup().await {
                     tracing::warn!(
                         "managed Office plugin startup restore remains not-ready: {error}"
                     );
+                    return;
+                }
+                if let Err(error) = control_plane.set_enabled("vibex.office", true).await {
+                    tracing::warn!("failed to synchronize Office plugin activation: {error}");
+                    return;
+                }
+                match runtime.detect().await {
+                    Ok(Some(lock)) => {
+                        let executable_path = match runtime.global_executable_path() {
+                            Ok(path) => path,
+                            Err(error) => {
+                                tracing::warn!(
+                                    "restored Office Runtime is not globally visible: {error}"
+                                );
+                                return;
+                            }
+                        };
+                        if let Err(error) = control_plane
+                            .record_runtime(plugins::RuntimeInstallation {
+                                id: lock.tool_id,
+                                version: lock.version,
+                                executable_path,
+                                installer: "vibex_bundled_binary".to_owned(),
+                                probe: vec!["--version".to_owned()],
+                            })
+                            .await
+                        {
+                            tracing::warn!("failed to synchronize Office Runtime lock: {error}");
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!("failed to read restored Office Runtime lock: {error}");
+                    }
                 }
             });
         }
@@ -188,6 +286,7 @@ impl AppState {
             conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
             conversation_row_projectors: Arc::new(Mutex::new(HashMap::new())),
             office_runtime,
+            plugin_control_plane,
             remote_desktop,
         })
     }
@@ -221,6 +320,34 @@ mod tests {
     };
 
     use super::{AgentManagementRuntimeState, LocalRuntimeEvidence};
+
+    #[tokio::test]
+    async fn local_runtime_discovery_reports_real_progress() {
+        let runtime = AgentManagementRuntimeState::default();
+        let claude = agents::AgentId::parse("claude_code").unwrap();
+        let codex = agents::AgentId::parse("codex").unwrap();
+
+        runtime.begin_local_runtime_discovery(12).await;
+        runtime
+            .record_local_runtime_discovery(claude.clone(), true)
+            .await;
+        runtime
+            .record_local_runtime_discovery(codex.clone(), false)
+            .await;
+
+        let progress = runtime.local_runtime_discovery_progress().await;
+        assert!(progress.running);
+        assert_eq!(progress.completed, 2);
+        assert_eq!(progress.total, 12);
+        assert_eq!(progress.found, 1);
+        assert!(progress.checked_agent_ids.contains(&claude));
+        assert!(progress.checked_agent_ids.contains(&codex));
+
+        runtime.finish_local_runtime_discovery(false).await;
+        let progress = runtime.local_runtime_discovery_progress().await;
+        assert!(!progress.running);
+        assert!(!progress.timed_out);
+    }
 
     #[tokio::test]
     async fn local_data_reset_allows_agent_discovery_to_run_again() {

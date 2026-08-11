@@ -1,4 +1,5 @@
 import type {
+  AgentDiscoveryProgressView,
   AgentDiagnosticView,
   AgentEnvironmentDiagnosticsView,
   AgentEnvironmentPatchRequest,
@@ -40,6 +41,9 @@ import { backendCall } from '@/lib/backendTransport';
 export const agentManagementApi = {
   bar: (): Promise<AgentManagementView[]> =>
     backendCall('agent_management_bar'),
+
+  discoveryProgress: (): Promise<AgentDiscoveryProgressView> =>
+    backendCall('agent_management_discovery_progress'),
 
   refreshBar: (): Promise<AgentManagementView[]> =>
     backendCall('agent_management_refresh'),

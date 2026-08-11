@@ -4,6 +4,7 @@ import type { OfficePluginCatalog } from 'shared/types';
 import { DOLLAR_COMMANDS } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
+import { serializeTagReferenceMarker } from '@/lib/tagReferenceMarkers';
 import {
   dollarCommandsToTypeaheadOptions,
   referenceResultsToTypeaheadOptions,
@@ -116,19 +117,20 @@ describe('session composer typeahead option derivation', () => {
     expect(options.map((option) => option.insertText)).toEqual([
       formatSessionComposerCommand({
         type: '/',
-        key: 'review',
+        key: 'native:review:review',
         value: '/review',
       }),
       formatSessionComposerCommand({
         type: '/',
-        key: 'review-skill',
+        key: 'skill:review-skill:review-skill',
         value: '/review-skill',
       }),
     ]);
     expect(options[0]).toMatchObject({
-      key: 'slash-review',
+      key: 'slash-native-review-review',
       label: '/Review',
       description: 'Review code with optional instructions',
+      sourceKind: 'native',
     });
   });
 
@@ -199,7 +201,11 @@ describe('session composer typeahead option derivation', () => {
       insertText: formatSessionComposerCommand({
         type: '#',
         key: 'review',
-        value: '#review',
+        value: serializeTagReferenceMarker({
+          tagId: 'tag-1',
+          tagName: 'review',
+          content: '',
+        }),
       }),
     });
     expect(searchResultToTypeaheadOption(fileResult)).toEqual({
@@ -278,7 +284,11 @@ describe('session composer typeahead option derivation', () => {
       formatSessionComposerCommand({
         type: '#',
         key: 'review',
-        value: '#review',
+        value: serializeTagReferenceMarker({
+          tagId: 'tag-1',
+          tagName: 'review',
+          content: 'Review current diff',
+        }),
       }),
     ]);
     expect(

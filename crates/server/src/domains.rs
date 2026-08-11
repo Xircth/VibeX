@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use agents::{AgentId, SessionLaunchLock};
 use application::{ApplicationDomainPort, ApplicationError, DomainCommand, Principal};
@@ -19,9 +19,6 @@ use db::models::{
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
 use office_runtime::OfficeRuntime;
-use plugins::{
-    DependencyState, PluginActivation, PluginMembership, PluginReadiness, ProviderState, SkillState,
-};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -72,7 +69,7 @@ impl ServerApplicationDomains {
         args: Value,
     ) -> Result<Value, ApplicationError> {
         match command {
-            DomainCommand::PluginActionCatalog => self.plugin_catalog(),
+            DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
             DomainCommand::PluginSkillsConfigure => self.configure_plugin_skills(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
@@ -106,71 +103,56 @@ impl ServerApplicationDomains {
         }
     }
 
-    fn plugin_catalog(&self) -> Result<Value, ApplicationError> {
-        let manifest = self.office.bundled_plugin();
-        let snapshot = self
-            .office
-            .bundled_plugin_snapshot()
+    async fn plugin_catalog(&self) -> Result<Value, ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        let inventory = control_plane
+            .runtime_inventory()
+            .await
             .map_err(internal_error)?;
-        let dependency = snapshot
-            .dependencies
-            .iter()
-            .next()
-            .map(|(id, state)| dependency_json(id, state))
-            .ok_or_else(|| ApplicationError::internal("Office dependency is missing"))?;
-        let actions = manifest
-            .actions
-            .iter()
-            .map(|action| {
-                let prompt_blocks = action
-                    .prompt_blocks
-                    .iter()
-                    .map(|block| match block {
-                        plugins::PromptBlock::Text { text } => {
-                            json!({ "type": "text", "text": text })
-                        }
+        let actions = control_plane
+            .catalog()
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
+            .filter(|plugin| {
+                plugin.runtimes.iter().all(|required| {
+                    inventory.iter().any(|installed| {
+                        installed.id == required.id
+                            && required
+                                .version
+                                .as_deref()
+                                .is_none_or(|version| version == installed.version)
                     })
-                    .collect::<Vec<_>>();
-                json!({
-                    "pluginId": manifest.id.as_str(),
-                    "actionId": action.id.as_str(),
-                    "label": action.label,
-                    "requiredSkills": action.required_skills.iter()
-                        .map(|id| id.as_str()).collect::<Vec<_>>(),
-                    "requiredTools": action.required_tools.iter()
-                        .map(|id| id.as_str()).collect::<Vec<_>>(),
-                    "promptBlocks": prompt_blocks,
-                    "artifactIntent": action.artifact_intent.as_ref().map(|intent| json!({
-                        "mediaTypes": intent.media_types,
-                        "provider": intent.provider,
-                    })),
                 })
             })
+            .flat_map(|plugin| {
+                let plugin_id = plugin.id().to_owned();
+                let required_tools = plugin
+                    .runtimes
+                    .iter()
+                    .map(|runtime| runtime.id.clone())
+                    .collect::<Vec<_>>();
+                plugin
+                    .package
+                    .invocations
+                    .into_iter()
+                    .filter_map(move |invocation| {
+                        (invocation.kind == plugins::InvocationKind::Action).then(|| {
+                            json!({
+                                "pluginId": plugin_id,
+                                "actionId": invocation.id,
+                                "label": invocation.label,
+                                "requiredSkills": invocation.skill.into_iter().collect::<Vec<_>>(),
+                                "requiredTools": required_tools,
+                                "promptBlocks": [{ "type": "text", "text": invocation.prompt }],
+                                "artifactIntent": null,
+                            })
+                        })
+                    })
+            })
             .collect::<Vec<_>>();
-        Ok(json!({
-            "plugin": {
-                "id": manifest.id.as_str(),
-                "name": manifest.name,
-                "version": manifest.version,
-                "membership": match snapshot.membership {
-                    PluginMembership::Builtin => "builtin",
-                    PluginMembership::Added => "added",
-                },
-            },
-            "actions": actions,
-            "readiness": {
-                "enabled": snapshot.activation == PluginActivation::Enabled,
-                "dependency": dependency,
-                "skills": snapshot.skills.iter()
-                    .map(|(id, state)| skill_json(id, state)).collect::<Vec<_>>(),
-                "providers": snapshot.providers.iter()
-                    .map(|(id, state)| provider_json(id, state)).collect::<Vec<_>>(),
-                "overall": match snapshot.readiness {
-                    PluginReadiness::Ready => "ready",
-                    PluginReadiness::NotReady { .. } => "not_ready",
-                },
-            },
-        }))
+        Ok(json!({ "actions": actions }))
     }
 
     async fn project_list(&self) -> Result<Value, ApplicationError> {
@@ -291,7 +273,29 @@ impl ServerApplicationDomains {
             .set_bundled_enabled(args.enabled, &args.task_id)
             .await
             .map_err(internal_error)?;
-        self.plugin_catalog()
+        let control_plane = self.plugin_control_plane().await?;
+        control_plane
+            .set_enabled("vibex.office", args.enabled)
+            .await
+            .map_err(internal_error)?;
+        if args.enabled
+            && let Some(lock) = self.office.detect().await.map_err(internal_error)?
+        {
+            control_plane
+                .record_runtime(plugins::RuntimeInstallation {
+                    id: lock.tool_id,
+                    version: lock.version,
+                    executable_path: self
+                        .office
+                        .global_executable_path()
+                        .map_err(internal_error)?,
+                    installer: "vibex_bundled_binary".to_owned(),
+                    probe: vec!["--version".to_owned()],
+                })
+                .await
+                .map_err(internal_error)?;
+        }
+        self.plugin_catalog().await
     }
 
     async fn configure_plugin_skills(&self, args: Value) -> Result<Value, ApplicationError> {
@@ -574,14 +578,54 @@ impl ServerApplicationDomains {
             trigger: input.trigger,
             launch: AutomationDraftInput(launch),
         };
+        let action_catalog = self.unified_action_catalog().await?;
         TurnLaunchSpec::from_automation_draft(draft.launch.clone())
-            .and_then(|spec| {
-                spec.validate_plugin_actions(&OfficeActionCatalog {
-                    manifest: self.office.bundled_plugin(),
-                })
-            })
+            .and_then(|spec| spec.validate_plugin_actions(&action_catalog))
             .map_err(|error| ApplicationError::bad_request(format!("{}: {error}", error.code())))?;
         Ok(draft)
+    }
+
+    async fn unified_action_catalog(&self) -> Result<UnifiedActionCatalog, ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        let actions = control_plane
+            .catalog()
+            .await
+            .map_err(internal_error)?
+            .into_iter()
+            .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
+            .flat_map(|plugin| {
+                let plugin_id = plugin.id().to_owned();
+                plugin
+                    .package
+                    .invocations
+                    .into_iter()
+                    .filter(|invocation| invocation.kind == plugins::InvocationKind::Action)
+                    .map(move |invocation| (plugin_id.clone(), invocation.id))
+            })
+            .collect();
+        Ok(UnifiedActionCatalog { actions })
+    }
+
+    async fn plugin_control_plane(&self) -> Result<plugins::PluginControlPlane, ApplicationError> {
+        let control_plane = plugins::PluginControlPlane::new(Arc::new(
+            plugins::SqlitePluginRegistry::new(self.pool.clone()),
+        ));
+        if control_plane
+            .plugin("vibex.office")
+            .await
+            .map_err(internal_error)?
+            .is_none()
+        {
+            let package = office_runtime::materialize_bundled_plugin_package(
+                &utils::assets::asset_dir().join("plugins/office"),
+            )
+            .map_err(internal_error)?;
+            control_plane
+                .import(package, plugins::ConflictDecision::Reject)
+                .await
+                .map_err(internal_error)?;
+        }
+        Ok(control_plane)
     }
 }
 
@@ -597,18 +641,16 @@ impl ApplicationDomainPort for ServerApplicationDomains {
     }
 }
 
-struct OfficeActionCatalog<'a> {
-    manifest: &'a plugins::PluginManifest,
+struct UnifiedActionCatalog {
+    actions: HashSet<(String, String)>,
 }
 
-impl PluginActionCatalogPort for OfficeActionCatalog<'_> {
+impl PluginActionCatalogPort for UnifiedActionCatalog {
     fn contains(&self, reference: &automation::PluginActionRef) -> bool {
-        reference.plugin_id == self.manifest.id
-            && self
-                .manifest
-                .actions
-                .iter()
-                .any(|action| action.id == reference.action.id)
+        self.actions.contains(&(
+            reference.plugin_id.as_str().to_owned(),
+            reference.action.id.as_str().to_owned(),
+        ))
     }
 }
 
@@ -809,47 +851,6 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
         started_at: run.started_at,
         finished_at: run.finished_at,
     }
-}
-
-fn dependency_json(id: &str, state: &DependencyState) -> Value {
-    match state {
-        DependencyState::Missing => component_json(id, "missing", None, None),
-        DependencyState::Installing => component_json(id, "installing", None, None),
-        DependencyState::Ready { version, .. } => component_json(id, "ready", Some(version), None),
-        DependencyState::Failed { message, .. } => {
-            component_json(id, "failed", None, Some(message))
-        }
-        DependencyState::Incompatible { message, .. } => {
-            component_json(id, "incompatible", None, Some(message))
-        }
-    }
-}
-
-fn skill_json(id: &str, state: &SkillState) -> Value {
-    match state {
-        SkillState::Missing => component_json(id, "missing", None, None),
-        SkillState::Ready => component_json(id, "ready", None, None),
-        SkillState::Failed { message, .. } => component_json(id, "failed", None, Some(message)),
-    }
-}
-
-fn provider_json(id: &str, state: &ProviderState) -> Value {
-    match state {
-        ProviderState::Unavailable => component_json(id, "unavailable", None, None),
-        ProviderState::Ready => component_json(id, "ready", None, None),
-        ProviderState::Degraded { message, .. } => {
-            component_json(id, "degraded", None, Some(message))
-        }
-    }
-}
-
-fn component_json(
-    id: &str,
-    status: &str,
-    version: Option<&String>,
-    error: Option<&String>,
-) -> Value {
-    json!({ "id": id, "status": status, "version": version, "error": error })
 }
 
 fn parse<T: DeserializeOwned>(value: Value) -> Result<T, ApplicationError> {

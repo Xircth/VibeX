@@ -158,8 +158,23 @@ fn resolve_git_path(settings: &VersionControlCliSettings) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("git"))
 }
 
-fn resolve_gh_path() -> Option<PathBuf> {
-    which::which("gh").ok()
+async fn resolve_gh_path() -> Option<PathBuf> {
+    let resolved = utils::shell::resolve_executable_path("gh").await;
+    let managed = super::github_cli_installer::managed_executable_path();
+    match resolved {
+        Some(path)
+            if cfg!(windows)
+                && matches!(
+                    path.extension().and_then(|extension| extension.to_str()),
+                    Some("cmd" | "bat")
+                )
+                && managed.is_file() =>
+        {
+            Some(managed)
+        }
+        Some(path) => Some(path),
+        None => None,
+    }
 }
 
 async fn github_api_user(gh_path: &Path, host: &str) -> Result<String, String> {
@@ -225,7 +240,7 @@ pub async fn get_github_cli_status(host: Option<String>) -> Result<GitHubCliStat
         .unwrap_or(DEFAULT_GITHUB_HOST)
         .to_string();
 
-    let Some(gh_path) = resolve_gh_path() else {
+    let Some(gh_path) = resolve_gh_path().await else {
         return Ok(GitHubCliStatus {
             gh_installed: false,
             gh_path: None,
@@ -257,7 +272,22 @@ pub async fn get_github_cli_status(host: Option<String>) -> Result<GitHubCliStat
 }
 
 #[tauri::command]
+pub async fn install_github_cli(host: Option<String>) -> Result<GitHubCliStatus, AppError> {
+    if resolve_gh_path().await.is_none() {
+        super::github_cli_installer::install()
+            .await
+            .map_err(AppError::Internal)?;
+    }
+
+    get_github_cli_status(host).await
+}
+
+#[tauri::command]
 pub async fn open_github_cli_login(host: Option<String>) -> Result<(), AppError> {
+    let gh_path = resolve_gh_path()
+        .await
+        .ok_or_else(|| AppError::BadRequest("GitHub CLI is not installed.".to_string()))?;
+    let gh_command = quote_terminal_program(&gh_path);
     let host = host
         .as_deref()
         .map(str::trim)
@@ -265,14 +295,31 @@ pub async fn open_github_cli_login(host: Option<String>) -> Result<(), AppError>
         .unwrap_or(DEFAULT_GITHUB_HOST);
 
     let command = if host == DEFAULT_GITHUB_HOST {
-        "gh auth login --web --git-protocol https".to_string()
+        format!("{gh_command} auth login --web --git-protocol https")
     } else {
-        format!("gh auth login --web --git-protocol https --hostname {host}")
+        format!(
+            "{gh_command} auth login --web --git-protocol https --hostname {}",
+            quote_terminal_argument(host)
+        )
     };
 
     spawn_visible_terminal(&command).map_err(|error| {
         AppError::Internal(format!("Failed to open GitHub login terminal: {error}"))
     })
+}
+
+fn quote_terminal_program(path: &Path) -> String {
+    quote_terminal_argument(&path.to_string_lossy())
+}
+
+#[cfg(windows)]
+fn quote_terminal_argument(value: &str) -> String {
+    format!("\"{}\"", value.replace('%', "%%").replace('"', "\"\""))
+}
+
+#[cfg(not(windows))]
+fn quote_terminal_argument(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 #[tauri::command]
@@ -288,6 +335,7 @@ pub async fn logout_github_cli(
         .to_string();
 
     let gh_path = resolve_gh_path()
+        .await
         .ok_or_else(|| AppError::BadRequest("GitHub CLI is not installed.".to_string()))?;
 
     let mut args = vec!["auth".to_string(), "logout".to_string()];

@@ -1,15 +1,20 @@
+use std::time::Duration;
+
 use api_types::{AgentId, AgentSource, UserAgentDistributionKind};
-use db::models::agent_management::{
-    AgentManagementRepositoryError, AgentMembershipRepository, DiagnosticRecord,
-    DiagnosticRepository, InstallLockRecord, InstallationOperationRepository,
-    InstallationRepository, NewAgentMembership, NewInstallationOperation, RegistryEntryRecord,
-    RegistrySnapshotRecord, RegistrySnapshotRepository, SessionDefaultRecord,
-    SessionDefaultRepository, UserAgentDefinitionRecord, UserAgentDefinitionRepository,
-    conversation_migration::{
-        ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
-        RetiredAgentHistoryRepository,
+use db::{
+    DBService,
+    models::agent_management::{
+        AgentManagementRepositoryError, AgentMembershipRepository, DiagnosticRecord,
+        DiagnosticRepository, InstallLockRecord, InstallationOperationRepository,
+        InstallationRepository, NewAgentMembership, NewInstallationOperation, RegistryEntryRecord,
+        RegistrySnapshotRecord, RegistrySnapshotRepository, SessionDefaultRecord,
+        SessionDefaultRepository, UserAgentDefinitionRecord, UserAgentDefinitionRepository,
+        conversation_migration::{
+            ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
+            RetiredAgentHistoryRepository,
+        },
+        legacy_migration::LegacyAgentMigration,
     },
-    legacy_migration::LegacyAgentMigration,
 };
 use sqlx::{
     SqlitePool,
@@ -764,6 +769,42 @@ async fn concurrent_enqueues_keep_one_agent_operation_id() {
             .id,
         winner.id
     );
+}
+
+#[tokio::test]
+async fn fresh_install_enqueue_waits_for_the_startup_warmup_writer() {
+    let temp = tempfile::tempdir().unwrap();
+    let pool = DBService::new_at(temp.path()).await.unwrap().pool;
+    let agent_id = AgentId::parse("codex").unwrap();
+
+    let mut warmup_write = pool.begin().await.unwrap();
+    sqlx::query(
+        "UPDATE agent_membership SET updated_at = CURRENT_TIMESTAMP WHERE agent_id = 'claude_code'",
+    )
+    .execute(&mut *warmup_write)
+    .await
+    .unwrap();
+
+    let repository = InstallationOperationRepository::new(pool.clone());
+    let mut enqueue = Box::pin(repository.enqueue(NewInstallationOperation {
+        agent_id: agent_id.clone(),
+        kind: "install".to_string(),
+        frozen_plan_json: r#"{"version":"0.42.0"}"#.to_string(),
+        host_instance_id: "desktop".to_string(),
+        resource_claims: vec!["agent:codex".to_string(), "runtime:node".to_string()],
+        staging_path: None,
+    }));
+
+    tokio::time::timeout(Duration::from_millis(100), enqueue.as_mut())
+        .await
+        .expect_err("the install enqueue should wait while warmup owns the SQLite writer");
+    warmup_write.commit().await.unwrap();
+
+    let operation = tokio::time::timeout(Duration::from_secs(2), enqueue)
+        .await
+        .expect("install enqueue should resume after warmup commits")
+        .expect("fresh install enqueue must not fail with database is locked");
+    assert_eq!(operation.agent_id, agent_id);
 }
 
 #[tokio::test]

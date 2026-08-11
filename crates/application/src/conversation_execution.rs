@@ -51,6 +51,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 conversation_id: request.conversation_id,
                 executor_profile_id,
                 text: request.text,
+                display_text: None,
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides,

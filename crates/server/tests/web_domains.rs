@@ -50,17 +50,11 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
     let app = server.runtime().router();
 
     let plugin = call(app.clone(), "plugin_action_catalog", serde_json::json!({})).await;
-    assert_eq!(plugin["plugin"]["id"], "vibex.office");
-    let action_ids = plugin["actions"]
-        .as_array()
-        .expect("actions")
-        .iter()
-        .filter_map(|action| action["actionId"].as_str())
-        .collect::<Vec<_>>();
-    assert!(action_ids.contains(&"create-presentation"));
-    assert!(action_ids.contains(&"modify-document"));
-    assert!(action_ids.contains(&"analyze-spreadsheet"));
-    assert!(plugin["readiness"]["dependency"]["status"].is_string());
+    assert_eq!(
+        plugin["actions"],
+        serde_json::json!([]),
+        "freshly imported plugins stay disabled until the user enables them"
+    );
 
     let artifacts = call(
         app.clone(),

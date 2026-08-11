@@ -164,6 +164,26 @@ pub struct AgentLocalRuntimeView {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentDiscoveryPhase {
+    Pending,
+    Checking,
+    Complete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AgentDiscoveryProgressView {
+    pub phase: AgentDiscoveryPhase,
+    pub completed: u32,
+    pub total: u32,
+    pub found: u32,
+    pub checked_agent_ids: Vec<AgentId>,
+    pub timed_out: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentManagementView {
@@ -272,6 +292,15 @@ pub struct AgentManagementErrorView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum AgentPreflightSource {
+    System,
+    VibexManaged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentPreflightItemView {
     pub id: String,
     pub label: String,
@@ -279,6 +308,7 @@ pub struct AgentPreflightItemView {
     pub detail: String,
     pub version: Option<String>,
     pub path: Option<String>,
+    pub source: Option<AgentPreflightSource>,
     pub repairable: bool,
 }
 

@@ -105,18 +105,16 @@ struct EngineOwnershipMarker {
     data_dir_key: String,
 }
 
-struct OfficeActionCatalog<'a> {
-    manifest: &'a plugins::PluginManifest,
+struct UnifiedActionCatalog {
+    actions: HashSet<(String, String)>,
 }
 
-impl PluginActionCatalogPort for OfficeActionCatalog<'_> {
+impl PluginActionCatalogPort for UnifiedActionCatalog {
     fn contains(&self, reference: &automation::PluginActionRef) -> bool {
-        reference.plugin_id == self.manifest.id
-            && self
-                .manifest
-                .actions
-                .iter()
-                .any(|action| action.id == reference.action.id)
+        self.actions.contains(&(
+            reference.plugin_id.as_str().to_owned(),
+            reference.action.id.as_str().to_owned(),
+        ))
     }
 }
 
@@ -784,38 +782,56 @@ impl TurnLauncherPort for TauriTurnLauncher {
         .map_err(|error| RunError::Launcher(error.to_string()))?;
         let mut plugins = Vec::new();
         let mut tool_locks = Vec::new();
+        let runtime_inventory = state
+            .plugin_control_plane
+            .runtime_inventory()
+            .await
+            .map_err(|error| RunError::Launcher(error.to_string()))?;
         for action in &spec.plugin_actions {
             state
-                .office_runtime
-                .resolve_bundled_action_for_agent(
-                    action.plugin_id.as_str(),
-                    action.action.id.as_str(),
-                    spec.agent.agent_id.as_str(),
-                )
+                .plugin_control_plane
+                .resolve_action(action.plugin_id.as_str(), action.action.id.as_str())
                 .await
                 .map_err(|error| RunError::Launcher(error.to_string()))?;
-            let manifest = state.office_runtime.bundled_plugin();
-            plugins.push(ComponentVersionEvidence {
-                id: manifest.id.as_str().to_string(),
-                version: manifest.version.clone(),
-            });
-            let lock = state
-                .office_runtime
-                .detect()
+            let plugin = state
+                .plugin_control_plane
+                .plugin(action.plugin_id.as_str())
                 .await
                 .map_err(|error| RunError::Launcher(error.to_string()))?
                 .ok_or_else(|| {
                     RunError::Launcher(format!(
-                        "plugin {} has no resolved ToolInstallationLock",
-                        manifest.id.as_str()
+                        "plugin {} is unavailable",
+                        action.plugin_id.as_str()
                     ))
                 })?;
-            tool_locks.push(ToolLockVersionEvidence {
-                tool_id: lock.tool_id,
-                version: lock.version,
-                target: lock.target,
-                sha256: lock.sha256,
+            plugins.push(ComponentVersionEvidence {
+                id: plugin.id().to_owned(),
+                version: plugin.version.clone(),
             });
+            for required in &plugin.runtimes {
+                let lock = runtime_inventory
+                    .iter()
+                    .find(|runtime| {
+                        runtime.id == required.id
+                            && required
+                                .version
+                                .as_deref()
+                                .is_none_or(|version| version == runtime.version)
+                    })
+                    .ok_or_else(|| {
+                        RunError::Launcher(format!(
+                            "plugin {} Runtime {} is not ready",
+                            plugin.id(),
+                            required.id
+                        ))
+                    })?;
+                tool_locks.push(ToolLockVersionEvidence {
+                    tool_id: lock.id.clone(),
+                    version: lock.version.clone(),
+                    target: "user-global".to_owned(),
+                    sha256: String::new(),
+                });
+            }
         }
         Ok(ResolvedVersionEvidence {
             agent_runtime: match managed_lock {
@@ -888,14 +904,24 @@ impl TurnLauncherPort for TauriTurnLauncher {
         _connection_id: &str,
     ) -> Result<Uuid, RunError> {
         let state = self.app.state::<AppState>();
-        let text = spec
+        let mut prompt_parts = spec
             .prompt_blocks
             .iter()
             .map(|block| match block {
                 PromptBlock::Text { text } => text.as_str(),
             })
-            .collect::<Vec<_>>()
-            .join("\n");
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>();
+        prompt_parts.extend(spec.plugin_actions.iter().flat_map(|reference| {
+            reference
+                .action
+                .prompt_blocks
+                .iter()
+                .map(|block| match block {
+                    PromptBlock::Text { text } => text.as_str(),
+                })
+        }));
+        let text = prompt_parts.join("\n");
         let (turn, _) = ConversationSessionService::new(state.conversation_context())
             .start_turn_with_origin(
                 ConversationStartTurnInput {
@@ -904,6 +930,7 @@ impl TurnLauncherPort for TauriTurnLauncher {
                     conversation_id,
                     executor_profile_id: spec.agent.executor_profile_id.clone(),
                     text,
+                    display_text: Some(spec.display_text.clone()),
                     images: Vec::new(),
                     mode_override: spec.mode_id.clone(),
                     config_overrides: spec.config_values.clone(),
@@ -952,14 +979,32 @@ async fn input_to_draft(
         trigger: input.trigger,
         launch: AutomationDraftInput(launch),
     };
+    let action_catalog = unified_action_catalog(state).await?;
     TurnLaunchSpec::from_automation_draft(draft.launch.clone())
-        .and_then(|spec| {
-            spec.validate_plugin_actions(&OfficeActionCatalog {
-                manifest: state.office_runtime.bundled_plugin(),
-            })
-        })
+        .and_then(|spec| spec.validate_plugin_actions(&action_catalog))
         .map_err(|error| AppError::BadRequest(format!("{}: {error}", error.code())))?;
     Ok(draft)
+}
+
+async fn unified_action_catalog(state: &AppState) -> Result<UnifiedActionCatalog, AppError> {
+    let actions = state
+        .plugin_control_plane
+        .catalog()
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .into_iter()
+        .filter(|plugin| plugin.activation == plugins::PluginActivation::Enabled)
+        .flat_map(|plugin| {
+            let plugin_id = plugin.id().to_owned();
+            plugin
+                .package
+                .invocations
+                .into_iter()
+                .filter(|invocation| invocation.kind == plugins::InvocationKind::Action)
+                .map(move |invocation| (plugin_id.clone(), invocation.id))
+        })
+        .collect();
+    Ok(UnifiedActionCatalog { actions })
 }
 
 fn record_to_dto(record: AutomationRecord) -> Result<AutomationView, AppError> {

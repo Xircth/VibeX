@@ -21,6 +21,10 @@ fn default_commit_reminder_enabled() -> bool {
     true
 }
 
+fn default_commit_reminder_line_threshold() -> u32 {
+    10_000
+}
+
 fn default_prompt_enhancement_enabled() -> bool {
     false
 }
@@ -59,6 +63,14 @@ pub enum LinkOpenBehavior {
     BuiltinPreview,
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitReminderMode {
+    #[default]
+    SeparateTurn,
+    Smart,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
     pub config_version: String,
@@ -89,7 +101,9 @@ pub struct Config {
     #[serde(default = "default_commit_reminder_enabled")]
     pub commit_reminder_enabled: bool,
     #[serde(default)]
-    pub commit_reminder_prompt: Option<String>,
+    pub commit_reminder_mode: CommitReminderMode,
+    #[serde(default = "default_commit_reminder_line_threshold")]
+    pub commit_reminder_line_threshold: u32,
     #[serde(default)]
     pub merge_commit_message_template: Option<String>,
     #[serde(default)]
@@ -155,7 +169,8 @@ impl Config {
             beta_workspaces: old_config.beta_workspaces,
             beta_workspaces_invitation_sent: old_config.beta_workspaces_invitation_sent,
             commit_reminder_enabled: old_config.commit_reminder_enabled,
-            commit_reminder_prompt: old_config.commit_reminder_prompt,
+            commit_reminder_mode: CommitReminderMode::default(),
+            commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
             merge_commit_message_template: old_config.merge_commit_message_template,
             send_message_shortcut: old_config.send_message_shortcut,
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
@@ -223,7 +238,8 @@ impl Default for Config {
             beta_workspaces: false,
             beta_workspaces_invitation_sent: false,
             commit_reminder_enabled: true,
-            commit_reminder_prompt: None,
+            commit_reminder_mode: CommitReminderMode::default(),
+            commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
             merge_commit_message_template: None,
             send_message_shortcut: SendMessageShortcut::default(),
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
@@ -245,7 +261,35 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{CommitReminderMode, Config};
+
+    #[test]
+    fn commit_reminders_default_to_a_ten_thousand_line_separate_turn() {
+        let config = Config::default();
+
+        assert_eq!(
+            config.commit_reminder_mode,
+            CommitReminderMode::SeparateTurn
+        );
+        assert_eq!(config.commit_reminder_line_threshold, 10_000);
+    }
+
+    #[test]
+    fn older_v9_configs_receive_commit_reminder_defaults() {
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        let saved = saved.as_object_mut().expect("config object");
+        saved.remove("commit_reminder_mode");
+        saved.remove("commit_reminder_line_threshold");
+
+        let loaded: Config =
+            serde_json::from_value(serde_json::Value::Object(saved.clone())).expect("load config");
+
+        assert_eq!(
+            loaded.commit_reminder_mode,
+            CommitReminderMode::SeparateTurn
+        );
+        assert_eq!(loaded.commit_reminder_line_threshold, 10_000);
+    }
 
     #[test]
     fn conversation_content_defaults_to_collapsed() {

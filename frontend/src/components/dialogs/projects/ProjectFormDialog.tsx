@@ -409,8 +409,12 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
     };
 
     return (
-      <Dialog open={modal.visible} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-[640px]">
+      <Dialog
+        open={modal.visible}
+        onOpenChange={handleOpenChange}
+        className="welcome-project-form-surface border-0 sm:max-w-[640px]"
+      >
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {isOpenExistingFolderMode
@@ -489,7 +493,7 @@ const ProjectFormDialogImpl = NiceModal.create<ProjectFormDialogProps>(
                     rows={4}
                     isDisabled={isBusy}
                     width="100%"
-                    className="[&_textarea]:resize-none [&_textarea]:text-sm"
+                    className="project-form-description-field [&_textarea]:resize-none [&_textarea]:text-sm"
                     style={textInputSurfaceStyle}
                   />
                 </div>

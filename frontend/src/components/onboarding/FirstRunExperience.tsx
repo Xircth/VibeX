@@ -4,17 +4,19 @@ import gsap from 'gsap';
 import { ArrowLeft, Check, ShieldAlert, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type {
+  AgentDiscoveryProgressView,
   AgentId,
-  AgentManagementView,
   AgentOperationEvent,
-  AgentRegistryViewRow,
   EditorConfig,
 } from 'shared/types';
 
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { toast } from '@/components/ui/toast';
 import { PortalContainerContext } from '@/contexts/PortalContainerContext';
-import { agentManagementApi } from '@/features/agent-management';
+import {
+  agentManagementApi,
+  agentManagementErrorMessage,
+} from '@/features/agent-management';
 import { backendListen } from '@/lib/backendTransport';
 import { APP_NAME } from '@/lib/branding';
 import { settingsWindowApi } from '@/lib/api';
@@ -35,6 +37,8 @@ import './firstRunExperience.css';
 
 gsap.registerPlugin(useGSAP);
 
+const AGENT_LIST_TIMEOUT_MS = 4_000;
+
 type FirstRunStep = 'intro' | 'configure' | 'welcome';
 
 type SetupResult = {
@@ -43,6 +47,24 @@ type SetupResult = {
   result: OnboardingInstallResult;
   detail?: string;
 };
+
+function optionalAgentErrorDetail(error: unknown): string | undefined {
+  return agentManagementErrorMessage(error, '') || undefined;
+}
+
+function rejectAfter<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(
+      () => reject(new Error(message)),
+      timeoutMs
+    );
+    promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+  });
+}
 
 type IntroAgent = {
   id: string;
@@ -133,13 +155,21 @@ export function FirstRunExperience({
   );
   const [editor, setEditor] = useState<EditorConfig>(initialEditor);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [discoveryProgress, setDiscoveryProgress] =
+    useState<AgentDiscoveryProgressView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [validationError, setValidationError] =
     useState<AgentValidationError>(null);
   const agentCheckStartedRef = useRef(false);
+  const agentCatalogLoadedRef = useRef(false);
+  const enabledAgentIdsRef = useRef<Set<AgentId>>(new Set());
+  const defaultAgentIdRef = useRef<AgentId | null>(initialDefaultAgentId);
+  const userModifiedAgentIdsRef = useRef<Set<AgentId>>(new Set());
   const agentLoadRequestRef = useRef(0);
+  const agentLoadInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
   const handoffCompleteRef = useRef(false);
   const deferredResultsRef = useRef<SetupResult[]>([]);
   const trackedOperationsRef = useRef(
@@ -155,6 +185,16 @@ export function FirstRunExperience({
     rootRef.current = element;
     if (element) setPortalContainer(element);
   }, []);
+
+  const applyAgentSelection = useCallback(
+    (enabledIds: Set<AgentId>, selectedDefaultId: AgentId | null) => {
+      enabledAgentIdsRef.current = enabledIds;
+      defaultAgentIdRef.current = selectedDefaultId;
+      setEnabledAgentIds(enabledIds);
+      setDefaultAgentId(selectedDefaultId);
+    },
+    []
+  );
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -298,7 +338,7 @@ export function FirstRunExperience({
             publishSetupResult({
               ...tracked,
               result: 'needs_attention',
-              detail: error instanceof Error ? error.message : String(error),
+              detail: optionalAgentErrorDetail(error),
             });
           });
       }
@@ -313,44 +353,28 @@ export function FirstRunExperience({
   }, [publishSetupResult]);
 
   const loadAgents = useCallback(async () => {
+    // Startup invalidation events may arrive while the initial snapshot is
+    // still loading. Keep that request single-flight so those events cannot
+    // continually replace its timeout and leave the skeleton visible forever.
+    if (agentLoadInFlightRef.current) return;
+    agentLoadInFlightRef.current = true;
     const requestId = ++agentLoadRequestRef.current;
-    setLoadingAgents(true);
-    setLoadError(null);
+    const initialCatalogLoad = !agentCatalogLoadedRef.current;
+    if (initialCatalogLoad) setLoadingAgents(true);
+    if (initialCatalogLoad) setLoadError(null);
     setValidationError(null);
     try {
-      const [managedResult, registryResult] = await Promise.allSettled([
+      const managedAgents = await rejectAfter(
         agentManagementApi.bar(),
-        agentManagementApi.registry(),
-      ]);
-      if (agentLoadRequestRef.current !== requestId) return;
-      if (managedResult.status === 'rejected') throw managedResult.reason;
-
-      const managedAgents: AgentManagementView[] = managedResult.value;
-      let registryAgents: AgentRegistryViewRow[] = [];
-      if (registryResult.status === 'fulfilled') {
-        const registry = registryResult.value;
-        registryAgents = [...registry.installed, ...registry.uninstalled];
-
-        if (!registry.fresh) {
-          void agentManagementApi
-            .refreshRegistry()
-            .then((refreshed) => {
-              if (agentLoadRequestRef.current !== requestId) return;
-              setAgents(
-                buildOnboardingAgentOptions(managedAgents, [
-                  ...refreshed.installed,
-                  ...refreshed.uninstalled,
-                ])
-              );
-            })
-            .catch(() => undefined);
-        }
-      }
-
-      const options = buildOnboardingAgentOptions(
-        managedAgents,
-        registryAgents
+        AGENT_LIST_TIMEOUT_MS,
+        t('dialogs:onboarding.agentLoadTimedOut')
       );
+      if (!mountedRef.current || agentLoadRequestRef.current !== requestId)
+        return;
+      if (managedAgents.length === 0) {
+        throw new Error(t('dialogs:onboarding.agentCatalogEmpty'));
+      }
+      const options = buildOnboardingAgentOptions(managedAgents, []);
       const configuredDefault = options.some(
         (agent) => agent.agentId === initialDefaultAgentId
       )
@@ -367,10 +391,68 @@ export function FirstRunExperience({
           : (nextEnabled.values().next().value ?? null);
 
       setAgents(options);
-      setEnabledAgentIds(nextEnabled);
-      setDefaultAgentId(nextDefault ?? null);
+      if (initialCatalogLoad) {
+        applyAgentSelection(nextEnabled, nextDefault ?? null);
+      } else {
+        const mergedEnabled = new Set(enabledAgentIdsRef.current);
+        const availableAgentIds = new Set(
+          options.map((agent) => agent.agentId)
+        );
+        for (const agentId of mergedEnabled) {
+          if (!availableAgentIds.has(agentId)) mergedEnabled.delete(agentId);
+        }
+        for (const agent of options) {
+          if (userModifiedAgentIdsRef.current.has(agent.agentId)) continue;
+          if (agent.runtimeInstalled) mergedEnabled.add(agent.agentId);
+          else mergedEnabled.delete(agent.agentId);
+        }
+        const currentDefault = defaultAgentIdRef.current;
+        const mergedDefault =
+          currentDefault && mergedEnabled.has(currentDefault)
+            ? currentDefault
+            : (mergedEnabled.values().next().value ?? null);
+        applyAgentSelection(mergedEnabled, mergedDefault);
+      }
+      agentCatalogLoadedRef.current = true;
+
+      void agentManagementApi
+        .registry()
+        .then((registry) => {
+          if (!mountedRef.current || agentLoadRequestRef.current !== requestId)
+            return;
+          setAgents(
+            buildOnboardingAgentOptions(managedAgents, [
+              ...registry.installed,
+              ...registry.uninstalled,
+            ])
+          );
+
+          if (!registry.fresh) {
+            void agentManagementApi
+              .refreshRegistry()
+              .then((refreshed) => {
+                if (
+                  !mountedRef.current ||
+                  agentLoadRequestRef.current !== requestId
+                )
+                  return;
+                setAgents(
+                  buildOnboardingAgentOptions(managedAgents, [
+                    ...refreshed.installed,
+                    ...refreshed.uninstalled,
+                  ])
+                );
+              })
+              .catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
     } catch (error) {
-      if (agentLoadRequestRef.current === requestId) {
+      if (
+        mountedRef.current &&
+        initialCatalogLoad &&
+        agentLoadRequestRef.current === requestId
+      ) {
         setLoadError(
           error instanceof Error
             ? error.message
@@ -378,23 +460,73 @@ export function FirstRunExperience({
         );
       }
     } finally {
-      if (agentLoadRequestRef.current === requestId) {
+      agentLoadInFlightRef.current = false;
+      if (
+        mountedRef.current &&
+        initialCatalogLoad &&
+        agentLoadRequestRef.current === requestId
+      ) {
         setLoadingAgents(false);
       }
     }
-  }, [initialDefaultAgentId, t]);
+  }, [applyAgentSelection, initialDefaultAgentId, t]);
 
-  useEffect(
-    () => () => {
-      agentLoadRequestRef.current += 1;
-    },
-    []
-  );
+  useEffect(() => {
+    // StrictMode performs a development-only setup/cleanup/setup cycle while
+    // preserving refs. Restoring this flag during setup keeps the real startup
+    // request valid; a genuine unmount still prevents late state updates.
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!visible || agentCheckStartedRef.current) return;
     agentCheckStartedRef.current = true;
     void loadAgents();
+  }, [loadAgents, visible]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void backendListen<AgentDiscoveryProgressView>(
+      'agent-management-discovery-progress',
+      (progress) => {
+        if (active) setDiscoveryProgress(progress);
+      }
+    ).then(async (dispose) => {
+      if (!active) {
+        dispose();
+        return;
+      }
+      unlisten = dispose;
+      try {
+        const progress = await agentManagementApi.discoveryProgress();
+        if (active) setDiscoveryProgress(progress);
+      } catch {
+        // The Agent catalog remains usable when optional progress reporting fails.
+      }
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void backendListen<void>('agent-management-snapshot-invalidated', () => {
+      if (active && visible && agentCheckStartedRef.current) void loadAgents();
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
   }, [loadAgents, visible]);
 
   useGSAP(
@@ -523,15 +655,15 @@ export function FirstRunExperience({
       changedAgentId: agentId,
       enabled,
     });
-    setEnabledAgentIds(normalized.enabledAgentIds);
-    setDefaultAgentId(normalized.defaultAgentId);
+    userModifiedAgentIdsRef.current.add(agentId);
+    applyAgentSelection(normalized.enabledAgentIds, normalized.defaultAgentId);
     setValidationError(null);
   };
 
   const selectDefault = (agentId: AgentId) => {
     const normalized = selectDefaultOnboardingAgent(enabledAgentIds, agentId);
-    setEnabledAgentIds(normalized.enabledAgentIds);
-    setDefaultAgentId(normalized.defaultAgentId);
+    userModifiedAgentIdsRef.current.add(agentId);
+    applyAgentSelection(normalized.enabledAgentIds, normalized.defaultAgentId);
     setValidationError(null);
   };
 
@@ -549,7 +681,9 @@ export function FirstRunExperience({
       handoffCompleteRef.current = true;
       onFinish();
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : String(error));
+      setSubmitError(
+        agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
+      );
       setSubmitting(false);
     }
   };
@@ -621,7 +755,7 @@ export function FirstRunExperience({
                 agentId: agent.agentId,
                 displayName: agent.displayName,
                 result: 'needs_attention',
-                detail: error instanceof Error ? error.message : String(error),
+                detail: optionalAgentErrorDetail(error),
               });
             });
           return;
@@ -645,13 +779,15 @@ export function FirstRunExperience({
               agentId: agent.agentId,
               displayName: agent.displayName,
               result: 'failed',
-              detail: error instanceof Error ? error.message : String(error),
+              detail: optionalAgentErrorDetail(error),
             });
           });
       });
       setStep('welcome');
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : String(error));
+      setSubmitError(
+        agentManagementErrorMessage(error, t('dialogs:onboarding.setupFailed'))
+      );
       setSubmitting(false);
     }
   };
@@ -748,6 +884,7 @@ export function FirstRunExperience({
                     enabledAgentIds={enabledAgentIds}
                     defaultAgentId={defaultAgentId}
                     loading={loadingAgents}
+                    discoveryProgress={discoveryProgress}
                     error={loadError}
                     validationError={validationError}
                     onRetry={() => void loadAgents()}

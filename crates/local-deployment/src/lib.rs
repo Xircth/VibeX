@@ -13,7 +13,7 @@ use services::services::{
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
     events::EventService,
-    file_search::FileSearchCache,
+    file_search::FileSearchService,
     filesystem::FilesystemService,
     image::ImageService,
     pr_monitor::PrMonitorService,
@@ -45,7 +45,7 @@ pub struct LocalDeployment {
     image: ImageService,
     filesystem: FilesystemService,
     events: EventService,
-    file_search_cache: Arc<FileSearchCache>,
+    file_search: FileSearchService,
     approvals: Approvals,
     pty: PtyService,
 }
@@ -156,7 +156,7 @@ impl LocalDeployment {
 
         let events = EventService::new(db.clone(), events_msg_store);
 
-        let file_search_cache = Arc::new(FileSearchCache::new());
+        let file_search = FileSearchService::new();
 
         let pty = PtyService::new();
         {
@@ -176,7 +176,7 @@ impl LocalDeployment {
             image,
             filesystem,
             events,
-            file_search_cache,
+            file_search,
             approvals,
             pty,
         };
@@ -227,8 +227,8 @@ impl Deployment for LocalDeployment {
         &self.events
     }
 
-    fn file_search_cache(&self) -> &Arc<FileSearchCache> {
-        &self.file_search_cache
+    fn file_search(&self) -> &FileSearchService {
+        &self.file_search
     }
 
     fn approvals(&self) -> &Approvals {

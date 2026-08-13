@@ -336,7 +336,10 @@ fn map_agent_event(
                 title: None,
                 kind: None,
                 status: update.status.clone(),
-                raw_input: None,
+                raw_input: update
+                    .input_preview
+                    .as_ref()
+                    .map(|preview| parse_json_payload(preview)),
                 raw_output: update.content.as_deref().map(parse_json_payload),
                 raw_output_append: update.content.clone(),
                 content: update

@@ -6,6 +6,25 @@ function serverBaseUrl(): string {
   return baseUrl;
 }
 
+test('composer keeps native multiline caret flow and clears immediately on submit', async ({
+  page,
+}) => {
+  await page.goto(`${serverBaseUrl()}/e2e/agent-e/index.html`);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const composer = page.getByRole('combobox', { name: '消息' });
+  await composer.click();
+  await composer.pressSequentially('first line');
+  await composer.press('Shift+Enter');
+  await composer.pressSequentially('second line');
+
+  await expect(composer).toHaveText(/first line\s+second line/);
+
+  await composer.press('Enter');
+  await expect(composer).toBeEmpty();
+});
+
 test('two agent mentions create durable completed and cancelled delegation cards', async ({
   page,
 }) => {

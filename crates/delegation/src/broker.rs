@@ -39,6 +39,7 @@ use crate::{
 
 /// Per-result text cap. Full output stays in the child session.
 const COMPLETED_TEXT_CAP: usize = 256 * 1024;
+const COMPLETED_METADATA_CAP: usize = 4_096;
 
 /// Hard ceiling on a single bounded status wait. The listener also caps the
 /// caller's `wait_ms`; this is a defensive backstop inside the broker.
@@ -114,10 +115,9 @@ impl Drop for ParentSetupLease {
 struct PendingInner {
     running: HashMap<String, RunningTask>,
     completed: HashMap<String, CompletedTask>,
-    /// Per-parent FIFO of completed call ids, oldest first (for eviction).
-    completed_order: HashMap<DelegationScope, VecDeque<String>>,
-    /// Per-parent cached result text byte count, driving eviction.
-    completed_bytes: HashMap<DelegationScope, usize>,
+    /// FIFO for a bounded cache of terminal metadata. Full output remains only
+    /// in the child conversation and the durable completion event.
+    completed_order: VecDeque<String>,
     /// Call ids reserved during the spawn→send setup window (value = reserve
     /// instant). Lets a child that finishes mid-setup buffer its terminal
     /// outcome rather than have it dropped.
@@ -163,39 +163,18 @@ enum Resolution {
     Registered,
 }
 
-/// Insert a terminal result and evict the parent's oldest cached results while
-/// over the byte cap. The just-inserted (newest) result is never evicted.
-/// `cap == 0` disables eviction.
-fn insert_completed(inner: &mut PendingInner, call_id: String, task: CompletedTask, cap: usize) {
-    let parent = DelegationScope {
-        parent_connection_id: task.parent_connection_id.clone(),
-        parent_conversation_id: task.parent_conversation_id,
-    };
-    let bytes = task.text.as_ref().map(String::len).unwrap_or(0);
-    inner.completed.insert(call_id.clone(), task);
-    inner
-        .completed_order
-        .entry(parent.clone())
-        .or_default()
-        .push_back(call_id);
-    *inner.completed_bytes.entry(parent.clone()).or_default() += bytes;
-
-    if cap == 0 {
-        return;
+/// Cache only terminal metadata. The child conversation and durable completion
+/// event already own the full output, so duplicating it here only consumes RAM.
+fn insert_completed(inner: &mut PendingInner, call_id: String, mut task: CompletedTask) {
+    task.text = None;
+    if inner.completed.insert(call_id.clone(), task).is_none() {
+        inner.completed_order.push_back(call_id);
     }
-    while inner.completed_bytes.get(&parent).copied().unwrap_or(0) > cap {
-        let order = match inner.completed_order.get_mut(&parent) {
-            Some(order) if order.len() > 1 => order,
-            _ => break, // keep the newest result even if it alone exceeds the cap
-        };
-        let Some(oldest) = order.pop_front() else {
+    while inner.completed.len() > COMPLETED_METADATA_CAP {
+        let Some(oldest) = inner.completed_order.pop_front() else {
             break;
         };
-        if let Some(removed) = inner.completed.remove(&oldest) {
-            let removed_bytes = removed.text.as_ref().map(String::len).unwrap_or(0);
-            let entry = inner.completed_bytes.entry(parent.clone()).or_default();
-            *entry = entry.saturating_sub(removed_bytes);
-        }
+        inner.completed.remove(&oldest);
     }
 }
 
@@ -453,12 +432,10 @@ impl DelegationBroker {
                             message,
                             duration_ms: None,
                         };
-                        let cap = self.config_snapshot().completed_cache_cap_bytes;
                         insert_completed(
                             &mut self.pending.lock().unwrap(),
                             call_id.clone(),
                             completed.clone(),
-                            cap,
                         );
                         self.result_notify.notify_waiters();
                         completed_report(&call_id, &completed)
@@ -651,7 +628,6 @@ impl DelegationBroker {
     /// by normal completion and the setup-window early-resolution path.
     async fn finalize(&self, ctx: FinalizeCtx, outcome: DelegationOutcome) -> DelegationTaskReport {
         let (status, text, error_code, message) = terminal_fields(&outcome);
-        let cap = self.config_snapshot().completed_cache_cap_bytes;
         let completed = CompletedTask {
             parent_connection_id: ctx.parent_connection_id.clone(),
             parent_conversation_id: ctx.parent_conversation_id,
@@ -665,7 +641,7 @@ impl DelegationBroker {
         };
         {
             let mut pending = self.pending.lock().unwrap();
-            insert_completed(&mut pending, ctx.call_id.clone(), completed.clone(), cap);
+            insert_completed(&mut pending, ctx.call_id.clone(), completed.clone());
         }
 
         let _ = self.spawner.release_child(ctx.child_session_id).await;
@@ -817,7 +793,6 @@ impl DelegationBroker {
             };
         };
 
-        let cap = self.config_snapshot().completed_cache_cap_bytes;
         let duration_ms = task.started_at.elapsed().as_millis() as u64;
         let completed = CompletedTask {
             parent_connection_id: task.parent_connection_id.clone(),
@@ -832,7 +807,7 @@ impl DelegationBroker {
         };
         {
             let mut pending = self.pending.lock().unwrap();
-            insert_completed(&mut pending, task_id.to_string(), completed.clone(), cap);
+            insert_completed(&mut pending, task_id.to_string(), completed.clone());
         }
 
         let _ = self.spawner.cancel(&task.child_connection_id).await;
@@ -1149,7 +1124,10 @@ fn completed_report(call_id: &str, task: &CompletedTask) -> DelegationTaskReport
         agent_type: task.agent_type.clone(),
         text: task.text.clone(),
         error_code: task.error_code.clone(),
-        message: task.message.clone(),
+        message: task.message.clone().or_else(|| {
+            (task.status == TaskStatus::Completed)
+                .then(|| "open the child session for full output".to_string())
+        }),
         duration_ms: task.duration_ms,
     }
 }
@@ -1330,7 +1308,7 @@ mod tests {
         assert_eq!(h.broker.running_count(), 0);
         let completed = h.broker.completed_report(&call_id).expect("completed");
         assert_eq!(completed.status, TaskStatus::Completed);
-        assert_eq!(completed.text.as_deref(), Some("all done"));
+        assert!(completed.text.is_none());
         assert_eq!(h.events.completed.lock().unwrap().len(), 1);
         // Child is torn down (one-shot v1).
         assert_eq!(h.spawner.calls.lock().unwrap().disconnected.len(), 1);
@@ -1525,7 +1503,11 @@ mod tests {
             .await;
 
         assert_eq!(reports[0].status, TaskStatus::Completed);
-        assert_eq!(reports[0].text.as_deref(), Some("first result"));
+        assert!(reports[0].text.is_none());
+        assert_eq!(
+            reports[0].message.as_deref(),
+            Some("open the child session for full output")
+        );
         assert_eq!(reports[1].status, TaskStatus::Running);
     }
 
@@ -1641,40 +1623,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cache_evicts_oldest_over_byte_cap() {
-        // Cap of 10 bytes with 20-byte results: only the newest survives.
-        let config = DelegationConfig {
-            completed_cache_cap_bytes: 10,
-            ..DelegationConfig::default()
-        };
-        let h = harness(MockDepthLookup::default(), config);
-
-        let mut ids = Vec::new();
-        for _ in 0..3 {
-            let id = h
-                .broker
-                .start_delegation(request(Uuid::nil()))
-                .await
-                .task_id
-                .unwrap();
-            h.broker
-                .complete_call(
-                    &id,
-                    ok_text_outcome(h.spawner.child_session_id, "x".repeat(20)),
-                )
-                .await;
-            ids.push(id);
-        }
-
-        assert!(
-            h.broker.completed_report(&ids[0]).is_none(),
-            "oldest evicted"
-        );
-        assert!(h.broker.completed_report(&ids[2]).is_some(), "newest kept");
-    }
-
-    #[tokio::test]
-    async fn completed_result_is_capped_at_256_kib() {
+    async fn completed_status_does_not_duplicate_child_output_in_memory() {
         let h = harness(MockDepthLookup::default(), DelegationConfig::default());
         let task_id = h
             .broker
@@ -1694,7 +1643,16 @@ mod tests {
             .get_tasks_status(&scope(Uuid::nil()), &[task_id], StatusWait::Immediate)
             .await;
 
-        assert_eq!(reports[0].text.as_ref().unwrap().len(), 256 * 1024);
+        assert_eq!(reports[0].status, TaskStatus::Completed);
+        assert_eq!(
+            reports[0].child_session_id,
+            Some(h.spawner.child_session_id)
+        );
+        assert!(reports[0].text.is_none());
+        assert_eq!(
+            reports[0].message.as_deref(),
+            Some("open the child session for full output")
+        );
     }
 
     #[tokio::test]

@@ -56,18 +56,31 @@ function parseInput(use: ToolUseBlock): unknown {
  * Tool outputs arrive as the agent's rawOutput serialized to JSON — surface the
  * human-readable text (stdout/stderr/output) instead of an escaped JSON blob.
  */
+function extractOutputParts(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value == null) return [];
+  if (typeof value === 'string') return value.length > 0 ? [value] : [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractOutputParts(item, depth + 1));
+  }
+  if (typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const direct = ['stdout', 'stderr', 'output', 'text']
+    .map((key) => record[key])
+    .filter(
+      (part): part is string => typeof part === 'string' && part.length > 0
+    );
+  if (direct.length > 0) return direct;
+  return extractOutputParts(record.content, depth + 1);
+}
+
 function extractOutputText(preview: string | null): string | null {
   if (!preview) return preview;
   try {
     const parsed: unknown = JSON.parse(preview);
     if (typeof parsed === 'string') return parsed;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      const parts = ['stdout', 'stderr', 'output', 'text', 'content']
-        .map((key) => (typeof record[key] === 'string' ? record[key] : ''))
-        .filter((part): part is string => part.length > 0);
-      if (parts.length > 0) return parts.join('\n');
-    }
+    const parts = extractOutputParts(parsed);
+    if (parts.length > 0) return parts.join('\n');
   } catch {
     // Not JSON — already plain text.
   }
@@ -89,6 +102,60 @@ function firstString(
     if (typeof value === 'string' && value.trim().length > 0) return value;
   }
   return null;
+}
+
+function firstNonNegativeInteger(
+  obj: Record<string, unknown>,
+  ...keys: string[]
+): number | null {
+  for (const key of keys) {
+    const value = obj[key];
+    const numberValue =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim() !== ''
+          ? Number(value)
+          : Number.NaN;
+    if (Number.isInteger(numberValue) && numberValue >= 0) return numberValue;
+  }
+  return null;
+}
+
+function readRange(obj: Record<string, unknown>): {
+  line_start?: number;
+  line_end?: number;
+} {
+  const explicitStart = firstNonNegativeInteger(
+    obj,
+    'line_start',
+    'start_line',
+    'startLine',
+    'line'
+  );
+  const explicitEnd = firstNonNegativeInteger(
+    obj,
+    'line_end',
+    'end_line',
+    'endLine'
+  );
+  const offset = firstNonNegativeInteger(obj, 'offset');
+  const limit = firstNonNegativeInteger(
+    obj,
+    'limit',
+    'line_count',
+    'lineCount'
+  );
+  const lineStart = explicitStart ?? (offset != null ? offset + 1 : null);
+  const lineEnd =
+    explicitEnd ??
+    (lineStart != null && limit != null && limit > 0
+      ? lineStart + limit - 1
+      : null);
+
+  return {
+    ...(lineStart != null ? { line_start: lineStart } : {}),
+    ...(lineEnd != null ? { line_end: lineEnd } : {}),
+  };
 }
 
 /** Shell input arrives as a string or an argv array (OpenAI/Codex shell calls). */
@@ -455,7 +522,12 @@ function toolActionType(
     !looksLikeEdit(obj) &&
     path
   ) {
-    return { action: 'file_read', path };
+    return {
+      action: 'file_read',
+      path,
+      ...readRange(obj),
+      ...(output != null ? { content: output } : {}),
+    };
   }
 
   return {

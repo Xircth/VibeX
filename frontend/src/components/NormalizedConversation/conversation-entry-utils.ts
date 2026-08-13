@@ -708,6 +708,8 @@ export const getToolSummary = (
     }
     case 'file_read':
       return { label: i18n.t('app:entryUtils.fileRead'), detail: at.path };
+    case 'file_edit':
+      return { label: i18n.t('app:entryUtils.fileEdit'), detail: at.path };
     case 'search':
       return { label: i18n.t('app:entryUtils.search'), detail: at.query };
     case 'web_fetch':

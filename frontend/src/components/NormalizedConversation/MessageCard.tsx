@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { AstryxMarkdown } from './AstryxMarkdown';
@@ -91,7 +92,11 @@ export const CollapsibleEntry: React.FC<{
 
   const Inner = (
     <div className={contentClassName}>
-      {markdown ? <AstryxMarkdown value={content} {...markdownContext} /> : content}
+      {markdown ? (
+        <AstryxMarkdown value={content} {...markdownContext} />
+      ) : (
+        content
+      )}
     </div>
   );
 
@@ -141,15 +146,46 @@ export const CompactNoticeEntry: React.FC<{
 export const ContextCompactStatusEntry: React.FC<{
   content: string;
   status: 'running' | 'success' | 'failed';
-}> = ({ content, status }) => (
-  <div
-    className={`conv-context-compact-status conv-context-compact-status-${status}`}
-  >
-    <span className="conv-context-compact-status-line" aria-hidden="true" />
-    <span className="conv-context-compact-status-text">{content}</span>
-    <span className="conv-context-compact-status-line" aria-hidden="true" />
-  </div>
-);
+  durationMs?: number | null;
+  contextTokens?: number | null;
+}> = ({ content, status, durationMs, contextTokens }) => {
+  const { t } = useTranslation('app');
+  const duration =
+    durationMs != null && durationMs >= 0
+      ? t('contextCompact.duration', {
+          value: Number(
+            (durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)
+          ),
+        })
+      : null;
+  const tokens =
+    contextTokens != null && contextTokens > 0
+      ? t('contextCompact.contextTokens', {
+          value:
+            contextTokens >= 1_000_000
+              ? `${Number((contextTokens / 1_000_000).toFixed(1))}M`
+              : contextTokens >= 1_000
+                ? `${Number((contextTokens / 1_000).toFixed(1))}k`
+                : contextTokens,
+        })
+      : null;
+
+  return (
+    <div
+      className={`conv-context-compact-status conv-context-compact-status-${status}`}
+    >
+      <span className="conv-context-compact-status-line" aria-hidden="true" />
+      <span className="conv-context-compact-status-text">{content}</span>
+      {duration ? (
+        <span className="conv-context-compact-status-metric">{duration}</span>
+      ) : null}
+      {tokens ? (
+        <span className="conv-context-compact-status-metric">{tokens}</span>
+      ) : null}
+      <span className="conv-context-compact-status-line" aria-hidden="true" />
+    </div>
+  );
+};
 
 export const PlainNoticeEntry: React.FC<{
   content: string;
@@ -162,7 +198,11 @@ export const PlainNoticeEntry: React.FC<{
     className={`conv-plain-notice${className ? ` ${className}` : ''}`}
     title={title}
   >
-    {markdown ? <AstryxMarkdown value={content} {...markdownContext} /> : content}
+    {markdown ? (
+      <AstryxMarkdown value={content} {...markdownContext} />
+    ) : (
+      content
+    )}
   </div>
 );
 

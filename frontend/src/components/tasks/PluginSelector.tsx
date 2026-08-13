@@ -25,7 +25,7 @@ function PluginSelectorInner({
   className,
 }: PluginSelectorProps) {
   const { t } = useTranslation(['tasks', 'common']);
-  const { settings } = useClaudeSettings();
+  const { settings, error } = useClaudeSettings();
   const pluginsMap = settings?.enabled_plugins ?? {};
   const plugins = Object.entries(pluginsMap)
     .filter(([, enabled]) => enabled)
@@ -41,6 +41,8 @@ function PluginSelectorInner({
           size="sm"
           className={cn('px-2 flex items-center gap-1', className)}
           disabled={disabled}
+          aria-invalid={!!error}
+          title={error ?? undefined}
         >
           <span className="text-xs truncate max-w-[80px]">{displayName}</span>
           <ChevronDown className="h-2.5 w-2.5" />
@@ -58,6 +60,11 @@ function PluginSelectorInner({
         >
           {t('pluginSelector.default')}
         </DropdownMenuItem>
+        {error ? (
+          <DropdownMenuItem disabled className="max-w-72 text-destructive">
+            {error}
+          </DropdownMenuItem>
+        ) : null}
         {plugins.map((plugin) => (
           <DropdownMenuItem
             key={plugin}

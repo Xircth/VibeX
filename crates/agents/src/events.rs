@@ -79,6 +79,10 @@ pub struct AgentToolCallUpdate {
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// Raw input newly supplied by an ACP patch (including a synthesized
+    /// file/diff payload when ACP reports structured content or locations).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
 }
@@ -507,6 +511,7 @@ mod tests {
                     id: "tool-1".to_string(),
                     status: Some("completed".to_string()),
                     content: Some("ok".to_string()),
+                    input_preview: None,
                     meta: None,
                 },
             },

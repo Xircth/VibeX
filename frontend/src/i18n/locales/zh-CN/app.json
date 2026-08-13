@@ -110,20 +110,8 @@
     "closeBehaviorRemember": "下次保持该行为，不再询问",
     "closeBehaviorExit": "退出应用",
     "closeBehaviorMinimize": "最小化",
-    "dependencyUpdateTitleMany": "有 {{count}} 个依赖需要更新",
-    "dependencyUpdateTitleOne": "有依赖需要更新",
-    "dependencyUpdatePrompt": "是否现在更新本地 Agent 依赖？",
-    "dependencyCurrentVersion": "当前版本：{{version}}",
-    "dependencyNotInstalled": "未安装",
-    "dependencyMinimumSupported": "，最低支持：{{version}}",
-    "dependencyLatestVersion": "，可更新：{{version}}",
-    "dependencyLater": "稍后",
-    "dependencyUpdate": "更新",
     "appUpdateAvailable": "VibeX {{version}} 可更新。",
     "openReleasePage": "打开发布页",
-    "updatingDependencies": "正在更新本地 Agent 依赖...",
-    "dependenciesUpdated": "本地 Agent 依赖已更新。",
-    "dependenciesUpdateFailed": "本地 Agent 依赖更新失败。",
     "agentRuntimeSetupRequired": "{{agents}} 的本机 Agent Runtime 或 ACP 缺失或不兼容。请在 Agent 设置中预检查并安装或更新。",
     "openAgentSettings": "前往 Agent 设置"
   },
@@ -235,30 +223,6 @@
       }
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "VibeX Companion 点击能力",
-        "description": "在预览页面中启用点击组件定位，帮助 Agent 更快理解当前 UI 与源代码之间的关系。"
-      },
-      "installCompanion": {
-        "title": "为开发服务器安装 Companion",
-        "description": "当项目已配置开发服务器时，可以自动安装并接入 VibeX Web Companion。"
-      },
-      "codeReview": {
-        "title": "查看代码审查反馈",
-        "description": "在任务面板中集中查看代码审查结果，并根据反馈继续调整实现。"
-      },
-      "createPr": {
-        "title": "从 Git 变更创建 PR",
-        "description": "结合当前工作区变更生成提交与 PR 描述，减少手动整理上下文的成本。"
-      },
-      "tagPrompts": {
-        "title": "复用标签提示词",
-        "description": "保存常用提示词片段，并通过标签快速插入到任务输入中。"
-      }
-    }
-  },
   "sessionContinuity": {
     "resumeInPlace": {
       "shortLabel": "回到此处",
@@ -292,6 +256,7 @@
   },
   "entryUtils": {
     "fileRead": "查看文件",
+    "fileEdit": "编辑文件",
     "search": "搜索",
     "webFetch": "网页抓取",
     "terminal": "Terminal",
@@ -305,6 +270,8 @@
   "contextCompact": {
     "running": "正在执行上下文压缩...",
     "success": "上下文已压缩",
-    "failed": "上下文压缩失败"
+    "failed": "上下文压缩失败",
+    "duration": "{{value}} 秒",
+    "contextTokens": "{{value}} tokens"
   }
 }

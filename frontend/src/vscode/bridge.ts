@@ -191,7 +191,7 @@ function pasteIntoInput(
  * Uses native mechanisms (setRangeText/execCommand) and emits input events so
  * controlled frameworks (like React) update state predictably.
  */
-function insertTextAtCaretGeneric(text: string) {
+function insertTextAtCaretGeneric(text: string): boolean {
   const el =
     (activeEditable() as
       | HTMLInputElement
@@ -201,7 +201,7 @@ function insertTextAtCaretGeneric(text: string) {
     (document.querySelector(
       'textarea, input:not([type=checkbox]):not([type=radio])'
     ) as HTMLTextAreaElement | HTMLInputElement | null);
-  if (!el) return;
+  if (!el) return false;
   if ((el as HTMLInputElement).selectionStart !== undefined) {
     pasteIntoInput(el as HTMLInputElement | HTMLTextAreaElement, text);
   } else {
@@ -212,47 +212,13 @@ function insertTextAtCaretGeneric(text: string) {
       (el as HTMLElement).innerText += text;
     }
   }
+  return true;
 }
 
-// Lightweight retry for cases where add-to arrives before an editable exists
-/** CSS selector for a reasonable first editable fallback. */
-const EDITABLE_SELECTOR =
-  'textarea, input:not([type=checkbox]):not([type=radio])';
-/** Interval (ms) between retries while we wait for an editable to appear. */
-const RETRY_INTERVAL_MS = 100;
-/** Maximum number of retry attempts before giving up. */
-const MAX_RETRY_ATTEMPTS = 15;
-let insertRetryTimer: number | null = null;
-const insertQueue: string[] = [];
 function enqueueInsert(text: string) {
-  insertQueue.push(text);
-  if (insertRetryTimer != null) return;
-  let attempts = 0;
-  const run = () => {
-    attempts++;
-    const el =
-      activeEditable() ||
-      (document.querySelector(EDITABLE_SELECTOR) as
-        | HTMLTextAreaElement
-        | HTMLInputElement
-        | null);
-    if (el) {
-      // drain queue
-      while (insertQueue.length > 0) {
-        insertTextAtCaretGeneric(insertQueue.shift() as string);
-      }
-      if (insertRetryTimer != null) {
-        window.clearInterval(insertRetryTimer);
-        insertRetryTimer = null;
-      }
-      return;
-    }
-    if (attempts >= MAX_RETRY_ATTEMPTS && insertRetryTimer != null) {
-      window.clearInterval(insertRetryTimer);
-      insertRetryTimer = null;
-    }
-  };
-  insertRetryTimer = window.setInterval(run, RETRY_INTERVAL_MS);
+  if (!insertTextAtCaretGeneric(text)) {
+    console.error('Cannot insert text: no editable element is available');
+  }
 }
 
 /** Request map to resolve clipboard paste requests from the extension. */
@@ -328,14 +294,7 @@ window.addEventListener('message', (e: MessageEvent) => {
     }
   }
   if (msg.type === 'VIBE_ADD_TO_INPUT' && typeof msg.text === 'string') {
-    const el =
-      activeEditable() ||
-      (document.querySelector(EDITABLE_SELECTOR) as
-        | HTMLTextAreaElement
-        | HTMLInputElement
-        | null);
-    if (el) insertTextAtCaretGeneric(msg.text);
-    else enqueueInsert(msg.text);
+    enqueueInsert(msg.text);
   }
 });
 

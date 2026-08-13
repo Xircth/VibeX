@@ -9,10 +9,15 @@ const conversationMessageStyles = readFileSync(
   'utf8'
 );
 
-const { markdownMock, userMarkdownMock } = vi.hoisted(() => ({
-  markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
-  userMarkdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
-}));
+const { markdownMock, userMarkdownMock, openFilePreviewMock } = vi.hoisted(
+  () => ({
+    markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
+    userMarkdownMock: vi.fn(({ value }: { value: string }) => (
+      <div>{value}</div>
+    )),
+    openFilePreviewMock: vi.fn(),
+  })
+);
 
 function toolUseBlock(index: number, toolName: string, input: unknown) {
   return {
@@ -30,6 +35,12 @@ vi.mock('./AstryxMarkdown', () => ({
 
 vi.mock('./UserMessageMarkdown', () => ({
   UserMessageMarkdown: userMarkdownMock,
+}));
+
+vi.mock('@/contexts/PanelActionsContext', () => ({
+  useOptionalPanelActionsContext: () => ({
+    openFilePreview: openFilePreviewMock,
+  }),
 }));
 
 vi.mock('./ThinkingEntry', () => ({
@@ -59,6 +70,7 @@ describe('MessageTurnView', () => {
   beforeEach(() => {
     markdownMock.mockClear();
     userMarkdownMock.mockClear();
+    openFilePreviewMock.mockClear();
   });
 
   it('renders a user turn with the Astryx user-message semantics', () => {
@@ -454,6 +466,7 @@ describe('MessageTurnView', () => {
         attempt={{ id: 'attempt-1', container_ref: null } as never}
         task={null}
         collapseProcess={false}
+        workspacePath="/workspace/project"
       />
     );
 
@@ -465,5 +478,45 @@ describe('MessageTurnView', () => {
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getAllByText('Terminal')).toHaveLength(5);
+    expect(screen.getAllByText('src/0.ts')).not.toHaveLength(0);
+    expect(screen.getAllByText('+1')).toHaveLength(2);
+    expect(screen.getAllByText('-1')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'src/0.ts' }));
+    expect(openFilePreviewMock).toHaveBeenCalledWith(
+      '/workspace/project/src/0.ts',
+      { displayPath: 'src/0.ts', title: 'src/0.ts' }
+    );
+  });
+
+  it('renders context compaction duration and resulting context length', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-compact:assistant',
+            role: 'assistant',
+            blocks: [{ type: 'text', text: '上下文已压缩' }],
+            timestamp: '2026-08-08T00:00:00.000Z',
+          } as never
+        }
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        contextCompact={{
+          status: 'success',
+          durationMs: 1840,
+          contextTokens: 42300,
+        }}
+      />
+    );
+
+    expect(screen.getByText('上下文已压缩')).toBeInTheDocument();
+    expect(screen.getByText('1.8 秒')).toBeInTheDocument();
+    expect(screen.getByText('42.3k tokens')).toBeInTheDocument();
+    expect(markdownMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ value: '上下文已压缩' }),
+      undefined
+    );
   });
 });

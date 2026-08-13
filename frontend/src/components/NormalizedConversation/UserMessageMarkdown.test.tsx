@@ -11,6 +11,10 @@ const userMessageStyles = [
     'utf8'
   ),
   readFileSync(
+    resolve(process.cwd(), 'src/styles/conversation/conv-markdown.css'),
+    'utf8'
+  ),
+  readFileSync(
     resolve(process.cwd(), 'src/styles/conversation/conv-messages.css'),
     'utf8'
   ),
@@ -19,16 +23,18 @@ const userMessageStyles = [
 function StyledUserMessage({
   dark = false,
   value,
+  workspacePath,
 }: {
   dark?: boolean;
   value: string;
+  workspacePath?: string;
 }) {
   return (
     <div className={`legacy-design${dark ? ' dark' : ''}`}>
       <style>{userMessageStyles}</style>
       <div className="vibex-user-message">
         <div className="conv-user-bubble" data-testid="styled-user-bubble">
-          <UserMessageMarkdown value={value} />
+          <UserMessageMarkdown value={value} workspacePath={workspacePath} />
         </div>
       </div>
     </div>
@@ -36,6 +42,17 @@ function StyledUserMessage({
 }
 
 describe('UserMessageMarkdown', () => {
+  it('renders the automatic commit instruction as a structured token', () => {
+    render(<UserMessageMarkdown value="#commit_changes" />);
+
+    const tokenChip = screen
+      .getByText('#commit_changes')
+      .closest('[data-testid="session-composer-token-chip"]');
+
+    expect(tokenChip).toHaveAttribute('data-token-kind', 'tag');
+    expect(tokenChip?.querySelector('svg')).toBeNull();
+  });
+
   it('uses legible adaptive colors for every prose node', () => {
     const { rerender } = render(
       <StyledUserMessage value="Plain **bold** message" />
@@ -63,17 +80,43 @@ describe('UserMessageMarkdown', () => {
     expect(getComputedStyle(paragraph).color).toBe('var(--conv-user-text)');
   });
 
-  it('reduces the Astryx list indentation to one quarter of the old value', () => {
+  it('reduces the user-message list indentation by eighty percent', () => {
     render(<StyledUserMessage value={'- Parent\n  - Child'} />);
 
     const list = screen.getAllByRole('list')[0];
     const item = list.querySelector(':scope > li');
     const marker = item?.querySelector(':scope > span:first-child');
 
-    expect(getComputedStyle(list).paddingInlineStart).toBe('0.25rem');
+    expect(getComputedStyle(list).paddingInlineStart).toBe('0.05rem');
     expect(getComputedStyle(item as Element).paddingInlineStart).toBe('0px');
     expect(getComputedStyle(item as Element).gap).toBe('0.125rem');
     expect(getComputedStyle(marker as Element).width).toBe('0.5rem');
+  });
+
+  it('renders file and website links with the shared inline resource style', () => {
+    render(
+      <StyledUserMessage
+        workspacePath="C:/workspace/project"
+        value={'[App](frontend/src/App.tsx) and https://example.com/docs'}
+      />
+    );
+
+    const fileLink = screen.getByRole('link', { name: 'App' });
+    expect(fileLink).toHaveClass('conv-resource-link');
+    expect(fileLink).toHaveAttribute('data-resource-kind', 'file');
+    expect(
+      fileLink.querySelector('[data-resource-icon="file"] svg')
+    ).toBeInTheDocument();
+
+    const webLink = screen.getByRole('link', {
+      name: 'https://example.com/docs',
+    });
+    expect(webLink).toHaveClass('conv-resource-link');
+    expect(webLink).toHaveAttribute('data-resource-kind', 'web');
+    expect(webLink.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://example.com/favicon.ico'
+    );
   });
 
   it('renders only the user-message Markdown allowlist', () => {
@@ -122,12 +165,17 @@ describe('UserMessageMarkdown', () => {
 
     expect(container.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
     expect(
-      container.querySelector('em, del, a, img, input, blockquote, table')
+      container.querySelector(
+        'em, del, img:not(.conv-resource-link-favicon), input, blockquote, table'
+      )
     ).toBeNull();
+    expect(screen.getByRole('link', { name: 'link' })).toHaveClass(
+      'conv-resource-link'
+    );
     expect(container).toHaveTextContent('# Plain heading syntax');
     expect(container).toHaveTextContent('*italic*');
     expect(container).toHaveTextContent('~~strike~~');
-    expect(container).toHaveTextContent('[link](https://example.com)');
+    expect(container).toHaveTextContent('link');
     expect(container).toHaveTextContent('> quote');
     expect(container).toHaveTextContent('<u>html</u>');
     expect(container).toHaveTextContent('| table | syntax |');

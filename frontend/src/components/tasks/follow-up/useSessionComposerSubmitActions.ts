@@ -20,6 +20,7 @@ export function useSessionComposerSubmitActions({
   queueMessage,
   onAfterQueueCleanup,
   onSendFollowUp,
+  onSubmitFollowUp,
 }: {
   localMessage: string;
   conflictResolutionInstructions: string | null | undefined;
@@ -43,52 +44,73 @@ export function useSessionComposerSubmitActions({
   ) => Promise<void> | void;
   onAfterQueueCleanup: () => void | Promise<void>;
   onSendFollowUp: () => void;
+  onSubmitFollowUp: (message: string) => void;
 }) {
-  const handleQueueMessage = useCallback(async () => {
-    const queuedFollowUp = buildQueuedFollowUp({
-      message: localMessage,
-      conflictMarkdown: conflictResolutionInstructions,
-      reviewMarkdown,
-      images: attachedImagePaths,
-      executorProfile: effectiveExecutorProfile,
-    });
-    if (!queuedFollowUp) return;
+  const handleQueueMessage = useCallback(
+    async (submittedMessage?: string) => {
+      const acceptedMessage = submittedMessage ?? localMessage;
+      const queuedFollowUp = buildQueuedFollowUp({
+        message: acceptedMessage,
+        conflictMarkdown: conflictResolutionInstructions,
+        reviewMarkdown,
+        images: attachedImagePaths,
+        executorProfile: effectiveExecutorProfile,
+      });
+      if (!queuedFollowUp) return;
 
-    clearStopping();
-    cancelDebouncedSave();
-    await saveToScratch(localMessage, effectiveExecutorProfile);
-    await queueMessage(
-      queuedFollowUp.displayMessage,
-      queuedFollowUp.executorProfile,
-      queuedFollowUp.images,
-      queuedFollowUp.pluginActions,
-      queuedFollowUp.message
-    );
-    await onAfterQueueCleanup();
-  }, [
-    attachedImagePaths,
-    cancelDebouncedSave,
-    clearStopping,
-    conflictResolutionInstructions,
-    effectiveExecutorProfile,
-    localMessage,
-    onAfterQueueCleanup,
-    queueMessage,
-    reviewMarkdown,
-    saveToScratch,
-  ]);
+      clearStopping();
+      cancelDebouncedSave();
+      await saveToScratch(acceptedMessage, effectiveExecutorProfile);
+      await queueMessage(
+        queuedFollowUp.displayMessage,
+        queuedFollowUp.executorProfile,
+        queuedFollowUp.images,
+        queuedFollowUp.pluginActions,
+        queuedFollowUp.message
+      );
+      await onAfterQueueCleanup();
+    },
+    [
+      attachedImagePaths,
+      cancelDebouncedSave,
+      clearStopping,
+      conflictResolutionInstructions,
+      effectiveExecutorProfile,
+      localMessage,
+      onAfterQueueCleanup,
+      queueMessage,
+      reviewMarkdown,
+      saveToScratch,
+    ]
+  );
 
   const handleSubmitShortcut = useCallback(
-    (e?: KeyboardEvent) => {
-      e?.preventDefault();
+    (eventOrMessage?: KeyboardEvent | string) => {
+      const submittedMessage =
+        typeof eventOrMessage === 'string' ? eventOrMessage : undefined;
+      if (eventOrMessage && typeof eventOrMessage !== 'string') {
+        eventOrMessage.preventDefault();
+      }
       const action = getSubmitShortcutAction({ isAttemptRunning, isQueued });
       if (action === 'queue') {
-        void handleQueueMessage();
+        void handleQueueMessage(submittedMessage);
         return;
       }
-      if (action === 'send') onSendFollowUp();
+      if (action === 'send') {
+        if (submittedMessage !== undefined) {
+          onSubmitFollowUp(submittedMessage);
+        } else {
+          onSendFollowUp();
+        }
+      }
     },
-    [handleQueueMessage, isAttemptRunning, isQueued, onSendFollowUp]
+    [
+      handleQueueMessage,
+      isAttemptRunning,
+      isQueued,
+      onSendFollowUp,
+      onSubmitFollowUp,
+    ]
   );
 
   return { handleQueueMessage, handleSubmitShortcut };

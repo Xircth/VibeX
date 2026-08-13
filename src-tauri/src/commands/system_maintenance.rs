@@ -2,14 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{error::AppError, state::AppState};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemMaintenanceStatus {
-    pub app: AppReleaseStatus,
-    pub npm: RuntimeStatus,
-    pub tools: Vec<LocalToolStatus>,
-}
+use crate::error::AppError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppReleaseStatus {
@@ -22,96 +15,11 @@ pub struct AppReleaseStatus {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuntimeStatus {
-    pub name: String,
-    pub available: bool,
-    pub path: Option<String>,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalToolStatus {
-    pub id: String,
-    pub label: String,
-    pub kind: String,
-    pub group_id: String,
-    pub user_visible: bool,
-    pub executable: String,
-    pub npm_package: String,
-    pub installed: bool,
-    pub executable_path: Option<String>,
-    pub installed_version: Option<String>,
-    pub latest_version: Option<String>,
-    pub minimum_supported_version: Option<String>,
-    pub supported: bool,
-    pub update_available: bool,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstallSystemDependenciesResult {
-    pub installed_or_updated: Vec<String>,
-    pub skipped: Vec<String>,
-    pub status: SystemMaintenanceStatus,
-}
-
 const DEFAULT_UPDATE_REPOSITORY: &str = "vibex/vibex";
-
-fn npm_program() -> &'static str {
-    if cfg!(windows) { "npm.cmd" } else { "npm" }
-}
-
-#[tauri::command]
-pub async fn get_system_maintenance_status() -> Result<SystemMaintenanceStatus, AppError> {
-    system_maintenance_status().await
-}
 
 #[tauri::command]
 pub async fn check_app_release() -> Result<AppReleaseStatus, AppError> {
     Ok(check_latest_release().await)
-}
-
-/// Agent Runtime and ACP lifecycle is owned exclusively by Agent Management.
-/// This legacy app-maintenance command intentionally has no Agent packages to
-/// mutate, preventing an unpinned second installer from bypassing install
-/// locks and integrity checks.
-#[tauri::command]
-pub async fn install_system_dependencies(
-    _state: tauri::State<'_, AppState>,
-    _force_update: Option<bool>,
-    tool_ids: Option<Vec<String>>,
-) -> Result<InstallSystemDependenciesResult, AppError> {
-    Ok(InstallSystemDependenciesResult {
-        installed_or_updated: Vec::new(),
-        skipped: tool_ids.unwrap_or_default(),
-        status: system_maintenance_status().await?,
-    })
-}
-
-async fn system_maintenance_status() -> Result<SystemMaintenanceStatus, AppError> {
-    Ok(SystemMaintenanceStatus {
-        app: check_latest_release().await,
-        npm: runtime_status(npm_program()).await,
-        tools: Vec::new(),
-    })
-}
-
-async fn runtime_status(name: &str) -> RuntimeStatus {
-    match utils::shell::resolve_executable_path(name).await {
-        Some(path) => RuntimeStatus {
-            name: name.to_string(),
-            available: true,
-            path: Some(path.display().to_string()),
-            message: format!("Found {name}"),
-        },
-        None => RuntimeStatus {
-            name: name.to_string(),
-            available: false,
-            path: None,
-            message: format!("{name} not found in PATH"),
-        },
-    }
 }
 
 async fn check_latest_release() -> AppReleaseStatus {

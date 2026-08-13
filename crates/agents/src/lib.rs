@@ -17,7 +17,6 @@ pub mod error;
 pub mod events;
 pub mod filesystem;
 pub mod history;
-pub mod host;
 pub mod ids;
 pub mod install_planner;
 pub mod launch_gate;
@@ -102,7 +101,6 @@ pub use history::{
     ImportedAgentMessageRole, ImportedAgentSession, configured_history_sources,
     default_history_sources, import_history_source,
 };
-pub use host::{AgentHost, HostRequestError};
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
     AgentTerminalId,

@@ -39,7 +39,11 @@ import {
   type TurnRenderItem,
 } from './messageTurnBlocks';
 import { splitAssistantCommandOutput } from './conversation-entry-utils';
-import { AssistantCommandOutputEntry } from './MessageCard';
+import {
+  AssistantCommandOutputEntry,
+  ContextCompactStatusEntry,
+} from './MessageCard';
+import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
 import { TurnToolCalls } from './TurnToolCalls';
 
@@ -47,6 +51,12 @@ export interface MessageTurnContext {
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
+}
+
+export interface ContextCompactPresentation {
+  status: ContextCompactStatusKind;
+  durationMs: number | null;
+  contextTokens: number | null;
 }
 
 type MessageTurnPhase =
@@ -404,6 +414,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   collapseProcess = DEFAULT_COLLAPSE_PREFERENCES.aiMessagesCollapsed,
   workspacePath,
   showInterruptedNotice = true,
+  contextCompact,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -414,7 +425,9 @@ export const MessageTurnView = memo(function MessageTurnView({
   collapseProcess?: boolean;
   workspacePath?: string | null;
   showInterruptedNotice?: boolean;
+  contextCompact?: ContextCompactPresentation | null;
 }) {
+  const { t } = useTranslation(['conversation', 'common', 'app']);
   const [editing, setEditing] = useState(false);
   // Prefer the resolved absolute root (caller may supply the repo path when the
   // workspace has no container_ref) so clickable file paths open a real file.
@@ -460,13 +473,29 @@ export const MessageTurnView = memo(function MessageTurnView({
               className="conv-user-bubble"
               data-testid="user-message-bubble"
             >
-              <UserMessageMarkdown value={text} />
+              <UserMessageMarkdown
+                value={text}
+                workspacePath={resolvedWorkspacePath}
+              />
             </ChatMessageBubble>
           </ChatMessage>
         </div>
         {phase === 'interrupted' && showInterruptedNotice ? (
           <InterruptedTurnNotice onResend={onRetry} />
         ) : null}
+      </div>
+    );
+  }
+
+  if (contextCompact) {
+    return (
+      <div className="conv-entry-item px-4 py-2">
+        <ContextCompactStatusEntry
+          content={t(`app:contextCompact.${contextCompact.status}`)}
+          status={contextCompact.status}
+          durationMs={contextCompact.durationMs}
+          contextTokens={contextCompact.contextTokens}
+        />
       </div>
     );
   }
@@ -525,6 +554,7 @@ export const MessageTurnView = memo(function MessageTurnView({
           items={unit.items}
           attempt={attempt}
           task={task}
+          workspacePath={resolvedWorkspacePath}
         />
       );
     });

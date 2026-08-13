@@ -5,14 +5,35 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionComposerInput } from './SessionComposerInput';
+import {
+  SessionComposerAttachmentDrawer,
+  SessionComposerInput,
+} from './SessionComposerInput';
 import { formatSessionComposerCommand } from './sessionComposerStructuredTokens';
 import type { FileReferencePayload } from '@/utils/fileReferences';
 import { setCurrentDraggedFileReference } from '@/utils/fileReferenceDrag';
+import { tagsApi } from '@/lib/api';
+import type { BackendTransport } from '@/lib/backendTransport';
+
+const legacyStyles = readFileSync(
+  resolve(process.cwd(), 'src/styles/legacy/index.css'),
+  'utf8'
+);
+const attachmentDrawerRule =
+  legacyStyles.match(
+    /\.legacy-design\s+\.session-composer-attachment-drawer\s*\{[^}]+\}/u
+  )?.[0] ?? '';
+const composerEditableRule =
+  legacyStyles.match(
+    /\.legacy-design\s+\.session-composer-editor\s*>\s*\[contenteditable='true'\]\s*\{[^}]+\}/u
+  )?.[0] ?? '';
 
 function renderComposerInput(
   props: Partial<Parameters<typeof SessionComposerInput>[0]> = {}
@@ -25,11 +46,9 @@ function renderComposerInput(
     <QueryClientProvider client={queryClient}>
       <SessionComposerInput
         value=""
-        images={[]}
         onChange={vi.fn()}
         onSubmit={vi.fn()}
         onAttachImages={vi.fn()}
-        onRemoveImage={vi.fn()}
         {...props}
       />
     </QueryClientProvider>
@@ -42,6 +61,138 @@ function getEditor(): HTMLDivElement {
 }
 
 describe('SessionComposerInput (Astryx)', () => {
+  it('keeps wrapper padding below rather than above the caret', () => {
+    renderComposerInput();
+
+    expect(screen.getByTestId('session-composer-input-surface')).toHaveClass(
+      'pt-0',
+      'pb-1'
+    );
+    expect(screen.getByTestId('session-composer-editor')).toHaveClass(
+      'pt-0',
+      'pb-1'
+    );
+  });
+
+  it('clears the controlled editor in the same Enter submission frame', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <SessionComposerInput
+          value={value}
+          onChange={setValue}
+          onSubmit={onSubmit}
+          onAttachImages={vi.fn()}
+        />
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'send now');
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(editor).toBeEmptyDOMElement();
+  });
+
+  it('gives the actual editable surface a two-to-seven-line height range', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <div className="legacy-design">
+        <style>{composerEditableRule}</style>
+        <QueryClientProvider client={queryClient}>
+          <SessionComposerInput
+            value=""
+            onChange={vi.fn()}
+            onSubmit={vi.fn()}
+            onAttachImages={vi.fn()}
+          />
+        </QueryClientProvider>
+      </div>
+    );
+
+    const editor = getEditor();
+
+    expect(getComputedStyle(editor).minHeight).toBe('3.25rem');
+    expect(editor.style.maxHeight).toBe('154px');
+    expect(getComputedStyle(editor).overflowY).toBe('auto');
+  });
+
+  it('renders image attachments in the Astryx composer drawer', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionComposerAttachmentDrawer
+          images={[
+            {
+              id: 'image-1',
+              name: 'reference.png',
+              path: '.vibe-images/reference.png',
+              previewUrl: 'blob:reference',
+            },
+          ]}
+          onRemoveImage={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(
+      screen.getByTestId('session-composer-attachment-drawer')
+    ).toHaveTextContent('1');
+  });
+
+  it('separates the attachment drawer with a hairline and narrow shadow', () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const resolvedDrawerRule = attachmentDrawerRule
+      .replace('var(--border-strong)', 'red')
+      .replace('var(--shadow-control)', '0 1px 2px red');
+    render(
+      <div className="legacy-design">
+        <style>{resolvedDrawerRule}</style>
+        <QueryClientProvider client={queryClient}>
+          <SessionComposerAttachmentDrawer
+            images={[
+              {
+                id: 'image-1',
+                name: 'reference.png',
+                path: '.vibe-images/reference.png',
+                previewUrl: 'blob:reference',
+              },
+            ]}
+            onRemoveImage={vi.fn()}
+          />
+        </QueryClientProvider>
+      </div>
+    );
+
+    const drawer = screen.getByTestId('session-composer-attachment-drawer');
+    const styles = getComputedStyle(drawer);
+
+    expect(styles.borderWidth).toBe('1px');
+    expect(styles.borderStyle).toBe('solid');
+    expect(styles.borderColor).toContain('rgb(255, 0, 0)');
+    expect(styles.boxShadow).toBe('0 1px 2px red');
+  });
+
   it('constrains the trigger menu to the composer width', async () => {
     const user = userEvent.setup();
     const rectSpy = vi
@@ -69,6 +220,145 @@ describe('SessionComposerInput (Astryx)', () => {
     rectSpy.mockRestore();
   });
 
+  it('shows Codex system skills returned by the agent skill catalog in slash search', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        if (command === 'list_agent_skills') {
+          return {
+            supported: true,
+            global_supported: true,
+            project_supported: true,
+            locations: [],
+            skills: [
+              {
+                id: 'imagegen',
+                scope: 'global',
+                path: '/Users/test/.codex/skills/.system/imagegen',
+                description: 'Generate or edit raster images',
+                read_only: true,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'codex' },
+        transport,
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/imageg');
+
+    expect(
+      await screen.findByRole('option', { name: /imagegen/i })
+    ).toBeVisible();
+  });
+
+  it('loads project skills from the active workspace for slash search', async () => {
+    const user = userEvent.setup();
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_action_catalog') return { actions: [] };
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [], runtimes: [] };
+      }
+      if (command === 'list_agent_skills') {
+        return {
+          supported: true,
+          global_supported: true,
+          project_supported: true,
+          locations: [],
+          skills: [
+            {
+              id: 'project-review',
+              scope: 'project',
+              path: '/workspace/.agents/skills/project-review',
+              description: 'Review this project',
+              read_only: false,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const transport: BackendTransport = { environment: 'desktop', call };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'codex' },
+        transport,
+        workspacePath: '/workspace',
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/project');
+
+    expect(
+      await screen.findByRole('option', { name: /project-review/i })
+    ).toBeVisible();
+    expect(call).toHaveBeenCalledWith('list_agent_skills', {
+      agentType: 'codex',
+      workspacePath: '/workspace',
+    });
+  });
+
+  it('shows the same project skill catalog in dollar search', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        if (command === 'list_agent_skills') {
+          return {
+            supported: true,
+            global_supported: true,
+            project_supported: true,
+            locations: [],
+            skills: [
+              {
+                id: 'project-review',
+                scope: 'project',
+                path: '/workspace/.claude/skills/project-review',
+                description: 'Review this project',
+                read_only: false,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'claude_code' },
+        transport,
+        workspacePath: '/workspace',
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '$project');
+
+    expect(
+      await screen.findByRole('option', { name: /project-review/i })
+    ).toBeVisible();
+  });
+
   it('renders compact, semantically identified trigger rows', async () => {
     const user = userEvent.setup();
     renderComposerInput();
@@ -86,6 +376,25 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(
       row?.querySelector('[data-composer-trigger-description]')
     ).toHaveClass('composer-trigger-description');
+  });
+
+  it('renders a selected tag token with exactly one hash prefix', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(tagsApi, 'list').mockResolvedValue([]);
+    renderComposerInput();
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '#');
+
+    const option = (await screen.findAllByRole('option'))[0];
+    await user.click(option);
+
+    const token = editor.querySelector<HTMLElement>('[data-astryx-token]');
+    expect(token).not.toBeNull();
+    expect(token?.textContent?.startsWith('#')).toBe(true);
+    expect(token?.textContent?.match(/#/g)).toHaveLength(1);
+    expect(token?.querySelector('svg')).toBeNull();
   });
 
   it('restores serialized structured tokens as token chips', async () => {
@@ -167,7 +476,7 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(onChange).toHaveBeenLastCalledWith('hello');
   });
 
-  it('submits on Enter when Enter is the send shortcut', async () => {
+  it('submits on Enter with the Astryx default behavior', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     renderComposerInput({ onSubmit });
@@ -177,7 +486,27 @@ describe('SessionComposerInput (Astryx)', () => {
     await user.type(editor, 'run tests');
     await user.keyboard('{Enter}');
 
-    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith('run tests');
+  });
+
+  it('submits a token-only message on Enter', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderComposerInput({ onSubmit });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '$');
+    const option = (await screen.findAllByRole('option'))[0];
+    await user.click(option);
+    const serializedToken = editor.querySelector<HTMLElement>(
+      '[data-astryx-token]'
+    )?.dataset.astryxTokenValue;
+    expect(serializedToken).toMatch(/^\[\$:[^\]]+\]\([^)]*\)$/);
+
+    await user.keyboard('{Enter}');
+
+    expect(onSubmit).toHaveBeenCalledWith(serializedToken);
   });
 
   it('does not submit on the Enter that commits an IME composition', async () => {
@@ -194,13 +523,10 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it('submits on Ctrl+Enter when ModifierEnter is the send shortcut', async () => {
+  it('uses the Astryx default submit behavior for Ctrl+Enter', async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
-    renderComposerInput({
-      onSubmit,
-      context: { sendShortcut: 'ModifierEnter' },
-    });
+    renderComposerInput({ onSubmit });
     const editor = getEditor();
 
     await user.click(editor);
@@ -210,34 +536,15 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('does not submit on plain Enter when ModifierEnter is the send shortcut', async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn();
-    renderComposerInput({
-      onSubmit,
-      context: { sendShortcut: 'ModifierEnter' },
-    });
-    const editor = getEditor();
-
-    await user.click(editor);
-    await user.type(editor, 'run tests');
-    await user.keyboard('{Enter}');
-
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  it('inserts a newline when Enter is not the submit shortcut', async () => {
+  it('uses the Astryx default Shift+Enter newline behavior', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    renderComposerInput({
-      onChange,
-      context: { sendShortcut: 'ModifierEnter' },
-    });
+    renderComposerInput({ onChange });
     const editor = getEditor();
 
     await user.click(editor);
     await user.type(editor, 'line1');
-    await user.keyboard('{Enter}');
+    await user.keyboard('{Shift>}{Enter}{/Shift}');
 
     expect(onChange).toHaveBeenLastCalledWith('line1\n');
   });

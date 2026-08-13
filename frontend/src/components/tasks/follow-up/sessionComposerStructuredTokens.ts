@@ -228,11 +228,12 @@ function createStructuredToken({
   raw: string;
 }): SessionComposerStructuredToken {
   if (type === '/') {
+    const commandName = key.split(':').at(-1) || key;
     return {
       kind: 'slash',
       type,
       key,
-      label: `/${key}`,
+      label: `/${commandName}`,
       value,
       raw,
     };

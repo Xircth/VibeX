@@ -24,8 +24,12 @@ function NativeSurfaceOcclusionBridge({
   setOccluded: (occluded: boolean) => void;
 }) {
   useEffect(() => {
-    setOccluded(true);
-    return () => setOccluded(false);
+    const occlusionFrame = requestAnimationFrame(() => setOccluded(true));
+
+    return () => {
+      cancelAnimationFrame(occlusionFrame);
+      setOccluded(false);
+    };
   }, [setOccluded]);
 
   return null;
@@ -48,7 +52,7 @@ export function WorkspaceTabAddMenu({
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

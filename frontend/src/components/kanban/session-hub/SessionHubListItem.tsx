@@ -367,7 +367,17 @@ export function SessionHubListItem({
               setContextMenu(null);
               void conversationApi
                 .fork(session.id)
-                .then(() => toast.success(t('hubListItem.forkSuccess')))
+                .then((result) => {
+                  if (result.continuity === 'history_only') {
+                    toast.warning(
+                      t('hubListItem.forkHistoryOnly', {
+                        reason: result.continuityNote,
+                      })
+                    );
+                    return;
+                  }
+                  toast.success(t('hubListItem.forkSuccess'));
+                })
                 .catch((error) =>
                   toast.error(
                     t('hubListItem.forkFailed', { error: String(error) })

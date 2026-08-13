@@ -24,14 +24,9 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { configApi, settingsWindowApi, type LocalToolStatus } from '@/lib/api';
+import { configApi, settingsWindowApi } from '@/lib/api';
 import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
-import {
-  getLocalDependencyUpdatePromptTools,
-  shouldShowAppUpdateToast,
-  shouldStartSystemMaintenance,
-} from '@/appMaintenancePlan';
 import { getAppRouteMode } from '@/appRouteMode';
 import { useLegacyDesignBodyClass } from '@/useLegacyDesignBodyClass';
 import {
@@ -270,36 +265,30 @@ function MainAppContent() {
   }, [config, isDesktop, location.pathname]);
 
   useEffect(() => {
-    if (!isDesktop) return;
-    if (
-      !shouldStartSystemMaintenance({
-        config,
-        hasStarted: maintenanceStartedRef.current,
-      })
-    ) {
+    if (!isDesktop || !config?.disclaimer_acknowledged) return;
+    if (config.auto_update_enabled === false || maintenanceStartedRef.current)
       return;
-    }
 
     maintenanceStartedRef.current = true;
     let cancelled = false;
 
     const runMaintenance = async () => {
       try {
-        const status = await configApi.getSystemMaintenanceStatus();
+        const status = await configApi.checkAppRelease();
         if (cancelled) return;
 
-        if (shouldShowAppUpdateToast({ config, status })) {
+        if (status.update_available) {
           toast.warning(
             t('shell.appUpdateAvailable', {
-              version: status.app.latest_version,
+              version: status.latest_version,
             }),
             {
-              action: status.app.release_url
+              action: status.release_url
                 ? {
                     label: t('shell.openReleasePage'),
                     onClick: () =>
                       window.open(
-                        status.app.release_url!,
+                        status.release_url!,
                         '_blank',
                         'noopener,noreferrer'
                       ),
@@ -307,80 +296,6 @@ function MainAppContent() {
                 : undefined,
             }
           );
-        }
-
-        const toolsNeedingDecision = getLocalDependencyUpdatePromptTools({
-          config,
-          tools: status.tools,
-        });
-
-        if (toolsNeedingDecision.length > 0) {
-          const installLocalDependencyGroups = async (
-            tools: LocalToolStatus[]
-          ) => {
-            const toastId = toast.loading(t('shell.updatingDependencies'));
-            try {
-              await configApi.installSystemDependencies(
-                false,
-                tools.map((tool) => tool.id)
-              );
-              if (!cancelled) {
-                toast.success(t('shell.dependenciesUpdated'), {
-                  id: toastId,
-                });
-              }
-            } catch (error) {
-              if (!cancelled) {
-                toast.error(
-                  error instanceof Error
-                    ? error.message
-                    : t('shell.dependenciesUpdateFailed'),
-                  { id: toastId }
-                );
-              }
-            }
-          };
-
-          const dependencyTitle =
-            toolsNeedingDecision.length > 1
-              ? t('shell.dependencyUpdateTitleMany', {
-                  count: toolsNeedingDecision.length,
-                })
-              : t('shell.dependencyUpdateTitleOne');
-          toast.warning(dependencyTitle, {
-            description: t('shell.dependencyUpdatePrompt'),
-            duration: 15_000,
-            details: toolsNeedingDecision.map((tool) => ({
-              title: tool.label,
-              mono: true,
-              description: `${t('shell.dependencyCurrentVersion', {
-                version:
-                  tool.installed_version ?? t('shell.dependencyNotInstalled'),
-              })}${
-                tool.minimum_supported_version
-                  ? t('shell.dependencyMinimumSupported', {
-                      version: tool.minimum_supported_version,
-                    })
-                  : ''
-              }${
-                tool.latest_version
-                  ? t('shell.dependencyLatestVersion', {
-                      version: tool.latest_version,
-                    })
-                  : ''
-              }`,
-            })),
-            cancel: {
-              label: t('shell.dependencyLater'),
-              onClick: () => undefined,
-            },
-            action: {
-              label: t('shell.dependencyUpdate'),
-              onClick: () => {
-                void installLocalDependencyGroups(toolsNeedingDecision);
-              },
-            },
-          });
         }
       } catch (error) {
         if (!cancelled) {

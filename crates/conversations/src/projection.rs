@@ -23,11 +23,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v4 merges two independently shipped v3 projection changes: compatibility for
-// legacy capability/agent-binding events and Artifact revision timeline rows.
-// Rebuild either predecessor's v3 snapshot so neither placeholder notices nor
-// previously skipped Artifact events survive the merge.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 5;
+// v6 rebuilds snapshots so terminal turns gain their derived completion time
+// and duration. This keeps context-compaction metrics consistent between live
+// rows, cold loads, and explicit projection rebuilds.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 6;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 
@@ -781,6 +780,16 @@ impl ProjectionFold {
                         .collect();
                 }
             }
+            ConversationEvent::UserTurnStarted => {
+                if let Some(turn_id) = record.turn_id {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    turns
+                        .get_mut(&turn_id)
+                        .expect("turn exists")
+                        .assistant
+                        .timestamp = record.created_at;
+                }
+            }
             ConversationEvent::PlanUpdated { entries } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
@@ -914,7 +923,16 @@ impl ProjectionFold {
             ConversationEvent::TurnCompleted { .. } | ConversationEvent::TurnCancelled { .. } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
-                    turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.phase = "settled".into();
+                    turn.assistant.completed_at = Some(record.created_at);
+                    turn.assistant.duration_ms = Some(
+                        record
+                            .created_at
+                            .signed_duration_since(turn.assistant.timestamp)
+                            .num_milliseconds()
+                            .max(0) as u64,
+                    );
                 }
             }
             ConversationEvent::TurnInterrupted { .. } => {
@@ -1106,7 +1124,16 @@ impl ProjectionFold {
             ConversationEvent::TurnFailed { error } => {
                 if let Some(turn_id) = record.turn_id {
                     ensure_turn(turns, turn_order, turn_id, record);
-                    turns.get_mut(&turn_id).expect("turn exists").phase = "settled".into();
+                    let turn = turns.get_mut(&turn_id).expect("turn exists");
+                    turn.phase = "settled".into();
+                    turn.assistant.completed_at = Some(record.created_at);
+                    turn.assistant.duration_ms = Some(
+                        record
+                            .created_at
+                            .signed_duration_since(turn.assistant.timestamp)
+                            .num_milliseconds()
+                            .max(0) as u64,
+                    );
                 }
                 side_rows.push(side_row(
                     record.sequence,
@@ -2198,6 +2225,18 @@ mod tests {
                 conversation_id,
                 Some(turn_id),
                 "runtime",
+                ConversationEvent::AssistantTextDelta {
+                    text: "working".into(),
+                    message_id: None,
+                },
+                None,
+            )
+            .await;
+            append_event(
+                &pool,
+                conversation_id,
+                Some(turn_id),
+                "runtime",
                 terminal_event,
                 None,
             )
@@ -2215,6 +2254,18 @@ mod tests {
                 _ => None,
             });
             assert_eq!(user_phase, Some("settled"));
+            let assistant_metrics = timeline.rows.iter().find_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some((turn.duration_ms, turn.completed_at))
+                }
+                _ => None,
+            });
+            assert!(
+                matches!(assistant_metrics, Some((Some(_), Some(_)))),
+                "assistant metrics: {assistant_metrics:?}"
+            );
         }
     }
 

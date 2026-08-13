@@ -34,7 +34,6 @@ enum_dispatch = "0.3.13"
 rust-embed = "8.2"
 ignore = "0.4"
 json-patch = { workspace = true }
-backon = "1.5.1"
 thiserror = { workspace = true }
 futures = { workspace = true }
 tokio-stream = "0.1.17"
@@ -45,8 +44,6 @@ notify-debouncer-full = "0.5.0"
 dunce = "1.0"
 dashmap = "6.1"
 sha2 = "0.10"
-fst = "0.4"
-moka = { version = "0.12", features = ["future"] }
 reqwest = { workspace = true }
 toml = "0.8"
 serde_yaml = "0.9"

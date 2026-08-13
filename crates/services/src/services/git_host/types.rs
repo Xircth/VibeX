@@ -52,19 +52,6 @@ pub enum GitHostError {
     UnexpectedOutput(String),
 }
 
-impl GitHostError {
-    pub fn should_retry(&self) -> bool {
-        !matches!(
-            self,
-            GitHostError::AuthFailed(_)
-                | GitHostError::InsufficientPermissions(_)
-                | GitHostError::RepoNotFoundOrNoAccess(_)
-                | GitHostError::CliNotInstalled { .. }
-                | GitHostError::UnsupportedProvider
-        )
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct PrCommentAuthor {
     pub login: String,

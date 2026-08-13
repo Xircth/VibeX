@@ -11,6 +11,8 @@ import type {
   TimelineRow,
 } from 'shared/types';
 
+import { getSessionComposerStructuredTokens } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+
 /**
  * Dumb-container conversation store (消灭双投影).
  *
@@ -119,10 +121,14 @@ export function conversationStoreReducer(
         // If live row ops have advanced past the reloaded projection, keep them —
         // otherwise a slow `conversation_detail` response would rewind the timeline.
         const keepRealtimeRows = entry.lastSequence > detailLastSequence;
+        const reconciledTimeline = reconcileOptimisticTurnsAgainstRows(
+          entry.optimisticTurns,
+          action.detail.timeline.rows
+        );
         return {
           ...entry,
           detail: action.detail,
-          rows: keepRealtimeRows ? entry.rows : action.detail.timeline.rows,
+          rows: keepRealtimeRows ? entry.rows : reconciledTimeline.rows,
           liveText: keepRealtimeRows ? entry.liveText : {},
           lastSequence: keepRealtimeRows
             ? entry.lastSequence
@@ -132,10 +138,12 @@ export function conversationStoreReducer(
           loading: false,
           error: null,
           gap: { kind: 'none' },
-          optimisticTurns: reconcileOptimisticTurns(
-            entry.optimisticTurns,
-            action.detail.timeline
-          ),
+          optimisticTurns: keepRealtimeRows
+            ? reconcileOptimisticTurns(
+                entry.optimisticTurns,
+                action.detail.timeline
+              )
+            : reconciledTimeline.optimisticTurns,
           // Hydrate agent-advertised session controls from the persisted event
           // log so a reopened conversation renders real ACP pickers immediately;
           // live row-op batches keep them fresh afterwards.
@@ -175,8 +183,14 @@ export function conversationStoreReducer(
       return updateEntry(state, action.conversationId, (entry) => {
         let rows = entry.rows;
         let liveText = entry.liveText;
+        let optimisticTurns = entry.optimisticTurns;
         for (const row of action.rows) {
-          const applied = upsertRow(rows, liveText, row);
+          const reconciled = reconcileOptimisticTurnAgainstUserRow(
+            optimisticTurns,
+            row
+          );
+          optimisticTurns = reconciled.optimisticTurns;
+          const applied = upsertRow(rows, liveText, reconciled.row);
           rows = applied.rows;
           liveText = applied.liveText;
         }
@@ -184,6 +198,7 @@ export function conversationStoreReducer(
           ...entry,
           rows,
           liveText,
+          optimisticTurns,
           lastSequence:
             action.lastSequence > entry.lastSequence
               ? action.lastSequence
@@ -222,20 +237,19 @@ function applyRowOpBatch(
 
   for (const op of batch.ops) {
     if (op.op === 'upsert') {
-      const applied = upsertRow(rows, liveText, op.row);
+      const reconciled = reconcileOptimisticTurnAgainstUserRow(
+        optimisticTurns,
+        op.row
+      );
+      optimisticTurns = reconciled.optimisticTurns;
+      const applied = upsertRow(rows, liveText, reconciled.row);
       rows = applied.rows;
       liveText = applied.liveText;
-      // A user message-turn upsert marks the active turn and clears the matching
-      // optimistic bubble (matched by text; the ids differ).
       if (
         op.row.row.kind === 'message_turn' &&
         op.row.row.turn.role === 'user'
       ) {
         currentTurnId = turnIdOfRowId(op.row.row_id) ?? currentTurnId;
-        optimisticTurns = reconcileOptimisticTurnsAgainstUser(
-          optimisticTurns,
-          op.row.row.turn
-        );
       }
     } else if (op.op === 'delete') {
       const revision = toBigInt(op.revision);
@@ -288,7 +302,8 @@ function upsertRow(
     nextRows = [...rows, incoming];
     applied = true;
   } else if (incomingRevision >= toBigInt(rows[index].revision)) {
-    nextRows = rows.map((row, i) => (i === index ? incoming : row));
+    const mergedIncoming = preserveStructuredUserText(rows[index], incoming);
+    nextRows = rows.map((row, i) => (i === index ? mergedIncoming : row));
     applied = true;
   }
   // Drop the streaming overlay only when we actually applied a row whose revision is at
@@ -303,6 +318,54 @@ function upsertRow(
     delete nextLive[incoming.row_id];
   }
   return { rows: nextRows, liveText: nextLive };
+}
+
+/**
+ * User turns are immutable after submission, but agent runtimes echo slash/skill
+ * commands as normalized plain text. Once the optimistic turn has supplied the
+ * richer serialized token, keep that presentation payload across every later
+ * projector revision of the same row. Non-text blocks and row metadata remain
+ * authoritative.
+ */
+function preserveStructuredUserText(
+  existing: TimelineRow,
+  incoming: TimelineRow
+): TimelineRow {
+  if (
+    existing.row.kind !== 'message_turn' ||
+    existing.row.turn.role !== 'user' ||
+    incoming.row.kind !== 'message_turn' ||
+    incoming.row.turn.role !== 'user'
+  ) {
+    return incoming;
+  }
+
+  const existingText = userTurnText(existing.row.turn);
+  const incomingText = userTurnText(incoming.row.turn);
+  if (
+    getSessionComposerStructuredTokens(existingText).length === 0 ||
+    getSessionComposerStructuredTokens(incomingText).length > 0
+  ) {
+    return incoming;
+  }
+
+  const existingTextBlocks = existing.row.turn.blocks.filter(
+    (block) => block.type === 'text'
+  );
+  const incomingNonTextBlocks = incoming.row.turn.blocks.filter(
+    (block) => block.type !== 'text'
+  );
+
+  return {
+    ...incoming,
+    row: {
+      ...incoming.row,
+      turn: {
+        ...incoming.row.turn,
+        blocks: [...existingTextBlocks, ...incomingNonTextBlocks],
+      },
+    },
+  };
 }
 
 function appendLiveText(
@@ -430,12 +493,79 @@ function reconcileOptimisticTurns(
   );
 }
 
-function reconcileOptimisticTurnsAgainstUser(
+function reconcileOptimisticTurnsAgainstRows(
   optimisticTurns: MessageTurn[],
-  userTurn: MessageTurn
-): MessageTurn[] {
-  const text = userTurnText(userTurn);
-  return optimisticTurns.filter((turn) => userTurnText(turn) !== text);
+  rows: TimelineRow[]
+): { rows: TimelineRow[]; optimisticTurns: MessageTurn[] } {
+  let remainingTurns = optimisticTurns;
+  const reconciledRows = [...rows].reverse().map((row) => {
+    const reconciled = reconcileOptimisticTurnAgainstUserRow(
+      remainingTurns,
+      row
+    );
+    remainingTurns = reconciled.optimisticTurns;
+    return reconciled.row;
+  });
+  return {
+    rows: reconciledRows.reverse(),
+    optimisticTurns: remainingTurns,
+  };
+}
+
+function reconcileOptimisticTurnAgainstUserRow(
+  optimisticTurns: MessageTurn[],
+  row: TimelineRow
+): { row: TimelineRow; optimisticTurns: MessageTurn[] } {
+  if (
+    row.row.kind !== 'message_turn' ||
+    row.row.turn.role !== 'user' ||
+    optimisticTurns.length === 0
+  ) {
+    return { row, optimisticTurns };
+  }
+
+  const authoritativeText = userTurnText(row.row.turn);
+  let optimisticIndex = optimisticTurns.findIndex(
+    (turn) => userTurnText(turn) === authoritativeText
+  );
+
+  // A conversation has at most one in-flight turn. Agent runtimes may echo a
+  // normalized command (for example `/grill-me`) while the optimistic turn
+  // carries the richer serialized token. Pair that sole optimistic turn with
+  // the streaming authoritative user row instead of rendering both.
+  if (
+    optimisticIndex < 0 &&
+    optimisticTurns.length === 1 &&
+    row.row.phase === 'streaming'
+  ) {
+    optimisticIndex = 0;
+  }
+  if (optimisticIndex < 0) return { row, optimisticTurns };
+
+  const optimisticTurn = optimisticTurns[optimisticIndex];
+  const optimisticTextBlocks = optimisticTurn.blocks.filter(
+    (block) => block.type === 'text'
+  );
+  const authoritativeNonTextBlocks = row.row.turn.blocks.filter(
+    (block) => block.type !== 'text'
+  );
+  const reconciledRow: TimelineRow = {
+    ...row,
+    row: {
+      ...row.row,
+      turn: {
+        ...row.row.turn,
+        blocks: [...optimisticTextBlocks, ...authoritativeNonTextBlocks],
+      },
+    },
+  };
+
+  return {
+    row: reconciledRow,
+    optimisticTurns: optimisticTurns.filter(
+      (_, index) => index !== optimisticIndex
+    ),
+  };
 }
 
 function userTurnText(turn: MessageTurn): string {

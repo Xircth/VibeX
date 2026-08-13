@@ -1,6 +1,7 @@
 {
   "composer": {
     "inputLabel": "Message",
+    "attachments": "Attachments",
     "commandSource": {
       "plugin": "Plugin",
       "skill": "Skill",
@@ -27,6 +28,7 @@
     "deleteSession": "Delete session",
     "moveToSessionList": "Move to session list",
     "forkSuccess": "Session forked",
+    "forkHistoryOnly": "History copied without Agent context: {{reason}}",
     "forkFailed": "Fork failed: {{error}}",
     "forkSession": "Fork session",
     "sessionFallback": "Session",

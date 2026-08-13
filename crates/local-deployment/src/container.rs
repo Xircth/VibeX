@@ -317,6 +317,21 @@ impl LocalContainerService {
         path == repo_path || path.starts_with(&repo_path) || repo_path.starts_with(&path)
     }
 
+    fn is_registered_direct_worktree(
+        &self,
+        workspace: &Workspace,
+        repositories: &[Repo],
+        candidate_path: &Path,
+    ) -> bool {
+        let [repo] = repositories else {
+            return false;
+        };
+
+        self.git
+            .is_worktree_path_for_branch(&repo.path, &workspace.branch, candidate_path)
+            .unwrap_or(false)
+    }
+
     async fn repair_workspace_storage_mode(
         &self,
         workspace: &mut Workspace,
@@ -330,6 +345,9 @@ impl LocalContainerService {
             return Ok(());
         };
         let container_path = PathBuf::from(&container_ref);
+        if self.is_registered_direct_worktree(workspace, repositories, &container_path) {
+            return Ok(());
+        }
         let Some(overlapping_repo) = repositories
             .iter()
             .find(|repo| Self::path_overlaps_repo(&container_path, repo))
@@ -2707,6 +2725,68 @@ mod tests {
             .unwrap();
         assert_eq!(session_status, "inreview");
         assert_eq!(task_status, "inreview");
+    }
+
+    #[tokio::test]
+    async fn storage_repair_preserves_registered_nested_worktree() {
+        let pool = workspace_path_test_pool().await;
+        let temp_root = TempDir::new().unwrap();
+        let repo_path = temp_root.path().join("repo");
+        let git = GitService::new();
+        git.initialize_repo_with_main_branch(&repo_path).unwrap();
+        fs::write(repo_path.join("README.md"), "hello\n").unwrap();
+        git.commit(&repo_path, "seed").unwrap();
+
+        let branch = "feature/nested-worktree";
+        let worktree_path = repo_path.join(".worktrees").join("nested-worktree");
+        git.add_worktree_from_ref(&repo_path, &worktree_path, branch, "main")
+            .unwrap();
+
+        let mut workspace = sample_workspace(
+            Some(&worktree_path.to_string_lossy()),
+            true,
+            Some("frontend"),
+        );
+        workspace.branch = branch.to_string();
+        let repo = sample_repo("repo", &repo_path.to_string_lossy());
+        insert_workspace_with_repo(&pool, &workspace, &repo).await;
+        let container = test_container(pool);
+
+        container
+            .repair_workspace_storage_mode(&mut workspace, &[repo])
+            .await
+            .unwrap();
+
+        assert!(workspace.use_worktree);
+        assert_eq!(
+            workspace.container_ref.as_deref(),
+            Some(worktree_path.to_string_lossy().as_ref())
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_repair_clears_unregistered_nested_path() {
+        let pool = workspace_path_test_pool().await;
+        let temp_root = TempDir::new().unwrap();
+        let repo_path = temp_root.path().join("repo");
+        let git = GitService::new();
+        git.initialize_repo_with_main_branch(&repo_path).unwrap();
+
+        let nested_path = repo_path.join(".worktrees").join("not-a-worktree");
+        fs::create_dir_all(&nested_path).unwrap();
+        let mut workspace =
+            sample_workspace(Some(&nested_path.to_string_lossy()), true, Some("frontend"));
+        let repo = sample_repo("repo", &repo_path.to_string_lossy());
+        insert_workspace_with_repo(&pool, &workspace, &repo).await;
+        let container = test_container(pool);
+
+        container
+            .repair_workspace_storage_mode(&mut workspace, &[repo])
+            .await
+            .unwrap();
+
+        assert!(workspace.use_worktree);
+        assert_eq!(workspace.container_ref, None);
     }
 
     #[tokio::test]

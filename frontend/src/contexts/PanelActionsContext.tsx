@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
@@ -41,6 +42,11 @@ import {
 import { getLayoutArrangement, slotOfZone } from '@/lib/layoutArrangement';
 import { useFileTreeStore } from '@/stores/useFileTreeStore';
 import { MIN_LEFT_PANEL_WIDTH } from '@/utils/dockviewWorkspaceConstraints';
+import {
+  clearImagePreviewSources,
+  registerImagePreviewSource,
+  releaseImagePreviewSource,
+} from '@/lib/imagePreviewRegistry';
 
 const DIFF_PREVIEW_PANEL_ID_PREFIX = 'diff:';
 const MAX_OPEN_DIFF_PREVIEW_PANELS = 5;
@@ -115,6 +121,9 @@ const PanelActionsContext = createContext<PanelActions | null>(null);
 
 export function PanelActionsProvider({ children }: { children: ReactNode }) {
   const apiRef = useRef<DockviewApi | null>(null);
+  const imagePanelRemovalDisposableRef = useRef<{
+    dispose: () => void;
+  } | null>(null);
   const diffPreviewPanelQueueRef = useRef<string[]>([]);
   const webPreviewRequestNonceRef = useRef(0);
   const clearCommitDiff = useCommitDiffStore((state) => state.clearCommitDiff);
@@ -130,11 +139,28 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
   );
 
   const setDockviewApi = useCallback((api: DockviewApi | null) => {
+    imagePanelRemovalDisposableRef.current?.dispose();
+    imagePanelRemovalDisposableRef.current = null;
     apiRef.current = api;
     if (!api) {
       diffPreviewPanelQueueRef.current = [];
+      clearImagePreviewSources();
+      return;
     }
+
+    imagePanelRemovalDisposableRef.current = api.onDidRemovePanel((panel) => {
+      releaseImagePreviewSource(panel.id);
+    });
   }, []);
+
+  useEffect(
+    () => () => {
+      imagePanelRemovalDisposableRef.current?.dispose();
+      imagePanelRemovalDisposableRef.current = null;
+      clearImagePreviewSources();
+    },
+    []
+  );
 
   const getLeftGroup = useCallback((dockviewApi: DockviewApi) => {
     return (
@@ -367,6 +393,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
       const panelId = buildImagePreviewPanelId(imageUrl);
       const title = options?.title?.trim() || 'Image';
+      registerImagePreviewSource(panelId, imageUrl);
       const params = {
         filePath: '',
         mode: 'editor',
@@ -375,7 +402,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
         originalContent: null,
         displayPath: options?.title ?? null,
         location: null,
-        imageUrl,
+        imagePreviewId: panelId,
       };
 
       const existingPanel = dockviewApi.getPanel(panelId);

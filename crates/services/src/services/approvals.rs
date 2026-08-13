@@ -379,6 +379,9 @@ mod tests {
                 tool_name: tool_name.to_string(),
                 action_type: ActionType::FileRead {
                     path: file_path.to_string(),
+                    line_start: None,
+                    line_end: None,
+                    content: None,
                 },
                 status,
             },

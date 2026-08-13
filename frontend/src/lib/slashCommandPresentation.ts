@@ -1,7 +1,6 @@
 import type { SlashCommandDescription } from 'shared/types';
 import {
   agentSlashCommandCatalog,
-  isAgentSlashCommandVisible,
   type AgentSlashCommandIconKey,
 } from '@/features/agents/slashCommands';
 import type { ComposerSlashCommand } from '@/lib/conversation-rendering/commandSources';
@@ -14,13 +13,6 @@ export type SlashCommandPresentation = {
   iconKey: SlashCommandIconKey | null;
   isSkill: boolean;
 };
-
-export function isCoreSlashCommand(
-  command: SlashCommandDescription,
-  executor: string | null | undefined
-): boolean {
-  return isAgentSlashCommandVisible(command, executor);
-}
 
 export function isSlashCommandSkill(command: SlashCommandDescription): boolean {
   return command.kind === 'SKILL';

@@ -177,6 +177,19 @@ pub struct TodoItem {
 pub enum ActionType {
     FileRead {
         path: String,
+        /// One-based first line returned by a ranged read, when reported by the tool.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        line_start: Option<u32>,
+        /// One-based last line requested by a ranged read, when reported by the tool.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        line_end: Option<u32>,
+        /// Text returned by the read call. Kept with the action so the expanded
+        /// tool row can show exactly the range the agent inspected.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        content: Option<String>,
     },
     FileEdit {
         path: String,

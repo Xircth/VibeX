@@ -20,7 +20,7 @@ use services::services::{
     config::{Config, ConfigError},
     container::{ContainerError, ContainerService},
     events::{EventError, EventService},
-    file_search::FileSearchCache,
+    file_search::FileSearchService,
     filesystem::{FilesystemError, FilesystemService},
     filesystem_watcher::FilesystemWatcherError,
     image::{ImageError, ImageService},
@@ -93,7 +93,7 @@ pub trait Deployment: Send + Sync + 'static {
 
     fn events(&self) -> &EventService;
 
-    fn file_search_cache(&self) -> &Arc<FileSearchCache>;
+    fn file_search(&self) -> &FileSearchService;
 
     fn approvals(&self) -> &Approvals;
 

@@ -91,13 +91,3 @@ export function agentSlashCommandCatalog(
       return [];
   }
 }
-
-export function isAgentSlashCommandVisible(
-  command: SlashCommandDescription,
-  executor: string | null | undefined
-): boolean {
-  if (command.kind === 'SKILL') return true;
-  return agentSlashCommandCatalog(executor).some(
-    (item) => item.name === command.name
-  );
-}

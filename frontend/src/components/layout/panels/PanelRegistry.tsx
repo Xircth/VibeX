@@ -12,6 +12,7 @@ import {
   GitBranch,
   Globe2,
   House,
+  Image as ImageIcon,
   List,
   MessageSquare,
   NotebookPen,
@@ -87,6 +88,7 @@ type WorkspaceDockviewTabProps = IDockviewPanelHeaderProps &
 interface WorkspaceTabParams {
   faviconUrl?: string | null;
   filePath?: string | null;
+  imagePreviewId?: string | null;
   mode?: 'editor' | 'diff';
 }
 
@@ -161,6 +163,17 @@ function WorkspaceTabIcon({
       >
         <FileIcon filePath={params.filePath} />
       </span>
+    );
+  }
+
+  if (component === PANEL_IDS.PREVIEW && params.imagePreviewId) {
+    return (
+      <ImageIcon
+        aria-hidden="true"
+        className="workspace-tab-icon"
+        data-tab-icon="image"
+        data-testid="workspace-tab-icon"
+      />
     );
   }
 

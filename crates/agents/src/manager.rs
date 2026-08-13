@@ -31,7 +31,7 @@ use agent_client_protocol::{
             SessionConfigSelectOptions, SessionId, SessionModeId, SessionModeState,
             SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
             SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
-            WaitForTerminalExitResponse,
+            ToolCallContent, ToolCallLocation, WaitForTerminalExitResponse,
         },
     },
 };
@@ -69,6 +69,35 @@ use crate::{
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
+
+fn acp_tool_input_preview(
+    raw_input: Option<&serde_json::Value>,
+    content: &[ToolCallContent],
+    locations: &[ToolCallLocation],
+) -> Option<String> {
+    if let Some(raw_input) = raw_input {
+        return serde_json::to_string(raw_input).ok();
+    }
+
+    for item in content {
+        if let ToolCallContent::Diff(diff) = item {
+            return serde_json::to_string(&serde_json::json!({
+                "file_path": diff.path,
+                "oldText": diff.old_text,
+                "newText": diff.new_text,
+            }))
+            .ok();
+        }
+    }
+
+    locations.first().and_then(|location| {
+        serde_json::to_string(&serde_json::json!({
+            "path": location.path,
+            "line": location.line,
+        }))
+        .ok()
+    })
+}
 
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
 const STDERR_RING_BUFFER_BYTES: usize = 8 * 1024;
@@ -1087,6 +1116,7 @@ impl AgentConnectionRunner {
                     id: "fixture-tool".to_string(),
                     status: Some("running".to_string()),
                     content: Some("reading fixture input".to_string()),
+                    input_preview: None,
                     meta: None,
                 },
             },
@@ -1215,6 +1245,7 @@ impl AgentConnectionRunner {
                     id: "fixture-tool".to_string(),
                     status: Some("completed".to_string()),
                     content: Some("fixture tool completed".to_string()),
+                    input_preview: None,
                     meta: None,
                 },
             },
@@ -3234,17 +3265,22 @@ impl AcpClientBridge {
                 )
                 .await
                 .map(|content| AgentEvent::ThoughtChunk { content }),
-            SessionUpdate::ToolCall(tool_call) => Some(AgentEvent::ToolCall {
-                tool_call: AgentToolCall {
-                    id: tool_call.tool_call_id.0.to_string(),
-                    title: tool_call.title,
-                    kind: Some(acp_enum_label(&tool_call.kind)),
-                    input_preview: tool_call
-                        .raw_input
-                        .and_then(|input| serde_json::to_string(&input).ok()),
-                    meta: bounded_optional_meta(tool_call.meta),
-                },
-            }),
+            SessionUpdate::ToolCall(tool_call) => {
+                let input_preview = acp_tool_input_preview(
+                    tool_call.raw_input.as_ref(),
+                    &tool_call.content,
+                    &tool_call.locations,
+                );
+                Some(AgentEvent::ToolCall {
+                    tool_call: AgentToolCall {
+                        id: tool_call.tool_call_id.0.to_string(),
+                        title: tool_call.title,
+                        kind: Some(acp_enum_label(&tool_call.kind)),
+                        input_preview,
+                        meta: bounded_optional_meta(tool_call.meta),
+                    },
+                })
+            }
             SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
                 update: AgentToolCallUpdate {
                     id: update.tool_call_id.0.to_string(),
@@ -3261,6 +3297,11 @@ impl AcpClientBridge {
                                 .as_ref()
                                 .and_then(|content| serde_json::to_string(content).ok())
                         }),
+                    input_preview: acp_tool_input_preview(
+                        update.fields.raw_input.as_ref(),
+                        update.fields.content.as_deref().unwrap_or_default(),
+                        update.fields.locations.as_deref().unwrap_or_default(),
+                    ),
                     meta: bounded_optional_meta(update.meta),
                 },
             }),
@@ -3959,6 +4000,29 @@ fn elicitation_response_action(response: AgentElicitationResponse) -> Elicitatio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_acp_diff_becomes_a_file_edit_input_preview() {
+        let diff = acp::schema::v1::Diff::new("src/App.tsx", "new line")
+            .old_text(Some("old line".to_string()));
+        let preview = acp_tool_input_preview(None, &[ToolCallContent::Diff(diff)], &[])
+            .expect("diff preview");
+        let value: serde_json::Value = serde_json::from_str(&preview).unwrap();
+
+        assert_eq!(value["file_path"], "src/App.tsx");
+        assert_eq!(value["oldText"], "old line");
+        assert_eq!(value["newText"], "new line");
+    }
+
+    #[test]
+    fn structured_acp_location_becomes_a_file_read_input_preview() {
+        let location = ToolCallLocation::new("src/lib.rs").line(Some(42));
+        let preview = acp_tool_input_preview(None, &[], &[location]).expect("location preview");
+        let value: serde_json::Value = serde_json::from_str(&preview).unwrap();
+
+        assert_eq!(value["path"], "src/lib.rs");
+        assert_eq!(value["line"], 42);
+    }
 
     fn test_launch_lock(agent_id: AgentId) -> SessionLaunchLock {
         SessionLaunchLock {

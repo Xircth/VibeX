@@ -117,22 +117,6 @@
     "processing": "Force pushing...",
     "confirmButton": "Force Push"
   },
-  "betaWorkspaces": {
-    "title": "Try the new interface",
-    "intro": "We've rebuilt the {{appName}} interface from the ground up, and you've been invited to try it out.",
-    "description": "The new interface is optimized for everyday work: managing agents, previewing changes, and reviewing code. It also unlocks features that weren't available in the old interface:",
-    "newFeatureEditRepos": "Edit multiple repositories at the same time",
-    "newFeatureMultipleAgents": "Run multiple agent conversations in a single workspace (even across different agents)",
-    "newFeatureCommandBar": "Navigate faster with the command bar",
-    "remainingIntro": "For now, some features remain in the current interface:",
-    "remainingBoard": "Manage tasks on the board",
-    "remainingSettings": "Change settings",
-    "remainingProjects": "Manage projects",
-    "transition": "During the transition over the coming weeks, you'll be able to switch between the two interfaces.",
-    "optOut": "Want to opt out? You can switch back to the current interface anytime in settings.",
-    "maybeLater": "Maybe later",
-    "joinBeta": "Join Beta"
-  },
   "ghCliSetup": {
     "brewMissing": "Homebrew is not installed. Install it to enable automatic setup.",
     "helperNotSupported": "Automatic setup is not supported on this platform. Please install the GitHub CLI manually.",

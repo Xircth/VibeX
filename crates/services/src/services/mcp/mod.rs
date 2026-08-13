@@ -1,11 +1,8 @@
-//! MCP marketplace + global hosting + per-agent sync.
+//! MCP marketplace + per-agent native configuration.
 //!
-//! Adapted from the reference project (codeg), including its Official MCP
-//! Registry and Smithery providers, and extended with a "global" hosting
-//! concept: the global registry lives at `~/.vibex/mcp.json` and, on install,
-//! every entry is mirrored into each agent's own native MCP config file
-//! (Claude `~/.claude.json`, Codex `~/.codex/config.toml`, Hermes
-//! `~/.hermes/config.yaml`, …).
+//! "Global" means writing an entry to every compatible agent's native MCP
+//! config file (Claude `~/.claude.json`, Codex `~/.codex/config.toml`, Hermes
+//! `~/.hermes/config.yaml`, …). VibeX does not keep a separate registry.
 //!
 //! All server specs are stored in a single canonical JSON shape
 //! (`{type: "stdio"|"http"|"sse", …}`); per-agent writers translate that to
@@ -126,8 +123,7 @@ const ASSIGNABLE_APPS: [McpAppType; 10] = [
 pub struct LocalMcpServer {
     pub id: String,
     pub spec: Value,
-    /// Whether this server is recorded in the global registry
-    /// (`~/.vibex/mcp.json`).
+    /// Whether this server is present in every compatible agent config.
     pub global: bool,
     /// Which agent config files currently carry this server.
     pub apps: Vec<McpAppType>,
@@ -216,41 +212,14 @@ fn marketplace_http_client() -> Result<reqwest::Client, McpError> {
     }
 }
 
-fn should_retry_http_status(status: reqwest::StatusCode) -> bool {
-    status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
-}
-
-async fn send_request_with_retry<F>(
+async fn send_request(
     context: &str,
-    mut build: F,
-) -> Result<reqwest::Response, McpError>
-where
-    F: FnMut() -> reqwest::RequestBuilder,
-{
-    const MAX_ATTEMPTS: usize = 3;
-    let mut last_error: Option<String> = None;
-
-    for attempt in 1..=MAX_ATTEMPTS {
-        match build().send().await {
-            Ok(response) => {
-                if should_retry_http_status(response.status()) && attempt < MAX_ATTEMPTS {
-                    tokio::time::sleep(Duration::from_millis((attempt as u64) * 350)).await;
-                    continue;
-                }
-                return Ok(response);
-            }
-            Err(err) => {
-                last_error = Some(format!("{context}: {err}"));
-                if attempt < MAX_ATTEMPTS {
-                    tokio::time::sleep(Duration::from_millis((attempt as u64) * 350)).await;
-                }
-            }
-        }
-    }
-
-    Err(internal(
-        last_error.unwrap_or_else(|| format!("{context}: request failed")),
-    ))
+    request: reqwest::RequestBuilder,
+) -> Result<reqwest::Response, McpError> {
+    request
+        .send()
+        .await
+        .map_err(|err| internal(format!("{context}: {err}")))
 }
 
 async fn parse_json_response<T: DeserializeOwned>(
@@ -716,11 +685,6 @@ fn cursor_mcp_json_path() -> PathBuf {
     // Cursor's CLI hard-codes the user MCP file even when its chat/config roots
     // are relocated with CURSOR_CONFIG_DIR or XDG_CONFIG_HOME.
     home_dir_or_default().join(".cursor").join("mcp.json")
-}
-
-/// Global MCP registry hosted by VibeX at `~/.vibex/mcp.json`.
-fn global_store_path() -> PathBuf {
-    home_dir_or_default().join(".vibex").join("mcp.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -3036,95 +3000,31 @@ fn read_servers_for_app(app: McpAppType) -> Result<BTreeMap<String, Value>, McpE
 }
 
 // ---------------------------------------------------------------------------
-// Global registry (~/.vibex/mcp.json)
-// ---------------------------------------------------------------------------
-
-fn read_global_servers() -> Result<BTreeMap<String, Value>, McpError> {
-    let root = read_json_file(&global_store_path())?;
-    let mut out = BTreeMap::new();
-    let Some(servers) = root.get("mcpServers").and_then(Value::as_object) else {
-        return Ok(out);
-    };
-    for (id, spec) in servers {
-        if let Ok(normalized) = canonicalize_spec(spec, "global registry") {
-            out.insert(id.to_string(), normalized);
-        }
-    }
-    Ok(out)
-}
-
-fn upsert_global_server(id: &str, spec: &Value) -> Result<(), McpError> {
-    let path = global_store_path();
-    let mut root = read_json_file(&path)?;
-    if !root.is_object() {
-        root = json!({});
-    }
-    let canonical = canonicalize_spec(spec, "global registry write")?;
-    let obj = root
-        .as_object_mut()
-        .ok_or_else(|| bad(format!("invalid JSON root in {}", path.display())))?;
-    if !obj.get("mcpServers").map(Value::is_object).unwrap_or(false) {
-        obj.insert("mcpServers".to_string(), Value::Object(Map::new()));
-    }
-    let map = obj
-        .get_mut("mcpServers")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| bad(format!("invalid mcpServers in {}", path.display())))?;
-    map.insert(id.to_string(), canonical);
-    write_json_file(&path, &root)
-}
-
-fn remove_global_server(id: &str) -> Result<bool, McpError> {
-    let path = global_store_path();
-    if !path.exists() {
-        return Ok(false);
-    }
-    let mut root = read_json_file(&path)?;
-    let Some(obj) = root.as_object_mut() else {
-        return Ok(false);
-    };
-    let Some(servers) = obj.get_mut("mcpServers").and_then(Value::as_object_mut) else {
-        return Ok(false);
-    };
-    let removed = servers.remove(id).is_some();
-    if removed {
-        write_json_file(&path, &root)?;
-    }
-    Ok(removed)
-}
-
-// ---------------------------------------------------------------------------
 // Scan + target application
 // ---------------------------------------------------------------------------
 
 fn scan_local_servers() -> Result<Vec<LocalMcpServer>, McpError> {
-    // (spec, apps, global) per id. The first spec seen wins; the global
-    // registry is read first so its canonical spec is preferred.
-    let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>, bool)> = BTreeMap::new();
-
-    for (id, spec) in read_global_servers()? {
-        merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new(), false))
-            .2 = true;
-    }
+    let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>)> = BTreeMap::new();
 
     for app in ALL_APPS {
         for (id, spec) in read_servers_for_app(app)? {
             let entry = merged
                 .entry(id)
-                .or_insert_with(|| (spec.clone(), BTreeSet::new(), false));
+                .or_insert_with(|| (spec.clone(), BTreeSet::new()));
             entry.1.insert(app);
         }
     }
 
     Ok(merged
         .into_iter()
-        .map(|(id, (spec, apps, global))| LocalMcpServer {
-            id,
-            spec,
-            global,
-            apps: apps.into_iter().collect(),
+        .map(|(id, (spec, apps))| {
+            let global = targets_are_global(&spec, &apps);
+            LocalMcpServer {
+                id,
+                spec,
+                global,
+                apps: apps.into_iter().collect(),
+            }
         })
         .collect())
 }
@@ -3135,9 +3035,7 @@ pub fn scan_local_sync() -> Result<Vec<LocalMcpServer>, McpError> {
     scan_local_servers()
 }
 
-/// Add a server to the requested targets (never removes from others). When
-/// `global` is set, the server is recorded in the global registry AND mirrored
-/// into every agent's config file.
+/// Add a server to the requested targets (never removes from others).
 fn install_targets(
     id: &str,
     spec: &Value,
@@ -3145,7 +3043,6 @@ fn install_targets(
     apps: &[McpAppType],
 ) -> Result<(), McpError> {
     if global {
-        upsert_global_server(id, spec)?;
         for app in ASSIGNABLE_APPS {
             if app_can_host_spec(app, spec) {
                 upsert_server_for_app(app, id, spec)?;
@@ -3180,11 +3077,6 @@ fn install_targets(
 /// deselected targets). Used by the "本地 MCP" editor. `global` implies all
 /// agents, mirroring the install semantics.
 fn set_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Result<(), McpError> {
-    if global {
-        upsert_global_server(id, spec)?;
-    } else {
-        remove_global_server(id)?;
-    }
     let want: BTreeSet<McpAppType> = if global {
         ASSIGNABLE_APPS
             .into_iter()
@@ -3215,7 +3107,6 @@ fn set_targets(id: &str, spec: &Value, global: bool, apps: &[McpAppType]) -> Res
 }
 
 fn uninstall_everywhere(id: &str) -> Result<(), McpError> {
-    remove_global_server(id)?;
     for app in ALL_APPS {
         remove_server_for_app(app, id)?;
     }
@@ -3224,6 +3115,13 @@ fn uninstall_everywhere(id: &str) -> Result<(), McpError> {
 
 fn app_can_host_spec(app: McpAppType, spec: &Value) -> bool {
     !(app == McpAppType::Codex && spec.get("type").and_then(Value::as_str) == Some("sse"))
+}
+
+fn targets_are_global(spec: &Value, apps: &BTreeSet<McpAppType>) -> bool {
+    ASSIGNABLE_APPS
+        .into_iter()
+        .filter(|app| app_can_host_spec(*app, spec))
+        .all(|app| apps.contains(&app))
 }
 
 // ---------------------------------------------------------------------------
@@ -3322,15 +3220,16 @@ async fn search_official_registry(
     limit: u32,
 ) -> Result<Vec<McpMarketplaceItem>, McpError> {
     let client = marketplace_http_client()?;
-    let response = send_request_with_retry("failed to query official MCP registry", || {
+    let response = send_request(
+        "failed to query official MCP registry",
         client
             .get("https://registry.modelcontextprotocol.io/v0.1/servers")
             .query(&[
                 ("limit", limit.to_string()),
                 ("version", "latest".to_string()),
                 ("search", query.trim().to_string()),
-            ])
-    })
+            ]),
+    )
     .await?;
     if !response.status().is_success() {
         return Err(internal(format!(
@@ -3358,10 +3257,7 @@ async fn fetch_official_server_detail(server_id: &str) -> Result<OfficialServerR
     let url =
         format!("https://registry.modelcontextprotocol.io/v0.1/servers/{encoded}/versions/latest");
     let client = marketplace_http_client()?;
-    let response = send_request_with_retry("failed to fetch official MCP server", || {
-        client.get(url.clone())
-    })
-    .await?;
+    let response = send_request("failed to fetch official MCP server", client.get(url)).await?;
     if !response.status().is_success() {
         return Err(internal(format!(
             "official MCP server detail request failed: HTTP {}",
@@ -3490,11 +3386,12 @@ fn resolve_official_install_spec(
 async fn search_smithery(query: &str, limit: u32) -> Result<Vec<McpMarketplaceItem>, McpError> {
     let client = marketplace_http_client()?;
     let trimmed = query.trim();
-    let response = send_request_with_retry("failed to query smithery marketplace", || {
+    let response = send_request(
+        "failed to query smithery marketplace",
         client
             .get("https://api.smithery.ai/servers")
-            .query(&[("limit", limit.to_string()), ("q", trimmed.to_string())])
-    })
+            .query(&[("limit", limit.to_string()), ("q", trimmed.to_string())]),
+    )
     .await?;
 
     if !response.status().is_success() {
@@ -3550,11 +3447,12 @@ async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServer
             return None;
         }
     };
-    let response = match send_request_with_retry("failed to fetch smithery server summary", || {
+    let response = match send_request(
+        "failed to fetch smithery server summary",
         client
             .get("https://api.smithery.ai/servers")
-            .query(&[("limit", "30"), ("q", server_id)])
-    })
+            .query(&[("limit", "30"), ("q", server_id)]),
+    )
     .await
     {
         Ok(response) => response,
@@ -3583,10 +3481,7 @@ async fn fetch_smithery_server_summary(server_id: &str) -> Option<SmitheryServer
 async fn fetch_smithery_server_detail(server_id: &str) -> Result<SmitheryServerDetail, McpError> {
     let url = format!("https://api.smithery.ai/servers/{server_id}");
     let client = marketplace_http_client()?;
-    let response = send_request_with_retry("failed to fetch smithery server detail", || {
-        client.get(url.clone())
-    })
-    .await?;
+    let response = send_request("failed to fetch smithery server detail", client.get(url)).await?;
     if !response.status().is_success() {
         return Err(internal(format!(
             "smithery server detail request failed: HTTP {}",
@@ -4342,6 +4237,24 @@ mod tests {
         assert!(!targets.contains(&Value::String("pi".to_string())));
         assert_eq!(ASSIGNABLE_APPS.len(), 10);
         assert!(!ASSIGNABLE_APPS.contains(&McpAppType::OpenClaw));
+    }
+
+    #[test]
+    fn global_state_is_derived_from_native_targets() {
+        let stdio = json!({ "type": "stdio", "command": "server" });
+        let all = ASSIGNABLE_APPS.into_iter().collect();
+        assert!(targets_are_global(&stdio, &all));
+
+        let mut missing = all;
+        missing.remove(&McpAppType::ClaudeCode);
+        assert!(!targets_are_global(&stdio, &missing));
+
+        let sse = json!({ "type": "sse", "url": "https://example.com/sse" });
+        let without_codex = ASSIGNABLE_APPS
+            .into_iter()
+            .filter(|app| *app != McpAppType::Codex)
+            .collect();
+        assert!(targets_are_global(&sse, &without_codex));
     }
 
     #[test]

@@ -36,11 +36,9 @@ function ComposerHarness({
       >
         <SessionComposerInput
           value={message}
-          images={[]}
           onChange={setMessage}
           onSubmit={vi.fn()}
           onAttachImages={vi.fn()}
-          onRemoveImage={vi.fn()}
         />
         <output aria-label="Serialized composer value">{message}</output>
       </AgentMentionProvider>
@@ -77,9 +75,7 @@ function codexTransport(): BackendTransport {
 
 function getEditor(): HTMLDivElement {
   const surface = screen.getByTestId('session-composer-editor');
-  return surface.querySelector(
-    '[contenteditable="true"]'
-  ) as HTMLDivElement;
+  return surface.querySelector('[contenteditable="true"]') as HTMLDivElement;
 }
 
 describe('AgentMention', () => {

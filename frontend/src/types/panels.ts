@@ -22,12 +22,10 @@ export interface PreviewPanelParams {
   originalContent: string | null;
   displayPath: string | null;
   location: FileOpenLocation | null;
-  /**
-   * When set (and filePath is empty), the preview panel renders this image
-   * URL directly instead of loading a workspace file — used for remote or
-   * proxied conversation images that have no on-disk path.
-   */
+  /** Legacy serialized image source. New panels use imagePreviewId. */
   imageUrl?: string | null;
+  /** Key into the in-memory image preview registry. */
+  imagePreviewId?: string | null;
 }
 
 /** Params for the Web Preview panel (built-in browser / dev-server preview). */

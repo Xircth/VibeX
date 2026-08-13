@@ -1107,6 +1107,7 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
                   COALESCE(probe.authentication, 'not_logged_in') AS authentication,
                   lock.resolved_json,
                   lock.id,
+                  installation.ownership,
                   setting.env_json
            FROM agent_membership membership
            LEFT JOIN agent_installation installation
@@ -1150,6 +1151,9 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
     let lock_id = row.try_get::<Option<String>, _>("id")?.ok_or_else(|| {
         AppError::BadRequest("Agent has no current Installation lock".to_string())
     })?;
+    let ownership = row
+        .try_get::<Option<String>, _>("ownership")?
+        .unwrap_or_else(|| "managed".to_string());
     let acp_component = sqlx::query(
         r#"SELECT absolute_path, version
            FROM agent_install_component
@@ -1240,7 +1244,12 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
             })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()?;
-    let mut launch_lock = match LaunchGate::verify(launch_lock, &components).await {
+    let verified_launch_lock = if ownership == "external" {
+        Ok(launch_lock)
+    } else {
+        LaunchGate::verify(launch_lock, &components).await
+    };
+    let mut launch_lock = match verified_launch_lock {
         Ok(lock) => lock,
         Err(error) => {
             sqlx::query(

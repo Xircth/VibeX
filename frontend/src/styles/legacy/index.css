@@ -220,7 +220,7 @@
     --surface-composer: hsl(0 0% 100% / 0.92);
     --surface-glass: hsl(0 0% 100% / 0.72);
     --surface-glass-solid: hsl(220 24% 96%);
-    --surface-popover: var(--surface-glass);
+    --surface-popover: #fafafa;
     --surface-content: hsl(0 0% 100% / 0.96);
     --surface-card: hsl(0 0% 100% / 0.72);
     --surface-card-strong: hsl(0 0% 100% / 0.94);
@@ -414,6 +414,21 @@
     --color-text-accent: hsl(var(--primary));
     --color-icon-accent: hsl(var(--primary));
     --color-on-accent: hsl(var(--primary-foreground));
+  }
+
+  .legacy-design .session-composer-attachment-drawer {
+    --radius-chat: var(--radius);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-control);
+  }
+
+  .legacy-design .session-composer-body {
+    border-radius: var(--radius);
+  }
+
+  .legacy-design .session-composer-editor > [contenteditable='true'] {
+    min-height: 3.25rem;
+    overflow-y: auto;
   }
 
   .legacy-design .session-composer-editor [data-astryx-token] {
@@ -1751,32 +1766,46 @@
     color: hsl(var(--warning));
   }
 
-  .workspace-activity-rail {
-    background: var(--surface-sidebar);
-    border-right: 1px solid var(--border-subtle);
-    box-shadow: inset -1px 0 0 hsl(0 0% 100% / 0.04);
-  }
-
-  .workspace-activity-button {
-    color: var(--text-subtle);
-    border: 1px solid transparent;
+  .workspace-side-rail-button {
+    color: hsl(var(--muted-foreground));
+    border: 0;
     border-radius: var(--radius);
+    background: transparent;
     transition:
       background 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease;
+      color 150ms ease,
+      transform 150ms ease;
   }
 
-  .workspace-activity-button:hover {
-    color: var(--text-strong);
-    border-color: var(--border-subtle);
-    background: var(--surface-control-hover);
+  .workspace-side-rail-button:hover {
+    color: hsl(var(--foreground));
+    background: hsl(var(--accent));
   }
 
-  .workspace-activity-button.is-active {
-    color: var(--text-strong);
-    border-color: hsl(var(--primary) / 0.34);
-    background: var(--surface-active);
+  .workspace-side-rail-button:active {
+    color: hsl(var(--foreground));
+    background: hsl(var(--accent));
+    transform: scale(0.94);
+  }
+
+  .workspace-side-rail-button.is-active {
+    color: hsl(var(--foreground));
+    background: hsl(var(--accent));
+  }
+
+  .workspace-side-rail-button:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .workspace-side-rail-button {
+      transition: none;
+    }
+
+    .workspace-side-rail-button:active {
+      transform: none;
+    }
   }
 
   .workspace-right-panel {
@@ -4263,7 +4292,7 @@
     --border-strong: hsl(220 16% 28% / 0.44);
     --border-glass: var(--border-strong);
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-glass-solid);
+    --surface-popover: #fafafa;
     --focus-ring: hsl(var(--primary) / 0.52);
   }
 
@@ -4283,7 +4312,7 @@
 @media (prefers-reduced-transparency: reduce) {
   .legacy-design {
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-glass-solid);
+    --surface-popover: #fafafa;
     --surface-topbar: var(--surface-glass-solid);
     --surface-sidebar: var(--surface-glass-solid);
   }
@@ -4322,7 +4351,7 @@
 :where(.legacy-design.reduced-transparency),
 :where(.app.reduced-transparency .legacy-design) {
   --surface-glass: var(--surface-glass-solid);
-  --surface-popover: var(--surface-glass-solid);
+  --surface-popover: #fafafa;
   --surface-topbar: var(--surface-glass-solid);
   --surface-sidebar: var(--surface-glass-solid);
 }
@@ -4415,7 +4444,7 @@
 ) {
   .legacy-design {
     --surface-glass: var(--surface-glass-solid);
-    --surface-popover: var(--surface-glass-solid);
+    --surface-popover: #fafafa;
   }
 }
 

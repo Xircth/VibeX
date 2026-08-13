@@ -42,6 +42,10 @@ pub enum GitServiceError {
     WorktreeDirty(String, String),
     #[error("Rebase in progress; resolve or abort it before retrying")]
     RebaseInProgress,
+    #[error(
+        "Git commit identity is not configured; set user.name and user.email before committing"
+    )]
+    CommitIdentityNotConfigured,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]

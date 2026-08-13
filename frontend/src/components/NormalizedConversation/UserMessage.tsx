@@ -535,6 +535,7 @@ const UserMessage = ({
                   <UserMessageMarkdown
                     value={displayText}
                     className={SESSION_INPUT_TEXT_CLASS_NAME}
+                    workspacePath={taskAttempt?.container_ref}
                   />
                   {isCollapseMeasured && needsCollapse && isCollapsed && (
                     <div className="conv-user-collapsible-overlay" />

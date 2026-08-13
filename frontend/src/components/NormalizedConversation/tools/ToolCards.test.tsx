@@ -294,6 +294,36 @@ describe('conversation tool cards', () => {
     );
   });
 
+  it('shows the read range and returned file content with a directly clickable path', () => {
+    render(
+      <FileToolCard
+        entry={toolEntry({
+          toolName: 'Read',
+          content: 'src/App.tsx',
+          actionType: {
+            action: 'file_read',
+            path: 'src/App.tsx',
+            line_start: 81,
+            line_end: 120,
+            content: 'export function App() {\n  return null;\n}',
+          },
+        })}
+        expansionKey="file-range"
+        containerRef="/workspace/project"
+        forceExpanded
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'src/App.tsx' }));
+
+    expect(panelMocks.openFilePreview).toHaveBeenCalledWith(
+      '/workspace/project/src/App.tsx',
+      { displayPath: 'src/App.tsx', title: 'src/App.tsx' }
+    );
+    expect(screen.getByText('第 81–120 行')).toBeInTheDocument();
+    expect(screen.getByText(/export function App/)).toBeInTheDocument();
+  });
+
   it('opens and copies web fetch targets without expanding the card', async () => {
     // The Tauri shell plugin is unavailable in jsdom, so the system-browser
     // opener falls back to window.open.
@@ -345,7 +375,10 @@ describe('conversation tool cards', () => {
     const result: ToolResultBlock = {
       type: 'tool_result',
       tool_use_id: 'search-1',
-      output_preview: '2 matches in crates/conversations/src/service.rs',
+      output_preview: [
+        'crates/conversations/src/service.rs:41: cancel_session()',
+        'crates/conversations/src/runtime.rs:88: session.cancel()',
+      ].join('\n'),
       is_error: false,
       agent_stats: null,
     };
@@ -361,9 +394,12 @@ describe('conversation tool cards', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/"maxResults": 20/)).toBeInTheDocument();
     expect(screen.getByText('结果')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: '搜索结果' })).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(
-      screen.getByText('2 matches in crates/conversations/src/service.rs')
+      screen.getByText('crates/conversations/src/service.rs')
     ).toBeInTheDocument();
+    expect(screen.getByText('cancel_session()')).toBeInTheDocument();
   });
 
   it('keeps generic tool arguments and result inspectable', () => {

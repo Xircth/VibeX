@@ -743,9 +743,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::chat_channel::set_chat_command_prefix,
         commands::chat_channel::get_chat_include_prompt_text,
         commands::chat_channel::set_chat_include_prompt_text,
-        commands::system_maintenance::get_system_maintenance_status,
         commands::system_maintenance::check_app_release,
-        commands::system_maintenance::install_system_dependencies,
         // Settings window commands
         commands::settings_window::open_settings_window,
         // Tag commands

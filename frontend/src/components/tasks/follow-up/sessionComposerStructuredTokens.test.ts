@@ -69,6 +69,22 @@ describe('session composer structured commands', () => {
     ]);
   });
 
+  it('shows only the command name for skill-backed slash tokens', () => {
+    const raw = formatSessionComposerCommand({
+      type: '/',
+      key: 'skill:/Users/mac/.agents/skills/grilling:grill-me',
+      value: '/grill-me',
+    });
+
+    expect(getSessionComposerStructuredTokens(raw)).toEqual([
+      expect.objectContaining({
+        kind: 'slash',
+        label: '/grill-me',
+        value: '/grill-me',
+      }),
+    ]);
+  });
+
   it('splits composer text into Text and Command segments', () => {
     const fileCommand = formatSessionComposerCommand({
       type: '@',

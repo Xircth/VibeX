@@ -121,6 +121,22 @@ describe('WorkspaceDockviewTab', () => {
     );
   });
 
+  it('renders an image icon for transient image preview tabs', () => {
+    const { props } = tabProps({
+      component: PANEL_IDS.PREVIEW,
+      id: 'image:abc123',
+      params: { imagePreviewId: 'image:abc123' },
+      title: 'generated.png',
+    });
+
+    render(<WorkspaceDockviewTab {...props} />);
+
+    expect(screen.getByTestId('workspace-tab-icon')).toHaveAttribute(
+      'data-tab-icon',
+      'image'
+    );
+  });
+
   it('uses a browser fallback icon and reacts to favicon parameter updates', () => {
     const model = tabProps({
       component: PANEL_IDS.WEB_PREVIEW,

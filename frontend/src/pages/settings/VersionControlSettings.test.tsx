@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
     workspace_dir: '/workspace',
     git_branch_prefix: 'codex',
     commit_reminder_enabled: true,
-    commit_reminder_mode: 'separate_turn',
+    commit_reminder_mode: 'smart',
     commit_reminder_line_threshold: 10000,
     pr_auto_description_enabled: false,
     pr_auto_description_prompt: null,
@@ -211,6 +211,9 @@ describe('VersionControlSettings', () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText('提交指令')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '提醒方式' })).toHaveValue(
+      'smart'
+    );
 
     await user.click(screen.getByRole('switch', { name: '启用提交提醒' }));
 
@@ -241,7 +244,7 @@ describe('VersionControlSettings', () => {
 
     await user.selectOptions(
       screen.getByRole('combobox', { name: '提醒方式' }),
-      'smart'
+      'separate_turn'
     );
     const threshold = screen.getByRole('spinbutton', {
       name: '更改行数边界',
@@ -253,7 +256,7 @@ describe('VersionControlSettings', () => {
     await waitFor(() => {
       expect(mocks.updateAndSaveConfig).toHaveBeenCalledWith(
         expect.objectContaining({
-          commit_reminder_mode: 'smart',
+          commit_reminder_mode: 'separate_turn',
           commit_reminder_line_threshold: 2500,
         })
       );

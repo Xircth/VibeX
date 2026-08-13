@@ -3,8 +3,8 @@ use executors::{executors::AgentKind, profile::ExecutorProfileId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 pub use v8::{
-    EditorConfig, EditorType, GitHubConfig, NotificationConfig, SendMessageShortcut, ShowcaseState,
-    SoundFile, ThemeMode, UiLanguage,
+    EditorConfig, EditorType, GitHubConfig, NotificationConfig, SendMessageShortcut, SoundFile,
+    ThemeMode, UiLanguage,
 };
 
 use crate::services::config::versions::v8;
@@ -49,10 +49,6 @@ fn default_auto_update_enabled() -> bool {
     true
 }
 
-fn default_auto_install_local_dependencies() -> bool {
-    true
-}
-
 /// How links clicked inside conversation content are opened.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
 pub enum LinkOpenBehavior {
@@ -66,8 +62,8 @@ pub enum LinkOpenBehavior {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitReminderMode {
-    #[default]
     SeparateTurn,
+    #[default]
     Smart,
 }
 
@@ -88,24 +84,16 @@ pub struct Config {
     pub language: UiLanguage,
     #[serde(default = "default_git_branch_prefix")]
     pub git_branch_prefix: String,
-    #[serde(default)]
-    pub showcases: ShowcaseState,
     #[serde(default = "default_pr_auto_description_enabled")]
     pub pr_auto_description_enabled: bool,
     #[serde(default)]
     pub pr_auto_description_prompt: Option<String>,
-    #[serde(default)]
-    pub beta_workspaces: bool,
-    #[serde(default)]
-    pub beta_workspaces_invitation_sent: bool,
     #[serde(default = "default_commit_reminder_enabled")]
     pub commit_reminder_enabled: bool,
     #[serde(default)]
     pub commit_reminder_mode: CommitReminderMode,
     #[serde(default = "default_commit_reminder_line_threshold")]
     pub commit_reminder_line_threshold: u32,
-    #[serde(default)]
-    pub merge_commit_message_template: Option<String>,
     #[serde(default)]
     pub send_message_shortcut: SendMessageShortcut,
     #[serde(default = "default_prompt_enhancement_enabled")]
@@ -124,18 +112,9 @@ pub struct Config {
     /// existing Agent-managed ACP session in the selected workspace.
     #[serde(default)]
     pub previous_session_continuation_enabled: bool,
-    /// Agents that have been disabled by the user in settings
-    #[serde(default)]
-    pub disabled_agents: Vec<AgentKind>,
-    /// Custom agent display order (if user has reordered)
-    #[serde(default)]
-    pub agent_order: Option<Vec<AgentKind>>,
-    /// Automatically check for app releases and tool updates on startup.
+    /// Automatically check for app releases on startup.
     #[serde(default = "default_auto_update_enabled")]
     pub auto_update_enabled: bool,
-    /// Automatically install or update local dependencies on startup.
-    #[serde(default = "default_auto_install_local_dependencies")]
-    pub auto_install_local_dependencies: bool,
     /// Opt-in: surface locally captured crash reports on startup so the user
     /// can review the full content and choose to file a GitHub issue.
     /// Capture itself is always local-only; nothing is sent automatically.
@@ -163,15 +142,11 @@ impl Config {
             show_release_notes: old_config.show_release_notes,
             language: old_config.language,
             git_branch_prefix: old_config.git_branch_prefix,
-            showcases: old_config.showcases,
             pr_auto_description_enabled: old_config.pr_auto_description_enabled,
             pr_auto_description_prompt: old_config.pr_auto_description_prompt,
-            beta_workspaces: old_config.beta_workspaces,
-            beta_workspaces_invitation_sent: old_config.beta_workspaces_invitation_sent,
             commit_reminder_enabled: old_config.commit_reminder_enabled,
             commit_reminder_mode: CommitReminderMode::default(),
             commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
-            merge_commit_message_template: old_config.merge_commit_message_template,
             send_message_shortcut: old_config.send_message_shortcut,
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
             prompt_enhancement_model: default_prompt_enhancement_model(),
@@ -180,10 +155,7 @@ impl Config {
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
             previous_session_continuation_enabled: false,
-            disabled_agents: Vec::new(),
-            agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
-            auto_install_local_dependencies: default_auto_install_local_dependencies(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
         }
@@ -232,15 +204,11 @@ impl Default for Config {
             show_release_notes: false,
             language: UiLanguage::default(),
             git_branch_prefix: default_git_branch_prefix(),
-            showcases: ShowcaseState::default(),
             pr_auto_description_enabled: true,
             pr_auto_description_prompt: None,
-            beta_workspaces: false,
-            beta_workspaces_invitation_sent: false,
             commit_reminder_enabled: true,
             commit_reminder_mode: CommitReminderMode::default(),
             commit_reminder_line_threshold: default_commit_reminder_line_threshold(),
-            merge_commit_message_template: None,
             send_message_shortcut: SendMessageShortcut::default(),
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
             prompt_enhancement_model: default_prompt_enhancement_model(),
@@ -249,10 +217,7 @@ impl Default for Config {
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
             previous_session_continuation_enabled: false,
-            disabled_agents: Vec::new(),
-            agent_order: None,
             auto_update_enabled: default_auto_update_enabled(),
-            auto_install_local_dependencies: default_auto_install_local_dependencies(),
             crash_reports_enabled: false,
             link_open_behavior: LinkOpenBehavior::default(),
         }
@@ -264,13 +229,10 @@ mod tests {
     use super::{CommitReminderMode, Config};
 
     #[test]
-    fn commit_reminders_default_to_a_ten_thousand_line_separate_turn() {
+    fn commit_reminders_default_to_a_ten_thousand_line_smart_mode() {
         let config = Config::default();
 
-        assert_eq!(
-            config.commit_reminder_mode,
-            CommitReminderMode::SeparateTurn
-        );
+        assert_eq!(config.commit_reminder_mode, CommitReminderMode::Smart);
         assert_eq!(config.commit_reminder_line_threshold, 10_000);
     }
 
@@ -284,10 +246,7 @@ mod tests {
         let loaded: Config =
             serde_json::from_value(serde_json::Value::Object(saved.clone())).expect("load config");
 
-        assert_eq!(
-            loaded.commit_reminder_mode,
-            CommitReminderMode::SeparateTurn
-        );
+        assert_eq!(loaded.commit_reminder_mode, CommitReminderMode::Smart);
         assert_eq!(loaded.commit_reminder_line_threshold, 10_000);
     }
 

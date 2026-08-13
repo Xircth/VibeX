@@ -2,6 +2,7 @@ import { act, render } from '@testing-library/react';
 import type { DockviewApi } from 'dockview-react';
 import { describe, expect, it, vi } from 'vitest';
 import { PANEL_IDS } from '@/stores/useLayoutStore';
+import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 import {
   PanelActionsProvider,
   usePanelActionsContext,
@@ -33,6 +34,7 @@ function createDockviewApi() {
       panels.push(panel);
       return panel;
     }),
+    onDidRemovePanel: vi.fn(() => ({ dispose: vi.fn() })),
     removePanel: vi.fn(),
   };
   return api as unknown as DockviewApi;
@@ -106,6 +108,48 @@ describe('PanelActionsContext Web Preview', () => {
           requestedUrlNonce: 2,
         },
       })
+    );
+  });
+});
+
+describe('PanelActionsContext image preview', () => {
+  it('keeps data URLs out of dockview panel parameters', () => {
+    let actions: PanelActions | undefined;
+    function Probe() {
+      actions = usePanelActionsContext();
+      return null;
+    }
+
+    render(
+      <PanelActionsProvider>
+        <Probe />
+      </PanelActionsProvider>
+    );
+    const dockviewApi = createDockviewApi();
+
+    act(() => actions?.setDockviewApi(dockviewApi));
+    act(() =>
+      actions?.openImagePreview('data:image/png;base64,AAAA', {
+        title: 'generated.png',
+      })
+    );
+
+    expect(dockviewApi.addPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.stringMatching(/^image:/),
+        component: PANEL_IDS.PREVIEW,
+        title: 'generated.png',
+        params: expect.objectContaining({
+          imagePreviewId: expect.stringMatching(/^image:/),
+        }),
+      })
+    );
+    const call = vi.mocked(dockviewApi.addPanel).mock.calls[0]?.[0] as {
+      params: { imagePreviewId: string; imageUrl?: string };
+    };
+    expect(call.params.imageUrl).toBeUndefined();
+    expect(resolveImagePreviewSource(call.params.imagePreviewId)).toBe(
+      'data:image/png;base64,AAAA'
     );
   });
 });

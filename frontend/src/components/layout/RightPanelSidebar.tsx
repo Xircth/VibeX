@@ -90,7 +90,7 @@ function RightPanelSidebarContent({
               <TooltipTrigger asChild>
                 <button
                   onClick={button.onClick}
-                  className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="workspace-side-rail-button flex h-7 w-7 items-center justify-center"
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </button>
@@ -107,7 +107,7 @@ function RightPanelSidebarContent({
             <TooltipTrigger asChild>
               <button
                 onClick={handleOpenPreview}
-                className={`h-7 w-7 flex items-center justify-center rounded transition-colors ${networkButtonClass}`}
+                className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${networkButtonClass}`}
               >
                 <Globe className="h-3.5 w-3.5" />
               </button>
@@ -122,7 +122,7 @@ function RightPanelSidebarContent({
               <button
                 onClick={() => void activateTauriInspector()}
                 disabled={isTauriInspectorActivating}
-                className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="workspace-side-rail-button flex h-7 w-7 items-center justify-center disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label={t('rightPanelSidebar.tauriInspectorTooltip')}
               >
                 {isTauriInspectorActivating ? (

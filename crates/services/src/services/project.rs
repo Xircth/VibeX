@@ -14,7 +14,7 @@ use utils::path::normalize_windows_extended_path_prefix;
 use uuid::Uuid;
 
 use super::{
-    file_search::{FileSearchCache, SearchQuery},
+    file_search::{FileSearchService, SearchQuery},
     repo::{RepoError, RepoService},
 };
 
@@ -222,7 +222,7 @@ impl ProjectService {
 
     pub async fn search_files(
         &self,
-        cache: &FileSearchCache,
+        file_search: &FileSearchService,
         repositories: &[Repo],
         query: &SearchQuery,
     ) -> Result<Vec<SearchResult>> {
@@ -240,19 +240,17 @@ impl ProjectService {
                 let mode = query.mode.clone();
                 let query_str = query_str.to_string();
                 async move {
-                    let results = cache
+                    let results = file_search
                         .search_repo(&repo_path, &query_str, mode)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!("Search failed for repo {}: {}", repo_name, e);
-                            vec![]
-                        });
-                    (repo_name, results)
+                        .await?;
+                    Ok::<_, String>((repo_name, results))
                 }
             })
             .collect();
 
-        let repo_results = futures::future::join_all(search_futures).await;
+        let repo_results = futures::future::try_join_all(search_futures)
+            .await
+            .map_err(ProjectServiceError::GitError)?;
 
         let mut all_results: Vec<SearchResult> = repo_results
             .into_iter()

@@ -231,7 +231,7 @@ async fn records_only_content_changes() -> Result<(), ArtifactServiceError> {
         root: root.clone(),
         bytes: Mutex::new(b"A".to_vec()),
     });
-    let repository = Arc::new(MemoryRepository::default());
+    let repository = Arc::new(OutboxRepository::default());
     let events = Arc::new(MemoryEvents::default());
     let service = ArtifactService::new(repository.clone(), events.clone(), filesystem.clone());
     let conversation_id = Uuid::new_v4();
@@ -252,7 +252,7 @@ async fn records_only_content_changes() -> Result<(), ArtifactServiceError> {
     assert_eq!(duplicate.id, first.id);
     assert_eq!(changed.revision, 2);
 
-    let persisted = repository.0.lock().unwrap();
+    let persisted = repository.records.lock().unwrap();
     assert_eq!(persisted.len(), 2);
     assert_eq!(persisted[0].producer, persisted[1].producer);
     assert_eq!(persisted[0].producer.plugin_id, "builtin.office");
@@ -291,12 +291,12 @@ async fn retries_pending_event_without_creating_an_extra_revision() {
     let conversation_id = Uuid::new_v4();
     let turn_id = Uuid::new_v4();
 
-    assert!(
-        service
-            .record(request(&root, conversation_id, turn_id))
-            .await
-            .is_err()
-    );
+    let recorded = service
+        .record(request(&root, conversation_id, turn_id))
+        .await
+        .unwrap();
+    assert_eq!(recorded.revision, 1);
+    assert_eq!(repository.pending.lock().unwrap().len(), 1);
     let recovered = service
         .record(request(&root, conversation_id, turn_id))
         .await
@@ -309,7 +309,7 @@ async fn retries_pending_event_without_creating_an_extra_revision() {
 }
 
 #[tokio::test]
-async fn delivers_pending_revision_before_recording_changed_content() {
+async fn pending_event_failure_does_not_block_changed_content() {
     let root = PathBuf::from("/workspace");
     let filesystem = Arc::new(MemoryFilesystem {
         root: root.clone(),
@@ -324,13 +324,13 @@ async fn delivers_pending_revision_before_recording_changed_content() {
     let conversation_id = Uuid::new_v4();
     let turn_id = Uuid::new_v4();
 
-    assert!(
-        service
-            .record(request(&root, conversation_id, turn_id))
-            .await
-            .is_err()
-    );
+    let first = service
+        .record(request(&root, conversation_id, turn_id))
+        .await
+        .unwrap();
+    assert_eq!(first.revision, 1);
     *filesystem.bytes.lock().unwrap() = b"B".to_vec();
+    events.fail.store(true, Ordering::SeqCst);
     let changed = service
         .record(request(&root, conversation_id, turn_id))
         .await
@@ -338,8 +338,8 @@ async fn delivers_pending_revision_before_recording_changed_content() {
 
     assert_eq!(changed.revision, 2);
     assert_eq!(repository.records.lock().unwrap().len(), 2);
-    assert!(repository.pending.lock().unwrap().is_empty());
-    assert_eq!(events.delivered.lock().unwrap().len(), 2);
+    assert_eq!(repository.pending.lock().unwrap().len(), 2);
+    assert!(events.delivered.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

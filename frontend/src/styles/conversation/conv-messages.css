@@ -206,12 +206,12 @@
 
 .vibex-user-message .conv-user-markdown :where(ul, ol) {
   margin-block: 0.25rem !important;
-  padding-inline-start: 0.25rem !important;
+  padding-inline-start: 0.05rem !important;
 }
 
 .vibex-user-message .conv-user-markdown :where(ul, ol) :where(ul, ol) {
   margin-block: 0.125rem !important;
-  padding-inline-start: 0.21875rem !important;
+  padding-inline-start: 0.04375rem !important;
 }
 
 .vibex-user-message .conv-user-markdown .astryx-markdown-list {
@@ -270,6 +270,11 @@
 .conv-user-bubble .conv-markdown [role='paragraph'],
 .conv-user-bubble .conv-markdown :where(p, li, span, strong, u) {
   color: var(--conv-user-text) !important;
+}
+
+.conv-user-bubble .conv-markdown .conv-resource-link,
+.conv-user-bubble .conv-markdown .conv-resource-link :where(span, svg) {
+  color: var(--conv-tool-icon) !important;
 }
 
 /* Inline code inside user bubbles stays readable on the charcoal surface. */

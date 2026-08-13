@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { ImagePreviewDialog } from '@/components/dialogs/wysiwyg/ImagePreviewDialog';
+import { useImagePreviewPresentation } from '@/contexts/ImagePreviewPresentationContext';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 
 export interface OpenImagePreviewArgs {
@@ -11,21 +12,18 @@ export interface OpenImagePreviewArgs {
 }
 
 /**
- * Opens a conversation image in a workspace preview tab when possible.
- * data:/blob: URLs (ephemeral, or too large to persist as panel params) and
- * contexts without panel actions fall back to the modal dialog.
+ * Opens a conversation image using the presentation selected by its page.
+ * Kanban surfaces default to a dialog; workspace surfaces explicitly opt into
+ * a dockview tab. Transient image data is kept outside persisted panel params.
  */
 export function useOpenImagePreview(): (args: OpenImagePreviewArgs) => void {
   const panelActions = useOptionalPanelActionsContext();
+  const presentation = useImagePreviewPresentation();
 
   return useCallback(
     (args: OpenImagePreviewArgs) => {
-      const { imageUrl } = args;
-      const isEphemeralUrl =
-        imageUrl.startsWith('data:') || imageUrl.startsWith('blob:');
-
-      if (panelActions && !isEphemeralUrl) {
-        panelActions.openImagePreview(imageUrl, {
+      if (presentation === 'workspace-tab' && panelActions) {
+        panelActions.openImagePreview(args.imageUrl, {
           title: args.fileName ?? args.altText,
         });
         return;
@@ -33,6 +31,6 @@ export function useOpenImagePreview(): (args: OpenImagePreviewArgs) => void {
 
       ImagePreviewDialog.show(args);
     },
-    [panelActions]
+    [panelActions, presentation]
   );
 }

@@ -303,6 +303,7 @@ impl AgentManagementApplicationService {
                JOIN agent_install_component component
                  ON component.lock_id = installation.current_lock_id
                WHERE installation.current_lock_id IS NOT NULL
+                 AND installation.ownership <> 'external'
                  AND installation.active_operation IS NULL"#,
         )
         .fetch_all(&self.pool)

@@ -18,6 +18,7 @@ function renderSubmitActions({
   const saveToScratch = vi.fn().mockResolvedValue(undefined);
   const queueMessage = vi.fn().mockResolvedValue(undefined);
   const onSendFollowUp = vi.fn();
+  const onSubmitFollowUp = vi.fn();
   const onAfterQueueCleanup = vi.fn();
 
   const result = renderHook(() =>
@@ -35,6 +36,7 @@ function renderSubmitActions({
       queueMessage,
       onAfterQueueCleanup,
       onSendFollowUp,
+      onSubmitFollowUp,
     })
   );
 
@@ -46,6 +48,7 @@ function renderSubmitActions({
     queueMessage,
     onAfterQueueCleanup,
     onSendFollowUp,
+    onSubmitFollowUp,
   };
 }
 
@@ -117,6 +120,19 @@ describe('useSessionComposerSubmitActions', () => {
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(onSendFollowUp).toHaveBeenCalledOnce();
     expect(queueMessage).not.toHaveBeenCalled();
+  });
+
+  it('forwards the Astryx submitted text instead of treating it as a keyboard event', () => {
+    const { result, onSubmitFollowUp } = renderSubmitActions({
+      localMessage: 'stale draft',
+      isAttemptRunning: false,
+    });
+
+    act(() => {
+      result.current.handleSubmitShortcut('current composer text');
+    });
+
+    expect(onSubmitFollowUp).toHaveBeenCalledWith('current composer text');
   });
 
   it('queues from the submit shortcut while an attempt is running and no queued message exists', async () => {

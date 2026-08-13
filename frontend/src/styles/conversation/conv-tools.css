@@ -117,6 +117,82 @@
   line-height: 1.5;
 }
 
+.conv-tool-file-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+
+.conv-tool-file-path {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  color: hsl(var(--primary));
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.conv-tool-file-path:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.conv-tool-read-content {
+  max-height: 20rem;
+  margin-top: 0.5rem;
+  overflow: auto;
+  white-space: pre;
+  color: var(--foreground);
+}
+
+.conv-tool-search-results {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conv-tool-search-results li {
+  display: flex;
+  min-width: 0;
+  gap: 0.5rem;
+}
+
+.conv-tool-search-result-path {
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: hsl(var(--primary));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vibex-tool-file-link {
+  min-width: 0;
+  max-width: min(34rem, 48vw);
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  color: hsl(var(--primary));
+  background: transparent;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vibex-tool-file-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .conv-generated-image-preview {
   display: inline-flex;
   max-width: 100%;
@@ -368,7 +444,7 @@
 .conv-message-nav-rail {
   position: sticky;
   top: 50%;
-  width: 32px;
+  width: 22.4px;
   max-height: calc(100vh - 96px);
   transform: translateY(-50%);
   overflow: hidden;
@@ -380,9 +456,9 @@
     display: block;
   }
 
-  /* Reserve room so message content never slides under the ruler ticks. */
+  /* 19.6px Hover key + 5.88px gap (70% of the previous 8.4px). */
   .conv-thread-content {
-    padding-right: 40px;
+    padding-right: 25.48px;
   }
 }
 
@@ -405,7 +481,7 @@
 
 .conv-message-nav-tick {
   position: relative;
-  width: 32px;
+  width: 22.4px;
   height: 16px;
   flex: 0 0 auto;
   padding: 0;
@@ -419,7 +495,7 @@
   position: absolute;
   top: 50%;
   right: 0;
-  width: 12px;
+  width: 8.4px;
   height: 2px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--conv-text-tertiary) 66%, transparent);
@@ -433,7 +509,7 @@
 
 .conv-message-nav-tick:hover::after,
 .conv-message-nav-tick:focus-visible::after {
-  width: 28px;
+  width: 19.6px;
   height: 3px;
   background: var(--conv-text-primary);
 }

@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ExecutorProfileId, SlashCommandDescription } from 'shared/types';
 import { useTauriPatchStream } from '@/hooks/useTauriPatchStream';
-import {
-  isCoreSlashCommand,
-  isSlashCommandSkill,
-} from '@/lib/slashCommandPresentation';
-import { agentSlashCommandCatalog } from '@/features/agents/slashCommands';
 
 type SlashCommandsStreamState = {
   commands: SlashCommandDescription[];
@@ -13,45 +8,12 @@ type SlashCommandsStreamState = {
   error: string | null;
 };
 
-function mergeSlashCommands(
-  executor: string | null | undefined,
-  fallbackCommands: SlashCommandDescription[],
-  streamedCommands: SlashCommandDescription[]
-): SlashCommandDescription[] {
-  const isVisible = (command: SlashCommandDescription) =>
-    isSlashCommandSkill(command) || isCoreSlashCommand(command, executor);
-
-  if (fallbackCommands.length === 0) return streamedCommands.filter(isVisible);
-  if (streamedCommands.length === 0) return fallbackCommands.filter(isVisible);
-
-  const byName = new Map<string, SlashCommandDescription>();
-  for (const command of fallbackCommands) {
-    byName.set(command.name, command);
-  }
-  for (const command of streamedCommands) {
-    byName.set(command.name, command);
-  }
-
-  const orderedNames = [
-    ...fallbackCommands.map((command) => command.name),
-    ...streamedCommands.map((command) => command.name),
-  ];
-  const seen = new Set<string>();
-  return orderedNames.flatMap((name) => {
-    if (seen.has(name)) return [];
-    seen.add(name);
-    const command = byName.get(name);
-    return command && isVisible(command) ? [command] : [];
-  });
-}
-
 /**
  * Slash commands streaming via Tauri backend.
  *
  * Subscribes to the `subscribe_slash_commands_stream` Tauri command which
- * dynamically discovers available slash commands from the Claude Code CLI
- * (or other configured agent). Returns both hardcoded built-in commands
- * and dynamically discovered custom commands / skills.
+ * dynamically discovers available slash commands from the configured Agent.
+ * The Agent runtime is the sole authority for which commands are available.
  */
 export function useSlashCommands(
   executorProfile: ExecutorProfileId | null | undefined,
@@ -115,14 +77,7 @@ export function useSlashCommands(
   });
 
   const error = data?.error ?? streamError;
-  const streamedCommands = data?.commands ?? [];
-  const fallbackCommands = agentSlashCommandCatalog(executor);
-  const commands = mergeSlashCommands(
-    executor ?? null,
-    fallbackCommands,
-    streamedCommands
-  );
-  const hasFallbackCommands = fallbackCommands.length > 0;
+  const commands = data?.commands ?? [];
 
   useEffect(() => {
     if (error) {
@@ -135,6 +90,6 @@ export function useSlashCommands(
     discovering: data?.discovering ?? false,
     error,
     isConnected,
-    isInitialized: isInitialized || hasFallbackCommands,
+    isInitialized,
   };
 }

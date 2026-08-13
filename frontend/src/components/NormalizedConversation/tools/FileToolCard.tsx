@@ -60,6 +60,15 @@ export function FileToolCard({
   const summary = getToolSummary(toolEntry, entry.content.trim());
   const displayPath = summary.detail || path;
   const canOpenPreview = path.length > 0;
+  const lineRange =
+    actionType?.line_start != null
+      ? actionType.line_end != null
+        ? t('messageTurnView.fileReadRange', {
+            start: actionType.line_start,
+            end: actionType.line_end,
+          })
+        : t('messageTurnView.fileReadFrom', { start: actionType.line_start })
+      : null;
 
   const handleOpenPreview = useCallback(() => {
     if (!canOpenPreview) return;
@@ -130,10 +139,21 @@ export function FileToolCard({
       expandable
       onToggle={toggle}
     >
-      <div className="conv-tool-details-section-label">
-        {t('fileTool.path')}
+      <div className="conv-tool-file-meta">
+        <button
+          type="button"
+          className="conv-tool-file-path"
+          aria-label={displayPath}
+          onClick={handleOpenPreview}
+          disabled={!canOpenPreview}
+        >
+          {displayPath}
+        </button>
+        {lineRange ? <span>{lineRange}</span> : null}
       </div>
-      <div className="conv-tool-details-content">{path}</div>
+      {actionType.content ? (
+        <pre className="conv-tool-read-content">{actionType.content}</pre>
+      ) : null}
     </ToolCardShell>
   );
 }

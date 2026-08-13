@@ -82,7 +82,6 @@ export function GeneralSettings() {
   const [agentModels, setAgentModels] = useState<string[]>([]);
   const [agentModelsLoading, setAgentModelsLoading] = useState(false);
   const agentModelsRequestIdRef = useRef(0);
-  const startupCatalogRetriesEnabledRef = useRef(true);
 
   useEffect(() => {
     if (config && !dirty) {
@@ -105,48 +104,21 @@ export function GeneralSettings() {
       if (requestId === agentModelsRequestIdRef.current) {
         setAgentModels(result.models);
       }
-      return result.models;
-    } catch {
-      return null;
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('general.modelsRefreshFailed')
+      );
     }
-  }, []);
+  }, [t]);
 
-  // A normal settings visit only reads the same fingerprint-matching catalog
-  // that session creation uses. It never starts an Agent process. If
-  // startup warmup is still completing, retry the local catalog read for a
-  // short, bounded window rather than polling forever on an absent runtime.
   useEffect(() => {
-    let disposed = false;
-    let retryTimer: number | null = null;
-    let retryAttempts = 0;
-    const maxStartupCatalogRetries = 10;
-
-    const loadCatalog = async () => {
-      if (disposed || !startupCatalogRetriesEnabledRef.current) return;
-      const models = await readPersistedAgentModels();
-      if (
-        !disposed &&
-        startupCatalogRetriesEnabledRef.current &&
-        models?.length === 0 &&
-        retryAttempts < maxStartupCatalogRetries
-      ) {
-        retryAttempts += 1;
-        retryTimer = window.setTimeout(() => {
-          void loadCatalog();
-        }, 1000);
-      }
-    };
-
-    void loadCatalog();
-    return () => {
-      disposed = true;
-      if (retryTimer != null) window.clearTimeout(retryTimer);
-    };
+    void readPersistedAgentModels();
   }, [readPersistedAgentModels]);
 
   const refreshAgentModels = useCallback(async () => {
     setAgentModelsLoading(true);
-    startupCatalogRetriesEnabledRef.current = false;
     const requestId = ++agentModelsRequestIdRef.current;
     try {
       // This is the only user-initiated path allowed to refresh discovery. The

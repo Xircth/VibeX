@@ -105,11 +105,9 @@ describe('composer plugin action invocation', () => {
               transport,
               executorProfile: { executor: 'codex' },
             }}
-            images={[]}
             onChange={setMessage}
             onSubmit={onSubmit}
             onAttachImages={() => {}}
-            onRemoveImage={() => {}}
           />
           <output data-testid="composer-value">{message}</output>
         </QueryClientProvider>
@@ -150,9 +148,7 @@ describe('composer plugin action invocation', () => {
         actionId: 'create-presentation',
       },
     ]);
-    expect(call.mock.calls.map((c) => c[0])).toContain(
-      'plugin_action_catalog'
-    );
+    expect(call.mock.calls.map((c) => c[0])).toContain('plugin_action_catalog');
     expect(call.mock.calls.map((c) => c[0])).toContain('list_agent_skills');
     expect(onSubmit).not.toHaveBeenCalled();
   });

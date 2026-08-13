@@ -1,5 +1,5 @@
 import { forwardRef, type HTMLAttributes } from 'react';
-import { AtSign, Bot, Box, Command, File, Hash, Puzzle } from 'lucide-react';
+import { AtSign, Bot, Box, Command, File, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   SessionComposerStructuredToken,
@@ -75,7 +75,7 @@ export function SessionComposerTokenChip({
         : token.kind === 'file'
           ? File
           : token.kind === 'tag'
-            ? Hash
+            ? null
             : token.kind === 'element'
               ? Box
               : Command;
@@ -96,7 +96,7 @@ export function SessionComposerTokenChip({
       {token.kind === 'file' || token.kind === 'element' ? (
         <AtSign className="h-3 w-3 shrink-0" />
       ) : null}
-      <Icon className="h-3 w-3 shrink-0 opacity-80" />
+      {Icon ? <Icon className="h-3 w-3 shrink-0 opacity-80" /> : null}
       <span className="truncate font-medium">{token.label}</span>
     </span>
   );

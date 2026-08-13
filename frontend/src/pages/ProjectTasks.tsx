@@ -57,6 +57,7 @@ function ProjectWorkspaceSessionRoute({
               sessionId={routeSessionId}
               interactive={true}
               showSessionSelector={true}
+              imagePreviewPresentation="workspace-tab"
               className="h-full"
             />
           </NewCard>

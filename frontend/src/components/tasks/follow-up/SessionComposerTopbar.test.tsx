@@ -68,6 +68,13 @@ function renderTopbar(
 }
 
 describe('SessionComposerTopbar', () => {
+  it('does not reserve redundant space below the controls', () => {
+    const { container } = renderTopbar();
+
+    expect(container.querySelector('.composer-topbar')).toHaveClass('pb-0');
+    expect(container.querySelector('.composer-topbar')).not.toHaveClass('pb-2');
+  });
+
   it('renders file summary, todo status, and jump control behavior', () => {
     const onJump = vi.fn();
 

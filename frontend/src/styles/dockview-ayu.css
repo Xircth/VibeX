@@ -314,6 +314,8 @@
   line-height: 1rem;
   animation: none !important;
   transition: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 [class*='dockview-theme-ayu']

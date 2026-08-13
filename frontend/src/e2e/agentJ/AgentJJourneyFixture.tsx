@@ -115,6 +115,18 @@ function JourneySurface({ transport }: { transport: BackendTransport }) {
                       label: 'Allow once',
                       kind: 'allow_once',
                     },
+                    {
+                      id: 'allow-similar',
+                      label: 'Allow similar file writes',
+                      kind: 'allow_always',
+                      description:
+                        'Allow matching write requests for this session.',
+                    },
+                    {
+                      id: 'reject-once',
+                      label: 'Reject',
+                      kind: 'reject_once',
+                    },
                   ],
                 }}
                 onRespond={async (permissionId, response) => {

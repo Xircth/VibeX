@@ -88,6 +88,7 @@ describe('useFollowUpSend', () => {
 
   it('publishes the optimistic user turn before the runtime request settles', async () => {
     sendTurnMock.mockReturnValue(new Promise(() => {}));
+    const onBeforeSend = vi.fn();
     const events: OptimisticConversationTurnEvent[] = [];
     const unsubscribe = subscribeToOptimisticConversationTurns((event) =>
       events.push(event)
@@ -107,6 +108,7 @@ describe('useFollowUpSend', () => {
           reviewMarkdown: '',
           clearComments: vi.fn(),
           onAfterSendCleanup: vi.fn(),
+          onBeforeSend,
         }),
       { wrapper }
     );
@@ -126,6 +128,7 @@ describe('useFollowUpSend', () => {
           }),
         }),
       ]);
+      expect(onBeforeSend).toHaveBeenCalledOnce();
     } finally {
       unsubscribe();
     }
@@ -165,6 +168,72 @@ describe('useFollowUpSend', () => {
     });
 
     expect(queryClient.getQueryState(summariesKey)?.isInvalidated).toBe(true);
+  });
+
+  it('sends the composer value supplied by the Enter submission frame', async () => {
+    sendTurnMock.mockResolvedValue({});
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'stale draft',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSubmitFollowUp('current composer text');
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'current composer text',
+        displayText: 'current composer text',
+      })
+    );
+  });
+
+  it('restores the accepted draft when the runtime rejects the turn', async () => {
+    sendTurnMock.mockRejectedValue(new Error('runtime unavailable'));
+    const onBeforeSend = vi.fn();
+    const onSendFailure = vi.fn();
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'keep this draft',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onBeforeSend,
+          onSendFailure,
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(onBeforeSend).toHaveBeenCalledOnce();
+    expect(onSendFailure).toHaveBeenCalledWith('keep this draft');
   });
 
   it('sends stable agent mention URIs unchanged to the parent agent', async () => {

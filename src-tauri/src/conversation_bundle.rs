@@ -51,6 +51,73 @@ pub struct ConversationImportResult {
     pub projection_version: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationForkContinuity {
+    AgentContext,
+    HistoryOnly,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConversationForkResult {
+    pub conversation_id: Uuid,
+    pub imported_event_count: usize,
+    pub projection_version: u32,
+    pub continuity: ConversationForkContinuity,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuity_note: Option<String>,
+}
+
+impl ConversationForkResult {
+    pub fn history_only(imported: ConversationImportResult, note: impl Into<String>) -> Self {
+        Self {
+            conversation_id: imported.conversation_id,
+            imported_event_count: imported.imported_event_count,
+            projection_version: imported.projection_version,
+            continuity: ConversationForkContinuity::HistoryOnly,
+            continuity_note: Some(note.into()),
+        }
+    }
+
+    pub fn with_agent_context(imported: ConversationImportResult) -> Self {
+        Self {
+            conversation_id: imported.conversation_id,
+            imported_event_count: imported.imported_event_count,
+            projection_version: imported.projection_version,
+            continuity: ConversationForkContinuity::AgentContext,
+            continuity_note: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod fork_result_tests {
+    use uuid::Uuid;
+
+    use super::{ConversationForkContinuity, ConversationForkResult, ConversationImportResult};
+
+    #[test]
+    fn history_only_fork_is_explicit_in_the_wire_result() {
+        let result = ConversationForkResult::history_only(
+            ConversationImportResult {
+                conversation_id: Uuid::nil(),
+                imported_event_count: 3,
+                projection_version: 1,
+            },
+            "agent did not advertise session/fork",
+        );
+
+        assert_eq!(result.continuity, ConversationForkContinuity::HistoryOnly);
+        assert_eq!(
+            result.continuity_note.as_deref(),
+            Some("agent did not advertise session/fork")
+        );
+    }
+}
+
 pub async fn export_conversation_bundle(
     pool: &SqlitePool,
     conversation_id: Uuid,

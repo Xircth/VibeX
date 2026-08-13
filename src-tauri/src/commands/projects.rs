@@ -150,11 +150,7 @@ pub async fn search_project_files(
     match state
         .deployment
         .project()
-        .search_files(
-            state.deployment.file_search_cache().as_ref(),
-            &repositories,
-            &search_query,
-        )
+        .search_files(state.deployment.file_search(), &repositories, &search_query)
         .await
     {
         Ok(results) => Ok(results),

@@ -10,7 +10,6 @@ pub mod container_actions;
 mod container_workflow;
 pub mod diff_stream;
 pub mod events;
-pub mod file_ranker;
 pub mod file_search;
 pub mod filesystem;
 pub mod filesystem_watcher;

@@ -21,7 +21,7 @@ import { useFollowUpSend } from '@/hooks/useFollowUpSend';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { useGitStatus } from '@/hooks/git';
 
-import type { Session } from 'shared/types';
+import type { Session, Workspace } from 'shared/types';
 import { getLatestProfileFromProcesses } from '@/utils/executor';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
@@ -40,7 +40,11 @@ import {
   visibleSessionConfigOptions,
   selectConfigOptionValue,
 } from './follow-up/SessionConfigOptionSelectors';
-import { SessionComposerInput } from './follow-up/SessionComposerInput';
+import {
+  SessionComposerAttachmentDrawer,
+  SessionComposerInput,
+} from './follow-up/SessionComposerInput';
+import { SessionComposerFrame } from './follow-up/SessionComposerFrame';
 import { AgentMentionProvider } from './follow-up/AgentMention';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
@@ -99,10 +103,12 @@ import {
   deriveCodexGoalState,
 } from '@/lib/codexGoalState';
 import { configuredBackendTransport } from '@/lib/backendTransport';
+import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
   session?: Session;
+  workspace?: Workspace;
   workspaceId?: string;
   onJumpToPreviousUserMessage?: () => void;
   showSessionSelector?: boolean;
@@ -124,6 +130,7 @@ interface TaskFollowUpSectionProps {
 export function TaskFollowUpSection({
   taskId,
   session,
+  workspace,
   workspaceId: workspaceIdProp,
   onJumpToPreviousUserMessage,
   showSessionSelector = true,
@@ -169,6 +176,14 @@ export function TaskFollowUpSection({
   const { data: branchStatus, refetch: refetchBranchStatus } =
     useBranchStatus(workspaceIdValue);
   const { repos, selectedRepoId } = useAttemptRepo(workspaceIdValue);
+  const composerWorkspacePath = useMemo(
+    () =>
+      deriveWorkspaceRootPath(workspace, repos) ??
+      repos.find((repo) => repo.id === selectedRepoId)?.path ??
+      repos[0]?.path ??
+      undefined,
+    [repos, selectedRepoId, workspace]
+  );
 
   const repoWithConflicts = useMemo(
     () => getComposerRepoWithConflicts(branchStatus),
@@ -474,6 +489,16 @@ export function TaskFollowUpSection({
     setSelectedConfigValues({});
     await handleAfterSendCleanup();
   }, [handleAfterSendCleanup]);
+  const handleBeforeSend = useCallback(() => {
+    clearStopping();
+    setLocalMessage('');
+  }, [clearStopping, setLocalMessage]);
+  const handleSendFailure = useCallback(
+    (failedMessage: string) => {
+      setLocalMessage((current) => (current ? current : failedMessage));
+    },
+    [setLocalMessage]
+  );
   const codexGoalState = useMemo(() => {
     if (
       effectiveExecutorProfile?.executor !== 'codex' &&
@@ -504,26 +529,32 @@ export function TaskFollowUpSection({
     [entries]
   );
 
-  const { isSendingFollowUp, followUpError, setFollowUpError, onSendFollowUp } =
-    useFollowUpSend({
-      sessionId,
-      sessionExecutor: session?.executor,
-      workspaceId: workspaceIdValue,
-      isNewSessionMode,
-      newSessionName: '',
-      onSelectSession: handleSelectSession,
-      onSessionCreated: handleFollowUpSessionCreated,
-      message: localMessage,
-      images: attachedImagePaths,
-      conflictMarkdown: conflictResolutionInstructions,
-      reviewMarkdown,
-      executorProfileId: effectiveExecutorProfile,
-      modeOverride: selectedMode,
-      configOverrides: pendingConfigOverrides,
-      clearComments,
-      onBeforeSend: clearStopping,
-      onAfterSendCleanup: handleAfterSendWithSessionControlCleanup,
-    });
+  const {
+    isSendingFollowUp,
+    followUpError,
+    setFollowUpError,
+    onSendFollowUp,
+    onSubmitFollowUp,
+  } = useFollowUpSend({
+    sessionId,
+    sessionExecutor: session?.executor,
+    workspaceId: workspaceIdValue,
+    isNewSessionMode,
+    newSessionName: '',
+    onSelectSession: handleSelectSession,
+    onSessionCreated: handleFollowUpSessionCreated,
+    message: localMessage,
+    images: attachedImagePaths,
+    conflictMarkdown: conflictResolutionInstructions,
+    reviewMarkdown,
+    executorProfileId: effectiveExecutorProfile,
+    modeOverride: selectedMode,
+    configOverrides: pendingConfigOverrides,
+    clearComments,
+    onBeforeSend: handleBeforeSend,
+    onSendFailure: handleSendFailure,
+    onAfterSendCleanup: handleAfterSendWithSessionControlCleanup,
+  });
   const { isCompactingContext, canCompactContext, handleCompactContext } =
     useSessionComposerContextCompact({
       sessionId,
@@ -629,6 +660,7 @@ export function TaskFollowUpSection({
         });
       },
       onSendFollowUp,
+      onSubmitFollowUp,
     });
 
   const { handleEditorChange } = useSessionComposerEditorChange({
@@ -754,116 +786,116 @@ export function TaskFollowUpSection({
           dismissalScope={session?.id ?? null}
         />
 
-        {/* Input area with buttons inside */}
-        <div className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0">
-          {pendingAgentQuestion ? (
-            <AgentQuestionCard
-              key={pendingAgentQuestion.request.question_id}
-              request={pendingAgentQuestion.request}
-              responding={pendingAgentQuestion.responding}
-              onRespond={pendingAgentQuestion.onRespond}
+        <SessionComposerFrame
+          overlay={
+            pendingAgentQuestion ? (
+              <AgentQuestionCard
+                key={pendingAgentQuestion.request.question_id}
+                request={pendingAgentQuestion.request}
+                responding={pendingAgentQuestion.responding}
+                onRespond={pendingAgentQuestion.onRespond}
+              />
+            ) : null
+          }
+          drawer={
+            <SessionComposerAttachmentDrawer
+              images={attachedImages}
+              disabled={!isEditable}
+              taskAttemptId={workspaceId}
+              taskId={taskId ?? undefined}
+              onRemoveImage={handleRemoveImage}
             />
-          ) : null}
-          <div
-            className="composer-shell relative z-10 flex flex-col gap-1 overflow-visible rounded-xl p-2"
-            data-typeahead-surface="composer"
-            onFocus={handleComposerFocus}
-            onBlur={handleComposerBlur}
+          }
+          onFocus={handleComposerFocus}
+          onBlur={handleComposerBlur}
+        >
+          {/* Top bar */}
+          {showTopbar && (
+            <SessionComposerTopbar
+              executorProfile={effectiveExecutorProfile}
+              sessionExecutor={session?.executor}
+              showChangedFileSummary={showChangedFileSummary}
+              changedFileCount={fileCount}
+              added={added}
+              deleted={deleted}
+              codexGoalState={codexGoalState}
+              tokenUsageInfo={tokenUsageInfo}
+              todos={todos}
+              showSessionSelector={showSessionSelector}
+              sessions={sessions}
+              selectedSessionId={selectedSessionId}
+              compactSessionLabel={compactSessionLabel}
+              selectedSessionLabel={selectedSessionLabel}
+              onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
+              onSelectSession={handleSelectSession}
+              onStartNewSession={() => onCreateSessionRequested?.()}
+              onRenameSession={handleRenameSession}
+            />
+          )}
+          <AgentMentionProvider
+            transport={configuredBackendTransport}
+            conversationId={sessionId}
           >
-            {/* Top bar */}
-            {showTopbar && (
-              <SessionComposerTopbar
-                executorProfile={effectiveExecutorProfile}
-                sessionExecutor={session?.executor}
-                showChangedFileSummary={showChangedFileSummary}
-                changedFileCount={fileCount}
-                added={added}
-                deleted={deleted}
-                codexGoalState={codexGoalState}
-                tokenUsageInfo={tokenUsageInfo}
-                todos={todos}
-                showSessionSelector={showSessionSelector}
-                sessions={sessions}
-                selectedSessionId={selectedSessionId}
-                compactSessionLabel={compactSessionLabel}
-                selectedSessionLabel={selectedSessionLabel}
-                onJumpToPreviousUserMessage={onJumpToPreviousUserMessage}
-                onSelectSession={handleSelectSession}
-                onStartNewSession={() => onCreateSessionRequested?.()}
-                onRenameSession={handleRenameSession}
-              />
-            )}
-            <AgentMentionProvider
-              transport={configuredBackendTransport}
-              conversationId={sessionId}
-            >
-              <SessionComposerInput
-                value={localMessage}
-                onChange={handleEditorChange}
-                disabled={!isEditable}
-                context={{
-                  sendShortcut: config?.send_message_shortcut ?? 'Enter',
-                  taskAttemptId: workspaceId,
-                  taskId: taskId ?? undefined,
-                  workspaceId: workspaceIdValue,
-                  repoId: summaryRepoId ?? undefined,
-                  repoIds: repos.map((repo) => repo.id),
-                  executorProfile: effectiveExecutorProfile,
-                  sessionId,
-                  transport: configuredBackendTransport,
-                }}
-                images={attachedImages}
-                onSubmit={handleSubmitShortcut}
-                onAttachImages={handleAttachImages}
-                onRemoveImage={handleRemoveImage}
-              />
-            </AgentMentionProvider>
-
-            <ActionBar
-              profiles={profiles}
-              effectiveExecutorProfile={effectiveExecutorProfile}
-              onChangeExecutorProfile={setSelectedExecutorProfile}
-              showProfileControls={true}
-              sessionModes={displaySessionModes}
-              selectedMode={selectedMode}
-              onSelectMode={handleSelectMode}
-              sessionConfigOptions={displaySessionConfigOptions}
-              selectedConfigValues={selectedConfigValues}
-              onSelectConfigOption={handleSelectConfigOption}
-              isEditable={isEditable}
-              isAttemptRunning={isComposerExecutionRunning}
-              isQueued={queueIndicatorState.isQueued}
-              isQueueLoading={isQueueLoading}
-              canCompactContext={canCompactContext}
-              isCompactingContext={isCompactingContext}
-              isStopping={isStopping}
-              isSendingFollowUp={isSendingFollowUp}
-              canSendFollowUp={canSendFollowUp}
-              isAwaitingNewSessionConfirmation={
-                isAwaitingNewSessionConfirmation
-              }
-              promptEnhancementEnabled={
-                config?.prompt_enhancement_enabled ?? false
-              }
-              isEnhancingPrompt={isEnhancingPrompt}
-              canEnhancePrompt={canEnhancePrompt}
-              sessionId={sessionId}
-              localMessage={localMessage}
-              attachmentCount={attachedImages.length}
-              conflictResolutionInstructions={conflictResolutionInstructions}
-              reviewMarkdown={reviewMarkdown}
-              comments={comments}
-              onCompactContext={handleCompactContext}
-              onQueueMessage={handleQueueMessage}
-              onCancelQueue={cancelQueue}
-              onStopExecution={stopExecution}
-              onSendFollowUp={onSendFollowUp}
-              onEnhancePrompt={handleEnhancePrompt}
-              onClearComments={clearComments}
+            <SessionComposerInput
+              value={localMessage}
+              onChange={handleEditorChange}
+              disabled={!isEditable}
+              context={{
+                workspaceId: workspaceIdValue,
+                workspacePath: composerWorkspacePath,
+                repoId: summaryRepoId ?? undefined,
+                repoIds: repos.map((repo) => repo.id),
+                executorProfile: effectiveExecutorProfile,
+                sessionId,
+                transport: configuredBackendTransport,
+              }}
+              onSubmit={handleSubmitShortcut}
               onAttachImages={handleAttachImages}
             />
-          </div>
-        </div>
+          </AgentMentionProvider>
+
+          <ActionBar
+            profiles={profiles}
+            effectiveExecutorProfile={effectiveExecutorProfile}
+            onChangeExecutorProfile={setSelectedExecutorProfile}
+            showProfileControls={true}
+            sessionModes={displaySessionModes}
+            selectedMode={selectedMode}
+            onSelectMode={handleSelectMode}
+            sessionConfigOptions={displaySessionConfigOptions}
+            selectedConfigValues={selectedConfigValues}
+            onSelectConfigOption={handleSelectConfigOption}
+            isEditable={isEditable}
+            isAttemptRunning={isComposerExecutionRunning}
+            isQueued={queueIndicatorState.isQueued}
+            isQueueLoading={isQueueLoading}
+            canCompactContext={canCompactContext}
+            isCompactingContext={isCompactingContext}
+            isStopping={isStopping}
+            isSendingFollowUp={isSendingFollowUp}
+            canSendFollowUp={canSendFollowUp}
+            isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
+            promptEnhancementEnabled={
+              config?.prompt_enhancement_enabled ?? false
+            }
+            isEnhancingPrompt={isEnhancingPrompt}
+            canEnhancePrompt={canEnhancePrompt}
+            sessionId={sessionId}
+            localMessage={localMessage}
+            attachmentCount={attachedImages.length}
+            conflictResolutionInstructions={conflictResolutionInstructions}
+            reviewMarkdown={reviewMarkdown}
+            comments={comments}
+            onCompactContext={handleCompactContext}
+            onQueueMessage={handleQueueMessage}
+            onCancelQueue={cancelQueue}
+            onStopExecution={stopExecution}
+            onSendFollowUp={onSendFollowUp}
+            onEnhancePrompt={handleEnhancePrompt}
+            onClearComments={clearComments}
+            onAttachImages={handleAttachImages}
+          />
+        </SessionComposerFrame>
       </div>
     </TooltipProvider>
   );

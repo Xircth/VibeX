@@ -39,6 +39,7 @@ type Args = {
   configOverrides?: AgentSessionConfigOverride[];
   clearComments: () => void;
   onBeforeSend?: () => void;
+  onSendFailure?: (message: string) => void;
   onAfterSendCleanup: () => void | Promise<void>;
 };
 
@@ -61,6 +62,7 @@ export function useFollowUpSend({
   configOverrides,
   clearComments,
   onBeforeSend,
+  onSendFailure,
   onAfterSendCleanup,
 }: Args) {
   const { t } = useTranslation(['app', 'common']);
@@ -74,147 +76,165 @@ export function useFollowUpSend({
   // start two turns, producing two responses for one user message.
   const isSendingRef = useRef(false);
 
-  const onSendFollowUp = useCallback(async () => {
-    if (isSendingRef.current) return;
-    if (!executorProfileId) return;
+  const sendFollowUp = useCallback(
+    async (submittedMessage?: string) => {
+      if (isSendingRef.current) return;
+      if (!executorProfileId) return;
 
-    const displayMessage = message.trim();
-    const backendMessage =
-      serializeSessionComposerBackendMessage(message).trim();
-    const pluginActions = getSessionComposerPluginActionInvocations(message);
-    const { prompt, isSlashCommand } = buildAgentPrompt(backendMessage, [
-      conflictMarkdown,
-      reviewMarkdown?.trim(),
-    ]);
-    const { prompt: displayPrompt } = buildAgentPrompt(displayMessage, [
-      conflictMarkdown,
-      reviewMarkdown?.trim(),
-    ]);
+      const acceptedMessage = submittedMessage ?? message;
+      const displayMessage = acceptedMessage.trim();
+      const backendMessage =
+        serializeSessionComposerBackendMessage(acceptedMessage).trim();
+      const pluginActions =
+        getSessionComposerPluginActionInvocations(acceptedMessage);
+      const { prompt, isSlashCommand } = buildAgentPrompt(backendMessage, [
+        conflictMarkdown,
+        reviewMarkdown?.trim(),
+      ]);
+      const { prompt: displayPrompt } = buildAgentPrompt(displayMessage, [
+        conflictMarkdown,
+        reviewMarkdown?.trim(),
+      ]);
 
-    if (!prompt && images.length === 0) return;
+      if (!prompt && images.length === 0) return;
 
-    isSendingRef.current = true;
-    try {
-      onBeforeSend?.();
-      setIsSendingFollowUp(true);
-      setFollowUpError(null);
-
-      let targetSessionId = sessionId;
-      let targetWorkspaceId = workspaceId;
-      const shouldCreateNewSession =
-        isNewSessionMode ||
-        !targetSessionId ||
-        (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
-
-      if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
-        throw new Error(t('followUpSend.sessionScopedSlashCommandError'));
-      }
-
-      if (shouldCreateNewSession) {
-        if (!workspaceId) return;
-
-        const session = await sessionsApi.create({
-          workspace_id: workspaceId,
-          executor: executorProfileId.executor,
-          name: newSessionName?.trim() ? newSessionName.trim() : null,
-          initial_prompt: displayPrompt,
-        });
-
-        targetSessionId = session.id;
-        targetWorkspaceId = session.workspace_id;
-        onSelectSession?.(session.id);
-        onSessionCreated?.({
-          sessionId: session.id,
-          workspaceId: session.workspace_id,
-        });
-
-        queryClient.invalidateQueries({
-          queryKey: ['workspaceSessions', workspaceId],
-        });
-      }
-
-      if (!targetSessionId) {
-        throw new Error('No target session available for follow-up');
-      }
-      if (!targetWorkspaceId) {
-        throw new Error('No workspace available for ACP agent turn');
-      }
-
-      const optimisticTurnId = `optimistic-${Date.now()}-${optimisticTurnSequence++}`;
-      publishOptimisticConversationTurn({
-        type: 'add',
-        conversationId: targetSessionId,
-        turn: {
-          id: optimisticTurnId,
-          role: 'user',
-          blocks: displayPrompt ? [{ type: 'text', text: displayPrompt }] : [],
-          timestamp: new Date().toISOString(),
-        },
-      });
+      isSendingRef.current = true;
+      let turnAccepted = false;
       try {
-        await sendAgentRuntimeTurn({
-          workspaceId: targetWorkspaceId,
-          sessionId: targetSessionId,
-          executorProfileId,
-          text: prompt,
-          displayText: displayPrompt,
-          images,
-          modeOverride,
-          configOverrides,
-          pluginActions,
+        onBeforeSend?.();
+        setIsSendingFollowUp(true);
+        setFollowUpError(null);
+
+        let targetSessionId = sessionId;
+        let targetWorkspaceId = workspaceId;
+        const shouldCreateNewSession =
+          isNewSessionMode ||
+          !targetSessionId ||
+          (!!sessionExecutor && sessionExecutor !== executorProfileId.executor);
+
+        if (shouldCreateNewSession && isSessionScopedSlashCommand(prompt)) {
+          throw new Error(t('followUpSend.sessionScopedSlashCommandError'));
+        }
+
+        if (shouldCreateNewSession) {
+          if (!workspaceId) return;
+
+          const session = await sessionsApi.create({
+            workspace_id: workspaceId,
+            executor: executorProfileId.executor,
+            name: newSessionName?.trim() ? newSessionName.trim() : null,
+            initial_prompt: displayPrompt,
+          });
+
+          targetSessionId = session.id;
+          targetWorkspaceId = session.workspace_id;
+          onSelectSession?.(session.id);
+          onSessionCreated?.({
+            sessionId: session.id,
+            workspaceId: session.workspace_id,
+          });
+
+          queryClient.invalidateQueries({
+            queryKey: ['workspaceSessions', workspaceId],
+          });
+        }
+
+        if (!targetSessionId) {
+          throw new Error('No target session available for follow-up');
+        }
+        if (!targetWorkspaceId) {
+          throw new Error('No workspace available for ACP agent turn');
+        }
+
+        const optimisticTurnId = `optimistic-${Date.now()}-${optimisticTurnSequence++}`;
+        publishOptimisticConversationTurn({
+          type: 'add',
+          conversationId: targetSessionId,
+          turn: {
+            id: optimisticTurnId,
+            role: 'user',
+            blocks: displayPrompt
+              ? [{ type: 'text', text: displayPrompt }]
+              : [],
+            timestamp: new Date().toISOString(),
+          },
         });
+        try {
+          await sendAgentRuntimeTurn({
+            workspaceId: targetWorkspaceId,
+            sessionId: targetSessionId,
+            executorProfileId,
+            text: prompt,
+            displayText: displayPrompt,
+            images,
+            modeOverride,
+            configOverrides,
+            pluginActions,
+          });
+          turnAccepted = true;
+        } catch (error) {
+          publishOptimisticConversationTurn({
+            type: 'remove',
+            conversationId: targetSessionId,
+            turnId: optimisticTurnId,
+          });
+          throw error;
+        }
         await queryClient.invalidateQueries({
           queryKey: ['workspaceSessions', targetWorkspaceId],
         });
-      } catch (error) {
-        publishOptimisticConversationTurn({
-          type: 'remove',
-          conversationId: targetSessionId,
-          turnId: optimisticTurnId,
-        });
-        throw error;
+        if (!isSlashCommand) {
+          clearComments();
+        }
+        await onAfterSendCleanup();
+      } catch (error: unknown) {
+        if (!turnAccepted) onSendFailure?.(acceptedMessage);
+        const err = error as { message?: string };
+        setFollowUpError(
+          t('followUpSend.startFailed', {
+            error: err.message ?? t('followUpSend.unknownError'),
+          })
+        );
+      } finally {
+        isSendingRef.current = false;
+        setIsSendingFollowUp(false);
       }
-      if (!isSlashCommand) {
-        clearComments();
-      }
-      await onAfterSendCleanup();
-    } catch (error: unknown) {
-      const err = error as { message?: string };
-      setFollowUpError(
-        t('followUpSend.startFailed', {
-          error: err.message ?? t('followUpSend.unknownError'),
-        })
-      );
-    } finally {
-      isSendingRef.current = false;
-      setIsSendingFollowUp(false);
-    }
-  }, [
-    t,
-    queryClient,
-    sessionId,
-    sessionExecutor,
-    workspaceId,
-    isNewSessionMode,
-    newSessionName,
-    onSelectSession,
-    onSessionCreated,
-    message,
-    images,
-    conflictMarkdown,
-    reviewMarkdown,
-    executorProfileId,
-    modeOverride,
-    configOverrides,
-    clearComments,
-    onBeforeSend,
-    onAfterSendCleanup,
-  ]);
+    },
+    [
+      t,
+      queryClient,
+      sessionId,
+      sessionExecutor,
+      workspaceId,
+      isNewSessionMode,
+      newSessionName,
+      onSelectSession,
+      onSessionCreated,
+      message,
+      images,
+      conflictMarkdown,
+      reviewMarkdown,
+      executorProfileId,
+      modeOverride,
+      configOverrides,
+      clearComments,
+      onBeforeSend,
+      onSendFailure,
+      onAfterSendCleanup,
+    ]
+  );
+
+  const onSendFollowUp = useCallback(() => sendFollowUp(), [sendFollowUp]);
+  const onSubmitFollowUp = useCallback(
+    (submittedMessage: string) => sendFollowUp(submittedMessage),
+    [sendFollowUp]
+  );
 
   return {
     isSendingFollowUp,
     followUpError,
     setFollowUpError,
     onSendFollowUp,
+    onSubmitFollowUp,
   } as const;
 }

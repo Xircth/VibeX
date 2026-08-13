@@ -211,6 +211,24 @@ async fn component_integrity_refresh_marks_the_next_snapshot_as_needing_repair()
 }
 
 #[tokio::test]
+async fn component_integrity_refresh_does_not_police_user_owned_external_agents() {
+    let pool = migrated_pool().await;
+    seed_ready_agent_with_unreadable_component(&pool).await;
+    sqlx::query(
+        "UPDATE agent_installation SET ownership = 'external' WHERE agent_id = 'fixture.snapshot'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let service = AgentManagementApplicationService::new(pool);
+
+    service.refresh_component_integrity().await.unwrap();
+    let views = service.list().await.unwrap();
+
+    assert_eq!(views[0].lifecycle, AgentLifecycleState::Ready);
+}
+
+#[tokio::test]
 async fn user_definition_is_added_without_an_official_registry_snapshot() {
     let pool = migrated_pool().await;
     let service = AgentManagementApplicationService::new(pool);

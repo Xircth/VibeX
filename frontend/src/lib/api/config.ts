@@ -48,43 +48,6 @@ export interface AppReleaseStatus {
   error: string | null;
 }
 
-export interface RuntimeStatus {
-  name: string;
-  available: boolean;
-  path: string | null;
-  message: string;
-}
-
-export interface LocalToolStatus {
-  id: string;
-  label: string;
-  kind: string;
-  group_id: string;
-  user_visible: boolean;
-  executable: string;
-  npm_package: string;
-  installed: boolean;
-  executable_path: string | null;
-  installed_version: string | null;
-  latest_version: string | null;
-  minimum_supported_version: string | null;
-  supported: boolean;
-  update_available: boolean;
-  error: string | null;
-}
-
-export interface SystemMaintenanceStatus {
-  app: AppReleaseStatus;
-  npm: RuntimeStatus;
-  tools: LocalToolStatus[];
-}
-
-export interface InstallSystemDependenciesResult {
-  installed_or_updated: string[];
-  skipped: string[];
-  status: SystemMaintenanceStatus;
-}
-
 export type AgentCapability =
   | 'RESET_TO_HERE'
   | 'SETUP_HELPER'
@@ -149,22 +112,8 @@ export const configApi = {
   clearLocalData: async (): Promise<ClearLocalDataResponse> => {
     return backendCall<ClearLocalDataResponse>('clear_local_app_data');
   },
-  getSystemMaintenanceStatus: async (): Promise<SystemMaintenanceStatus> => {
-    return backendCall<SystemMaintenanceStatus>(
-      'get_system_maintenance_status'
-    );
-  },
   checkAppRelease: async (): Promise<AppReleaseStatus> => {
     return backendCall<AppReleaseStatus>('check_app_release');
-  },
-  installSystemDependencies: async (
-    forceUpdate = false,
-    toolIds?: string[]
-  ): Promise<InstallSystemDependenciesResult> => {
-    return backendCall<InstallSystemDependenciesResult>(
-      'install_system_dependencies',
-      { forceUpdate, toolIds: toolIds ?? null }
-    );
   },
 };
 
@@ -560,7 +509,7 @@ export type McpAppType = string;
 export interface LocalMcpServer {
   id: string;
   spec: Record<string, JsonValue>;
-  /** Recorded in the global registry (~/.vibex/mcp.json). */
+  /** Present in every compatible Agent's native configuration. */
   global: boolean;
   /** Agent config files currently carrying this server. */
   apps: McpAppType[];

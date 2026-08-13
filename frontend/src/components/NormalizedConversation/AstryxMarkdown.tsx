@@ -15,16 +15,18 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
-import { useOpenLink } from '@/hooks/useOpenLink';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { CodeBlock, CompactCodeBlock } from './CodeBlock';
 import { MermaidDiagram } from './MermaidDiagram';
-import {
-  deriveRelativeFilePath,
-  resolveFilePathFromRoot,
-} from '@/utils/filePaths';
 import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
+import {
+  isAbsoluteLocalPath,
+  isCleanDirectoryCandidate,
+  MarkdownResourceLink,
+  resolveMarkdownWorkspacePathTarget,
+  trimFilePathCandidate,
+} from './MarkdownResourceLink';
 
 export type AstryxMarkdownProps = {
   /** Markdown string to render. */
@@ -48,15 +50,6 @@ function flattenNodeText(node: ReactNode): string {
     );
   }
   return '';
-}
-
-function isAbsoluteLocalPath(src: string): boolean {
-  return (
-    /^[a-zA-Z]:[\\/]/.test(src) ||
-    src.startsWith('\\\\') ||
-    src.startsWith('/') ||
-    src.startsWith('file://')
-  );
 }
 
 function isRenderableRemoteImage(src: string): boolean {
@@ -90,180 +83,6 @@ function resolveLocalMarkdownImagePath(
 
   const normalizedRelative = src.replace(/^\.?[\\/]/, '');
   return `${workspacePath.replace(/[\\/]+$/, '')}/${normalizedRelative}`;
-}
-
-function parseHref(href: string): URL | null {
-  try {
-    return new URL(href, window.location.origin);
-  } catch {
-    return null;
-  }
-}
-
-function isLoopbackHost(hostname: string): boolean {
-  return (
-    hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
-  );
-}
-
-function isInternalProjectRouteHref(href: string): boolean {
-  const parsed = parseHref(href);
-  if (!parsed) return href.startsWith('/local-projects');
-
-  return (
-    parsed.pathname.startsWith('/local-projects') &&
-    (parsed.origin === window.location.origin ||
-      isLoopbackHost(parsed.hostname))
-  );
-}
-
-function isSameAppOriginUrl(url: URL): boolean {
-  return (
-    url.origin === window.location.origin ||
-    (url.protocol === window.location.protocol && isLoopbackHost(url.hostname))
-  );
-}
-
-function filePathFromFileUrl(url: URL): string {
-  const pathname = decodeURIComponent(url.pathname);
-  return pathname.replace(/^\/([a-zA-Z]:[\\/])/, '$1');
-}
-
-type WorkspacePathTarget = {
-  path: string;
-  displayPath: string;
-  nodeType: 'file' | 'folder';
-};
-
-function hrefToWorkspacePathCandidate(
-  href: string | undefined,
-  workspacePath?: string | null
-): string | null {
-  if (!href) return null;
-  const raw = trimFilePathCandidate(href);
-  if (!raw || raw.startsWith('#')) return null;
-
-  const parsed = parseHref(raw);
-  if (parsed?.protocol === 'file:') {
-    return filePathFromFileUrl(parsed);
-  }
-
-  if (parsed && (parsed.protocol === 'http:' || parsed.protocol === 'https:')) {
-    if (!isSameAppOriginUrl(parsed)) {
-      return null;
-    }
-    if (parsed.pathname.startsWith('/local-projects')) {
-      return null;
-    }
-
-    return decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
-  }
-
-  if (
-    raw.startsWith('/') &&
-    workspacePath &&
-    /^[a-zA-Z]:[\\/]/.test(workspacePath)
-  ) {
-    return raw.replace(/^\/+/, '');
-  }
-
-  return raw;
-}
-
-function trimFilePathCandidate(value: string): string {
-  return value
-    .trim()
-    .replace(/^['"`]+/, '')
-    .replace(/['"`.,;]+$/, '')
-    .replace(/[)\]}]+$/, '')
-    .replace(/:(\d+)(?::\d+)?$/, '');
-}
-
-function looksLikeWorkspaceFilePath(value: string): boolean {
-  const candidate = trimFilePathCandidate(value);
-  if (!candidate || candidate.startsWith('#')) return false;
-  if (
-    /^[a-z][a-z0-9+.-]*:/i.test(candidate) &&
-    !isAbsoluteLocalPath(candidate)
-  ) {
-    return false;
-  }
-  if (candidate.startsWith('/local-projects')) return false;
-  if (isAbsoluteLocalPath(candidate)) {
-    return /(?:^|[\\/])[^\\/]+\.[a-z0-9]{1,12}$/i.test(
-      candidate.replace(/[\\/]+$/, '')
-    );
-  }
-
-  return (
-    /[\\/]/.test(candidate) &&
-    /(?:^|[\\/])[^\\/]+\.[a-z0-9]{1,12}$/i.test(candidate)
-  );
-}
-
-function looksLikeWorkspaceDirectoryPath(value: string): boolean {
-  const candidate = trimFilePathCandidate(value).replace(/[\\/]+$/, '');
-  if (!candidate || candidate === '.' || candidate.startsWith('#')) {
-    return false;
-  }
-  if (
-    /^[a-z][a-z0-9+.-]*:/i.test(candidate) &&
-    !isAbsoluteLocalPath(candidate)
-  ) {
-    return false;
-  }
-  if (candidate.startsWith('/local-projects')) {
-    return false;
-  }
-  if (looksLikeWorkspaceFilePath(candidate)) {
-    return false;
-  }
-  if (isAbsoluteLocalPath(candidate)) {
-    return true;
-  }
-
-  return /[\\/]/.test(candidate);
-}
-
-function resolveMarkdownWorkspacePathTarget(
-  href: string | undefined,
-  childrenText: string,
-  workspacePath?: string | null
-): WorkspacePathTarget | null {
-  const candidates = [
-    childrenText,
-    hrefToWorkspacePathCandidate(href, workspacePath) ?? '',
-    href ?? '',
-  ]
-    .map(trimFilePathCandidate)
-    .filter(Boolean);
-
-  for (const candidate of candidates) {
-    const nodeType = looksLikeWorkspaceFilePath(candidate)
-      ? 'file'
-      : looksLikeWorkspaceDirectoryPath(candidate)
-        ? 'folder'
-        : null;
-    if (!nodeType) continue;
-
-    const normalizedCandidate =
-      nodeType === 'folder' ? candidate.replace(/[\\/]+$/, '') : candidate;
-    const filePath = resolveFilePathFromRoot(
-      normalizedCandidate,
-      workspacePath
-    );
-    const displayPath =
-      deriveRelativeFilePath(filePath, workspacePath) ?? normalizedCandidate;
-    return { path: filePath, displayPath, nodeType };
-  }
-
-  return null;
-}
-
-// Inline-code text is looser than link hrefs (prose like `either/or`, globs,
-// shell flags); only treat it as a folder path when it looks like one.
-function isCleanDirectoryCandidate(text: string): boolean {
-  return !/[\s*?<>|"']/.test(text);
 }
 
 function MarkdownImage({
@@ -352,16 +171,12 @@ function MarkdownImage({
 }
 
 type MarkdownComponentContext = {
-  panelActions: ReturnType<typeof useOptionalPanelActionsContext>;
-  openLink: (url: string) => void;
   taskAttemptId?: string;
   taskId?: string;
   workspacePath?: string | null;
 };
 
 function createMarkdownComponents({
-  panelActions,
-  openLink,
   taskAttemptId,
   taskId,
   workspacePath,
@@ -390,37 +205,13 @@ function createMarkdownComponents({
         pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text);
 
       if (pathTarget && (isClickableFile || isClickableFolder)) {
-        const handleClick = (event: MouseEvent<HTMLElement>) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (isClickableFile) {
-            panelActions?.openFilePreview(pathTarget.path, {
-              displayPath: pathTarget.displayPath,
-              title: pathTarget.displayPath,
-            });
-          } else {
-            panelActions?.revealInFileTree(pathTarget.path, {
-              displayPath: pathTarget.displayPath,
-              nodeType: 'folder',
-            });
-          }
-        };
-
         return (
-          <code
-            onClick={handleClick}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                event.currentTarget.click();
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            title={pathTarget.displayPath}
+          <MarkdownResourceLink
+            pathTarget={pathTarget}
+            workspacePath={workspacePath}
           >
             {text || children}
-          </code>
+          </MarkdownResourceLink>
         );
       }
 
@@ -459,76 +250,10 @@ function createMarkdownComponents({
         );
       }
 
-      const pathTarget = resolveMarkdownWorkspacePathTarget(
-        href,
-        childrenText,
-        workspacePath
-      );
-      const isExternal =
-        (href?.startsWith('http://') || href?.startsWith('https://')) ?? false;
-      const isInternalProjectRoute = href
-        ? isInternalProjectRouteHref(href)
-        : false;
-      const renderedHref =
-        href && isExternal && !pathTarget && !isInternalProjectRoute
-          ? href
-          : undefined;
-
-      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (pathTarget) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (pathTarget.nodeType === 'file') {
-            panelActions?.openFilePreview(pathTarget.path, {
-              displayPath: pathTarget.displayPath,
-              title: pathTarget.displayPath,
-            });
-          } else {
-            panelActions?.revealInFileTree(pathTarget.path, {
-              displayPath: pathTarget.displayPath,
-              nodeType: 'folder',
-            });
-          }
-          return;
-        }
-
-        if (!href) {
-          return;
-        }
-
-        if (isInternalProjectRoute) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-
-        if (!isExternal) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-
-        event.preventDefault();
-        openLink(href);
-      };
-
       return (
-        <a
-          href={renderedHref}
-          onClick={handleClick}
-          onKeyDown={(event) => {
-            if (!renderedHref && event.key === 'Enter') {
-              event.preventDefault();
-              event.currentTarget.click();
-            }
-          }}
-          rel="noopener noreferrer"
-          role={renderedHref ? undefined : 'link'}
-          tabIndex={renderedHref ? undefined : 0}
-          title={pathTarget?.displayPath ?? href}
-        >
+        <MarkdownResourceLink href={href} workspacePath={workspacePath}>
           {children}
-        </a>
+        </MarkdownResourceLink>
       );
     },
     image: ({ src, alt }) => (
@@ -591,9 +316,6 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   softBreaks,
   isStreaming,
 }: AstryxMarkdownProps) {
-  const panelActions = useOptionalPanelActionsContext();
-  const openLink = useOpenLink();
-
   const normalizedValue = useMemo(() => {
     const prepared = prepareConversationMarkdown(value, { softBreaks });
     // Astryx drops link nodes with empty destinations (`[text]()`), so
@@ -632,13 +354,11 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
   const components = useMemo<MarkdownProps['components']>(
     () =>
       createMarkdownComponents({
-        panelActions,
-        openLink,
         taskAttemptId,
         taskId,
         workspacePath,
       }),
-    [openLink, panelActions, taskAttemptId, taskId, workspacePath]
+    [taskAttemptId, taskId, workspacePath]
   );
 
   return (

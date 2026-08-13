@@ -4,7 +4,6 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
-import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 import { useUserSystem } from '@/components/ConfigProvider';
@@ -528,6 +527,8 @@ export function RightPanelContent() {
       onSessionSelected: handleSelectedSession,
       onCreateSessionRequested: openCreateSessionOverlay,
       className: 'h-full',
+      imagePreviewPresentation: 'workspace-tab' as const,
+      conversationWidthMode: 'workspace' as const,
     }),
     [
       workspaceId,
@@ -639,7 +640,6 @@ export function RightPanelContent() {
             ) : null}
           </div>
         </div>
-        {effectiveActiveTab === 'workspace' ? <RightPanelSidebar /> : null}
       </div>
     </RightPanelSessionCreationProvider>
   );

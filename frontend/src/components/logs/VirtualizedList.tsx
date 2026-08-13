@@ -30,6 +30,7 @@ interface VirtualizedListProps {
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
   onAtBottomChange?: (isAtBottom: boolean) => void;
+  widthMode?: 'bounded' | 'workspace';
 }
 
 type ConversationScrollMetrics = {
@@ -166,13 +167,17 @@ export function pendingAgentPermissionsForSession(
  * timeline). Kept as `VirtualizedList` so existing call sites are unchanged.
  */
 const VirtualizedList = forwardRef<VirtualizedListRef, VirtualizedListProps>(
-  function VirtualizedList({ attempt, task, onAtBottomChange }, ref) {
+  function VirtualizedList(
+    { attempt, task, onAtBottomChange, widthMode },
+    ref
+  ) {
     return (
       <AgentTimelineConversation
         ref={ref}
         attempt={attempt}
         task={task}
         onAtBottomChange={onAtBottomChange}
+        widthMode={widthMode}
       />
     );
   }

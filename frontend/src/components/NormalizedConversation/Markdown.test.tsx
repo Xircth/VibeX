@@ -1,8 +1,15 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AstryxMarkdown as Markdown } from './AstryxMarkdown';
+
+const markdownStyles = readFileSync(
+  resolve(process.cwd(), 'src/styles/conversation/conv-markdown.css'),
+  'utf8'
+);
 
 const panelActionsMock = vi.hoisted(() => ({
   openFilePreview: vi.fn(),
@@ -99,14 +106,17 @@ function renderMarkdown(
   });
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Markdown
-        value={value}
-        taskAttemptId="workspace-1"
-        workspacePath="C:/workspace/project"
-        {...props}
-      />
-    </QueryClientProvider>
+    <div className="legacy-design">
+      <style>{markdownStyles}</style>
+      <QueryClientProvider client={queryClient}>
+        <Markdown
+          value={value}
+          taskAttemptId="workspace-1"
+          workspacePath="C:/workspace/project"
+          {...props}
+        />
+      </QueryClientProvider>
+    </div>
   );
 }
 
@@ -140,9 +150,61 @@ describe('Markdown', () => {
   it('renders bare GFM URLs as links', () => {
     renderMarkdown('See https://example.com/docs for details.');
 
+    const link = screen.getByRole('link', {
+      name: 'https://example.com/docs',
+    });
+    expect(link).toHaveAttribute('href', 'https://example.com/docs');
+    expect(link).toHaveClass('conv-resource-link');
+    expect(link).toHaveAttribute('data-resource-kind', 'web');
+    expect(link.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://example.com/favicon.ico'
+    );
+  });
+
+  it('uses the link label as the inline baseline while centering its icon', () => {
+    renderMarkdown('Plain text and [linked text](https://example.com/docs).');
+
+    const link = screen.getByRole('link', { name: 'linked text' });
+    const icon = link.querySelector('.conv-resource-link-icon');
+
+    expect(getComputedStyle(link).alignItems).toBe('baseline');
+    expect(getComputedStyle(icon as Element).alignSelf).toBe('center');
+  });
+
+  it('reduces unordered and ordered list indentation by eighty percent', () => {
+    renderMarkdown('- item\n\n1. step');
+
+    const [unordered, ordered] = screen.getAllByRole('list');
+    expect(getComputedStyle(unordered).paddingLeft).toBe('4.4px');
+    expect(getComputedStyle(ordered).paddingLeft).toBe('5.6px');
+  });
+
+  it('renders a GFM table when projected message rows contain blank gaps', () => {
+    renderMarkdown(
+      [
+        '| Layer | Extension |',
+        '',
+        '| --- | --- |',
+        '',
+        '| Server | Services and RPC |',
+        '',
+        '| App | [React view](frontend/src/App.tsx) |',
+      ].join('\n')
+    );
+
+    const table = screen.getByRole('table');
+    expect(table).toBeInTheDocument();
+    expect(getComputedStyle(table).display).toBe('table');
+    expect(table.closest('[role="group"][tabindex="0"]')).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: 'https://example.com/docs' })
-    ).toHaveAttribute('href', 'https://example.com/docs');
+      screen.getByRole('columnheader', { name: 'Layer' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Server' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'React view' })).toHaveAttribute(
+      'data-resource-kind',
+      'file'
+    );
   });
 
   it('renders data-uri markdown images inline', () => {
@@ -191,7 +253,18 @@ describe('Markdown', () => {
   it('opens relative file hrefs in the workspace editor instead of navigating the page', () => {
     renderMarkdown('[manager.rs](crates/agents/src/manager.rs)');
 
-    fireEvent.click(screen.getByRole('link', { name: 'manager.rs' }));
+    const link = screen.getByRole('link', { name: 'manager.rs' });
+    expect(link).toHaveClass('conv-resource-link');
+    expect(link).toHaveAttribute('data-resource-kind', 'file');
+    const fileIcon = link.querySelector('[data-resource-icon="file"] svg');
+    expect(fileIcon).toBeInTheDocument();
+    const paintedIconPart = fileIcon?.querySelector(
+      '[fill]:not([fill="none"])'
+    );
+    expect(getComputedStyle(paintedIconPart as Element).fill).toBe(
+      'currentcolor'
+    );
+    fireEvent.click(link);
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
       'C:/workspace/project/crates/agents/src/manager.rs',
@@ -244,6 +317,23 @@ describe('Markdown', () => {
       {
         displayPath: 'crates/agents/src/manager.rs',
         title: 'crates/agents/src/manager.rs',
+      }
+    );
+  });
+
+  it('preserves POSIX absolute file hrefs without joining the workspace twice', () => {
+    renderMarkdown(
+      '[events.rs](/Users/mac/Projects/VibeX/src-tauri/src/events.rs)',
+      { workspacePath: '/Users/mac/Projects/VibeX' }
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'events.rs' }));
+
+    expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
+      '/Users/mac/Projects/VibeX/src-tauri/src/events.rs',
+      {
+        displayPath: 'src-tauri/src/events.rs',
+        title: 'src-tauri/src/events.rs',
       }
     );
   });
@@ -314,9 +404,7 @@ describe('Markdown', () => {
   it('opens inline code file paths in the workspace editor', () => {
     renderMarkdown('Open `frontend/src/App.tsx`');
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'frontend/src/App.tsx' })
-    );
+    fireEvent.click(screen.getByRole('link', { name: 'frontend/src/App.tsx' }));
 
     expect(panelActionsMock.openFilePreview).toHaveBeenCalledWith(
       'C:/workspace/project/frontend/src/App.tsx',
@@ -330,7 +418,7 @@ describe('Markdown', () => {
   it('opens inline code file paths with the keyboard', () => {
     renderMarkdown('Open `frontend/src/App.tsx`');
 
-    const code = screen.getByRole('button', {
+    const code = screen.getByRole('link', {
       name: 'frontend/src/App.tsx',
     });
     fireEvent.keyDown(code, { key: 'Enter' });

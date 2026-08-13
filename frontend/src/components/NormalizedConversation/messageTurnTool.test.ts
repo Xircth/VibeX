@@ -26,14 +26,30 @@ function result(output: string, isError = false): ToolResultBlock {
 describe('toolBlockToNormalizedEntry', () => {
   it('maps read to a file_read action', () => {
     const entry = toolBlockToNormalizedEntry(
-      use('Read', { file_path: 'a.ts' }),
-      null,
+      use('Read', { file_path: 'a.ts', offset: 80, limit: 40 }),
+      result(
+        JSON.stringify([
+          {
+            type: 'content',
+            content: {
+              type: 'text',
+              text: '81: first line\n82: second line',
+            },
+          },
+        ])
+      ),
       null
     );
     expect(entry.entry_type).toMatchObject({
       type: 'tool_use',
-      action_type: { action: 'file_read', path: 'a.ts' },
-      status: { status: 'created' },
+      action_type: {
+        action: 'file_read',
+        path: 'a.ts',
+        line_start: 81,
+        line_end: 120,
+        content: '81: first line\n82: second line',
+      },
+      status: { status: 'success' },
     });
   });
 

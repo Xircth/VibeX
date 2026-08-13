@@ -755,28 +755,16 @@ export type DirectoryListResponse = {
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, beta_workspaces: boolean, beta_workspaces_invitation_sent: boolean, commit_reminder_enabled: boolean, commit_reminder_mode: CommitReminderMode, commit_reminder_line_threshold: number, merge_commit_message_template: string | null, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_mode: CommitReminderMode, commit_reminder_line_threshold: number, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
 /**
  * Opt-in entry for connecting a newly created VibeX conversation to an
  * existing Agent-managed ACP session in the selected workspace.
  */
 previous_session_continuation_enabled: boolean,
 /**
- * Agents that have been disabled by the user in settings
- */
-disabled_agents: Array<AgentKind>,
-/**
- * Custom agent display order (if user has reordered)
- */
-agent_order: Array<AgentKind> | null,
-/**
- * Automatically check for app releases and tool updates on startup.
+ * Automatically check for app releases on startup.
  */
 auto_update_enabled: boolean,
-/**
- * Automatically install or update local dependencies on startup.
- */
-auto_install_local_dependencies: boolean,
 /**
  * Opt-in: surface locally captured crash reports on startup so the user
  * can review the full content and choose to file a GitHub issue.
@@ -1250,7 +1238,20 @@ export type FileChange =
       has_line_numbers: boolean;
     };
 
-export type ActionType = { "action": "file_read", path: string, } | { "action": "file_edit", path: string, changes: Array<FileChange>, } | { "action": "command_run", command: string, result: CommandRunResult | null, category: CommandCategory, } | { "action": "search", query: string, arguments?: JsonValue, result?: ToolResult, } | { "action": "web_fetch", url: string, } | { "action": "tool", tool_name: string, arguments: JsonValue | null, result: ToolResult | null, } | { "action": "task_create", description: string, subagent_type: string | null, result: ToolResult | null, } | { "action": "plan_presentation", plan: string, } | { "action": "todo_management", todos: Array<TodoItem>, operation: string, } | { "action": "other", description: string, };
+export type ActionType = { "action": "file_read", path: string,
+/**
+ * One-based first line returned by a ranged read, when reported by the tool.
+ */
+line_start?: number,
+/**
+ * One-based last line requested by a ranged read, when reported by the tool.
+ */
+line_end?: number,
+/**
+ * Text returned by the read call. Kept with the action so the expanded
+ * tool row can show exactly the range the agent inspected.
+ */
+content?: string, } | { "action": "file_edit", path: string, changes: Array<FileChange>, } | { "action": "command_run", command: string, result: CommandRunResult | null, category: CommandCategory, } | { "action": "search", query: string, arguments?: JsonValue, result?: ToolResult, } | { "action": "web_fetch", url: string, } | { "action": "tool", tool_name: string, arguments: JsonValue | null, result: ToolResult | null, } | { "action": "task_create", description: string, subagent_type: string | null, result: ToolResult | null, } | { "action": "plan_presentation", plan: string, } | { "action": "todo_management", todos: Array<TodoItem>, operation: string, } | { "action": "other", description: string, };
 
 export type CommandCategory = "read" | "search" | "edit" | "fetch" | "other";
 
@@ -1451,7 +1452,12 @@ export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args
 
 export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, };
 
-export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null, meta?: JsonValue | null, };
+export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null,
+/**
+ * Raw input newly supplied by an ACP patch (including a synthesized
+ * file/diff payload when ACP reports structured content or locations).
+ */
+input_preview?: string | null, meta?: JsonValue | null, };
 
 export type AgentUsage = { used: bigint, limit: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
 
@@ -2061,3 +2067,7 @@ export type AgentDiscoveryProgressView = { phase: AgentDiscoveryPhase, completed
 export type AgentPreflightSource = "system" | "vibex_managed";
 
 export type CommitReminderMode = "separate_turn" | "smart";
+
+export type ConversationForkContinuity = "agent_context" | "history_only";
+
+export type ConversationForkResult = { conversationId: string, importedEventCount: number, projectionVersion: number, continuity: ConversationForkContinuity, continuityNote?: string | null, };

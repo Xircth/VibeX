@@ -77,7 +77,7 @@ export function RetryEditorInline({
     attemptData.processes,
   ]);
 
-  const handleCmdEnter = useCallback(() => {
+  const handleSubmit = useCallback(() => {
     if (canSend && !isSending) {
       onSend();
     }
@@ -94,20 +94,15 @@ export function RetryEditorInline({
             value={message}
             onChange={setMessage}
             disabled={isSending}
-            onSubmit={handleCmdEnter}
+            onSubmit={handleSubmit}
             context={{
-              sendShortcut: 'ModifierEnter',
-              taskAttemptId: attemptId,
-              taskId: attempt.task_id,
               workspaceId: attemptId,
               projectId: attempt.project_id,
               executorProfile: processProfile,
               sessionId,
               transport: configuredBackendTransport,
             }}
-            images={[]}
             onAttachImages={() => undefined}
-            onRemoveImage={() => undefined}
             className={cn(
               'min-h-[40px] overflow-y-auto break-words overflow-wrap-anywhere text-[13px] leading-5 tracking-[0.005em]',
               'retry-editor-input'

@@ -1,6 +1,7 @@
 {
   "composer": {
     "inputLabel": "消息",
+    "attachments": "附件",
     "commandSource": {
       "plugin": "插件",
       "skill": "技能",
@@ -27,6 +28,7 @@
     "deleteSession": "删除会话",
     "moveToSessionList": "移至会话列表",
     "forkSuccess": "已分叉会话",
+    "forkHistoryOnly": "已复制历史记录，但未延续 Agent 上下文：{{reason}}",
     "forkFailed": "分叉失败：{{error}}",
     "forkSession": "分叉会话",
     "sessionFallback": "会话",

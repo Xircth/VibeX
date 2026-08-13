@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy, ExternalLink, Globe, Search } from 'lucide-react';
-import type { NormalizedEntry } from 'shared/types';
+import type { NormalizedEntry, ToolResult } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
@@ -13,6 +13,61 @@ import {
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
+
+type SearchResultItem = {
+  path: string | null;
+  line: string | null;
+  text: string;
+};
+
+function stringSearchResults(value: string): SearchResultItem[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(.*):(\d+):\s?(.*)$/);
+      return match
+        ? { path: match[1], line: match[2], text: match[3] }
+        : { path: null, line: null, text: line };
+    });
+}
+
+function searchResultItems(
+  result: ToolResult | null | undefined
+): SearchResultItem[] {
+  if (!result || typeof result !== 'object' || !('value' in result)) return [];
+  const value = (result as { value: unknown }).value;
+  if (typeof value === 'string') return stringSearchResults(value);
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (typeof item === 'string') return stringSearchResults(item);
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    const path = [record.path, record.file, record.file_path].find(
+      (field): field is string => typeof field === 'string'
+    );
+    const line = [record.line, record.line_number].find(
+      (field) => typeof field === 'string' || typeof field === 'number'
+    );
+    const text = [
+      record.text,
+      record.content,
+      record.match,
+      record.preview,
+    ].find((field): field is string => typeof field === 'string');
+    return text || path
+      ? [
+          {
+            path: path ?? null,
+            line: line != null ? String(line) : null,
+            text: text ?? '',
+          },
+        ]
+      : [];
+  });
+}
 
 export function SearchToolCard({
   entry,
@@ -45,6 +100,8 @@ export function SearchToolCard({
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const openLink = useOpenLink();
+  const resultItems =
+    actionType?.action === 'search' ? searchResultItems(actionType.result) : [];
 
   const handleCopy = useCallback(async () => {
     try {
@@ -146,7 +203,28 @@ export function SearchToolCard({
             {t('genericTool.result')}
           </div>
           <div className="conv-tool-details-content">
-            <ToolResultView result={actionType.result} />
+            {resultItems.length > 0 ? (
+              <ul
+                className="conv-tool-search-results"
+                aria-label={t('messageTurnView.searchResults')}
+              >
+                {resultItems.map((item, index) => (
+                  <li
+                    key={`${item.path ?? 'result'}-${item.line ?? index}-${index}`}
+                  >
+                    {item.path ? (
+                      <span className="conv-tool-search-result-path">
+                        <span>{item.path}</span>
+                        {item.line ? <span>:{item.line}</span> : null}
+                      </span>
+                    ) : null}
+                    {item.text ? <span>{item.text}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ToolResultView result={actionType.result} />
+            )}
           </div>
         </>
       ) : null}

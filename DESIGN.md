@@ -16,6 +16,7 @@ colors:
   content-bg: "#fafbfc"
   panel-bg: "#ffffff"
   panel-translucent: "#ffffffe6"
+  popover-bg: "#fafafa"
   control-bg: "#0f172a0f"
   raised-control-bg: "#f6f7f8"
   raised-control-hover: "#f0f1f3"
@@ -37,7 +38,7 @@ materials:
   # Liquid Glass = navigation / controls layer ONLY. Never on content.
   glass-titlebar: "blur(18px) saturate(1.2) over var(--surface-topbar)"
   glass-sidebar: "blur(30px) saturate(1.8) over var(--surface-sidebar)"
-  glass-popover: "blur(24px) saturate(1.55)  # menus, dialogs, toasts"
+  popover-surface: "opaque #fafafa in light mode; dark Ayu overlay in dark mode  # menus, dialogs, toasts"
   content-surface: "opaque var(--surface-card-strong) + 1px hairline  # lists, cards, editors"
   reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
 typography:
@@ -164,7 +165,7 @@ VibeX is a local engineering control surface for coordinating many agent session
 
 The macOS contract is a two-layer model:
 
-- A **navigation/controls layer** of translucent **Liquid Glass** chrome (title bar, sidebar, menus, toasts) that floats above the window and lets content show through.
+- A **navigation/controls layer** where structural window chrome uses translucent **Liquid Glass**, while light-mode menus, dialogs, and toasts use a calm opaque `#FAFAFA` overlay surface.
 - A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors) where hierarchy comes from layout, grouping, and hairlines — never from decoration.
 
 VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`, blur materials). Every surface must degrade: when the OS reports reduced transparency, glass collapses to a solid panel; on Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
@@ -187,7 +188,7 @@ Translucent, blurred, lightly saturated material that floats and lets the worksp
 
 - **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a near-white translucent fill, 1px hairline beneath. Unified with the window; the whole strip is a drag region.
 - **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow. Content scrolls independently beneath it.
-- **Popovers, menus, dialogs, toasts**: `blur(24px) saturate(1.55)` glass with a popover shadow.
+- **Popovers, menus, dialogs, toasts**: opaque `#FAFAFA` in light mode with a popover shadow; dark mode retains the dark Ayu overlay surface.
 
 ### The Content Layer — Opaque Grouped Surfaces
 

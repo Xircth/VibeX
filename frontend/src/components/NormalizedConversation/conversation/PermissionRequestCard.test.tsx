@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ConversationPermissionView } from 'shared/types';
 import { PermissionRequestCard } from './PermissionRequestCard';
 
@@ -32,6 +33,32 @@ function fileEditRequest(
 }
 
 describe('PermissionRequestCard', () => {
+  it('presents a terminal permission with the request title and exact command', () => {
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          title: 'Run the project test command',
+          details: {
+            fields: {
+              kind: 'execute',
+              rawInput: { command: 'pnpm test --runInBand' },
+            },
+          },
+        })}
+        onRespond={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('终端')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '权限申请' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Run the project test command')
+    ).toBeInTheDocument();
+    expect(screen.getByText('pnpm test --runInBand')).toBeInTheDocument();
+  });
+
   it('renders the real file path from the ACP diff detail', () => {
     render(
       <PermissionRequestCard request={fileEditRequest()} onRespond={vi.fn()} />
@@ -59,7 +86,42 @@ describe('PermissionRequestCard', () => {
     });
   });
 
-  it('cancels the request via the cancel action', () => {
+  it('keeps broader approval scopes behind the allow split menu', async () => {
+    const user = userEvent.setup();
+    const onRespond = vi.fn();
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          options: [
+            {
+              id: 'allow-once',
+              label: '允许一次',
+              kind: 'allow_once',
+            },
+            {
+              id: 'allow-similar',
+              label: '允许类似命令',
+              kind: 'allow_always',
+              description: '本会话中匹配该命令前缀的请求',
+            },
+            { id: 'reject', label: '拒绝', kind: 'reject_once' },
+          ],
+        })}
+        onRespond={onRespond}
+      />
+    );
+
+    expect(screen.queryByRole('menuitem', { name: /允许类似命令/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: '展开允许选项' }));
+    await user.click(screen.getByRole('menuitem', { name: /允许类似命令/ }));
+
+    expect(onRespond).toHaveBeenCalledWith('perm-1', {
+      kind: 'selected',
+      option_id: 'allow-similar',
+    });
+  });
+
+  it('uses the agent-provided reject option for the reject action', () => {
     const onRespond = vi.fn();
     render(
       <PermissionRequestCard
@@ -68,7 +130,26 @@ describe('PermissionRequestCard', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '拒绝' }));
+
+    expect(onRespond).toHaveBeenCalledWith('perm-1', {
+      kind: 'selected',
+      option_id: 'deny',
+    });
+  });
+
+  it('cancels safely when the agent provides no reject option', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionRequestCard
+        request={fileEditRequest({
+          options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }],
+        })}
+        onRespond={onRespond}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝' }));
 
     expect(onRespond).toHaveBeenCalledWith('perm-1', { kind: 'cancelled' });
   });

@@ -2,7 +2,6 @@ use std::{str::FromStr, sync::Arc, time::Duration};
 
 use sqlx::{
     Error, Pool, Sqlite,
-    migrate::MigrateError,
     sqlite::{
         SqliteConnectOptions, SqliteConnection, SqliteJournalMode, SqlitePoolOptions,
         SqliteSynchronous,
@@ -12,76 +11,17 @@ use utils::assets::asset_dir;
 
 pub mod models;
 
-fn auto_fix_migration_checksum_mismatch_enabled(
-    strict_override: Option<std::ffi::OsString>,
-) -> bool {
-    cfg!(windows) && strict_override.is_none()
-}
-
-fn should_auto_fix_migration_checksum_mismatch() -> bool {
-    auto_fix_migration_checksum_mismatch_enabled(std::env::var_os("VIBEX_STRICT_MIGRATIONS"))
-}
-
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
-    use std::collections::HashSet;
-
-    let migrator = sqlx::migrate!("./migrations");
-    let mut processed_versions: HashSet<i64> = HashSet::new();
-
-    loop {
-        match migrator.run(pool).await {
-            Ok(()) => {
-                models::agent_management::legacy_migration::LegacyAgentMigration::run(pool)
-                    .await
-                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-                models::agent_management::conversation_migration::LegacyConversationAgentMigration::run(pool)
-                    .await
-                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-                models::plugin_v2::PluginV1Migration::retire_all(pool).await?;
-                resolve_legacy_automation_timezones(pool).await?;
-                return Ok(());
-            }
-            Err(MigrateError::VersionMismatch(version)) => {
-                if !should_auto_fix_migration_checksum_mismatch() {
-                    // Keep strict checksum handling unless Windows local recovery is explicitly enabled.
-                    return Err(sqlx::Error::Migrate(Box::new(
-                        MigrateError::VersionMismatch(version),
-                    )));
-                }
-
-                // Guard against infinite loop
-                if !processed_versions.insert(version) {
-                    return Err(sqlx::Error::Migrate(Box::new(
-                        MigrateError::VersionMismatch(version),
-                    )));
-                }
-
-                // On Windows dev machines, line ending drift or local recovery can leave an
-                // applied migration with a different checksum than the current file contents.
-                // Update the stored checksum and retry the migrator.
-                tracing::warn!(
-                    "Migration version {} has checksum mismatch, updating stored checksum",
-                    version
-                );
-
-                // Find the migration with the mismatched version and get its current checksum
-                if let Some(migration) = migrator.iter().find(|m| m.version == version) {
-                    // Update the checksum in _sqlx_migrations to match the current file
-                    sqlx::query("UPDATE _sqlx_migrations SET checksum = ? WHERE version = ?")
-                        .bind(&*migration.checksum)
-                        .bind(version)
-                        .execute(pool)
-                        .await?;
-                } else {
-                    // Migration not found in current set, can't fix
-                    return Err(sqlx::Error::Migrate(Box::new(
-                        MigrateError::VersionMismatch(version),
-                    )));
-                }
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
+    sqlx::migrate!("./migrations").run(pool).await?;
+    models::agent_management::legacy_migration::LegacyAgentMigration::run(pool)
+        .await
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    models::agent_management::conversation_migration::LegacyConversationAgentMigration::run(pool)
+        .await
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    models::plugin_v2::PluginV1Migration::retire_all(pool).await?;
+    resolve_legacy_automation_timezones(pool).await?;
+    Ok(())
 }
 
 async fn resolve_legacy_automation_timezones(pool: &Pool<Sqlite>) -> Result<(), Error> {
@@ -125,17 +65,7 @@ mod tests {
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
     use uuid::Uuid;
 
-    use super::{
-        auto_fix_migration_checksum_mismatch_enabled, resolve_legacy_automation_timezones,
-        run_migrations,
-    };
-
-    #[test]
-    fn strict_migrations_env_disables_auto_fix() {
-        assert!(!auto_fix_migration_checksum_mismatch_enabled(Some(
-            "1".into()
-        )));
-    }
+    use super::{resolve_legacy_automation_timezones, run_migrations};
 
     #[tokio::test]
     async fn published_migration_versions_remain_in_the_manifest() {

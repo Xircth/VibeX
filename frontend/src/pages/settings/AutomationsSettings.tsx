@@ -863,7 +863,6 @@ export function AutomationsSettings({
                   <div className="rounded-lg border border-border bg-background p-2">
                     <SessionComposerInput
                       value={draft.prompt}
-                      images={[]}
                       context={{
                         projectId: draft.projectId,
                         executorProfile: draft.executorProfileId,
@@ -871,7 +870,6 @@ export function AutomationsSettings({
                       onChange={(prompt) => setDraft({ ...draft, prompt })}
                       onSubmit={() => void save()}
                       onAttachImages={() => {}}
-                      onRemoveImage={() => {}}
                     />
                   </div>
                 </div>

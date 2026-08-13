@@ -106,7 +106,17 @@
     "answerLabel": "回答"
   },
   "permissionRequestCard": {
-    "title": "请求权限",
+    "title": "权限申请",
+    "types": {
+      "file": "文件",
+      "terminal": "终端",
+      "web": "网页",
+      "tool": "工具"
+    },
+    "reject": "拒绝",
+    "allowActions": "权限允许选项",
+    "expandAllow": "展开允许选项",
+    "options": "选项",
     "responded": "已响应",
     "newFile": "新文件",
     "modified": "修改",
@@ -140,7 +150,10 @@
       "other": "{{count}} 次其他工具调用",
       "separator": "、",
       "failed": "工具调用失败"
-    }
+    },
+    "fileReadRange": "第 {{start}}–{{end}} 行",
+    "fileReadFrom": "从第 {{start}} 行开始",
+    "searchResults": "搜索结果"
   },
   "statusDock": {
     "dismiss": "关闭提示",

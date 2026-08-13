@@ -61,8 +61,5 @@
       "@astryxdesign/core@0.3.0": "patches/@astryxdesign__core@0.3.0.patch"
     }
   },
-  "packageManager": "pnpm@10.13.1",
-  "dependencies": {
-    "@tanstack/react-virtual": "^3.13.23"
-  }
+  "packageManager": "pnpm@10.13.1"
 }

@@ -101,6 +101,26 @@ impl GitService {
         self.find_checkout_path_for_branch(repo_path, branch_name)
     }
 
+    /// Check whether `candidate_path` is the registered checkout for `branch_name`.
+    pub fn is_worktree_path_for_branch(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+        candidate_path: &Path,
+    ) -> Result<bool, GitServiceError> {
+        if !candidate_path.exists() {
+            return Ok(false);
+        }
+
+        let Some(worktree_path) = self.find_checkout_path_for_branch(repo_path, branch_name)?
+        else {
+            return Ok(false);
+        };
+
+        Ok(Self::canonicalize_path_for_compare(&worktree_path)
+            == Self::canonicalize_path_for_compare(candidate_path))
+    }
+
     /// Return the full worktree status including all entries.
     pub fn get_worktree_status(
         &self,

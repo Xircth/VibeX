@@ -312,12 +312,12 @@
 }
 
 .conv-markdown ul {
-  padding-left: 22px;
+  padding-left: 4.4px;
   list-style-type: disc;
 }
 
 .conv-markdown ol {
-  padding-left: 28px;
+  padding-left: 5.6px;
   list-style-type: decimal;
 }
 
@@ -366,21 +366,20 @@
 .conv-markdown table {
   border-collapse: separate;
   border-spacing: 0;
-  width: 100%;
-  margin: 10px 0;
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-  border: 1.5px solid var(--conv-border-subtle);
+  display: table;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  margin: 0;
+  border: 1px solid var(--conv-border-subtle);
   border-radius: var(--radius);
+  background: var(--conv-surface-card);
 }
 
-.conv-markdown thead,
-.conv-markdown tbody,
-.conv-markdown tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
+.conv-markdown .astryx-markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
 .conv-markdown th,
@@ -407,6 +406,14 @@
   background: var(--conv-surface-control);
 }
 
+.conv-markdown thead tr:first-child th:first-child {
+  border-start-start-radius: calc(var(--radius) - 1px);
+}
+
+.conv-markdown thead tr:first-child th:last-child {
+  border-start-end-radius: calc(var(--radius) - 1px);
+}
+
 /* ── Links ── */
 
 .conv-markdown a {
@@ -417,6 +424,62 @@
 
 .conv-markdown a:hover {
   color: var(--conv-text-primary);
+}
+
+.conv-markdown .conv-resource-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25em;
+  max-width: 100%;
+  color: var(--conv-tool-icon);
+  font-weight: 500;
+  line-height: inherit;
+  text-decoration: none;
+  vertical-align: baseline;
+}
+
+.conv-markdown .conv-resource-link:hover {
+  color: var(--conv-tool-icon);
+  text-decoration: underline;
+}
+
+.conv-resource-link-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  align-self: center;
+  color: currentColor;
+}
+
+.conv-resource-link-favicon {
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.conv-resource-link-file-icon,
+.conv-resource-link-file-icon > .file-icon {
+  width: 1em !important;
+  height: 1em !important;
+  overflow: visible !important;
+}
+
+.conv-resource-link-file-icon svg {
+  width: 100%;
+  height: 100%;
+  color: currentColor;
+}
+
+.conv-resource-link-file-icon svg [fill]:not([fill='none']) {
+  fill: currentColor !important;
+}
+
+.conv-resource-link-file-icon svg [stroke]:not([stroke='none']) {
+  stroke: currentColor !important;
+}
+
+.conv-resource-link-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ── Paragraph spacing ── */

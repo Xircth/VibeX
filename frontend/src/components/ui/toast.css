@@ -34,7 +34,7 @@
   width: 100%;
   overflow: hidden;
   color: var(--text-primary, hsl(213 10% 30%));
-  background: var(--surface-popover, hsl(0 0% 100% / 0.82));
+  background: var(--surface-popover, #fafafa);
   border: 1px solid var(--border-glass, hsl(0 0% 100% / 0.62));
   border-radius: var(--radius);
   box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.38);
@@ -271,7 +271,7 @@
   height: 13px;
   padding: 2px;
   color: currentColor;
-  background: var(--surface-popover, hsl(0 0% 100% / 0.96));
+  background: var(--surface-popover, #fafafa);
   border-radius: 999px;
 }
 
@@ -416,7 +416,7 @@
 
 @media (prefers-reduced-transparency: reduce) {
   .vu-toast-surface {
-    background: var(--surface-glass-solid, hsl(220 24% 96%));
+    background: var(--surface-popover, #fafafa);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

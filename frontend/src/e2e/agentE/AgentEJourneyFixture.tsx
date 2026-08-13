@@ -212,11 +212,9 @@ function AgentEJourneySurface() {
             >
               <SessionComposerInput
                 value={message}
-                images={[]}
                 onChange={setMessage}
                 onSubmit={() => void send()}
                 onAttachImages={() => {}}
-                onRemoveImage={() => {}}
               />
             </AgentMentionProvider>
             <div className="flex justify-end">

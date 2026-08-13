@@ -29,6 +29,7 @@ import {
   panelComponents,
 } from '@/components/layout/panels/PanelRegistry';
 import { WorkspaceTabAddMenu } from '@/components/layout/panels/WorkspaceTabAddMenu';
+import { RightPanelSidebar } from '@/components/layout/RightPanelSidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import {
   EDITOR_GROUP_PREFIX,
@@ -1261,46 +1262,50 @@ export function IDELayout({
 
       <div className="flex min-h-0 flex-1">
         {effectiveActiveTab === 'workspace' ? (
-          <div className="workspace-activity-rail flex w-10 shrink-0 flex-col items-center gap-0.5 pt-1">
+          <div className="workspace-activity-rail workspace-divider-right relative flex w-9 shrink-0 flex-col items-center gap-0.5 bg-secondary/30 pt-2">
             <button
               onClick={toggleFileTree}
-              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.FILE_TREE) ? 'is-active' : ''
               }`}
               title="Files"
+              aria-pressed={isPanelOpen(PANEL_IDS.FILE_TREE)}
             >
-              <FolderOpen className="h-[18px] w-[18px]" />
+              <FolderOpen className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={toggleGitPanel}
-              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.GIT) ? 'is-active' : ''
               }`}
               title="Git"
+              aria-pressed={isPanelOpen(PANEL_IDS.GIT)}
             >
-              <GitBranch className="h-[18px] w-[18px]" />
+              <GitBranch className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={toggleSearchPanel}
-              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.SEARCH) ? 'is-active' : ''
               }`}
               title="Search (Ctrl+Shift+F)"
+              aria-pressed={isPanelOpen(PANEL_IDS.SEARCH)}
             >
-              <Search className="h-[18px] w-[18px]" />
+              <Search className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={toggleSessionList}
-              className={`workspace-activity-button flex h-9 w-9 items-center justify-center transition-colors ${
+              className={`workspace-side-rail-button flex h-7 w-7 items-center justify-center ${
                 isPanelOpen(PANEL_IDS.SESSION_LIST) ? 'is-active' : ''
               }`}
               title={t('panelRegistry.sessionList')}
+              aria-pressed={isPanelOpen(PANEL_IDS.SESSION_LIST)}
             >
-              <MessagesSquare className="h-[18px] w-[18px]" />
+              <MessagesSquare className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={toggleEditorArea}
-              className={`workspace-activity-button hidden h-9 w-9 items-center justify-center transition-colors ${
+              className={`workspace-side-rail-button hidden h-7 w-7 items-center justify-center ${
                 isEditorAreaVisible ? 'is-active' : ''
               }`}
               title={
@@ -1310,7 +1315,7 @@ export function IDELayout({
               }
               aria-pressed={isEditorAreaVisible}
             >
-              <Code2 className="h-[18px] w-[18px]" />
+              <Code2 className="h-3.5 w-3.5" />
             </button>
           </div>
         ) : null}
@@ -1376,6 +1381,10 @@ export function IDELayout({
             </div>
           </WorkspaceOverlayProvider>
         </RightPanelSlotContext.Provider>
+
+        {effectiveActiveTab === 'workspace' && rightPanelContent ? (
+          <RightPanelSidebar />
+        ) : null}
       </div>
 
       {rightPanelContent && sessionContentHost

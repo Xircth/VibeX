@@ -506,7 +506,7 @@ export function VersionControlSettings() {
                 id="commit-reminder-mode"
                 aria-label={t('versionControl.commitReminderModeLabel')}
                 className="raised-control h-8 min-w-32 rounded-lg px-3 text-sm"
-                value={draft.commit_reminder_mode ?? 'separate_turn'}
+                value={draft.commit_reminder_mode ?? 'smart'}
                 onChange={(event) =>
                   updateDraft({
                     commit_reminder_mode: event.target.value as

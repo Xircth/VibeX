@@ -12,6 +12,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid"] }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tool-runtime = { path = "../tool-runtime" }
+tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

@@ -201,8 +201,6 @@ pub struct DelegationConfig {
     pub enabled: bool,
     /// Max delegation chain depth (root → child = depth 1). Default 1.
     pub depth_limit: u32,
-    /// Per-parent result-cache byte budget; `0` disables eviction.
-    pub completed_cache_cap_bytes: usize,
 }
 
 impl DelegationConfig {
@@ -217,7 +215,6 @@ impl Default for DelegationConfig {
         Self {
             enabled: true,
             depth_limit: 1,
-            completed_cache_cap_bytes: 512 * 1024 * 1024,
         }
     }
 }

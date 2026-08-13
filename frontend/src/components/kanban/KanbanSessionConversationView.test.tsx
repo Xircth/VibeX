@@ -4,6 +4,7 @@ import { forwardRef, StrictMode, useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from 'shared/types';
+import { useImagePreviewPresentation } from '@/contexts/ImagePreviewPresentationContext';
 import {
   KanbanSessionConversationPlacementProvider,
   KanbanSessionConversationView,
@@ -67,13 +68,20 @@ vi.mock('@/components/logs/VirtualizedList', () => ({
   default: forwardRef(function VirtualizedListMock(
     {
       attempt,
+      widthMode,
     }: {
       attempt: { id: string; session?: { id?: string } | undefined };
+      widthMode?: 'bounded' | 'workspace';
     },
     _ref
   ) {
+    const imagePreviewPresentation = useImagePreviewPresentation();
     return (
-      <div data-testid="virtualized-list">
+      <div
+        data-testid="virtualized-list"
+        data-image-preview-presentation={imagePreviewPresentation}
+        data-width-mode={widthMode ?? 'bounded'}
+      >
         {attempt.id}:{attempt.session?.id ?? 'none'}
       </div>
     );
@@ -155,6 +163,37 @@ function createSession(id: string, workspaceId: string): Session {
 }
 
 describe('KanbanSessionConversationView', () => {
+  it('carries workspace image-preview presentation through the placement surface', () => {
+    const workspace = createWorkspace('workspace-preview');
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(['taskAttempt', workspace.id], workspace);
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <KanbanSessionConversationPlacementProvider>
+            <KanbanSessionConversationView
+              workspaceId={workspace.id}
+              imagePreviewPresentation="workspace-tab"
+              conversationWidthMode="workspace"
+            />
+          </KanbanSessionConversationPlacementProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('virtualized-list')).toHaveAttribute(
+      'data-image-preview-presentation',
+      'workspace-tab'
+    );
+    expect(screen.getByTestId('virtualized-list')).toHaveAttribute(
+      'data-width-mode',
+      'workspace'
+    );
+  });
+
   it('shows a standalone new-session button when a workspace has no existing sessions', () => {
     const startNewSession = vi.fn();
     const onCreateSessionRequested = vi.fn();

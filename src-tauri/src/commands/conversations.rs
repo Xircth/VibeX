@@ -41,8 +41,8 @@ use uuid::Uuid;
 
 use crate::{
     conversation_bundle::{
-        ConversationExportResult, ConversationImportResult, export_conversation_bundle,
-        import_conversation_bundle,
+        ConversationExportResult, ConversationForkResult, ConversationImportResult,
+        export_conversation_bundle, import_conversation_bundle,
     },
     conversation_service::{
         ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
@@ -930,7 +930,7 @@ pub async fn conversation_import(
 pub async fn conversation_fork(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
-) -> Result<ConversationImportResult, AppError> {
+) -> Result<ConversationForkResult, AppError> {
     let source_id = Uuid::parse_str(&conversation_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     let pool = &state.deployment.db().pool;
@@ -949,81 +949,74 @@ pub async fn conversation_fork(
         .as_deref()
         .filter(|title| !title.trim().is_empty())
         .unwrap_or("会话");
-    let _ = DbConversationSummary::set_title(pool, new_id, &format!("{base}（分叉）")).await;
-
-    // Best-effort ACP fork: branch the agent's live context into the new session.
-    if let Some(agent_id) = summary.agent_id.as_ref() {
-        match state
-            .agent_runtime
-            .fork_session(AgentSessionId(source_id))
-            .await
-        {
-            Ok(forked_external_id) => {
-                if let Err(error) = DbConversationSummary::bind_external_id(
-                    pool,
-                    new_id,
-                    &forked_external_id,
-                    agent_id,
-                )
-                .await
-                {
-                    tracing::warn!(%error, "failed to bind forked ACP session to conversation");
-                }
-                // The turn-resume path resolves the session to resume from
-                // `conversation_agent_bindings` (not sessions.external_session_id),
-                // so without a binding row the fork would cold-start and drop the
-                // branched context — defeating the feature. Mirror the import path
-                // (import_agent_session_to_conversation_events) and register a
-                // binding carrying the forked acp session id so continuing the fork
-                // resumes it via ACP `session/load`.
-                let working_dir =
-                    ConversationAgentBindingRecord::latest_for_conversation(pool, source_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .map(|binding| binding.working_dir)
-                        .unwrap_or_default();
-                if let Err(error) = ConversationAgentBindingRecord::create(
-                    pool,
-                    Uuid::new_v4(),
-                    CreateConversationAgentBinding {
-                        conversation_id: new_id,
-                        agent_id,
-                        working_dir: &working_dir,
-                        acp_session_id: Some(&forked_external_id),
-                        acp_protocol_version: None,
-                        runtime_version: None,
-                        acp_version: None,
-                        load_supported: true,
-                        resume_supported: true,
-                        close_supported: true,
-                        terminal_supported: true,
-                        additional_directories_supported: false,
-                        prompt_capabilities_json: "{}",
-                        session_capabilities_json: "{}",
-                        client_capabilities_json: "{}",
-                        mcp_servers_json: "[]",
-                        modes_json: "[]",
-                        config_options_json: "[]",
-                        current_mode: None,
-                        status: "closed",
-                    },
-                )
-                .await
-                {
-                    tracing::warn!(%error, "failed to record forked ACP session binding");
-                }
-            }
-            Err(error) => {
-                tracing::info!(
-                    %error,
-                    "ACP session/fork unavailable; forked conversation will cold-start"
-                );
-            }
-        }
+    if let Err(error) =
+        DbConversationSummary::set_title(pool, new_id, &format!("{base}（分叉）")).await
+    {
+        tracing::warn!(%error, conversation_id = %new_id, "forked conversation title was not updated");
     }
 
-    Ok(result)
+    let Some(agent_id) = summary.agent_id.as_ref() else {
+        return Ok(ConversationForkResult::history_only(
+            result,
+            "The source conversation has no Agent binding; only visible history was copied",
+        ));
+    };
+    let source_binding =
+        ConversationAgentBindingRecord::latest_for_conversation(pool, source_id).await?;
+    let Some(source_binding) = source_binding else {
+        return Ok(ConversationForkResult::history_only(
+            result,
+            "The source Agent session has no resumable binding; only visible history was copied",
+        ));
+    };
+
+    match state
+        .agent_runtime
+        .fork_session(AgentSessionId(source_id))
+        .await
+    {
+        Ok(forked_external_id) => {
+            let binding = ConversationAgentBindingRecord::create(
+                pool,
+                Uuid::new_v4(),
+                CreateConversationAgentBinding {
+                    conversation_id: new_id,
+                    agent_id,
+                    working_dir: &source_binding.working_dir,
+                    acp_session_id: Some(&forked_external_id),
+                    acp_protocol_version: source_binding.acp_protocol_version.as_deref(),
+                    runtime_version: source_binding.runtime_version.as_deref(),
+                    acp_version: source_binding.acp_version.as_deref(),
+                    load_supported: source_binding.load_supported,
+                    resume_supported: source_binding.resume_supported,
+                    close_supported: source_binding.close_supported,
+                    terminal_supported: source_binding.terminal_supported,
+                    additional_directories_supported: source_binding
+                        .additional_directories_supported,
+                    prompt_capabilities_json: &source_binding.prompt_capabilities_json,
+                    session_capabilities_json: &source_binding.session_capabilities_json,
+                    client_capabilities_json: &source_binding.client_capabilities_json,
+                    mcp_servers_json: &source_binding.mcp_servers_json,
+                    modes_json: &source_binding.modes_json,
+                    config_options_json: &source_binding.config_options_json,
+                    current_mode: source_binding.current_mode.as_deref(),
+                    status: "closed",
+                },
+            )
+            .await;
+            match binding {
+                Ok(_) => Ok(ConversationForkResult::with_agent_context(result)),
+                Err(error) => Ok(ConversationForkResult::history_only(
+                    result,
+                    format!("Agent context was forked but could not be attached: {error}"),
+                )),
+            }
+        }
+        Err(error) => Ok(ConversationForkResult::history_only(
+            result,
+            format!("Agent context could not be forked: {error}"),
+        )),
+    }
 }
 
 fn message_turns_from_timeline(timeline: &ConversationTimeline) -> Vec<MessageTurn> {

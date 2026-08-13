@@ -34,7 +34,7 @@ import {
   type BackupPreview,
   type SystemProxySettings,
   type SystemRenderingSettings,
-  type SystemMaintenanceStatus,
+  type AppReleaseStatus,
 } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
@@ -129,7 +129,7 @@ export function SystemSettings() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
   const [maintenanceStatus, setMaintenanceStatus] =
-    useState<SystemMaintenanceStatus | null>(null);
+    useState<AppReleaseStatus | null>(null);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [proxySettings, setProxySettings] = useState<SystemProxySettings>(
     DEFAULT_PROXY_SETTINGS
@@ -172,7 +172,7 @@ export function SystemSettings() {
   const refreshMaintenanceStatus = useCallback(async () => {
     setMaintenanceLoading(true);
     try {
-      const status = await configApi.getSystemMaintenanceStatus();
+      const status = await configApi.checkAppRelease();
       setMaintenanceStatus(status);
     } catch (error) {
       toast.error(
@@ -581,28 +581,6 @@ export function SystemSettings() {
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label
-                  htmlFor="auto-install-local-dependencies"
-                  className="cursor-pointer text-xs"
-                >
-                  {t('system.autoMaintainDeps')}
-                </Label>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t('system.autoMaintainDepsDesc')}
-                </p>
-              </div>
-              <Switch
-                id="auto-install-local-dependencies"
-                className="settings-switch"
-                checked={draft.auto_install_local_dependencies ?? true}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ auto_install_local_dependencies: checked })
-                }
-              />
-            </div>
-
             <div className="rounded-lg border bg-card p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -612,38 +590,38 @@ export function SystemSettings() {
                   <div className="mt-1 text-[11px] text-muted-foreground">
                     {t('system.currentVersion', {
                       version:
-                        maintenanceStatus?.app.current_version ??
+                        maintenanceStatus?.current_version ??
                         t('system.checking'),
                     })}
-                    {maintenanceStatus?.app.latest_version
+                    {maintenanceStatus?.latest_version
                       ? t('system.latestVersionSuffix', {
-                          version: maintenanceStatus.app.latest_version,
+                          version: maintenanceStatus.latest_version,
                         })
                       : ''}
                   </div>
-                  {maintenanceStatus?.app.update_available ? (
+                  {maintenanceStatus?.update_available ? (
                     <div className="settings-status-warning mt-1 text-[11px] font-medium">
                       {t('system.updateAvailable')}
                     </div>
-                  ) : maintenanceStatus?.app.checked ? (
+                  ) : maintenanceStatus?.checked ? (
                     <div className="settings-status-success mt-1 text-[11px]">
                       {t('system.appUpToDate')}
                     </div>
-                  ) : maintenanceStatus?.app.error ? (
+                  ) : maintenanceStatus?.error ? (
                     <div className="mt-1 text-[11px] text-muted-foreground">
-                      {maintenanceStatus.app.error}
+                      {maintenanceStatus.error}
                     </div>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {maintenanceStatus?.app.release_url ? (
+                  {maintenanceStatus?.release_url ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="h-8 text-xs"
                       onClick={() =>
                         window.open(
-                          maintenanceStatus.app.release_url!,
+                          maintenanceStatus.release_url!,
                           '_blank',
                           'noopener,noreferrer'
                         )

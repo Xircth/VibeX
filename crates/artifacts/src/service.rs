@@ -73,7 +73,6 @@ impl ArtifactService {
         &self,
         request: RecordArtifact,
     ) -> Result<ArtifactRecord, ArtifactServiceError> {
-        self.flush_pending_revision_events(100).await?;
         validate_relative_path(&request.relative_path)?;
         if !request.scope_root.is_absolute() {
             return Err(ArtifactServiceError::PathOutsideScope(
@@ -114,7 +113,7 @@ impl ArtifactService {
         if let Some(latest) = latest.as_ref()
             && latest.content_hash == content_hash
         {
-            self.deliver_pending_revision_event(latest).await?;
+            self.flush_revision_events_best_effort().await;
             return Ok(latest.clone());
         }
 
@@ -144,29 +143,14 @@ impl ArtifactService {
             artifact: Box::new((&record).into()),
         };
         self.repository.commit_revision(&record, &event).await?;
-        self.events.append(&event).await?;
-        self.repository
-            .mark_revision_event_delivered(record.id, record.revision)
-            .await?;
+        self.flush_revision_events_best_effort().await;
         Ok(record)
     }
 
-    async fn deliver_pending_revision_event(
-        &self,
-        record: &ArtifactRecord,
-    ) -> Result<(), ArtifactServiceError> {
-        let Some(event) = self
-            .repository
-            .pending_revision_event(record.id, record.revision)
-            .await?
-        else {
-            return Ok(());
-        };
-        self.events.append(&event).await?;
-        self.repository
-            .mark_revision_event_delivered(record.id, record.revision)
-            .await?;
-        Ok(())
+    async fn flush_revision_events_best_effort(&self) {
+        if let Err(error) = self.flush_pending_revision_events(100).await {
+            tracing::warn!(%error, "artifact revision is durable but event delivery is pending");
+        }
     }
 
     pub async fn flush_pending_revision_events(

@@ -9,14 +9,27 @@ import {
   type SessionComposerStructuredToken,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
+import {
+  isCleanDirectoryCandidate,
+  MarkdownResourceLink,
+  resolveMarkdownWorkspacePathTarget,
+} from './MarkdownResourceLink';
 
 const TOKEN_PLACEHOLDER_PATTERN = /\uE100TOKEN(\d+)\uE100/g;
 const UNDERLINE_PLACEHOLDER_PATTERN = /\uE100UNDERLINE(\d+)\uE100/g;
+const LINK_PLACEHOLDER_PATTERN = /\uE100LINK(\d+)\uE100/g;
+const COMMIT_CHANGES_INSTRUCTION_COMMAND = '#commit_changes';
+
+type RestrictedLink = {
+  label: string;
+  href: string;
+};
 
 type RestrictedMarkdown = {
   value: string;
   tokens: SessionComposerStructuredToken[];
   underlines: string[];
+  links: RestrictedLink[];
 };
 
 function escapeUnsupportedInline(value: string): string {
@@ -58,26 +71,54 @@ function replaceUnderlines(value: string, underlines: string[]): string {
   });
 }
 
-function transformPlainText(value: string, underlines: string[]): string {
-  return escapeUnsupportedInline(replaceUnderlines(value, underlines));
+function replaceUserMessageLinks(
+  value: string,
+  links: RestrictedLink[]
+): string {
+  return value.replace(
+    /(?<!!)\[([^\]\n]+)\]\(([^\s)]+)(?:\s+["'][^"']*["'])?\)/g,
+    (_match, label: string, href: string) => {
+      const index = links.length;
+      links.push({ label, href });
+      return `\uE100LINK${index}\uE100`;
+    }
+  );
 }
 
-function transformInlineSyntax(value: string, underlines: string[]): string {
+function transformPlainText(
+  value: string,
+  underlines: string[],
+  links: RestrictedLink[]
+): string {
+  return escapeUnsupportedInline(
+    replaceUnderlines(replaceUserMessageLinks(value, links), underlines)
+  );
+}
+
+function transformInlineSyntax(
+  value: string,
+  underlines: string[],
+  links: RestrictedLink[]
+): string {
   let result = '';
   let cursor = 0;
 
   while (cursor < value.length) {
     const opening = value.indexOf('`', cursor);
     if (opening < 0) {
-      result += transformPlainText(value.slice(cursor), underlines);
+      result += transformPlainText(value.slice(cursor), underlines, links);
       break;
     }
 
-    result += transformPlainText(value.slice(cursor, opening), underlines);
+    result += transformPlainText(
+      value.slice(cursor, opening),
+      underlines,
+      links
+    );
     const run = value.slice(opening).match(/^`+/)?.[0] ?? '`';
     const closing = value.indexOf(run, opening + run.length);
     if (closing < 0) {
-      result += transformPlainText(value.slice(opening), underlines);
+      result += transformPlainText(value.slice(opening), underlines, links);
       break;
     }
 
@@ -104,9 +145,13 @@ function escapeUnsupportedBlockPrefix(value: string): string {
 function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
   const tokens: SessionComposerStructuredToken[] = [];
   const underlines: string[] = [];
+  const links: RestrictedLink[] = [];
   let inCodeFence = false;
   const sourceWithTokenPlaceholders = getSessionComposerStructuredTokenSegments(
-    source
+    source,
+    {
+      includeLegacyTokens: source === COMMIT_CHANGES_INSTRUCTION_COMMAND,
+    }
   )
     .map((segment) => {
       if (segment.kind === 'text') return segment.text;
@@ -129,18 +174,20 @@ function prepareUserMessageMarkdown(source: string): RestrictedMarkdown {
       if (listMatch) {
         return `${listMatch[1]}${transformInlineSyntax(
           listMatch[2],
-          underlines
+          underlines,
+          links
         )}`;
       }
 
       return transformInlineSyntax(
         escapeUnsupportedBlockPrefix(line),
-        underlines
+        underlines,
+        links
       );
     })
     .join('\n');
 
-  return { value, tokens, underlines };
+  return { value, tokens, underlines, links };
 }
 
 function UserCodeBlock({
@@ -157,23 +204,16 @@ function UserCodeBlock({
   );
 }
 
-function UserInlineCode({ children }: { children: string }) {
-  return <code>{children}</code>;
-}
-
-const USER_MARKDOWN_COMPONENTS: MarkdownProps['components'] = {
-  code: UserCodeBlock,
-  inlineCode: UserInlineCode,
-};
-
 export type UserMessageMarkdownProps = {
   value: string;
   className?: string;
+  workspacePath?: string | null;
 };
 
 export const UserMessageMarkdown = memo(function UserMessageMarkdown({
   value,
   className,
+  workspacePath,
 }: UserMessageMarkdownProps) {
   const restricted = useMemo(() => prepareUserMessageMarkdown(value), [value]);
   const inlinePlugins = useMemo<MarkdownInlinePlugin[]>(
@@ -193,8 +233,58 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
           <u key={key}>{restricted.underlines[Number(match[1])] ?? ''}</u>
         ),
       },
+      {
+        pattern: LINK_PLACEHOLDER_PATTERN,
+        render: (match, key): ReactNode => {
+          const link = restricted.links[Number(match[1])];
+          return link ? (
+            <MarkdownResourceLink
+              key={key}
+              href={link.href}
+              workspacePath={workspacePath}
+            >
+              {link.label}
+            </MarkdownResourceLink>
+          ) : null;
+        },
+      },
     ],
-    [restricted.tokens, restricted.underlines]
+    [restricted.links, restricted.tokens, restricted.underlines, workspacePath]
+  );
+  const components = useMemo<MarkdownProps['components']>(
+    () => ({
+      code: UserCodeBlock,
+      inlineCode: ({ children }) => {
+        const text = String(children).trim();
+        const pathTarget = resolveMarkdownWorkspacePathTarget(
+          undefined,
+          text,
+          workspacePath
+        );
+        const isClickableFile = pathTarget?.nodeType === 'file';
+        const isClickableFolder =
+          pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text);
+
+        if (pathTarget && (isClickableFile || isClickableFolder)) {
+          return (
+            <MarkdownResourceLink
+              pathTarget={pathTarget}
+              workspacePath={workspacePath}
+            >
+              {text || children}
+            </MarkdownResourceLink>
+          );
+        }
+
+        return <code>{text || children}</code>;
+      },
+      link: ({ href, children }) => (
+        <MarkdownResourceLink href={href} workspacePath={workspacePath}>
+          {children}
+        </MarkdownResourceLink>
+      ),
+    }),
+    [workspacePath]
   );
 
   return (
@@ -202,10 +292,11 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
       className={`conv-markdown conv-user-markdown${className ? ` ${className}` : ''}`}
     >
       <Markdown
+        autolink="gfm"
         display="block"
         density="compact"
         contentWidth="100%"
-        components={USER_MARKDOWN_COMPONENTS}
+        components={components}
         inlinePlugins={inlinePlugins}
       >
         {restricted.value}

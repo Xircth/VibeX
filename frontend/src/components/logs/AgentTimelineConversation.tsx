@@ -25,7 +25,10 @@ import type {
   TokenUsageInfo,
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
-import { MessageTurnView } from '@/components/NormalizedConversation/MessageTurnView';
+import {
+  MessageTurnView,
+  type ContextCompactPresentation,
+} from '@/components/NormalizedConversation/MessageTurnView';
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
@@ -68,6 +71,11 @@ import { resolveConversationCollapsePreferences } from '@/lib/conversationCollap
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
 import {
+  getContextCompactStatusKind,
+  isContextCompactPrompt,
+} from '@/lib/contextCompact';
+import { useLayoutStore } from '@/stores/useLayoutStore';
+import {
   findPreviousUserMessageVirtualIndex,
   findViewportAnchorVirtualIndex,
   getVirtualRowTranslateY,
@@ -78,10 +86,20 @@ import {
 const ESTIMATED_ROW_HEIGHT = 128;
 const OVERSCAN = 10;
 
+export function conversationThreadMaxWidthClass(
+  widthMode: 'bounded' | 'workspace',
+  isEditorAreaVisible: boolean
+): 'max-w-none' | 'max-w-6xl' {
+  return widthMode === 'workspace' && !isEditorAreaVisible
+    ? 'max-w-none'
+    : 'max-w-6xl';
+}
+
 interface AgentTimelineConversationProps {
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
   onAtBottomChange?: (isAtBottom: boolean) => void;
+  widthMode?: 'bounded' | 'workspace';
 }
 
 /** Nav dots derived from the timeline's user turns (one dot per user message). */
@@ -143,6 +161,48 @@ export function isEditableUserTimelineRow(
   lastUserRowKey: string | null
 ): boolean {
   return row.turn.role === 'user' && row.key === lastUserRowKey;
+}
+
+export function contextCompactPresentationForRow(
+  timeline: ConversationTimelineTurn[],
+  index: number
+): ContextCompactPresentation | null {
+  const row = timeline[index];
+  if (!row || row.turn.role !== 'assistant') return null;
+  const baseId = row.turn.id.replace(/:assistant$/, '');
+  const userTurn = timeline
+    .slice(0, index)
+    .findLast((candidate) => candidate.turn.id === `${baseId}:user`)?.turn;
+  const prompt = userTurn?.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .join('\n\n');
+  if (!isContextCompactPrompt(prompt)) return null;
+
+  const statusFromContent = row.turn.blocks
+    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
+    .map((text) => getContextCompactStatusKind(text))
+    .find((status) => status != null);
+  const status =
+    row.phase === 'streaming' || row.phase === 'optimistic'
+      ? 'running'
+      : statusFromContent === 'failed'
+        ? 'failed'
+        : 'success';
+  const usage = row.turn.usage;
+  const contextTokens = usage
+    ? Number(usage.input_tokens) +
+      Number(usage.output_tokens) +
+      Number(usage.cache_creation_input_tokens) +
+      Number(usage.cache_read_input_tokens)
+    : null;
+
+  return {
+    status,
+    durationMs:
+      row.turn.duration_ms != null ? Number(row.turn.duration_ms) : null,
+    contextTokens:
+      contextTokens != null && contextTokens > 0 ? contextTokens : null,
+  };
 }
 
 function assistantCopyText(turn: MessageTurn): string {
@@ -361,7 +421,10 @@ function ConversationSideRows({
 const AgentTimelineConversation = forwardRef<
   VirtualizedListRef,
   AgentTimelineConversationProps
->(function AgentTimelineConversation({ attempt, task, onAtBottomChange }, ref) {
+>(function AgentTimelineConversation(
+  { attempt, task, onAtBottomChange, widthMode = 'bounded' },
+  ref
+) {
   const { t } = useTranslation(['panels', 'conversation', 'common']);
   const queryClient = useQueryClient();
   const { config } = useUserSystem();
@@ -477,6 +540,9 @@ const AgentTimelineConversation = forwardRef<
   const navigate = useNavigate();
   const routeParams = useParams<{ projectId?: string; workspaceId?: string }>();
   const { projectId, workspaceId } = routeParams;
+  const isEditorAreaVisible = useLayoutStore(
+    (state) => state.isEditorAreaVisible
+  );
   const handleOpenChild = useMemo(() => {
     if (!projectId || !workspaceId) return undefined;
     return (childConversationId: string) =>
@@ -1045,7 +1111,12 @@ const AgentTimelineConversation = forwardRef<
           </div>
         </div>
       ) : (
-        <div className="conv-thread-shell relative mx-auto w-full max-w-6xl">
+        <div
+          className={cn(
+            'conv-thread-shell relative mx-auto w-full',
+            conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
+          )}
+        >
           <div className="conv-thread-content min-w-0">
             {latestTurnErrorNotice &&
             !usesComposerStatusDock &&
@@ -1118,6 +1189,10 @@ const AgentTimelineConversation = forwardRef<
                       }
                       collapseProcess={collapseProcess}
                       showInterruptedNotice={!usesComposerStatusDock}
+                      contextCompact={contextCompactPresentationForRow(
+                        timeline,
+                        virtualRow.index
+                      )}
                     />
                     {row.turn.role === 'assistant'
                       ? (() => {

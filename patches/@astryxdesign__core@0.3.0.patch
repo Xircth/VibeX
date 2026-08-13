@@ -1,69 +1,73 @@
-diff --git a/src/Chat/ChatToolCalls.tsx b/src/Chat/ChatToolCalls.tsx
---- a/src/Chat/ChatToolCalls.tsx
-+++ b/src/Chat/ChatToolCalls.tsx
-@@ -82,6 +82,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
-   calls: ChatToolCallItem[];
-   /** Custom summary label for groups. Auto-generated from count if omitted. */
-   label?: string;
-+  /** Keep the collapsible group chrome when the array contains one call. */
-+  alwaysGroup?: boolean;
-   /** Whether the group is expanded. Uncontrolled by default. */
-   isExpanded?: boolean;
-   /** Default expanded state. @default true for ≤3 calls, false for >3. */
-@@ -508,6 +510,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
-   const {
-     calls,
-     label: _customLabel,
-+    alwaysGroup = false,
-     isExpanded: controlledExpanded,
-     defaultIsExpanded,
-     onExpandedChange,
-@@ -536,8 +539,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
-     return null;
-   }
+diff --git a/dist/Chat/ChatComposerInput.js b/dist/Chat/ChatComposerInput.js
+index edd9080e2d948dcdbb0ac355ae8c1d519958352d..c78984fcb8efd4bc9e2e9e4a77b784bd4438b166 100644
+--- a/dist/Chat/ChatComposerInput.js
++++ b/dist/Chat/ChatComposerInput.js
+@@ -318,30 +318,48 @@ export function ChatComposerInput(props) {
+     // Handle Backspace near tokens — prevent browser from creating
+     // stray <br> elements or moving the cursor unexpectedly.
+     if (e.key === 'Backspace') {
++      const editable = editableRef.current;
+       const selection = window.getSelection();
+-      if (selection && selection.isCollapsed && selection.rangeCount > 0) {
++      if (editable && selection && selection.isCollapsed && selection.rangeCount > 0) {
+         const range = selection.getRangeAt(0);
+         const {
+           startContainer,
+           startOffset
+         } = range;
  
--  // Single call: render inline, no group chrome
--  if (calls.length === 1) {
-+  // Single calls render inline unless the consumer requests a consistent group.
-+  if (calls.length === 1 && !alwaysGroup) {
-     return (
-       <div
-         ref={ref}
-@@ -556,6 +559,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
-   // Multiple calls: latest call at surface with chevron to expand all
-   const latestCall = calls[calls.length - 1];
-   const latestStatus = latestCall.status ?? 'complete';
-+  const showSummary = isExpanded || _customLabel != null;
- 
-   return (
-     <div
-@@ -581,13 +585,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+-        // Case 1: Cursor is in a text node right after a token.
+-        // If the text node is just the trailing NBSP, remove it
+-        // and place cursor after the token.
+-        if (startContainer.nodeType === Node.TEXT_NODE && startOffset === 0 && startContainer.previousSibling instanceof HTMLElement && startContainer.previousSibling.hasAttribute('data-astryx-token')) {
+-          // Cursor is at start of text node right after a token — let
+-          // the browser handle it normally (it will select/delete the token)
+-        } else if (startContainer.nodeType === Node.TEXT_NODE && startContainer.textContent === ' ' && startOffset <= 1 && startContainer.previousSibling instanceof HTMLElement && startContainer.previousSibling.hasAttribute('data-astryx-token')) {
+-          // Cursor is in or after the trailing NBSP — remove the NBSP
+-          // and the token in one action
++        const spacerCharacters = /^[\u00A0\u200B\uFEFF]*$/;
++        let previous = null;
++        if (startContainer === editable && startOffset > 0) {
++          previous = editable.childNodes.item(startOffset - 1);
++        } else if (startContainer.nodeType === Node.TEXT_NODE && spacerCharacters.test((startContainer.textContent ?? '').slice(0, startOffset))) {
++          previous = startContainer.previousSibling;
++        }
++        while (previous?.nodeType === Node.TEXT_NODE && spacerCharacters.test(previous.textContent ?? '')) {
++          previous = previous.previousSibling;
++        }
++        const tokenSpan = previous instanceof HTMLElement && previous.hasAttribute('data-astryx-token') && previous.parentNode === editable ? previous : null;
++        if (tokenSpan) {
+           e.preventDefault();
+-          const tokenSpan = startContainer.previousSibling;
+-          const parent = startContainer.parentNode;
+-          if (parent) {
+-            parent.removeChild(startContainer);
+-            parent.removeChild(tokenSpan);
++          const tokenIndex = Array.from(editable.childNodes).indexOf(tokenSpan);
++          let following = tokenSpan.nextSibling;
++          while (following?.nodeType === Node.TEXT_NODE) {
++            const next = following.nextSibling;
++            const text = following.textContent ?? '';
++            const withoutSpacer = text.replace(/^[\u00A0\u200B\uFEFF]+/, '');
++            if (withoutSpacer === text) break;
++            if (withoutSpacer) {
++              following.textContent = withoutSpacer;
++              break;
++            }
++            following.remove();
++            following = next;
            }
-         }}
-         {...stylex.props(styles.callRow, styles.callRowToggle)}>
--        {isExpanded ? (
-+        {showSummary ? (
-           <>
-             <span {...stylex.props(styles.groupIcon)}>
-               <Icon icon="wrench" size="sm" color="inherit" />
-             </span>
-             <span {...stylex.props(styles.groupLabel)}>
--              {t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
-+              {_customLabel ??
-+                t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
-             </span>
-           </>
-         ) : (
-@@ -620,7 +625,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
-           </>
-         )}
-         <span {...stylex.props(styles.callCount)}>
--          {!isExpanded && (
-+          {!showSummary && (
-             <>
-               <Icon icon="wrench" size="xsm" color="inherit" />
-               {calls.length}
++          tokenSpan.remove();
++          const nextRange = document.createRange();
++          nextRange.setStart(editable, Math.min(tokenIndex, editable.childNodes.length));
++          nextRange.collapse(true);
++          selection.removeAllRanges();
++          selection.addRange(nextRange);
+           emitChange();
+           return;
+         }
 diff --git a/dist/Chat/ChatToolCalls.d.ts b/dist/Chat/ChatToolCalls.d.ts
+index 7bece6857c7470545a94977fd687dc5534e43c9c..e99705176c81f0959d76ffb3cebc572fabcd750b 100644
 --- a/dist/Chat/ChatToolCalls.d.ts
 +++ b/dist/Chat/ChatToolCalls.d.ts
 @@ -52,6 +52,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
@@ -76,6 +80,7 @@ diff --git a/dist/Chat/ChatToolCalls.d.ts b/dist/Chat/ChatToolCalls.d.ts
      isExpanded?: boolean;
      /** Default expanded state. @default true for ≤3 calls, false for >3. */
 diff --git a/dist/Chat/ChatToolCalls.js b/dist/Chat/ChatToolCalls.js
+index 791909e7d02b99ddff54507bfffcf846b7ad4a5c..c150dda3160360b2dbe9651b2616af302a32ab2d 100644
 --- a/dist/Chat/ChatToolCalls.js
 +++ b/dist/Chat/ChatToolCalls.js
 @@ -260,6 +260,7 @@ export function ChatToolCalls(props) {
@@ -132,3 +137,172 @@ diff --git a/dist/Chat/ChatToolCalls.js b/dist/Chat/ChatToolCalls.js
            children: [/*#__PURE__*/_jsx(Icon, {
              icon: "wrench",
              size: "xsm",
+diff --git a/src/Chat/ChatComposerInput.tsx b/src/Chat/ChatComposerInput.tsx
+index 1f7560a2cc9b2a7dc3e391b420c1a45da36b63de..4a77ce55c695292812e4598df04b0dd379195022 100644
+--- a/src/Chat/ChatComposerInput.tsx
++++ b/src/Chat/ChatComposerInput.tsx
+@@ -519,38 +519,75 @@ export function ChatComposerInput(props: ChatComposerInputProps) {
+       // Handle Backspace near tokens — prevent browser from creating
+       // stray <br> elements or moving the cursor unexpectedly.
+       if (e.key === 'Backspace') {
++        const editable = editableRef.current;
+         const selection = window.getSelection();
+-        if (selection && selection.isCollapsed && selection.rangeCount > 0) {
++        if (
++          editable &&
++          selection &&
++          selection.isCollapsed &&
++          selection.rangeCount > 0
++        ) {
+           const range = selection.getRangeAt(0);
+           const {startContainer, startOffset} = range;
++          const spacerCharacters = /^[\u00A0\u200B\uFEFF]*$/;
++          let previous: Node | null = null;
+
+-          // Case 1: Cursor is in a text node right after a token.
+-          // If the text node is just the trailing NBSP, remove it
+-          // and place cursor after the token.
+-          if (
+-            startContainer.nodeType === Node.TEXT_NODE &&
+-            startOffset === 0 &&
+-            startContainer.previousSibling instanceof HTMLElement &&
+-            startContainer.previousSibling.hasAttribute('data-astryx-token')
+-          ) {
+-            // Cursor is at start of text node right after a token — let
+-            // the browser handle it normally (it will select/delete the token)
++          if (startContainer === editable && startOffset > 0) {
++            previous = editable.childNodes.item(startOffset - 1);
+           } else if (
+             startContainer.nodeType === Node.TEXT_NODE &&
+-            startContainer.textContent === ' ' &&
+-            startOffset <= 1 &&
+-            startContainer.previousSibling instanceof HTMLElement &&
+-            startContainer.previousSibling.hasAttribute('data-astryx-token')
++            spacerCharacters.test(
++              (startContainer.textContent ?? '').slice(0, startOffset),
++            )
++          ) {
++            previous = startContainer.previousSibling;
++          }
++
++          while (
++            previous?.nodeType === Node.TEXT_NODE &&
++            spacerCharacters.test(previous.textContent ?? '')
+           ) {
+-            // Cursor is in or after the trailing NBSP — remove the NBSP
+-            // and the token in one action
++            previous = previous.previousSibling;
++          }
++
++          const tokenSpan =
++            previous instanceof HTMLElement &&
++            previous.hasAttribute('data-astryx-token') &&
++            previous.parentNode === editable
++              ? previous
++              : null;
++
++          if (tokenSpan) {
+             e.preventDefault();
+-            const tokenSpan = startContainer.previousSibling;
+-            const parent = startContainer.parentNode;
+-            if (parent) {
+-              parent.removeChild(startContainer);
+-              parent.removeChild(tokenSpan);
++            const tokenIndex = Array.from(editable.childNodes).indexOf(
++              tokenSpan,
++            );
++            let following = tokenSpan.nextSibling;
++            while (following?.nodeType === Node.TEXT_NODE) {
++              const next = following.nextSibling;
++              const text = following.textContent ?? '';
++              const withoutSpacer = text.replace(
++                /^[\u00A0\u200B\uFEFF]+/,
++                '',
++              );
++              if (withoutSpacer === text) break;
++              if (withoutSpacer) {
++                following.textContent = withoutSpacer;
++                break;
++              }
++              following.remove();
++              following = next;
+             }
++            tokenSpan.remove();
++
++            const nextRange = document.createRange();
++            nextRange.setStart(
++              editable,
++              Math.min(tokenIndex, editable.childNodes.length),
++            );
++            nextRange.collapse(true);
++            selection.removeAllRanges();
++            selection.addRange(nextRange);
+             emitChange();
+             return;
+           }
+diff --git a/src/Chat/ChatToolCalls.tsx b/src/Chat/ChatToolCalls.tsx
+index 234a2e4f42d67cb9db7cc7f11ff73957bb8da99b..b989bf8a76f9f562bc7f2fb92b36603cfa34e2b2 100644
+--- a/src/Chat/ChatToolCalls.tsx
++++ b/src/Chat/ChatToolCalls.tsx
+@@ -82,6 +82,8 @@ export interface ChatToolCallsProps extends BaseProps<HTMLDivElement> {
+   calls: ChatToolCallItem[];
+   /** Custom summary label for groups. Auto-generated from count if omitted. */
+   label?: string;
++  /** Keep the collapsible group chrome when the array contains one call. */
++  alwaysGroup?: boolean;
+   /** Whether the group is expanded. Uncontrolled by default. */
+   isExpanded?: boolean;
+   /** Default expanded state. @default true for ≤3 calls, false for >3. */
+@@ -508,6 +510,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+   const {
+     calls,
+     label: _customLabel,
++    alwaysGroup = false,
+     isExpanded: controlledExpanded,
+     defaultIsExpanded,
+     onExpandedChange,
+@@ -536,8 +539,8 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+     return null;
+   }
+
+-  // Single call: render inline, no group chrome
+-  if (calls.length === 1) {
++  // Single calls render inline unless the consumer requests a consistent group.
++  if (calls.length === 1 && !alwaysGroup) {
+     return (
+       <div
+         ref={ref}
+@@ -556,6 +559,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+   // Multiple calls: latest call at surface with chevron to expand all
+   const latestCall = calls[calls.length - 1];
+   const latestStatus = latestCall.status ?? 'complete';
++  const showSummary = isExpanded || _customLabel != null;
+
+   return (
+     <div
+@@ -581,13 +585,14 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+           }
+         }}
+         {...stylex.props(styles.callRow, styles.callRowToggle)}>
+-        {isExpanded ? (
++        {showSummary ? (
+           <>
+             <span {...stylex.props(styles.groupIcon)}>
+               <Icon icon="wrench" size="sm" color="inherit" />
+             </span>
+             <span {...stylex.props(styles.groupLabel)}>
+-              {t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
++              {_customLabel ??
++                t('@astryx.chatToolCalls.groupLabel', {count: calls.length})}
+             </span>
+           </>
+         ) : (
+@@ -620,7 +625,7 @@ export function ChatToolCalls(props: ChatToolCallsProps) {
+           </>
+         )}
+         <span {...stylex.props(styles.callCount)}>
+-          {!isExpanded && (
++          {!showSummary && (
+             <>
+               <Icon icon="wrench" size="xsm" color="inherit" />
+               {calls.length}

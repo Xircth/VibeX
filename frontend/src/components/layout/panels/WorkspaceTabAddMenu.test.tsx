@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewHeaderActionsProps } from 'dockview-react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceOverlayContext } from '@/contexts/WorkspaceOverlayContext';
@@ -62,7 +62,6 @@ describe('WorkspaceTabAddMenu', () => {
       ctrlKey: false,
     });
 
-    expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
     expect(screen.getAllByRole('menuitem')).toHaveLength(4);
     expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: '审阅' })).toBeVisible();
@@ -78,19 +77,21 @@ describe('WorkspaceTabAddMenu', () => {
     expect(showTerminal).not.toHaveBeenCalled();
   });
 
-  it('commits the menu before notifying native-surface occlusion listeners', () => {
+  it('renders the menu before starting native-surface occlusion work', () => {
     const props = headerProps();
-    let browserOptionVisibleWhenOcclusionStarts = false;
+    const animationFrames: FrameRequestCallback[] = [];
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    const setTabCreationMenuOpen = vi.fn();
 
     render(
       <WorkspaceOverlayContext.Provider
         value={{
-          setTabCreationMenuOpen: (open) => {
-            if (open) {
-              browserOptionVisibleWhenOcclusionStarts =
-                screen.queryByRole('menuitem', { name: '浏览器' }) !== null;
-            }
-          },
+          setTabCreationMenuOpen,
           subscribeNativeSurfaceOcclusion: () => () => {},
         }}
       >
@@ -103,7 +104,16 @@ describe('WorkspaceTabAddMenu', () => {
       ctrlKey: false,
     });
 
-    expect(browserOptionVisibleWhenOcclusionStarts).toBe(true);
+    expect(screen.getByRole('menuitem', { name: '浏览器' })).toBeVisible();
+    expect(setTabCreationMenuOpen).not.toHaveBeenCalled();
+
+    act(() => {
+      const currentFrame = animationFrames.splice(0);
+      currentFrame.forEach((callback) => callback(16));
+    });
+
+    expect(setTabCreationMenuOpen).toHaveBeenCalledWith(true);
+    requestAnimationFrameSpy.mockRestore();
   });
 
   it('opens the terminal from the tab creation menu', () => {
@@ -119,6 +129,23 @@ describe('WorkspaceTabAddMenu', () => {
 
     expect(props.api.setActive).toHaveBeenCalledOnce();
     expect(showTerminal).toHaveBeenCalledOnce();
+  });
+
+  it('does not make the workspace inert while the tab menu is open', () => {
+    const props = headerProps();
+    const { container } = render(
+      <div>
+        <main aria-label="Workspace content" />
+        <WorkspaceTabAddMenu {...props} />
+      </div>
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '新建标签页' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(container).not.toHaveAttribute('aria-hidden', 'true');
   });
 
   it('does not add the control to non-editor groups', () => {

@@ -1,6 +1,9 @@
 {
-  "online": "online",
-  "offline": "offline",
+  "agentStatus": {
+    "defaultAgentAria": "Default Agent: {{agent}}, {{status}}",
+    "enabledAgentsAria": "Enabled Agent status",
+    "defaultBadge": "Default"
+  },
   "automationFailureTitle": "Automation run failed",
   "backgroundTasksTitle": "{{count}} background task(s) running",
   "updateAvailableTitle": "An update is available",

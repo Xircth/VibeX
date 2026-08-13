@@ -8,7 +8,6 @@ import { SystemSettings } from './SystemSettings';
 const mocks = vi.hoisted(() => ({
   config: {
     auto_update_enabled: true,
-    auto_install_local_dependencies: true,
     editor: { remote_ssh_host: 'old-host', remote_ssh_user: 'old-user' },
   } as Config,
   updateAndSaveConfig: vi.fn(),
@@ -40,7 +39,7 @@ vi.mock('@/components/ConfigProvider', () => ({
 
 vi.mock('@/lib/api', () => ({
   configApi: {
-    getSystemMaintenanceStatus: mocks.getMaintenance,
+    checkAppRelease: mocks.getMaintenance,
     getSettingsPath: mocks.getSettingsPath,
     clearLocalData: mocks.clearLocalData,
   },
@@ -113,17 +112,13 @@ describe('SystemSettings', () => {
     mocks.updateAndSaveConfig.mockResolvedValue(true);
     mocks.getSettingsPath.mockResolvedValue('/Users/test/.vibex/settings.json');
     mocks.getMaintenance.mockResolvedValue({
-      app: {
-        current_version: '1.0.0',
-        latest_version: '1.0.0',
-        update_available: false,
-        release_url: null,
-        repository: null,
-        checked: true,
-        error: null,
-      },
-      npm: { name: 'npm', available: true, path: '/usr/bin/npm', message: '' },
-      tools: [],
+      current_version: '1.0.0',
+      latest_version: '1.0.0',
+      update_available: false,
+      release_url: null,
+      repository: null,
+      checked: true,
+      error: null,
     });
     mocks.getProxy.mockResolvedValue({ enabled: false, proxy_url: null });
     mocks.updateProxy.mockImplementation(async (settings) => settings);

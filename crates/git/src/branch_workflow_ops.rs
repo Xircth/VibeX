@@ -42,7 +42,7 @@ impl GitService {
                     ));
                 }
 
-                self.ensure_cli_commit_identity(&base_checkout_path)?;
+                self.validate_commit_identity(&base_checkout_path)?;
                 let sha = git_cli
                     .merge_squash_commit(
                         &base_checkout_path,
@@ -73,7 +73,7 @@ impl GitService {
                 let base_commit = base_branch.get().peel_to_commit()?;
                 let task_commit = task_branch.get().peel_to_commit()?;
 
-                let signature = self.signature_with_fallback(&task_repo)?;
+                let signature = self.configured_signature(&task_repo)?;
                 let squash_commit_id = self.perform_squash_merge(
                     &task_repo,
                     &base_commit,
@@ -160,7 +160,7 @@ impl GitService {
             self.fetch_branch_from_remote(&main_repo, &nbr)?;
         }
 
-        self.ensure_cli_commit_identity(worktree_path)?;
+        self.validate_commit_identity(worktree_path)?;
         match git.rebase_onto(worktree_path, new_base_branch, old_base_branch, task_branch) {
             Ok(()) => {}
             Err(GitCliError::RebaseInProgress) => {
@@ -253,7 +253,7 @@ impl GitService {
             return Err(GitServiceError::RebaseInProgress);
         }
 
-        self.ensure_cli_commit_identity(&target_checkout_path)?;
+        self.validate_commit_identity(&target_checkout_path)?;
 
         let current_branch = git.get_current_branch(&target_checkout_path).map_err(|e| {
             GitServiceError::InvalidRepository(format!("git current-branch failed: {e}"))

@@ -8,6 +8,7 @@ import type {
   MessageTurn,
   TimelineRow,
 } from 'shared/types';
+import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import {
   conversationStoreReducer,
   emptyConversationStoreState,
@@ -446,6 +447,109 @@ describe('conversationStore (row-op dumb container)', () => {
     expect(turns.map((row) => [row.turn.role, row.phase])).toEqual([
       ['user', 'streaming'],
       ['assistant', 'streaming'],
+    ]);
+  });
+
+  it('reconciles a normalized server user row with the richer optimistic token text', () => {
+    const tokenizedDisplay = `${formatSessionComposerCommand({
+      type: '/',
+      key: 'skill:/Users/mac/.agents/skills/grilling:grill-me',
+      value: '/grill-me',
+    })} critique this`;
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: tokenizedDisplay },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: '/grill-me critique this' },
+              ]),
+            }),
+          },
+        ],
+        1n
+      ),
+    });
+
+    const userTurns = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'user'
+    );
+    expect(userTurns).toHaveLength(1);
+    expect(userTurns[0]?.turn.blocks).toEqual([
+      { type: 'text', text: tokenizedDisplay },
+    ]);
+  });
+
+  it('keeps reconciled token text across later authoritative user-row upserts', () => {
+    const tokenizedDisplay = `${formatSessionComposerCommand({
+      type: '/',
+      key: 'skill:/Users/mac/.agents/skills/research:research',
+      value: '/research',
+    })} compare these projects`;
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: tokenizedDisplay },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: '/research compare these projects' },
+              ]),
+            }),
+          },
+        ],
+        1n
+      ),
+    });
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 2n, {
+              kind: 'message_turn',
+              phase: 'settled',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: '/research compare these projects' },
+              ]),
+            }),
+          },
+        ],
+        2n
+      ),
+    });
+
+    const userTurns = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'user'
+    );
+    expect(userTurns).toHaveLength(1);
+    expect(userTurns[0]?.turn.blocks).toEqual([
+      { type: 'text', text: tokenizedDisplay },
     ]);
   });
 

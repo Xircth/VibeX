@@ -144,6 +144,77 @@ function normalizeMathDelimiters(value: string): string {
     .join('');
 }
 
+function markdownTableCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  if (!trimmed.includes('|')) return [];
+
+  return trimmed.split(/(?<!\\)\|/u).map((cell) => cell.trim());
+}
+
+function isMarkdownTableSeparator(line: string, columnCount: number): boolean {
+  const cells = markdownTableCells(line);
+  return (
+    cells.length === columnCount &&
+    cells.every((cell) => /^:?-{3,}:?$/u.test(cell))
+  );
+}
+
+function normalizeLooseTableRowsInText(value: string): string {
+  const lines = value.split('\n');
+  const normalized: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const header = lines[index] ?? '';
+    const headerCells = markdownTableCells(header);
+    if (headerCells.length < 2) {
+      normalized.push(header);
+      index += 1;
+      continue;
+    }
+
+    let separatorIndex = index + 1;
+    while (lines[separatorIndex]?.trim() === '') separatorIndex += 1;
+    if (
+      separatorIndex >= lines.length ||
+      !isMarkdownTableSeparator(lines[separatorIndex] ?? '', headerCells.length)
+    ) {
+      normalized.push(header);
+      index += 1;
+      continue;
+    }
+
+    normalized.push(header, lines[separatorIndex] ?? '');
+    index = separatorIndex + 1;
+
+    while (index < lines.length) {
+      const gapStart = index;
+      while (lines[index]?.trim() === '') index += 1;
+      const row = lines[index];
+      if (row && markdownTableCells(row).length === headerCells.length) {
+        normalized.push(row);
+        index += 1;
+        continue;
+      }
+
+      normalized.push(...lines.slice(gapStart, index));
+      break;
+    }
+  }
+
+  return normalized.join('\n');
+}
+
+function normalizeLooseMarkdownTables(value: string): string {
+  return splitFencedCodeSegments(value)
+    .map((segment) =>
+      segment.protected
+        ? segment.text
+        : normalizeLooseTableRowsInText(segment.text)
+    )
+    .join('');
+}
+
 function stabilizeUnclosedFencedCode(value: string): string {
   const lines = value.match(/[^\n]*(?:\n|$)/g) ?? [];
   let inFence = false;
@@ -244,9 +315,11 @@ export function prepareConversationMarkdown(
 ): string {
   const normalized = stabilizeUnclosedFencedCode(
     normalizeMathDelimiters(
-      normalizeBareImageReferences(
-        replaceTagReferenceMarkersWithMarkdownLinks(
-          stripTagReferenceAppendix(value)
+      normalizeLooseMarkdownTables(
+        normalizeBareImageReferences(
+          replaceTagReferenceMarkersWithMarkdownLinks(
+            stripTagReferenceAppendix(value)
+          )
         )
       )
     )

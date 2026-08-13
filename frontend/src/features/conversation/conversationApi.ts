@@ -13,6 +13,7 @@ import type {
   ConversationBundlePayload,
   ConversationExportResult,
   ConversationFileChangeSummary,
+  ConversationForkResult,
   ConversationImportResult,
   ConversationSearchHit,
   ConversationTimelinePage,
@@ -245,7 +246,7 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<ConversationImportResult> =>
       call('conversation_import', { request }),
 
-    fork: (conversationId: string): Promise<ConversationImportResult> =>
+    fork: (conversationId: string): Promise<ConversationForkResult> =>
       call('conversation_fork', { conversationId }),
   };
 }

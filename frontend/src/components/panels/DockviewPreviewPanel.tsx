@@ -45,6 +45,8 @@ import {
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
 import { OfficePreview } from '@/components/previews/OfficePreview';
 import { ReadonlyDocumentPreview } from '@/components/previews/ReadonlyDocumentPreview';
+import { FilePreviewLoading } from './FilePreviewLoading';
+import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/AstryxMarkdown')
@@ -126,14 +128,6 @@ function PreviewPlaceholder({
         <p className="text-sm font-medium text-foreground">{title}</p>
         <p className="text-xs">{description}</p>
       </div>
-    </div>
-  );
-}
-
-function ContentLoadingFallback({ label }: { label: string }) {
-  return (
-    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-      {label}
     </div>
   );
 }
@@ -319,19 +313,38 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   }, [filePath, mode]);
 
   if (!filePath) {
-    // Image-URL mode: conversation images (remote / proxied) that have no
-    // on-disk workspace path render straight from their URL.
-    if (params.imageUrl) {
+    const imageSource =
+      params.imageUrl ??
+      (params.imagePreviewId
+        ? resolveImagePreviewSource(params.imagePreviewId)
+        : null);
+
+    if (imageSource) {
       return (
         <div
           className="flex h-full w-full items-center justify-center overflow-auto bg-muted/10 p-4"
           data-panel="preview"
         >
           <ZoomableImagePreview
-            src={params.imageUrl}
+            src={imageSource}
             alt={displayPath ?? 'Image'}
             className="h-full w-full"
             viewportClassName="border border-border bg-background shadow-sm"
+          />
+        </div>
+      );
+    }
+
+    if (params.imagePreviewId) {
+      return (
+        <div
+          className="h-full w-full overflow-auto bg-background"
+          data-panel="preview"
+        >
+          <PreviewPlaceholder
+            icon={ImageIcon}
+            title="Image preview expired"
+            description="Open the image from the conversation again to restore this transient preview."
           />
         </div>
       );
@@ -458,13 +471,19 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               description="Open this document in read-only preview mode instead of the text diff panel."
             />
           ) : isDiffLoading ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Loading diff...
-            </div>
+            <FilePreviewLoading
+              fileName={resolvedDisplayPath ?? filePath}
+              label={`Loading diff for ${resolvedDisplayPath ?? filePath}`}
+            />
           ) : (
             <div className="h-full min-h-0 overflow-auto">
               <Suspense
-                fallback={<ContentLoadingFallback label="Loading diff..." />}
+                fallback={
+                  <FilePreviewLoading
+                    fileName={resolvedDisplayPath ?? filePath}
+                    label={`Loading diff for ${resolvedDisplayPath ?? filePath}`}
+                  />
+                }
               >
                 <LazyFileContentView
                   content={modifiedContent}
@@ -490,9 +509,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           />
         ) : effectivePreviewKind === 'image' ? (
           isLoadingBinaryAsset ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Loading image preview...
-            </div>
+            <FilePreviewLoading
+              fileName={resolvedDisplayPath ?? filePath}
+              label={`Opening ${resolvedDisplayPath ?? filePath}`}
+            />
           ) : (
             <div className="flex h-full items-center justify-center overflow-auto bg-muted/10 p-4">
               {fileAssetSrc ? (
@@ -516,9 +536,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           )
         ) : effectivePreviewKind === 'pdf' ? (
           isLoadingBinaryAsset ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Loading PDF preview...
-            </div>
+            <FilePreviewLoading
+              fileName={resolvedDisplayPath ?? filePath}
+              label={`Opening ${resolvedDisplayPath ?? filePath}`}
+            />
           ) : (
             <div className="h-full bg-muted/10 p-3">
               {fileAssetSrc ? (
@@ -552,9 +573,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           />
         ) : effectivePreviewKind === 'document' ? (
           isLoadingDocumentPreview ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              Loading document preview...
-            </div>
+            <FilePreviewLoading
+              fileName={resolvedDisplayPath ?? filePath}
+              label={`Opening ${resolvedDisplayPath ?? filePath}`}
+            />
           ) : documentPreviewErrorMessage ? (
             <PreviewPlaceholder
               icon={FileText}
@@ -568,9 +590,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             />
           )
         ) : isLoading ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            Loading file...
-          </div>
+          <FilePreviewLoading
+            fileName={resolvedDisplayPath ?? filePath}
+            label={`Opening ${resolvedDisplayPath ?? filePath}`}
+          />
         ) : contentErrorMessage ? (
           <PreviewPlaceholder
             icon={FileWarning}
@@ -579,7 +602,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           />
         ) : isMd && isRendered ? (
           <Suspense
-            fallback={<ContentLoadingFallback label="Loading preview..." />}
+            fallback={
+              <FilePreviewLoading
+                fileName={resolvedDisplayPath ?? filePath}
+                label={`Opening ${resolvedDisplayPath ?? filePath}`}
+              />
+            }
           >
             <div className="h-full overflow-auto px-6 py-4">
               <LazyMarkdown value={content ?? ''} />
@@ -589,6 +617,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           <Editor
             key={resolvedFilePath ?? filePath}
             defaultValue={content ?? ''}
+            loading={
+              <FilePreviewLoading
+                fileName={resolvedDisplayPath ?? filePath}
+                label={`Opening ${resolvedDisplayPath ?? filePath}`}
+              />
+            }
             language={language}
             theme={
               resolvedTheme === 'dark'

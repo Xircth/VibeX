@@ -65,7 +65,7 @@ export function SessionComposerTopbar({
   onRenameSession,
 }: SessionComposerTopbarProps) {
   return (
-    <div className="composer-topbar flex items-center gap-2 px-1 pb-2 text-xs">
+    <div className="composer-topbar flex items-center gap-2 px-1 pb-0 text-xs">
       <DiffStatsBar
         executorProfile={executorProfile}
         sessionExecutor={sessionExecutor}

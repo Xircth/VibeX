@@ -110,20 +110,8 @@
     "closeBehaviorRemember": "Keep this behavior next time and don't ask again",
     "closeBehaviorExit": "Exit app",
     "closeBehaviorMinimize": "Minimize",
-    "dependencyUpdateTitleMany": "{{count}} dependencies need updating",
-    "dependencyUpdateTitleOne": "A dependency needs updating",
-    "dependencyUpdatePrompt": "Update local Agent dependencies now?",
-    "dependencyCurrentVersion": "Current version: {{version}}",
-    "dependencyNotInstalled": "Not installed",
-    "dependencyMinimumSupported": ", minimum supported: {{version}}",
-    "dependencyLatestVersion": ", update available: {{version}}",
-    "dependencyLater": "Later",
-    "dependencyUpdate": "Update",
     "appUpdateAvailable": "VibeX {{version}} is available to update.",
     "openReleasePage": "Open release page",
-    "updatingDependencies": "Updating local Agent dependencies...",
-    "dependenciesUpdated": "Local Agent dependencies updated.",
-    "dependenciesUpdateFailed": "Failed to update local Agent dependencies.",
     "agentRuntimeSetupRequired": "{{agents}} has a missing or incompatible local Agent Runtime or ACP. Open Agent Settings to check, install, or update it.",
     "openAgentSettings": "Open Agent Settings"
   },
@@ -235,30 +223,6 @@
       }
     }
   },
-  "showcases": {
-    "taskPanel": {
-      "companion": {
-        "title": "VibeX Companion Click-to-Locate",
-        "description": "Enable click-to-locate components on the preview page to help the Agent understand the relationship between the current UI and the source code faster."
-      },
-      "installCompanion": {
-        "title": "Install Companion for the Dev Server",
-        "description": "When the project has a dev server configured, VibeX Web Companion can be installed and connected automatically."
-      },
-      "codeReview": {
-        "title": "View Code Review Feedback",
-        "description": "Review code review results in one place in the task panel and keep refining your implementation based on the feedback."
-      },
-      "createPr": {
-        "title": "Create a PR from Git Changes",
-        "description": "Generate commits and a PR description from the current workspace changes, reducing the effort of assembling context by hand."
-      },
-      "tagPrompts": {
-        "title": "Reuse Tagged Prompts",
-        "description": "Save frequently used prompt snippets and quickly insert them into task input via tags."
-      }
-    }
-  },
   "sessionContinuity": {
     "resumeInPlace": {
       "shortLabel": "Back to here",
@@ -292,6 +256,7 @@
   },
   "entryUtils": {
     "fileRead": "View file",
+    "fileEdit": "Edit file",
     "search": "Search",
     "webFetch": "Web fetch",
     "terminal": "Terminal",
@@ -305,6 +270,8 @@
   "contextCompact": {
     "running": "Compacting context...",
     "success": "Context compacted",
-    "failed": "Context compaction failed"
+    "failed": "Context compaction failed",
+    "duration": "{{value}}s",
+    "contextTokens": "{{value}} tokens"
   }
 }

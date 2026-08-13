@@ -49,7 +49,7 @@ vi.mock('@/hooks/useRetryProcess', () => ({
 }));
 
 describe('RetryEditorInline', () => {
-  it('uses the full six-trigger session composer with modifier-enter submit', () => {
+  it('uses the full six-trigger session composer with default submit', () => {
     render(
       <RetryEditorInline
         attempt={
@@ -69,7 +69,6 @@ describe('RetryEditorInline', () => {
     expect(composerSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         context: expect.objectContaining({
-          sendShortcut: 'ModifierEnter',
           projectId: 'project-1',
           executorProfile: { executor: 'codex', variant: null },
         }),

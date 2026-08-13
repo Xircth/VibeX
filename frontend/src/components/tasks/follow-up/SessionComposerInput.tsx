@@ -9,7 +9,6 @@ import {
   type CSSProperties,
   type DragEvent,
   type FocusEvent,
-  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from 'react';
@@ -27,8 +26,9 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { ExecutorProfileId, SendMessageShortcut } from 'shared/types';
+import type { ExecutorProfileId } from 'shared/types';
 import {
+  ChatComposerDrawer,
   ChatComposerInput,
   type ChatComposerInputHandle,
   type ChatComposerToken,
@@ -47,7 +47,7 @@ import { useSlashCommands } from '@/hooks/useSlashCommands';
 import {
   fileTreeApi,
   repoApi,
-  skillsApi,
+  type AgentLocalSkill,
   type AgentSkillsListResult,
 } from '@/lib/api';
 import {
@@ -102,11 +102,9 @@ export type SessionComposerImage = {
 };
 
 export type SessionComposerInputContext = {
-  sendShortcut?: SendMessageShortcut;
-  taskAttemptId?: string;
-  taskId?: string;
   sessionId?: string;
   workspaceId?: string;
+  workspacePath?: string;
   repoId?: string;
   repoIds?: string[];
   projectId?: string;
@@ -120,11 +118,9 @@ type SessionComposerInputProps = {
   disabled?: boolean;
   className?: string;
   context?: SessionComposerInputContext;
-  images: SessionComposerImage[];
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (value: string) => void;
   onAttachImages: (files: File[]) => void;
-  onRemoveImage: (imageId: string) => void;
 };
 
 function imageFilesFromFileList(files: FileList | null | undefined): File[] {
@@ -276,6 +272,45 @@ function SessionComposerImageAttachment({
         <X className="h-3 w-3" />
       </button>
     </div>
+  );
+}
+
+export function SessionComposerAttachmentDrawer({
+  images,
+  disabled = false,
+  taskAttemptId,
+  taskId,
+  onRemoveImage,
+}: {
+  images: SessionComposerImage[];
+  disabled?: boolean;
+  taskAttemptId?: string;
+  taskId?: string;
+  onRemoveImage: (imageId: string) => void;
+}) {
+  const { t } = useTranslation('tasks');
+  if (images.length === 0) return null;
+
+  return (
+    <ChatComposerDrawer
+      count={images.length}
+      label={t('composer.attachments')}
+      className="session-composer-attachment-drawer"
+      data-testid="session-composer-attachment-drawer"
+    >
+      <div className="flex flex-wrap gap-2">
+        {images.map((image) => (
+          <SessionComposerImageAttachment
+            key={image.id}
+            image={image}
+            disabled={disabled}
+            taskAttemptId={taskAttemptId}
+            taskId={taskId}
+            onRemoveImage={onRemoveImage}
+          />
+        ))}
+      </div>
+    </ChatComposerDrawer>
   );
 }
 
@@ -690,94 +725,19 @@ function syncTriggerMenuWidth(composerRoot: HTMLDivElement): void {
   }
 }
 
-const TOKEN_SPACER_CHARACTERS = /^[\u00A0\u200B\uFEFF]*$/;
-const LEADING_TOKEN_SPACER_CHARACTERS = /^[\u00A0\u200B\uFEFF]+/;
-
-function isTokenSpacerNode(node: Node): node is Text {
-  return (
-    node.nodeType === Node.TEXT_NODE &&
-    TOKEN_SPACER_CHARACTERS.test(node.textContent ?? '')
-  );
-}
-
-function deleteTokenBeforeCaret(editor: HTMLDivElement): boolean {
-  const selection = window.getSelection();
-  if (!selection?.isCollapsed || selection.rangeCount === 0) return false;
-
-  const range = selection.getRangeAt(0);
-  if (!editor.contains(range.startContainer)) return false;
-
-  const { startContainer, startOffset } = range;
-  let previous: Node | null = null;
-
-  if (startContainer === editor && startOffset > 0) {
-    previous = editor.childNodes.item(startOffset - 1);
-  } else if (startContainer.nodeType === Node.TEXT_NODE) {
-    const text = startContainer.textContent ?? '';
-    if (!TOKEN_SPACER_CHARACTERS.test(text.slice(0, startOffset))) {
-      return false;
-    }
-    previous = startContainer.previousSibling;
-  }
-
-  // Browsers represent a caret after a contenteditable=false token in two
-  // ways: inside Astryx's trailing NBSP text node, or at the parent boundary
-  // after that node. Treat only Astryx's invisible spacer characters as
-  // transparent so ordinary user-entered text still requires deletion first.
-  while (previous && isTokenSpacerNode(previous)) {
-    previous = previous.previousSibling;
-  }
-
-  const token =
-    previous instanceof HTMLElement &&
-    previous.hasAttribute('data-astryx-token')
-      ? previous
-      : null;
-
-  if (!token || token.parentNode !== editor) return false;
-
-  const tokenIndex = Array.from(editor.childNodes).indexOf(token);
-  let following = token.nextSibling;
-  while (following?.nodeType === Node.TEXT_NODE) {
-    const next = following.nextSibling;
-    const text = following.textContent ?? '';
-    const withoutSpacer = text.replace(LEADING_TOKEN_SPACER_CHARACTERS, '');
-    if (withoutSpacer === text) break;
-
-    if (withoutSpacer) {
-      following.textContent = withoutSpacer;
-      break;
-    }
-    following.remove();
-    following = next;
-  }
-  token.remove();
-
-  const nextRange = document.createRange();
-  nextRange.setStart(editor, Math.min(tokenIndex, editor.childNodes.length));
-  nextRange.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(nextRange);
-  return true;
-}
-
 export function SessionComposerInput({
   value,
   disabled = false,
   className,
   context,
-  images,
   onChange,
   onSubmit,
   onAttachImages,
-  onRemoveImage,
 }: SessionComposerInputProps) {
   const { t } = useTranslation('tasks');
   const {
-    sendShortcut = 'Enter',
-    taskAttemptId,
-    taskId,
     workspaceId,
+    workspacePath,
     repoId,
     repoIds,
     projectId,
@@ -928,31 +888,35 @@ export function SessionComposerInput({
     queryFn: () => pluginControlApi.catalog(),
     staleTime: 5_000,
   });
-  const { data: pluginAgentSkills } = useQuery({
+  const { data: agentSkills } = useQuery({
     queryKey: [
-      'session-composer-plugin-agent-skills',
+      'session-composer-agent-skills',
       transport.environment,
       executor,
+      workspacePath,
     ],
     queryFn: () =>
       transport.call('list_agent_skills', {
         agentType: executor!,
-        workspacePath: null,
+        workspacePath: workspacePath ?? null,
       }) as Promise<AgentSkillsListResult>,
     enabled: !!executor,
     staleTime: 0,
   });
   const hostedPluginSkillIds = useMemo(
-    () => new Set(pluginAgentSkills?.skills.map((skill) => skill.id) ?? []),
-    [pluginAgentSkills]
+    () => new Set(agentSkills?.skills.map((skill) => skill.id) ?? []),
+    [agentSkills]
   );
-  const { data: localSkills = [] } = useQuery({
-    queryKey: ['local-agent-skills', 'codex'],
-    queryFn: () => skillsApi.listLocal('codex'),
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-  });
+  const localSkills = useMemo<AgentLocalSkill[]>(
+    () =>
+      (agentSkills?.skills ?? []).map((skill) => ({
+        name: skill.id,
+        description: skill.description,
+        path: skill.path,
+        invocation: executor === 'codex' ? `$${skill.id}` : `/${skill.id}`,
+      })),
+    [agentSkills, executor]
+  );
   const allSlashCommands = useMemo(
     () =>
       mergeComposerSlashCommands({
@@ -1092,7 +1056,10 @@ export function SessionComposerInput({
       value: insertText,
       label: token?.label ?? item.label,
       variant: token ? TOKEN_VARIANTS[token.kind] : 'neutral',
-      icon: token ? <ComposerTokenIcon token={token} /> : undefined,
+      icon:
+        token && token.kind !== 'tag' ? (
+          <ComposerTokenIcon token={token} />
+        ) : undefined,
     };
   }, []);
   const pluginOnSelect = useCallback((item: SearchableItem): string => {
@@ -1170,48 +1137,6 @@ export function SessionComposerInput({
       t,
       tagReferenceSource,
     ]
-  );
-
-  // --- Keyboard: send shortcut (Astryx owns trigger-menu navigation) ---
-
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (disabled) return;
-
-      if (
-        event.key === 'Backspace' &&
-        deleteTokenBeforeCaret(event.currentTarget)
-      ) {
-        event.preventDefault();
-        event.currentTarget.dispatchEvent(
-          typeof InputEvent === 'undefined'
-            ? new Event('input', { bubbles: true })
-            : new InputEvent('input', {
-                bubbles: true,
-                inputType: 'deleteContentBackward',
-              })
-        );
-        return;
-      }
-
-      if (event.key !== 'Enter') return;
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-
-      const shouldSubmit =
-        sendShortcut === 'Enter'
-          ? !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
-          : (event.metaKey || event.ctrlKey) && !event.shiftKey;
-
-      event.preventDefault();
-      if (shouldSubmit) {
-        onSubmit();
-      } else {
-        const handle = composerHandleRef.current;
-        handle?.insertText('\n');
-        if (handle) onChange(handle.getValue());
-      }
-    },
-    [disabled, onChange, onSubmit, sendShortcut]
   );
 
   // --- Programmatic token insertion (code selection, file-reference drop) ---
@@ -1306,28 +1231,13 @@ export function SessionComposerInput({
   return (
     <div
       ref={dropZoneRef}
-      className="flex flex-col gap-2"
+      className="min-w-0"
       data-file-reference-drop-zone
       data-testid="session-composer-file-drop-zone"
     >
-      {images.length > 0 ? (
-        <div className="flex flex-wrap gap-2 px-1">
-          {images.map((image) => (
-            <SessionComposerImageAttachment
-              key={image.id}
-              image={image}
-              disabled={disabled}
-              taskAttemptId={taskAttemptId}
-              taskId={taskId}
-              onRemoveImage={onRemoveImage}
-            />
-          ))}
-        </div>
-      ) : null}
-
       <div
         className={cn(
-          'min-h-[40px] rounded-lg bg-background/35 px-1.5 py-1 transition-colors focus-within:bg-background/50',
+          'min-h-[40px] rounded-lg bg-background/35 px-1.5 pb-1 pt-0 transition-colors focus-within:bg-background/50',
           disabled && 'opacity-60'
         )}
         data-testid="session-composer-input-surface"
@@ -1342,17 +1252,17 @@ export function SessionComposerInput({
           onChange={onChange}
           isDisabled={disabled}
           className={cn(
-            'session-composer-editor min-h-[32px] w-full px-0.5 py-1 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
+            'session-composer-editor min-h-[32px] w-full px-0.5 pb-1 pt-0 font-sans subpixel-antialiased text-[13px] leading-5 tracking-[0.005em]',
             className
           )}
-          maxRows={4}
+          maxRows={7}
           placeholder=""
           label={t('composer.inputLabel')}
           hasHistory={false}
           pasteAsToken={false}
           triggers={triggers}
           handleRef={composerHandleRef}
-          onKeyDown={handleKeyDown}
+          onSubmit={onSubmit}
           onFiles={onAttachImages}
           onDrop={handleDrop}
           onDragOver={(event) => {

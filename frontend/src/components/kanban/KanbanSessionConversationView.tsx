@@ -28,6 +28,10 @@ import { ExecutionProcessesProvider } from '@/contexts/ExecutionProcessesContext
 import { RetryUiProvider } from '@/contexts/RetryUiContext';
 import { RightPanelNewSessionPrompt } from '@/components/layout/RightPanelNewSessionPrompt';
 import {
+  ImagePreviewPresentationProvider,
+  type ImagePreviewPresentation,
+} from '@/contexts/ImagePreviewPresentationContext';
+import {
   resolveActiveSession,
   useWorkspaceSessions,
   type UseWorkspaceSessionsResult,
@@ -55,6 +59,8 @@ interface KanbanSessionConversationViewProps {
   }) => void;
   onCreateSessionRequested?: () => void;
   className?: string;
+  imagePreviewPresentation?: ImagePreviewPresentation;
+  conversationWidthMode?: 'bounded' | 'workspace';
 }
 
 interface KanbanSessionConversationSurfaceProps
@@ -243,6 +249,7 @@ function KanbanSessionConversationContent({
   onSessionCreated,
   onSessionSelected,
   onCreateSessionRequested,
+  conversationWidthMode,
 }: {
   attempt: WorkspaceWithSession;
   taskId: string | null;
@@ -258,6 +265,7 @@ function KanbanSessionConversationContent({
     workspaceId: string;
   }) => void;
   onCreateSessionRequested?: () => void;
+  conversationWidthMode?: 'bounded' | 'workspace';
 }) {
   const { t } = useTranslation(['tasks', 'common']);
   const logsRef = useRef<VirtualizedListRef | null>(null);
@@ -332,6 +340,7 @@ function KanbanSessionConversationContent({
                       attempt={activeAttempt}
                       task={null}
                       onAtBottomChange={setIsAtConversationBottom}
+                      widthMode={conversationWidthMode}
                     />
                   </div>
                 )}
@@ -354,6 +363,7 @@ function KanbanSessionConversationContent({
                   <TaskFollowUpSection
                     taskId={taskId}
                     session={activeSession}
+                    workspace={activeAttempt}
                     workspaceId={attempt.id}
                     sessionState={sessionState}
                     showSessionSelector={showSessionSelector}
@@ -384,6 +394,8 @@ function KanbanSessionConversationSurface({
   onSessionSelected,
   onCreateSessionRequested,
   className,
+  imagePreviewPresentation = 'dialog',
+  conversationWidthMode,
 }: KanbanSessionConversationSurfaceProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const { data: workspace, isLoading: isWorkspaceLoading } =
@@ -441,18 +453,21 @@ function KanbanSessionConversationSurface({
       requestedSessionMissing);
 
   return (
-    <div className={`relative ${className ?? ''}`}>
-      <KanbanSessionConversationContent
-        attempt={createWorkspaceWithSession(workspace, resolvedSession)}
-        taskId={taskId}
-        interactive={shouldRenderInteractiveShell}
-        sessionState={sessionState}
-        showSessionSelector={showSessionSelector}
-        onSessionCreated={onSessionCreated}
-        onSessionSelected={onSessionSelected}
-        onCreateSessionRequested={onCreateSessionRequested}
-      />
-    </div>
+    <ImagePreviewPresentationProvider value={imagePreviewPresentation}>
+      <div className={`relative ${className ?? ''}`}>
+        <KanbanSessionConversationContent
+          attempt={createWorkspaceWithSession(workspace, resolvedSession)}
+          taskId={taskId}
+          interactive={shouldRenderInteractiveShell}
+          sessionState={sessionState}
+          showSessionSelector={showSessionSelector}
+          onSessionCreated={onSessionCreated}
+          onSessionSelected={onSessionSelected}
+          onCreateSessionRequested={onCreateSessionRequested}
+          conversationWidthMode={conversationWidthMode}
+        />
+      </div>
+    </ImagePreviewPresentationProvider>
   );
 }
 
@@ -475,6 +490,8 @@ export function KanbanSessionConversationView(
     onSessionSelected,
     onCreateSessionRequested,
     className,
+    imagePreviewPresentation,
+    conversationWidthMode,
   } = props;
   const sessionState = useWorkspaceSessions(props.workspaceId, {
     initialSessionId: sessionId,
@@ -491,11 +508,15 @@ export function KanbanSessionConversationView(
       onSessionSelected,
       onCreateSessionRequested,
       className,
+      imagePreviewPresentation,
+      conversationWidthMode,
       sessionState,
     }),
     [
       className,
+      conversationWidthMode,
       interactive,
+      imagePreviewPresentation,
       onCreateSessionRequested,
       onSessionCreated,
       onSessionSelected,
@@ -527,7 +548,5 @@ export function KanbanSessionConversationView(
     return <KanbanSessionConversationSurface {...surfaceProps} />;
   }
 
-  return (
-    <div ref={slotRef} className={`h-full min-h-0 ${className ?? ''}`} />
-  );
+  return <div ref={slotRef} className={`h-full min-h-0 ${className ?? ''}`} />;
 }

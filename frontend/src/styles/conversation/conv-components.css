@@ -243,6 +243,19 @@
   white-space: nowrap;
 }
 
+.conv-context-compact-status-metric {
+  flex: 0 0 auto;
+  color: var(--conv-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.conv-context-compact-status-metric::before {
+  margin-right: 12px;
+  color: var(--conv-text-tertiary);
+  content: '·';
+}
+
 .conv-context-compact-status-running .conv-context-compact-status-text {
   color: var(--conv-text-tertiary);
 }

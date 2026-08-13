@@ -107,6 +107,16 @@
   },
   "permissionRequestCard": {
     "title": "Permission Request",
+    "types": {
+      "file": "File",
+      "terminal": "Terminal",
+      "web": "Web",
+      "tool": "Tool"
+    },
+    "reject": "Reject",
+    "allowActions": "Permission approval options",
+    "expandAllow": "Show approval options",
+    "options": "Options",
     "responded": "Responded",
     "newFile": "New file",
     "modified": "Modified",
@@ -147,7 +157,10 @@
       "other_other": "{{count}} other tool calls",
       "separator": ", ",
       "failed": "Tool call failed"
-    }
+    },
+    "fileReadRange": "Lines {{start}}–{{end}}",
+    "fileReadFrom": "From line {{start}}",
+    "searchResults": "Search results"
   },
   "statusDock": {
     "dismiss": "Dismiss notice",

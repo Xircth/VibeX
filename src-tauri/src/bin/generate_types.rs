@@ -102,7 +102,10 @@ use vibex::{
         },
         sessions::{SessionContinuityMode, SessionSummary},
     },
-    conversation_bundle::{ConversationExportResult, ConversationImportResult},
+    conversation_bundle::{
+        ConversationExportResult, ConversationForkContinuity, ConversationForkResult,
+        ConversationImportResult,
+    },
     conversation_service::ConversationTurnSnapshot,
 };
 
@@ -550,6 +553,8 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationBundlePayload>(&mut decls);
     insert_declaration::<ConversationExportResult>(&mut decls);
     insert_declaration::<ConversationImportResult>(&mut decls);
+    insert_declaration::<ConversationForkContinuity>(&mut decls);
+    insert_declaration::<ConversationForkResult>(&mut decls);
     insert_declaration::<DbConversationSummary>(&mut decls);
     insert_declaration::<ConversationActiveBinding>(&mut decls);
     insert_declaration::<ConversationCurrentTurn>(&mut decls);

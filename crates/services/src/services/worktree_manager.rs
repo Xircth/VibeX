@@ -223,8 +223,8 @@ impl WorktreeManager {
                 .map_err(WorktreeError::Io)?;
         }
 
-        // Step 3: Create the worktree with retry logic for metadata conflicts (non-blocking)
-        Self::create_worktree_with_retry(
+        // Step 3: Create the worktree (non-blocking)
+        Self::create_worktree_once(
             repo_path,
             &branch_name_owned,
             &worktree_path_owned,
@@ -553,8 +553,8 @@ impl WorktreeManager {
         }
     }
 
-    /// Create worktree with retry logic in non-blocking manner
-    async fn create_worktree_with_retry(
+    /// Create a worktree in a blocking task and validate the materialized checkout.
+    async fn create_worktree_once(
         git_repo_path: &Path,
         branch_name: &str,
         worktree_path: &Path,
@@ -570,72 +570,29 @@ impl WorktreeManager {
         tokio::task::spawn_blocking(move || -> Result<(), WorktreeError> {
             // Prefer git CLI for worktree add to inherit sparse-checkout semantics
             let git_service = GitService::new();
-            match Self::add_worktree_for_branch(
+            Self::add_worktree_for_branch(
                 &git_service,
                 &git_repo_path,
                 &worktree_path,
                 &branch_name,
                 start_point.as_deref(),
-            ) {
-                Ok(()) => {
-                    if !worktree_path.exists() {
-                        return Err(WorktreeError::Repository(format!(
-                            "Worktree creation reported success but path {path_str} does not exist"
-                        )));
-                    }
-                    Self::seed_untracked_files_for_empty_checkout(&git_repo_path, &worktree_path)?;
-                    if !Self::repair_materialized_checkout(&worktree_path)? {
-                        return Err(WorktreeError::Repository(format!(
-                            "Worktree creation reported success but {} only contains git metadata",
-                            path_str
-                        )));
-                    }
-                    info!(
-                        "Successfully created worktree {} at {} (git CLI)",
-                        branch_name, path_str
-                    );
-                    Ok(())
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "git worktree add failed; attempting metadata cleanup and retry: {}",
-                        e
-                    );
-                    // Force cleanup metadata and try one more time
-                    Self::force_cleanup_worktree_metadata(&git_repo_path, &worktree_path)?;
-                    // Clean up physical directory if it exists
-                    // Needed if previous attempt failed after directory creation
-                    if worktree_path.exists() {
-                        std::fs::remove_dir_all(&worktree_path).map_err(WorktreeError::Io)?;
-                    }
-                    if let Err(e2) = Self::add_worktree_for_branch(
-                        &git_service,
-                        &git_repo_path,
-                        &worktree_path,
-                        &branch_name,
-                        start_point.as_deref(),
-                    ) {
-                        return Err(WorktreeError::GitService(e2));
-                    }
-                    if !worktree_path.exists() {
-                        return Err(WorktreeError::Repository(format!(
-                            "Worktree creation reported success but path {path_str} does not exist"
-                        )));
-                    }
-                    Self::seed_untracked_files_for_empty_checkout(&git_repo_path, &worktree_path)?;
-                    if !Self::repair_materialized_checkout(&worktree_path)? {
-                        return Err(WorktreeError::Repository(format!(
-                            "Worktree creation reported success after retry but {} only contains git metadata",
-                            path_str
-                        )));
-                    }
-                    info!(
-                        "Successfully created worktree {} at {} after metadata cleanup (git CLI)",
-                        branch_name, path_str
-                    );
-                    Ok(())
-                }
+            )?;
+            if !worktree_path.exists() {
+                return Err(WorktreeError::Repository(format!(
+                    "Worktree creation reported success but path {path_str} does not exist"
+                )));
             }
+            Self::seed_untracked_files_for_empty_checkout(&git_repo_path, &worktree_path)?;
+            if !Self::repair_materialized_checkout(&worktree_path)? {
+                return Err(WorktreeError::Repository(format!(
+                    "Worktree creation reported success but {path_str} only contains git metadata"
+                )));
+            }
+            info!(
+                "Successfully created worktree {} at {} (git CLI)",
+                branch_name, path_str
+            );
+            Ok(())
         })
         .await
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?

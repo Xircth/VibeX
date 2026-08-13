@@ -5,8 +5,6 @@ use db::models::{
     repo::{Repo, UpdateRepo},
 };
 use git::{self, GitBranch, GitRemote};
-use reqwest::header::{ACCEPT, USER_AGENT};
-use serde::Deserialize;
 use services::services::{
     file_search::SearchMode,
     git_host::{GitHostProvider, GitHostService, GitHubIssueInfo, OpenPrInfo},
@@ -27,240 +25,6 @@ async fn resolve_repo_path(state: &AppState, repo_id: Uuid) -> Result<PathBuf, A
         .get_by_id(&state.deployment.db().pool, repo_id)
         .await?;
     Ok(PathBuf::from(&repo.path))
-}
-
-#[derive(Debug, Clone)]
-struct GitHubRemoteSpec {
-    host: String,
-    owner: String,
-    repo: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubApiIssueUser {
-    login: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubApiIssueLabel {
-    name: String,
-    color: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubApiIssue {
-    number: i64,
-    title: String,
-    html_url: String,
-    state: String,
-    created_at: String,
-    user: GitHubApiIssueUser,
-    #[serde(default)]
-    labels: Vec<GitHubApiIssueLabel>,
-    #[serde(default)]
-    comments: i64,
-    #[serde(default)]
-    pull_request: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubApiPrRef {
-    #[serde(rename = "ref")]
-    branch: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct GitHubApiPr {
-    number: i64,
-    html_url: String,
-    title: String,
-    head: GitHubApiPrRef,
-    base: GitHubApiPrRef,
-}
-
-fn parse_github_remote_spec(remote_url: &str) -> Option<GitHubRemoteSpec> {
-    let trimmed = remote_url.trim().trim_end_matches('/');
-
-    let (host, path_part) = if let Some(rest) = trimmed.strip_prefix("git@") {
-        let (host, path) = rest.split_once(':')?;
-        (host.to_string(), path.to_string())
-    } else if let Some(rest) = trimmed.strip_prefix("ssh://") {
-        let rest = rest.strip_prefix("git@").unwrap_or(rest);
-        let (host, path) = rest.split_once('/')?;
-        (host.to_string(), path.to_string())
-    } else if let Some(rest) = trimmed.strip_prefix("https://") {
-        let (host, path) = rest.split_once('/')?;
-        (host.to_string(), path.to_string())
-    } else if let Some(rest) = trimmed.strip_prefix("http://") {
-        let (host, path) = rest.split_once('/')?;
-        (host.to_string(), path.to_string())
-    } else {
-        return None;
-    };
-
-    let host_lower = host.to_ascii_lowercase();
-    if !host_lower.contains("github.com") && !host_lower.contains("github.") {
-        return None;
-    }
-
-    let segments: Vec<&str> = path_part.trim_matches('/').split('/').collect();
-    if segments.len() < 2 {
-        return None;
-    }
-
-    let owner = segments[segments.len() - 2];
-    let repo = segments[segments.len() - 1].trim_end_matches(".git");
-    if owner.is_empty() || repo.is_empty() {
-        return None;
-    }
-
-    Some(GitHubRemoteSpec {
-        host,
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-    })
-}
-
-fn github_api_base(host: &str) -> String {
-    if host.eq_ignore_ascii_case("github.com") {
-        "https://api.github.com".to_string()
-    } else {
-        format!("https://{host}/api/v3")
-    }
-}
-
-fn github_token_from_env() -> Option<String> {
-    std::env::var("GH_TOKEN")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            std::env::var("GITHUB_TOKEN")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        })
-}
-
-fn summarize_github_api_error_body(body: &str) -> String {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(body)
-        && let Some(message) = json.get("message").and_then(|v| v.as_str())
-    {
-        return message.to_string();
-    }
-
-    let compact = body.replace('\n', " ").trim().to_string();
-    if compact.is_empty() {
-        return "Unknown API error".to_string();
-    }
-
-    compact.chars().take(200).collect()
-}
-
-async fn request_github_json<T: for<'de> Deserialize<'de>>(
-    spec: &GitHubRemoteSpec,
-    path_and_query: &str,
-) -> Result<T, AppError> {
-    let url = format!(
-        "{}/{}",
-        github_api_base(&spec.host),
-        path_and_query.trim_start_matches('/')
-    );
-
-    let client = reqwest::Client::new();
-    let mut request = client
-        .get(url)
-        .header(USER_AGENT, "VibeX/1.0")
-        .header(ACCEPT, "application/vnd.github+json");
-
-    if let Some(token) = github_token_from_env() {
-        request = request.bearer_auth(token);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("GitHub API request failed: {e}")))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        let detail = summarize_github_api_error_body(&body);
-        return Err(AppError::BadRequest(format!(
-            "GitHub API returned {status}: {detail}"
-        )));
-    }
-
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to parse GitHub API response: {e}")))
-}
-
-async fn list_open_prs_via_github_api(
-    spec: &GitHubRemoteSpec,
-) -> Result<Vec<OpenPrInfo>, AppError> {
-    let api_prs: Vec<GitHubApiPr> = request_github_json(
-        spec,
-        &format!(
-            "repos/{}/{}/pulls?state=open&per_page=100",
-            spec.owner, spec.repo
-        ),
-    )
-    .await?;
-
-    Ok(api_prs
-        .into_iter()
-        .map(|pr| OpenPrInfo {
-            number: pr.number,
-            url: pr.html_url,
-            title: pr.title,
-            head_branch: pr.head.branch,
-            base_branch: pr.base.branch,
-        })
-        .collect())
-}
-
-async fn list_issues_via_github_api(
-    spec: &GitHubRemoteSpec,
-    issue_state: &str,
-) -> Result<Vec<GitHubIssueInfo>, AppError> {
-    let api_issues: Vec<GitHubApiIssue> = request_github_json(
-        spec,
-        &format!(
-            "repos/{}/{}/issues?state={}&per_page=100",
-            spec.owner, spec.repo, issue_state
-        ),
-    )
-    .await?;
-
-    let mut issues = Vec::new();
-    for issue in api_issues {
-        if issue.pull_request.is_some() {
-            continue;
-        }
-
-        let value = serde_json::json!({
-            "number": issue.number,
-            "title": issue.title,
-            "url": issue.html_url,
-            "state": issue.state,
-            "created_at": issue.created_at,
-            "author": { "login": issue.user.login },
-            "labels": issue.labels.into_iter().map(|label| {
-                serde_json::json!({
-                    "name": label.name,
-                    "color": label.color
-                })
-            }).collect::<Vec<_>>(),
-            "comments_count": issue.comments
-        });
-
-        let parsed = serde_json::from_value::<GitHubIssueInfo>(value).map_err(|e| {
-            AppError::BadRequest(format!("Failed to parse GitHub issue payload: {e}"))
-        })?;
-        issues.push(parsed);
-    }
-
-    Ok(issues)
 }
 
 #[tauri::command]
@@ -501,20 +265,7 @@ pub async fn list_open_prs(
     };
 
     let git_host = GitHostService::from_url(&remote.url)?;
-    match git_host.list_open_prs(&repo.path, &remote.url).await {
-        Ok(prs) => Ok(prs),
-        Err(err) => {
-            let Some(spec) = parse_github_remote_spec(&remote.url) else {
-                return Err(err.into());
-            };
-
-            tracing::warn!(
-                "Falling back to GitHub REST API for open PRs after CLI error: {}",
-                err
-            );
-            list_open_prs_via_github_api(&spec).await
-        }
-    }
+    Ok(git_host.list_open_prs(&repo.path, &remote.url).await?)
 }
 
 #[tauri::command]
@@ -560,22 +311,7 @@ pub async fn list_repo_issues(
     .await
     .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    match gh_result {
-        Ok(issues) => Ok(issues),
-        Err(err) => {
-            let Some(spec) = parse_github_remote_spec(&remote.url) else {
-                return Err(AppError::BadRequest(format!(
-                    "Failed to load GitHub issues: {err}"
-                )));
-            };
-
-            tracing::warn!(
-                "Falling back to GitHub REST API for issues after CLI error: {}",
-                err
-            );
-            list_issues_via_github_api(&spec, &state_filter).await
-        }
-    }
+    gh_result.map_err(|err| AppError::BadRequest(format!("Failed to load GitHub issues: {err}")))
 }
 
 #[tauri::command]
@@ -601,7 +337,7 @@ pub async fn search_repo(
 
     state
         .deployment
-        .file_search_cache()
+        .file_search()
         .search_repo(&repo.path, &q, search_mode)
         .await
         .map_err(|e| {

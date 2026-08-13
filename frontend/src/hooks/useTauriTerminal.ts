@@ -10,6 +10,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { backendCall, backendListen } from '@/lib/backendTransport';
+import { attachTerminalInput } from '@/utils/terminalInputAdapter';
 import { getTerminalTheme } from '@/utils/terminalTheme';
 type UnlistenFn = () => void;
 
@@ -187,6 +188,7 @@ export function useTauriTerminal({
   const inputWriteInFlightRef = useRef(false);
   const inputGenerationRef = useRef(0);
   const inputRetryCountRef = useRef(0);
+  const inputSubscriptionRef = useRef<{ dispose(): void } | null>(null);
 
   useEffect(() => {
     onSessionIdRef.current = onSessionId;
@@ -230,6 +232,11 @@ export function useTauriTerminal({
     if (themeObserverRef.current) {
       themeObserverRef.current.disconnect();
       themeObserverRef.current = null;
+    }
+
+    if (inputSubscriptionRef.current) {
+      inputSubscriptionRef.current.dispose();
+      inputSubscriptionRef.current = null;
     }
 
     if (terminalRef.current) {
@@ -368,6 +375,17 @@ export function useTauriTerminal({
       terminal.open(container);
       terminalOpenedRef.current = true;
 
+      if (!readOnly) {
+        // Capture input as soon as xterm is interactive. PTY creation/reattach
+        // can still be in flight at this point; enqueueTerminalInput retains
+        // those keystrokes until sessionIdRef is ready instead of dropping the
+        // fast typeahead before onData is registered.
+        inputSubscriptionRef.current = attachTerminalInput(
+          terminal,
+          enqueueTerminalInput
+        );
+      }
+
       const applyCurrentTheme = () => {
         const term = terminalRef.current;
         const activeContainer = containerElRef.current;
@@ -501,42 +519,15 @@ export function useTauriTerminal({
           unlistenRef.current = null;
         }
 
-        if (resolvedSessionId && resolvedSessionId === sessionIdRef.current) {
-          try {
-            resolvedSessionId = crypto.randomUUID();
-            await attachListener(resolvedSessionId);
-            await backendCall<string>('create_terminal', {
-              workspaceId,
-              cols: terminal.cols,
-              rows: terminal.rows,
-              shell: shell || null,
-              sessionId: resolvedSessionId,
-            });
-          } catch (fallbackErr) {
-            const message =
-              fallbackErr instanceof Error
-                ? fallbackErr.message
-                : String(fallbackErr);
-            errorRef.current = message;
-            setErrorState(message);
-            if (isCurrentInitialization()) {
-              terminal.writeln(
-                `\r\n\x1b[31mFailed to create terminal for ${tabId}: ${message}\x1b[0m`
-              );
-            }
-            return;
-          }
-        } else {
-          const message = err instanceof Error ? err.message : String(err);
-          errorRef.current = message;
-          setErrorState(message);
-          if (isCurrentInitialization()) {
-            terminal.writeln(
-              `\r\n\x1b[31mFailed to attach terminal for ${tabId}: ${message}\x1b[0m`
-            );
-          }
-          return;
+        const message = err instanceof Error ? err.message : String(err);
+        errorRef.current = message;
+        setErrorState(message);
+        if (isCurrentInitialization()) {
+          terminal.writeln(
+            `\r\n\x1b[31mFailed to initialize terminal for ${tabId}: ${message}\x1b[0m`
+          );
         }
+        return;
       }
 
       if (!isCurrentInitialization() || !resolvedSessionId) {
@@ -552,10 +543,6 @@ export function useTauriTerminal({
       onSessionIdRef.current?.(resolvedSessionId);
 
       if (!readOnly) {
-        terminal.onData((data) => {
-          enqueueTerminalInput(data);
-        });
-
         // Deliver keystrokes queued while the terminal was re-initializing.
         if (pendingInputRef.current && !inputFlushScheduledRef.current) {
           inputFlushScheduledRef.current = true;
@@ -646,6 +633,17 @@ export function useTauriTerminal({
   useLayoutEffect(() => {
     const container = containerElRef.current;
     if (!container || !workspaceId || !enabled) {
+      return;
+    }
+
+    // The callback ref initializes synchronously during the same commit. Do
+    // not start a second PTY from the layout effect while that initialization
+    // (or its zero-size readiness observer) is already active.
+    if (
+      terminalRef.current ||
+      pendingInitObserverRef.current ||
+      pendingInitFrameRef.current !== null
+    ) {
       return;
     }
 

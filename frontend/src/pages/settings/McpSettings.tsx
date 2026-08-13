@@ -2,12 +2,12 @@
  * MCP Settings — local management + Smithery marketplace.
  *
  * Left panel switches between two views:
- *  - 本地 MCP: servers already installed across the global registry
- *    (~/.vibex/mcp.json) and each agent's native config; editable + removable.
+ *  - 本地 MCP: servers installed in each Agent's native config; editable +
+ *    removable.
  *  - MCP 市场: search Smithery, inspect a server, and install it.
  *
  * Install targets a set of agents OR "全局" (global). Global writes the
- * server to ~/.vibex/mcp.json and mirrors it into every agent's MCP config.
+ * server to every compatible Agent's native MCP config.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

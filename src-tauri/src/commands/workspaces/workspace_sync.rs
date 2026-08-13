@@ -27,6 +27,18 @@ pub(super) async fn recover_workspace_container_ref(
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
     if let Some(container_ref) = workspace.container_ref.clone() {
         let container_path = PathBuf::from(&container_ref);
+        let is_registered_direct_worktree = if let [repo] = repos.as_slice() {
+            state
+                .deployment
+                .git()
+                .is_worktree_path_for_branch(&repo.path, &workspace.branch, &container_path)
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if is_registered_direct_worktree {
+            return Ok(());
+        }
         if let Some(overlapping_repo) = repos
             .iter()
             .find(|repo| path_overlaps_repo(&container_path, repo))

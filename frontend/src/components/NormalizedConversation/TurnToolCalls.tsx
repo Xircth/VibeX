@@ -1,13 +1,26 @@
-import { useMemo } from 'react';
+import {
+  useCallback,
+  useMemo,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatToolCalls, type ChatToolCallItem } from '@astryxdesign/core/Chat';
-import type { MessageTurn, TaskWithAttemptStatus } from 'shared/types';
+import type {
+  ActionType,
+  FileChange,
+  MessageTurn,
+  TaskWithAttemptStatus,
+} from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import DisplayConversationEntry from './DisplayConversationEntry';
 import { getToolSummary } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
 import { getToolChatStatus, ToolCallResultDetail } from './tools/ToolCardShell';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { deriveRelativeFilePath } from '@/utils/filePaths';
+import { resolveToolFilePath } from './tools/FileToolCard';
 
 type ToolSummaryCategory =
   | 'commands'
@@ -27,6 +40,88 @@ const SUMMARY_ORDER: ToolSummaryCategory[] = [
   'agents',
   'other',
 ];
+
+type FileReadAction = Extract<ActionType, { action: 'file_read' }>;
+
+function FileReadStats({
+  action,
+  workspacePath,
+}: {
+  action: FileReadAction;
+  workspacePath?: string | null;
+}) {
+  const panelActions = useOptionalPanelActionsContext();
+  const openPreview = useCallback(() => {
+    const resolvedPath = resolveToolFilePath(action.path, workspacePath);
+    const relativePath = deriveRelativeFilePath(resolvedPath, workspacePath);
+    const title = relativePath ?? action.path;
+    panelActions?.openFilePreview(resolvedPath, { displayPath: title, title });
+  }, [action.path, panelActions, workspacePath]);
+  const stopAndOpen = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    openPreview();
+  };
+  const stopKeyboardBubble = (event: KeyboardEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+  const range =
+    action.line_start != null
+      ? action.line_end != null
+        ? `L${action.line_start}–${action.line_end}`
+        : `L${action.line_start}+`
+      : null;
+
+  return (
+    <>
+      <button
+        type="button"
+        className="vibex-tool-file-link"
+        title={action.path}
+        aria-label={action.path}
+        onClick={stopAndOpen}
+        onKeyDown={stopKeyboardBubble}
+      >
+        {action.path}
+      </button>
+      {range ? <span>{range}</span> : null}
+    </>
+  );
+}
+
+function countDiff(change: FileChange): {
+  additions: number;
+  deletions: number;
+} {
+  if (change.action === 'write') {
+    return { additions: change.content.split(/\r?\n/).length, deletions: 0 };
+  }
+  if (change.action !== 'edit') return { additions: 0, deletions: 0 };
+
+  let additions = 0;
+  let deletions = 0;
+  for (const line of change.unified_diff.split(/\r?\n/)) {
+    if (line.startsWith('+') && !line.startsWith('+++')) additions += 1;
+    if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+function fileEditStats(changes: FileChange[]) {
+  const totals = changes.reduce(
+    (sum, change) => {
+      const next = countDiff(change);
+      return {
+        additions: sum.additions + next.additions,
+        deletions: sum.deletions + next.deletions,
+      };
+    },
+    { additions: 0, deletions: 0 }
+  );
+  return {
+    additions: totals.additions > 0 ? totals.additions : undefined,
+    deletions: totals.deletions > 0 ? totals.deletions : undefined,
+  };
+}
 
 function summaryCategory(action: string): ToolSummaryCategory {
   switch (action) {
@@ -54,6 +149,7 @@ export function TurnToolCalls({
   items,
   attempt,
   task,
+  workspacePath,
 }: {
   turnId: string;
   timestamp: MessageTurn['timestamp'];
@@ -61,6 +157,7 @@ export function TurnToolCalls({
   items: IndexedTurnItem[];
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
+  workspacePath?: string | null;
 }) {
   const { t } = useTranslation('conversation');
   const entries = useMemo(
@@ -107,10 +204,27 @@ export function TurnToolCalls({
       const toolEntry = entry.entry_type;
       const summary = getToolSummary(toolEntry, entry.content.trim());
       const expansionKey = `${turnId}-${offset + index}`;
+      const action = toolEntry.action_type;
+      const editStats =
+        action.action === 'file_edit'
+          ? fileEditStats(action.changes)
+          : { additions: undefined, deletions: undefined };
       return {
         key: toolUseId || expansionKey,
         name: summary.label,
-        target: summary.detail || entry.content.trim() || undefined,
+        target:
+          action.action === 'file_read'
+            ? undefined
+            : summary.detail || entry.content.trim() || undefined,
+        additions: editStats.additions,
+        deletions: editStats.deletions,
+        stats:
+          action.action === 'file_read' ? (
+            <FileReadStats
+              action={action}
+              workspacePath={workspacePath ?? attempt.container_ref}
+            />
+          ) : undefined,
         status: getToolChatStatus(toolEntry.status),
         errorMessage:
           toolEntry.status.status === 'failed'

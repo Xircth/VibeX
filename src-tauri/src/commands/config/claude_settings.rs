@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::fs;
 
@@ -12,6 +12,35 @@ pub struct ClaudeSettings {
     pub env: HashMap<String, String>,
     #[serde(default, rename = "enabledPlugins")]
     pub enabled_plugins: HashMap<String, bool>,
+}
+
+fn parse_settings_document(content: &str) -> Result<Value, AppError> {
+    let value: Value = serde_json::from_str(content).map_err(|error| {
+        AppError::Internal(format!("Failed to parse claude settings JSON: {error}"))
+    })?;
+    if !value.is_object() {
+        return Err(AppError::Internal(
+            "Claude settings JSON must contain an object at the root".to_string(),
+        ));
+    }
+    Ok(value)
+}
+
+fn decode_field<T: DeserializeOwned>(raw: &Value, name: &str) -> Result<Option<T>, AppError> {
+    raw.get(name)
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| {
+            AppError::Internal(format!("Invalid `{name}` in claude settings JSON: {error}"))
+        })
+}
+
+fn decode_settings(raw: &Value) -> Result<ClaudeSettings, AppError> {
+    Ok(ClaudeSettings {
+        env: decode_field(raw, "env")?.unwrap_or_default(),
+        enabled_plugins: decode_field(raw, "enabledPlugins")?.unwrap_or_default(),
+    })
 }
 
 fn claude_settings_path() -> Option<std::path::PathBuf> {
@@ -40,23 +69,7 @@ pub(crate) async fn get_claude_settings(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to read claude settings: {}", e)))?;
 
-    let raw: Value = serde_json::from_str(&content)
-        .map_err(|e| AppError::Internal(format!("Failed to parse claude settings JSON: {}", e)))?;
-
-    let env: HashMap<String, String> = raw
-        .get("env")
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default();
-
-    let enabled_plugins: HashMap<String, bool> = raw
-        .get("enabledPlugins")
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default();
-
-    Ok(ClaudeSettings {
-        env,
-        enabled_plugins,
-    })
+    decode_settings(&parse_settings_document(&content)?)
 }
 
 pub(crate) async fn update_claude_settings(
@@ -72,21 +85,26 @@ pub(crate) async fn update_claude_settings(
         let content = fs::read_to_string(&path)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to read claude settings: {}", e)))?;
-        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+        parse_settings_document(&content)?
     } else {
         serde_json::json!({})
     };
 
-    if let Some(obj) = existing.as_object_mut() {
-        obj.insert(
-            "env".to_string(),
-            serde_json::to_value(&settings.env).unwrap(),
-        );
-        obj.insert(
-            "enabledPlugins".to_string(),
-            serde_json::to_value(&settings.enabled_plugins).unwrap(),
-        );
-    }
+    let obj = existing
+        .as_object_mut()
+        .expect("parse_settings_document guarantees an object");
+    obj.insert(
+        "env".to_string(),
+        serde_json::to_value(&settings.env).map_err(|error| {
+            AppError::Internal(format!("Failed to serialize claude environment: {error}"))
+        })?,
+    );
+    obj.insert(
+        "enabledPlugins".to_string(),
+        serde_json::to_value(&settings.enabled_plugins).map_err(|error| {
+            AppError::Internal(format!("Failed to serialize claude plugins: {error}"))
+        })?,
+    );
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).await.map_err(|e| {
@@ -102,4 +120,32 @@ pub(crate) async fn update_claude_settings(
         .map_err(|e| AppError::Internal(format!("Failed to write claude settings: {}", e)))?;
 
     Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_settings, parse_settings_document};
+
+    #[test]
+    fn rejects_malformed_or_non_object_settings_documents() {
+        assert!(parse_settings_document("{ broken").is_err());
+        assert!(parse_settings_document("[]").is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_known_fields_instead_of_defaulting_them() {
+        let raw = parse_settings_document(r#"{"env": ["not", "a", "map"]}"#).unwrap();
+        assert!(decode_settings(&raw).is_err());
+
+        let raw = parse_settings_document(r#"{"enabledPlugins": {"plugin": "yes"}}"#).unwrap();
+        assert!(decode_settings(&raw).is_err());
+    }
+
+    #[test]
+    fn defaults_only_fields_that_are_absent() {
+        let raw = parse_settings_document(r#"{"unrelated": true}"#).unwrap();
+        let settings = decode_settings(&raw).unwrap();
+        assert!(settings.env.is_empty());
+        assert!(settings.enabled_plugins.is_empty());
+    }
 }

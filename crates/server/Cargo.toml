@@ -4,6 +4,7 @@ version = "0.1.3"
 edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
 application = { path = "../application" }
 agents = { path = "../agents" }
 artifacts = { path = "../artifacts" }
@@ -19,7 +20,6 @@ deployment = { path = "../deployment" }
 dirs = { workspace = true }
 futures = { workspace = true }
 local-deployment = { path = "../local-deployment" }
-office-runtime = { path = "../office-runtime" }
 plugins = { path = "../plugins" }
 remote-protocol = { path = "../remote-protocol" }
 reqwest = { workspace = true }

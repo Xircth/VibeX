@@ -7,7 +7,7 @@ import {
   createConversationApi,
 } from '@/features/conversation/conversationApi';
 import { automationApi } from '@/lib/api/automations';
-import { pluginV2Api } from '@/lib/api/plugins';
+import { pluginControlApi } from '@/lib/api/plugins';
 import {
   backendCall,
   backendEmit,
@@ -111,12 +111,12 @@ describe('BackendTransport conversation tracer', () => {
 
     await conversationApi.list('workspace-1');
     await automationApi.templates();
-    await pluginV2Api.catalog();
+    await pluginControlApi.contributionCatalog();
 
     expect(call.mock.calls).toEqual([
       ['conversation_list', { workspaceId: 'workspace-1' }],
       ['automation_templates', undefined],
-      ['plugin_action_catalog', undefined],
+      ['plugin_contribution_catalog', undefined],
     ]);
   });
 

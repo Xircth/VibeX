@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="VibeX Office">
+  <rect width="64" height="64" rx="14" fill="#3478f6"/>
+  <path d="M18 14h22l8 8v28H18z" fill="#fff" opacity=".96"/>
+  <path d="M40 14v10h8" fill="none" stroke="#3478f6" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M25 31h16M25 38h16M25 45h10" fill="none" stroke="#3478f6" stroke-width="3" stroke-linecap="round"/>
+</svg>

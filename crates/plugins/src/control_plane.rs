@@ -1,7 +1,10 @@
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use async_trait::async_trait;
@@ -9,8 +12,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
 use crate::{
-    ActionId, InvocationKind, PluginAction, PluginActivation, PluginError, PluginPackage,
-    PluginSource, PromptBlock, SkillId, ToolId,
+    ActionId, ActivationLease, ActivationManager, CapabilityBroker, CapabilityGrant,
+    ContributionCatalog, InvocationKind, PluginAction, PluginActivation, PluginError,
+    PluginPackage, PluginSource, PromptBlock, ResolvedFileOpener, SkillId, ToolId,
+    WorkerActivation, WorkerHostError,
+    contribution::{ContributionRegistry, descriptors_for_package},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,7 +44,14 @@ pub struct ImportConflict {
 pub struct InstalledPlugin {
     pub package: PluginPackage,
     pub activation: PluginActivation,
-    pub shell_trusted: bool,
+    pub package_digest: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActivationRecoveryFailure {
+    pub plugin_id: String,
+    pub code: String,
+    pub message: String,
 }
 
 impl InstalledPlugin {
@@ -64,19 +77,19 @@ impl std::ops::Deref for InstalledPlugin {
 pub struct RuntimeInstallation {
     pub id: String,
     pub version: String,
+    #[serde(default = "external_runtime_target")]
+    pub target: String,
+    #[serde(default)]
+    pub content_digest: String,
     pub executable_path: PathBuf,
+    #[serde(default = "external_runtime_ownership")]
+    pub ownership: String,
     #[serde(default)]
     pub installer: String,
     #[serde(default)]
     pub probe: Vec<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RuntimeConflict {
-    pub runtime_id: String,
-    pub current_version: String,
-    pub target_version: String,
-    pub affected_plugins: Vec<String>,
+    #[serde(default)]
+    pub referenced_plugins: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -85,10 +98,35 @@ pub struct ImportResult {
     pub plugin: InstalledPlugin,
 }
 
+/// Builds the compatibility grant projection for a full-trust package.
+///
+/// Installation is the trust decision. Every declared Host API is available to
+/// the candidate without a second consent flow; persisted grants are retained
+/// only so older hosts and diagnostics can read the same package record.
+pub fn candidate_capability_grants(
+    package: &PluginPackage,
+    _published_grants: &[CapabilityGrant],
+    _selected_permission_ids: &[String],
+) -> Result<Vec<CapabilityGrant>, PluginError> {
+    Ok(package
+        .permissions
+        .iter()
+        .map(|permission| CapabilityGrant {
+            capability: permission.capability.clone(),
+            scope: permission.scope.clone(),
+            trust_tier: permission.trust_tier.clone(),
+        })
+        .collect())
+}
+
 #[async_trait]
 pub trait PluginRegistry: Send + Sync {
     async fn plugin(&self, plugin_id: &str) -> Result<Option<InstalledPlugin>, PluginError>;
     async fn list_plugins(&self) -> Result<Vec<InstalledPlugin>, PluginError>;
+    async fn rollback_package(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Option<InstalledPlugin>, PluginError>;
     async fn put_plugin(&self, plugin: InstalledPlugin) -> Result<(), PluginError>;
     async fn set_activation(
         &self,
@@ -96,17 +134,68 @@ pub trait PluginRegistry: Send + Sync {
         activation: PluginActivation,
     ) -> Result<(), PluginError>;
     async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError>;
-    async fn set_shell_trust(&self, plugin_id: &str, trusted: bool) -> Result<(), PluginError>;
-    async fn is_shell_trusted(&self, plugin_id: &str) -> Result<bool, PluginError>;
-    async fn put_runtime(&self, runtime: RuntimeInstallation) -> Result<(), PluginError>;
+    async fn put_runtime(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime: RuntimeInstallation,
+    ) -> Result<(), PluginError>;
+    async fn runtime_for_plugin(
+        &self,
+        plugin_id: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError>;
+    async fn runtime_for_package(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError>;
+    async fn runtime_for_generation(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError>;
     async fn list_runtimes(&self) -> Result<Vec<RuntimeInstallation>, PluginError>;
+    async fn active_generation(&self, plugin_id: &str) -> Result<Option<u64>, PluginError>;
+    async fn active_contributions(&self)
+    -> Result<Vec<crate::ContributionDescriptor>, PluginError>;
+    async fn create_candidate(&self, plugin_id: &str) -> Result<u64, PluginError>;
+    async fn prepare_package_candidate(&self, package: &PluginPackage) -> Result<u64, PluginError>;
+    async fn publish_candidate(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        package: &PluginPackage,
+        contributions: &[crate::ContributionDescriptor],
+        grants: &[CapabilityGrant],
+    ) -> Result<(), PluginError>;
+    async fn fail_candidate(&self, generation: u64, evidence: &str) -> Result<(), PluginError>;
+    async fn retire_generation(&self, generation: u64) -> Result<(), PluginError>;
+    async fn retire_draining_generations(&self, plugin_id: &str) -> Result<(), PluginError>;
+    async fn replace_declared_grants(
+        &self,
+        plugin_id: &str,
+        permissions: &[crate::CapabilityRequest],
+    ) -> Result<(), PluginError>;
+    async fn capability_grants(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<crate::CapabilityGrant>, PluginError>;
 }
 
 #[derive(Default)]
 pub struct InMemoryPluginRegistry {
     plugins: RwLock<BTreeMap<String, InstalledPlugin>>,
-    trust: RwLock<BTreeMap<String, bool>>,
-    runtimes: RwLock<BTreeMap<String, RuntimeInstallation>>,
+    rollback_packages: RwLock<BTreeMap<String, InstalledPlugin>>,
+    runtimes: RwLock<BTreeMap<RuntimeArtifactKey, RuntimeInstallation>>,
+    runtime_locks: RwLock<BTreeMap<(String, String, String), RuntimeArtifactKey>>,
+    next_generation: AtomicU64,
+    published_generations: RwLock<BTreeMap<String, u64>>,
+    candidate_packages: RwLock<BTreeMap<u64, PluginPackage>>,
+    grants: RwLock<BTreeMap<String, Vec<crate::CapabilityGrant>>>,
+    published_contributions: RwLock<BTreeMap<String, Vec<crate::ContributionDescriptor>>>,
 }
 
 #[async_trait]
@@ -130,11 +219,33 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .collect())
     }
 
+    async fn rollback_package(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Option<InstalledPlugin>, PluginError> {
+        Ok(self
+            .rollback_packages
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .cloned())
+    }
+
     async fn put_plugin(&self, plugin: InstalledPlugin) -> Result<(), PluginError> {
-        self.plugins
+        let plugin_id = plugin.id().to_owned();
+        let previous = self
+            .plugins
             .write()
             .map_err(lock_error)?
-            .insert(plugin.id().to_owned(), plugin);
+            .insert(plugin_id.clone(), plugin.clone());
+        if let Some(previous) =
+            previous.filter(|previous| previous.package_digest != plugin.package_digest)
+        {
+            self.rollback_packages
+                .write()
+                .map_err(lock_error)?
+                .insert(plugin_id, previous);
+        }
         Ok(())
     }
 
@@ -148,53 +259,275 @@ impl PluginRegistry for InMemoryPluginRegistry {
             .get_mut(plugin_id)
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
         plugin.activation = activation;
+        if activation == PluginActivation::Disabled {
+            self.published_generations
+                .write()
+                .map_err(lock_error)?
+                .remove(plugin_id);
+            self.published_contributions
+                .write()
+                .map_err(lock_error)?
+                .remove(plugin_id);
+        }
         Ok(())
     }
 
     async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
         self.plugins.write().map_err(lock_error)?.remove(plugin_id);
-        self.trust.write().map_err(lock_error)?.remove(plugin_id);
-        Ok(())
-    }
-
-    async fn set_shell_trust(&self, plugin_id: &str, trusted: bool) -> Result<(), PluginError> {
-        if trusted {
-            self.trust
-                .write()
-                .map_err(lock_error)?
-                .insert(plugin_id.to_owned(), true);
-        } else {
-            self.trust.write().map_err(lock_error)?.remove(plugin_id);
-        }
-        Ok(())
-    }
-
-    async fn is_shell_trusted(&self, plugin_id: &str) -> Result<bool, PluginError> {
-        Ok(self
-            .trust
-            .read()
+        self.rollback_packages
+            .write()
             .map_err(lock_error)?
-            .get(plugin_id)
-            .copied()
-            .unwrap_or(false))
+            .remove(plugin_id);
+        self.runtime_locks
+            .write()
+            .map_err(lock_error)?
+            .retain(|(owner, _, _), _| owner != plugin_id);
+        Ok(())
     }
 
-    async fn put_runtime(&self, runtime: RuntimeInstallation) -> Result<(), PluginError> {
+    async fn put_runtime(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        mut runtime: RuntimeInstallation,
+    ) -> Result<(), PluginError> {
+        let key = runtime_artifact_key(&runtime);
+        runtime.referenced_plugins = vec![plugin_id.to_owned()];
         self.runtimes
             .write()
             .map_err(lock_error)?
-            .insert(runtime.id.clone(), runtime);
+            .insert(key.clone(), runtime);
+        self.runtime_locks.write().map_err(lock_error)?.insert(
+            (
+                plugin_id.to_owned(),
+                package_digest.to_owned(),
+                key.0.clone(),
+            ),
+            key,
+        );
         Ok(())
     }
 
+    async fn runtime_for_plugin(
+        &self,
+        plugin_id: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let digest = self
+            .plugins
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .map(|plugin| plugin.package_digest.clone())
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.runtime_for_package(plugin_id, &digest, runtime_id)
+            .await
+    }
+
+    async fn runtime_for_package(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let locks = self.runtime_locks.read().map_err(lock_error)?;
+        let Some(key) = locks.get(&(
+            plugin_id.to_owned(),
+            package_digest.to_owned(),
+            runtime_id.to_owned(),
+        )) else {
+            return Ok(None);
+        };
+        Ok(self.runtimes.read().map_err(lock_error)?.get(key).cloned())
+    }
+
+    async fn runtime_for_generation(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let package = self
+            .candidate_packages
+            .read()
+            .map_err(lock_error)?
+            .get(&generation)
+            .cloned();
+        let digest = if let Some(package) = package {
+            package_digest(&package)?
+        } else {
+            self.plugins
+                .read()
+                .map_err(lock_error)?
+                .get(plugin_id)
+                .filter(|_| {
+                    self.published_generations
+                        .read()
+                        .is_ok_and(|published| published.get(plugin_id) == Some(&generation))
+                })
+                .map(|plugin| plugin.package_digest.clone())
+                .ok_or_else(|| PluginError::registry("activation generation is not published"))?
+        };
+        self.runtime_for_package(plugin_id, &digest, runtime_id)
+            .await
+    }
+
     async fn list_runtimes(&self) -> Result<Vec<RuntimeInstallation>, PluginError> {
+        let locks = self.runtime_locks.read().map_err(lock_error)?;
+        let mut runtimes = self.runtimes.read().map_err(lock_error)?.clone();
+        for (key, runtime) in &mut runtimes {
+            runtime.referenced_plugins = locks
+                .iter()
+                .filter(|(_, artifact)| *artifact == key)
+                .map(|((plugin_id, _, _), _)| plugin_id.clone())
+                .collect();
+            runtime.referenced_plugins.sort();
+        }
+        Ok(runtimes.into_values().collect())
+    }
+
+    async fn active_generation(&self, plugin_id: &str) -> Result<Option<u64>, PluginError> {
         Ok(self
-            .runtimes
+            .published_generations
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .copied())
+    }
+
+    async fn active_contributions(
+        &self,
+    ) -> Result<Vec<crate::ContributionDescriptor>, PluginError> {
+        Ok(self
+            .published_contributions
             .read()
             .map_err(lock_error)?
             .values()
+            .flatten()
             .cloned()
             .collect())
+    }
+
+    async fn create_candidate(&self, plugin_id: &str) -> Result<u64, PluginError> {
+        let package = self
+            .plugins
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .map(|plugin| plugin.package.clone())
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.prepare_package_candidate(&package).await
+    }
+
+    async fn prepare_package_candidate(&self, package: &PluginPackage) -> Result<u64, PluginError> {
+        let generation = self.next_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.candidate_packages
+            .write()
+            .map_err(lock_error)?
+            .insert(generation, package.clone());
+        Ok(generation)
+    }
+
+    async fn publish_candidate(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        package: &PluginPackage,
+        contributions: &[crate::ContributionDescriptor],
+        grants: &[CapabilityGrant],
+    ) -> Result<(), PluginError> {
+        let candidate = self
+            .candidate_packages
+            .write()
+            .map_err(lock_error)?
+            .remove(&generation)
+            .ok_or_else(|| PluginError::registry("candidate package is missing"))?;
+        let mut plugins = self.plugins.write().map_err(lock_error)?;
+        let installed = plugins
+            .get_mut(plugin_id)
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        installed.package = candidate;
+        installed.activation = PluginActivation::Enabled;
+        self.grants
+            .write()
+            .map_err(lock_error)?
+            .insert(plugin_id.to_owned(), grants.to_vec());
+        let package_digest = package_digest(package)?;
+        installed.package_digest = package_digest.clone();
+        let previous_locks = self.runtime_locks.read().map_err(lock_error)?.clone();
+        let mut locks = self.runtime_locks.write().map_err(lock_error)?;
+        for runtime in &package.runtimes {
+            if let Some((_, artifact)) = previous_locks
+                .iter()
+                .find(|((owner, _, runtime_id), _)| owner == plugin_id && runtime_id == &runtime.id)
+            {
+                locks.insert(
+                    (
+                        plugin_id.to_owned(),
+                        package_digest.clone(),
+                        runtime.id.clone(),
+                    ),
+                    artifact.clone(),
+                );
+            }
+        }
+        self.published_generations
+            .write()
+            .map_err(lock_error)?
+            .insert(plugin_id.to_owned(), generation);
+        self.published_contributions
+            .write()
+            .map_err(lock_error)?
+            .insert(plugin_id.to_owned(), contributions.to_vec());
+        Ok(())
+    }
+
+    async fn fail_candidate(&self, generation: u64, _evidence: &str) -> Result<(), PluginError> {
+        self.candidate_packages
+            .write()
+            .map_err(lock_error)?
+            .remove(&generation);
+        Ok(())
+    }
+
+    async fn retire_generation(&self, _generation: u64) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    async fn retire_draining_generations(&self, _plugin_id: &str) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    async fn replace_declared_grants(
+        &self,
+        plugin_id: &str,
+        permissions: &[crate::CapabilityRequest],
+    ) -> Result<(), PluginError> {
+        self.grants.write().map_err(lock_error)?.insert(
+            plugin_id.to_owned(),
+            permissions
+                .iter()
+                .map(|permission| crate::CapabilityGrant {
+                    capability: permission.capability.clone(),
+                    scope: permission.scope.clone(),
+                    trust_tier: permission.trust_tier.clone(),
+                })
+                .collect(),
+        );
+        Ok(())
+    }
+
+    async fn capability_grants(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<crate::CapabilityGrant>, PluginError> {
+        Ok(self
+            .grants
+            .read()
+            .map_err(lock_error)?
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 
@@ -212,11 +545,14 @@ impl SqlitePluginRegistry {
 impl PluginRegistry for SqlitePluginRegistry {
     async fn plugin(&self, plugin_id: &str) -> Result<Option<InstalledPlugin>, PluginError> {
         let row = sqlx::query(
-            "SELECT r.package_json, a.enabled, CASE WHEN t.plugin_id IS NULL THEN 0 ELSE 1 END AS trusted
-             FROM plugin_control_registry r
-             JOIN plugin_control_activation a ON a.plugin_id = r.plugin_id
-             LEFT JOIN plugin_control_shell_trust t ON t.plugin_id = r.plugin_id
-             WHERE r.plugin_id = ?",
+            "SELECT p.package_json, i.current_package_digest, a.enabled
+             FROM plugin_installations_v4 i
+             JOIN plugin_packages_v4 p
+               ON p.publisher = i.publisher
+              AND p.plugin_id = i.plugin_id
+              AND p.package_digest = i.current_package_digest
+             JOIN plugin_activation_intents_v4 a ON a.plugin_id = i.plugin_id
+             WHERE i.plugin_id = ?",
         )
         .bind(plugin_id)
         .fetch_optional(&self.pool)
@@ -227,11 +563,14 @@ impl PluginRegistry for SqlitePluginRegistry {
 
     async fn list_plugins(&self) -> Result<Vec<InstalledPlugin>, PluginError> {
         let rows = sqlx::query(
-            "SELECT r.package_json, a.enabled, CASE WHEN t.plugin_id IS NULL THEN 0 ELSE 1 END AS trusted
-             FROM plugin_control_registry r
-             JOIN plugin_control_activation a ON a.plugin_id = r.plugin_id
-             LEFT JOIN plugin_control_shell_trust t ON t.plugin_id = r.plugin_id
-             ORDER BY r.name COLLATE NOCASE, r.plugin_id",
+            "SELECT p.package_json, i.current_package_digest, a.enabled
+             FROM plugin_installations_v4 i
+             JOIN plugin_packages_v4 p
+               ON p.publisher = i.publisher
+              AND p.plugin_id = i.plugin_id
+              AND p.package_digest = i.current_package_digest
+             JOIN plugin_activation_intents_v4 a ON a.plugin_id = i.plugin_id
+             ORDER BY p.plugin_id",
         )
         .fetch_all(&self.pool)
         .await
@@ -239,40 +578,90 @@ impl PluginRegistry for SqlitePluginRegistry {
         rows.into_iter().map(decode_plugin_row).collect()
     }
 
+    async fn rollback_package(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Option<InstalledPlugin>, PluginError> {
+        let row = sqlx::query(
+            "SELECT p.package_json, i.rollback_package_digest AS current_package_digest,
+                    a.enabled
+             FROM plugin_installations_v4 i
+             JOIN plugin_packages_v4 p
+               ON p.publisher = i.publisher
+              AND p.plugin_id = i.plugin_id
+              AND p.package_digest = i.rollback_package_digest
+             JOIN plugin_activation_intents_v4 a ON a.plugin_id = i.plugin_id
+             WHERE i.plugin_id = ? AND i.rollback_package_digest IS NOT NULL",
+        )
+        .bind(plugin_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        row.map(decode_plugin_row).transpose()
+    }
+
     async fn put_plugin(&self, plugin: InstalledPlugin) -> Result<(), PluginError> {
         let package_json = serde_json::to_string(&plugin.package).map_err(registry_error)?;
+        let package_digest = plugin.package_digest.clone();
+        let publisher = package_publisher(&plugin.package);
+        let manifest_json =
+            serde_json::to_string(&plugin.package.manifest).map_err(registry_error)?;
         let mut transaction = self.pool.begin().await.map_err(registry_error)?;
         sqlx::query(
-            "INSERT INTO plugin_control_registry
-                 (plugin_id, name, version, source_kind, source_path, package_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-             ON CONFLICT(plugin_id) DO UPDATE SET
-                 name = excluded.name,
-                 version = excluded.version,
-                 source_kind = excluded.source_kind,
-                 source_path = excluded.source_path,
-                 package_json = excluded.package_json,
-                 updated_at = CURRENT_TIMESTAMP",
+            "INSERT INTO plugin_packages_v4
+                 (publisher, plugin_id, version, package_digest, source_kind, source_path,
+                  manifest_json, package_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'))
+             ON CONFLICT(publisher, plugin_id, package_digest) DO NOTHING",
         )
+        .bind(publisher)
         .bind(plugin.id())
-        .bind(&plugin.name)
         .bind(&plugin.version)
+        .bind(&package_digest)
         .bind(source_kind_key(plugin.source.kind))
         .bind(plugin.source.path.to_string_lossy().as_ref())
-        .bind(package_json)
+        .bind(manifest_json)
+        .bind(&package_json)
         .execute(&mut *transaction)
         .await
         .map_err(registry_error)?;
         sqlx::query(
-            "INSERT INTO plugin_control_activation (plugin_id, enabled, updated_at)
-             VALUES (?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(plugin_id) DO UPDATE SET enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP",
+            "INSERT INTO plugin_installations_v4
+                 (plugin_id, publisher, current_package_digest, rollback_package_digest,
+                  installed_at, updated_at)
+             VALUES (?, ?, ?, NULL, datetime('now','subsec'), datetime('now','subsec'))
+             ON CONFLICT(plugin_id) DO UPDATE SET
+                 publisher = excluded.publisher,
+                 rollback_package_digest = CASE
+                     WHEN plugin_installations_v4.current_package_digest <> excluded.current_package_digest
+                     THEN plugin_installations_v4.current_package_digest
+                     ELSE plugin_installations_v4.rollback_package_digest
+                 END,
+                 current_package_digest = excluded.current_package_digest,
+                 updated_at = datetime('now','subsec')",
+        )
+        .bind(plugin.id())
+        .bind(publisher)
+        .bind(&package_digest)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_activation_intents_v4
+                 (plugin_id, enabled, target_digest, updated_at)
+             VALUES (?, ?, ?, datetime('now','subsec'))
+             ON CONFLICT(plugin_id) DO UPDATE SET
+                 enabled = excluded.enabled,
+                 target_digest = excluded.target_digest,
+                 updated_at = datetime('now','subsec')",
         )
         .bind(plugin.id())
         .bind(i64::from(plugin.activation == PluginActivation::Enabled))
+        .bind(&package_digest)
         .execute(&mut *transaction)
         .await
         .map_err(registry_error)?;
+
         transaction.commit().await.map_err(registry_error)
     }
 
@@ -282,7 +671,7 @@ impl PluginRegistry for SqlitePluginRegistry {
         activation: PluginActivation,
     ) -> Result<(), PluginError> {
         let result = sqlx::query(
-            "UPDATE plugin_control_activation SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+            "UPDATE plugin_activation_intents_v4 SET enabled = ?, updated_at = datetime('now','subsec')
              WHERE plugin_id = ?",
         )
         .bind(i64::from(activation == PluginActivation::Enabled))
@@ -293,102 +682,634 @@ impl PluginRegistry for SqlitePluginRegistry {
         if result.rows_affected() == 0 {
             return Err(PluginError::not_found(plugin_id));
         }
-        Ok(())
-    }
-
-    async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
-        sqlx::query("DELETE FROM plugin_control_registry WHERE plugin_id = ?")
-            .bind(plugin_id)
-            .execute(&self.pool)
-            .await
-            .map_err(registry_error)?;
-        Ok(())
-    }
-
-    async fn set_shell_trust(&self, plugin_id: &str, trusted: bool) -> Result<(), PluginError> {
-        if trusted {
+        if activation == PluginActivation::Disabled {
             sqlx::query(
-                "INSERT INTO plugin_control_shell_trust (plugin_id, granted_at)
-                 VALUES (?, CURRENT_TIMESTAMP)
-                 ON CONFLICT(plugin_id) DO NOTHING",
+                "UPDATE plugin_generations_v4 SET state = 'retired'
+                 WHERE plugin_id = ? AND state IN ('active','active_degraded','draining')",
             )
             .bind(plugin_id)
             .execute(&self.pool)
             .await
             .map_err(registry_error)?;
-        } else {
-            sqlx::query("DELETE FROM plugin_control_shell_trust WHERE plugin_id = ?")
-                .bind(plugin_id)
-                .execute(&self.pool)
-                .await
-                .map_err(registry_error)?;
         }
         Ok(())
     }
 
-    async fn is_shell_trusted(&self, plugin_id: &str) -> Result<bool, PluginError> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM plugin_control_shell_trust WHERE plugin_id = ?",
-        )
-        .bind(plugin_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(registry_error)?;
-        Ok(count > 0)
+    async fn delete_plugin(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        sqlx::query("DELETE FROM plugin_installations_v4 WHERE plugin_id = ?")
+            .bind(plugin_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+        transaction.commit().await.map_err(registry_error)?;
+        Ok(())
     }
 
-    async fn put_runtime(&self, runtime: RuntimeInstallation) -> Result<(), PluginError> {
+    async fn put_runtime(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime: RuntimeInstallation,
+    ) -> Result<(), PluginError> {
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        let probe_json = serde_json::to_string(&runtime.probe).map_err(registry_error)?;
         sqlx::query(
-            "INSERT INTO plugin_control_runtime_inventory
-                 (runtime_id, version, executable_path, installer, probe_json, updated_at)
-             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(runtime_id) DO UPDATE SET
-                 version = excluded.version,
-                 executable_path = excluded.executable_path,
-                 installer = excluded.installer,
-                 probe_json = excluded.probe_json,
-                 updated_at = CURRENT_TIMESTAMP",
+            "INSERT INTO plugin_runtime_artifacts_v4
+                 (runtime_id, version, target, content_digest, absolute_entrypoint,
+                  ownership, installer, probe_evidence_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'))
+             ON CONFLICT(runtime_id, version, target, content_digest) DO UPDATE SET
+                 absolute_entrypoint = excluded.absolute_entrypoint,
+                 probe_evidence_json = excluded.probe_evidence_json",
         )
-        .bind(runtime.id)
-        .bind(runtime.version)
+        .bind(&runtime.id)
+        .bind(&runtime.version)
+        .bind(&runtime.target)
+        .bind(&runtime.content_digest)
         .bind(runtime.executable_path.to_string_lossy().as_ref())
-        .bind(runtime.installer)
-        .bind(serde_json::to_string(&runtime.probe).map_err(registry_error)?)
+        .bind(&runtime.ownership)
+        .bind(&runtime.installer)
+        .bind(&probe_json)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_runtime_locks_v4
+                 (plugin_id, package_digest, runtime_id, version, target, content_digest,
+                  absolute_entrypoint, ownership, probe_evidence_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(plugin_id, package_digest, runtime_id, target) DO UPDATE SET
+                 version = excluded.version,
+                 content_digest = excluded.content_digest,
+                 absolute_entrypoint = excluded.absolute_entrypoint,
+                 ownership = excluded.ownership,
+                 probe_evidence_json = excluded.probe_evidence_json",
+        )
+        .bind(plugin_id)
+        .bind(package_digest)
+        .bind(&runtime.id)
+        .bind(&runtime.version)
+        .bind(&runtime.target)
+        .bind(&runtime.content_digest)
+        .bind(runtime.executable_path.to_string_lossy().as_ref())
+        .bind(&runtime.ownership)
+        .bind(probe_json)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        transaction.commit().await.map_err(registry_error)
+    }
+
+    async fn runtime_for_plugin(
+        &self,
+        plugin_id: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let row = sqlx::query(
+            "SELECT a.runtime_id, a.version, a.target, a.content_digest,
+                    a.absolute_entrypoint, a.ownership, a.installer, a.probe_evidence_json
+             FROM plugin_installations_v4 i
+             JOIN plugin_runtime_locks_v4 l
+               ON l.plugin_id = i.plugin_id AND l.package_digest = i.current_package_digest
+             JOIN plugin_runtime_artifacts_v4 a
+               ON a.runtime_id = l.runtime_id AND a.version = l.version
+              AND a.target = l.target AND a.content_digest = l.content_digest
+             WHERE i.plugin_id = ? AND l.runtime_id = ?",
+        )
+        .bind(plugin_id)
+        .bind(runtime_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        row.map(|row| decode_runtime_row(row, vec![plugin_id.to_owned()]))
+            .transpose()
+    }
+
+    async fn runtime_for_package(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let row = sqlx::query(
+            "SELECT a.runtime_id, a.version, a.target, a.content_digest,
+                    a.absolute_entrypoint, a.ownership, a.installer, a.probe_evidence_json
+             FROM plugin_runtime_locks_v4 l
+             JOIN plugin_runtime_artifacts_v4 a
+               ON a.runtime_id = l.runtime_id AND a.version = l.version
+              AND a.target = l.target AND a.content_digest = l.content_digest
+             WHERE l.plugin_id = ? AND l.package_digest = ? AND l.runtime_id = ?",
+        )
+        .bind(plugin_id)
+        .bind(package_digest)
+        .bind(runtime_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        row.map(|row| decode_runtime_row(row, vec![plugin_id.to_owned()]))
+            .transpose()
+    }
+
+    async fn runtime_for_generation(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        let row = sqlx::query(
+            "SELECT a.runtime_id, a.version, a.target, a.content_digest,
+                    a.absolute_entrypoint, a.ownership, a.installer, a.probe_evidence_json
+             FROM plugin_generations_v4 g
+             JOIN plugin_runtime_locks_v4 l
+               ON l.plugin_id = g.plugin_id AND l.package_digest = g.package_digest
+             JOIN plugin_runtime_artifacts_v4 a
+               ON a.runtime_id = l.runtime_id AND a.version = l.version
+              AND a.target = l.target AND a.content_digest = l.content_digest
+             WHERE g.plugin_id = ? AND g.generation_id = ? AND l.runtime_id = ?",
+        )
+        .bind(plugin_id)
+        .bind(generation as i64)
+        .bind(runtime_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        row.map(|row| decode_runtime_row(row, vec![plugin_id.to_owned()]))
+            .transpose()
+    }
+
+    async fn list_runtimes(&self) -> Result<Vec<RuntimeInstallation>, PluginError> {
+        let rows = sqlx::query(
+            "SELECT a.runtime_id, a.version, a.target, a.content_digest,
+                    a.absolute_entrypoint, a.ownership, a.installer, a.probe_evidence_json,
+                    COALESCE(group_concat(DISTINCT l.plugin_id), '') AS referenced_plugins
+             FROM plugin_runtime_artifacts_v4 a
+             LEFT JOIN plugin_runtime_locks_v4 l
+               ON a.runtime_id = l.runtime_id AND a.version = l.version
+              AND a.target = l.target AND a.content_digest = l.content_digest
+             GROUP BY a.runtime_id, a.version, a.target, a.content_digest,
+                      a.absolute_entrypoint, a.ownership, a.installer, a.probe_evidence_json
+             ORDER BY a.runtime_id, a.version, a.target, a.content_digest",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        rows.into_iter()
+            .map(|row| {
+                let refs = row
+                    .get::<String, _>("referenced_plugins")
+                    .split(',')
+                    .filter(|item| !item.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                decode_runtime_row(row, refs)
+            })
+            .collect()
+    }
+
+    async fn active_generation(&self, plugin_id: &str) -> Result<Option<u64>, PluginError> {
+        let generation = sqlx::query_scalar::<_, i64>(
+            "SELECT generation_id FROM plugin_generations_v4
+             WHERE plugin_id = ? AND state IN ('active','active_degraded')
+             ORDER BY generation_id DESC LIMIT 1",
+        )
+        .bind(plugin_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        generation
+            .map(|value| u64::try_from(value).map_err(registry_error))
+            .transpose()
+    }
+
+    async fn active_contributions(
+        &self,
+    ) -> Result<Vec<crate::ContributionDescriptor>, PluginError> {
+        let declarations = sqlx::query_scalar::<_, String>(
+            "SELECT c.declaration_json
+             FROM plugin_contributions_v4 c
+             JOIN plugin_generations_v4 g ON g.generation_id = c.generation_id
+             WHERE g.state IN ('active','active_degraded')
+             ORDER BY c.plugin_id, c.kind, c.contribution_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        declarations
+            .into_iter()
+            .map(|value| serde_json::from_str(&value).map_err(registry_error))
+            .collect()
+    }
+
+    async fn create_candidate(&self, plugin_id: &str) -> Result<u64, PluginError> {
+        let package = self
+            .plugin(plugin_id)
+            .await?
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.prepare_package_candidate(&package.package).await
+    }
+
+    async fn prepare_package_candidate(&self, package: &PluginPackage) -> Result<u64, PluginError> {
+        let package_json = serde_json::to_string(package).map_err(registry_error)?;
+        let digest = package_digest(package)?;
+        let publisher = package_publisher(package);
+        let manifest_json = serde_json::to_string(&package.manifest).map_err(registry_error)?;
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        sqlx::query(
+            "INSERT INTO plugin_packages_v4
+                 (publisher, plugin_id, version, package_digest, source_kind, source_path,
+                  manifest_json, package_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'))
+             ON CONFLICT(publisher, plugin_id, package_digest) DO NOTHING",
+        )
+        .bind(publisher)
+        .bind(package.id.as_str())
+        .bind(&package.version)
+        .bind(&digest)
+        .bind(source_kind_key(package.source.kind))
+        .bind(package.source.path.to_string_lossy().as_ref())
+        .bind(manifest_json)
+        .bind(package_json)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        let result = sqlx::query(
+            "INSERT INTO plugin_generations_v4
+                 (plugin_id, package_digest, state, evidence_json, created_at, published_at)
+             VALUES (?, ?, 'candidate', '{}', datetime('now','subsec'), NULL)",
+        )
+        .bind(package.id.as_str())
+        .bind(&digest)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        transaction.commit().await.map_err(registry_error)?;
+        u64::try_from(result.last_insert_rowid()).map_err(registry_error)
+    }
+
+    async fn publish_candidate(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        package: &PluginPackage,
+        contributions: &[crate::ContributionDescriptor],
+        grants: &[CapabilityGrant],
+    ) -> Result<(), PluginError> {
+        let generation = i64::try_from(generation).map_err(registry_error)?;
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        let candidate: Option<String> = sqlx::query_scalar(
+            "SELECT package_digest FROM plugin_generations_v4
+             WHERE generation_id = ? AND plugin_id = ? AND state = 'candidate'",
+        )
+        .bind(generation)
+        .bind(plugin_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        let candidate = candidate.ok_or_else(|| {
+            PluginError::registry("candidate generation is missing or no longer publishable")
+        })?;
+        sqlx::query(
+            "UPDATE plugin_generations_v4 SET state = 'draining'
+             WHERE plugin_id = ? AND state IN ('active','active_degraded')",
+        )
+        .bind(plugin_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_generations_v4
+             SET state = 'active', published_at = datetime('now','subsec')
+             WHERE generation_id = ?",
+        )
+        .bind(generation)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_activation_intents_v4
+             SET enabled = 1, target_digest = ?, updated_at = datetime('now','subsec')
+             WHERE plugin_id = ?",
+        )
+        .bind(&candidate)
+        .bind(plugin_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_installations_v4
+             SET rollback_package_digest = CASE
+                     WHEN current_package_digest <> ? THEN current_package_digest
+                     ELSE rollback_package_digest
+                 END,
+                 current_package_digest = ?, updated_at = datetime('now','subsec')
+             WHERE plugin_id = ?",
+        )
+        .bind(&candidate)
+        .bind(&candidate)
+        .bind(plugin_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        for contribution in contributions {
+            sqlx::query(
+                "INSERT INTO plugin_contributions_v4
+                     (generation_id, plugin_id, kind, contribution_id, declaration_json, readiness)
+                 VALUES (?, ?, ?, ?, ?, 'ready')",
+            )
+            .bind(generation)
+            .bind(plugin_id)
+            .bind(contribution_kind_key(contribution.kind))
+            .bind(&contribution.id)
+            .bind(serde_json::to_string(contribution).map_err(registry_error)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+        }
+        sqlx::query(
+            "UPDATE plugin_grants_v4 SET revoked_at = datetime('now','subsec')
+             WHERE plugin_id = ? AND package_digest = ? AND revoked_at IS NULL",
+        )
+        .bind(plugin_id)
+        .bind(&candidate)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        for permission in package.permissions.iter().filter(|permission| {
+            grants.iter().any(|grant| {
+                grant.capability == permission.capability
+                    && grant.scope == permission.scope
+                    && grant.trust_tier == permission.trust_tier
+            })
+        }) {
+            sqlx::query(
+                "INSERT INTO plugin_grants_v4
+                    (publisher, plugin_id, package_digest, permission_id, capability, scope_json,
+                     trust_tier, declaration_digest, granted_at, revoked_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'), NULL)
+                 ON CONFLICT(publisher, plugin_id, package_digest, permission_id) DO UPDATE SET
+                    capability = excluded.capability, scope_json = excluded.scope_json,
+                    trust_tier = excluded.trust_tier, declaration_digest = excluded.declaration_digest,
+                    granted_at = excluded.granted_at, revoked_at = NULL",
+            )
+            .bind(package_publisher(package))
+            .bind(plugin_id)
+            .bind(&candidate)
+            .bind(&permission.id)
+            .bind(&permission.capability)
+            .bind(serde_json::to_string(&permission.scope).map_err(registry_error)?)
+            .bind(&permission.trust_tier)
+            .bind(&candidate)
+            .execute(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+        }
+        // Runtime downloads/probes happen before publication. The publish
+        // transaction binds an already verified artifact to the candidate
+        // digest, so consumers never observe a generation without its exact
+        // Runtime lock.
+        for runtime in &package.runtimes {
+            sqlx::query(
+                "INSERT INTO plugin_runtime_locks_v4
+                    (plugin_id, package_digest, runtime_id, version, target, content_digest,
+                     absolute_entrypoint, ownership, probe_evidence_json)
+                 SELECT ?, ?, runtime_id, version, target, content_digest,
+                        absolute_entrypoint, ownership, probe_evidence_json
+                 FROM plugin_runtime_locks_v4
+                 WHERE plugin_id = ? AND runtime_id = ?
+                   AND (? IS NULL OR version = ?)
+                   AND (? = '' OR target = ?)
+                   AND (? = '' OR content_digest = ?)
+                 ORDER BY rowid DESC LIMIT 1
+                 ON CONFLICT(plugin_id, package_digest, runtime_id, target) DO NOTHING",
+            )
+            .bind(plugin_id)
+            .bind(&candidate)
+            .bind(plugin_id)
+            .bind(&runtime.id)
+            .bind(runtime.version.as_deref())
+            .bind(runtime.version.as_deref())
+            .bind(&runtime.target)
+            .bind(&runtime.target)
+            .bind(&runtime.content_digest)
+            .bind(&runtime.content_digest)
+            .execute(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+            let exact_lock_exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM plugin_runtime_locks_v4
+                 WHERE plugin_id = ? AND package_digest = ? AND runtime_id = ?
+                   AND (? IS NULL OR version = ?)
+                   AND (? = '' OR target = ?)
+                   AND (? = '' OR content_digest = ?)",
+            )
+            .bind(plugin_id)
+            .bind(&candidate)
+            .bind(&runtime.id)
+            .bind(runtime.version.as_deref())
+            .bind(runtime.version.as_deref())
+            .bind(&runtime.target)
+            .bind(&runtime.target)
+            .bind(&runtime.content_digest)
+            .bind(&runtime.content_digest)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+            if exact_lock_exists != 1 {
+                return Err(PluginError::registry(format!(
+                    "candidate Runtime lock for `{}` is missing or does not match its exact version, target, and digest",
+                    runtime.id
+                )));
+            }
+        }
+        transaction.commit().await.map_err(registry_error)
+    }
+
+    async fn fail_candidate(&self, generation: u64, evidence: &str) -> Result<(), PluginError> {
+        sqlx::query(
+            "UPDATE plugin_generations_v4
+             SET state = 'failed', evidence_json = ?
+             WHERE generation_id = ? AND state = 'candidate'",
+        )
+        .bind(serde_json::json!({ "error": evidence }).to_string())
+        .bind(i64::try_from(generation).map_err(registry_error)?)
         .execute(&self.pool)
         .await
         .map_err(registry_error)?;
         Ok(())
     }
 
-    async fn list_runtimes(&self) -> Result<Vec<RuntimeInstallation>, PluginError> {
-        let rows = sqlx::query(
-            "SELECT runtime_id, version, executable_path, installer, probe_json
-             FROM plugin_control_runtime_inventory ORDER BY runtime_id",
+    async fn retire_generation(&self, generation: u64) -> Result<(), PluginError> {
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_generations_v4 SET state = 'retired'
+             WHERE generation_id = ? AND state = 'draining'",
         )
+        .bind(i64::try_from(generation).map_err(registry_error)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        gc_runtime_locks(&mut transaction).await?;
+        transaction.commit().await.map_err(registry_error)
+    }
+
+    async fn retire_draining_generations(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_generations_v4 SET state = 'retired'
+             WHERE plugin_id = ? AND state = 'draining'",
+        )
+        .bind(plugin_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        gc_runtime_locks(&mut transaction).await?;
+        transaction.commit().await.map_err(registry_error)
+    }
+
+    async fn replace_declared_grants(
+        &self,
+        plugin_id: &str,
+        permissions: &[crate::CapabilityRequest],
+    ) -> Result<(), PluginError> {
+        let plugin = self
+            .plugin(plugin_id)
+            .await?
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        let digest = plugin.package_digest.clone();
+        let publisher = package_publisher(&plugin.package);
+        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
+        sqlx::query(
+            "UPDATE plugin_grants_v4 SET revoked_at = datetime('now','subsec')
+             WHERE plugin_id = ? AND package_digest = ? AND revoked_at IS NULL",
+        )
+        .bind(plugin_id)
+        .bind(&digest)
+        .execute(&mut *transaction)
+        .await
+        .map_err(registry_error)?;
+        for permission in permissions {
+            sqlx::query(
+                "INSERT INTO plugin_grants_v4
+                    (publisher, plugin_id, package_digest, permission_id, capability, scope_json,
+                     trust_tier, declaration_digest, granted_at, revoked_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'), NULL)
+                 ON CONFLICT(publisher, plugin_id, package_digest, permission_id) DO UPDATE SET
+                    capability = excluded.capability, scope_json = excluded.scope_json,
+                    trust_tier = excluded.trust_tier, declaration_digest = excluded.declaration_digest,
+                    granted_at = excluded.granted_at, revoked_at = NULL",
+            )
+            .bind(publisher)
+            .bind(plugin_id)
+            .bind(&digest)
+            .bind(&permission.id)
+            .bind(&permission.capability)
+            .bind(serde_json::to_string(&permission.scope).map_err(registry_error)?)
+            .bind(&permission.trust_tier)
+            .bind(&digest)
+            .execute(&mut *transaction)
+            .await
+            .map_err(registry_error)?;
+        }
+        transaction.commit().await.map_err(registry_error)
+    }
+
+    async fn capability_grants(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<crate::CapabilityGrant>, PluginError> {
+        let rows = sqlx::query(
+            "SELECT g.capability, g.scope_json, g.trust_tier
+             FROM plugin_grants_v4 g
+             JOIN plugin_installations_v4 i
+               ON i.publisher = g.publisher AND i.plugin_id = g.plugin_id
+              AND i.current_package_digest = g.package_digest
+             WHERE g.plugin_id = ? AND g.revoked_at IS NULL
+             ORDER BY g.permission_id",
+        )
+        .bind(plugin_id)
         .fetch_all(&self.pool)
         .await
         .map_err(registry_error)?;
-        Ok(rows
-            .into_iter()
-            .map(|row| RuntimeInstallation {
-                id: row.get("runtime_id"),
-                version: row.get("version"),
-                executable_path: PathBuf::from(row.get::<String, _>("executable_path")),
-                installer: row.get("installer"),
-                probe: serde_json::from_str(row.get::<String, _>("probe_json").as_str())
-                    .unwrap_or_default(),
+        rows.into_iter()
+            .map(|row| {
+                Ok(crate::CapabilityGrant {
+                    capability: row.get("capability"),
+                    scope: serde_json::from_str(row.get::<String, _>("scope_json").as_str())
+                        .map_err(registry_error)?,
+                    trust_tier: row.get("trust_tier"),
+                })
             })
-            .collect())
+            .collect()
     }
 }
 
 pub struct PluginControlPlane {
     registry: Arc<dyn PluginRegistry>,
+    contributions: ContributionRegistry,
+    activations: ActivationManager,
 }
 
 impl PluginControlPlane {
     pub fn new(registry: Arc<dyn PluginRegistry>) -> Self {
-        Self { registry }
+        Self {
+            registry,
+            contributions: ContributionRegistry::default(),
+            activations: ActivationManager::default(),
+        }
+    }
+
+    fn retire_after_drain(
+        &self,
+        plugin_id: String,
+        drain: Option<crate::activation::GenerationDrain>,
+    ) {
+        let registry = self.registry.clone();
+        tokio::spawn(async move {
+            if let Some(drain) = drain {
+                let generation = drain.generation;
+                drain.wait().await;
+                let _ = registry.retire_generation(generation).await;
+            } else {
+                // A restored Host has no old process lease to drain.
+                let _ = registry.retire_draining_generations(&plugin_id).await;
+            }
+        });
+    }
+
+    async fn ensure_runtime_readiness(
+        &self,
+        plugin_id: &str,
+        package: &PluginPackage,
+    ) -> Result<(), WorkerHostError> {
+        for declared in &package.runtimes {
+            let locked = self
+                .registry
+                .runtime_for_plugin(plugin_id, &declared.id)
+                .await
+                .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+                .ok_or_else(|| {
+                    WorkerHostError::external(
+                        "runtime_not_ready",
+                        format!("Runtime {} has no installation lock", declared.id),
+                    )
+                })?;
+            if declared
+                .version
+                .as_deref()
+                .is_some_and(|version| version != locked.version)
+                || (!declared.target.is_empty() && declared.target != locked.target)
+                || (!declared.content_digest.is_empty()
+                    && declared.content_digest != locked.content_digest)
+                || !locked.executable_path.is_absolute()
+            {
+                return Err(WorkerHostError::external(
+                    "runtime_not_ready",
+                    format!("Runtime {} lock does not match the candidate", declared.id),
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub async fn preview_import(
@@ -413,6 +1334,9 @@ impl PluginControlPlane {
     ) -> Result<ImportResult, PluginError> {
         let existing = self.registry.plugin(package.id.as_str()).await?;
         if let Some(ref installed) = existing {
+            if package_publisher(&installed.package) != package_publisher(&package) {
+                return Err(PluginError::conflict(package.id.as_str()));
+            }
             match decision {
                 ConflictDecision::Reject => return Err(PluginError::conflict(package.id.as_str())),
                 ConflictDecision::KeepInstalled => {
@@ -424,16 +1348,16 @@ impl PluginControlPlane {
                 ConflictDecision::Replace => {}
             }
         }
-        let trusted = self.registry.is_shell_trusted(package.id.as_str()).await?;
         let disposition = if existing.is_some() {
             ImportDisposition::Replaced
         } else {
             ImportDisposition::Installed
         };
+        let package_digest = package_digest(&package)?;
         let plugin = InstalledPlugin {
             package,
             activation: PluginActivation::Disabled,
-            shell_trusted: trusted,
+            package_digest,
         };
         self.registry.put_plugin(plugin.clone()).await?;
         Ok(ImportResult {
@@ -450,21 +1374,372 @@ impl PluginControlPlane {
         self.registry.list_plugins().await
     }
 
+    pub async fn rollback_available(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        Ok(self.registry.rollback_package(plugin_id).await?.is_some())
+    }
+
+    pub async fn contributions(&self) -> Result<ContributionCatalog, PluginError> {
+        self.contributions
+            .publish(self.registry.active_contributions().await?)
+    }
+
+    pub async fn resolve_file_opener(
+        &self,
+        extension: Option<&str>,
+        media_type: Option<&str>,
+    ) -> Result<Option<ResolvedFileOpener>, PluginError> {
+        self.contributions
+            .publish(self.registry.active_contributions().await?)?;
+        self.contributions
+            .resolve_file_opener(extension, media_type)
+    }
+
     pub async fn set_enabled(
         &self,
         plugin_id: &str,
         enabled: bool,
     ) -> Result<InstalledPlugin, PluginError> {
-        let activation = if enabled {
-            PluginActivation::Enabled
+        if enabled {
+            let plugin = self
+                .registry
+                .plugin(plugin_id)
+                .await?
+                .ok_or_else(|| PluginError::not_found(plugin_id))?;
+            if plugin.entrypoints.worker.is_some() {
+                return Err(PluginError::registry(
+                    "Worker plugins must be enabled through candidate activation",
+                ));
+            }
+            let generation = self.registry.create_candidate(plugin_id).await?;
+            let contributions = descriptors_for_package(&plugin.package, generation);
+            if let Err(error) = self
+                .registry
+                .publish_candidate(plugin_id, generation, &plugin.package, &contributions, &[])
+                .await
+            {
+                let _ = self
+                    .registry
+                    .fail_candidate(generation, error.message())
+                    .await;
+                return Err(error);
+            }
         } else {
-            PluginActivation::Disabled
-        };
-        self.registry.set_activation(plugin_id, activation).await?;
+            self.registry
+                .set_activation(plugin_id, PluginActivation::Disabled)
+                .await?;
+        }
         self.registry
             .plugin(plugin_id)
             .await?
             .ok_or_else(|| PluginError::not_found(plugin_id))
+    }
+
+    pub async fn activate_candidate(
+        &self,
+        node_executable: &std::path::Path,
+        plugin_id: &str,
+        grants: &[CapabilityGrant],
+        broker: Arc<dyn CapabilityBroker>,
+    ) -> Result<WorkerActivation, WorkerHostError> {
+        let package = self
+            .registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?
+            .package;
+        self.activations
+            .activate_candidate(node_executable, &package, grants, broker)
+            .await
+    }
+
+    pub async fn activate_and_enable(
+        &self,
+        node_executable: &std::path::Path,
+        plugin_id: &str,
+        grants: &[CapabilityGrant],
+        broker: Arc<dyn CapabilityBroker>,
+    ) -> Result<InstalledPlugin, WorkerHostError> {
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
+        self.ensure_runtime_readiness(plugin_id, &plugin.package)
+            .await?;
+        let active_matches = self
+            .activations
+            .lease(plugin_id)
+            .await
+            .is_some_and(|lease| lease.activation().package_digest == plugin.package_digest);
+        if active_matches {
+            return Ok(plugin);
+        }
+        let generation = self
+            .registry
+            .create_candidate(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        let candidate = if plugin.entrypoints.worker.is_some() {
+            match self
+                .activations
+                .prepare_candidate_at(generation, node_executable, &plugin.package, grants, broker)
+                .await
+            {
+                Ok(candidate) => Some(candidate),
+                Err(error) => {
+                    let _ = self
+                        .registry
+                        .fail_candidate(generation, &error.to_string())
+                        .await;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        let contributions = descriptors_for_package(&plugin.package, generation);
+        if let Err(error) = self
+            .registry
+            .publish_candidate(
+                plugin_id,
+                generation,
+                &plugin.package,
+                &contributions,
+                grants,
+            )
+            .await
+        {
+            if let Some(candidate) = candidate {
+                let _ = candidate.discard("activation persistence failed").await;
+            }
+            let _ = self
+                .registry
+                .fail_candidate(generation, error.message())
+                .await;
+            return Err(WorkerHostError::external("plugin_registry_failed", error));
+        }
+        if let Some(candidate) = candidate {
+            let drain = self.activations.commit(candidate).await;
+            self.retire_after_drain(plugin_id.to_owned(), drain);
+        }
+        self.registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))
+    }
+
+    pub async fn update_and_activate(
+        &self,
+        node_executable: &std::path::Path,
+        package: PluginPackage,
+        grants: &[CapabilityGrant],
+        broker: Arc<dyn CapabilityBroker>,
+    ) -> Result<InstalledPlugin, WorkerHostError> {
+        let plugin_id = package.id.as_str().to_owned();
+        let installed = self
+            .registry
+            .plugin(&plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", &plugin_id))?;
+        if package_publisher(&installed.package) != package_publisher(&package) {
+            return Err(WorkerHostError::external(
+                "plugin_id_conflict",
+                "candidate publisher does not own the installed plugin identity",
+            ));
+        }
+        self.ensure_runtime_readiness(&plugin_id, &package).await?;
+        let generation = self
+            .registry
+            .prepare_package_candidate(&package)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        let candidate = if package.entrypoints.worker.is_some() {
+            match self
+                .activations
+                .prepare_candidate_at(generation, node_executable, &package, grants, broker)
+                .await
+            {
+                Ok(candidate) => Some(candidate),
+                Err(error) => {
+                    let _ = self
+                        .registry
+                        .fail_candidate(generation, &error.to_string())
+                        .await;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+        let contributions = descriptors_for_package(&package, generation);
+        if let Err(error) = self
+            .registry
+            .publish_candidate(&plugin_id, generation, &package, &contributions, grants)
+            .await
+        {
+            if let Some(candidate) = candidate {
+                let _ = candidate.discard("candidate publication failed").await;
+            }
+            let _ = self
+                .registry
+                .fail_candidate(generation, error.message())
+                .await;
+            return Err(WorkerHostError::external("plugin_registry_failed", error));
+        }
+        if let Some(candidate) = candidate {
+            let drain = self.activations.commit(candidate).await;
+            self.retire_after_drain(plugin_id.clone(), drain);
+        }
+        self.registry
+            .plugin(&plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))
+    }
+
+    pub async fn rollback_and_activate(
+        &self,
+        node_executable: &std::path::Path,
+        plugin_id: &str,
+        selected_permission_ids: &[String],
+        broker: Arc<dyn CapabilityBroker>,
+    ) -> Result<InstalledPlugin, WorkerHostError> {
+        let rollback = self
+            .registry
+            .rollback_package(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| {
+                WorkerHostError::external(
+                    "plugin_rollback_unavailable",
+                    "No verified rollback package is retained for this plugin",
+                )
+            })?;
+        let published_grants = self
+            .registry
+            .capability_grants(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        let grants = candidate_capability_grants(
+            &rollback.package,
+            &published_grants,
+            selected_permission_ids,
+        )
+        .map_err(|error| WorkerHostError::external("plugin_permission_consent_required", error))?;
+        self.update_and_activate(node_executable, rollback.package, &grants, broker)
+            .await
+    }
+
+    pub async fn activation_lease(&self, plugin_id: &str) -> Option<ActivationLease> {
+        self.activations.lease(plugin_id).await
+    }
+
+    /// Restores enabled Worker generations after a Host restart. Grants remain
+    /// package-digest scoped; third-party packages fail closed if consent is
+    /// incomplete, while bundled packages are granted from their declaration.
+    pub async fn recover_enabled_workers(
+        &self,
+        node_executable: &std::path::Path,
+        candidate_root: &std::path::Path,
+        broker: Arc<dyn CapabilityBroker>,
+    ) -> Result<Vec<ActivationRecoveryFailure>, PluginError> {
+        let mut failures = Vec::new();
+        for plugin in self.registry.list_plugins().await? {
+            if plugin.activation != PluginActivation::Enabled || plugin.entrypoints.worker.is_none()
+            {
+                continue;
+            }
+            if !plugin.package.content_root().is_dir()
+                && plugin.source.kind == crate::PluginSourceKind::DeveloperLink
+            {
+                let repaired = async {
+                    let mut package = PluginPackage::inspect(
+                        &plugin.source.path,
+                        crate::PluginSourceKind::DeveloperLink,
+                    )
+                    .map_err(|error| WorkerHostError::external("plugin_source_invalid", error))?;
+                    if package.id != plugin.package.id
+                        || package_publisher(&package) != package_publisher(&plugin.package)
+                    {
+                        return Err(WorkerHostError::external(
+                            "plugin_identity_changed",
+                            "linked Plugin source no longer matches the installed identity",
+                        ));
+                    }
+                    let digest =
+                        crate::package_content_digest(&plugin.source.path).map_err(|error| {
+                            WorkerHostError::external("plugin_source_invalid", error)
+                        })?;
+                    package
+                        .freeze_execution_root(candidate_root, &digest)
+                        .map_err(|error| {
+                            WorkerHostError::external("plugin_candidate_restore_failed", error)
+                        })?;
+                    let grants =
+                        candidate_capability_grants(&package, &[], &[]).map_err(|error| {
+                            WorkerHostError::external("plugin_permission_invalid", error)
+                        })?;
+                    self.update_and_activate(node_executable, package, &grants, broker.clone())
+                        .await?;
+                    Ok::<(), WorkerHostError>(())
+                }
+                .await;
+                if let Err(error) = repaired {
+                    failures.push(ActivationRecoveryFailure {
+                        plugin_id: plugin.id().to_owned(),
+                        code: error.code().to_owned(),
+                        message: error.to_string(),
+                    });
+                }
+                continue;
+            }
+            let grants = candidate_capability_grants(&plugin.package, &[], &[])?;
+            let generation = match self.registry.active_generation(plugin.id()).await? {
+                Some(generation) => generation,
+                None => {
+                    failures.push(ActivationRecoveryFailure {
+                        plugin_id: plugin.id().to_owned(),
+                        code: "activation_generation_missing".to_owned(),
+                        message: "Enabled plugin has no published generation".to_owned(),
+                    });
+                    continue;
+                }
+            };
+            let restored = async {
+                self.ensure_runtime_readiness(plugin.id(), &plugin.package)
+                    .await?;
+                let candidate = self
+                    .activations
+                    .prepare_candidate_at(
+                        generation,
+                        node_executable,
+                        &plugin.package,
+                        &grants,
+                        broker.clone(),
+                    )
+                    .await?;
+                let drain = self.activations.commit(candidate).await;
+                self.retire_after_drain(plugin.id().to_owned(), drain);
+                Ok::<(), WorkerHostError>(())
+            }
+            .await;
+            if let Err(error) = restored {
+                failures.push(ActivationRecoveryFailure {
+                    plugin_id: plugin.id().to_owned(),
+                    code: error.code().to_owned(),
+                    message: error.to_string(),
+                });
+            }
+        }
+        Ok(failures)
+    }
+
+    pub async fn deactivate_worker(&self, plugin_id: &str) -> Result<bool, WorkerHostError> {
+        self.activations.deactivate(plugin_id).await
     }
 
     pub async fn resolve_action(
@@ -485,55 +1760,90 @@ impl PluginControlPlane {
                 invocation.id == action_id && invocation.kind == InvocationKind::Action
             })
             .ok_or_else(|| PluginError::invocation_unavailable(plugin_id, action_id))?;
-        let inventory = self.registry.list_runtimes().await?;
-        if plugin.runtimes.iter().any(|required| {
-            !inventory.iter().any(|installed| {
-                installed.id == required.id
-                    && required
+        let required_runtime_ids = if invocation.required_runtimes.is_empty() {
+            plugin
+                .runtimes
+                .iter()
+                .map(|runtime| runtime.id.clone())
+                .collect::<Vec<_>>()
+        } else {
+            invocation.required_runtimes.clone()
+        };
+        let mut runtime_paths = Vec::new();
+        for runtime_id in &required_runtime_ids {
+            let required = plugin
+                .runtimes
+                .iter()
+                .find(|runtime| &runtime.id == runtime_id)
+                .ok_or_else(|| PluginError::invocation_unavailable(plugin_id, action_id))?;
+            let installed = self
+                .registry
+                .runtime_for_plugin(plugin_id, &required.id)
+                .await?
+                .filter(|installed| {
+                    required
                         .version
                         .as_deref()
                         .is_none_or(|version| version == installed.version)
+                        && (required.target == "external" || required.target == installed.target)
+                        && (required.content_digest.is_empty()
+                            || required.content_digest == installed.content_digest)
+                });
+            let installed = installed
+                .ok_or_else(|| PluginError::invocation_unavailable(plugin_id, action_id))?;
+            runtime_paths.push((required.id.clone(), installed.executable_path));
+        }
+        let required_skills = if invocation.required_skills.is_empty() {
+            invocation.skill.iter().cloned().collect::<Vec<_>>()
+        } else {
+            invocation.required_skills.clone()
+        };
+        let mut prompt_blocks = vec![PromptBlock::Text {
+            text: invocation.prompt.clone(),
+        }];
+        let skill_paths = required_skills
+            .iter()
+            .filter_map(|skill_id| {
+                plugin
+                    .skills
+                    .iter()
+                    .find(|skill| &skill.id == skill_id)
+                    .map(|skill| plugin.content_root().join(&skill.path))
             })
-        }) {
-            return Err(PluginError::invocation_unavailable(plugin_id, action_id));
+            .collect::<Vec<_>>();
+        if !skill_paths.is_empty() || !runtime_paths.is_empty() {
+            let mut context = vec![
+                "VibeX has resolved this PluginAction to verified local resources:".to_owned(),
+            ];
+            context.extend(
+                skill_paths
+                    .iter()
+                    .map(|path| format!("- Read and follow the Skill at `{}`.", path.display())),
+            );
+            context.extend(runtime_paths.iter().map(|(id, path)| {
+                format!(
+                    "- Use the locked `{id}` executable at `{}`; do not install, update, or substitute another binary.",
+                    path.display()
+                )
+            }));
+            prompt_blocks.push(PromptBlock::Text {
+                text: context.join("\n"),
+            });
         }
         Ok(PluginAction {
             id: ActionId::from_string(invocation.id.clone()),
             label: invocation.label.clone(),
-            required_skills: invocation
-                .skill
-                .iter()
-                .cloned()
+            required_skills: required_skills
+                .into_iter()
                 .map(SkillId::from_string)
                 .collect(),
-            required_tools: plugin
-                .runtimes
-                .iter()
-                .map(|runtime| ToolId::from_string(runtime.id.clone()))
+            required_tools: required_runtime_ids
+                .into_iter()
+                .map(ToolId::from_string)
                 .collect(),
-            prompt_blocks: vec![PromptBlock::Text {
-                text: invocation.prompt.clone(),
-            }],
-            artifact_intent: None,
+            prompt_blocks,
+            artifact_intent: invocation.artifact_intent.clone(),
         })
-    }
-
-    pub async fn grant_shell_trust(&self, plugin_id: &str) -> Result<(), PluginError> {
-        if self.registry.plugin(plugin_id).await?.is_none() {
-            return Err(PluginError::not_found(plugin_id));
-        }
-        self.registry.set_shell_trust(plugin_id, true).await
-    }
-
-    pub async fn is_shell_trusted(&self, plugin_id: &str) -> Result<bool, PluginError> {
-        self.registry.is_shell_trusted(plugin_id).await
-    }
-
-    pub async fn revoke_shell_trust(&self, plugin_id: &str) -> Result<(), PluginError> {
-        if self.registry.plugin(plugin_id).await?.is_none() {
-            return Err(PluginError::not_found(plugin_id));
-        }
-        self.registry.set_shell_trust(plugin_id, false).await
     }
 
     pub async fn uninstall(&self, plugin_id: &str) -> Result<(), PluginError> {
@@ -547,74 +1857,139 @@ impl PluginControlPlane {
         self.registry.list_runtimes().await
     }
 
-    pub async fn record_runtime(&self, runtime: RuntimeInstallation) -> Result<(), PluginError> {
-        self.registry.put_runtime(runtime).await
-    }
-
-    pub async fn preview_runtime_install(
+    pub async fn runtime_for_plugin(
         &self,
         plugin_id: &str,
         runtime_id: &str,
-    ) -> Result<Option<RuntimeConflict>, PluginError> {
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        self.registry
+            .runtime_for_plugin(plugin_id, runtime_id)
+            .await
+    }
+
+    pub async fn runtime_for_package(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        self.registry
+            .runtime_for_package(plugin_id, package_digest, runtime_id)
+            .await
+    }
+
+    pub async fn runtime_for_generation(
+        &self,
+        plugin_id: &str,
+        generation: u64,
+        runtime_id: &str,
+    ) -> Result<Option<RuntimeInstallation>, PluginError> {
+        self.registry
+            .runtime_for_generation(plugin_id, generation, runtime_id)
+            .await
+    }
+
+    pub async fn validate_runtime_readiness(&self, plugin_id: &str) -> Result<(), WorkerHostError> {
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
+        self.ensure_runtime_readiness(plugin_id, &plugin.package)
+            .await
+    }
+
+    pub async fn grant_permissions(
+        &self,
+        plugin_id: &str,
+        _permission_ids: &[String],
+    ) -> Result<(), PluginError> {
         let plugin = self
             .registry
             .plugin(plugin_id)
             .await?
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
-        let contribution = plugin
-            .runtimes
-            .iter()
-            .find(|runtime| runtime.id == runtime_id)
-            .ok_or_else(|| PluginError::runtime_not_ready(runtime_id, "not declared by plugin"))?;
-        let Some(target_version) = contribution.version.clone() else {
-            return Ok(None);
-        };
-        let installed = self
+        self.registry
+            .replace_declared_grants(plugin_id, &plugin.permissions)
+            .await
+    }
+
+    pub async fn grant_declared_permissions(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let plugin = self
             .registry
-            .list_runtimes()
+            .plugin(plugin_id)
             .await?
-            .into_iter()
-            .find(|runtime| runtime.id == runtime_id);
-        let Some(installed) = installed.filter(|runtime| runtime.version != target_version) else {
-            return Ok(None);
-        };
-        let mut affected_plugins = self
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.grant_permissions(
+            plugin_id,
+            &plugin
+                .permissions
+                .iter()
+                .map(|permission| permission.id.clone())
+                .collect::<Vec<_>>(),
+        )
+        .await
+    }
+
+    pub async fn capability_grants(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Vec<crate::CapabilityGrant>, PluginError> {
+        self.registry.capability_grants(plugin_id).await
+    }
+
+    pub async fn record_runtime(
+        &self,
+        plugin_id: &str,
+        runtime: RuntimeInstallation,
+    ) -> Result<(), PluginError> {
+        let plugin = self
             .registry
-            .list_plugins()
+            .plugin(plugin_id)
             .await?
-            .into_iter()
-            .filter(|candidate| candidate.id() != plugin_id)
-            .filter(|candidate| {
-                candidate.runtimes.iter().any(|runtime| {
-                    runtime.id == runtime_id
-                        && runtime.version.as_deref() == Some(installed.version.as_str())
-                })
-            })
-            .map(|candidate| candidate.id().to_owned())
-            .collect::<Vec<_>>();
-        affected_plugins.sort();
-        Ok(Some(RuntimeConflict {
-            runtime_id: runtime_id.to_owned(),
-            current_version: installed.version,
-            target_version,
-            affected_plugins,
-        }))
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.registry
+            .put_runtime(plugin_id, &plugin.package_digest, runtime)
+            .await
+    }
+
+    pub async fn record_runtime_for_package(
+        &self,
+        plugin_id: &str,
+        package_digest: &str,
+        runtime: RuntimeInstallation,
+    ) -> Result<(), PluginError> {
+        if self.registry.plugin(plugin_id).await?.is_none() {
+            return Err(PluginError::not_found(plugin_id));
+        }
+        self.registry
+            .put_runtime(plugin_id, package_digest, runtime)
+            .await
     }
 
     #[doc(hidden)]
     pub async fn record_runtime_for_test(
         &self,
+        plugin_id: &str,
         id: &str,
         version: &str,
         executable_path: &str,
     ) -> Result<(), PluginError> {
-        self.record_runtime(RuntimeInstallation {
-            id: id.to_owned(),
-            version: version.to_owned(),
-            executable_path: PathBuf::from(executable_path),
-            installer: "test".to_owned(),
-            probe: Vec::new(),
-        })
+        self.record_runtime(
+            plugin_id,
+            RuntimeInstallation {
+                id: id.to_owned(),
+                version: version.to_owned(),
+                target: "test-target".to_owned(),
+                content_digest: format!("sha256:{id}-{version}"),
+                executable_path: PathBuf::from(executable_path),
+                ownership: "managed".to_owned(),
+                installer: "test".to_owned(),
+                probe: Vec::new(),
+                referenced_plugins: vec![plugin_id.to_owned()],
+            },
+        )
         .await
     }
 }
@@ -627,17 +2002,89 @@ fn registry_error(error: impl std::fmt::Display) -> PluginError {
     PluginError::registry(error.to_string())
 }
 
+async fn gc_runtime_locks(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<(), PluginError> {
+    sqlx::query(
+        "DELETE FROM plugin_runtime_locks_v4
+         WHERE NOT EXISTS (
+           SELECT 1 FROM plugin_installations_v4 i
+           WHERE i.plugin_id = plugin_runtime_locks_v4.plugin_id
+             AND (i.current_package_digest = plugin_runtime_locks_v4.package_digest
+               OR i.rollback_package_digest = plugin_runtime_locks_v4.package_digest)
+         )",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(registry_error)?;
+    sqlx::query(
+        "DELETE FROM plugin_runtime_artifacts_v4
+         WHERE NOT EXISTS (
+           SELECT 1 FROM plugin_runtime_locks_v4 l
+           WHERE l.runtime_id = plugin_runtime_artifacts_v4.runtime_id
+             AND l.version = plugin_runtime_artifacts_v4.version
+             AND l.target = plugin_runtime_artifacts_v4.target
+             AND l.content_digest = plugin_runtime_artifacts_v4.content_digest
+         )",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(registry_error)?;
+    Ok(())
+}
+
+fn external_runtime_target() -> String {
+    "external".to_owned()
+}
+
+fn external_runtime_ownership() -> String {
+    "external".to_owned()
+}
+
+type RuntimeArtifactKey = (String, String, String, String);
+
+fn runtime_artifact_key(runtime: &RuntimeInstallation) -> RuntimeArtifactKey {
+    (
+        runtime.id.clone(),
+        runtime.version.clone(),
+        runtime.target.clone(),
+        runtime.content_digest.clone(),
+    )
+}
+
+fn decode_runtime_row(
+    row: sqlx::sqlite::SqliteRow,
+    referenced_plugins: Vec<String>,
+) -> Result<RuntimeInstallation, PluginError> {
+    Ok(RuntimeInstallation {
+        id: row.get("runtime_id"),
+        version: row.get("version"),
+        target: row.get("target"),
+        content_digest: row.get("content_digest"),
+        executable_path: PathBuf::from(row.get::<String, _>("absolute_entrypoint")),
+        ownership: row.get("ownership"),
+        installer: row.get("installer"),
+        probe: serde_json::from_str(row.get::<String, _>("probe_evidence_json").as_str())
+            .map_err(registry_error)?,
+        referenced_plugins,
+    })
+}
+
+fn package_digest(package: &PluginPackage) -> Result<String, PluginError> {
+    crate::package_content_digest(package.content_root())
+}
+
 fn decode_plugin_row(row: sqlx::sqlite::SqliteRow) -> Result<InstalledPlugin, PluginError> {
     let package =
         serde_json::from_str::<PluginPackage>(row.get("package_json")).map_err(registry_error)?;
     Ok(InstalledPlugin {
         package,
+        package_digest: row.get("current_package_digest"),
         activation: if row.get::<i64, _>("enabled") == 1 {
             PluginActivation::Enabled
         } else {
             PluginActivation::Disabled
         },
-        shell_trusted: row.get::<i64, _>("trusted") == 1,
     })
 }
 
@@ -649,4 +2096,21 @@ fn source_kind_key(kind: crate::PluginSourceKind) -> &'static str {
         crate::PluginSourceKind::CodexNative => "codex_native",
         crate::PluginSourceKind::ClaudeCodeNative => "claude_code_native",
     }
+}
+
+fn contribution_kind_key(kind: crate::ContributionKind) -> &'static str {
+    match kind {
+        crate::ContributionKind::Skill => "skill",
+        crate::ContributionKind::Action => "action",
+        crate::ContributionKind::Command => "command",
+        crate::ContributionKind::Runtime => "runtime",
+        crate::ContributionKind::Mcp => "mcp",
+        crate::ContributionKind::FileOpener => "file_opener",
+        crate::ContributionKind::PreviewProvider => "preview_provider",
+        crate::ContributionKind::AppSurface => "app_surface",
+    }
+}
+
+fn package_publisher(package: &PluginPackage) -> &str {
+    package.publisher.as_deref().unwrap_or("legacy.local")
 }

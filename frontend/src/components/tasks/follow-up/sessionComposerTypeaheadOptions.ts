@@ -2,6 +2,7 @@ import type {
   OfficePluginCatalog,
   SlashCommandDescription,
 } from 'shared/types';
+import type { PluginActionCatalog } from '@/lib/api/plugins';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
 import { filterDollarCommands } from '@/lib/dollarCommands';
 import type { SearchResultItem } from '@/lib/searchTagsAndFiles';
@@ -31,7 +32,7 @@ export const MAX_REFERENCE_OPTIONS = 10;
 export function pluginActionsToTypeaheadOptions(
   catalog:
     | {
-        actions: OfficePluginCatalog['actions'];
+        actions: PluginActionCatalog['actions'];
         readiness?: OfficePluginCatalog['readiness'];
       }
     | null

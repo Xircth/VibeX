@@ -67,11 +67,11 @@ url = "2"
 browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
 browser-runtime = { path = "../crates/browser-runtime" }
 artifacts = { path = "../crates/artifacts" }
-office-runtime = { path = "../crates/office-runtime" }
 automation = { path = "../crates/automation" }
 application = { path = "../crates/application" }
 remote-protocol = { path = "../crates/remote-protocol" }
 plugins = { path = "../crates/plugins" }
+server = { path = "../crates/server" }
 tool-runtime = { path = "../crates/tool-runtime" }
 db = { path = "../crates/db" }
 conversations = { path = "../crates/conversations" }

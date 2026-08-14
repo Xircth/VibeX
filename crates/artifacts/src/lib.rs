@@ -2,21 +2,17 @@
 
 mod adapters;
 mod error;
-mod office;
 mod ports;
 mod preview;
 mod service;
 mod types;
 
 pub use adapters::{
-    CurrentToolInstallationResolver, LocalArtifactFilesystem, SqliteArtifactRepository,
-    SystemClock, TokioOfficeProcessRuntime, TokioTcpReadyProbe,
+    CurrentToolInstallationResolver, LocalArtifactFilesystem, SqliteArtifactRepository, SystemClock,
 };
 pub use error::{ArtifactServiceError, PortError};
-pub use office::{OfficeCliProvider, OfficeProcessId, OfficeProviderConfig};
 pub use ports::{
-    ArtifactEventSink, ArtifactFilesystem, ArtifactRepository, Clock, OfficeProcessRuntime,
-    TcpReadyProbe, ToolInstallationResolver,
+    ArtifactEventSink, ArtifactFilesystem, ArtifactRepository, Clock, ToolInstallationResolver,
 };
 pub use preview::{
     ArtifactProviderDescriptor, ArtifactProviderProbe, ArtifactToolProvider,

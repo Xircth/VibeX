@@ -192,13 +192,13 @@ fn validate_redirect_target(
 
 fn is_allowed_download_address(host: &str, address: IpAddr) -> bool {
     is_public_ip(address)
-        || (is_trusted_github_download_host(host) && is_proxy_synthetic_ip(address))
+        || (is_trusted_proxy_download_host(host) && is_proxy_synthetic_ip(address))
 }
 
-fn is_trusted_github_download_host(host: &str) -> bool {
+fn is_trusted_proxy_download_host(host: &str) -> bool {
     matches!(
         host.trim_end_matches('.').to_ascii_lowercase().as_str(),
-        "github.com" | "release-assets.githubusercontent.com"
+        "github.com" | "release-assets.githubusercontent.com" | "nodejs.org"
     )
 }
 

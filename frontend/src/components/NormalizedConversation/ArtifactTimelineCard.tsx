@@ -51,8 +51,7 @@ export function ArtifactTimelineCard({
   const lifecycleGenerationRef = useRef(0);
   const name = fileName(artifact.relative_path);
   const previewUrl = lease
-    ? (transport.artifactPreviewUrl?.(lease) ??
-      `http://127.0.0.1:${lease.loopbackPort}/`)
+    ? (lease.previewUrl ?? transport.artifactPreviewUrl?.(lease) ?? null)
     : null;
 
   useEffect(() => {

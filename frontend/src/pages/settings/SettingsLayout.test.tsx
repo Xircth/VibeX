@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -78,5 +79,38 @@ describe('SettingsLayout capability gating', () => {
     expect(
       screen.queryByRole('button', { name: /^agents?$|^Agent$/i })
     ).not.toBeInTheDocument();
+  });
+
+  it('opens Plugins as a top-level product module', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'web',
+      call: vi.fn(),
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: '1.0.0',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read'],
+      }),
+    };
+    render(
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/settings/agents']}>
+          <Routes>
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route path="agents" element={<div>Agent content</div>} />
+            </Route>
+            <Route path="/plugins" element={<div>Product plugins</div>} />
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: /plugins|插件/i })
+    );
+
+    expect(screen.getByText('Product plugins')).toBeInTheDocument();
+    expect(screen.queryByText('Agent content')).not.toBeInTheDocument();
   });
 });

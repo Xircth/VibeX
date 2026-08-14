@@ -20,8 +20,8 @@ use filesystem_ops::{
 use git_head::get_file_at_head_content;
 pub use listing::{DirectoryChildrenResponse, FileTreeEntry};
 use listing::{get_file_tree_entries, list_directory_children_at_path};
-pub use preview::{BinaryAssetResponse, DocumentPreviewResponse};
-use preview::{read_binary_asset_file, read_document_preview_content};
+pub use preview::BinaryAssetResponse;
+use preview::read_binary_asset_file;
 use search::search_workspace_text_at_path;
 pub use search::{TextSearchFileResult, TextSearchMatch, TextSearchOptions, TextSearchResponse};
 
@@ -271,16 +271,6 @@ pub async fn get_claude_settings_path() -> String {
 #[tauri::command]
 pub async fn read_file_content(path: String) -> Result<String, AppError> {
     read_file_content_at_path(&path)
-}
-
-#[tauri::command]
-pub async fn read_document_preview(path: String) -> Result<DocumentPreviewResponse, AppError> {
-    let file_path = sanitize_file_path(&path)?;
-    if !file_path.is_file() {
-        return Err(AppError::NotFound(format!("File not found: {}", path)));
-    }
-
-    read_document_preview_content(&file_path).await
 }
 
 #[tauri::command]

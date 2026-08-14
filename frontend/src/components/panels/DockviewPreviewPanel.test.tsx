@@ -1,8 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { IDockviewPanelProps } from 'dockview-react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import DockviewPreviewPanel from './DockviewPreviewPanel';
+
+const api = vi.hoisted(() => ({ resolveFileOpener: vi.fn() }));
+
+vi.mock('@/lib/api/plugins', () => ({
+  pluginControlApi: { resolveFileOpener: api.resolveFileOpener },
+}));
+
+vi.mock('@/components/previews/PluginArtifactEditor', () => ({
+  PluginArtifactEditor: ({ filePath }: { filePath: string }) => (
+    <div data-testid="plugin-artifact-editor">{filePath}</div>
+  ),
+}));
 
 vi.mock('@monaco-editor/react', () => ({
   default: () => (
@@ -22,11 +34,6 @@ vi.mock('@/hooks/useFileContent', () => ({
     error: null,
   }),
   useFileAtHead: () => ({
-    data: null,
-    isLoading: false,
-    error: null,
-  }),
-  useDocumentPreview: () => ({
     data: null,
     isLoading: false,
     error: null,
@@ -62,13 +69,46 @@ function panelProps(): IDockviewPanelProps {
 }
 
 describe('DockviewPreviewPanel', () => {
-  it('switches Markdown source to preview on a middle click inside Monaco', () => {
+  beforeEach(() => {
+    api.resolveFileOpener.mockReset().mockResolvedValue(null);
+  });
+
+  it('switches Markdown source to preview on a middle click inside Monaco', async () => {
     render(<DockviewPreviewPanel {...panelProps()} />);
 
-    expect(screen.getByRole('button', { name: 'Source' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Source' })).toBeVisible();
 
     fireEvent.mouseDown(screen.getByTestId('monaco-editor'), { button: 1 });
 
     expect(screen.getByRole('button', { name: 'Preview' })).toBeVisible();
+  });
+
+  it('mounts an App-backed file opener as the editable file tab', async () => {
+    api.resolveFileOpener.mockResolvedValue({
+      pluginId: 'vibex.drawio',
+      contributionId: 'drawio-files',
+      label: 'Drawio editor',
+      handler: 'drawio-editor',
+      target: 'app_surface',
+      priority: 100,
+      generation: 7,
+    });
+
+    render(
+      <DockviewPreviewPanel
+        {...({
+          params: {
+            filePath: 'architecture.drawio',
+            displayPath: 'architecture.drawio',
+            mode: 'editor',
+          },
+        } as unknown as IDockviewPanelProps)}
+      />
+    );
+
+    expect(
+      await screen.findByTestId('plugin-artifact-editor')
+    ).toHaveTextContent('/workspace/architecture.drawio');
+    expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
   });
 });

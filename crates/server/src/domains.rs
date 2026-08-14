@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use agents::{AgentId, SessionLaunchLock};
 use application::{ApplicationDomainPort, ApplicationError, DomainCommand, Principal};
-use artifacts::{ArtifactRepository, OpenPreview, SqliteArtifactRepository};
+use artifacts::{ArtifactRepository, SqliteArtifactRepository};
 use async_trait::async_trait;
 use automation::{
     AutomationDraft, AutomationDraftInput, BuiltinTemplateCatalog, ClaimedRun,
@@ -18,7 +18,6 @@ use db::models::{
 };
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
-use office_runtime::OfficeRuntime;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -30,32 +29,63 @@ use crate::{PreviewProxyRegistry, automation_runtime::HeadlessAutomationRuntime}
 #[derive(Clone)]
 pub(crate) struct ServerApplicationDomains {
     pool: SqlitePool,
-    office: Arc<OfficeRuntime>,
+    plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    capability_broker: Arc<plugins::HostCapabilityBroker>,
+    app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     preview_proxy: PreviewProxyRegistry,
     automation: HeadlessAutomationRuntime,
     owns_automation_engine: bool,
     conversations: ConversationContext,
     deployment: Arc<LocalDeployment>,
+    runtime_root: std::path::PathBuf,
+    worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+}
+
+pub(crate) struct ServerDomainDependencies {
+    pub(crate) pool: SqlitePool,
+    pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    pub(crate) preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub(crate) app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    pub(crate) preview_proxy: PreviewProxyRegistry,
+    pub(crate) automation: HeadlessAutomationRuntime,
+    pub(crate) owns_automation_engine: bool,
+    pub(crate) conversations: ConversationContext,
+    pub(crate) deployment: Arc<LocalDeployment>,
+    pub(crate) runtime_root: std::path::PathBuf,
+    pub(crate) worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
 }
 
 impl ServerApplicationDomains {
-    pub(crate) fn new(
-        pool: SqlitePool,
-        office: Arc<OfficeRuntime>,
-        preview_proxy: PreviewProxyRegistry,
-        automation: HeadlessAutomationRuntime,
-        owns_automation_engine: bool,
-        conversations: ConversationContext,
-        deployment: Arc<LocalDeployment>,
-    ) -> Self {
-        Self {
+    pub(crate) fn new(dependencies: ServerDomainDependencies) -> Self {
+        let ServerDomainDependencies {
             pool,
-            office,
+            plugin_control_plane,
+            preview_host,
+            capability_broker,
+            app_surfaces,
             preview_proxy,
             automation,
             owns_automation_engine,
             conversations,
             deployment,
+            runtime_root,
+            worker_runtime,
+        } = dependencies;
+        Self {
+            pool,
+            plugin_control_plane,
+            preview_host,
+            capability_broker,
+            app_surfaces,
+            preview_proxy,
+            automation,
+            owns_automation_engine,
+            conversations,
+            deployment,
+            runtime_root,
+            worker_runtime,
         }
     }
 
@@ -70,7 +100,23 @@ impl ServerApplicationDomains {
     ) -> Result<Value, ApplicationError> {
         match command {
             DomainCommand::PluginActionCatalog => self.plugin_catalog().await,
-            DomainCommand::PluginSkillsConfigure => self.configure_plugin_skills(args).await,
+            DomainCommand::PluginControlCatalog => self.plugin_control_catalog().await,
+            DomainCommand::PluginProductDetail => self.plugin_product_detail(args).await,
+            DomainCommand::PluginSaveConfig => self.plugin_save_config(args).await,
+            DomainCommand::PluginContributionCatalog => self.plugin_contribution_catalog().await,
+            DomainCommand::PluginResolveFileOpener => self.plugin_resolve_file_opener(args).await,
+            DomainCommand::PluginOpenFilePreview => self.plugin_open_file_preview(args).await,
+            DomainCommand::PluginCloseFilePreview => self.plugin_close_file_preview(args).await,
+            DomainCommand::PluginControlSetEnabled => self.plugin_control_set_enabled(args).await,
+            DomainCommand::PluginControlGrantPermissions => {
+                self.plugin_control_grant_permissions(args).await
+            }
+            DomainCommand::PluginControlInstallRuntime => {
+                self.plugin_control_install_runtime(args).await
+            }
+            DomainCommand::PluginSurfaceOpen => self.plugin_surface_open(args).await,
+            DomainCommand::PluginSurfaceInvoke => self.plugin_surface_invoke(args).await,
+            DomainCommand::PluginSurfaceRevoke => self.plugin_surface_revoke(args).await,
             DomainCommand::ProjectList => self.project_list().await,
             DomainCommand::ProjectRepositories => self.project_repositories(args).await,
             DomainCommand::RepoBranches => self.repo_branches(args).await,
@@ -78,9 +124,6 @@ impl ServerApplicationDomains {
             DomainCommand::AgentCapabilityCatalog => self.agent_capability_catalog(args).await,
             DomainCommand::AgentSkillsList => self.agent_skills(args).await,
             DomainCommand::UserSystemInfo => self.user_system_info().await,
-            DomainCommand::OfficeCliInstall => self.install_office(args).await,
-            DomainCommand::OfficeCliCancelInstall => self.cancel_office_install(args).await,
-            DomainCommand::OfficePluginSetEnabled => self.set_office_enabled(args).await,
             DomainCommand::ArtifactList => self.artifact_list(args).await,
             DomainCommand::ArtifactOpenPreview => self.open_preview(args).await,
             DomainCommand::ArtifactClosePreview => self.close_preview(args).await,
@@ -143,7 +186,11 @@ impl ServerApplicationDomains {
                                 "pluginId": plugin_id,
                                 "actionId": invocation.id,
                                 "label": invocation.label,
-                                "requiredSkills": invocation.skill.into_iter().collect::<Vec<_>>(),
+                                "requiredSkills": if invocation.required_skills.is_empty() {
+                                    invocation.skill.into_iter().collect::<Vec<_>>()
+                                } else {
+                                    invocation.required_skills
+                                },
                                 "requiredTools": required_tools,
                                 "promptBlocks": [{ "type": "text", "text": invocation.prompt }],
                                 "artifactIntent": null,
@@ -153,6 +200,385 @@ impl ServerApplicationDomains {
             })
             .collect::<Vec<_>>();
         Ok(json!({ "actions": actions }))
+    }
+
+    async fn plugin_control_catalog(&self) -> Result<Value, ApplicationError> {
+        let control_plane = self.plugin_control_plane().await?;
+        let plugins = control_plane.catalog().await.map_err(internal_error)?;
+        let runtimes = control_plane
+            .runtime_inventory()
+            .await
+            .map_err(internal_error)?;
+        let plugin_values = plugins.iter().map(plugin_control_item).collect::<Vec<_>>();
+        let runtime_values = runtimes
+            .into_iter()
+            .map(|runtime| {
+                json!({
+                    "id": runtime.id,
+                    "version": runtime.version,
+                    "target": runtime.target,
+                    "contentDigest": runtime.content_digest,
+                    // Remote catalog readers receive runtime identity/evidence,
+                    // never a Host filesystem capability or absolute path.
+                    "executablePath": "",
+                    "ownership": runtime.ownership,
+                    "installer": runtime.installer,
+                    "probe": runtime.probe,
+                    "referencedPlugins": runtime.referenced_plugins,
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({ "plugins": plugin_values, "runtimes": runtime_values }))
+    }
+
+    async fn plugin_product_detail(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginIdentityArgs = parse(args)?;
+        let plugin = self
+            .plugin_control_plane()
+            .await?
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        serialize(plugin.product_detail().map_err(internal_error)?)
+    }
+
+    async fn plugin_save_config(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginConfigArgs = parse(args)?;
+        let plugin = self
+            .plugin_control_plane()
+            .await?
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        plugin.write_config(args.config).map_err(internal_error)?;
+        let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+            .map_err(internal_error)?;
+        serialize(refreshed.product_detail().map_err(internal_error)?)
+    }
+
+    async fn plugin_contribution_catalog(&self) -> Result<Value, ApplicationError> {
+        let catalog = self
+            .plugin_control_plane()
+            .await?
+            .contributions()
+            .await
+            .map_err(internal_error)?;
+        serialize(catalog)
+    }
+
+    async fn plugin_resolve_file_opener(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: ResolveFileOpenerArgs = parse(args)?;
+        serialize(
+            self.plugin_control_plane()
+                .await?
+                .resolve_file_opener(args.extension.as_deref(), args.media_type.as_deref())
+                .await
+                .map_err(internal_error)?,
+        )
+    }
+
+    async fn plugin_control_set_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginEnabledArgs = parse(args)?;
+        let control_plane = self.plugin_control_plane().await?;
+        if args.enabled {
+            let plugin = control_plane
+                .plugin(&args.plugin_id)
+                .await
+                .map_err(internal_error)?
+                .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+            self.ensure_plugin_runtimes(&plugin).await?;
+            let grants = plugins::candidate_capability_grants(&plugin.package, &[], &[])
+                .map_err(plugin_error)?;
+            control_plane
+                .validate_runtime_readiness(&args.plugin_id)
+                .await
+                .map_err(|error| ApplicationError::conflict(error.to_string()))?;
+            control_plane
+                .activate_and_enable(
+                    &self
+                        .worker_runtime
+                        .resolve()
+                        .await
+                        .map_err(internal_error)?,
+                    &args.plugin_id,
+                    &grants,
+                    self.capability_broker.clone(),
+                )
+                .await
+                .map_err(|error| ApplicationError::conflict(error.to_string()))?;
+        } else {
+            control_plane
+                .set_enabled(&args.plugin_id, false)
+                .await
+                .map_err(internal_error)?;
+            control_plane
+                .deactivate_worker(&args.plugin_id)
+                .await
+                .map_err(internal_error)?;
+        }
+        let plugin = control_plane
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        Ok(plugin_control_item(&plugin))
+    }
+
+    async fn plugin_control_grant_permissions(
+        &self,
+        args: Value,
+    ) -> Result<Value, ApplicationError> {
+        let args: PluginGrantPermissionsArgs = parse(args)?;
+        let control_plane = self.plugin_control_plane().await?;
+        control_plane
+            .grant_permissions(&args.plugin_id, &args.permission_ids)
+            .await
+            .map_err(internal_error)?;
+        serialize(
+            control_plane
+                .capability_grants(&args.plugin_id)
+                .await
+                .map_err(internal_error)?,
+        )
+    }
+
+    async fn plugin_control_install_runtime(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginRuntimeArgs = parse(args)?;
+        let control_plane = self.plugin_control_plane().await?;
+        let plugin = control_plane
+            .plugin(&args.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("plugin {}", args.plugin_id)))?;
+        let runtime = plugin
+            .runtimes
+            .iter()
+            .find(|runtime| runtime.id == args.runtime_id)
+            .ok_or_else(|| ApplicationError::not_found(format!("runtime {}", args.runtime_id)))?;
+        let installation = self.install_declared_runtime(&plugin, runtime).await?;
+        serialize(installation)
+    }
+
+    async fn ensure_plugin_runtimes(
+        &self,
+        plugin: &plugins::InstalledPlugin,
+    ) -> Result<(), ApplicationError> {
+        for runtime in &plugin.runtimes {
+            let ready = self
+                .plugin_control_plane
+                .runtime_for_plugin(plugin.id(), &runtime.id)
+                .await
+                .map_err(plugin_error)?
+                .is_some_and(|locked| runtime_lock_matches(runtime, &locked));
+            if !ready {
+                self.install_declared_runtime(plugin, runtime).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn install_declared_runtime(
+        &self,
+        plugin: &plugins::InstalledPlugin,
+        runtime: &plugins::RuntimeContribution,
+    ) -> Result<plugins::RuntimeInstallation, ApplicationError> {
+        if let Some(existing) = self
+            .plugin_control_plane
+            .runtime_inventory()
+            .await
+            .map_err(plugin_error)?
+            .into_iter()
+            .find(|locked| runtime_lock_matches(runtime, locked))
+        {
+            self.plugin_control_plane
+                .record_runtime(plugin.id(), existing.clone())
+                .await
+                .map_err(plugin_error)?;
+            return Ok(existing);
+        }
+        let host = plugins::ContentAddressedRuntimeHost::new(self.runtime_root.clone(), runtime)
+            .map_err(plugin_error)?;
+        let installation = plugins::GlobalRuntimeInstaller::new(&host)
+            .install(plugin.id(), runtime)
+            .await
+            .map_err(plugin_error)?;
+        self.plugin_control_plane
+            .record_runtime(plugin.id(), installation.clone())
+            .await
+            .map_err(plugin_error)?;
+        Ok(installation)
+    }
+
+    async fn plugin_surface_open(&self, args: Value) -> Result<Value, ApplicationError> {
+        let request: plugins::AppSurfaceOpenRequest = parse(args)?;
+        if let Some(path) = request.artifact_path.as_deref() {
+            let path = path
+                .to_str()
+                .ok_or_else(|| ApplicationError::bad_request("artifact path is invalid"))?;
+            self.ensure_registered_repo_file(path).await?;
+        }
+        serialize(
+            self.app_surfaces
+                .open(request)
+                .await
+                .map_err(app_surface_error)?,
+        )
+    }
+
+    async fn plugin_surface_invoke(&self, args: Value) -> Result<Value, ApplicationError> {
+        self.app_surfaces
+            .invoke(parse(args)?)
+            .await
+            .map_err(app_surface_error)
+    }
+
+    async fn plugin_surface_revoke(&self, args: Value) -> Result<Value, ApplicationError> {
+        let identity: plugins::AppSurfaceIdentity = parse(args)?;
+        self.app_surfaces
+            .revoke(&identity)
+            .await
+            .map_err(app_surface_error)?;
+        Ok(Value::Null)
+    }
+
+    async fn plugin_open_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginFilePreviewArgs = parse(args)?;
+        self.ensure_registered_repo_file(&args.file_path).await?;
+        let extension = std::path::Path::new(&args.file_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase);
+        let control_plane = self.plugin_control_plane().await?;
+        let Some(resolved) = control_plane
+            .resolve_file_opener(extension.as_deref(), None)
+            .await
+            .map_err(internal_error)?
+        else {
+            return Ok(Value::Null);
+        };
+        let catalog = control_plane
+            .contributions()
+            .await
+            .map_err(internal_error)?;
+        let opener = catalog.items.iter().find(|item| {
+            item.plugin_id == resolved.plugin_id
+                && item.id == resolved.contribution_id
+                && item.kind == plugins::ContributionKind::FileOpener
+        });
+        let preview = catalog
+            .items
+            .iter()
+            .find(|item| {
+                item.plugin_id == resolved.plugin_id
+                    && item.id == resolved.handler
+                    && item.kind == plugins::ContributionKind::PreviewProvider
+            })
+            .ok_or_else(|| ApplicationError::internal("resolved preview provider disappeared"))?;
+        let media_type = opener
+            .and_then(|item| item.metadata.get("mediaTypes"))
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(Value::as_str)
+            .unwrap_or("application/octet-stream")
+            .to_owned();
+        let provider_id = preview.id.clone();
+        let plugin = control_plane
+            .plugin(&resolved.plugin_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::internal("resolved preview plugin disappeared"))?;
+        let result = plugins::PluginArtifactPreviewService::new(
+            self.plugin_control_plane.clone(),
+            self.capability_broker.clone(),
+        )
+        .open(plugins::PluginPreviewRequest {
+            file_path: args.file_path,
+            media_type,
+            plugin_id: resolved.plugin_id.clone(),
+            plugin_version: plugin.version.clone(),
+            provider_id: provider_id.clone(),
+            generation: 0,
+            package_digest: String::new(),
+        })
+        .await
+        .map_err(|error| error.to_string());
+        match result {
+            Ok(lease) => {
+                let lease_id = Uuid::parse_str(&lease.lease_id).map_err(internal_error)?;
+                self.preview_proxy
+                    .register(
+                        lease_id,
+                        lease.loopback_port,
+                        &lease.capability_token,
+                        lease.expires_at_unix_ms,
+                    )
+                    .await
+                    .map_err(internal_error)?;
+                Ok(json!({
+                    "pluginId": resolved.plugin_id,
+                    "providerId": provider_id,
+                    "generation": resolved.generation,
+                    "leaseId": lease_id,
+                    "capabilityToken": lease.capability_token,
+                    "expiresAtUnixMs": lease.expires_at_unix_ms,
+                    "port": lease.loopback_port,
+                    "errorCode": Value::Null,
+                    "errorMessage": Value::Null,
+                }))
+            }
+            Err(error) => Ok(json!({
+                "pluginId": resolved.plugin_id,
+                "providerId": provider_id,
+                "generation": resolved.generation,
+                "leaseId": Value::Null,
+                "capabilityToken": Value::Null,
+                "expiresAtUnixMs": Value::Null,
+                "port": Value::Null,
+                "errorCode": "PREVIEW_WORKER_FAILED",
+                "errorMessage": error,
+            })),
+        }
+    }
+
+    async fn ensure_registered_repo_file(&self, file_path: &str) -> Result<(), ApplicationError> {
+        let requested = tokio::fs::canonicalize(file_path)
+            .await
+            .map_err(|_| ApplicationError::not_found("preview file was not found"))?;
+        if !requested.is_file() {
+            return Err(ApplicationError::bad_request(
+                "preview target must be a regular file",
+            ));
+        }
+        let roots = sqlx::query_scalar::<_, String>("SELECT path FROM repos")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(internal_error)?;
+        for root in roots {
+            let Ok(root) = tokio::fs::canonicalize(root).await else {
+                continue;
+            };
+            if requested != root && requested.starts_with(root) {
+                return Ok(());
+            }
+        }
+        Err(ApplicationError::forbidden(
+            "preview file is outside every registered repository",
+        ))
+    }
+
+    async fn plugin_close_file_preview(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: PluginFilePreviewArgs = parse(args)?;
+        if let Some(lease_id) = args.lease_id {
+            self.preview_proxy.revoke(lease_id).await;
+        }
+        let lease_id = args.lease_id.map(|value| value.to_string());
+        self.preview_host
+            .close_preview(&args.file_path, lease_id.as_deref())
+            .await
+            .map_err(internal_error)?;
+        Ok(Value::Null)
     }
 
     async fn project_list(&self) -> Result<Value, ApplicationError> {
@@ -244,71 +670,6 @@ impl ServerApplicationDomains {
         }))
     }
 
-    async fn install_office(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: TaskArgs = parse(args)?;
-        require_nonempty(&args.task_id, "taskId")?;
-        let lock = self
-            .office
-            .install(&args.task_id)
-            .await
-            .map_err(internal_error)?;
-        Ok(json!({
-            "installed": true,
-            "version": lock.version,
-            "path": lock.executable_path,
-            "runtimeError": null,
-        }))
-    }
-
-    async fn cancel_office_install(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: TaskArgs = parse(args)?;
-        require_nonempty(&args.task_id, "taskId")?;
-        Ok(json!(self.office.cancel_install(&args.task_id).await))
-    }
-
-    async fn set_office_enabled(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: EnableOfficeArgs = parse(args)?;
-        require_nonempty(&args.task_id, "taskId")?;
-        self.office
-            .set_bundled_enabled(args.enabled, &args.task_id)
-            .await
-            .map_err(internal_error)?;
-        let control_plane = self.plugin_control_plane().await?;
-        control_plane
-            .set_enabled("vibex.office", args.enabled)
-            .await
-            .map_err(internal_error)?;
-        if args.enabled
-            && let Some(lock) = self.office.detect().await.map_err(internal_error)?
-        {
-            control_plane
-                .record_runtime(plugins::RuntimeInstallation {
-                    id: lock.tool_id,
-                    version: lock.version,
-                    executable_path: self
-                        .office
-                        .global_executable_path()
-                        .map_err(internal_error)?,
-                    installer: "vibex_bundled_binary".to_owned(),
-                    probe: vec!["--version".to_owned()],
-                })
-                .await
-                .map_err(internal_error)?;
-        }
-        self.plugin_catalog().await
-    }
-
-    async fn configure_plugin_skills(&self, args: Value) -> Result<Value, ApplicationError> {
-        let args: ConfigurePluginSkillsArgs = parse(args)?;
-        require_nonempty(&args.plugin_id, "pluginId")?;
-        let skills = self
-            .office
-            .configure_bundled_skills(&args.plugin_id, args.apps, args.all_agents, args.link)
-            .await
-            .map_err(internal_error)?;
-        serialize(skills)
-    }
-
     async fn artifact_list(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ArtifactListArgs = parse(args)?;
         let ids = if let Some(conversation_id) = args.conversation_id {
@@ -343,17 +704,34 @@ impl ServerApplicationDomains {
 
     async fn open_preview(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: ArtifactIdArgs = parse(args)?;
-        let lease = self
-            .office
-            .artifact_service()
-            .open_preview(OpenPreview {
-                artifact_id: args.artifact_id,
-            })
+        let artifact = SqliteArtifactRepository::new(self.pool.clone())
+            .find(args.artifact_id)
+            .await
+            .map_err(internal_error)?
+            .ok_or_else(|| ApplicationError::not_found(format!("artifact {}", args.artifact_id)))?;
+        let file_path = tokio::fs::canonicalize(artifact.scope_root.join(&artifact.relative_path))
             .await
             .map_err(internal_error)?;
+        let provider_id = artifact.producer.provider_id.clone();
+        let lease = plugins::PluginArtifactPreviewService::new(
+            self.plugin_control_plane.clone(),
+            self.capability_broker.clone(),
+        )
+        .open(plugins::PluginPreviewRequest {
+            file_path: file_path.to_string_lossy().into_owned(),
+            media_type: artifact.media_type,
+            plugin_id: artifact.producer.plugin_id,
+            plugin_version: artifact.producer.plugin_version,
+            provider_id: provider_id.clone(),
+            generation: 0,
+            package_digest: String::new(),
+        })
+        .await
+        .map_err(internal_error)?;
+        let lease_id = Uuid::parse_str(&lease.lease_id).map_err(internal_error)?;
         self.preview_proxy
             .register(
-                lease.id,
+                lease_id,
                 lease.loopback_port,
                 &lease.capability_token,
                 lease.expires_at_unix_ms,
@@ -361,24 +739,26 @@ impl ServerApplicationDomains {
             .await
             .map_err(internal_error)?;
         Ok(json!({
-            "leaseId": lease.id,
-            "artifactId": lease.artifact_id,
-            "providerId": lease.provider_id,
+            "leaseId": lease_id,
+            "artifactId": args.artifact_id,
+            "providerId": provider_id,
             "loopbackPort": lease.loopback_port,
             "capabilityToken": lease.capability_token,
             "expiresAtUnixMs": lease.expires_at_unix_ms,
-            "docxFallbackSupported": lease.docx_fallback_supported,
+            "docxFallbackSupported": false,
         }))
     }
 
     async fn close_preview(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: LeaseIdArgs = parse(args)?;
         self.preview_proxy.revoke(args.lease_id).await;
-        self.office
-            .artifact_service()
-            .close_preview(args.lease_id)
-            .await
-            .map_err(internal_error)?;
+        plugins::PluginArtifactPreviewService::new(
+            self.plugin_control_plane.clone(),
+            self.capability_broker.clone(),
+        )
+        .close("", Some(&args.lease_id.to_string()))
+        .await
+        .map_err(internal_error)?;
         Ok(Value::Null)
     }
 
@@ -606,26 +986,8 @@ impl ServerApplicationDomains {
         Ok(UnifiedActionCatalog { actions })
     }
 
-    async fn plugin_control_plane(&self) -> Result<plugins::PluginControlPlane, ApplicationError> {
-        let control_plane = plugins::PluginControlPlane::new(Arc::new(
-            plugins::SqlitePluginRegistry::new(self.pool.clone()),
-        ));
-        if control_plane
-            .plugin("vibex.office")
-            .await
-            .map_err(internal_error)?
-            .is_none()
-        {
-            let package = office_runtime::materialize_bundled_plugin_package(
-                &utils::assets::asset_dir().join("plugins/office"),
-            )
-            .map_err(internal_error)?;
-            control_plane
-                .import(package, plugins::ConflictDecision::Reject)
-                .await
-                .map_err(internal_error)?;
-        }
-        Ok(control_plane)
+    async fn plugin_control_plane(&self) -> Result<&plugins::PluginControlPlane, ApplicationError> {
+        Ok(self.plugin_control_plane.as_ref())
     }
 }
 
@@ -656,25 +1018,51 @@ impl PluginActionCatalogPort for UnifiedActionCatalog {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TaskArgs {
-    task_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EnableOfficeArgs {
-    enabled: bool,
-    task_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConfigurePluginSkillsArgs {
+struct PluginEnabledArgs {
     plugin_id: String,
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginIdentityArgs {
+    plugin_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginConfigArgs {
+    plugin_id: String,
+    config: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginGrantPermissionsArgs {
+    plugin_id: String,
+    permission_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginRuntimeArgs {
+    plugin_id: String,
+    runtime_id: String,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveFileOpenerArgs {
+    extension: Option<String>,
+    media_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilePreviewArgs {
+    file_path: String,
     #[serde(default)]
-    apps: Vec<String>,
-    all_agents: bool,
-    link: bool,
+    lease_id: Option<Uuid>,
 }
 
 #[derive(Default, Deserialize)]
@@ -826,6 +1214,144 @@ fn automation_view(record: AutomationRecord) -> AutomationView {
     }
 }
 
+fn plugin_control_item(plugin: &plugins::InstalledPlugin) -> Value {
+    let formats = plugin
+        .formats
+        .iter()
+        .map(|format| match format {
+            plugins::PackageFormat::VibeX => "vibex",
+            plugins::PackageFormat::Codex => "codex",
+            plugins::PackageFormat::ClaudeCode => "claude_code",
+        })
+        .collect::<Vec<_>>();
+    let source_kind = match plugin.source.kind {
+        plugins::PluginSourceKind::Builtin => "builtin",
+        plugins::PluginSourceKind::Snapshot => "snapshot",
+        plugins::PluginSourceKind::DeveloperLink => "developer_link",
+        plugins::PluginSourceKind::CodexNative => "codex_native",
+        plugins::PluginSourceKind::ClaudeCodeNative => "claude_code_native",
+    };
+    let invocations = plugin
+        .invocations
+        .iter()
+        .map(|invocation| {
+            json!({
+                "id": invocation.id,
+                "label": invocation.label,
+                "prompt": invocation.prompt,
+                "kind": match invocation.kind {
+                    plugins::InvocationKind::Action => "action",
+                    plugins::InvocationKind::Command => "command",
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let runtimes = plugin
+        .runtimes
+        .iter()
+        .map(|runtime| {
+            json!({
+                "id": runtime.id,
+                "command": runtime.command,
+                "version": runtime.version,
+                "target": runtime.target,
+                "contentDigest": runtime.content_digest,
+                "installer": match runtime.install {
+                    plugins::RuntimeInstall::Existing => "existing",
+                    plugins::RuntimeInstall::Binary { .. } => "binary",
+                    plugins::RuntimeInstall::Archive { .. } => "archive",
+                    plugins::RuntimeInstall::Npm { .. } => "npm",
+                    plugins::RuntimeInstall::Pipx { .. } => "pipx",
+                    plugins::RuntimeInstall::Cargo { .. } => "cargo",
+                },
+                "installCommand": Value::Null,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mcp_servers = plugin
+        .mcp
+        .as_object()
+        .map(|servers| servers.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let app_contributions = plugin
+        .app
+        .file_openers
+        .iter()
+        .map(|opener| {
+            json!({
+                "id": opener.id,
+                "kind": "file_opener",
+                "label": opener.label,
+                "metadata": {
+                    "extensions": opener.extensions,
+                    "mediaTypes": opener.media_types,
+                    "priority": opener.priority,
+                    "handler": opener.handler,
+                },
+            })
+        })
+        .chain(plugin.app.preview_providers.iter().map(|provider| {
+            json!({
+                "id": provider.id,
+                "kind": "preview_provider",
+                "label": provider.id,
+                "metadata": {
+                    "mediaTypes": provider.media_types,
+                    "runtime": provider.runtime,
+                    "maxConcurrentPreviews": provider.max_concurrent_previews,
+                    "handler": provider.handler,
+                },
+            })
+        }))
+        .chain(plugin.app.surfaces.iter().map(|surface| {
+            json!({
+                "id": surface.id,
+                "kind": "app_surface",
+                "label": surface.label,
+                "metadata": {
+                    "slot": surface.slot,
+                    "appEntrypoint": surface.app_entrypoint,
+                    "route": surface.route,
+                    "handler": surface.handler,
+                    "allowedMethods": surface.allowed_methods,
+                    "minHeight": surface.min_height,
+                },
+            })
+        }))
+        .collect::<Vec<_>>();
+    json!({
+        "id": plugin.id(),
+        "publisher": plugin.publisher,
+        "packageDigest": plugin.package_digest,
+        "updatePackageDigest": Value::Null,
+        "name": plugin.name,
+        "version": plugin.version,
+        "description": plugin.description,
+        "enabled": plugin.activation == plugins::PluginActivation::Enabled,
+        "builtin": plugin.source.kind == plugins::PluginSourceKind::Builtin,
+        "sourceKind": source_kind,
+        // Package contents are exposed through the contribution API; the
+        // server filesystem layout is not part of the Remote contract.
+        "sourcePath": "",
+        "formats": formats,
+        "skills": plugin.skills,
+        "runtimes": runtimes,
+        "warnings": plugin.warnings,
+        "permissions": plugin.permissions,
+        "permissionDelta": [],
+        "mcpCount": mcp_servers.len(),
+        "mcpServers": mcp_servers,
+        "invocationCount": invocations.len(),
+        "invocations": invocations,
+        "appContributions": app_contributions,
+        "nativeManaged": false,
+        "enableSupported": true,
+        "updateSupported": false,
+        "rollbackSupported": false,
+        "uninstallSupported": false,
+    })
+}
+
 fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
     AutomationRunView {
         id: run.snapshot.run_id,
@@ -861,18 +1387,48 @@ fn serialize(value: impl Serialize) -> Result<Value, ApplicationError> {
     serde_json::to_value(value).map_err(internal_error)
 }
 
-fn require_nonempty(value: &str, name: &str) -> Result<(), ApplicationError> {
-    if value.trim().is_empty() {
-        Err(ApplicationError::bad_request(format!(
-            "{name} must not be empty"
-        )))
-    } else {
-        Ok(())
+fn internal_error(error: impl std::fmt::Display) -> ApplicationError {
+    ApplicationError::internal(error.to_string())
+}
+
+fn runtime_lock_matches(
+    declared: &plugins::RuntimeContribution,
+    locked: &plugins::RuntimeInstallation,
+) -> bool {
+    declared
+        .version
+        .as_deref()
+        .is_none_or(|version| version == locked.version)
+        && (declared.target.is_empty() || declared.target == locked.target)
+        && (declared.content_digest.is_empty() || declared.content_digest == locked.content_digest)
+        && locked.executable_path.is_absolute()
+        && locked.executable_path.is_file()
+}
+
+fn plugin_error(error: plugins::PluginError) -> ApplicationError {
+    match error.code() {
+        "plugin_not_found" => ApplicationError::not_found(error.message()),
+        "plugin_manifest_invalid" | "plugin_manifest_major_unsupported" => {
+            ApplicationError::bad_request(error.message())
+        }
+        "plugin_runtime_not_ready"
+        | "plugin_id_conflict"
+        | "plugin_registry_failed"
+        | "native_operation_unsupported" => ApplicationError::conflict(error.message()),
+        "tool_platform_unsupported" => ApplicationError::capability_unavailable(error.message()),
+        _ => ApplicationError::internal(error.message()),
     }
 }
 
-fn internal_error(error: impl std::fmt::Display) -> ApplicationError {
-    ApplicationError::internal(error.to_string())
+fn app_surface_error(error: plugins::AppSurfaceError) -> ApplicationError {
+    match error.kind() {
+        plugins::AppSurfaceErrorKind::NotFound => ApplicationError::not_found(error.to_string()),
+        plugins::AppSurfaceErrorKind::BadRequest => {
+            ApplicationError::bad_request(error.to_string())
+        }
+        plugins::AppSurfaceErrorKind::Conflict => ApplicationError::conflict(error.to_string()),
+        plugins::AppSurfaceErrorKind::Internal => internal_error(error),
+    }
 }
 
 fn store_error(error: sqlx::Error) -> ApplicationError {

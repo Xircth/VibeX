@@ -2,6 +2,7 @@
 
 mod command;
 mod conversation;
+mod conversation_artifacts;
 mod conversation_execution;
 mod domain;
 mod error;
@@ -15,6 +16,7 @@ pub use conversation::{
     CreateConversation, ListConversations, RespondConversationPermission,
     RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
 };
+pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
 pub use conversations::ConversationTurnSnapshot;
 pub use db::models::conversation::DbConversationSummary as ConversationSummary;

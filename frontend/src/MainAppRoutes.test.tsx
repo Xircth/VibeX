@@ -111,6 +111,14 @@ vi.mock('@/pages/FullAttemptLogs', () => ({
   FullAttemptLogsPage: () => <div data-testid="full-attempt-logs-page" />,
 }));
 
+vi.mock('@/pages/Plugins', () => ({
+  PluginsPage: () => <div data-testid="plugins-page" />,
+}));
+
+vi.mock('@/pages/plugins/ProductPlugins', () => ({
+  PluginDetailPage: () => <div data-testid="plugin-detail-page" />,
+}));
+
 function renderAt(pathname: string) {
   render(
     <MemoryRouter initialEntries={[pathname]}>
@@ -159,6 +167,29 @@ describe('MainAppRoutes', () => {
     expect(await screen.findByTestId('settings-agents')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('keeps the product plugin module inside the settings layout', () => {
+    renderAt('/plugins');
+
+    expect(screen.getByTestId('plugins-page')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('keeps the settings layout around an independent plugin detail page', () => {
+    renderAt('/plugins/vibex.office');
+
+    expect(screen.getByTestId('plugin-detail-page')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
+    expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
+  });
+
+  it('redirects the legacy settings plugin path to the product module', async () => {
+    renderAt('/settings/plugins');
+
+    expect(await screen.findByTestId('plugins-page')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
   });
 
   it('does not expose the removed model providers settings route', () => {

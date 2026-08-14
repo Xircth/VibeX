@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fileTreeApi,
   type BinaryAssetResponse,
-  type DocumentPreviewResponse,
 } from '@/lib/api';
 import { fileTreeKeys } from '@/hooks/useFileTree';
 
@@ -11,8 +10,6 @@ export const fileContentKeys = {
   all: ['fileContent'] as const,
   byPath: (path: string | null) => ['fileContent', path] as const,
   headByPath: (path: string | null) => ['fileContentHead', path] as const,
-  documentPreviewByPath: (path: string | null) =>
-    ['documentPreview', path] as const,
   binaryAssetByPath: (path: string | null) => ['binaryAsset', path] as const,
 };
 
@@ -40,22 +37,6 @@ export function useFileAtHead(path: string | null) {
     queryKey: fileContentKeys.headByPath(path),
     queryFn: () => fileTreeApi.getFileAtHead(path!),
     enabled: !!path,
-    retry: false,
-    meta: {
-      suppressGlobalError: true,
-    },
-  });
-}
-
-/**
- * Hook to read read-only document preview content for Word files.
- */
-export function useDocumentPreview(path: string | null) {
-  return useQuery<DocumentPreviewResponse>({
-    queryKey: fileContentKeys.documentPreviewByPath(path),
-    queryFn: () => fileTreeApi.readDocumentPreview(path!),
-    enabled: !!path,
-    staleTime: 30_000,
     retry: false,
     meta: {
       suppressGlobalError: true,

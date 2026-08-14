@@ -1822,7 +1822,7 @@ export type ConversationArtifactPreviewReference = { artifact_id: string, provid
 
 export type ConversationArtifactReference = { artifact_id: string, workspace_id: string | null, relative_path: string, media_type: string, content_hash: string, revision: bigint, plugin_id: string, plugin_version: string, provider_id: string, tool_lock_id: string, };
 
-export type ArtifactPreviewLeaseDto = { leaseId: string, artifactId: string, providerId: string, loopbackPort: number, capabilityToken: string, expiresAtUnixMs: bigint, docxFallbackSupported: boolean, };
+export type ArtifactPreviewLeaseDto = { leaseId: string, artifactId: string, providerId: string, loopbackPort: number, capabilityToken: string, expiresAtUnixMs: bigint, previewUrl: string, docxFallbackSupported: boolean, };
 
 export type OfficeArtifactIntent = { mediaTypes: Array<string>, provider: string, };
 

@@ -77,9 +77,11 @@ export const configuredBackendTransport: BackendTransport = {
   },
   artifactPreviewUrl(lease) {
     const transport = getBackendTransport();
-    return (
-      transport.artifactPreviewUrl?.(lease) ??
-      `http://127.0.0.1:${lease.loopbackPort}/`
-    );
+    if (!transport.artifactPreviewUrl) {
+      throw new Error(
+        `Backend transport ${transport.environment} does not expose a capability-checked Artifact preview URL`
+      );
+    }
+    return transport.artifactPreviewUrl(lease);
   },
 };

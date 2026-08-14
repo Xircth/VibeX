@@ -1,12 +1,65 @@
 use std::sync::Arc;
 
 use plugins::{
-    ConflictDecision, ImportDisposition, InMemoryPluginRegistry, PluginActivation,
+    CapabilityGrant, CapabilityRequest, ConflictDecision, ContributionKind, FileOpenerContribution,
+    FileOpenerTarget, ImportDisposition, InMemoryPluginRegistry, PluginActivation,
     PluginControlPlane, PluginPackage, PluginSourceKind, RuntimeInstallation,
+    candidate_capability_grants,
 };
 
 fn package(id: &str, source: PluginSourceKind, root: &std::path::Path) -> PluginPackage {
     PluginPackage::for_test(id, "Test plugin", "1.0.0", source, root)
+}
+
+#[test]
+fn full_trust_candidates_implicitly_receive_every_declared_host_capability() {
+    let root = tempfile::tempdir().unwrap();
+    let mut candidate = package(
+        "dev.vibex.permissions",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    candidate.permissions = vec![
+        CapabilityRequest {
+            id: "existing".to_owned(),
+            capability: "runtime.execute".to_owned(),
+            scope: serde_json::json!({"runtime":"tool","operations":["inspect"]}),
+            reason: "Inspect".to_owned(),
+            optional: false,
+            trust_tier: "trusted_native".to_owned(),
+        },
+        CapabilityRequest {
+            id: "new-export".to_owned(),
+            capability: "artifact.preview".to_owned(),
+            scope: serde_json::json!({"providers":["report"]}),
+            reason: "Preview report".to_owned(),
+            optional: false,
+            trust_tier: "trusted_native".to_owned(),
+        },
+    ];
+    let published = vec![CapabilityGrant {
+        capability: "runtime.execute".to_owned(),
+        scope: serde_json::json!({"runtime":"tool","operations":["inspect"]}),
+        trust_tier: "trusted_native".to_owned(),
+    }];
+
+    let implicit = candidate_capability_grants(&candidate, &published, &[]).unwrap();
+    assert_eq!(implicit.len(), 2);
+    let ordinary_grant = vec![CapabilityGrant {
+        capability: "runtime.execute".to_owned(),
+        scope: serde_json::json!({"runtime":"tool","operations":["inspect"]}),
+        trust_tier: "sandboxed_worker".to_owned(),
+    }];
+    let escalation =
+        candidate_capability_grants(&candidate, &ordinary_grant, &["new-export".to_owned()])
+            .unwrap();
+    assert_eq!(escalation.len(), 2);
+    let grants =
+        candidate_capability_grants(&candidate, &published, &["new-export".to_owned()]).unwrap();
+    assert_eq!(grants.len(), 2);
+    let unknown =
+        candidate_capability_grants(&candidate, &published, &["ambient".to_owned()]).unwrap();
+    assert_eq!(unknown.len(), 2);
 }
 
 #[tokio::test]
@@ -27,11 +80,6 @@ async fn import_is_disabled_and_same_id_requires_an_explicit_decision() {
         .expect("first import");
     assert_eq!(imported.disposition, ImportDisposition::Installed);
     assert_eq!(imported.plugin.activation, PluginActivation::Disabled);
-
-    control_plane
-        .grant_shell_trust("dev.vibex.same-id")
-        .await
-        .expect("trust grant");
 
     let replacement = package(
         "dev.vibex.same-id",
@@ -71,14 +119,43 @@ async fn import_is_disabled_and_same_id_requires_an_explicit_decision() {
         replaced.plugin.source.path,
         second_root.path().canonicalize().unwrap()
     );
-    assert!(
-        replaced.plugin.shell_trusted,
-        "trust is keyed only by plugin id"
-    );
 }
 
 #[tokio::test]
-async fn uninstall_revokes_trust_but_retains_global_runtime_inventory() {
+async fn replacement_cannot_take_over_another_publishers_plugin_id() {
+    let root = tempfile::tempdir().unwrap();
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control = PluginControlPlane::new(registry);
+    let mut original = PluginPackage::for_test(
+        "dev.vibex.identity",
+        "Identity",
+        "1.0.0",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    original.publisher = Some("dev.vibex".into());
+    control
+        .import(original, ConflictDecision::Reject)
+        .await
+        .unwrap();
+
+    let mut takeover = PluginPackage::for_test(
+        "dev.vibex.identity",
+        "Identity",
+        "2.0.0",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    takeover.publisher = Some("evil.example".into());
+    let error = control
+        .import(takeover, ConflictDecision::Replace)
+        .await
+        .expect_err("publisher identity must be immutable");
+    assert_eq!(error.code(), "plugin_id_conflict");
+}
+
+#[tokio::test]
+async fn uninstall_removes_membership_but_retains_runtime_artifacts() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
@@ -89,11 +166,12 @@ async fn uninstall_revokes_trust_but_retains_global_runtime_inventory() {
         .await
         .expect("import plugin");
     control_plane
-        .grant_shell_trust("dev.vibex.remove")
-        .await
-        .expect("trust grant");
-    control_plane
-        .record_runtime_for_test("example-cli", "1.0.0", "/usr/local/bin/example")
+        .record_runtime_for_test(
+            "dev.vibex.remove",
+            "example-cli",
+            "1.0.0",
+            "/usr/local/bin/example",
+        )
         .await
         .expect("runtime lock");
 
@@ -109,17 +187,11 @@ async fn uninstall_revokes_trust_but_retains_global_runtime_inventory() {
             .unwrap()
             .is_none()
     );
-    assert!(
-        !control_plane
-            .is_shell_trusted("dev.vibex.remove")
-            .await
-            .unwrap()
-    );
     assert_eq!(control_plane.runtime_inventory().await.unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn runtime_version_conflict_names_every_plugin_that_will_be_removed() {
+async fn same_runtime_id_can_lock_multiple_versions_without_displacing_plugins() {
     let registry = Arc::new(InMemoryPluginRegistry::default());
     let control_plane = PluginControlPlane::new(registry);
     let root = tempfile::tempdir().unwrap();
@@ -140,28 +212,46 @@ async fn runtime_version_conflict_names_every_plugin_that_will_be_removed() {
             .unwrap();
     }
     control_plane
-        .record_runtime(RuntimeInstallation {
-            id: "shared-cli".to_owned(),
-            version: "1.0.0".to_owned(),
-            executable_path: "/usr/local/bin/shared".into(),
-            installer: "existing".to_owned(),
-            probe: vec!["--version".to_owned()],
-        })
+        .record_runtime(
+            "dev.vibex.first",
+            RuntimeInstallation {
+                id: "shared-cli".to_owned(),
+                version: "1.0.0".to_owned(),
+                target: "test-target".to_owned(),
+                content_digest: "sha256:shared-1".to_owned(),
+                executable_path: "/usr/local/bin/shared".into(),
+                ownership: "managed".to_owned(),
+                installer: "existing".to_owned(),
+                probe: vec!["--version".to_owned()],
+                referenced_plugins: vec![],
+            },
+        )
+        .await
+        .unwrap();
+    control_plane
+        .record_runtime(
+            "dev.vibex.incoming",
+            RuntimeInstallation {
+                id: "shared-cli".to_owned(),
+                version: "2.0.0".to_owned(),
+                target: "test-target".to_owned(),
+                content_digest: "sha256:shared-2".to_owned(),
+                executable_path: "/opt/vibex/shared/2/shared".into(),
+                ownership: "managed".to_owned(),
+                installer: "binary".to_owned(),
+                probe: vec!["--version".to_owned()],
+                referenced_plugins: vec![],
+            },
+        )
         .await
         .unwrap();
 
-    let conflict = control_plane
-        .preview_runtime_install("dev.vibex.incoming", "shared-cli")
-        .await
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(conflict.current_version, "1.0.0");
-    assert_eq!(conflict.target_version, "2.0.0");
-    assert_eq!(
-        conflict.affected_plugins,
-        vec!["dev.vibex.first", "dev.vibex.second"]
-    );
+    let inventory = control_plane.runtime_inventory().await.unwrap();
+    assert_eq!(inventory.len(), 2);
+    assert_eq!(inventory[0].version, "1.0.0");
+    assert_eq!(inventory[1].version, "2.0.0");
+    assert_eq!(inventory[0].referenced_plugins, vec!["dev.vibex.first"]);
+    assert_eq!(inventory[1].referenced_plugins, vec!["dev.vibex.incoming"]);
 }
 
 #[tokio::test]
@@ -175,6 +265,10 @@ async fn enabled_portable_action_resolves_from_the_unified_catalog() {
         label: "Review".to_owned(),
         prompt: "Use the review Skill.".to_owned(),
         skill: Some("test".to_owned()),
+        required_skills: vec!["test".to_owned()],
+        required_runtimes: Vec::new(),
+        handler: None,
+        artifact_intent: None,
         kind: plugins::InvocationKind::Action,
     });
     control_plane
@@ -193,11 +287,116 @@ async fn enabled_portable_action_resolves_from_the_unified_catalog() {
 
     assert_eq!(action.id.as_str(), "review");
     assert_eq!(action.required_skills[0].as_str(), "test");
+    assert_eq!(action.prompt_blocks.len(), 2);
     assert_eq!(
-        action.prompt_blocks,
-        vec![plugins::PromptBlock::Text {
+        action.prompt_blocks[0],
+        plugins::PromptBlock::Text {
             text: "Use the review Skill.".to_owned()
-        }]
+        }
+    );
+    let plugins::PromptBlock::Text { text } = &action.prompt_blocks[1];
+    assert!(text.contains("skills/test/SKILL.md"));
+}
+
+#[tokio::test]
+async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributions() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let mut plugin = package(
+        "dev.vibex.full-stack",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    plugin.app.file_openers.push(FileOpenerContribution {
+        id: "preview".to_owned(),
+        label: "Document preview".to_owned(),
+        extensions: vec!["docx".to_owned()],
+        media_types: vec![
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_owned(),
+        ],
+        priority: 100,
+        handler: "document.openPreview".to_owned(),
+        target: FileOpenerTarget::PreviewProvider,
+    });
+    control_plane
+        .import(plugin, ConflictDecision::Reject)
+        .await
+        .unwrap();
+
+    let disabled = control_plane.contributions().await.unwrap();
+    assert!(disabled.items.is_empty());
+
+    control_plane
+        .set_enabled("dev.vibex.full-stack", true)
+        .await
+        .unwrap();
+    let active = control_plane.contributions().await.unwrap();
+
+    assert!(active.generation > disabled.generation);
+    assert_eq!(
+        active
+            .items
+            .iter()
+            .filter(|item| item.plugin_id == "dev.vibex.full-stack")
+            .map(|item| item.kind)
+            .collect::<Vec<_>>(),
+        [ContributionKind::Skill, ContributionKind::FileOpener]
+    );
+    assert!(
+        active
+            .items
+            .iter()
+            .all(|item| item.generation == active.generation)
+    );
+
+    let unchanged = control_plane.contributions().await.unwrap();
+    assert_eq!(unchanged.generation, active.generation);
+}
+
+#[tokio::test]
+async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let mut plugin = package("dev.vibex.preview", PluginSourceKind::Snapshot, root.path());
+    plugin.skills.clear();
+    plugin.app.file_openers.push(FileOpenerContribution {
+        id: "office".to_owned(),
+        label: "Office preview".to_owned(),
+        extensions: vec!["docx".to_owned()],
+        media_types: Vec::new(),
+        priority: 90,
+        handler: "office.openPreview".to_owned(),
+        target: FileOpenerTarget::PreviewProvider,
+    });
+    control_plane
+        .import(plugin, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.preview", true)
+        .await
+        .unwrap();
+
+    let resolved = control_plane
+        .resolve_file_opener(Some("DOCX"), None)
+        .await
+        .unwrap()
+        .expect("enabled provider");
+    assert_eq!(resolved.plugin_id, "dev.vibex.preview");
+    assert_eq!(resolved.handler, "office.openPreview");
+
+    control_plane
+        .set_enabled("dev.vibex.preview", false)
+        .await
+        .unwrap();
+    assert!(
+        control_plane
+            .resolve_file_opener(Some("docx"), None)
+            .await
+            .unwrap()
+            .is_none()
     );
 }
 
@@ -206,6 +405,8 @@ fn runtime(id: &str, version: &str) -> plugins::RuntimeContribution {
         id: id.to_owned(),
         command: "shared".to_owned(),
         version: Some(version.to_owned()),
+        target: "test-target".to_owned(),
+        content_digest: format!("sha256:{id}-{version}"),
         probe: vec!["--version".to_owned()],
         install: plugins::RuntimeInstall::Existing,
     }

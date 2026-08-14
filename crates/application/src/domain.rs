@@ -8,7 +8,19 @@ use crate::{ApplicationError, Principal};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DomainCommand {
     PluginActionCatalog,
-    PluginSkillsConfigure,
+    PluginControlCatalog,
+    PluginProductDetail,
+    PluginSaveConfig,
+    PluginContributionCatalog,
+    PluginResolveFileOpener,
+    PluginOpenFilePreview,
+    PluginCloseFilePreview,
+    PluginControlSetEnabled,
+    PluginControlGrantPermissions,
+    PluginControlInstallRuntime,
+    PluginSurfaceOpen,
+    PluginSurfaceInvoke,
+    PluginSurfaceRevoke,
     ProjectList,
     ProjectRepositories,
     RepoBranches,
@@ -16,9 +28,6 @@ pub enum DomainCommand {
     AgentCapabilityCatalog,
     AgentSkillsList,
     UserSystemInfo,
-    OfficeCliInstall,
-    OfficeCliCancelInstall,
-    OfficePluginSetEnabled,
     ArtifactList,
     ArtifactOpenPreview,
     ArtifactClosePreview,
@@ -42,7 +51,19 @@ impl DomainCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PluginActionCatalog => "plugin_action_catalog",
-            Self::PluginSkillsConfigure => "plugin_skills_configure",
+            Self::PluginControlCatalog => "plugin_control_catalog",
+            Self::PluginProductDetail => "plugin_product_detail",
+            Self::PluginSaveConfig => "plugin_save_config",
+            Self::PluginContributionCatalog => "plugin_contribution_catalog",
+            Self::PluginResolveFileOpener => "plugin_resolve_file_opener",
+            Self::PluginOpenFilePreview => "plugin_open_file_preview",
+            Self::PluginCloseFilePreview => "plugin_close_file_preview",
+            Self::PluginControlSetEnabled => "plugin_control_set_enabled",
+            Self::PluginControlGrantPermissions => "plugin_control_grant_permissions",
+            Self::PluginControlInstallRuntime => "plugin_control_install_runtime",
+            Self::PluginSurfaceOpen => "plugin_surface_open",
+            Self::PluginSurfaceInvoke => "plugin_surface_invoke",
+            Self::PluginSurfaceRevoke => "plugin_surface_revoke",
             Self::ProjectList => "get_projects",
             Self::ProjectRepositories => "get_project_repositories",
             Self::RepoBranches => "get_repo_branches",
@@ -50,9 +71,6 @@ impl DomainCommand {
             Self::AgentCapabilityCatalog => "agent_capability_catalog",
             Self::AgentSkillsList => "list_agent_skills",
             Self::UserSystemInfo => "get_user_system_info",
-            Self::OfficeCliInstall => "officecli_install",
-            Self::OfficeCliCancelInstall => "officecli_cancel_install",
-            Self::OfficePluginSetEnabled => "office_plugin_set_enabled",
             Self::ArtifactList => "artifact_list",
             Self::ArtifactOpenPreview => "artifact_open_preview",
             Self::ArtifactClosePreview => "artifact_close_preview",
@@ -75,7 +93,11 @@ impl DomainCommand {
 
     pub const fn required_scope(self) -> &'static str {
         match self {
-            Self::PluginActionCatalog => "plugin.read",
+            Self::PluginActionCatalog
+            | Self::PluginControlCatalog
+            | Self::PluginProductDetail
+            | Self::PluginContributionCatalog
+            | Self::PluginResolveFileOpener => "plugin.read",
             Self::ProjectList
             | Self::ProjectRepositories
             | Self::RepoBranches
@@ -84,17 +106,23 @@ impl DomainCommand {
             | Self::AgentSkillsList
             | Self::UserSystemInfo => "application.call",
             Self::ArtifactList => "artifact.read",
-            Self::ArtifactOpenPreview | Self::ArtifactClosePreview => "artifact.preview",
+            Self::ArtifactOpenPreview
+            | Self::ArtifactClosePreview
+            | Self::PluginOpenFilePreview
+            | Self::PluginCloseFilePreview => "artifact.preview",
             Self::AutomationList
             | Self::AutomationEngineStatus
             | Self::AutomationRuns
             | Self::AutomationPreviewNextRuns
             | Self::AutomationTemplates
             | Self::AutomationUnseenFailures => "automation.read",
-            Self::OfficeCliInstall
-            | Self::OfficeCliCancelInstall
-            | Self::OfficePluginSetEnabled
-            | Self::PluginSkillsConfigure => "plugin.write",
+            Self::PluginControlSetEnabled
+            | Self::PluginSaveConfig
+            | Self::PluginControlGrantPermissions
+            | Self::PluginControlInstallRuntime => "plugin.write",
+            Self::PluginSurfaceOpen | Self::PluginSurfaceInvoke | Self::PluginSurfaceRevoke => {
+                "plugin.surface"
+            }
             Self::AutomationCreate
             | Self::AutomationUpdate
             | Self::AutomationSetEnabled
@@ -113,7 +141,19 @@ impl FromStr for DomainCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         [
             Self::PluginActionCatalog,
-            Self::PluginSkillsConfigure,
+            Self::PluginControlCatalog,
+            Self::PluginProductDetail,
+            Self::PluginSaveConfig,
+            Self::PluginContributionCatalog,
+            Self::PluginResolveFileOpener,
+            Self::PluginOpenFilePreview,
+            Self::PluginCloseFilePreview,
+            Self::PluginControlSetEnabled,
+            Self::PluginControlGrantPermissions,
+            Self::PluginControlInstallRuntime,
+            Self::PluginSurfaceOpen,
+            Self::PluginSurfaceInvoke,
+            Self::PluginSurfaceRevoke,
             Self::ProjectList,
             Self::ProjectRepositories,
             Self::RepoBranches,
@@ -121,9 +161,6 @@ impl FromStr for DomainCommand {
             Self::AgentCapabilityCatalog,
             Self::AgentSkillsList,
             Self::UserSystemInfo,
-            Self::OfficeCliInstall,
-            Self::OfficeCliCancelInstall,
-            Self::OfficePluginSetEnabled,
             Self::ArtifactList,
             Self::ArtifactOpenPreview,
             Self::ArtifactClosePreview,

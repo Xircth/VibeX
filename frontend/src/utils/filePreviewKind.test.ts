@@ -3,9 +3,7 @@ import {
   getFilePreviewKind,
   isBinaryContentError,
   isBinaryPreviewPath,
-  isDocumentPreviewPath,
   isImagePreviewPath,
-  isOfficePreviewPath,
   isPdfPreviewPath,
 } from './filePreviewKind';
 
@@ -26,19 +24,16 @@ describe('filePreviewKind', () => {
     );
   });
 
-  it('classifies pdf and word preview paths', () => {
+  it('classifies pdf paths and leaves Office rendering to plugins', () => {
     expect(isPdfPreviewPath('C:/repo/docs/spec.pdf')).toBe(true);
     expect(getFilePreviewKind('C:/repo/docs/spec.pdf')).toBe('pdf');
-    expect(isDocumentPreviewPath('C:/repo/docs/spec.doc')).toBe(true);
-    expect(getFilePreviewKind('C:/repo/docs/spec.doc')).toBe('document');
+    expect(getFilePreviewKind('C:/repo/docs/spec.doc')).toBe('binary');
   });
 
-  it('classifies OpenXML office preview paths', () => {
-    expect(isOfficePreviewPath('C:/repo/docs/spec.docx')).toBe(true);
-    expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('office');
-    expect(getFilePreviewKind('C:/repo/docs/data.xlsx')).toBe('office');
-    expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('office');
-    expect(isOfficePreviewPath('C:/repo/docs/spec.doc')).toBe(false);
+  it('leaves extension ownership to plugin file opener contributions', () => {
+    expect(getFilePreviewKind('C:/repo/docs/spec.docx')).toBe('binary');
+    expect(getFilePreviewKind('C:/repo/docs/data.xlsx')).toBe('binary');
+    expect(getFilePreviewKind('C:/repo/docs/deck.PPTX')).toBe('binary');
   });
 
   it('detects binary-content read errors', () => {

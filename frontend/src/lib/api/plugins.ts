@@ -2,14 +2,6 @@ import {
   configuredBackendTransport,
   type BackendTransport,
 } from '@/lib/backendTransport';
-import type {
-  OfficeComponentReadiness,
-  OfficePluginAction,
-} from 'shared/types';
-import type { LocalSkill } from './misc';
-
-export type PluginComponentStatus = OfficeComponentReadiness['status'];
-export type PluginActionCatalog = { actions: OfficePluginAction[] };
 
 export interface PluginControlSkill {
   id: string;
@@ -34,6 +26,9 @@ export interface PluginControlRuntimeContribution {
   id: string;
   command: string;
   version: string | null;
+  /** Exact lock evidence. Older hosts omit these fields; the UI stays not-ready. */
+  target?: string | null;
+  contentDigest?: string | null;
   installer: string;
   installCommand?: string | null;
 }
@@ -51,6 +46,37 @@ export interface PluginControlInvocation {
   kind: 'action' | 'command';
 }
 
+export interface PluginNativeResource {
+  id: string;
+  path: string;
+}
+
+export interface PluginAppContribution {
+  id: string;
+  kind: 'file_opener' | 'preview_provider' | 'app_surface';
+  label: string;
+  metadata: unknown;
+}
+
+export interface PluginActionPromptBlock {
+  type: string;
+  text: string;
+}
+
+export interface PluginAction {
+  pluginId: string;
+  actionId: string;
+  label: string;
+  requiredSkills: string[];
+  requiredTools: string[];
+  promptBlocks: PluginActionPromptBlock[];
+  artifactIntent: unknown | null;
+}
+
+export interface PluginActionCatalog {
+  actions: PluginAction[];
+}
+
 export interface PluginControlItem {
   id: string;
   name: string;
@@ -58,43 +84,138 @@ export interface PluginControlItem {
   description: string | null;
   enabled: boolean;
   builtin: boolean;
-  shellTrusted: boolean;
+  /** Publisher and digest are optional only for compatibility with pre-v4 hosts. */
+  publisher?: string | null;
+  packageDigest?: string | null;
+  updatePackageDigest?: string | null;
   sourceKind: string;
   sourcePath: string;
   formats: string[];
   skills: PluginControlSkill[];
   runtimes: PluginControlRuntimeContribution[];
   warnings: PluginControlWarning[];
+  permissions?: PluginPermission[];
+  permissionDelta?: PluginPermission[];
   mcpCount?: number;
   mcpServers?: string[];
+  hooks?: PluginNativeResource[];
+  workflows?: PluginNativeResource[];
   invocationCount?: number;
   invocations?: PluginControlInvocation[];
+  appContributions?: PluginAppContribution[];
   nativeManaged?: boolean;
   enableSupported?: boolean;
   updateSupported?: boolean;
+  rollbackSupported?: boolean;
   uninstallSupported?: boolean;
+}
+
+export interface PluginPermission {
+  id: string;
+  capability: string;
+  scope: unknown;
+  reason: string;
+  optional: boolean;
+  trustTier?: 'sandboxed_worker' | 'trusted_native';
 }
 
 export interface PluginRuntimeInventoryItem {
   id: string;
   version: string;
+  target: string | null;
+  contentDigest: string | null;
   executablePath: string;
+  ownership: string | null;
   installer: string;
   probe: string[];
   referencedPlugins: string[];
 }
 
-export interface PluginRuntimeConflict {
-  runtimeId: string;
-  currentVersion: string;
-  targetVersion: string;
-  affectedPlugins: string[];
-  affectedAutomations: string[];
-}
-
 export interface PluginControlCatalog {
   plugins: PluginControlItem[];
   runtimes: PluginRuntimeInventoryItem[];
+}
+
+export interface PluginContentDocument {
+  path: string;
+  kind: string;
+  title: string;
+  content: string;
+}
+
+export interface PluginProductDetail {
+  summary: string;
+  readme: string;
+  contents: PluginContentDocument[];
+  config: Record<string, unknown>;
+  configSchema: Record<string, unknown>;
+}
+
+function normalizePluginControlCatalog(
+  catalog: PluginControlCatalog
+): PluginControlCatalog {
+  return {
+    ...catalog,
+    runtimes: catalog.runtimes.map((runtime) => ({
+      ...runtime,
+      target: runtime.target ?? null,
+      contentDigest: runtime.contentDigest ?? null,
+      ownership: runtime.ownership ?? null,
+    })),
+  };
+}
+
+export type PluginContributionKind =
+  | 'skill'
+  | 'action'
+  | 'command'
+  | 'runtime'
+  | 'mcp'
+  | 'file_opener'
+  | 'preview_provider'
+  | 'app_surface';
+
+export interface PluginContributionCatalogItem {
+  pluginId: string;
+  id: string;
+  kind: PluginContributionKind;
+  label: string;
+  generation: number;
+  metadata: unknown;
+}
+
+export interface PluginContributionCatalog {
+  generation: number;
+  items: PluginContributionCatalogItem[];
+}
+
+export interface PluginDevConnection {
+  endpoint: string;
+  token: string;
+  protocolVersion: '1.0';
+}
+
+export interface ResolvedPluginFileOpener {
+  pluginId: string;
+  contributionId: string;
+  label: string;
+  handler: string;
+  target: 'preview_provider' | 'app_surface';
+  priority: number;
+  generation: number;
+}
+
+export interface PluginFilePreviewStart {
+  pluginId: string;
+  providerId: string;
+  generation: number;
+  leaseId: string | null;
+  capabilityToken: string | null;
+  expiresAtUnixMs: number | null;
+  port: number | null;
+  previewUrl?: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
 }
 
 export interface PluginImportPreview {
@@ -103,6 +224,7 @@ export interface PluginImportPreview {
     pluginId: string;
     installedSource: string;
     incomingSource: string;
+    installedEnabled: boolean;
   };
 }
 
@@ -184,32 +306,41 @@ async function loadContributionsWithFileApi(
   return { skills, mcpServers: mcpServersFrom(mcpValue) };
 }
 
-export function createPluginApi(transport: BackendTransport) {
-  return {
-    catalog: () =>
-      transport.call('plugin_action_catalog') as Promise<PluginActionCatalog>,
-    installOffice: (taskId: string) =>
-      transport.call('officecli_install', { taskId }),
-    cancelOfficeInstall: (taskId: string) =>
-      transport.call('officecli_cancel_install', { taskId }),
-    setOfficeEnabled: (enabled: boolean, taskId: string) =>
-      transport.call('office_plugin_set_enabled', { enabled, taskId }),
-    configureSkills: (params: {
-      pluginId: string;
-      apps: string[];
-      allAgents: boolean;
-      link: boolean;
-    }) =>
-      transport.call('plugin_skills_configure', params) as Promise<
-        LocalSkill[]
-      >,
-  };
-}
-
 export function createPluginControlApi(transport: BackendTransport) {
   return {
-    catalog: () =>
-      transport.call('plugin_control_catalog') as Promise<PluginControlCatalog>,
+    catalog: async () =>
+      normalizePluginControlCatalog(
+        (await transport.call('plugin_control_catalog')) as PluginControlCatalog
+      ),
+    contributionCatalog: () =>
+      transport.call(
+        'plugin_contribution_catalog'
+      ) as Promise<PluginContributionCatalog>,
+    productDetail: (pluginId: string) =>
+      transport.call('plugin_product_detail', {
+        pluginId,
+      }) as Promise<PluginProductDetail>,
+    saveConfig: (pluginId: string, config: Record<string, unknown>) =>
+      transport.call('plugin_save_config', {
+        pluginId,
+        config,
+      }) as Promise<PluginProductDetail>,
+    devConnection: () =>
+      transport.call('plugin_dev_connection') as Promise<PluginDevConnection>,
+    resolveFileOpener: (extension?: string, mediaType?: string) =>
+      transport.call('plugin_resolve_file_opener', {
+        extension: extension ?? null,
+        mediaType: mediaType ?? null,
+      }) as Promise<ResolvedPluginFileOpener | null>,
+    openFilePreview: (filePath: string) =>
+      transport.call('plugin_open_file_preview', {
+        filePath,
+      }) as Promise<PluginFilePreviewStart | null>,
+    closeFilePreview: (filePath: string, leaseId?: string | null) =>
+      transport.call('plugin_close_file_preview', {
+        filePath,
+        leaseId: leaseId ?? null,
+      }),
     contributions: async (plugin: PluginControlItem) => {
       try {
         return (await transport.call('plugin_control_contributions', {
@@ -234,13 +365,15 @@ export function createPluginControlApi(transport: BackendTransport) {
       path: string,
       developerLink: boolean,
       conflictDecision: 'reject' | 'keep' | 'replace',
-      packageKind?: PluginImportPackageKind
+      packageKind?: PluginImportPackageKind,
+      permissionIds: string[] = []
     ) =>
       transport.call('plugin_control_import', {
         path,
         developerLink,
         conflictDecision,
         packageKind,
+        permissionIds,
       }) as Promise<PluginControlItem>,
     importCli: (
       ecosystem: PluginCliImportEcosystem,
@@ -269,25 +402,20 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call('plugin_control_update', {
         pluginId,
       }) as Promise<PluginControlItem>,
-    setShellTrust: (pluginId: string, trusted: boolean) =>
-      transport.call('plugin_control_set_shell_trust', {
+    rollback: (pluginId: string, permissionIds: string[] = []) =>
+      transport.call('plugin_control_rollback', {
         pluginId,
-        trusted,
+        permissionIds,
+      }) as Promise<PluginControlItem>,
+    grantPermissions: (pluginId: string, permissionIds: string[]) =>
+      transport.call('plugin_control_grant_permissions', {
+        pluginId,
+        permissionIds,
       }),
-    previewRuntimeInstall: (pluginId: string, runtimeId: string) =>
-      transport.call('plugin_control_preview_runtime_install', {
-        pluginId,
-        runtimeId,
-      }) as Promise<PluginRuntimeConflict | null>,
-    installRuntime: (
-      pluginId: string,
-      runtimeId: string,
-      confirmConflict: boolean
-    ) =>
+    installRuntime: (pluginId: string, runtimeId: string) =>
       transport.call('plugin_control_install_runtime', {
         pluginId,
         runtimeId,
-        confirmConflict,
       }) as Promise<PluginRuntimeInventoryItem>,
     uninstall: (pluginId: string) =>
       transport.call('plugin_control_uninstall', { pluginId }),
@@ -306,7 +434,14 @@ export function createPluginControlApi(transport: BackendTransport) {
   };
 }
 
-export const pluginV2Api = createPluginApi(configuredBackendTransport);
+/** Public action catalog consumed by composer surfaces. */
+export function createPluginApi(transport: BackendTransport) {
+  return {
+    catalog: () =>
+      transport.call('plugin_action_catalog') as Promise<PluginActionCatalog>,
+  };
+}
+
 export const pluginControlApi = createPluginControlApi(
   configuredBackendTransport
 );

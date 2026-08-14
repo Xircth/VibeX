@@ -37,6 +37,7 @@ export type ArtifactPreviewLease = {
   loopbackPort: number;
   capabilityToken: string;
   expiresAtUnixMs: number;
+  previewUrl?: string;
   docxFallbackSupported: boolean;
 };
 

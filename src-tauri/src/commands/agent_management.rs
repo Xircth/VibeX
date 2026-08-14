@@ -2546,17 +2546,12 @@ fn managed_install_root(
 
 #[cfg(target_os = "macos")]
 fn managed_artifacts_directory(home_dir: &Path, _app_data_dir: &Path) -> PathBuf {
-    // On macOS 26, Mach-O processes created below
-    // ~/Library/Application Support can remain blocked in dyld even when the
-    // binary is correctly signed and notarized. Keep executable artifacts in
-    // a user-owned execution directory; databases and configuration remain in
-    // the normal Tauri app-data directory.
-    home_dir.join(".local").join("share").join("vibex")
+    utils::path::managed_artifacts_directory(home_dir, _app_data_dir)
 }
 
 #[cfg(not(target_os = "macos"))]
 fn managed_artifacts_directory(_home_dir: &Path, app_data_dir: &Path) -> PathBuf {
-    app_data_dir.to_path_buf()
+    utils::path::managed_artifacts_directory(_home_dir, app_data_dir)
 }
 
 #[cfg(target_os = "macos")]

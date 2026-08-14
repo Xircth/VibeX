@@ -134,7 +134,7 @@ describe('PluginActionEditor', () => {
           },
         };
       }
-      if (command === 'officecli_install') {
+      if (command === 'plugin_control_install_runtime') {
         await install;
         return { installed: true, version: '1.0.140' };
       }
@@ -180,9 +180,7 @@ describe('PluginActionEditor', () => {
     expect(
       screen.queryByRole('status', { name: 'OfficeCLI 安装进度' })
     ).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(onReadyChange).toHaveBeenLastCalledWith(true)
-    );
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
     expect(call).toHaveBeenCalledTimes(3);
   });
 
@@ -233,7 +231,7 @@ describe('PluginActionEditor', () => {
           },
         };
       }
-      if (command === 'officecli_install') {
+      if (command === 'plugin_control_install_runtime') {
         throw new Error('HASH_MISMATCH: downloaded OfficeCLI was rejected');
       }
       throw new Error(`unexpected command: ${command}`);
@@ -311,7 +309,6 @@ describe('PluginActionEditor', () => {
   it('cancels the active install with the keyboard and keeps the action draft', async () => {
     const user = userEvent.setup();
     let finishInstall: (() => void) | undefined;
-    let installTaskId = '';
     const install = new Promise<void>((resolve) => {
       finishInstall = resolve;
     });
@@ -326,15 +323,13 @@ describe('PluginActionEditor', () => {
             },
           };
         }
-        if (command === 'officecli_install') {
-          installTaskId = String(args?.taskId);
+        if (command === 'plugin_control_install_runtime') {
+          expect(args).toMatchObject({
+            pluginId: 'vibex.office',
+            runtimeId: 'officecli',
+          });
           await install;
           return { installed: false };
-        }
-        if (command === 'officecli_cancel_install') {
-          expect(args?.taskId).toBe(installTaskId);
-          finishInstall?.();
-          return true;
         }
         throw new Error(`unexpected command: ${command}`);
       }
@@ -364,9 +359,11 @@ describe('PluginActionEditor', () => {
     cancel.focus();
     await user.keyboard('{Enter}');
 
-    expect(call).toHaveBeenCalledWith('officecli_cancel_install', {
-      taskId: installTaskId,
+    expect(call).toHaveBeenCalledWith('plugin_control_install_runtime', {
+      pluginId: 'vibex.office',
+      runtimeId: 'officecli',
     });
+    finishInstall?.();
     expect(screen.getByRole('textbox', { name: '动作提示词' })).toHaveValue(
       '澄清受众与目标后，创建新的 PPTX 并验证输出。'
     );

@@ -1,5 +1,14 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import {
+  Button as AstryxButton,
+  CheckboxInput,
+  Dialog as AstryxDialog,
+  DialogHeader as AstryxDialogHeader,
+  Layout as AstryxLayout,
+  LayoutContent as AstryxLayoutContent,
+  LayoutFooter as AstryxLayoutFooter,
+} from '@astryxdesign/core';
+import {
   AlertTriangle,
   Archive,
   ArrowLeft,
@@ -7,20 +16,23 @@ import {
   CheckCircle2,
   ChevronRight,
   Command,
+  FileSearch,
   Link2,
   Loader2,
   PackagePlus,
   RefreshCw,
+  RotateCcw,
   Puzzle,
   Search,
-  ShieldAlert,
   TerminalSquare,
   Trash2,
+  Workflow,
 } from 'lucide-react';
 import {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -33,6 +45,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { AstryxMarkdown } from '@/components/NormalizedConversation/AstryxMarkdown';
 import { AgentTypeIcon } from '@/components/agents/AgentTypeIcon';
+import { AppSurfaceHost } from '@/components/plugins/AppSurfaceHost';
 import {
   Dialog,
   DialogContent,
@@ -42,17 +55,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
+import { toast } from '@/components/ui/toast';
+import {
+  appSurfaceDescriptors,
+  createBackendAppSurfaceTransport,
+} from '@/lib/api/appSurfaceTransport';
 import type { BackendTransport } from '@/lib/backendTransport';
 import {
   createPluginControlApi,
   type PluginCliImportEvent,
   type PluginCliImportResult,
+  type PluginContributionCatalog,
+  type PluginContributionCatalogItem,
   type PluginControlCatalog,
   type PluginControlContributions,
   type PluginControlItem,
+  type PluginDevConnection,
   type PluginImportPackageKind,
   type PluginImportPreview,
-  type PluginRuntimeConflict,
+  type PluginPermission,
   type PluginRuntimeInventoryItem,
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
@@ -65,7 +86,7 @@ const FORMAT_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
 };
 
-type PluginEcosystem = 'codex' | 'claude_code' | 'vibex';
+export type PluginEcosystem = 'codex' | 'claude_code' | 'vibex';
 type ImportEcosystem = 'codex' | 'claude_code' | 'vibex';
 
 const PLUGIN_TABS: Array<{ id: PluginEcosystem; label: string }> = [
@@ -109,56 +130,247 @@ function pluginEcosystem(plugin: PluginControlItem): PluginEcosystem {
   return 'vibex';
 }
 
-function capabilityLabel(
-  count: number,
-  key: string,
-  t: (key: string, params?: Record<string, unknown>) => string
+function runtimeIdentity(runtime: PluginRuntimeInventoryItem) {
+  return [
+    runtime.id,
+    runtime.version,
+    runtime.target ?? 'target-unavailable',
+    runtime.contentDigest ?? 'digest-unavailable',
+  ].join(':');
+}
+
+function runtimeLockIsReady(
+  contribution: PluginControlItem['runtimes'][number],
+  installed: PluginRuntimeInventoryItem
 ) {
-  return t(`plugins.capability.${key}`, { count });
+  return Boolean(
+    contribution.target &&
+      contribution.contentDigest &&
+      installed.id === contribution.id &&
+      installed.version === contribution.version &&
+      installed.target === contribution.target &&
+      installed.contentDigest === contribution.contentDigest
+  );
+}
+
+interface PermissionReview {
+  plugin: PluginControlItem;
+  intent: 'enable' | 'update' | 'replace' | 'install-runtime';
+  permissions: PluginPermission[];
+  runtimeId?: string;
 }
 
 type PluginDetailMode = 'overview' | 'skills' | 'mcp';
 
-function CapabilityRail({
+function contributionMetadata(item: { metadata: unknown }) {
+  return item.metadata && typeof item.metadata === 'object'
+    ? (item.metadata as Record<string, unknown>)
+    : {};
+}
+
+function fileExtensions(items: Array<{ metadata: unknown }>) {
+  return [
+    ...new Set(
+      items.flatMap((item) => {
+        const extensions = contributionMetadata(item).extensions;
+        return Array.isArray(extensions)
+          ? extensions.filter(
+              (extension): extension is string => typeof extension === 'string'
+            )
+          : [];
+      })
+    ),
+  ];
+}
+
+function runtimeDisplayName(runtimeId: string) {
+  return runtimeId.toLowerCase() === 'officecli' ? 'OfficeCLI' : runtimeId;
+}
+
+function AgentNativeResourceSection({
+  icon,
+  title,
+  items,
+  empty,
+}: {
+  icon: ReactNode;
+  title: string;
+  items: Array<{ id: string; detail?: string | null }>;
+  empty: string;
+}) {
+  return (
+    <div className="plugin-detail-section">
+      <h4>
+        {icon}
+        {title}
+      </h4>
+      {items.length ? (
+        <ul className="plugin-contribution-list">
+          {items.map((item) => (
+            <li key={`${item.id}:${item.detail ?? ''}`}>
+              <span>{item.id}</span>
+              {item.detail ? <code>{item.detail}</code> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="plugin-detail-empty-copy">{empty}</p>
+      )}
+    </div>
+  );
+}
+
+function AgentNativePluginDetail({
   plugin,
-  mode,
-  onSkillsClick,
-  onMcpClick,
+  busy,
+  onEnabledChange,
+  onUpdate,
+  onUninstall,
+  canWrite,
+  canManagePackage,
 }: {
   plugin: PluginControlItem;
-  mode: PluginDetailMode;
-  onSkillsClick: () => void;
-  onMcpClick: () => void;
+  busy: boolean;
+  onEnabledChange: (enabled: boolean) => void;
+  onUpdate: () => void;
+  onUninstall: () => void;
+  canWrite: boolean;
+  canManagePackage: boolean;
 }) {
   const { t } = useTranslation('settings');
+  const skillItems = plugin.skills.map((skill) => ({
+    id: skill.id,
+    detail: skill.path,
+  }));
+  const mcpItems = (plugin.mcpServers ?? []).map((id) => ({ id }));
+  const runtimeItems = plugin.runtimes.map((runtime) => ({
+    id: runtime.id,
+    detail: runtime.version
+      ? `${runtime.command} · v${runtime.version}`
+      : runtime.command,
+  }));
+
   return (
-    <div
-      className="plugin-capability-rail"
-      aria-label={t('plugins.capabilityAria')}
+    <section
+      className="plugin-hub-detail plugin-agent-native-detail"
+      role="region"
+      aria-label={plugin.name}
     >
-      <button
-        type="button"
-        className={cn(mode === 'skills' && 'is-active')}
-        aria-pressed={mode === 'skills'}
-        disabled={plugin.skills.length === 0}
-        onClick={onSkillsClick}
-      >
-        {capabilityLabel(plugin.skills.length, 'skills', t)}
-      </button>
-      <span>{capabilityLabel(plugin.runtimes.length, 'runtimes', t)}</span>
-      <button
-        type="button"
-        className={cn(mode === 'mcp' && 'is-active')}
-        aria-pressed={mode === 'mcp'}
-        disabled={(plugin.mcpCount ?? 0) === 0}
-        onClick={onMcpClick}
-      >
-        {capabilityLabel(plugin.mcpCount ?? 0, 'mcp', t)}
-      </button>
-      <span>
-        {capabilityLabel(plugin.invocationCount ?? 0, 'invocations', t)}
-      </span>
-    </div>
+      <header className="plugin-detail-header">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-base font-semibold text-foreground">
+              {plugin.name}
+            </h3>
+            <span className="plugin-version">v{plugin.version}</span>
+          </div>
+          {plugin.description ? (
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+              {plugin.description}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {plugin.enableSupported ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !canWrite}
+              onClick={() => onEnabledChange(!plugin.enabled)}
+              aria-label={t(
+                plugin.enabled
+                  ? 'plugins.disableNativeAria'
+                  : 'plugins.enableNativeAria',
+                { name: plugin.name }
+              )}
+            >
+              {plugin.enabled
+                ? t('plugins.disableNative')
+                : t('plugins.enableNative')}
+            </Button>
+          ) : null}
+          {plugin.updateSupported && canManagePackage ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !canWrite}
+              onClick={onUpdate}
+              aria-label={t('plugins.updateNativeAria', {
+                name: plugin.name,
+              })}
+            >
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              {t('plugins.updateNative')}
+            </Button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="plugin-overview-sections">
+        <AgentNativeResourceSection
+          icon={<Puzzle aria-hidden="true" />}
+          title={t('plugins.skillsTitle')}
+          items={skillItems}
+          empty={t('plugins.noSkills')}
+        />
+        <AgentNativeResourceSection
+          icon={<Bot aria-hidden="true" />}
+          title={t('plugins.mcpTitle')}
+          items={mcpItems}
+          empty={t('plugins.noMcp')}
+        />
+        <AgentNativeResourceSection
+          icon={<TerminalSquare aria-hidden="true" />}
+          title={t('plugins.runtimeTitle')}
+          items={runtimeItems}
+          empty={t('plugins.noRuntime')}
+        />
+        <AgentNativeResourceSection
+          icon={<Link2 aria-hidden="true" />}
+          title={t('plugins.hooksTitle')}
+          items={(plugin.hooks ?? []).map((hook) => ({
+            id: hook.id,
+            detail: hook.path,
+          }))}
+          empty={t('plugins.noHooks')}
+        />
+        <AgentNativeResourceSection
+          icon={<Workflow aria-hidden="true" />}
+          title={t('plugins.workflowsTitle')}
+          items={(plugin.workflows ?? []).map((workflow) => ({
+            id: workflow.id,
+            detail: workflow.path,
+          }))}
+          empty={t('plugins.noWorkflows')}
+        />
+      </div>
+
+      {plugin.warnings.length ? (
+        <div className="plugin-warning-stack" role="status">
+          {plugin.warnings.map((warning) => (
+            <p key={`${warning.code}:${warning.contribution ?? ''}`}>
+              <AlertTriangle aria-hidden="true" />
+              <span>{warning.message}</span>
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {plugin.uninstallSupported !== false && canManagePackage ? (
+        <div className="flex justify-end border-t border-border/70 pt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive"
+            disabled={busy || !canWrite}
+            onClick={onUninstall}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            {t('plugins.uninstall')}
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -167,21 +379,33 @@ function PluginDetail({
   busy,
   onEnabledChange,
   onUpdate,
-  onTrustChange,
+  onRollback,
   onInstallRuntime,
   onUninstall,
   loadContributions,
   runtimeInventory,
+  registryGeneration,
+  registryContributions,
+  appSurfaceTransport,
+  canWrite,
+  canSurface,
+  canManagePackage,
 }: {
   plugin: PluginControlItem;
   busy: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onUpdate: () => void;
-  onTrustChange: (trusted: boolean) => void;
+  onRollback: () => void;
   onInstallRuntime: (runtimeId: string) => void;
   onUninstall: () => void;
   loadContributions: () => Promise<PluginControlContributions>;
   runtimeInventory: PluginRuntimeInventoryItem[];
+  registryGeneration?: number;
+  registryContributions?: PluginContributionCatalogItem[];
+  appSurfaceTransport: ReturnType<typeof createBackendAppSurfaceTransport>;
+  canWrite: boolean;
+  canSurface: boolean;
+  canManagePackage: boolean;
 }) {
   const { t } = useTranslation('settings');
   const [mode, setMode] = useState<PluginDetailMode>('overview');
@@ -193,8 +417,30 @@ function PluginDetail({
   );
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedMcpId, setSelectedMcpId] = useState<string | null>(null);
-  const hasShell = plugin.runtimes.some(
-    (runtime) => runtime.installer === 'shell'
+  const [showDeveloperDetails, setShowDeveloperDetails] = useState(false);
+  const registryItems = registryContributions ?? [];
+  const platformExtensions =
+    plugin.appContributions ??
+    registryItems.filter((item) =>
+      ['file_opener', 'preview_provider', 'app_surface'].includes(item.kind)
+    );
+  const extensions = fileExtensions(
+    platformExtensions.filter((item) => item.kind === 'file_opener')
+  );
+  const hasFilePreview = platformExtensions.some(
+    (item) => item.kind === 'file_opener' || item.kind === 'preview_provider'
+  );
+  const uniqueInvocations = [
+    ...new Map(
+      (plugin.invocations ?? []).map((invocation) => [
+        invocation.id,
+        invocation,
+      ])
+    ).values(),
+  ];
+  const appSurfaces = useMemo(
+    () => appSurfaceDescriptors(plugin, registryContributions ?? []),
+    [plugin, registryContributions]
   );
   const openContributions = async (nextMode: PluginDetailMode) => {
     setMode(nextMode);
@@ -262,7 +508,7 @@ function PluginDetail({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy}
+                  disabled={busy || !canWrite}
                   onClick={() => onEnabledChange(!plugin.enabled)}
                   aria-label={t(
                     plugin.enabled
@@ -277,11 +523,11 @@ function PluginDetail({
                 </Button>
               </>
             ) : null}
-            {plugin.updateSupported ? (
+            {plugin.updateSupported && canManagePackage ? (
               <Button
                 size="sm"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || !canWrite}
                 onClick={onUpdate}
                 aria-label={t('plugins.updateNativeAria', {
                   name: plugin.name,
@@ -299,20 +545,164 @@ function PluginDetail({
             </span>
             <Switch
               checked={plugin.enabled}
-              disabled={busy}
+              disabled={busy || !canWrite}
               onCheckedChange={onEnabledChange}
               aria-label={t('plugins.enabledAria', { name: plugin.name })}
             />
+            {plugin.updateSupported && canManagePackage ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !canWrite}
+                onClick={onUpdate}
+                aria-label={t('plugins.updateNativeAria', {
+                  name: plugin.name,
+                })}
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                {t('plugins.updateNative')}
+              </Button>
+            ) : null}
+            {plugin.rollbackSupported && canManagePackage ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !canWrite}
+                onClick={onRollback}
+                aria-label={t('plugins.rollbackAria', { name: plugin.name })}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                {t('plugins.rollback')}
+              </Button>
+            ) : null}
           </div>
         )}
       </header>
 
-      <CapabilityRail
-        plugin={plugin}
-        mode={mode}
-        onSkillsClick={() => void openContributions('skills')}
-        onMcpClick={() => void openContributions('mcp')}
-      />
+      {mode === 'overview' ? (
+        <div className="plugin-product-capabilities">
+          <section>
+            <header>
+              <FileSearch aria-hidden="true" />
+              <div>
+                <h4>{t('plugins.extendsVibexTitle')}</h4>
+                <p>{t('plugins.extendsVibexDescription')}</p>
+              </div>
+            </header>
+            {hasFilePreview ? (
+              <div className="plugin-product-capability-row">
+                <span>
+                  <strong>{t('plugins.filePreviewTitle')}</strong>
+                  <small>{t('plugins.filePreviewDescription')}</small>
+                </span>
+                {extensions.length ? (
+                  <code>
+                    {extensions.map((item) => item.toUpperCase()).join(' · ')}
+                  </code>
+                ) : null}
+              </div>
+            ) : (
+              <p className="plugin-detail-empty-copy">
+                {t('plugins.noAppExtensions')}
+              </p>
+            )}
+          </section>
+          <section>
+            <header>
+              <Workflow aria-hidden="true" />
+              <div>
+                <h4>{t('plugins.extendsAgentsTitle')}</h4>
+                <p>{t('plugins.extendsAgentsDescription')}</p>
+              </div>
+            </header>
+            <div className="plugin-product-capability-actions">
+              {plugin.skills.length ? (
+                <button
+                  type="button"
+                  onClick={() => void openContributions('skills')}
+                >
+                  {t('plugins.skillsCount', { count: plugin.skills.length })}
+                </button>
+              ) : null}
+              {uniqueInvocations.length ? (
+                <span>
+                  {t('plugins.workflowsCount', {
+                    count: uniqueInvocations.length,
+                  })}
+                </span>
+              ) : null}
+              {(plugin.mcpCount ?? 0) > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void openContributions('mcp')}
+                >
+                  {t('plugins.mcpCount', { count: plugin.mcpCount })}
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {mode === 'overview' && registryContributions ? (
+        <div className="plugin-developer-disclosure">
+          <button
+            type="button"
+            aria-expanded={showDeveloperDetails}
+            onClick={() => setShowDeveloperDetails((current) => !current)}
+          >
+            {t('plugins.developerDetails')}
+            <ChevronRight aria-hidden="true" />
+          </button>
+          {showDeveloperDetails ? (
+            <div
+              className="plugin-registry-snapshot"
+              role="status"
+              aria-label={t('plugins.registrySnapshotAria', {
+                name: plugin.name,
+              })}
+            >
+              <span>
+                {t('plugins.registryGeneration', {
+                  generation: registryGeneration ?? 0,
+                })}
+              </span>
+              <span>
+                {t('plugins.registryContributionCount', {
+                  count: registryContributions.length,
+                })}
+              </span>
+              <p>{t('plugins.registryExplanation')}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mode !== 'overview' ? (
+        <nav
+          className="plugin-contribution-mode-nav"
+          aria-label={t('plugins.contributionNavigation')}
+        >
+          {plugin.skills.length ? (
+            <button
+              type="button"
+              aria-current={mode === 'skills' ? 'page' : undefined}
+              onClick={() => void openContributions('skills')}
+            >
+              {t('plugins.skillsCount', { count: plugin.skills.length })}
+            </button>
+          ) : null}
+          {(plugin.mcpCount ?? 0) > 0 ? (
+            <button
+              type="button"
+              aria-current={mode === 'mcp' ? 'page' : undefined}
+              onClick={() => void openContributions('mcp')}
+            >
+              {t('plugins.mcpCount', { count: plugin.mcpCount })}
+            </button>
+          ) : null}
+        </nav>
+      ) : null}
 
       {mode === 'skills' ? (
         <section
@@ -432,6 +822,20 @@ function PluginDetail({
 
       {mode === 'overview' ? (
         <>
+          {canSurface
+            ? appSurfaces.map((surface) => (
+                <AppSurfaceHost
+                  key={`${surface.surfaceId}:${surface.generation}`}
+                  descriptor={surface}
+                  enabled={plugin.enabled}
+                  transport={appSurfaceTransport}
+                />
+              ))
+            : appSurfaces.length > 0 && (
+                <p className="plugin-surface-unavailable" role="status">
+                  {t('plugins.surfaceCapabilityUnavailable')}
+                </p>
+              )}
           {plugin.warnings.length ? (
             <div className="plugin-warning-stack" role="status">
               {plugin.warnings.map((warning) => (
@@ -443,139 +847,124 @@ function PluginDetail({
             </div>
           ) : null}
 
-          {hasShell ? (
-            <div className="plugin-trust-row">
-              <ShieldAlert aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <strong>{t('plugins.shellTrustTitle')}</strong>
-                <p>
-                  {plugin.shellTrusted
-                    ? t('plugins.shellTrusted')
-                    : t('plugins.shellUntrusted')}
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => onTrustChange(!plugin.shellTrusted)}
-              >
-                {plugin.shellTrusted
-                  ? t('plugins.revokeTrust')
-                  : t('plugins.reviewTrust')}
-              </Button>
-            </div>
-          ) : null}
-
           <div className="plugin-overview-sections">
-            <div className="plugin-detail-section">
-              <h4>
-                <Puzzle aria-hidden="true" />
-                {t('plugins.skillsTitle')}
-              </h4>
-              <ul className="plugin-contribution-list">
-                {plugin.skills.map((skill) => (
-                  <li key={skill.id}>
-                    <span>{skill.id}</span>
-                    <code>{skill.path}</code>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="plugin-detail-section">
-              <h4>
-                <TerminalSquare aria-hidden="true" />
-                {t('plugins.runtimeTitle')}
-              </h4>
-              {plugin.runtimes.length ? (
+            {plugin.skills.length ? (
+              <div className="plugin-detail-section">
+                <h4>
+                  <Puzzle aria-hidden="true" />
+                  {t('plugins.skillsTitle')}
+                </h4>
                 <ul className="plugin-contribution-list">
-                  {plugin.runtimes.map((runtime) => (
-                    <li key={runtime.id}>
-                      <span>
-                        {runtime.id}
-                        <small>{runtime.installer}</small>
-                      </span>
-                      <div className="flex min-w-0 items-center gap-2">
-                        <code>{runtime.installCommand ?? runtime.command}</code>
-                        {runtimeInventory.some(
-                          (installed) =>
-                            installed.id === runtime.id &&
-                            (!runtime.version ||
-                              installed.version === runtime.version)
-                        ) ? (
-                          <span className="plugin-runtime-ready">
-                            {t('plugins.runtimeReady')}
-                          </span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => onInstallRuntime(runtime.id)}
-                            aria-label={t('plugins.installRuntimeAria', {
-                              id: runtime.id,
-                            })}
-                          >
-                            {t('plugins.installRuntime')}
-                          </Button>
-                        )}
-                      </div>
+                  {plugin.skills.map((skill) => (
+                    <li key={skill.id}>
+                      <span>{skill.id}</span>
+                      <code>{skill.path}</code>
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="plugin-detail-empty-copy">
-                  {t('plugins.noRuntime')}
-                </p>
-              )}
-            </div>
+              </div>
+            ) : null}
 
-            <div className="plugin-detail-section">
-              <h4>
-                <Bot aria-hidden="true" />
-                {t('plugins.mcpTitle')}
-              </h4>
-              {plugin.mcpServers?.length ? (
-                <ul className="plugin-contribution-list plugin-name-only-list">
-                  {plugin.mcpServers.map((server) => (
-                    <li key={server}>
-                      <span>{server}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="plugin-detail-empty-copy">
-                  {t(
-                    (plugin.mcpCount ?? 0) > 0
-                      ? 'plugins.mcpSummary'
-                      : 'plugins.noMcp',
-                    { count: plugin.mcpCount ?? 0 }
-                  )}
-                </p>
-              )}
-            </div>
+            {plugin.runtimes.length ? (
+              <div className="plugin-detail-section">
+                <h4>
+                  <TerminalSquare aria-hidden="true" />
+                  {t('plugins.runtimeTitle')}
+                </h4>
+                {plugin.runtimes.length ? (
+                  <ul className="plugin-contribution-list">
+                    {plugin.runtimes.map((runtime) => (
+                      <li
+                        key={`${runtime.id}:${runtime.version}:${runtime.target ?? 'unknown'}:${runtime.contentDigest ?? 'unknown'}`}
+                      >
+                        <span>
+                          {runtime.id}
+                          <small>{runtime.installer}</small>
+                        </span>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <code>
+                            {runtime.installCommand ?? runtime.command}
+                          </code>
+                          {runtimeInventory.some((installed) =>
+                            runtimeLockIsReady(runtime, installed)
+                          ) ? (
+                            <span className="plugin-runtime-ready">
+                              {t('plugins.runtimeReady')}
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy || !canWrite}
+                              onClick={() => onInstallRuntime(runtime.id)}
+                              aria-label={t('plugins.installRuntimeAria', {
+                                id: runtime.id,
+                              })}
+                            >
+                              {t('plugins.installRuntime')}
+                            </Button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="plugin-detail-empty-copy">
+                    {t('plugins.noRuntime')}
+                  </p>
+                )}
+              </div>
+            ) : null}
 
-            <div className="plugin-detail-section">
-              <h4>
-                <Command aria-hidden="true" />
-                {t('plugins.invocationsTitle')}
-              </h4>
-              {plugin.invocations?.length ? (
-                <ul className="plugin-contribution-list">
-                  {plugin.invocations.map((invocation) => (
-                    <li key={invocation.id}>
-                      <span>{invocation.label}</span>
-                      <code>{invocation.id}</code>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="plugin-detail-empty-copy">
-                  {t('plugins.noInvocations')}
-                </p>
-              )}
-            </div>
+            {(plugin.mcpCount ?? 0) > 0 ? (
+              <div className="plugin-detail-section">
+                <h4>
+                  <Bot aria-hidden="true" />
+                  {t('plugins.mcpTitle')}
+                </h4>
+                {plugin.mcpServers?.length ? (
+                  <ul className="plugin-contribution-list plugin-name-only-list">
+                    {plugin.mcpServers.map((server) => (
+                      <li key={server}>
+                        <span>{server}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="plugin-detail-empty-copy">
+                    {t(
+                      (plugin.mcpCount ?? 0) > 0
+                        ? 'plugins.mcpSummary'
+                        : 'plugins.noMcp',
+                      { count: plugin.mcpCount ?? 0 }
+                    )}
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {uniqueInvocations.length ? (
+              <div className="plugin-detail-section">
+                <h4>
+                  <Command aria-hidden="true" />
+                  {t('plugins.invocationsTitle')}
+                </h4>
+                {plugin.invocations?.length ? (
+                  <ul className="plugin-contribution-list">
+                    {uniqueInvocations.map((invocation) => (
+                      <li key={invocation.id}>
+                        <span>{invocation.label}</span>
+                        <code>{invocation.id}</code>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="plugin-detail-empty-copy">
+                    {t('plugins.noInvocations')}
+                  </p>
+                )}
+              </div>
+            ) : null}
 
             <div className="plugin-detail-section">
               <h4>
@@ -591,13 +980,15 @@ function PluginDetail({
             </div>
           </div>
 
-          {!plugin.builtin && plugin.uninstallSupported !== false ? (
+          {!plugin.builtin &&
+          plugin.uninstallSupported !== false &&
+          canManagePackage ? (
             <div className="flex justify-end border-t border-border/70 pt-3">
               <Button
                 size="sm"
                 variant="outline"
                 className="text-destructive"
-                disabled={busy}
+                disabled={busy || !canWrite}
                 onClick={onUninstall}
               >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -613,17 +1004,36 @@ function PluginDetail({
 
 export function PluginsSettings({
   transport: transportOverride,
+  ecosystem,
+  embedded = false,
 }: {
   transport?: BackendTransport;
+  /** Fix the control plane to one product surface instead of showing a mixed hub. */
+  ecosystem?: PluginEcosystem;
+  /** Render inside a parent settings disclosure without repeating its label. */
+  embedded?: boolean;
 }) {
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
+  const appSurfaceTransport = useMemo(
+    () => createBackendAppSurfaceTransport(transport),
+    [transport]
+  );
   const navigate = useNavigate();
   const { t } = useTranslation(['settings', 'common']);
   const [catalog, setCatalog] = useState<PluginControlCatalog | null>(null);
+  const [contributionCatalog, setContributionCatalog] =
+    useState<PluginContributionCatalog | null>(null);
+  const [devConnection, setDevConnection] =
+    useState<PluginDevConnection | null>(null);
+  const [devConnectionCopied, setDevConnectionCopied] = useState(false);
+  const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<PluginEcosystem>('codex');
+  const [activeTab, setActiveTab] = useState<PluginEcosystem>(
+    ecosystem ?? 'codex'
+  );
+  const effectiveTab = ecosystem ?? activeTab;
   const [queries, setQueries] = useState<Record<PluginEcosystem, string>>({
     codex: '',
     claude_code: '',
@@ -659,21 +1069,72 @@ export function PluginsSettings({
     useState<PluginControlItem | null>(null);
   const [uninstallTarget, setUninstallTarget] =
     useState<PluginControlItem | null>(null);
-  const [runtimeConflict, setRuntimeConflict] = useState<{
-    plugin: PluginControlItem;
-    runtimeId: string;
-    conflict: PluginRuntimeConflict;
-  } | null>(null);
-  const [trustTarget, setTrustTarget] = useState<PluginControlItem | null>(
-    null
+  const [permissionReview, setPermissionReview] =
+    useState<PermissionReview | null>(null);
+  const [selectedPermissionIds, setSelectedPermissionIds] = useState<
+    Set<string>
+  >(new Set());
+  const [trustedNativeAcknowledged, setTrustedNativeAcknowledged] =
+    useState(false);
+  const [backendCapabilities, setBackendCapabilities] = useState<Set<string>>(
+    new Set()
   );
+  const canWrite = backendCapabilities.has('plugin.write');
+  const canSurface = backendCapabilities.has('plugin.surface');
+  const canManagePackage = transport.environment === 'desktop';
+  const canUseLocalPluginFiles =
+    canWrite && transport.environment === 'desktop';
+
+  useEffect(() => {
+    let active = true;
+    setBackendCapabilities(new Set());
+    if (!transport.capabilities) return;
+    void transport
+      .capabilities()
+      .then((result) => {
+        if (active) setBackendCapabilities(new Set(result.capabilities));
+      })
+      .catch(() => {
+        if (active) setBackendCapabilities(new Set());
+      });
+    return () => {
+      active = false;
+    };
+  }, [transport]);
+
+  const openPermissionReview = (
+    plugin: PluginControlItem,
+    intent: PermissionReview['intent'],
+    permissions: PluginPermission[],
+    runtimeId?: string
+  ) => {
+    setTrustedNativeAcknowledged(false);
+    setSelectedPermissionIds(
+      new Set(
+        permissions
+          .filter((permission) => !permission.optional)
+          .map((permission) => permission.id)
+      )
+    );
+    setPermissionReview({ plugin, intent, permissions, runtimeId });
+  };
 
   const reload = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const next = await api.catalog();
+      const [next, nextContributions, nextDevConnection] = await Promise.all([
+        api.catalog(),
+        ecosystem === 'vibex'
+          ? api.contributionCatalog().catch(() => null)
+          : Promise.resolve(null),
+        ecosystem === 'vibex' && transport.environment === 'desktop'
+          ? api.devConnection().catch(() => null)
+          : Promise.resolve(null),
+      ]);
       setCatalog(next);
+      setContributionCatalog(nextContributions);
+      setDevConnection(nextDevConnection);
       setSelectedId((current) =>
         current && next.plugins.some((plugin) => plugin.id === current)
           ? current
@@ -684,7 +1145,18 @@ export function PluginsSettings({
     } finally {
       setIsLoading(false);
     }
-  }, [api]);
+  }, [api, ecosystem, transport.environment]);
+
+  const copyDevConnection = async () => {
+    if (!devConnection) return;
+    const shellEnvironment = [
+      `export VIBEX_PLUGIN_DEV_HOST='${devConnection.endpoint}'`,
+      `export VIBEX_PLUGIN_DEV_TOKEN='${devConnection.token}'`,
+    ].join('\n');
+    await navigator.clipboard.writeText(shellEnvironment);
+    setDevConnectionCopied(true);
+    window.setTimeout(() => setDevConnectionCopied(false), 1600);
+  };
 
   useEffect(() => {
     void reload();
@@ -741,9 +1213,9 @@ export function PluginsSettings({
   };
 
   const visiblePlugins = useMemo(() => {
-    const normalized = queries[activeTab].trim().toLocaleLowerCase();
+    const normalized = queries[effectiveTab].trim().toLocaleLowerCase();
     return (catalog?.plugins ?? []).filter((plugin) => {
-      const matchesEcosystem = pluginEcosystem(plugin) === activeTab;
+      const matchesEcosystem = pluginEcosystem(plugin) === effectiveTab;
       const matchesQuery =
         !normalized ||
         plugin.name.toLocaleLowerCase().includes(normalized) ||
@@ -753,13 +1225,23 @@ export function PluginsSettings({
         );
       return matchesEcosystem && matchesQuery;
     });
-  }, [activeTab, catalog, queries]);
+  }, [catalog, effectiveTab, queries]);
   const selected =
     visiblePlugins.find((plugin) => plugin.id === selectedId) ??
     visiblePlugins[0] ??
     null;
+  const selectedRegistryContributions = useMemo(
+    () =>
+      ecosystem === 'vibex' && contributionCatalog && selected
+        ? contributionCatalog.items.filter(
+            (item) => item.pluginId === selected.id
+          )
+        : undefined,
+    [contributionCatalog, ecosystem, selected]
+  );
 
   const chooseZipImport = async (packageKind: PluginImportPackageKind) => {
+    if (!canUseLocalPluginFiles) return;
     const picked = await open({
       directory: false,
       multiple: false,
@@ -815,7 +1297,13 @@ export function PluginsSettings({
   };
 
   const runCliImport = async () => {
-    if (importEcosystem === 'vibex' || !cliCommand.trim()) return;
+    if (
+      !canUseLocalPluginFiles ||
+      importEcosystem === 'vibex' ||
+      !cliCommand.trim()
+    ) {
+      return;
+    }
     setCliImportStatus('running');
     setCliLogs([]);
     setCliImportResult(null);
@@ -835,22 +1323,42 @@ export function PluginsSettings({
     }
   };
 
-  const applyImport = async (decision: 'reject' | 'keep' | 'replace') => {
-    if (!importPath) return;
+  const applyImport = async (
+    decision: 'reject' | 'keep' | 'replace',
+    permissionIds: string[] = [],
+    permissionsConfirmed = false
+  ) => {
+    if (!importPath || !canUseLocalPluginFiles) return;
+    if (
+      decision === 'replace' &&
+      !permissionsConfirmed &&
+      importPreview &&
+      importPreview.conflict?.installedEnabled === true &&
+      (importPreview.plugin.permissionDelta?.length ?? 0) > 0
+    ) {
+      openPermissionReview(
+        importPreview.plugin,
+        'replace',
+        importPreview.plugin.permissionDelta ?? []
+      );
+      setImportPreview(null);
+      return;
+    }
     setBusy(true);
     try {
       const imported = await api.import(
         importPath,
         developerLink,
         decision,
-        importPackageKind ?? undefined
+        importPackageKind ?? undefined,
+        permissionIds
       );
       setImportPreview(null);
       setImportPath(null);
       setImportPackageKind(null);
       await reload();
       setSelectedId(imported.id);
-      setActiveTab(pluginEcosystem(imported));
+      if (!ecosystem) setActiveTab(pluginEcosystem(imported));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -858,12 +1366,44 @@ export function PluginsSettings({
     }
   };
 
-  const setEnabled = async (plugin: PluginControlItem, enabled: boolean) => {
+  const setEnabled = async (
+    plugin: PluginControlItem,
+    enabled: boolean,
+    permissionsConfirmed = false
+  ) => {
+    if (!canWrite) return;
+    if (
+      enabled &&
+      !permissionsConfirmed &&
+      !plugin.nativeManaged &&
+      (plugin.permissions?.length ?? 0) > 0
+    ) {
+      openPermissionReview(plugin, 'enable', plugin.permissions ?? []);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
+      if (
+        enabled &&
+        !plugin.nativeManaged &&
+        plugin.permissions?.some(
+          (permission) => permission.trustTier === 'trusted_native'
+        )
+      ) {
+        for (const runtime of plugin.runtimes) {
+          const ready = (catalog?.runtimes ?? []).some((installed) =>
+            runtimeLockIsReady(runtime, installed)
+          );
+          if (!ready) await api.installRuntime(plugin.id, runtime.id);
+        }
+      }
       const updated = await api.setEnabled(plugin.id, enabled);
-      if (enabled && !plugin.nativeManaged) {
+      if (
+        enabled &&
+        !plugin.nativeManaged &&
+        transport.environment === 'desktop'
+      ) {
         await api.configureAgents(plugin.id, true, []);
       }
       setCatalog((current) =>
@@ -884,13 +1424,20 @@ export function PluginsSettings({
         setCapabilitySetup({ ...plugin, ...updated, enabled: true });
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      toast.error(
+        t(enabled ? 'plugins.enableFailed' : 'plugins.disableFailed', {
+          name: plugin.name,
+        }),
+        { description: message }
+      );
     } finally {
       setBusy(false);
     }
   };
 
-  const updatePlugin = async (plugin: PluginControlItem) => {
+  const performUpdate = async (plugin: PluginControlItem) => {
     setBusy(true);
     setError(null);
     try {
@@ -905,6 +1452,38 @@ export function PluginsSettings({
             }
           : current
       );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updatePlugin = async (
+    plugin: PluginControlItem,
+    permissionsConfirmed = false
+  ) => {
+    if (!canWrite) return;
+    if (
+      !permissionsConfirmed &&
+      !plugin.nativeManaged &&
+      (plugin.permissionDelta?.length ?? 0) > 0
+    ) {
+      openPermissionReview(plugin, 'update', plugin.permissionDelta ?? []);
+      return;
+    }
+    await performUpdate(plugin);
+  };
+
+  const rollbackPlugin = async (plugin: PluginControlItem) => {
+    if (!canWrite || transport.environment !== 'desktop') return;
+    setBusy(true);
+    setError(null);
+    try {
+      const restored = await api.rollback(plugin.id);
+      const refreshed = await api.catalog();
+      setCatalog(refreshed);
+      setSelectedId(restored.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -927,13 +1506,29 @@ export function PluginsSettings({
     }
   };
 
-  const setTrust = async (plugin: PluginControlItem, trusted: boolean) => {
+  const confirmPermissionReview = async () => {
+    if (!permissionReview || !canWrite) return;
+    const { plugin, intent } = permissionReview;
+    const grantedPermissionIds = permissionReview.permissions
+      .filter(
+        (permission) =>
+          !permission.optional || selectedPermissionIds.has(permission.id)
+      )
+      .map((permission) => permission.id);
     setBusy(true);
+    setError(null);
     try {
-      await api.setShellTrust(plugin.id, trusted);
-      setTrustTarget(null);
-      await reload();
-      setSelectedId(plugin.id);
+      if (intent === 'replace') {
+        setPermissionReview(null);
+        await applyImport('replace', grantedPermissionIds, true);
+        return;
+      }
+      await api.grantPermissions(plugin.id, grantedPermissionIds);
+      setPermissionReview(null);
+      if (intent === 'enable') await setEnabled(plugin, true, true);
+      else if (intent === 'install-runtime' && permissionReview.runtimeId) {
+        await installRuntime(plugin, permissionReview.runtimeId, true);
+      } else await updatePlugin(plugin, true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -942,7 +1537,7 @@ export function PluginsSettings({
   };
 
   const uninstall = async () => {
-    if (!uninstallTarget) return;
+    if (!uninstallTarget || !canWrite) return;
     setBusy(true);
     try {
       await api.uninstall(uninstallTarget.id);
@@ -958,20 +1553,25 @@ export function PluginsSettings({
   const installRuntime = async (
     plugin: PluginControlItem,
     runtimeId: string,
-    confirmConflict = false
+    permissionsConfirmed = false
   ) => {
+    if (!canWrite) return;
+    const trustedPermissions = (plugin.permissions ?? []).filter(
+      (permission) => permission.trustTier === 'trusted_native'
+    );
+    if (!permissionsConfirmed && trustedPermissions.length > 0) {
+      openPermissionReview(
+        plugin,
+        'install-runtime',
+        trustedPermissions,
+        runtimeId
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      if (!confirmConflict) {
-        const conflict = await api.previewRuntimeInstall(plugin.id, runtimeId);
-        if (conflict) {
-          setRuntimeConflict({ plugin, runtimeId, conflict });
-          return;
-        }
-      }
-      await api.installRuntime(plugin.id, runtimeId, confirmConflict);
-      setRuntimeConflict(null);
+      await api.installRuntime(plugin.id, runtimeId);
       await reload();
       setSelectedId(plugin.id);
     } catch (cause) {
@@ -985,87 +1585,119 @@ export function PluginsSettings({
     <div className="space-y-4">
       <SettingsPageHeader
         title={t('plugins.pageTitle')}
-        description={t('plugins.pageDescription')}
+        description={t(
+          ecosystem === 'vibex'
+            ? 'plugins.productDescription'
+            : ecosystem
+              ? 'plugins.nativeDescription'
+              : 'plugins.pageDescription'
+        )}
       />
       <SettingsSection
         icon={Puzzle}
         title={t('plugins.pageTitle')}
-        description={t('plugins.pageDescription')}
-        className="plugin-hub-shell"
+        description={t(
+          ecosystem === 'vibex'
+            ? 'plugins.productDescription'
+            : ecosystem
+              ? 'plugins.nativeDescription'
+              : 'plugins.pageDescription'
+        )}
+        className={cn('plugin-hub-shell', embedded && 'is-embedded')}
         bare
+        headerless={embedded}
         action={
           <div className="plugin-hub-header-actions">
-            <div
-              className="plugin-ecosystem-tabs"
-              role="tablist"
-              aria-label={t('plugins.ecosystemTabsAria')}
-            >
-              {PLUGIN_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-label={tab.label}
-                  aria-selected={activeTab === tab.id}
-                  className={cn(activeTab === tab.id && 'is-active')}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setSelectedId(null);
-                  }}
-                >
-                  {tab.id !== 'vibex' ? (
-                    <AgentTypeIcon
-                      agentType={tab.id}
-                      className="plugin-ecosystem-tab-icon"
-                    />
-                  ) : null}
-                  <span>{tab.label}</span>
-                  <small aria-hidden="true">
-                    {
-                      (catalog?.plugins ?? []).filter(
-                        (plugin) => pluginEcosystem(plugin) === tab.id
-                      ).length
-                    }
-                  </small>
-                </button>
-              ))}
-            </div>
-            <Button
-              size="sm"
-              onClick={() => {
-                selectImportEcosystem('codex');
-                setImportChooserOpen(true);
-              }}
-              disabled={busy}
-            >
-              <PackagePlus className="mr-1.5 h-3.5 w-3.5" />
-              {t('plugins.import')}
-            </Button>
+            {!ecosystem ? (
+              <div
+                className="plugin-ecosystem-tabs"
+                role="tablist"
+                aria-label={t('plugins.ecosystemTabsAria')}
+              >
+                {PLUGIN_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-label={tab.label}
+                    aria-selected={activeTab === tab.id}
+                    className={cn(activeTab === tab.id && 'is-active')}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      setSelectedId(null);
+                    }}
+                  >
+                    {tab.id !== 'vibex' ? (
+                      <AgentTypeIcon
+                        agentType={tab.id}
+                        className="plugin-ecosystem-tab-icon"
+                      />
+                    ) : null}
+                    <span>{tab.label}</span>
+                    <small aria-hidden="true">
+                      {
+                        (catalog?.plugins ?? []).filter(
+                          (plugin) => pluginEcosystem(plugin) === tab.id
+                        ).length
+                      }
+                    </small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {canUseLocalPluginFiles ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  selectImportEcosystem(ecosystem ?? 'codex');
+                  setImportChooserOpen(true);
+                }}
+                disabled={busy}
+              >
+                <PackagePlus className="mr-1.5 h-3.5 w-3.5" />
+                {t('plugins.import')}
+              </Button>
+            ) : null}
+            {ecosystem === 'vibex' && devConnection ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setDevToolsOpen(true)}
+              >
+                <TerminalSquare className="mr-1.5 h-3.5 w-3.5" />
+                {t('plugins.developerTools')}
+              </Button>
+            ) : null}
           </div>
         }
       >
+        {transport.environment !== 'desktop' && !canWrite ? (
+          <p className="plugin-detail-empty-copy" role="status">
+            {t('plugins.remoteReadOnly')}
+          </p>
+        ) : null}
         <div className="plugin-hub-toolbar">
           <label className="plugin-search-control">
             <Search aria-hidden="true" />
             <span className="sr-only">
               {t('plugins.searchInTab', {
-                tab: PLUGIN_TABS.find((tab) => tab.id === activeTab)?.label,
+                tab: PLUGIN_TABS.find((tab) => tab.id === effectiveTab)?.label,
               })}
             </span>
             <input
               type="search"
-              value={queries[activeTab]}
+              value={queries[effectiveTab]}
               onChange={(event) =>
                 setQueries((current) => ({
                   ...current,
-                  [activeTab]: event.target.value,
+                  [effectiveTab]: event.target.value,
                 }))
               }
               placeholder={t('plugins.searchPlaceholderInTab', {
-                tab: PLUGIN_TABS.find((tab) => tab.id === activeTab)?.label,
+                tab: PLUGIN_TABS.find((tab) => tab.id === effectiveTab)?.label,
               })}
               aria-label={t('plugins.searchInTab', {
-                tab: PLUGIN_TABS.find((tab) => tab.id === activeTab)?.label,
+                tab: PLUGIN_TABS.find((tab) => tab.id === effectiveTab)?.label,
               })}
             />
           </label>
@@ -1074,7 +1706,7 @@ export function PluginsSettings({
         {error ? (
           <div role="alert" className="plugin-hub-error">
             <AlertTriangle aria-hidden="true" />
-            <span>{t('plugins.loadFailed', { error })}</span>
+            <span>{t('plugins.operationFailed', { error })}</span>
             <Button size="sm" variant="ghost" onClick={() => void reload()}>
               {t('common:retry')}
             </Button>
@@ -1155,25 +1787,43 @@ export function PluginsSettings({
                 onKeyDown={resizePanelsFromKeyboard}
               />
               {selected ? (
-                <PluginDetail
-                  key={selected.id}
-                  plugin={selected}
-                  busy={busy}
-                  onEnabledChange={(enabled) =>
-                    void setEnabled(selected, enabled)
-                  }
-                  onUpdate={() => void updatePlugin(selected)}
-                  onTrustChange={(trusted) => {
-                    if (trusted) setTrustTarget(selected);
-                    else void setTrust(selected, false);
-                  }}
-                  onInstallRuntime={(runtimeId) =>
-                    void installRuntime(selected, runtimeId)
-                  }
-                  onUninstall={() => setUninstallTarget(selected)}
-                  loadContributions={() => api.contributions(selected)}
-                  runtimeInventory={catalog?.runtimes ?? []}
-                />
+                effectiveTab === 'vibex' ? (
+                  <PluginDetail
+                    key={selected.id}
+                    plugin={selected}
+                    busy={busy}
+                    onEnabledChange={(enabled) =>
+                      void setEnabled(selected, enabled)
+                    }
+                    onUpdate={() => void updatePlugin(selected)}
+                    onRollback={() => void rollbackPlugin(selected)}
+                    onInstallRuntime={(runtimeId) =>
+                      void installRuntime(selected, runtimeId)
+                    }
+                    onUninstall={() => setUninstallTarget(selected)}
+                    loadContributions={() => api.contributions(selected)}
+                    runtimeInventory={catalog?.runtimes ?? []}
+                    registryGeneration={contributionCatalog?.generation}
+                    registryContributions={selectedRegistryContributions}
+                    appSurfaceTransport={appSurfaceTransport}
+                    canWrite={canWrite}
+                    canSurface={canSurface}
+                    canManagePackage={canManagePackage}
+                  />
+                ) : (
+                  <AgentNativePluginDetail
+                    key={selected.id}
+                    plugin={selected}
+                    busy={busy}
+                    onEnabledChange={(enabled) =>
+                      void setEnabled(selected, enabled)
+                    }
+                    onUpdate={() => void updatePlugin(selected)}
+                    onUninstall={() => setUninstallTarget(selected)}
+                    canWrite={canWrite}
+                    canManagePackage={canManagePackage}
+                  />
+                )
               ) : null}
             </div>
           ) : (
@@ -1182,7 +1832,8 @@ export function PluginsSettings({
               <strong>{t('plugins.emptyTitle')}</strong>
               <p>
                 {t('plugins.emptyDescriptionInTab', {
-                  tab: PLUGIN_TABS.find((tab) => tab.id === activeTab)?.label,
+                  tab: PLUGIN_TABS.find((tab) => tab.id === effectiveTab)
+                    ?.label,
                 })}
               </p>
             </div>
@@ -1190,7 +1841,7 @@ export function PluginsSettings({
         </div>
       </SettingsSection>
 
-      {catalog?.runtimes.length ? (
+      {effectiveTab === 'vibex' && catalog?.runtimes.length ? (
         <SettingsSection
           icon={TerminalSquare}
           title={t('plugins.runtimeInventoryTitle')}
@@ -1198,12 +1849,29 @@ export function PluginsSettings({
         >
           <div className="plugin-runtime-inventory">
             {catalog.runtimes.map((runtime) => (
-              <article key={runtime.id}>
+              <article key={runtimeIdentity(runtime)}>
                 <div>
                   <strong>{runtime.id}</strong>
                   <span>{runtime.version}</span>
                   <span>{runtime.installer}</span>
                 </div>
+                <small>
+                  {t('plugins.runtimeTarget', {
+                    target:
+                      runtime.target ?? t('plugins.runtimeEvidenceUnavailable'),
+                  })}
+                </small>
+                <code>
+                  {runtime.contentDigest ??
+                    t('plugins.runtimeEvidenceUnavailable')}
+                </code>
+                <small>
+                  {t('plugins.runtimeOwnership', {
+                    ownership:
+                      runtime.ownership ??
+                      t('plugins.runtimeEvidenceUnavailable'),
+                  })}
+                </small>
                 <code title={runtime.executablePath}>
                   {runtime.executablePath}
                 </code>
@@ -1240,29 +1908,33 @@ export function PluginsSettings({
               {t('plugins.importEcosystemDescription')}
             </DialogDescription>
           </DialogHeader>
-          <div
-            className="plugin-import-ecosystem-tabs"
-            aria-label={t('plugins.importEcosystemAria')}
-          >
-            {IMPORT_ECOSYSTEMS.map((ecosystem) => (
-              <button
-                key={ecosystem.id}
-                type="button"
-                aria-pressed={importEcosystem === ecosystem.id}
-                className={cn(importEcosystem === ecosystem.id && 'is-active')}
-                onClick={() => selectImportEcosystem(ecosystem.id)}
-              >
-                {ecosystem.label}
-              </button>
-            ))}
-          </div>
+          {!ecosystem ? (
+            <div
+              className="plugin-import-ecosystem-tabs"
+              aria-label={t('plugins.importEcosystemAria')}
+            >
+              {IMPORT_ECOSYSTEMS.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  aria-pressed={importEcosystem === candidate.id}
+                  className={cn(
+                    importEcosystem === candidate.id && 'is-active'
+                  )}
+                  onClick={() => selectImportEcosystem(candidate.id)}
+                >
+                  {candidate.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           <div className="plugin-import-methods">
             {importEcosystem === 'codex' ? (
               <div className="plugin-import-method-row">
                 <Archive aria-hidden="true" />
                 <div>
-                  <strong>Skills-only ZIP</strong>
+                  <strong>{t('plugins.codexSkillsZipTitle')}</strong>
                   <p>{t('plugins.codexZipDescription')}</p>
                 </div>
                 <Button
@@ -1510,127 +2182,223 @@ export function PluginsSettings({
       </Dialog>
 
       <Dialog
-        open={Boolean(trustTarget)}
-        onOpenChange={(open) => !open && setTrustTarget(null)}
-        aria-labelledby="plugin-shell-trust-title"
+        open={devToolsOpen}
+        onOpenChange={setDevToolsOpen}
+        aria-label={t('plugins.developerTools')}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle id="plugin-shell-trust-title">
-              {t('plugins.shellTrustDialogTitle', {
-                name: trustTarget?.name ?? '',
-              })}
-            </DialogTitle>
-            <DialogDescription>{t('plugins.shellTrustRisk')}</DialogDescription>
+            <DialogTitle>{t('plugins.developerTools')}</DialogTitle>
+            <DialogDescription>
+              {t('plugins.devHostDescription')}
+            </DialogDescription>
           </DialogHeader>
-          {trustTarget ? (
-            <div className="space-y-3 text-xs">
-              <div className="plugin-source-row">
-                <Link2 aria-hidden="true" />
-                <div className="min-w-0">
-                  <strong>{t('plugins.sourceTitle')}</strong>
-                  <code className="block">{trustTarget.sourcePath}</code>
-                </div>
-              </div>
-              <div className="plugin-import-conflict">
-                <TerminalSquare aria-hidden="true" />
-                <div className="min-w-0">
-                  <strong>{t('plugins.shellCommands')}</strong>
-                  {trustTarget.runtimes
-                    .filter((runtime) => runtime.installer === 'shell')
-                    .map((runtime) => (
-                      <code className="block" key={runtime.id}>
-                        {runtime.installCommand}
-                      </code>
-                    ))}
-                </div>
-              </div>
+          {devConnection ? (
+            <div className="plugin-dev-tool-details">
+              <span>
+                <i aria-hidden="true" />
+                {t('plugins.devHostReady')}
+              </span>
+              <code>{devConnection.endpoint}</code>
+              <p>{t('plugins.devHostUsage')}</p>
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTrustTarget(null)}>
-              {t('common:cancel')}
+            <Button variant="outline" onClick={() => setDevToolsOpen(false)}>
+              {t('common:close')}
             </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => trustTarget && void setTrust(trustTarget, true)}
-            >
-              {t('plugins.confirmShellTrust')}
+            <Button onClick={() => void copyDevConnection()}>
+              <TerminalSquare className="mr-1.5 h-3.5 w-3.5" />
+              {devConnectionCopied
+                ? t('plugins.devConnectionCopied')
+                : t('plugins.copyDevConnection')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={Boolean(runtimeConflict)}
-        onOpenChange={(open) => !open && setRuntimeConflict(null)}
-        aria-labelledby="plugin-runtime-conflict-title"
+      <AstryxDialog
+        isOpen={Boolean(permissionReview)}
+        onOpenChange={(open) => !open && setPermissionReview(null)}
+        purpose="required"
+        width={560}
+        maxHeight="min(760px, 88vh)"
+        padding={0}
+        aria-label={t(
+          permissionReview?.intent === 'update' ||
+            permissionReview?.intent === 'replace'
+            ? 'plugins.permissionUpdateDialogTitle'
+            : 'plugins.permissionDialogTitle',
+          { name: permissionReview?.plugin.name ?? '' }
+        )}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle id="plugin-runtime-conflict-title">
-              {t('plugins.runtimeConflictTitle', {
-                id: runtimeConflict?.runtimeId ?? '',
-              })}
-            </DialogTitle>
-            <DialogDescription>
-              {t('plugins.runtimeConflictDescription')}
-            </DialogDescription>
-          </DialogHeader>
-          {runtimeConflict ? (
-            <div className="plugin-import-conflict" role="alert">
-              <AlertTriangle aria-hidden="true" />
-              <div className="min-w-0 space-y-2">
-                <strong>
-                  {runtimeConflict.conflict.currentVersion} →{' '}
-                  {runtimeConflict.conflict.targetVersion}
-                </strong>
-                {runtimeConflict.conflict.affectedPlugins.length ? (
-                  <div>
-                    <p>{t('plugins.affectedPlugins')}</p>
-                    {runtimeConflict.conflict.affectedPlugins.map((id) => (
-                      <code className="block" key={id}>
-                        {id}
-                      </code>
-                    ))}
-                  </div>
-                ) : null}
-                {runtimeConflict.conflict.affectedAutomations.length ? (
-                  <div>
-                    <p>{t('plugins.affectedAutomations')}</p>
-                    {runtimeConflict.conflict.affectedAutomations.map((id) => (
-                      <code className="block" key={id}>
-                        {id}
-                      </code>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRuntimeConflict(null)}>
-              {t('common:cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => {
-                if (runtimeConflict) {
-                  void installRuntime(
-                    runtimeConflict.plugin,
-                    runtimeConflict.runtimeId,
-                    true
-                  );
+        <AstryxLayout
+          height="auto"
+          header={
+            <AstryxDialogHeader
+              title={t(
+                permissionReview?.intent === 'update' ||
+                  permissionReview?.intent === 'replace'
+                  ? 'plugins.permissionUpdateDialogTitle'
+                  : 'plugins.permissionDialogTitle',
+                {
+                  name: permissionReview?.plugin.name ?? '',
                 }
-              }}
-            >
-              {t('plugins.confirmRuntimeReplace')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              )}
+              subtitle={t('plugins.permissionDialogDescription')}
+            />
+          }
+          content={
+            <AstryxLayoutContent padding={4}>
+              {permissionReview ? (
+                <div className="plugin-permission-review">
+                  <div className="plugin-permission-publisher">
+                    <CheckCircle2 aria-hidden="true" />
+                    <span>
+                      {permissionReview.plugin.publisher ??
+                        t('plugins.permissionEvidenceUnavailable')}
+                    </span>
+                    <small>{t('plugins.permissionPublisher')}</small>
+                  </div>
+                  {permissionReview.intent === 'update' ||
+                  permissionReview.intent === 'replace' ? (
+                    <strong className="plugin-permission-delta-title">
+                      {t('plugins.permissionDelta')}
+                    </strong>
+                  ) : null}
+                  <div className="plugin-permission-list">
+                    {permissionReview.permissions.map((permission) => (
+                      <div
+                        className="plugin-permission-item"
+                        key={permission.id}
+                      >
+                        {permission.optional ? (
+                          <CheckboxInput
+                            label={permission.reason}
+                            description={t(
+                              'plugins.permissionOptionalDescription'
+                            )}
+                            value={selectedPermissionIds.has(permission.id)}
+                            isOptional
+                            size="sm"
+                            onChange={(checked) => {
+                              setSelectedPermissionIds((current) => {
+                                const next = new Set(current);
+                                if (checked) next.add(permission.id);
+                                else next.delete(permission.id);
+                                return next;
+                              });
+                            }}
+                          />
+                        ) : (
+                          <>
+                            <CheckCircle2 aria-hidden="true" />
+                            <span>
+                              <strong>
+                                {t(
+                                  `plugins.permissionCapability.${permission.capability}`
+                                )}
+                              </strong>
+                              <small>{permission.reason}</small>
+                            </span>
+                            <em>{t('plugins.permissionRequired')}</em>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {permissionReview.permissions.some(
+                    (permission) => permission.trustTier === 'trusted_native'
+                  ) ? (
+                    <div className="plugin-native-runtime-consent">
+                      <strong>
+                        {t('plugins.trustedNativeRuntimeTitle', {
+                          runtime: runtimeDisplayName(
+                            permissionReview.plugin.runtimes[0]?.id ?? 'Runtime'
+                          ),
+                        })}
+                      </strong>
+                      <p>{t('plugins.trustedNativeDescription')}</p>
+                      <CheckboxInput
+                        label={t('plugins.trustedNativeAcknowledgement', {
+                          runtime: runtimeDisplayName(
+                            permissionReview.plugin.runtimes[0]?.id ?? 'Runtime'
+                          ),
+                        })}
+                        value={trustedNativeAcknowledged}
+                        size="sm"
+                        onChange={setTrustedNativeAcknowledged}
+                      />
+                    </div>
+                  ) : null}
+                  <details className="plugin-permission-evidence">
+                    <summary>
+                      {t('plugins.permissionTechnicalEvidence')}
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>{t('plugins.permissionPublisher')}</dt>
+                        <dd>
+                          {permissionReview.plugin.publisher ??
+                            t('plugins.permissionEvidenceUnavailable')}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t('plugins.permissionPackageDigest')}</dt>
+                        <dd>
+                          <code>
+                            {(permissionReview.intent === 'update' ||
+                            permissionReview.intent === 'replace'
+                              ? permissionReview.plugin.updatePackageDigest
+                              : permissionReview.plugin.packageDigest) ??
+                              t('plugins.permissionEvidenceUnavailable')}
+                          </code>
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </div>
+              ) : null}
+            </AstryxLayoutContent>
+          }
+          footer={
+            <AstryxLayoutFooter hasDivider padding={3}>
+              <div className="plugin-permission-actions">
+                <AstryxButton
+                  label={t('common:cancel')}
+                  variant="secondary"
+                  onClick={() => setPermissionReview(null)}
+                />
+                <AstryxButton
+                  label={t(
+                    permissionReview?.intent === 'update' ||
+                      permissionReview?.intent === 'replace'
+                      ? 'plugins.reviewAndUpdate'
+                      : permissionReview?.intent === 'enable' &&
+                          permissionReview.permissions.some(
+                            (permission) =>
+                              permission.trustTier === 'trusted_native'
+                          ) &&
+                          (permissionReview?.plugin.runtimes.length ?? 0) > 0
+                        ? 'plugins.grantInstallAndEnable'
+                        : 'plugins.grantAndEnable'
+                  )}
+                  variant="primary"
+                  isLoading={busy}
+                  isDisabled={
+                    !canWrite ||
+                    (permissionReview?.permissions.some(
+                      (permission) => permission.trustTier === 'trusted_native'
+                    ) === true &&
+                      !trustedNativeAcknowledged)
+                  }
+                  onClick={() => void confirmPermissionReview()}
+                />
+              </div>
+            </AstryxLayoutFooter>
+          }
+        />
+      </AstryxDialog>
 
       <Dialog
         open={Boolean(uninstallTarget)}

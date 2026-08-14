@@ -1,0 +1,7 @@
+{
+  "label": "修改 PPT",
+  "entrypoints": ["action", "command"],
+  "promptBlocks": [{ "type": "text", "text": "按要求修改现有 PPTX，保留未指定内容并验证输出。" }],
+  "requires": { "skills": ["office-pptx"], "runtimes": ["officecli"] },
+  "artifactIntent": { "mediaTypes": ["application/vnd.openxmlformats-officedocument.presentationml.presentation"], "previewProvider": "office-preview" }
+}

@@ -134,7 +134,6 @@ describe('composer command sources', () => {
             description: null,
             enabled: true,
             builtin: false,
-            shellTrusted: false,
             sourceKind: 'snapshot',
             sourcePath: '/plugins/review',
             formats: ['vibex'],

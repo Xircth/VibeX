@@ -1,12 +1,28 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BackendTransport } from '@/lib/backendTransport';
-import type { PluginControlCatalog } from '@/lib/api/plugins';
-import { PluginsSettings } from './PluginsSettings';
+import type {
+  PluginContributionCatalog,
+  PluginControlCatalog,
+} from '@/lib/api/plugins';
+import { toast } from '@/components/ui/toast';
+import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
+
+vi.mock('@/components/ui/toast', () => ({
+  toast: {
+    error: vi.fn(),
+  },
+}));
 
 const catalog: PluginControlCatalog = {
   plugins: [
@@ -17,7 +33,8 @@ const catalog: PluginControlCatalog = {
       description: 'Create and edit office artifacts.',
       enabled: true,
       builtin: true,
-      shellTrusted: false,
+      publisher: 'VibeX',
+      packageDigest: 'sha256:office-package',
       sourceKind: 'builtin',
       sourcePath: '/Applications/VibeX/assets/plugins/office',
       formats: ['vibex'],
@@ -31,12 +48,28 @@ const catalog: PluginControlCatalog = {
           id: 'officecli',
           command: 'officecli',
           version: '1.0.140',
+          target: 'aarch64-apple-darwin',
+          contentDigest: 'sha256:officecli-1.0.140',
           installer: 'existing',
         },
       ],
       warnings: [],
       mcpCount: 0,
       invocationCount: 6,
+      appContributions: [
+        {
+          id: 'office.preview',
+          kind: 'file_opener',
+          label: 'Office preview',
+          metadata: { extensions: ['docx', 'pptx', 'xlsx'] },
+        },
+        {
+          id: 'office-preview',
+          kind: 'preview_provider',
+          label: 'Office document preview',
+          metadata: { runtime: 'officecli' },
+        },
+      ],
     },
     {
       id: 'dev.vibex.research',
@@ -45,7 +78,8 @@ const catalog: PluginControlCatalog = {
       description: 'Shared research workflow.',
       enabled: false,
       builtin: false,
-      shellTrusted: false,
+      publisher: 'Acme Research',
+      packageDigest: 'sha256:research-1.4.0',
       sourceKind: 'developer_link',
       sourcePath: '/Users/me/plugins/research',
       formats: ['vibex', 'codex', 'claude_code'],
@@ -58,11 +92,41 @@ const catalog: PluginControlCatalog = {
           id: 'research-cli',
           command: 'research',
           version: '1.4.0',
+          target: 'aarch64-apple-darwin',
+          contentDigest: 'sha256:research-cli-1.4.0',
           installer: 'shell',
           installCommand: './install.sh',
         },
       ],
       warnings: [],
+      permissions: [
+        {
+          id: 'run-research',
+          capability: 'runtime.execute',
+          scope: { runtime: 'research-cli', operations: ['inspect'] },
+          reason: 'Run the locked research runtime.',
+          optional: false,
+        },
+        {
+          id: 'research-network',
+          capability: 'network.fetch',
+          scope: { hosts: ['api.example.test'] },
+          reason: 'Fetch optional external references.',
+          optional: true,
+        },
+      ],
+      permissionDelta: [
+        {
+          id: 'research-export',
+          capability: 'artifact.write',
+          scope: { formats: ['md'] },
+          reason: 'Export the final research report.',
+          optional: false,
+        },
+      ],
+      updatePackageDigest: 'sha256:research-1.5.0',
+      updateSupported: true,
+      rollbackSupported: true,
       mcpCount: 1,
       mcpServers: ['research-mcp'],
       invocationCount: 2,
@@ -88,12 +152,22 @@ const catalog: PluginControlCatalog = {
       description: 'Codex browser workflows.',
       enabled: true,
       builtin: false,
-      shellTrusted: false,
       sourceKind: 'codex_native',
       sourcePath: '/Users/me/.codex/plugins/cache/browser',
       formats: ['codex'],
       skills: [{ id: 'browser', path: 'skills/browser/SKILL.md' }],
-      runtimes: [],
+      runtimes: [
+        {
+          id: 'browser-runtime',
+          command: 'browser-runtime',
+          version: '1.0.0',
+          installer: 'existing',
+        },
+      ],
+      hooks: [{ id: 'session-start', path: 'hooks/session-start.json' }],
+      workflows: [
+        { id: 'browse-and-summarize', path: 'workflows/browse.json' },
+      ],
       warnings: [],
       mcpCount: 0,
       invocationCount: 0,
@@ -109,7 +183,6 @@ const catalog: PluginControlCatalog = {
       description: 'Claude Code frontend workflows.',
       enabled: true,
       builtin: false,
-      shellTrusted: false,
       sourceKind: 'claude_code_native',
       sourcePath: '/Users/me/.claude/plugins/cache/frontend-design',
       formats: ['claude_code'],
@@ -124,7 +197,30 @@ const catalog: PluginControlCatalog = {
       uninstallSupported: true,
     },
   ],
-  runtimes: [],
+  runtimes: [
+    {
+      id: 'officecli',
+      version: '1.0.140',
+      target: 'aarch64-apple-darwin',
+      contentDigest: 'sha256:officecli-1.0.140',
+      executablePath: '/managed/officecli/1.0.140/bin/officecli',
+      ownership: 'managed',
+      installer: 'archive',
+      probe: ['officecli', '--version'],
+      referencedPlugins: ['vibex.office'],
+    },
+    {
+      id: 'officecli',
+      version: '1.0.139',
+      target: 'x86_64-apple-darwin',
+      contentDigest: 'sha256:officecli-1.0.139',
+      executablePath: '/managed/officecli/1.0.139/bin/officecli',
+      ownership: 'external',
+      installer: 'existing',
+      probe: ['officecli', '--version'],
+      referencedPlugins: [],
+    },
+  ],
 };
 
 const contributionDetails = {
@@ -151,6 +247,51 @@ const contributionDetails = {
   ],
 };
 
+const contributionCatalog: PluginContributionCatalog = {
+  generation: 7,
+  items: [
+    {
+      pluginId: 'vibex.office',
+      id: 'office.preview',
+      kind: 'file_opener',
+      label: 'Office preview',
+      generation: 7,
+      metadata: { extensions: ['docx', 'pptx', 'xlsx'] },
+    },
+    {
+      pluginId: 'vibex.office',
+      id: 'office-preview',
+      kind: 'preview_provider',
+      label: 'Office document preview',
+      generation: 7,
+      metadata: { fileOpener: 'office.preview', runtime: 'officecli' },
+    },
+    {
+      pluginId: 'vibex.office',
+      id: 'office-pptx',
+      kind: 'skill',
+      label: 'Office presentation skill',
+      generation: 7,
+      metadata: { path: 'skills/office-pptx/SKILL.md' },
+    },
+    {
+      pluginId: 'vibex.office',
+      id: 'office-dashboard',
+      kind: 'app_surface',
+      label: 'Office dashboard',
+      generation: 7,
+      metadata: {
+        slot: 'plugin.detail.panel',
+        appEntrypoint: 'app',
+        route: '/dashboard',
+        handler: 'surface.createSession',
+        allowedMethods: [],
+        minHeight: 320,
+      },
+    },
+  ],
+};
+
 function LocationProbe() {
   const location = useLocation();
   return (
@@ -170,11 +311,29 @@ function transport(overrides: Record<string, unknown> = {}) {
         : value;
     }
     if (command === 'plugin_control_catalog') return catalog;
+    if (command === 'plugin_contribution_catalog') return contributionCatalog;
+    if (command === 'plugin_dev_connection') {
+      return {
+        endpoint: 'http://127.0.0.1:43100',
+        token: 'secret-dev-token',
+        protocolVersion: '1.0',
+      };
+    }
     if (command === 'plugin_control_contributions') {
       return contributionDetails;
     }
+    if (command === 'plugin_surface_open') {
+      return {
+        html: '<main><h1>Office dashboard</h1></main>',
+        token: '0123456789abcdef0123456789abcdef',
+      };
+    }
     if (command === 'plugin_control_set_enabled') return catalog.plugins[1];
+    if (command === 'plugin_control_grant_permissions') return [];
     if (command === 'plugin_control_update') return catalog.plugins[3];
+    if (command === 'plugin_control_rollback') {
+      return { ...catalog.plugins[1], version: '1.3.0' };
+    }
     if (command === 'plugin_control_configure_agents') return [];
     throw new Error(`unexpected command: ${command}`);
   });
@@ -203,14 +362,33 @@ function transport(overrides: Record<string, unknown> = {}) {
   return {
     call,
     stream,
-    value: { environment: 'desktop', call, stream } as BackendTransport,
+    value: {
+      environment: 'desktop',
+      call,
+      stream,
+      capabilities: async () => ({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write', 'plugin.surface'],
+      }),
+    } as BackendTransport,
   };
 }
 
-function renderSettings(backend: BackendTransport, showLocation = false) {
+function renderSettings(
+  backend: BackendTransport,
+  showLocation = false,
+  ecosystem?: PluginEcosystem,
+  embedded = false
+) {
   return render(
     <MemoryRouter initialEntries={['/settings/plugins']}>
-      <PluginsSettings transport={backend} />
+      <PluginsSettings
+        transport={backend}
+        ecosystem={ecosystem}
+        embedded={embedded}
+      />
       {showLocation ? <LocationProbe /> : null}
     </MemoryRouter>
   );
@@ -219,7 +397,189 @@ function renderSettings(backend: BackendTransport, showLocation = false) {
 describe('PluginsSettings', () => {
   beforeEach(() => {
     vi.mocked(open).mockReset();
+    vi.mocked(toast.error).mockReset();
     localStorage.clear();
+  });
+
+  it('omits the repeated section header when embedded in Agent settings', async () => {
+    const backend = transport();
+    const view = renderSettings(backend.value, false, 'codex', true);
+
+    expect(
+      await screen.findByRole('searchbox', { name: '搜索 Codex 插件' })
+    ).toBeVisible();
+    expect(view.container.querySelector('.plugin-hub-shell')).toHaveClass(
+      'is-embedded'
+    );
+    expect(view.container.querySelector('.settings-section')).toBeNull();
+  });
+
+  it('previews only Agent-native resources in Codex and Claude Code settings', async () => {
+    const backend = transport();
+    renderSettings(backend.value, false, 'codex', true);
+
+    const detail = await screen.findByRole('region', { name: 'Browser Tools' });
+    const headings = within(detail)
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent);
+
+    expect(headings).toEqual([
+      'Skills',
+      'MCP',
+      'Runtime',
+      'Hooks',
+      'Workflows',
+    ]);
+    expect(within(detail).getByText('browser')).toBeVisible();
+    expect(within(detail).getByText('browser-runtime')).toBeVisible();
+    expect(within(detail).getByText('session-start')).toBeVisible();
+    expect(within(detail).getByText('browse-and-summarize')).toBeVisible();
+    expect(within(detail).queryByText('扩展 VibeX')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('扩展 Agent')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('调用命令')).not.toBeInTheDocument();
+    expect(within(detail).queryByText('来源')).not.toBeInTheDocument();
+  });
+
+  it('scopes the product module to VibeX plugins and reads the activation registry', async () => {
+    const backend = transport();
+    renderSettings(backend.value, false, 'vibex');
+
+    expect((await screen.findAllByText('VibeX Office')).length).toBeGreaterThan(
+      0
+    );
+    expect(screen.getAllByText('Research Toolkit').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Browser Tools')).not.toBeInTheDocument();
+    expect(screen.queryByText('Frontend Design')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('tablist', { name: '插件生态' })
+    ).not.toBeInTheDocument();
+    expect(backend.call).toHaveBeenCalledWith('plugin_contribution_catalog');
+    expect(await screen.findByText('扩展 VibeX')).toBeVisible();
+    expect(screen.getByText('打开与预览文件')).toBeVisible();
+    expect(screen.getByText('DOCX · PPTX · XLSX')).toBeVisible();
+    expect(screen.queryByText('激活代次 7')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('region', { name: 'Office dashboard' })
+    ).toBeVisible();
+    expect(await screen.findByTitle('Office dashboard')).not.toHaveAttribute(
+      'sandbox'
+    );
+    const surfaceOpenCount = backend.call.mock.calls.filter(
+      ([command]) => command === 'plugin_surface_open'
+    ).length;
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: '搜索 VibeX 插件' }),
+      'office'
+    );
+    expect(
+      backend.call.mock.calls.filter(
+        ([command]) => command === 'plugin_surface_open'
+      )
+    ).toHaveLength(surfaceOpenCount);
+    expect(backend.call).not.toHaveBeenCalledWith(
+      'plugin_surface_revoke',
+      expect.anything()
+    );
+  });
+
+  it('shows declared app extensions while a product plugin is disabled', async () => {
+    const disabledCatalog: PluginControlCatalog = {
+      ...catalog,
+      plugins: catalog.plugins.map((plugin) =>
+        plugin.id === 'vibex.office' ? { ...plugin, enabled: false } : plugin
+      ),
+    };
+    const backend = transport({
+      plugin_control_catalog: disabledCatalog,
+      plugin_contribution_catalog: { generation: 7, items: [] },
+    });
+
+    renderSettings(backend.value, false, 'vibex');
+
+    expect(await screen.findByText('打开与预览文件')).toBeVisible();
+    expect(screen.getByText('DOCX · PPTX · XLSX')).toBeVisible();
+    expect(
+      screen.queryByText('此插件没有声明应用扩展。')
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps Web plugin browsing and surfaces read-only without invoking local file UX', async () => {
+    const user = userEvent.setup();
+    const backend = transport();
+    const webTransport: BackendTransport = {
+      ...backend.value,
+      environment: 'web',
+      stream: undefined,
+      capabilities: async () => ({
+        server_version: 'remote',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.surface'],
+      }),
+    };
+    renderSettings(webTransport, false, 'vibex');
+
+    expect(await screen.findByTitle('Office dashboard')).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: '导入插件' })
+    ).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole('button', { name: /Research Toolkit/ })
+    );
+    expect(
+      screen.getByRole('switch', { name: '启用 Research Toolkit' })
+    ).toBeDisabled();
+    expect(screen.getByText('远程只读')).toBeVisible();
+    expect(open).not.toHaveBeenCalled();
+    expect(backend.call).not.toHaveBeenCalledWith('plugin_dev_connection');
+  });
+
+  it('allows remote writes by capability while keeping local ZIP import desktop-only', async () => {
+    const backend = transport();
+    const remoteTransport: BackendTransport = {
+      ...backend.value,
+      environment: 'remote-desktop',
+      stream: undefined,
+      capabilities: async () => ({
+        server_version: 'remote',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write', 'plugin.surface'],
+      }),
+    };
+    renderSettings(remoteTransport, false, 'vibex');
+    await screen.findByText('Research Toolkit');
+
+    expect(
+      screen.queryByRole('button', { name: '导入插件' })
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: /VibeX Office/ })).toBeEnabled()
+    );
+  });
+
+  it('copies the loopback-only CLI connection without rendering its token', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const backend = transport();
+    renderSettings(backend.value, false, 'vibex');
+
+    await user.click(await screen.findByRole('button', { name: '插件开发' }));
+    const dialog = await screen.findByRole('dialog', { name: '插件开发' });
+    expect(within(dialog).getByText(/普通使用插件不需要它/)).toBeVisible();
+    await user.click(
+      within(dialog).getByRole('button', { name: '复制 CLI 连接' })
+    );
+
+    expect(writeText).toHaveBeenCalledWith(
+      "export VIBEX_PLUGIN_DEV_HOST='http://127.0.0.1:43100'\n" +
+        "export VIBEX_PLUGIN_DEV_TOKEN='secret-dev-token'"
+    );
+    expect(screen.queryByText('secret-dev-token')).not.toBeInTheDocument();
   });
 
   it('separates native ecosystems into tabs and searches only the active tab', async () => {
@@ -348,7 +708,7 @@ describe('PluginsSettings', () => {
     );
 
     const detail = screen.getByRole('region', { name: 'Research Toolkit' });
-    expect(within(detail).getByText('2 个调用命令')).toBeVisible();
+    expect(within(detail).getByText('2 个工作流')).toBeVisible();
     expect(within(detail).getByText('research-mcp')).toBeVisible();
     expect(
       within(detail).queryByText('research-mcp serve')
@@ -362,7 +722,15 @@ describe('PluginsSettings', () => {
     const headings = within(detail)
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent);
-    expect(headings).toEqual(['Skills', 'Runtime', 'MCP', '调用命令', '来源']);
+    expect(headings).toEqual([
+      '扩展 VibeX',
+      '扩展 Agent',
+      'Skills',
+      'Runtime',
+      'MCP',
+      'Workflows',
+      '来源',
+    ]);
   });
 
   it('enables through the unified command and offers all-agent or MCP settings', async () => {
@@ -376,6 +744,13 @@ describe('PluginsSettings', () => {
 
     await user.click(
       screen.getByRole('switch', { name: '启用 Research Toolkit' })
+    );
+    await user.click(
+      within(
+        await screen.findByRole('alertdialog', {
+          name: '允许 Research Toolkit 使用这些能力？',
+        })
+      ).getByRole('button', { name: '允许并启用' })
     );
 
     expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
@@ -587,7 +962,7 @@ describe('PluginsSettings', () => {
     expect(within(dialog).getByRole('button', { name: /VibeX/ })).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: 'Codex' }));
-    expect(within(dialog).getByText('Skills-only ZIP')).toBeVisible();
+    expect(within(dialog).getByText('仅 Skills 的 ZIP')).toBeVisible();
     const command = within(dialog).getByRole('textbox', {
       name: 'Codex CLI 命令',
     });
@@ -636,6 +1011,7 @@ describe('PluginsSettings', () => {
       conflict: {
         pluginId: 'dev.vibex.research',
         installedSource: '/Users/me/plugins/research',
+        installedEnabled: true,
         incomingSource: '/Users/me/new-research',
       },
     };
@@ -660,25 +1036,27 @@ describe('PluginsSettings', () => {
     ).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: '覆盖安装' }));
+    const permissionDialog = await screen.findByRole('alertdialog', {
+      name: '审查 Research Toolkit 更新后的能力',
+    });
+    expect(
+      within(permissionDialog).getByText('写入插件生成的文件')
+    ).toBeVisible();
+    await user.click(
+      within(permissionDialog).getByRole('button', { name: '确认并更新' })
+    );
     expect(backend.call).toHaveBeenCalledWith('plugin_control_import', {
       path: '/Users/me/new-research.zip',
       developerLink: false,
       conflictDecision: 'replace',
       packageKind: 'vibex',
+      permissionIds: ['research-export'],
     });
   });
 
-  it('shows the exact Runtime overwrite impact before installation', async () => {
+  it('installs a content-addressed Runtime without displacing other versions', async () => {
     const user = userEvent.setup();
-    const conflict = {
-      runtimeId: 'research-cli',
-      currentVersion: '1.3.0',
-      targetVersion: '1.4.0',
-      affectedPlugins: ['dev.vibex.legacy-research'],
-      affectedAutomations: ['daily-research'],
-    };
     const backend = transport({
-      plugin_control_preview_runtime_install: conflict,
       plugin_control_install_runtime: {
         id: 'research-cli',
         version: '1.4.0',
@@ -693,52 +1071,240 @@ describe('PluginsSettings', () => {
 
     await user.click(screen.getByRole('button', { name: '安装 research-cli' }));
 
-    const dialog = await screen.findByRole('dialog', {
-      name: '覆盖 Runtime research-cli？',
-    });
-    expect(within(dialog).getByText('1.3.0 → 1.4.0')).toBeVisible();
-    expect(within(dialog).getByText('dev.vibex.legacy-research')).toBeVisible();
-    expect(within(dialog).getByText('daily-research')).toBeVisible();
-
-    await user.click(
-      within(dialog).getByRole('button', { name: '确认覆盖并安装' })
-    );
-    expect(backend.call).toHaveBeenCalledWith(
-      'plugin_control_install_runtime',
-      {
-        pluginId: 'dev.vibex.research',
-        runtimeId: 'research-cli',
-        confirmConflict: true,
-      }
+    await waitFor(() =>
+      expect(backend.call).toHaveBeenCalledWith(
+        'plugin_control_install_runtime',
+        {
+          pluginId: 'dev.vibex.research',
+          runtimeId: 'research-cli',
+        }
+      )
     );
   });
 
-  it('shows source, command, and persistent plugin-ID risk before shell trust', async () => {
+  it('renders each Runtime identity and only marks an exact lock ready', async () => {
+    const backend = transport();
+    renderSettings(backend.value, false, 'vibex');
+
+    const detail = await screen.findByRole('region', { name: 'VibeX Office' });
+    expect(within(detail).getByText('已就绪')).toBeVisible();
+    expect(screen.getByText('sha256:officecli-1.0.140')).toBeVisible();
+    expect(screen.getByText('sha256:officecli-1.0.139')).toBeVisible();
+    expect(screen.getByText(/aarch64-apple-darwin/)).toBeVisible();
+    expect(screen.getByText(/x86_64-apple-darwin/)).toBeVisible();
+    expect(screen.getByText(/所有权：managed/)).toBeVisible();
+    expect(screen.getByText(/所有权：external/)).toBeVisible();
+  });
+
+  it('reviews package-digest-scoped permissions before enabling a third-party plugin', async () => {
     const user = userEvent.setup();
-    const backend = transport({ plugin_control_set_shell_trust: null });
+    const backend = transport();
     renderSettings(backend.value);
     await user.click(await screen.findByRole('tab', { name: 'VibeX' }));
     await user.click(
       await screen.findByRole('button', { name: /Research Toolkit/ })
     );
 
-    await user.click(screen.getByRole('button', { name: '检查并信任' }));
+    await user.click(
+      screen.getByRole('switch', { name: '启用 Research Toolkit' })
+    );
 
-    const dialog = await screen.findByRole('dialog', {
-      name: '信任 Research Toolkit 的 Shell？',
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '允许 Research Toolkit 使用这些能力？',
     });
-    expect(within(dialog).getByText('./install.sh')).toBeVisible();
     expect(
-      within(dialog).getByText('/Users/me/plugins/research')
+      within(dialog).getByText('运行插件声明的本地 Runtime')
     ).toBeVisible();
-    expect(within(dialog).getByText(/后续脚本内容变化/)).toBeVisible();
+    expect(within(dialog).getAllByText('Acme Research')[0]).toBeVisible();
+    expect(within(dialog).getByText('必需')).toBeVisible();
+    const optionalPermission = within(dialog).getByRole('checkbox', {
+      name: /Fetch optional external references/,
+    });
+    expect(optionalPermission).not.toBeChecked();
+    expect(
+      within(dialog).getByText('Run the locked research runtime.')
+    ).toBeVisible();
+    expect(within(dialog).getByText(/插件包更新后必须重新确认/)).toBeVisible();
+    await user.click(within(dialog).getByText('发布者与包校验信息'));
+    expect(within(dialog).getByText('sha256:research-1.4.0')).toBeVisible();
 
     await user.click(
-      within(dialog).getByRole('button', { name: '信任此插件 ID' })
+      within(dialog).getByRole('button', { name: '允许并启用' })
     );
     expect(backend.call).toHaveBeenCalledWith(
-      'plugin_control_set_shell_trust',
-      { pluginId: 'dev.vibex.research', trusted: true }
+      'plugin_control_grant_permissions',
+      {
+        pluginId: 'dev.vibex.research',
+        permissionIds: ['run-research'],
+      }
     );
+    expect(backend.call).toHaveBeenCalledWith('plugin_control_set_enabled', {
+      pluginId: 'dev.vibex.research',
+      enabled: true,
+    });
+  });
+
+  it('uses the same permission decision for builtin packages', async () => {
+    const user = userEvent.setup();
+    const office = {
+      ...catalog.plugins[0],
+      enabled: false,
+      permissions: [
+        {
+          id: 'office-preview',
+          capability: 'artifact.preview',
+          scope: { formats: ['docx', 'pptx', 'xlsx'] },
+          reason: 'Preview Office files in the workbench.',
+          optional: false,
+          trustTier: 'trusted_native' as const,
+        },
+      ],
+    };
+    const backend = transport({
+      plugin_control_catalog: {
+        ...catalog,
+        plugins: [office, ...catalog.plugins.slice(1)],
+      },
+      plugin_control_set_enabled: { ...office, enabled: true },
+    });
+    renderSettings(backend.value, false, 'vibex');
+
+    await user.click(
+      await screen.findByRole('switch', { name: '启用 VibeX Office' })
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '允许 VibeX Office 使用这些能力？',
+    });
+    expect(dialog.tagName).toBe('DIALOG');
+    expect(within(dialog).getAllByText('VibeX')[0]).toBeVisible();
+    expect(within(dialog).getByText('运行 OfficeCLI')).toBeVisible();
+    const allow = within(dialog).getByRole('button', {
+      name: '允许、安装并启用',
+    });
+    expect(allow).toBeDisabled();
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: /运行经过校验的 OfficeCLI/,
+      })
+    );
+    expect(allow).toBeEnabled();
+    expect(backend.call).not.toHaveBeenCalledWith(
+      'plugin_control_set_enabled',
+      expect.anything()
+    );
+  });
+
+  it('prepares required runtimes before enabling and toasts activation failures', async () => {
+    const user = userEvent.setup();
+    const office = {
+      ...catalog.plugins[0],
+      enabled: false,
+      permissions: [
+        {
+          id: 'office-preview',
+          capability: 'artifact.preview',
+          scope: { providers: ['office-preview'] },
+          reason: 'Preview Office files in the workbench.',
+          optional: false,
+          trustTier: 'trusted_native' as const,
+        },
+      ],
+    };
+    const backend = transport({
+      plugin_control_catalog: {
+        ...catalog,
+        plugins: [office, ...catalog.plugins.slice(1)],
+        runtimes: [],
+      },
+      plugin_control_install_runtime: {
+        id: 'officecli',
+        version: '1.0.140',
+      },
+      plugin_control_set_enabled: () => {
+        throw new Error('OfficeCLI probe failed');
+      },
+    });
+    renderSettings(backend.value, false, 'vibex');
+
+    await user.click(
+      await screen.findByRole('switch', { name: '启用 VibeX Office' })
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '允许 VibeX Office 使用这些能力？',
+    });
+    await user.click(
+      within(dialog).getByRole('checkbox', {
+        name: /运行经过校验的 OfficeCLI/,
+      })
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: '允许、安装并启用' })
+    );
+
+    await waitFor(() => {
+      const installCall = backend.call.mock.invocationCallOrder.find(
+        (_, index) =>
+          backend.call.mock.calls[index]?.[0] ===
+          'plugin_control_install_runtime'
+      );
+      const enableCall = backend.call.mock.invocationCallOrder.find(
+        (_, index) =>
+          backend.call.mock.calls[index]?.[0] === 'plugin_control_set_enabled'
+      );
+      expect(installCall).toBeDefined();
+      expect(enableCall).toBeDefined();
+      expect(installCall).toBeLessThan(enableCall as number);
+      expect(toast.error).toHaveBeenCalledWith('无法启用 VibeX Office', {
+        description: 'OfficeCLI probe failed',
+      });
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '操作失败：OfficeCLI probe failed'
+    );
+  });
+
+  it('reviews the incoming permission delta and digest before update', async () => {
+    const user = userEvent.setup();
+    const backend = transport();
+    renderSettings(backend.value, false, 'vibex');
+    await user.click(
+      await screen.findByRole('button', { name: /Research Toolkit/ })
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: '更新 Research Toolkit' })
+    );
+    const dialog = await screen.findByRole('alertdialog', {
+      name: '审查 Research Toolkit 更新后的能力',
+    });
+    expect(within(dialog).getByText('权限增量')).toBeVisible();
+    expect(within(dialog).getByText('写入插件生成的文件')).toBeVisible();
+    await user.click(within(dialog).getByText('发布者与包校验信息'));
+    expect(within(dialog).getByText('sha256:research-1.5.0')).toBeVisible();
+    expect(
+      within(dialog).queryByText('运行插件声明的本地 Runtime')
+    ).not.toBeInTheDocument();
+  });
+
+  it('restores the previous verified package through the rollback command', async () => {
+    const user = userEvent.setup();
+    const backend = transport();
+    renderSettings(backend.value, false, 'vibex');
+    await user.click(
+      await screen.findByRole('button', { name: /Research Toolkit/ })
+    );
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '恢复 Research Toolkit 上一个经过校验的版本',
+      })
+    );
+
+    await waitFor(() => {
+      expect(backend.call).toHaveBeenCalledWith('plugin_control_rollback', {
+        pluginId: 'dev.vibex.research',
+        permissionIds: [],
+      });
+    });
   });
 });

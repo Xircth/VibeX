@@ -30,6 +30,22 @@ describe('getStartupPromptStep', () => {
     ).toBe('none');
   });
 
+  it.each(['/plugins', '/plugins/vibex.office'])(
+    'suppresses startup prompts in the product plugin module at %s',
+    (pathname) => {
+      expect(
+        getStartupPromptStep({
+          config: config({
+            disclaimer_acknowledged: false,
+            onboarding_acknowledged: false,
+            show_release_notes: true,
+          }),
+          pathname,
+        })
+      ).toBe('none');
+    }
+  );
+
   it('uses one full-screen first-run experience for disclaimer and onboarding', () => {
     expect(
       getStartupPromptStep({

@@ -566,8 +566,8 @@ pub async fn conversation_start_turn(
             action,
         });
     }
-    if !request.text.trim().is_empty() || !plugin_actions.is_empty() {
-        TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
+    let effective_text = if !request.text.trim().is_empty() || !plugin_actions.is_empty() {
+        let launch = TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
             prompt_blocks: vec![PromptBlock::Text {
                 text: request.text.clone(),
             }],
@@ -592,7 +592,24 @@ pub async fn conversation_start_turn(
             label_snapshot: None,
         }))
         .map_err(|error| AppError::BadRequest(format!("{}: {error}", error.code())))?;
-    }
+        launch
+            .prompt_blocks
+            .iter()
+            .chain(
+                launch
+                    .plugin_actions
+                    .iter()
+                    .flat_map(|reference| reference.action.prompt_blocks.iter()),
+            )
+            .map(|block| match block {
+                PromptBlock::Text { text } => text.as_str(),
+            })
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        request.text.clone()
+    };
     let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
     let service = ConversationSessionService::new(state.conversation_context());
     let result = service
@@ -602,7 +619,7 @@ pub async fn conversation_start_turn(
                 workspace_id,
                 conversation_id,
                 executor_profile_id: request.executor_profile_id,
-                text: request.text,
+                text: effective_text,
                 display_text: Some(display_text),
                 images: request.images,
                 mode_override: request.mode_override,

@@ -157,6 +157,7 @@ describe('useSessionComposerQueue', () => {
         workspaceId: 'workspace-1',
         sessionId: 'session-1',
         text: 'queued text',
+        displayText: 'queued text',
         images: ['vibe://queued'],
         executorProfileId: profile,
         pluginActions: [],

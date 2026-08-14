@@ -99,6 +99,7 @@ export class TauriTransport implements BackendTransport {
         'conversation.cancel',
         'plugin.read',
         'plugin.write',
+        'plugin.surface',
         'artifact.read',
         'artifact.preview',
         'automation.read',

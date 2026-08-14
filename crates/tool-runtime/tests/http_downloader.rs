@@ -67,6 +67,26 @@ async fn trusted_github_downloads_can_use_a_system_proxy_fake_ip() {
 }
 
 #[tokio::test]
+async fn trusted_nodejs_downloads_can_use_a_system_proxy_fake_ip() {
+    let downloader = HttpDownloader::with_resolver(
+        Arc::new(FakeIpResolver),
+        Duration::from_millis(50),
+        Duration::from_millis(50),
+        1024,
+    );
+
+    let error = downloader
+        .fetch("https://nodejs.org/dist/v22.22.3/node-v22.22.3-darwin-arm64.tar.gz")
+        .await
+        .expect_err("the short test timeout should stop before a real download");
+
+    assert!(
+        !error.to_string().contains("public IP"),
+        "the pinned Node.js distribution should progress past proxy fake-IP validation: {error}"
+    );
+}
+
+#[tokio::test]
 async fn untrusted_hosts_cannot_use_a_system_proxy_fake_ip() {
     let downloader = HttpDownloader::with_resolver(
         Arc::new(FakeIpResolver),

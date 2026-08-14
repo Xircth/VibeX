@@ -1,0 +1,31 @@
+{
+  "name": "@vibex/plugin-cli",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Build, validate, test, link, and package VibeX plugins",
+  "bin": {
+    "vibex-plugin": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@vibex/plugin-sdk": "workspace:*",
+    "adm-zip": "^0.5.16",
+    "esbuild": "^0.25.0"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^26.1.2",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -126,3 +126,23 @@ Object.defineProperty(HTMLElement.prototype, 'hidePopover', {
     this.style.setProperty('display', '', 'important');
   },
 });
+
+// jsdom does not implement the native dialog lifecycle used by Astryx Dialog.
+// Mirror the open attribute closely enough for accessibility and interaction
+// tests; production browsers use the real modal top-layer implementation.
+Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+  configurable: true,
+  writable: true,
+  value: function showModal() {
+    this.setAttribute('open', '');
+    this.style.setProperty('display', 'block', 'important');
+  },
+});
+Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+  configurable: true,
+  writable: true,
+  value: function close() {
+    this.removeAttribute('open');
+    this.style.setProperty('display', '', 'important');
+  },
+});

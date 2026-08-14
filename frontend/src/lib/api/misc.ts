@@ -84,12 +84,6 @@ export interface ReadFileResponse {
   truncated: boolean;
 }
 
-export interface DocumentPreviewResponse {
-  content: string;
-  format: 'text' | 'html';
-  extractor: string;
-}
-
 export interface BinaryAssetResponse {
   data_base64: string;
   mime_type: string;
@@ -175,14 +169,6 @@ export const fileTreeApi = {
     });
   },
 
-  readDocumentPreview: async (
-    path: string
-  ): Promise<DocumentPreviewResponse> => {
-    return backendCall<DocumentPreviewResponse>('read_document_preview', {
-      path,
-    });
-  },
-
   readBinaryAsset: async (path: string): Promise<BinaryAssetResponse> => {
     return backendCall<BinaryAssetResponse>('read_binary_asset', {
       path,
@@ -213,58 +199,6 @@ export const fileTreeApi = {
       rootPath,
       options,
     });
-  },
-};
-
-// Office preview (OfficeCLI) APIs
-
-export interface OfficecliInfo {
-  installed: boolean;
-  version: string | null;
-  path: string | null;
-  runtimeError: string | null;
-}
-
-/**
- * Structured start result: expected failures (officecli missing, spawn
- * trouble) come back as `errorCode`/`errorMessage` instead of a rejected
- * promise, so callers can branch without string-matching error text.
- */
-export interface OfficeWatchStartResult {
-  port: number | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-}
-
-export interface OfficecliInstallEvent {
-  task_id: string;
-  kind: 'started' | 'log' | 'completed' | 'failed';
-  payload: string;
-}
-
-export const OFFICECLI_INSTALL_EVENT = 'officecli-install';
-
-export const officeApi = {
-  detect: async (): Promise<OfficecliInfo> => {
-    return backendCall<OfficecliInfo>('officecli_detect');
-  },
-
-  install: async (taskId: string): Promise<OfficecliInfo> => {
-    return backendCall<OfficecliInfo>('officecli_install', { taskId });
-  },
-
-  uninstall: async (): Promise<OfficecliInfo> => {
-    return backendCall<OfficecliInfo>('officecli_uninstall');
-  },
-
-  startWatch: async (filePath: string): Promise<OfficeWatchStartResult> => {
-    return backendCall<OfficeWatchStartResult>('start_office_watch', {
-      filePath,
-    });
-  },
-
-  stopWatch: async (filePath: string): Promise<void> => {
-    return backendCall<void>('stop_office_watch', { filePath });
   },
 };
 

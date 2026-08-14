@@ -117,10 +117,10 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
-    if !map.contains_key(&conversation_id) {
+    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
         match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
             Ok(projector) => {
-                map.insert(conversation_id, projector);
+                entry.insert(projector);
             }
             Err(error) => {
                 tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");

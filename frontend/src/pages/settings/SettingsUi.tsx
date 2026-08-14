@@ -36,6 +36,8 @@ interface SettingsSectionProps {
   descriptionClassName?: string;
   /** Render children without the default settings-card wrapper. */
   bare?: boolean;
+  /** Omit this section's label when a parent disclosure already names it. */
+  headerless?: boolean;
 }
 
 /**
@@ -52,7 +54,22 @@ export function SettingsSection({
   action,
   descriptionClassName,
   bare = false,
+  headerless = false,
 }: SettingsSectionProps) {
+  const content = bare ? (
+    <div className={className}>{children}</div>
+  ) : (
+    <div
+      className={`settings-card overflow-hidden rounded-lg border${
+        className ? ` ${className}` : ''
+      }`}
+    >
+      {children}
+    </div>
+  );
+
+  if (headerless) return content;
+
   return (
     <section className="settings-section space-y-3">
       <div className="flex items-end justify-between gap-3">
@@ -73,17 +90,7 @@ export function SettingsSection({
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
-      {bare ? (
-        <div className={className}>{children}</div>
-      ) : (
-        <div
-          className={`settings-card overflow-hidden rounded-lg border${
-            className ? ` ${className}` : ''
-          }`}
-        >
-          {children}
-        </div>
-      )}
+      {content}
     </section>
   );
 }

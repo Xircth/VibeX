@@ -47,7 +47,7 @@ test('Tauri registers the owned browser commands and every desktop bundle overla
   assert.match(tauri, /commands::browser::browser_create_tab/);
   assert.match(tauri, /commands::browser::browser_apply_intent/);
   assert.match(tauri, /commands::browser::browser_close_tab/);
-  assert.doesNotMatch(tauri, /preview_proxy/);
+  assert.doesNotMatch(tauri, /\bmod preview_proxy\b|preview_proxy::/);
 
   for (const platform of ['macos', 'linux', 'windows']) {
     assert.equal(
@@ -166,6 +166,21 @@ test('macOS desktop dev runs CEF from the required app bundle', () => {
   const desktopDev = readRepoFile('scripts/run-tauri-dev-desktop.js');
   assert.match(desktopDev, /run-tauri-dev-macos\.js/);
   assert.match(desktopDev, /--runner/);
+});
+
+test('macOS desktop dev re-signs the bundle after replacing executables', () => {
+  const runner = readRepoFile('scripts/run-tauri-dev-macos.js');
+  const refresh = runner.indexOf('refreshBundleExecutables(paths);');
+  const sign = runner.indexOf('signDevBundle(paths.appRoot);');
+  const launch = runner.indexOf(
+    'const child = spawn(paths.appExecutable, parsed.appArgs'
+  );
+
+  assert.ok(refresh >= 0);
+  assert.ok(sign > refresh);
+  assert.ok(launch > sign);
+  assert.match(runner, /\['--force', '--deep', '--sign', '-', appRoot\]/);
+  assert.match(runner, /\['--verify', '--deep', '--strict', appRoot\]/);
 });
 
 test('macOS CEF dev bundle cache ignores packaging-only overlay links', () => {

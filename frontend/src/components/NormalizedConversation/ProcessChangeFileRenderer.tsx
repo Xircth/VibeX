@@ -286,9 +286,7 @@ function ProcessChangeFileRenderer({
       ? 'Image changes are not rendered inline. Open the preview panel to inspect this asset.'
       : previewKind === 'pdf'
         ? 'PDF changes are not rendered inline. Open the preview panel to inspect this asset.'
-        : previewKind === 'document' || previewKind === 'office'
-          ? 'Document changes are not rendered inline. Open the preview panel to inspect this asset.'
-          : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
+        : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
 
   return (
     <div>

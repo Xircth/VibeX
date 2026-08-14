@@ -161,7 +161,7 @@ impl ManifestV2 {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConsoleBinding {
     /// A preview address template. Console processes remain agent-driven;
@@ -224,7 +224,7 @@ pub enum PromptBlock {
     Text { text: String },
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ArtifactIntent {
     pub media_types: Vec<String>,

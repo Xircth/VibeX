@@ -11,7 +11,6 @@ use std::{
 
 use plugins::NativePluginAdapter;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State, ipc::Channel};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use ts_rs::TS;
@@ -29,28 +28,128 @@ pub struct PluginControlCatalogDto {
 #[derive(Clone, Debug, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
+pub struct PluginProductDetailDto {
+    pub summary: String,
+    pub readme: String,
+    pub contents: Vec<PluginContentDocumentDto>,
+    pub config: serde_json::Value,
+    pub config_schema: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginContentDocumentDto {
+    pub path: String,
+    pub kind: String,
+    pub title: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginContributionCatalogDto {
+    pub generation: u64,
+    pub items: Vec<PluginContributionDto>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginContributionDto {
+    pub plugin_id: String,
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub generation: u64,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ResolvedFileOpenerDto {
+    pub plugin_id: String,
+    pub contribution_id: String,
+    pub label: String,
+    pub handler: String,
+    pub target: String,
+    pub priority: i32,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginFilePreviewStartDto {
+    pub plugin_id: String,
+    pub provider_id: String,
+    pub generation: u64,
+    pub lease_id: Option<String>,
+    pub capability_token: Option<String>,
+    pub expires_at_unix_ms: Option<i64>,
+    pub port: Option<u16>,
+    pub preview_url: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct PluginControlItemDto {
     pub id: String,
+    pub publisher: Option<String>,
+    pub package_digest: Option<String>,
+    pub update_package_digest: Option<String>,
     pub name: String,
     pub version: String,
     pub description: Option<String>,
     pub enabled: bool,
     pub builtin: bool,
-    pub shell_trusted: bool,
     pub source_kind: String,
     pub source_path: String,
     pub formats: Vec<String>,
     pub skills: Vec<PluginSkillDto>,
     pub runtimes: Vec<PluginRuntimeContributionDto>,
     pub warnings: Vec<PluginWarningDto>,
+    pub permissions: Vec<PluginPermissionDto>,
+    pub permission_delta: Vec<PluginPermissionDto>,
     pub mcp_count: u32,
     pub mcp_servers: Vec<String>,
+    pub hooks: Vec<PluginNativeResourceDto>,
+    pub workflows: Vec<PluginNativeResourceDto>,
     pub invocation_count: u32,
     pub invocations: Vec<PluginInvocationDto>,
+    pub app_contributions: Vec<PluginAppContributionDto>,
     pub native_managed: bool,
     pub enable_supported: bool,
     pub update_supported: bool,
+    pub rollback_supported: bool,
     pub uninstall_supported: bool,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginAppContributionDto {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginPermissionDto {
+    pub id: String,
+    pub capability: String,
+    pub scope: serde_json::Value,
+    pub reason: String,
+    pub optional: bool,
+    pub trust_tier: String,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -67,6 +166,14 @@ pub struct PluginInvocationDto {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PluginSkillDto {
+    pub id: String,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PluginNativeResourceDto {
     pub id: String,
     pub path: String,
 }
@@ -103,6 +210,8 @@ pub struct PluginRuntimeContributionDto {
     pub id: String,
     pub command: String,
     pub version: Option<String>,
+    pub target: String,
+    pub content_digest: String,
     pub installer: String,
     pub install_command: Option<String>,
 }
@@ -113,7 +222,10 @@ pub struct PluginRuntimeContributionDto {
 pub struct PluginRuntimeDto {
     pub id: String,
     pub version: String,
+    pub target: String,
+    pub content_digest: String,
     pub executable_path: String,
+    pub ownership: String,
     pub installer: String,
     pub probe: Vec<String>,
     pub referenced_plugins: Vec<String>,
@@ -173,6 +285,7 @@ pub struct PluginImportConflictDto {
     pub plugin_id: String,
     pub installed_source: String,
     pub incoming_source: String,
+    pub installed_enabled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -198,17 +311,6 @@ pub struct PluginSkillProjectionDto {
     pub agent_id: String,
     pub status: String,
     pub message: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct PluginRuntimeConflictDto {
-    pub runtime_id: String,
-    pub current_version: String,
-    pub target_version: String,
-    pub affected_plugins: Vec<String>,
-    pub affected_automations: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -284,7 +386,11 @@ pub async fn plugin_action_catalog(
                     plugin_id: plugin_id.clone(),
                     action_id: invocation.id,
                     label: invocation.label,
-                    required_skills: invocation.skill.into_iter().collect(),
+                    required_skills: if invocation.required_skills.is_empty() {
+                        invocation.skill.into_iter().collect()
+                    } else {
+                        invocation.required_skills
+                    },
                     required_tools: required_tools.clone(),
                     prompt_blocks: vec![UnifiedPromptBlockDto {
                         kind: "text",
@@ -309,6 +415,13 @@ pub async fn plugin_control_catalog(
         .into_iter()
         .map(plugin_dto)
         .collect::<Vec<_>>();
+    for plugin in &mut plugins {
+        plugin.rollback_supported = state
+            .plugin_control_plane
+            .rollback_available(&plugin.id)
+            .await
+            .map_err(plugin_error)?;
+    }
     for (adapter, format) in native_cli_adapters().await {
         let capabilities = adapter.capabilities();
         if let Ok(discovered) = adapter.discover().await {
@@ -330,24 +443,261 @@ pub async fn plugin_control_catalog(
         .map_err(plugin_error)?
         .into_iter()
         .map(|runtime| PluginRuntimeDto {
-            referenced_plugins: plugins
-                .iter()
-                .filter(|plugin| {
-                    plugin
-                        .runtimes
-                        .iter()
-                        .any(|required| required.id == runtime.id)
-                })
-                .map(|plugin| plugin.id.clone())
-                .collect(),
+            referenced_plugins: runtime.referenced_plugins,
             id: runtime.id,
             version: runtime.version,
+            target: runtime.target,
+            content_digest: runtime.content_digest,
             executable_path: runtime.executable_path.to_string_lossy().into_owned(),
+            ownership: runtime.ownership,
             installer: runtime.installer,
             probe: runtime.probe,
         })
         .collect();
     Ok(PluginControlCatalogDto { plugins, runtimes })
+}
+
+#[tauri::command]
+pub async fn plugin_product_detail(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<PluginProductDetailDto, AppError> {
+    let plugin = state
+        .plugin_control_plane
+        .plugin(&plugin_id)
+        .await
+        .map_err(plugin_error)?
+        .ok_or_else(|| AppError::NotFound(format!("plugin {plugin_id}")))?;
+    product_detail_dto(plugin.product_detail().map_err(plugin_error)?)
+}
+
+#[tauri::command]
+pub async fn plugin_save_config(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    config: serde_json::Value,
+) -> Result<PluginProductDetailDto, AppError> {
+    let plugin = state
+        .plugin_control_plane
+        .plugin(&plugin_id)
+        .await
+        .map_err(plugin_error)?
+        .ok_or_else(|| AppError::NotFound(format!("plugin {plugin_id}")))?;
+    plugin.write_config(config).map_err(plugin_error)?;
+    let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
+        .map_err(plugin_error)?;
+    product_detail_dto(refreshed.product_detail().map_err(plugin_error)?)
+}
+
+fn product_detail_dto(
+    detail: plugins::PluginProductDetail,
+) -> Result<PluginProductDetailDto, AppError> {
+    Ok(PluginProductDetailDto {
+        summary: detail.summary,
+        readme: detail.readme,
+        contents: detail
+            .contents
+            .into_iter()
+            .map(|item| PluginContentDocumentDto {
+                path: item.path,
+                kind: item.kind,
+                title: item.title,
+                content: item.content,
+            })
+            .collect(),
+        config: detail.config,
+        config_schema: detail.config_schema,
+    })
+}
+
+#[tauri::command]
+pub async fn plugin_contribution_catalog(
+    state: State<'_, AppState>,
+) -> Result<PluginContributionCatalogDto, AppError> {
+    let catalog = state
+        .plugin_control_plane
+        .contributions()
+        .await
+        .map_err(plugin_error)?;
+    Ok(PluginContributionCatalogDto {
+        generation: catalog.generation,
+        items: catalog
+            .items
+            .into_iter()
+            .map(|item| PluginContributionDto {
+                plugin_id: item.plugin_id,
+                id: item.id,
+                kind: contribution_kind_key(item.kind).to_owned(),
+                label: item.label,
+                generation: item.generation,
+                metadata: item.metadata,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub async fn plugin_resolve_file_opener(
+    state: State<'_, AppState>,
+    extension: Option<String>,
+    media_type: Option<String>,
+) -> Result<Option<ResolvedFileOpenerDto>, AppError> {
+    state
+        .plugin_control_plane
+        .resolve_file_opener(extension.as_deref(), media_type.as_deref())
+        .await
+        .map_err(plugin_error)
+        .map(|resolved| {
+            resolved.map(|resolved| ResolvedFileOpenerDto {
+                plugin_id: resolved.plugin_id,
+                contribution_id: resolved.contribution_id,
+                label: resolved.label,
+                handler: resolved.handler,
+                target: match resolved.target {
+                    plugins::FileOpenerTarget::PreviewProvider => "preview_provider",
+                    plugins::FileOpenerTarget::AppSurface => "app_surface",
+                }
+                .to_owned(),
+                priority: resolved.priority,
+                generation: resolved.generation,
+            })
+        })
+}
+
+#[tauri::command]
+pub async fn plugin_open_file_preview(
+    state: State<'_, AppState>,
+    preview_proxy: State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
+    file_path: String,
+) -> Result<Option<PluginFilePreviewStartDto>, AppError> {
+    let extension = Path::new(&file_path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase);
+    let catalog = state
+        .plugin_control_plane
+        .contributions()
+        .await
+        .map_err(plugin_error)?;
+    let Some(resolved) = state
+        .plugin_control_plane
+        .resolve_file_opener(extension.as_deref(), None)
+        .await
+        .map_err(plugin_error)?
+    else {
+        return Ok(None);
+    };
+    let opener = catalog.items.iter().find(|item| {
+        item.plugin_id == resolved.plugin_id
+            && item.id == resolved.contribution_id
+            && item.kind == plugins::ContributionKind::FileOpener
+    });
+    let preview = catalog.items.iter().find(|item| {
+        item.plugin_id == resolved.plugin_id
+            && item.id == resolved.handler
+            && item.kind == plugins::ContributionKind::PreviewProvider
+    });
+    let Some(preview) = preview else {
+        return Err(AppError::Internal(format!(
+            "preview provider `{}` disappeared from generation {}",
+            resolved.handler, resolved.generation
+        )));
+    };
+    let media_type = opener
+        .and_then(|item| item.metadata.get("mediaTypes"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("application/octet-stream")
+        .to_owned();
+    let provider_id = preview.id.clone();
+    let plugin = state
+        .plugin_control_plane
+        .plugin(&resolved.plugin_id)
+        .await
+        .map_err(plugin_error)?
+        .ok_or_else(|| AppError::Internal("resolved preview plugin disappeared".into()))?;
+    let result = plugins::PluginArtifactPreviewService::new(
+        state.plugin_control_plane.clone(),
+        state.plugin_capability_broker.clone(),
+    )
+    .open(plugins::PluginPreviewRequest {
+        file_path,
+        media_type,
+        plugin_id: resolved.plugin_id.clone(),
+        plugin_version: plugin.version.clone(),
+        provider_id: provider_id.clone(),
+        generation: 0,
+        package_digest: String::new(),
+    })
+    .await
+    .map_err(|error| error.to_string());
+    Ok(Some(match result {
+        Ok(lease) => {
+            let preview_url = preview_proxy
+                .register(&lease)
+                .await
+                .map_err(|error| AppError::Internal(error.to_string()))?;
+            PluginFilePreviewStartDto {
+                plugin_id: resolved.plugin_id,
+                provider_id,
+                generation: resolved.generation,
+                lease_id: Some(lease.lease_id),
+                capability_token: Some(lease.capability_token),
+                expires_at_unix_ms: Some(
+                    i64::try_from(lease.expires_at_unix_ms).map_err(|_| {
+                        AppError::Internal("preview lease expiry exceeds i64".into())
+                    })?,
+                ),
+                port: Some(lease.loopback_port),
+                preview_url: Some(preview_url),
+                error_code: None,
+                error_message: None,
+            }
+        }
+        Err(error) => PluginFilePreviewStartDto {
+            plugin_id: resolved.plugin_id,
+            provider_id,
+            generation: resolved.generation,
+            lease_id: None,
+            capability_token: None,
+            expires_at_unix_ms: None,
+            port: None,
+            preview_url: None,
+            error_code: Some("PREVIEW_WORKER_FAILED".to_owned()),
+            error_message: Some(error),
+        },
+    }))
+}
+
+#[tauri::command]
+pub async fn plugin_close_file_preview(
+    state: State<'_, AppState>,
+    preview_proxy: State<'_, crate::plugin_dev_server::DesktopPreviewProxy>,
+    file_path: String,
+    lease_id: Option<String>,
+) -> Result<(), AppError> {
+    if let Some(lease_id) = lease_id.as_deref() {
+        preview_proxy.revoke(lease_id).await;
+    }
+    state
+        .plugin_preview_host
+        .close_preview(&file_path, lease_id.as_deref())
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+fn contribution_kind_key(kind: plugins::ContributionKind) -> &'static str {
+    match kind {
+        plugins::ContributionKind::Skill => "skill",
+        plugins::ContributionKind::Action => "action",
+        plugins::ContributionKind::Command => "command",
+        plugins::ContributionKind::Runtime => "runtime",
+        plugins::ContributionKind::Mcp => "mcp",
+        plugins::ContributionKind::FileOpener => "file_opener",
+        plugins::ContributionKind::PreviewProvider => "preview_provider",
+        plugins::ContributionKind::AppSurface => "app_surface",
+    }
 }
 
 #[tauri::command]
@@ -369,7 +719,7 @@ pub async fn plugin_control_contributions(
                 path: skill.path.clone(),
             })
             .collect::<Vec<_>>();
-        return read_plugin_contributions(&plugin.source.path, &skills, plugin.manifest.get("mcp"));
+        return read_plugin_contributions(&plugin.source.path, &skills, Some(&plugin.mcp));
     }
 
     for (adapter, _) in native_cli_adapters().await {
@@ -555,6 +905,11 @@ pub async fn plugin_control_preview_import(
         return Ok(preview);
     }
     let package = plugins::PluginPackage::inspect(source, source_kind).map_err(plugin_error)?;
+    let installed = state
+        .plugin_control_plane
+        .plugin(package.id.as_str())
+        .await
+        .map_err(plugin_error)?;
     let conflict = state
         .plugin_control_plane
         .preview_import(&package)
@@ -564,15 +919,44 @@ pub async fn plugin_control_preview_import(
             plugin_id: conflict.plugin_id,
             installed_source: conflict.installed_source.to_string_lossy().into_owned(),
             incoming_source: conflict.incoming_source.to_string_lossy().into_owned(),
+            installed_enabled: installed
+                .as_ref()
+                .is_some_and(|plugin| plugin.activation == plugins::PluginActivation::Enabled),
         });
+    let package_digest =
+        plugins::package_content_digest(&package.source.path).map_err(plugin_error)?;
+    let published_grants = if conflict.is_some() {
+        state
+            .plugin_control_plane
+            .capability_grants(package.id.as_str())
+            .await
+            .map_err(plugin_error)?
+    } else {
+        Vec::new()
+    };
+    let permission_delta = package
+        .permissions
+        .iter()
+        .filter(|permission| {
+            !published_grants.iter().any(|grant| {
+                grant.capability == permission.capability
+                    && grant.scope == permission.scope
+                    && grant.trust_tier == permission.trust_tier
+            })
+        })
+        .map(permission_dto)
+        .collect::<Vec<_>>();
+    let update_package_digest = conflict.is_some().then(|| package_digest.clone());
     let mut preview = PluginImportPreviewDto {
         plugin: plugin_dto(plugins::InstalledPlugin {
             package,
             activation: plugins::PluginActivation::Disabled,
-            shell_trusted: false,
+            package_digest,
         }),
         conflict,
     };
+    preview.plugin.update_package_digest = update_package_digest;
+    preview.plugin.permission_delta = permission_delta;
     if extracted.is_some() {
         preview.plugin.source_path = path.clone();
         if let Some(conflict) = preview.conflict.as_mut() {
@@ -590,6 +974,7 @@ pub async fn plugin_control_import(
     developer_link: bool,
     conflict_decision: String,
     package_kind: Option<String>,
+    permission_ids: Vec<String>,
 ) -> Result<PluginControlItemDto, AppError> {
     let source_kind = if developer_link {
         plugins::PluginSourceKind::DeveloperLink
@@ -617,13 +1002,21 @@ pub async fn plugin_control_import(
         return import_native_plugin(source, source_kind, decision).await;
     }
     let incoming = plugins::PluginPackage::inspect(source, source_kind).map_err(plugin_error)?;
-    if state
+    let installed = state
         .plugin_control_plane
-        .preview_import(&incoming)
+        .plugin(incoming.id.as_str())
         .await
-        .map_err(plugin_error)?
-        .is_some()
-    {
+        .map_err(plugin_error)?;
+    let published_grants = if installed.is_some() {
+        state
+            .plugin_control_plane
+            .capability_grants(incoming.id.as_str())
+            .await
+            .map_err(plugin_error)?
+    } else {
+        Vec::new()
+    };
+    if installed.is_some() {
         match decision {
             plugins::ConflictDecision::Reject => {
                 return Err(AppError::Conflict(format!(
@@ -650,21 +1043,45 @@ pub async fn plugin_control_import(
         plugins::PluginPackage::materialize(source, &storage, source_kind)
     }
     .map_err(plugin_error)?;
-    if decision == plugins::ConflictDecision::Replace
-        && let Some(installed) = state
-            .plugin_control_plane
-            .plugin(package.id.as_str())
+    let replacing_enabled = decision == plugins::ConflictDecision::Replace
+        && installed
+            .as_ref()
+            .is_some_and(|plugin| plugin.activation == plugins::PluginActivation::Enabled);
+    if replacing_enabled {
+        let candidate_digest = plugins::package_content_digest(
+            package
+                .execution_root
+                .as_deref()
+                .unwrap_or(package.source.path.as_path()),
+        )
+        .map_err(plugin_error)?;
+        ensure_package_runtimes(&app, &state, &package, &candidate_digest).await?;
+        let candidate_grants =
+            plugins::candidate_capability_grants(&package, &published_grants, &permission_ids)
+                .map_err(plugin_error)?;
+        let node = state
+            .plugin_worker_runtime
+            .resolve()
             .await
-            .map_err(plugin_error)?
-    {
-        remove_plugin_projections(&installed).await?;
+            .map_err(plugin_error)?;
+        return state
+            .plugin_control_plane
+            .update_and_activate(
+                &node,
+                package,
+                &candidate_grants,
+                state.plugin_capability_broker.clone(),
+            )
+            .await
+            .map(plugin_dto)
+            .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())));
     }
-    let result = state
+    let imported = state
         .plugin_control_plane
         .import(package, decision)
         .await
         .map_err(plugin_error)?;
-    Ok(plugin_dto(result.plugin))
+    Ok(plugin_dto(imported.plugin))
 }
 
 async fn preview_native_import(
@@ -687,6 +1104,7 @@ async fn preview_native_import(
                 plugin_id: descriptor.id.clone(),
                 installed_source: existing.path.to_string_lossy().into_owned(),
                 incoming_source: descriptor.path.to_string_lossy().into_owned(),
+                installed_enabled: existing.enabled.unwrap_or(false),
             });
         }
         merge_native_preview(
@@ -773,6 +1191,7 @@ fn merge_native_preview(
 
 #[tauri::command]
 pub async fn plugin_control_set_enabled(
+    app: AppHandle,
     state: State<'_, AppState>,
     plugin_id: String,
     enabled: bool,
@@ -808,7 +1227,7 @@ pub async fn plugin_control_set_enabled(
             .ok_or_else(|| AppError::NotFound(plugin_id.clone()))?;
         remove_plugin_projections(&plugin).await?;
         sqlx::query(
-            "UPDATE plugin_control_agent_bindings
+            "UPDATE plugin_agent_bindings_v4
              SET applied = 0, pending_reason = 'plugin_disabled', updated_at = CURRENT_TIMESTAMP
              WHERE plugin_id = ?",
         )
@@ -816,48 +1235,61 @@ pub async fn plugin_control_set_enabled(
         .execute(&state.deployment.db().pool)
         .await?;
         sqlx::query(
-            "UPDATE plugin_control_mcp_bindings
+            "UPDATE plugin_mcp_bindings_v4
              SET applied = 0, updated_at = CURRENT_TIMESTAMP WHERE plugin_id = ?",
         )
         .bind(&plugin_id)
         .execute(&state.deployment.db().pool)
         .await?;
     }
-    if plugin_id == "vibex.office" {
-        state
-            .office_runtime
-            .set_bundled_enabled(enabled, &format!("plugin-control-{}", uuid::Uuid::new_v4()))
+    let grants = if enabled {
+        let installed = state
+            .plugin_control_plane
+            .plugin(&plugin_id)
             .await
-            .map_err(|error| AppError::Internal(error.to_string()))?;
-        if enabled
-            && let Some(lock) = state
-                .office_runtime
-                .detect()
-                .await
-                .map_err(|error| AppError::Internal(error.to_string()))?
-        {
-            state
-                .plugin_control_plane
-                .record_runtime(plugins::RuntimeInstallation {
-                    id: lock.tool_id,
-                    version: lock.version,
-                    executable_path: state
-                        .office_runtime
-                        .global_executable_path()
-                        .map_err(|error| AppError::Internal(error.to_string()))?,
-                    installer: "vibex_bundled_binary".to_owned(),
-                    probe: vec!["--version".to_owned()],
-                })
-                .await
-                .map_err(plugin_error)?;
-        }
-    }
-    state
-        .plugin_control_plane
-        .set_enabled(&plugin_id, enabled)
-        .await
-        .map(plugin_dto)
-        .map_err(plugin_error)
+            .map_err(plugin_error)?
+            .ok_or_else(|| AppError::NotFound(plugin_id.clone()))?;
+        ensure_package_runtimes(&app, &state, &installed.package, &installed.package_digest)
+            .await?;
+        plugins::candidate_capability_grants(&installed.package, &[], &[]).map_err(plugin_error)?
+    } else {
+        Vec::new()
+    };
+    let plugin = if enabled {
+        state
+            .plugin_control_plane
+            .validate_runtime_readiness(&plugin_id)
+            .await
+            .map_err(|error| AppError::Conflict(format!("{}: {error}", error.code())))?;
+        let node = state
+            .plugin_worker_runtime
+            .resolve()
+            .await
+            .map_err(plugin_error)?;
+        state
+            .plugin_control_plane
+            .activate_and_enable(
+                &node,
+                &plugin_id,
+                &grants,
+                state.plugin_capability_broker.clone(),
+            )
+            .await
+            .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?
+    } else {
+        let plugin = state
+            .plugin_control_plane
+            .set_enabled(&plugin_id, false)
+            .await
+            .map_err(plugin_error)?;
+        state
+            .plugin_control_plane
+            .deactivate_worker(&plugin_id)
+            .await
+            .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?;
+        plugin
+    };
+    Ok(plugin_dto(plugin))
 }
 
 #[tauri::command]
@@ -879,20 +1311,34 @@ pub async fn plugin_control_update(
 }
 
 #[tauri::command]
-pub async fn plugin_control_preview_runtime_install(
+pub async fn plugin_control_rollback(
     state: State<'_, AppState>,
     plugin_id: String,
-    runtime_id: String,
-) -> Result<Option<PluginRuntimeConflictDto>, AppError> {
-    let conflict = state
-        .plugin_control_plane
-        .preview_runtime_install(&plugin_id, &runtime_id)
+    permission_ids: Vec<String>,
+) -> Result<PluginControlItemDto, AppError> {
+    let node = state
+        .plugin_worker_runtime
+        .resolve()
         .await
         .map_err(plugin_error)?;
-    match conflict {
-        Some(conflict) => Ok(Some(runtime_conflict_dto(&state, conflict).await?)),
-        None => Ok(None),
-    }
+    let plugin = state
+        .plugin_control_plane
+        .rollback_and_activate(
+            &node,
+            &plugin_id,
+            &permission_ids,
+            state.plugin_capability_broker.clone(),
+        )
+        .await
+        .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?;
+    record_plugin_audit(
+        &state,
+        &plugin_id,
+        "rollback",
+        serde_json::json!({ "packageDigest": plugin.package_digest }),
+    )
+    .await?;
+    Ok(plugin_dto(plugin))
 }
 
 #[tauri::command]
@@ -901,58 +1347,117 @@ pub async fn plugin_control_install_runtime(
     state: State<'_, AppState>,
     plugin_id: String,
     runtime_id: String,
-    confirm_conflict: bool,
+) -> Result<PluginRuntimeDto, AppError> {
+    install_plugin_runtime(&app, &state, &plugin_id, &runtime_id).await
+}
+
+async fn install_plugin_runtime(
+    app: &AppHandle,
+    state: &AppState,
+    plugin_id: &str,
+    runtime_id: &str,
 ) -> Result<PluginRuntimeDto, AppError> {
     let plugin = state
         .plugin_control_plane
-        .plugin(&plugin_id)
+        .plugin(plugin_id)
         .await
         .map_err(plugin_error)?
-        .ok_or_else(|| AppError::NotFound(plugin_id.clone()))?;
+        .ok_or_else(|| AppError::NotFound(plugin_id.to_owned()))?;
     let runtime = plugin
         .runtimes
         .iter()
         .find(|runtime| runtime.id == runtime_id)
-        .ok_or_else(|| AppError::NotFound(runtime_id.clone()))?;
-    let conflict = state
-        .plugin_control_plane
-        .preview_runtime_install(&plugin_id, &runtime_id)
-        .await
-        .map_err(plugin_error)?;
-    if conflict.is_some() && !confirm_conflict {
-        return Err(AppError::Conflict(
-            "Runtime version replacement requires explicit confirmation".to_owned(),
-        ));
-    }
+        .ok_or_else(|| AppError::NotFound(runtime_id.to_owned()))?;
+    install_declared_runtime(app, state, &plugin, runtime, &plugin.package_digest).await
+}
 
-    let host = plugins::SystemGlobalRuntimeHost;
-    let command_sha256 = match &runtime.install {
-        plugins::RuntimeInstall::Shell { command } => {
-            Some(format!("{:x}", Sha256::digest(command.as_bytes())))
+async fn ensure_package_runtimes(
+    app: &AppHandle,
+    state: &AppState,
+    package: &plugins::PluginPackage,
+    package_digest: &str,
+) -> Result<(), AppError> {
+    let installed = state
+        .plugin_control_plane
+        .plugin(package.id.as_str())
+        .await
+        .map_err(plugin_error)?
+        .ok_or_else(|| AppError::NotFound(package.id.as_str().to_owned()))?;
+    for runtime in &package.runtimes {
+        let ready = state
+            .plugin_control_plane
+            .runtime_for_package(package.id.as_str(), package_digest, &runtime.id)
+            .await
+            .map_err(plugin_error)?
+            .is_some_and(|locked| runtime_lock_matches(runtime, &locked));
+        if !ready {
+            install_declared_runtime(app, state, &installed, runtime, package_digest).await?;
         }
-        _ => None,
-    };
+    }
+    Ok(())
+}
+
+fn runtime_lock_matches(
+    declared: &plugins::RuntimeContribution,
+    locked: &plugins::RuntimeInstallation,
+) -> bool {
+    declared
+        .version
+        .as_deref()
+        .is_none_or(|version| version == locked.version)
+        && (declared.target.is_empty() || declared.target == locked.target)
+        && (declared.content_digest.is_empty() || declared.content_digest == locked.content_digest)
+        && locked.executable_path.is_absolute()
+        && locked.executable_path.is_file()
+}
+
+async fn install_declared_runtime(
+    app: &AppHandle,
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+    runtime: &plugins::RuntimeContribution,
+    package_digest: &str,
+) -> Result<PluginRuntimeDto, AppError> {
+    if let Some(existing) = state
+        .plugin_control_plane
+        .runtime_inventory()
+        .await
+        .map_err(plugin_error)?
+        .into_iter()
+        .find(|locked| runtime_lock_matches(runtime, locked))
+    {
+        state
+            .plugin_control_plane
+            .record_runtime_for_package(plugin.id(), package_digest, existing.clone())
+            .await
+            .map_err(plugin_error)?;
+        return Ok(runtime_dto(existing, plugin.id()));
+    }
+    let managed_root = crate::managed_artifacts::directory(app)
+        .map_err(|error| AppError::Internal(error.to_string()))?
+        .join("plugins/runtimes");
+    let host =
+        plugins::ContentAddressedRuntimeHost::new(managed_root, runtime).map_err(plugin_error)?;
     record_plugin_audit(
-        &state,
-        &plugin_id,
+        state,
+        plugin.id(),
         "runtime_install_started",
         serde_json::json!({
             "runtimeId": runtime.id,
             "installer": runtime_installer(&runtime.install),
             "sourcePath": plugin.source.path,
-            "commandSha256": command_sha256,
         }),
     )
     .await?;
     let installation = match plugins::GlobalRuntimeInstaller::new(&host)
-        .install(&plugin_id, plugin.shell_trusted, runtime)
+        .install(plugin.id(), runtime)
         .await
     {
         Ok(installation) => installation,
         Err(error) => {
             record_plugin_audit(
-                &state,
-                &plugin_id,
+                state,
+                plugin.id(),
                 "runtime_install_failed",
                 serde_json::json!({
                     "runtimeId": runtime.id,
@@ -967,17 +1472,12 @@ pub async fn plugin_control_install_runtime(
 
     state
         .plugin_control_plane
-        .record_runtime(installation.clone())
+        .record_runtime_for_package(plugin.id(), package_digest, installation.clone())
         .await
         .map_err(plugin_error)?;
-    if let Some(conflict) = conflict {
-        for affected in conflict.affected_plugins {
-            uninstall_portable_plugin(&app, &state, &affected).await?;
-        }
-    }
     record_plugin_audit(
-        &state,
-        &plugin_id,
+        state,
+        plugin.id(),
         "runtime_install",
         serde_json::json!({
             "runtimeId": installation.id,
@@ -988,35 +1488,39 @@ pub async fn plugin_control_install_runtime(
         }),
     )
     .await?;
-    Ok(PluginRuntimeDto {
+    Ok(runtime_dto(installation, plugin.id()))
+}
+
+fn runtime_dto(installation: plugins::RuntimeInstallation, plugin_id: &str) -> PluginRuntimeDto {
+    PluginRuntimeDto {
         id: installation.id,
         version: installation.version,
+        target: installation.target,
+        content_digest: installation.content_digest,
         executable_path: installation.executable_path.to_string_lossy().into_owned(),
+        ownership: installation.ownership,
         installer: installation.installer,
         probe: installation.probe,
-        referenced_plugins: vec![plugin_id],
-    })
+        referenced_plugins: vec![plugin_id.to_owned()],
+    }
 }
 
 #[tauri::command]
-pub async fn plugin_control_set_shell_trust(
+pub async fn plugin_control_grant_permissions(
     state: State<'_, AppState>,
     plugin_id: String,
-    trusted: bool,
-) -> Result<(), AppError> {
-    if trusted {
-        state
-            .plugin_control_plane
-            .grant_shell_trust(&plugin_id)
-            .await
-            .map_err(plugin_error)
-    } else {
-        state
-            .plugin_control_plane
-            .revoke_shell_trust(&plugin_id)
-            .await
-            .map_err(plugin_error)
-    }
+    permission_ids: Vec<String>,
+) -> Result<Vec<plugins::CapabilityGrant>, AppError> {
+    state
+        .plugin_control_plane
+        .grant_permissions(&plugin_id, &permission_ids)
+        .await
+        .map_err(plugin_error)?;
+    state
+        .plugin_control_plane
+        .capability_grants(&plugin_id)
+        .await
+        .map_err(plugin_error)
 }
 
 #[tauri::command]
@@ -1218,49 +1722,10 @@ async fn remove_plugin_projections(plugin: &plugins::InstalledPlugin) -> Result<
 }
 
 fn plugin_mcp_server_ids(plugin: &plugins::InstalledPlugin) -> Vec<String> {
-    mcp_server_names(plugin.manifest.get("mcp"))
+    mcp_server_names(Some(&plugin.mcp))
         .into_iter()
         .map(|server_id| format!("{}.{}", plugin.id(), server_id))
         .collect()
-}
-
-async fn runtime_conflict_dto(
-    state: &AppState,
-    conflict: plugins::RuntimeConflict,
-) -> Result<PluginRuntimeConflictDto, AppError> {
-    let affected_automations = affected_automation_ids(state, &conflict.affected_plugins).await?;
-    Ok(PluginRuntimeConflictDto {
-        runtime_id: conflict.runtime_id,
-        current_version: conflict.current_version,
-        target_version: conflict.target_version,
-        affected_plugins: conflict.affected_plugins,
-        affected_automations,
-    })
-}
-
-async fn affected_automation_ids(
-    state: &AppState,
-    plugin_ids: &[String],
-) -> Result<Vec<String>, AppError> {
-    if plugin_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let rows = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT id, plugin_action_json FROM automations WHERE plugin_action_json IS NOT NULL",
-    )
-    .fetch_all(&state.deployment.db().pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .filter(|(_, raw)| {
-            raw.as_deref().is_some_and(|raw| {
-                plugin_ids
-                    .iter()
-                    .any(|plugin_id| raw.contains(plugin_id.as_str()))
-            })
-        })
-        .map(|(id, _)| id)
-        .collect())
 }
 
 async fn record_plugin_audit(
@@ -1270,26 +1735,33 @@ async fn record_plugin_audit(
     summary: serde_json::Value,
 ) -> Result<(), AppError> {
     sqlx::query(
-        "INSERT INTO plugin_control_audit (plugin_id, operation, summary_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+        "INSERT INTO plugin_audit_v4
+             (plugin_id, publisher, operation_id, event, evidence_json, created_at)
+         SELECT ?, publisher, NULL, ?, ?, datetime('now','subsec')
+         FROM plugin_installations_v4 WHERE plugin_id = ?",
     )
     .bind(plugin_id)
     .bind(operation)
     .bind(summary.to_string())
+    .bind(plugin_id)
     .execute(&state.deployment.db().pool)
     .await?;
     Ok(())
 }
 
 fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
+    let publisher = plugin.publisher.clone();
+    let package_digest = plugin.package_digest.clone();
     PluginControlItemDto {
         id: plugin.id().to_owned(),
+        publisher,
+        package_digest: Some(package_digest),
+        update_package_digest: None,
         name: plugin.name.clone(),
         version: plugin.version.clone(),
         description: plugin.description.clone(),
         enabled: plugin.activation == plugins::PluginActivation::Enabled,
         builtin: plugin.source.kind == plugins::PluginSourceKind::Builtin,
-        shell_trusted: plugin.shell_trusted,
         source_kind: source_kind(&plugin.source.kind).to_owned(),
         source_path: plugin.source.path.to_string_lossy().into_owned(),
         formats: plugin
@@ -1313,17 +1785,17 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
                 id: runtime.id.clone(),
                 command: runtime.command.clone(),
                 version: runtime.version.clone(),
+                target: runtime.target.clone(),
+                content_digest: runtime.content_digest.clone(),
                 installer: runtime_installer(&runtime.install).to_owned(),
-                install_command: match &runtime.install {
-                    plugins::RuntimeInstall::Shell { command } => Some(command.clone()),
-                    _ => None,
-                },
+                install_command: None,
             })
             .collect(),
-        mcp_count: mcp_contribution_count(plugin.manifest.get("mcp")),
-        mcp_servers: mcp_server_names(plugin.manifest.get("mcp")),
-        invocation_count: contribution_count(plugin.manifest.get("actions"))
-            .saturating_add(contribution_count(plugin.manifest.get("commands"))),
+        mcp_count: mcp_contribution_count(Some(&plugin.mcp)),
+        mcp_servers: mcp_server_names(Some(&plugin.mcp)),
+        hooks: Vec::new(),
+        workflows: Vec::new(),
+        invocation_count: plugin.invocations.len() as u32,
         invocations: plugin
             .invocations
             .iter()
@@ -1338,6 +1810,7 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
                 .to_owned(),
             })
             .collect(),
+        app_contributions: declared_app_contributions(&plugin),
         warnings: plugin
             .warnings
             .iter()
@@ -1347,10 +1820,24 @@ fn plugin_dto(plugin: plugins::InstalledPlugin) -> PluginControlItemDto {
                 contribution: warning.contribution.clone(),
             })
             .collect(),
+        permissions: plugin.permissions.iter().map(permission_dto).collect(),
+        permission_delta: Vec::new(),
         native_managed: false,
         enable_supported: true,
         update_supported: false,
+        rollback_supported: false,
         uninstall_supported: plugin.source.kind != plugins::PluginSourceKind::Builtin,
+    }
+}
+
+fn permission_dto(permission: &plugins::CapabilityRequest) -> PluginPermissionDto {
+    PluginPermissionDto {
+        id: permission.id.clone(),
+        capability: permission.capability.clone(),
+        scope: permission.scope.clone(),
+        reason: permission.reason.clone(),
+        optional: permission.optional,
+        trust_tier: permission.trust_tier.clone(),
     }
 }
 
@@ -1367,27 +1854,90 @@ fn native_plugin_dto(
     };
     PluginControlItemDto {
         id: plugin.id,
+        publisher: None,
+        package_digest: None,
+        update_package_digest: None,
         name: plugin.name,
         version: plugin.version.unwrap_or_else(|| "unknown".to_owned()),
         description: None,
         enabled: plugin.enabled.unwrap_or(false),
         builtin: false,
-        shell_trusted: false,
         source_kind: source_kind.to_owned(),
         source_path: plugin.path.to_string_lossy().into_owned(),
         formats: vec![format.to_owned()],
         skills,
         runtimes: Vec::new(),
         warnings: Vec::new(),
+        permissions: Vec::new(),
+        permission_delta: Vec::new(),
         mcp_count,
         mcp_servers,
+        hooks: discover_native_resources(&plugin.path, "hooks"),
+        workflows: discover_native_resources(&plugin.path, "workflows"),
         invocation_count: 0,
         invocations: Vec::new(),
+        app_contributions: Vec::new(),
         native_managed: true,
         enable_supported: capabilities.enable,
         update_supported: capabilities.update,
+        rollback_supported: false,
         uninstall_supported: capabilities.uninstall,
     }
+}
+
+fn declared_app_contributions(plugin: &plugins::InstalledPlugin) -> Vec<PluginAppContributionDto> {
+    plugin
+        .app
+        .file_openers
+        .iter()
+        .map(|opener| PluginAppContributionDto {
+            id: opener.id.clone(),
+            kind: "file_opener".to_owned(),
+            label: opener.label.clone(),
+            metadata: serde_json::json!({
+                "extensions": opener.extensions,
+                "mediaTypes": opener.media_types,
+                "priority": opener.priority,
+                "handler": opener.handler,
+            }),
+        })
+        .chain(
+            plugin
+                .app
+                .preview_providers
+                .iter()
+                .map(|provider| PluginAppContributionDto {
+                    id: provider.id.clone(),
+                    kind: "preview_provider".to_owned(),
+                    label: provider.id.clone(),
+                    metadata: serde_json::json!({
+                        "mediaTypes": provider.media_types,
+                        "runtime": provider.runtime,
+                        "maxConcurrentPreviews": provider.max_concurrent_previews,
+                        "handler": provider.handler,
+                    }),
+                }),
+        )
+        .chain(
+            plugin
+                .app
+                .surfaces
+                .iter()
+                .map(|surface| PluginAppContributionDto {
+                    id: surface.id.clone(),
+                    kind: "app_surface".to_owned(),
+                    label: surface.label.clone(),
+                    metadata: serde_json::json!({
+                        "slot": surface.slot,
+                        "appEntrypoint": surface.app_entrypoint,
+                        "route": surface.route,
+                        "handler": surface.handler,
+                        "allowedMethods": surface.allowed_methods,
+                        "minHeight": surface.min_height,
+                    }),
+                }),
+        )
+        .collect()
 }
 
 async fn native_cli_adapters() -> Vec<(plugins::OfficialCliNativePluginAdapter, &'static str)> {
@@ -1461,6 +2011,72 @@ fn discover_native_skills(root: &Path) -> Vec<PluginSkillDto> {
         .collect::<Vec<_>>();
     skills.sort_by(|left, right| left.id.cmp(&right.id));
     skills
+}
+
+fn discover_native_resources(root: &Path, directory: &str) -> Vec<PluginNativeResourceDto> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        depth: usize,
+        resources: &mut Vec<PluginNativeResourceDto>,
+    ) {
+        if depth > 4 || resources.len() >= 256 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                visit(root, &entry.path(), depth + 1, resources);
+                continue;
+            }
+            if !file_type.is_file() || resources.len() >= 256 {
+                continue;
+            }
+            let path = entry.path();
+            let supported = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    matches!(
+                        extension.to_ascii_lowercase().as_str(),
+                        "json" | "yaml" | "yml"
+                    )
+                });
+            if !supported {
+                continue;
+            }
+            let relative = path.strip_prefix(root).unwrap_or(&path);
+            let id = relative
+                .components()
+                .skip(1)
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            let id = Path::new(&id)
+                .with_extension("")
+                .to_string_lossy()
+                .into_owned();
+            resources.push(PluginNativeResourceDto {
+                id,
+                path: relative.to_string_lossy().into_owned(),
+            });
+        }
+    }
+
+    let mut resources = Vec::new();
+    visit(root, &root.join(directory), 0, &mut resources);
+    resources.sort_by(|left, right| left.id.cmp(&right.id));
+    resources
 }
 
 fn read_native_mcp(root: &Path) -> Result<Option<serde_json::Value>, AppError> {
@@ -1582,7 +2198,7 @@ async fn persist_agent_bindings(
             None
         };
         sqlx::query(
-            "INSERT INTO plugin_control_agent_bindings
+            "INSERT INTO plugin_agent_bindings_v4
                  (plugin_id, agent_id, desired, applied, pending_reason, error_code, error_message, updated_at)
              VALUES (?, ?, ?, ?, ?, NULL, NULL, CURRENT_TIMESTAMP)
              ON CONFLICT(plugin_id, agent_id) DO UPDATE SET
@@ -1612,16 +2228,17 @@ async fn configure_plugin_mcp(
     desired: &BTreeSet<String>,
 ) -> Vec<String> {
     let pool = &state.deployment.db().pool;
-    if let Err(error) = sqlx::query("DELETE FROM plugin_control_mcp_bindings WHERE plugin_id = ?")
+    if let Err(error) = sqlx::query("DELETE FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?")
         .bind(plugin.id())
         .execute(pool)
         .await
     {
         return vec![format!("control-plane binding reset: {error}")];
     }
-    let Some(raw_mcp) = plugin.manifest.get("mcp") else {
+    let raw_mcp = &plugin.mcp;
+    if raw_mcp.is_null() {
         return Vec::new();
-    };
+    }
     let servers = raw_mcp
         .get("mcpServers")
         .unwrap_or(raw_mcp)
@@ -1657,7 +2274,7 @@ async fn configure_plugin_mcp(
         }
         for agent_id in desired {
             if let Err(error) = sqlx::query(
-                "INSERT INTO plugin_control_mcp_bindings
+                "INSERT INTO plugin_mcp_bindings_v4
                      (plugin_id, mcp_id, agent_id, desired, applied, error_code, error_message, updated_at)
                  VALUES (?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
                  ON CONFLICT(plugin_id, mcp_id, agent_id) DO UPDATE SET
@@ -1754,7 +2371,6 @@ fn runtime_installer(installer: &plugins::RuntimeInstall) -> &'static str {
         plugins::RuntimeInstall::Npm { .. } => "npm",
         plugins::RuntimeInstall::Pipx { .. } => "pipx",
         plugins::RuntimeInstall::Cargo { .. } => "cargo",
-        plugins::RuntimeInstall::Shell { .. } => "shell",
     }
 }
 
@@ -2050,5 +2666,34 @@ mod tests {
         });
 
         assert_eq!(mcp_server_names(Some(&mcp)), vec!["alpha", "zeta"]);
+    }
+
+    #[test]
+    fn discovers_native_hook_and_workflow_resources_without_reading_contents() {
+        let fixture = tempdir().unwrap();
+        fs::create_dir_all(fixture.path().join("hooks")).unwrap();
+        fs::create_dir_all(fixture.path().join("workflows/research")).unwrap();
+        fs::write(fixture.path().join("hooks/session-start.json"), "{}").unwrap();
+        fs::write(
+            fixture.path().join("workflows/research/workflow.json"),
+            "{}",
+        )
+        .unwrap();
+        fs::write(fixture.path().join("workflows/README.txt"), "ignore").unwrap();
+
+        assert_eq!(
+            discover_native_resources(fixture.path(), "hooks"),
+            vec![PluginNativeResourceDto {
+                id: "session-start".to_owned(),
+                path: "hooks/session-start.json".to_owned(),
+            }]
+        );
+        assert_eq!(
+            discover_native_resources(fixture.path(), "workflows"),
+            vec![PluginNativeResourceDto {
+                id: "research/workflow".to_owned(),
+                path: "workflows/research/workflow.json".to_owned(),
+            }]
+        );
     }
 }

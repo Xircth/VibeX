@@ -16,13 +16,13 @@ const IMAGE_PREVIEW_EXTENSIONS = new Set([
 
 const PDF_PREVIEW_EXTENSIONS = new Set(['pdf']);
 
-const DOCUMENT_PREVIEW_EXTENSIONS = new Set(['doc']);
-
-// OpenXML office files previewed live via `officecli watch` (docx/xlsx/pptx).
-// Legacy `.doc` stays on the built-in content-only document pipeline.
-const OFFICE_PREVIEW_EXTENSIONS = new Set(['docx', 'xlsx', 'pptx']);
-
 const BINARY_PREVIEW_EXTENSIONS = new Set([
+  'doc',
+  'docx',
+  'ppt',
+  'pptx',
+  'xls',
+  'xlsx',
   'icns',
   'zip',
   'gz',
@@ -56,13 +56,7 @@ const BINARY_PREVIEW_EXTENSIONS = new Set([
   'sqlite',
 ]);
 
-export type FilePreviewKind =
-  | 'text'
-  | 'image'
-  | 'pdf'
-  | 'document'
-  | 'office'
-  | 'binary';
+export type FilePreviewKind = 'text' | 'image' | 'pdf' | 'binary';
 
 function extensionFromPath(path?: string | null) {
   if (!path) {
@@ -91,14 +85,6 @@ export function isPdfPreviewPath(path?: string | null) {
   return PDF_PREVIEW_EXTENSIONS.has(extensionFromPath(path));
 }
 
-export function isDocumentPreviewPath(path?: string | null) {
-  return DOCUMENT_PREVIEW_EXTENSIONS.has(extensionFromPath(path));
-}
-
-export function isOfficePreviewPath(path?: string | null) {
-  return OFFICE_PREVIEW_EXTENSIONS.has(extensionFromPath(path));
-}
-
 export function getFilePreviewKind(path?: string | null): FilePreviewKind {
   if (isImagePreviewPath(path)) {
     return 'image';
@@ -106,14 +92,6 @@ export function getFilePreviewKind(path?: string | null): FilePreviewKind {
 
   if (isPdfPreviewPath(path)) {
     return 'pdf';
-  }
-
-  if (isOfficePreviewPath(path)) {
-    return 'office';
-  }
-
-  if (isDocumentPreviewPath(path)) {
-    return 'document';
   }
 
   if (isBinaryPreviewPath(path)) {

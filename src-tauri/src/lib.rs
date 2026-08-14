@@ -7,6 +7,7 @@ use browser_cef::{
 use browser_runtime::BrowserRuntime;
 use tauri::{Emitter, Manager, image::Image};
 
+mod app_surface;
 pub mod commands;
 pub mod conversation_bundle;
 pub mod conversation_service;
@@ -17,7 +18,8 @@ mod error;
 mod events;
 pub mod linux_display;
 mod logging;
-mod office_runtime;
+mod managed_artifacts;
+mod plugin_dev_server;
 mod prompt_enhancement;
 mod remote_desktop;
 mod settings_watcher;
@@ -261,6 +263,38 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
 
         let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
             .expect("Failed to initialize app state");
+        let preview_proxy = tauri::async_runtime::block_on(
+            plugin_dev_server::DesktopPreviewProxy::start(),
+        )
+        .expect("Failed to start the capability-checked Desktop preview proxy");
+        app.manage(preview_proxy);
+        let plugin_candidate_root = app
+            .path()
+            .app_data_dir()
+            .expect("Failed to resolve app data directory")
+            .join("plugins")
+            .join("dev-candidates");
+        let plugin_runtime_root = managed_artifacts::directory(app.handle())
+            .expect("Failed to resolve managed executable directory")
+            .join("plugins")
+            .join("runtimes");
+        match tauri::async_runtime::block_on(plugin_dev_server::start(
+            state.plugin_control_plane.clone(),
+            state.deployment.db().pool.clone(),
+            state.plugin_capability_broker.clone(),
+            state.plugin_worker_runtime.clone(),
+            plugin_runtime_root,
+            plugin_candidate_root,
+        )) {
+            Ok(connection) => {
+                tracing::info!(
+                    endpoint = %connection.endpoint,
+                    "Plugin Dev control server is ready; retrieve its token through the local app session"
+                );
+                app.manage(connection);
+            }
+            Err(error) => tracing::error!(%error, "Plugin Dev control server failed to start"),
+        }
         // Startup crash-recovery (ADR-0001): reconcile turns orphaned by a prior
         // process lifecycle before the UI connects. Best-effort — a failure here
         // must not block app launch; the worst case is a stale in-flight turn.
@@ -339,27 +373,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // One durable Automation v2 Engine owns this data directory. Startup
         // reconciliation and catch-up happen behind the owner lease.
         commands::automation::start_automation_engine(app.handle().clone());
-
-        // Artifact providers own their child-process lifecycle. Reap expired
-        // preview leases, crashed children, and idle watches periodically.
-        {
-            let office = app.state::<state::AppState>().office_runtime.clone();
-            tauri::async_runtime::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                interval.tick().await;
-                loop {
-                    interval.tick().await;
-                    let reaped = office.reap_idle().await;
-                    if reaped > 0 {
-                        tracing::info!("[office-provider] reaped {reaped} preview process(es)");
-                    }
-                    let delivered = office.flush_artifact_events().await;
-                    if delivered > 0 {
-                        tracing::info!("[artifact-service] delivered {delivered} pending event(s)");
-                    }
-                }
-            });
-        }
 
         if let Err(error) = commands::desktop_toast::ensure_desktop_toast_window(app.handle()) {
             tracing::warn!("Failed to initialize desktop toast window: {}", error);
@@ -803,7 +816,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // File tree commands
         commands::file_tree::get_file_tree,
         commands::file_tree::read_file_content,
-        commands::file_tree::read_document_preview,
         commands::file_tree::read_binary_asset,
         commands::file_tree::save_file_content,
         commands::file_tree::delete_file,
@@ -816,32 +828,34 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::file_tree::move_item,
         commands::file_tree::create_directory,
         commands::file_tree::search_workspace_text,
-        // Office preview (OfficeCLI) commands
+        // Generic Artifact and Plugin contribution commands
         commands::plugin_control::plugin_action_catalog,
-        commands::office_tools::plugin_skills_configure,
-        commands::office_tools::office_plugin_set_enabled,
-        commands::office_tools::officecli_detect,
-        commands::office_tools::officecli_install,
-        commands::office_tools::officecli_cancel_install,
-        commands::office_tools::artifact_open_preview,
-        commands::office_tools::artifact_close_preview,
-        commands::office_tools::officecli_uninstall,
-        commands::office_tools::start_office_watch,
-        commands::office_tools::stop_office_watch,
+        commands::artifact_preview::artifact_open_preview,
+        commands::artifact_preview::artifact_close_preview,
         // Unified VibeX/Codex/Claude Code Plugin control plane
         commands::plugin_control::plugin_control_catalog,
+        commands::plugin_control::plugin_product_detail,
+        commands::plugin_control::plugin_save_config,
+        commands::plugin_control::plugin_contribution_catalog,
+        commands::plugin_control::plugin_resolve_file_opener,
+        commands::plugin_control::plugin_open_file_preview,
+        commands::plugin_control::plugin_close_file_preview,
         commands::plugin_control::plugin_control_contributions,
         commands::plugin_control::plugin_control_preview_import,
         commands::plugin_control::plugin_control_import_cli,
-        commands::plugin_control::plugin_control_preview_runtime_install,
         commands::plugin_control::plugin_control_import,
         commands::plugin_control::plugin_control_install_runtime,
         commands::plugin_control::plugin_control_set_enabled,
         commands::plugin_control::plugin_control_update,
-        commands::plugin_control::plugin_control_set_shell_trust,
+        commands::plugin_control::plugin_control_rollback,
+        commands::plugin_control::plugin_control_grant_permissions,
         commands::plugin_control::plugin_control_configure_agents,
         commands::plugin_control::plugin_control_configure_mcp,
         commands::plugin_control::plugin_control_uninstall,
+        app_surface::plugin_surface_open,
+        app_surface::plugin_surface_invoke,
+        app_surface::plugin_surface_revoke,
+        plugin_dev_server::plugin_dev_connection,
         // Skills commands
         commands::skills::list_local_agent_skills,
         commands::agent_skills::list_agent_skills,
@@ -880,21 +894,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         // Flush the non-blocking log writer on exit before the process leaves.
         if let tauri::RunEvent::Exit = event {
             shutdown_cef_session();
-            let shutdown = tauri::async_runtime::block_on(
-                _app_handle
-                    .state::<state::AppState>()
-                    .office_runtime
-                    .shutdown(),
-            );
-            match shutdown {
-                Ok(reaped) if reaped > 0 => {
-                    tracing::info!("[office-watch] stopped {reaped} watch process(es) on exit");
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::error!("[office-watch] shutdown failed: {error}");
-                }
-            }
             log_guard.take();
         }
     });

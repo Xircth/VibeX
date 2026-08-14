@@ -252,6 +252,7 @@ name = "application"
 version = "0.1.3"
 dependencies = [
  "agents",
+ "artifacts",
  "async-trait",
  "chrono",
  "conversations",
@@ -4443,32 +4444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "office-runtime"
-version = "0.1.3"
-dependencies = [
- "agents",
- "anyhow",
- "artifacts",
- "async-trait",
- "conversations",
- "db",
- "dirs 5.0.1",
- "plugins",
- "reqwest 0.12.28",
- "rustls",
- "serde_json",
- "sha2",
- "sqlx",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tool-runtime",
- "tracing",
- "utils",
- "uuid",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4967,6 +4942,7 @@ dependencies = [
  "async-trait",
  "dirs 5.0.1",
  "flate2",
+ "libc",
  "semver",
  "serde",
  "serde_json",
@@ -4980,6 +4956,8 @@ dependencies = [
  "tool-runtime",
  "url",
  "utils",
+ "uuid",
+ "xattr",
  "zip 4.6.1",
 ]
 
@@ -6181,6 +6159,7 @@ name = "server"
 version = "0.1.3"
 dependencies = [
  "agents",
+ "anyhow",
  "application",
  "artifacts",
  "async-trait",
@@ -6195,7 +6174,6 @@ dependencies = [
  "dirs 5.0.1",
  "futures",
  "local-deployment",
- "office-runtime",
  "plugins",
  "remote-protocol",
  "reqwest 0.12.28",
@@ -8273,6 +8251,7 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "sha2",
  "shellexpand",
  "shlex",
  "similar",
@@ -8358,7 +8337,6 @@ dependencies = [
  "ignore",
  "local-deployment",
  "notify",
- "office-runtime",
  "os_info",
  "plugins",
  "prost",
@@ -8372,6 +8350,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "server",
  "services",
  "sha2",
  "sqlx",

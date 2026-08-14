@@ -6,15 +6,19 @@ use std::{
     time::Duration,
 };
 
+use application::{
+    Principal, StartWorkflowRequest, WorkflowExecutionPort, WorkflowStoreExecutionPort,
+};
 use async_trait::async_trait;
 use automation::{
     AgentRuntimeVersionEvidence, AutomationDraft, AutomationDraftInput, AutomationEngine,
-    AutomationRetentionService, AutomationRunner, ClaimedRun, ComponentVersionEvidence,
-    ConnectionLaunch, FileOwnerLock, IsolationSpec, PluginActionCatalogPort, PreparedWorkspace,
-    ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError, RunExecutionRequest,
-    RunStatus, ScheduleService, ScheduleSpec, StartupReconciler, SystemClock,
-    ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort, WorkspaceError,
-    WorkspacePreparationRequest, WorkspacePreparerPort, WorkspaceRetentionPort,
+    AutomationRetentionService, AutomationRunner, AutomationTarget, ClaimedRun,
+    ComponentVersionEvidence, ConnectionLaunch, FileOwnerLock, IsolationSpec,
+    PluginActionCatalogPort, PreparedWorkspace, ResolvedVersionEvidence, RetentionError,
+    RetentionPolicy, RunError, RunExecutionRequest, RunStatus, ScheduleService, ScheduleSpec,
+    StartupReconciler, SystemClock, ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort,
+    WorkflowAutomationDraft, WorkspaceError, WorkspacePreparationRequest, WorkspacePreparerPort,
+    WorkspaceRetentionPort,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
@@ -61,7 +65,8 @@ pub struct AutomationView {
     pub spec_version: u16,
     pub trigger: ScheduleSpec,
     pub next_run_at: Option<DateTime<Utc>>,
-    pub launch: TurnLaunchSpec,
+    pub target: AutomationTarget,
+    pub launch: Option<TurnLaunchSpec>,
     pub migration_required: bool,
     pub unseen_failure_count: i64,
     pub last_run_status: Option<String>,
@@ -81,6 +86,7 @@ pub struct AutomationRunView {
     pub conversation_id: Option<Uuid>,
     pub turn_id: Option<Uuid>,
     pub workspace_id: Option<Uuid>,
+    pub workflow_run_id: Option<Uuid>,
     pub stop_reason: Option<String>,
     pub summary: Option<String>,
     pub error: Option<String>,
@@ -176,6 +182,18 @@ pub async fn automation_create(
 ) -> Result<AutomationView, AppError> {
     let draft = input_to_draft(state.inner(), input).await?;
     record_to_dto(store(state.inner()).create(draft, Utc::now()).await?)
+}
+
+#[tauri::command]
+pub async fn automation_create_workflow(
+    state: tauri::State<'_, AppState>,
+    input: WorkflowAutomationDraft,
+) -> Result<AutomationView, AppError> {
+    record_to_dto(
+        store(state.inner())
+            .create_workflow(input, Utc::now())
+            .await?,
+    )
 }
 
 #[tauri::command]
@@ -332,6 +350,22 @@ pub async fn automation_cancel_run(
             .await?
             .ok_or_else(|| AppError::NotFound(format!("automation run {run_id} not found")))?;
         reconcile_run_terminal(state.inner(), &automation_store, &refreshed).await?;
+    } else if let Some(workflow_run_id) = run.workflow_run_id {
+        workflows::WorkflowCore::new(workflows::WorkflowStore::new(
+            state.deployment.db().pool.clone(),
+        ))
+        .cancel(
+            workflow_run_id,
+            Uuid::new_v4(),
+            Some("automation run cancelled"),
+        )
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+        let refreshed = automation_store
+            .run(run_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("automation run {run_id} not found")))?;
+        reconcile_run_terminal(state.inner(), &automation_store, &refreshed).await?;
     }
     Ok(())
 }
@@ -445,6 +479,20 @@ async fn reconcile_running_turns(app: &AppHandle) -> Result<(), AppError> {
                 )
                 .await?;
         }
+        if run.snapshot.cancellation_requested
+            && let Some(workflow_run_id) = run.workflow_run_id
+        {
+            workflows::WorkflowCore::new(workflows::WorkflowStore::new(
+                state.deployment.db().pool.clone(),
+            ))
+            .cancel(
+                workflow_run_id,
+                Uuid::new_v4(),
+                Some("automation run cancelled"),
+            )
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        }
         let refreshed = automation_store
             .run(run.snapshot.run_id)
             .await?
@@ -461,6 +509,33 @@ async fn reconcile_run_terminal(
     automation_store: &SqliteAutomationStore,
     run: &AutomationRunRecord,
 ) -> Result<bool, AppError> {
+    if let Some(workflow_run_id) = run.workflow_run_id {
+        let workflow = workflows::WorkflowStore::new(state.deployment.db().pool.clone())
+            .run(workflow_run_id)
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        let terminal = match workflow.status.as_str() {
+            "completed" => Some((RunStatus::Completed, None)),
+            "failed" => Some((RunStatus::Failed, Some("workflow failed".to_string()))),
+            "cancelled" => Some((RunStatus::Cancelled, None)),
+            "interrupted" => Some((
+                RunStatus::Interrupted,
+                Some("workflow interrupted".to_string()),
+            )),
+            _ => None,
+        };
+        if let Some((status, error)) = terminal {
+            return automation::RunStorePort::settle(
+                automation_store,
+                run.snapshot.run_id,
+                status,
+                error,
+            )
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()));
+        }
+        return Ok(false);
+    }
     let Some(turn_id) = run.snapshot.turn_id else {
         return Ok(false);
     };
@@ -546,25 +621,145 @@ async fn execute_run(app: AppHandle, claimed: ClaimedRun) {
             return;
         }
     };
-    let runner = AutomationRunner::new(
-        automation_store,
-        TauriWorkspacePreparer { app: app.clone() },
-        TauriTurnLauncher { app },
-    );
-    if let Err(error) = runner
-        .execute(&RunExecutionRequest {
-            run_id: claimed.run_id,
-            automation_id: claimed.automation_id,
-            launch_spec: automation.launch_spec,
+    match automation.target {
+        AutomationTarget::Turn(launch_spec) => {
+            let runner = AutomationRunner::new(
+                automation_store,
+                TauriWorkspacePreparer { app: app.clone() },
+                TauriTurnLauncher { app },
+            );
+            if let Err(error) = runner
+                .execute(&RunExecutionRequest {
+                    run_id: claimed.run_id,
+                    automation_id: claimed.automation_id,
+                    launch_spec,
+                })
+                .await
+                && error != RunError::Cancelled
+            {
+                tracing::warn!(
+                    "automation run {} failed to launch: {error}",
+                    claimed.run_id
+                );
+            }
+        }
+        AutomationTarget::Workflow(spec) => {
+            if let Err(error) = execute_workflow_automation(
+                app,
+                automation_store,
+                claimed.run_id,
+                claimed.automation_id,
+                spec,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "automation workflow run {} failed to launch: {error}",
+                    claimed.run_id
+                );
+            }
+        }
+    }
+}
+
+async fn execute_workflow_automation(
+    app: AppHandle,
+    store: SqliteAutomationStore,
+    automation_run_id: Uuid,
+    automation_id: Uuid,
+    spec: automation::WorkflowLaunchSpec,
+) -> Result<(), String> {
+    use automation::RunStorePort;
+
+    let policy_override = match spec.policy_override.map(serde_json::from_value).transpose() {
+        Ok(policy) => policy,
+        Err(error) => {
+            let _ = store
+                .settle(
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+            return Err(error.to_string());
+        }
+    };
+    let preparer = TauriWorkspacePreparer { app: app.clone() };
+    let workspace = match preparer
+        .prepare(&WorkspacePreparationRequest {
+            automation_id,
+            run_id: automation_run_id,
+            target: spec.workspace,
         })
         .await
-        && error != RunError::Cancelled
     {
-        tracing::warn!(
-            "automation run {} failed to launch: {error}",
-            claimed.run_id
-        );
+        Ok(workspace) => workspace,
+        Err(error) => {
+            let _ = store
+                .settle(
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+            return Err(error.to_string());
+        }
+    };
+    let state = app.state::<AppState>();
+    let workflows = WorkflowStoreExecutionPort::with_conversations(
+        state.deployment.db().pool.clone(),
+        state.conversation_context(),
+    );
+    let run = match workflows
+        .start(
+            &Principal::local_desktop(),
+            automation_run_id,
+            StartWorkflowRequest {
+                definition_version_id: spec.definition_version_id,
+                workspace_id: workspace.workspace_id,
+                input: spec.input,
+                policy_override,
+            },
+        )
+        .await
+    {
+        Ok(run) => run,
+        Err(error) => {
+            let _ = preparer.release(&workspace).await;
+            let _ = store
+                .settle(
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = store
+        .attach_workflow_run(automation_run_id, run.id, workspace.workspace_id)
+        .await
+    {
+        let _ = workflows
+            .cancel(
+                Uuid::new_v4(),
+                application::CancelWorkflowRequest {
+                    run_id: run.id,
+                    reason: Some("automation launch correlation failed".to_string()),
+                },
+            )
+            .await;
+        let _ = preparer.release(&workspace).await;
+        let _ = store
+            .settle(
+                automation_run_id,
+                RunStatus::Failed,
+                Some(error.to_string()),
+            )
+            .await;
+        return Err(error.to_string());
     }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -942,6 +1137,7 @@ impl TurnLauncherPort for TauriTurnLauncher {
                             action_id: invocation.action.id.as_str().to_owned(),
                         })
                         .collect(),
+                    queued_input_claim: None,
                 },
                 conversations::commit_reminder::AUTOMATION_ORIGIN,
             )
@@ -1008,6 +1204,10 @@ async fn unified_action_catalog(state: &AppState) -> Result<UnifiedActionCatalog
 }
 
 fn record_to_dto(record: AutomationRecord) -> Result<AutomationView, AppError> {
+    let launch = match &record.target {
+        AutomationTarget::Turn(spec) => Some(spec.clone()),
+        AutomationTarget::Workflow(_) => None,
+    };
     Ok(AutomationView {
         id: record.id,
         name: record.name,
@@ -1015,7 +1215,8 @@ fn record_to_dto(record: AutomationRecord) -> Result<AutomationView, AppError> {
         spec_version: record.spec_version,
         trigger: record.trigger,
         next_run_at: record.next_run_at,
-        launch: record.launch_spec,
+        target: record.target,
+        launch,
         migration_required: record.legacy_migration_status == "migration_required",
         unseen_failure_count: record.unseen_failure_count,
         last_run_status: record.last_run_status,
@@ -1043,6 +1244,7 @@ fn run_to_dto(run: AutomationRunRecord) -> Result<AutomationRunView, AppError> {
         conversation_id: run.snapshot.conversation_id,
         turn_id: run.snapshot.turn_id,
         workspace_id: run.snapshot.workspace_id,
+        workflow_run_id: run.workflow_run_id,
         stop_reason: run.stop_reason,
         summary: run.summary,
         error: run.snapshot.error,

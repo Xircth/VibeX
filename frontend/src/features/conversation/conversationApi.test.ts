@@ -67,6 +67,99 @@ describe('conversationApi', () => {
     });
   });
 
+  it('submits and lists durable conversation inputs through application commands', async () => {
+    call.mockResolvedValueOnce({ id: 'input-1', status: 'queued' });
+    const payload = {
+      agentId: 'codex',
+      workspaceId: 'workspace-1',
+      text: 'follow up',
+    } as const;
+
+    await conversationApi.submitInput('conversation-1', payload);
+
+    expect(call).toHaveBeenLastCalledWith('conversation_input_submit', {
+      request: { conversationId: 'conversation-1', payload },
+    });
+
+    call.mockResolvedValueOnce([]);
+    await conversationApi.listInputs('conversation-1');
+    expect(call).toHaveBeenLastCalledWith('conversation_input_list', {
+      request: { conversationId: 'conversation-1' },
+    });
+  });
+
+  it('steers only an explicitly expected active turn', async () => {
+    call.mockResolvedValue({ status: 'accepted' });
+
+    await conversationApi.steer({
+      conversationId: 'conversation-1',
+      expectedTurnId: 'turn-1',
+      text: 'Focus on the failing test',
+      images: [],
+    });
+
+    expect(call).toHaveBeenCalledWith('conversation_steer', {
+      request: {
+        conversationId: 'conversation-1',
+        expectedTurnId: 'turn-1',
+        text: 'Focus on the failing test',
+        images: [],
+      },
+    });
+  });
+
+  it('mutates durable inputs with explicit optimistic revisions', async () => {
+    call.mockResolvedValue({ id: 'input-1', status: 'queued' });
+    const payload = {
+      agentId: 'codex',
+      workspaceId: 'workspace-1',
+      text: 'edited',
+    } as const;
+
+    await conversationApi.updateInput({
+      conversationId: 'conversation-1',
+      inputId: 'input-1',
+      expectedRevision: 1,
+      payload,
+    });
+    expect(call).toHaveBeenLastCalledWith('conversation_input_update', {
+      request: {
+        conversationId: 'conversation-1',
+        inputId: 'input-1',
+        expectedRevision: 1,
+        payload,
+      },
+    });
+
+    await conversationApi.reorderInput({
+      conversationId: 'conversation-1',
+      inputId: 'input-1',
+      expectedRevision: 2,
+      sortKey: 2048,
+    });
+    expect(call).toHaveBeenLastCalledWith('conversation_input_reorder', {
+      request: {
+        conversationId: 'conversation-1',
+        inputId: 'input-1',
+        expectedRevision: 2,
+        sortKey: 2048,
+      },
+    });
+
+    await conversationApi.cancelInput({
+      conversationId: 'conversation-1',
+      inputId: 'input-1',
+      expectedRevision: 3,
+    });
+    expect(call).toHaveBeenLastCalledWith('conversation_input_cancel', {
+      request: {
+        conversationId: 'conversation-1',
+        inputId: 'input-1',
+        expectedRevision: 3,
+      },
+    });
+  });
+
   it('requests durable events by sequence', async () => {
     call.mockResolvedValue({
       conversation_id: 'conversation-1',

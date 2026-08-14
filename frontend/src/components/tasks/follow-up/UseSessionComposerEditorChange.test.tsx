@@ -11,16 +11,23 @@ import { useSessionComposerEditorChange } from './useSessionComposerEditorChange
 function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
   return {
     status: 'queued',
-    message: {
-      session_id: 'session-1',
-      created_at: '2026-05-25T00:00:00.000Z',
-      updated_at: '2026-05-25T00:00:00.000Z',
-      executorProfileId: { executor: 'codex', variant: null },
-      data: {
-        message: 'queued draft',
-        images: [],
+    messages: [
+      {
+        id: 'input-1',
+        session_id: 'session-1',
+        revision: 1n,
+        sortKey: 1024n,
+        status: 'queued',
+        created_at: '2026-05-25T00:00:00.000Z',
+        updated_at: '2026-05-25T00:00:00.000Z',
+        executorProfileId: { executor: 'codex', variant: null },
+        data: {
+          message: 'queued draft',
+          images: [],
+          pluginActions: [],
+        },
       },
-    },
+    ],
   };
 }
 

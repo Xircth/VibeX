@@ -10,7 +10,7 @@ use std::{
 
 use agent_client_protocol as acp;
 use agent_client_protocol::{
-    Agent, ConnectionTo,
+    Agent, ConnectionTo, JsonRpcRequest, JsonRpcResponse,
     schema::{
         ProtocolVersion,
         v1::{
@@ -37,7 +37,7 @@ use agent_client_protocol::{
 };
 use chrono::Utc;
 use futures::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncWriteExt,
     sync::{Mutex, RwLock, mpsc, oneshot},
@@ -57,9 +57,9 @@ use crate::{
     AgentPermissionOptionKind, AgentPermissionRequest, AgentPermissionResponse, AgentPlan,
     AgentPromptFinished, AgentPromptId, AgentResult, AgentSessionConfigChoice,
     AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
-    AgentSessionId, AgentSessionListPage, AgentSessionMode, AgentTerminalCreateRequest,
-    AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall, AgentToolCallUpdate, AgentUsage,
-    SessionLaunchLock,
+    AgentSessionId, AgentSessionListPage, AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt,
+    AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit, AgentToolCall,
+    AgentToolCallUpdate, AgentUsage, SessionLaunchLock,
     conversation::SessionLoadFailureReason,
     decide_auto_permission_response,
     delegation_inject::{
@@ -97,6 +97,39 @@ fn acp_tool_input_preview(
         }))
         .ok()
     })
+}
+
+fn acp_tool_images(content: &[ToolCallContent]) -> Vec<crate::conversation::ImageData> {
+    content
+        .iter()
+        .filter_map(|item| match item {
+            ToolCallContent::Content(content) => match &content.content {
+                ContentBlock::Image(image) => Some(crate::conversation::ImageData {
+                    data: image.data.clone(),
+                    mime_type: image.mime_type.clone(),
+                    uri: image.uri.clone(),
+                }),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+fn acp_tool_content_preview(content: &[ToolCallContent]) -> Option<String> {
+    let visible = content
+        .iter()
+        .filter(|item| {
+            !matches!(
+                item,
+                ToolCallContent::Content(content)
+                    if matches!(&content.content, ContentBlock::Image(_))
+            )
+        })
+        .collect::<Vec<_>>();
+    (!visible.is_empty())
+        .then(|| serde_json::to_string(&visible).ok())
+        .flatten()
 }
 
 const DEFAULT_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
@@ -325,6 +358,12 @@ pub enum AgentConnectionCommand {
         session_id: AgentSessionId,
         prompt_id: AgentPromptId,
     },
+    Steer {
+        session_id: AgentSessionId,
+        expected_prompt_id: AgentPromptId,
+        blocks: Vec<AgentContentBlock>,
+        result_tx: oneshot::Sender<AgentResult<AgentSteerReceipt>>,
+    },
     RespondPermission {
         permission_id: String,
         response: AgentPermissionResponse,
@@ -529,6 +568,32 @@ impl AgentConnectionManager {
             },
         )
         .await
+    }
+
+    pub async fn steer_prompt(
+        &self,
+        connection_id: AgentConnectionId,
+        session_id: AgentSessionId,
+        expected_prompt_id: AgentPromptId,
+        blocks: Vec<AgentContentBlock>,
+    ) -> AgentResult<AgentSteerReceipt> {
+        if !self.connection_capabilities(connection_id).await?.steering {
+            return Err(AgentError::SteeringUnsupported);
+        }
+        let (result_tx, result_rx) = oneshot::channel();
+        self.send_command(
+            connection_id,
+            AgentConnectionCommand::Steer {
+                session_id,
+                expected_prompt_id,
+                blocks,
+                result_tx,
+            },
+        )
+        .await?;
+        result_rx.await.map_err(|_| {
+            AgentError::Runtime("agent connection closed before steering was acknowledged".into())
+        })?
     }
 
     pub async fn respond_permission(
@@ -865,6 +930,41 @@ struct RunPromptRequest {
     config_overrides: Vec<AgentSessionConfigOverride>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcRequest)]
+#[request(method = "_session/steering", response = AcpSteerResponse)]
+#[serde(rename_all = "camelCase")]
+struct AcpSteerRequest {
+    session_id: String,
+    prompt: Vec<ContentBlock>,
+    #[serde(rename = "_meta")]
+    meta: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonRpcResponse)]
+#[serde(rename_all = "camelCase")]
+struct AcpSteerResponse {
+    outcome: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+fn map_steer_response(response: AcpSteerResponse) -> AgentResult<AgentSteerReceipt> {
+    let outcome = match response.outcome.as_str() {
+        "injected" => AgentSteerOutcome::Injected,
+        "promptRequired" => AgentSteerOutcome::PromptRequired,
+        "startedNewTurn" => AgentSteerOutcome::StartedNewTurn,
+        other => {
+            return Err(AgentError::Runtime(format!(
+                "agent returned unknown steering outcome `{other}`"
+            )));
+        }
+    };
+    Ok(AgentSteerReceipt {
+        outcome,
+        reason: response.reason,
+    })
+}
+
 impl AgentConnectionRunner {
     fn new(
         snapshot: ManagedAgentConnectionSnapshot,
@@ -1040,6 +1140,9 @@ impl AgentConnectionRunner {
                         },
                     },
                 ),
+                AgentConnectionCommand::Steer { result_tx, .. } => {
+                    let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
+                }
                 AgentConnectionCommand::RespondPermission {
                     permission_id,
                     response,
@@ -1105,6 +1208,7 @@ impl AgentConnectionRunner {
                     kind: Some("read".to_string()),
                     input_preview: None,
                     meta: None,
+                    images: Vec::new(),
                 },
             },
         );
@@ -1118,6 +1222,7 @@ impl AgentConnectionRunner {
                     content: Some("reading fixture input".to_string()),
                     input_preview: None,
                     meta: None,
+                    images: Vec::new(),
                 },
             },
         );
@@ -1247,6 +1352,7 @@ impl AgentConnectionRunner {
                     content: Some("fixture tool completed".to_string()),
                     input_preview: None,
                     meta: None,
+                    images: Vec::new(),
                 },
             },
         );
@@ -1499,6 +1605,12 @@ impl AgentConnectionRunner {
                     &raw_capabilities,
                     &client_capabilities,
                 );
+                let initialize_meta = initialize_response
+                    .meta
+                    .as_ref()
+                    .map(|meta| serde_json::Value::Object(meta.clone()));
+                capability_snapshot.steering =
+                    AcpCapabilityNormalizer::steering_is_advertised(initialize_meta.as_ref());
                 capability_snapshot.authentication = AcpAuthStatusAdapter::observe_if_advertised(
                     &conn,
                     &raw_capabilities,
@@ -1669,6 +1781,15 @@ impl AgentConnectionRunner {
                                     &mut cmd_rx,
                                 )
                                 .await?;
+                        }
+                        AgentConnectionCommand::Steer {
+                            expected_prompt_id,
+                            result_tx,
+                            ..
+                        } => {
+                            let _ = result_tx.send(Err(AgentError::PromptNotFound(
+                                expected_prompt_id.to_string(),
+                            )));
                         }
                         AgentConnectionCommand::ForkSession {
                             session_id,
@@ -2177,7 +2298,7 @@ impl AgentConnectionRunner {
         config_overrides: Vec<AgentSessionConfigOverride>,
     ) -> Result<(), acp::Error> {
         if let Some(mode) = mode_override.as_deref().and_then(non_empty_trimmed) {
-            self.apply_mode_override(conn, acp_session_id, session_id, mode)
+            self.apply_mode_value(conn, acp_session_id, session_id, mode)
                 .await?;
         }
 
@@ -2204,6 +2325,29 @@ impl AgentConnectionRunner {
         }
 
         Ok(())
+    }
+
+    async fn apply_mode_value(
+        &self,
+        conn: &ConnectionTo<Agent>,
+        acp_session_id: &str,
+        session_id: AgentSessionId,
+        requested_mode: &str,
+    ) -> Result<(), acp::Error> {
+        let uses_config_option = self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .and_then(|controls| mode_config_override_selection(controls, requested_mode))
+            .is_some();
+        if uses_config_option {
+            self.apply_config_override(conn, acp_session_id, session_id, "mode", requested_mode)
+                .await
+        } else {
+            self.apply_mode_override(conn, acp_session_id, session_id, requested_mode)
+                .await
+        }
     }
 
     async fn apply_mode_override(
@@ -2357,7 +2501,7 @@ impl AgentConnectionRunner {
                 "no live ACP session yet; the mode will apply when the next turn starts".into(),
             ));
         };
-        self.apply_mode_override(conn, &acp_session_id, session_id, mode_id)
+        self.apply_mode_value(conn, &acp_session_id, session_id, mode_id)
             .await
             .map_err(|error| AgentError::Runtime(format!("session/set_mode failed: {error}")))?;
         Ok(self.session_controls_snapshot(session_id).await)
@@ -2542,6 +2686,45 @@ impl AgentConnectionRunner {
                             );
                             *self.active_prompt.lock().await = None;
                             return Ok(());
+                        }
+                        Some(AgentConnectionCommand::Steer {
+                            session_id: steer_session,
+                            expected_prompt_id,
+                            blocks,
+                            result_tx,
+                        }) => {
+                            if steer_session != session_id || expected_prompt_id != prompt_id {
+                                let _ = result_tx.send(Err(AgentError::PromptConflict {
+                                    expected: expected_prompt_id.to_string(),
+                                    active: prompt_id.to_string(),
+                                }));
+                                continue;
+                            }
+                            if !self.capabilities.read().await.steering {
+                                let _ = result_tx.send(Err(AgentError::SteeringUnsupported));
+                                continue;
+                            }
+                            let request = AcpSteerRequest {
+                                session_id: acp_session_id.clone(),
+                                prompt: blocks.into_iter().map(agent_block_to_acp).collect(),
+                                meta: serde_json::json!({
+                                    "steering": { "idleBehavior": "promptRequired" }
+                                }),
+                            };
+                            let result = conn
+                                .send_request(request)
+                                .block_task()
+                                .await
+                                .map_err(|error| AgentError::Runtime(format!(
+                                    "ACP steering failed: {error}"
+                                )))
+                                .and_then(map_steer_response);
+                            if result.as_ref().is_ok_and(|receipt| {
+                                receipt.outcome == AgentSteerOutcome::Injected
+                            }) {
+                                *self.last_activity.lock().await = Instant::now();
+                            }
+                            let _ = result_tx.send(result);
                         }
                         Some(AgentConnectionCommand::Disconnect) | None => {
                             // The connection is going away mid-turn. Fail the turn
@@ -2925,6 +3108,7 @@ enum StreamKind {
 struct StreamDedupState {
     active: Option<StreamKind>,
     text: String,
+    chunks: usize,
 }
 
 /// Normalize a streaming text chunk: returns `true` to emit it, `false` to drop it
@@ -2943,14 +3127,16 @@ fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str)
     if state.active != Some(kind) {
         state.active = Some(kind);
         state.text.clear();
+        state.chunks = 0;
     }
-    if !state.text.is_empty() && state.text == text {
+    if state.chunks >= 2 && state.text == text {
         // Trailing full snapshot: the run is complete, so reset — the next chunk
         // of the same kind starts a new message instead of appending to this one.
         state.active = None;
         return false;
     }
     state.text.push_str(text);
+    state.chunks += 1;
     true
 }
 
@@ -3278,6 +3464,7 @@ impl AcpClientBridge {
                         kind: Some(acp_enum_label(&tool_call.kind)),
                         input_preview,
                         meta: bounded_optional_meta(tool_call.meta),
+                        images: acp_tool_images(&tool_call.content),
                     },
                 })
             }
@@ -3294,8 +3481,8 @@ impl AcpClientBridge {
                             update
                                 .fields
                                 .content
-                                .as_ref()
-                                .and_then(|content| serde_json::to_string(content).ok())
+                                .as_deref()
+                                .and_then(acp_tool_content_preview)
                         }),
                     input_preview: acp_tool_input_preview(
                         update.fields.raw_input.as_ref(),
@@ -3303,6 +3490,7 @@ impl AcpClientBridge {
                         update.fields.locations.as_deref().unwrap_or_default(),
                     ),
                     meta: bounded_optional_meta(update.meta),
+                    images: acp_tool_images(update.fields.content.as_deref().unwrap_or_default()),
                 },
             }),
             SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
@@ -3549,6 +3737,19 @@ fn find_config_override_selection(
         }
     }
     None
+}
+
+fn mode_config_override_selection(
+    controls: &SessionControlState,
+    requested_mode: &str,
+) -> Option<ConfigOverrideSelection> {
+    controls.modes.is_none().then(|| {
+        find_config_override_selection(
+            &controls.config_options,
+            "mode",
+            &serde_json::Value::String(requested_mode.to_string()),
+        )
+    })?
 }
 
 fn config_option_matches(option: &AcpSessionConfigOption, key: &str) -> bool {
@@ -4024,6 +4225,23 @@ mod tests {
         assert_eq!(value["line"], 42);
     }
 
+    #[test]
+    fn acp_tool_image_content_becomes_a_semantic_agent_image() {
+        let content = vec![ToolCallContent::Content(acp::schema::v1::Content::new(
+            ContentBlock::Image(
+                ImageContent::new("AAAA", "image/png").uri(Some("asset.png".to_string())),
+            ),
+        ))];
+
+        let images = acp_tool_images(&content);
+
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].data, "AAAA");
+        assert_eq!(images[0].mime_type, "image/png");
+        assert_eq!(images[0].uri.as_deref(), Some("asset.png"));
+        assert_eq!(acp_tool_content_preview(&content), None);
+    }
+
     fn test_launch_lock(agent_id: AgentId) -> SessionLaunchLock {
         SessionLaunchLock {
             agent_id,
@@ -4242,6 +4460,18 @@ mod tests {
         // Genuine repetition within a streaming run (each delta != full run so
         // far) is preserved — only an exact full-run snapshot is dropped.
         assert!(dedup_stream_text(&mut state, StreamKind::Message, " think"));
+    }
+
+    #[test]
+    fn dedup_stream_text_preserves_repeated_single_chunk_content() {
+        let mut state = StreamDedupState::default();
+
+        assert!(dedup_stream_text(&mut state, StreamKind::Message, "字"));
+        assert!(dedup_stream_text(&mut state, StreamKind::Message, "字"));
+
+        let mut newlines = StreamDedupState::default();
+        assert!(dedup_stream_text(&mut newlines, StreamKind::Message, "\n"));
+        assert!(dedup_stream_text(&mut newlines, StreamKind::Message, "\n"));
     }
 
     #[tokio::test]
@@ -4618,6 +4848,38 @@ mod tests {
     }
 
     #[test]
+    fn codex_mode_override_uses_config_option_when_legacy_modes_are_suppressed() {
+        let controls = SessionControlState {
+            modes: None,
+            config_options: vec![
+                AcpSessionConfigOption::select(
+                    "mode",
+                    "Mode",
+                    "agent",
+                    vec![
+                        agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                            "agent", "Agent",
+                        ),
+                        agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                            "agent-full-access",
+                            "Agent (full access)",
+                        ),
+                    ],
+                )
+                .category(Some(SessionConfigOptionCategory::Mode)),
+            ],
+        };
+
+        let selection = mode_config_override_selection(&controls, "agent-full-access")
+            .expect("the unified mode intent must use the advertised config option");
+        assert_eq!(selection.config_id, "mode");
+        assert_eq!(
+            selection.event_value,
+            serde_json::json!("agent-full-access")
+        );
+    }
+
+    #[test]
     fn maps_and_matches_boolean_session_config_options() {
         let option = AcpSessionConfigOption::boolean("fast", "Fast mode", false);
         let mapped = agent_session_config_options_from_acp(vec![option.clone()]);
@@ -4914,6 +5176,35 @@ mod tests {
         assert_eq!(
             acp_error_code_str(&acp::Error::method_not_found()).as_deref(),
             Some("method_not_found")
+        );
+    }
+
+    #[test]
+    fn steering_wire_outcomes_map_without_silent_fallback() {
+        assert_eq!(
+            map_steer_response(AcpSteerResponse {
+                outcome: "injected".to_string(),
+                reason: None,
+            })
+            .expect("injected receipt")
+            .outcome,
+            AgentSteerOutcome::Injected
+        );
+        assert_eq!(
+            map_steer_response(AcpSteerResponse {
+                outcome: "promptRequired".to_string(),
+                reason: Some("noRunningTurn".to_string()),
+            })
+            .expect("idle receipt")
+            .outcome,
+            AgentSteerOutcome::PromptRequired
+        );
+        assert!(
+            map_steer_response(AcpSteerResponse {
+                outcome: "futureOutcome".to_string(),
+                reason: None,
+            })
+            .is_err()
         );
     }
 }

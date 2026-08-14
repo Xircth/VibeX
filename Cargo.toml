@@ -22,6 +22,7 @@ members = [
     "crates/artifacts",
     "crates/office-runtime",
     "crates/automation",
+    "crates/workflows",
     "crates/remote-protocol",
     "crates/application",
     "crates/server",

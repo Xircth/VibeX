@@ -283,11 +283,13 @@
   },
   "messageQueue": {
     "description": "Message queued. It will be sent automatically when the current run finishes.",
+    "descriptionCount": "{{count}} messages queued",
     "editMessage": "Edit queued message",
     "deleteMessage": "Delete queued message",
     "moveUp": "Move queued message up",
     "moveDown": "Move queued message down",
-    "singleQueueOnly": "Only a single queued message is supported for now"
+    "sending": "Sending",
+    "attachmentOnly": "Attachments only"
   },
   "usageDashboard": {
     "today": "Today",

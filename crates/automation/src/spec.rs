@@ -6,6 +6,46 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub const AUTOMATION_SPEC_VERSION: u16 = 1;
+pub const WORKFLOW_AUTOMATION_SPEC_VERSION: u16 = 1;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowLaunchSpec {
+    pub spec_version: u16,
+    pub definition_version_id: Uuid,
+    pub input: serde_json::Value,
+    #[serde(default)]
+    pub policy_override: Option<serde_json::Value>,
+    pub workspace: WorkspaceTarget,
+}
+
+impl WorkflowLaunchSpec {
+    pub fn validate(&self) -> Result<(), AutomationError> {
+        if self.spec_version != WORKFLOW_AUTOMATION_SPEC_VERSION {
+            return Err(AutomationError::UnsupportedSpecVersion(self.spec_version));
+        }
+        if self.workspace.root_folder.trim().is_empty() {
+            return Err(AutomationError::MissingWorkspaceRoot);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "spec", rename_all = "snake_case")]
+pub enum AutomationTarget {
+    Turn(TurnLaunchSpec),
+    Workflow(WorkflowLaunchSpec),
+}
+
+impl AutomationTarget {
+    pub const fn workspace(&self) -> &WorkspaceTarget {
+        match self {
+            Self::Turn(spec) => &spec.workspace,
+            Self::Workflow(spec) => &spec.workspace,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

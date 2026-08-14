@@ -1450,14 +1450,14 @@ export type AgentTerminalOutputSnapshot = { terminal_id: AgentTerminalId, output
 
 export type AgentTerminalSnapshot = { id: AgentTerminalId, command: string, args: Array<string>, cwd?: string | null, };
 
-export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, };
+export type AgentToolCall = { id: string, title: string, kind?: string | null, input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
 export type AgentToolCallUpdate = { id: string, status?: string | null, content?: string | null,
 /**
  * Raw input newly supplied by an ACP patch (including a synthesized
  * file/diff payload when ACP reports structured content or locations).
  */
-input_preview?: string | null, meta?: JsonValue | null, };
+input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
 export type AgentUsage = { used: bigint, limit: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
 
@@ -1504,7 +1504,12 @@ kind?: string | null, input_preview?: string | null,
 /**
  * Free-form metadata (e.g. delegation binding).
  */
-meta?: JsonValue | null, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, };
+meta?: JsonValue | null,
+/**
+ * Images returned by the tool call, such as files inspected by an
+ * Agent image-viewing tool.
+ */
+images?: Array<ImageData>, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, };
 
 export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
 
@@ -1566,7 +1571,12 @@ status: string, priority?: string | null, };
 
 export type DelegationResultSummary = { "kind": "ok", duration_ms?: bigint | null, text_preview?: string | null, } | { "kind": "err", error_code: string, };
 
-export type AcpCapabilitySnapshot = { protocol_version?: string | null, prompt: AgentPromptCapabilities, load_session: boolean, resume_session: boolean, close_session: boolean, fork_session: boolean, list_sessions: boolean, delete_session: boolean, terminal: boolean, additional_directories: boolean, filesystem_requests: boolean, mcp_http: boolean, mcp_sse: boolean, auth_logout: boolean, auth_status: boolean, authentication?: AcpAuthenticationObservationSnapshot | null, raw_meta?: JsonValue | null, modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, available_commands: Array<AgentAvailableCommand>, };
+export type AcpCapabilitySnapshot = { protocol_version?: string | null, prompt: AgentPromptCapabilities, load_session: boolean, resume_session: boolean, close_session: boolean, fork_session: boolean, list_sessions: boolean, delete_session: boolean,
+/**
+ * Negotiated support for the ACP `_session/steering` extension. This is
+ * true only when `InitializeResponse._meta.steering.supported` is true.
+ */
+steering: boolean, terminal: boolean, additional_directories: boolean, filesystem_requests: boolean, mcp_http: boolean, mcp_sse: boolean, auth_logout: boolean, auth_status: boolean, authentication?: AcpAuthenticationObservationSnapshot | null, raw_meta?: JsonValue | null, modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, available_commands: Array<AgentAvailableCommand>, };
 
 export type AgentPromptCapabilities = { text: boolean, image: boolean, audio: boolean, resource: boolean, resource_link: boolean, };
 
@@ -1586,7 +1596,7 @@ export type ConversationError = { message: string, code?: string | null, raw?: J
 
 export type ConversationErrorView = { turn_id: string | null, error: ConversationError, };
 
-export type ConversationEvent = { "kind": "conversation_created", title: string | null, } | { "kind": "agent_binding_started", agent_id: AgentId, working_dir: string, } | { "kind": "agent_binding_ready", acp_session_id: string, capabilities: AcpCapabilitySnapshot, } | { "kind": "agent_binding_recovered", strategy: SessionRecoveryStrategy, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, plugin_actions?: Array<ConversationPluginActionInvocation>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, };
+export type ConversationEvent = { "kind": "conversation_created", title: string | null, } | { "kind": "conversation_input", event: ConversationInputEvent, } | { "kind": "conversation_steering", event: ConversationSteeringEvent, } | { "kind": "conversation_relation_created", relation_id: string, parent_conversation_id: string, child_conversation_id: string, relation_kind: ConversationRelationKind, visibility: ConversationRelationVisibility, metadata: JsonValue, } | { "kind": "agent_binding_started", agent_id: AgentId, working_dir: string, } | { "kind": "agent_binding_ready", acp_session_id: string, capabilities: AcpCapabilitySnapshot, } | { "kind": "agent_binding_recovered", strategy: SessionRecoveryStrategy, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, plugin_actions?: Array<ConversationPluginActionInvocation>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, };
 
 export type ConversationEventEnvelope = { id: string, conversation_id: string, turn_id?: string | null, sequence: bigint, source: string, event: ConversationEvent, created_at: string, };
 
@@ -2071,3 +2081,67 @@ export type CommitReminderMode = "separate_turn" | "smart";
 export type ConversationForkContinuity = "agent_context" | "history_only";
 
 export type ConversationForkResult = { conversationId: string, importedEventCount: number, projectionVersion: number, continuity: ConversationForkContinuity, continuityNote?: string | null, };
+
+export type ConversationInputEvent = { "kind": "submitted", input_id: string, operation_id: string, revision: bigint, sort_key: bigint, payload_digest: string, payload: ConversationInputPayload, principal: JsonValue, } | { "kind": "updated", input_id: string, revision: bigint, payload_digest: string, payload: ConversationInputPayload, } | { "kind": "reordered", input_id: string, revision: bigint, sort_key: bigint, } | { "kind": "claimed", input_id: string, claim_token: string, claim_deadline: string, } | { "kind": "claim_released", input_id: string, claim_token: string, } | { "kind": "dispatched", input_id: string, claim_token: string, turn_id: string, } | { "kind": "cancelled", input_id: string, revision: bigint, };
+
+export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, pluginActions?: Array<ConversationPluginActionInvocation>, };
+
+export type ConversationInputStatus = "queued" | "claimed" | "dispatched" | "cancelled";
+
+export type ConversationInputView = { id: string, conversationId: string, operationId: string, revision: bigint, sortKey: bigint, status: ConversationInputStatus, payload: ConversationInputPayload, principal: JsonValue, claimToken: string | null, claimDeadline: string | null, turnId: string | null, createdAt: string, updatedAt: string, };
+
+export type ConversationInputSubmission = { input: ConversationInputView, turn: ConversationTurnSnapshot | null, };
+
+export type ConversationSteeringEvent = { "kind": "requested", steering_id: string, operation_id: string, expected_turn_id: string, payload_digest: string, blocks: Array<ConversationInputBlock>, principal: JsonValue, } | { "kind": "accepted", steering_id: string, expected_turn_id: string, } | { "kind": "rejected", steering_id: string, expected_turn_id: string, code: string, message: string, } | { "kind": "unknown", steering_id: string, expected_turn_id: string, message: string, };
+
+export type ConversationSteeringReceipt = { steeringId: string, conversationId: string, operationId: string, expectedTurnId: string, status: ConversationSteeringStatus, code: string | null, message: string | null, };
+
+export type ConversationSteeringStatus = "requested" | "accepted" | "rejected" | "unknown";
+
+export type ConversationRelationView = { id: string, parentConversationId: string, childConversationId: string, kind: ConversationRelationKind, visibility: ConversationRelationVisibility, metadata: JsonValue, child: ConversationChildSummaryView, };
+
+export type AgentStepSpec = { agentId: string, prompt: string, outputSchema: JsonValue | null, workspaceAccess: WorkspaceAccess, sideEffectClass: SideEffectClass, allowOneRepair: boolean, allowSkipOnReview: boolean, };
+
+export type ApprovalStepSpec = { title: string, decisionSchema: JsonValue, approverScope: string, skippable: boolean, };
+
+export type ClaimedWorkflowStep = { run: WorkflowRunView, step: WorkflowStepView, definition: WorkflowDefinition, claimToken: string, };
+
+export type SideEffectClass = "read_only" | "idempotent" | "mutating_unknown";
+
+export type WorkflowBinding = { "source": "run_input", pointer: string, } | { "source": "step_output", step_id: string, pointer: string, };
+
+export type WorkflowDefinition = { formatVersion: number, name: string, description: string | null, inputSchema: JsonValue | null, steps: Array<WorkflowStep>, policy: WorkflowPolicy, };
+
+export type WorkflowEvent = { "kind": "run_started", definition_version_id: string, step_ids: Array<string>, input: JsonValue, policy: WorkflowPolicy, deadline_at: string, } | { "kind": "step_ready", step_id: string, attempt: number, } | { "kind": "step_claimed", step_id: string, attempt: number, claim_token: string, claim_deadline: string, } | { "kind": "step_claim_released", step_id: string, attempt: number, } | { "kind": "step_prepared", step_id: string, attempt: number, resolved_input: { [key in string]?: JsonValue }, resolved_input_digest: string, execution_evidence: JsonValue, workspace_id?: string | null, } | { "kind": "step_evidence_recorded", step_id: string, attempt: number, evidence_digest: string, execution_evidence?: JsonValue | null, } | { "kind": "step_started", step_id: string, attempt: number, claim_token: string, conversation_id: string | null, turn_id: string | null, } | { "kind": "step_turn_bound", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_waiting_approval", step_id: string, attempt: number, } | { "kind": "step_interaction_waiting", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_interaction_resumed", step_id: string, attempt: number, } | { "kind": "step_output_accepted", step_id: string, attempt: number, output: JsonValue, schema_digest: string, } | { "kind": "step_repair_requested", step_id: string, attempt: number, } | { "kind": "step_completed", step_id: string, attempt: number, } | { "kind": "step_failed", step_id: string, attempt: number, code: string, message: string, } | { "kind": "step_cancelled", step_id: string, attempt: number, } | { "kind": "step_interrupted", step_id: string, attempt: number, } | { "kind": "step_skipped", step_id: string, attempt: number, } | { "kind": "step_needs_review", step_id: string, attempt: number, reason: string, } | { "kind": "review_decided", step_id: string, from_attempt: number, decision: string, principal: JsonValue, } | { "kind": "approval_decided", step_id: string, attempt: number, decision: JsonValue, principal: JsonValue, } | { "kind": "run_completed" } | { "kind": "run_failed", code: string, message: string, } | { "kind": "run_cancelled", reason: string | null, } | { "kind": "run_needs_review", reason: string, };
+
+export type WorkflowEventRecord = { id: string, runId: string, sequence: bigint, eventVersion: bigint, eventKind: string, payloadJson: string, operationId: string | null, createdAt: string, };
+
+export type WorkflowPolicy = { maxConcurrentAgentSteps: number, maxAgentCalls: number, deadlineSeconds: bigint, maxOutputBytes: number, };
+
+export type WorkflowRunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted" | "needs_review";
+
+export type WorkflowRunView = { id: string, definitionVersionId: string, workspaceId: string, status: string, inputJson: string, policyJson: string, deadlineAt: string, agentCallsStarted: bigint, lastSequence: bigint, createdAt: string, updatedAt: string, };
+
+export type WorkflowStep = { id: string, dependsOn: Array<string>, phase: string | null, inputBindings: { [key in string]?: WorkflowBinding }, } & ({ "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec);
+
+export type WorkflowStepSpec = { "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec;
+
+export type WorkflowStepStatus = "pending" | "ready" | "claimed" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | "interrupted" | "needs_review" | "skipped";
+
+export type WorkflowStepView = { id: string, runId: string, stepId: string, attempt: bigint, status: string, conversationId: string | null, turnId: string | null, outputJson: string | null, outputSchemaDigest: string | null, resolvedInputJson: string | null, resolvedInputDigest: string | null, executionEvidenceJson: string | null, workspaceId: string | null, waitingInteraction: boolean, repairCount: bigint, claimToken: string | null, claimDeadline: string | null, startedAt: string | null, completedAt: string | null, updatedAt: string, };
+
+export type WorkflowVersionView = { id: string, definitionId: string, version: bigint, digest: string, normalizedJson: string, createdAt: string, };
+
+export type WorkspaceAccess = "read_only_shared" | "write_serialized" | "write_isolated";
+
+export type ConversationRelationKind = "delegation" | "fork" | "workflow_step";
+
+export type ConversationRelationVisibility = "visible" | "hidden";
+
+export type WorkflowReviewDecision = { "kind": "retry", step_id: string, } | { "kind": "accept", step_id: string, output: JsonValue | null, } | { "kind": "skip", step_id: string, } | { "kind": "cancel", reason: string | null, };
+
+export type ConversationOutputView = { conversationId: string, turn: ConversationTurnSnapshot | null, assistantText: string | null, };
+
+export type WorkflowValidationView = { normalized: WorkflowDefinition, digest: string, };
+
+export type ConversationChildSummaryView = { workspaceId: string, title: string | null, status: string, activeTurnStatus: string | null, queuedInputCount: bigint, messageCount: bigint, };

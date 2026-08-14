@@ -452,7 +452,7 @@
 }
 
 .conv-resource-link-favicon {
-  border-radius: 2px;
+  border-radius: var(--radius);
   object-fit: contain;
 }
 

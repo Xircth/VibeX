@@ -1,197 +1,87 @@
 import { describe, expect, it } from 'vitest';
+import type { ConversationInputView } from 'shared/types';
 import {
-  buildCancelQueueMutationInput,
-  buildQueueMutationInput,
-  getEditorChangeSideEffects,
   getAttachImageQueueSeed,
+  getEditorChangeSideEffects,
   getQueueIndicatorState,
   getQueueSnapshot,
   getQueueStatusQueryKey,
-  getVisibleQueuedMessage,
-  shouldRefreshQueueStatus,
+  inputViewToQueuedMessage,
   type QueueStatus,
 } from './sessionComposerQueue';
 
-const profile = { executor: 'codex' as const };
+const input: ConversationInputView = {
+  id: 'input-1',
+  conversationId: 'session-1',
+  operationId: 'operation-1',
+  revision: 2n,
+  sortKey: 1024n,
+  status: 'queued',
+  payload: {
+    agentId: 'codex',
+    workspaceId: 'workspace-1',
+    executorProfileId: { executor: 'codex' },
+    text: 'agent text',
+    displayText: 'visible text',
+    images: ['vibe://queued-a'],
+  },
+  principal: { kind: 'local_desktop' },
+  claimToken: null,
+  claimDeadline: null,
+  turnId: null,
+  createdAt: '2026-08-13T00:00:00.000Z',
+  updatedAt: '2026-08-13T00:00:01.000Z',
+};
 
-function queuedStatus({
-  message = 'queued text',
-  images = ['vibe://queued-a'],
-}: {
-  message?: string;
-  images?: string[];
-} = {}): Extract<QueueStatus, { status: 'queued' }> {
-  return {
-    status: 'queued',
-    message: {
-      session_id: 'session-1',
-      created_at: '2026-05-25T00:00:00.000Z',
-      updated_at: '2026-05-25T00:00:00.000Z',
-      executorProfileId: { executor: 'codex', variant: null },
-      data: {
-        message,
-        images,
-      },
-    },
-  };
+function queuedStatus(): Extract<QueueStatus, { status: 'queued' }> {
+  return { status: 'queued', messages: [inputViewToQueuedMessage(input)] };
 }
 
-describe('session composer queue helpers', () => {
-  it('extracts a stable queue snapshot from status values', () => {
-    expect(getQueueSnapshot(undefined)).toEqual({
-      isQueued: false,
-      queuedMessage: null,
+describe('durable session composer queue projection', () => {
+  it('maps server input facts without inventing local identity or ordering', () => {
+    expect(inputViewToQueuedMessage(input)).toMatchObject({
+      id: 'input-1',
+      session_id: 'session-1',
+      revision: 2n,
+      sortKey: 1024n,
+      status: 'queued',
+      data: {
+        message: 'visible text',
+        agentMessage: 'agent text',
+        images: ['vibe://queued-a'],
+      },
     });
-    expect(getQueueSnapshot({ status: 'empty' })).toEqual({
-      isQueued: false,
-      queuedMessage: null,
-    });
+  });
 
+  it('derives compact visibility while preserving every queued message', () => {
     const status = queuedStatus();
     expect(getQueueSnapshot(status)).toEqual({
       isQueued: true,
-      queuedMessage: status.message,
+      queuedMessage: status.messages[0],
     });
-  });
-
-  it('shows queued messages only while an attempt is running', () => {
-    const status = queuedStatus();
-
-    expect(getVisibleQueuedMessage(status, true)).toBe(status.message);
-    expect(getVisibleQueuedMessage(status, false)).toBeNull();
-    expect(getVisibleQueuedMessage({ status: 'empty' }, true)).toBeNull();
-  });
-
-  it('derives queue indicator state only for visible queued messages', () => {
-    const status = queuedStatus();
-    expect(getQueueIndicatorState(queuedStatus(), true)).toEqual({
+    expect(getQueueIndicatorState(status, true)).toEqual({
       isQueued: true,
-      queuedMessage: status.message,
-      messagePreview: 'queued text',
-      attachmentCount: 1,
+      queuedMessages: status.messages,
     });
-
-    expect(getQueueIndicatorState(queuedStatus(), false)).toEqual({
-      isQueued: false,
-      queuedMessage: null,
-      messagePreview: null,
-      attachmentCount: 0,
-    });
-
-    expect(getQueueIndicatorState({ status: 'empty' }, true)).toEqual({
-      isQueued: false,
-      queuedMessage: null,
-      messagePreview: null,
-      attachmentCount: 0,
+    expect(getQueueIndicatorState(status, false)).toEqual({
+      isQueued: true,
+      queuedMessages: status.messages,
     });
   });
 
-  it('derives image attachment seed data from the local draft only', () => {
-    expect(
-      getAttachImageQueueSeed({
-        fallbackMessage: 'local draft',
-      })
-    ).toEqual({
-      scratchMessage: 'local draft',
+  it('uses one backend projection key and keeps draft behavior local-only', () => {
+    expect(getQueueStatusQueryKey('session-1')).toEqual([
+      'conversation-inputs',
+      'session-1',
+    ]);
+    expect(getAttachImageQueueSeed({ fallbackMessage: 'draft' })).toEqual({
+      scratchMessage: 'draft',
     });
-  });
-
-  it('keeps queue refresh policy tied to attempt/process changes', () => {
-    expect(
-      shouldRefreshQueueStatus({
-        hasWorkspace: false,
-        isAttemptRunning: false,
-        previousProcessCount: 1,
-        currentProcessCount: 1,
-      })
-    ).toBe(false);
-
-    expect(
-      shouldRefreshQueueStatus({
-        hasWorkspace: true,
-        isAttemptRunning: false,
-        previousProcessCount: 1,
-        currentProcessCount: 1,
-      })
-    ).toBe(true);
-
-    expect(
-      shouldRefreshQueueStatus({
-        hasWorkspace: true,
-        isAttemptRunning: true,
-        previousProcessCount: 1,
-        currentProcessCount: 2,
-      })
-    ).toBe(true);
-
-    expect(
-      shouldRefreshQueueStatus({
-        hasWorkspace: true,
-        isAttemptRunning: true,
-        previousProcessCount: 2,
-        currentProcessCount: 2,
-      })
-    ).toBe(false);
-  });
-
-  it('derives editor-change side effects from queue and error state', () => {
     expect(
       getEditorChangeSideEffects({
         queueStatus: queuedStatus(),
         hasFollowUpError: true,
       })
-    ).toEqual({
-      shouldPersistDraft: false,
-      shouldClearError: true,
-    });
-
-    expect(
-      getEditorChangeSideEffects({
-        queueStatus: { status: 'empty' },
-        hasFollowUpError: false,
-      })
-    ).toEqual({
-      shouldPersistDraft: true,
-      shouldClearError: false,
-    });
-  });
-
-  it('builds queue query keys and mutation inputs only when a session exists', () => {
-    expect(getQueueStatusQueryKey('session-1')).toEqual([
-      'queue-status',
-      'session-1',
-    ]);
-    expect(getQueueStatusQueryKey(undefined)).toEqual([
-      'queue-status',
-      undefined,
-    ]);
-
-    expect(
-      buildQueueMutationInput({
-        sessionId: 'session-1',
-        message: 'queued text',
-        images: ['vibe://image'],
-        executorProfileId: profile,
-      })
-    ).toEqual({
-      sessionId: 'session-1',
-      message: 'queued text',
-      images: ['vibe://image'],
-      executorProfileId: profile,
-      pluginActions: [],
-    });
-    expect(
-      buildQueueMutationInput({
-        sessionId: undefined,
-        message: 'queued text',
-        images: [],
-        executorProfileId: profile,
-      })
-    ).toBeNull();
-
-    expect(buildCancelQueueMutationInput('session-1')).toEqual({
-      sessionId: 'session-1',
-    });
-    expect(buildCancelQueueMutationInput(undefined)).toBeNull();
+    ).toEqual({ shouldPersistDraft: false, shouldClearError: true });
   });
 });

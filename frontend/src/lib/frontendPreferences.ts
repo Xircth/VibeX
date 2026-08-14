@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   'vibex:ui-zoom': 'ui_zoom',
   'vibex:mono-font': 'mono_font',
   'vibex:ui-language': 'language',
+  'vibex:app-icon-style': 'app_icon_style',
   'vibex:layout-arrangement': 'workspace_layout',
   'vibex:kanban-layout-arrangement': 'kanban_layout',
   'editor-settings': 'editor_settings',

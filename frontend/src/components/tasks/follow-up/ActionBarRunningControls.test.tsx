@@ -8,14 +8,12 @@ function renderRunningControls(
 ) {
   return render(
     <ActionBarRunningControls
-      isQueued={false}
       isQueueLoading={false}
       isCompactingContext={false}
       isStopping={false}
       hasQueueableContent={true}
       sessionId="session-1"
       onQueueMessage={vi.fn()}
-      onCancelQueue={vi.fn()}
       onStopExecution={vi.fn()}
       {...props}
     />
@@ -23,13 +21,38 @@ function renderRunningControls(
 }
 
 describe('ActionBarRunningControls', () => {
-  it('queues a message when running, not queued, and content is available', () => {
+  it('queues another message whenever running content is available', () => {
     const onQueueMessage = vi.fn();
     renderRunningControls({ onQueueMessage });
 
     fireEvent.click(screen.getByRole('button', { name: '队列' }));
 
     expect(onQueueMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows steering only when the live Agent negotiated it', () => {
+    const onSteer = vi.fn();
+    const { rerender } = renderRunningControls({
+      supportsSteering: false,
+      onSteer,
+    });
+    expect(screen.queryByRole('button', { name: '纠偏' })).toBeNull();
+
+    rerender(
+      <ActionBarRunningControls
+        isQueueLoading={false}
+        isCompactingContext={false}
+        isStopping={false}
+        supportsSteering={true}
+        hasQueueableContent={true}
+        sessionId="session-1"
+        onQueueMessage={vi.fn()}
+        onSteer={onSteer}
+        onStopExecution={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '纠偏' }));
+    expect(onSteer).toHaveBeenCalledTimes(1);
   });
 
   it('disables queueing without a session id or queueable content', () => {
@@ -47,41 +70,12 @@ describe('ActionBarRunningControls', () => {
     expect(onQueueMessage).not.toHaveBeenCalled();
   });
 
-  it('cancels an existing queued message', () => {
-    const onCancelQueue = vi.fn();
-    renderRunningControls({ isQueued: true, onCancelQueue });
-
-    fireEvent.click(screen.getByRole('button', { name: '取消队列' }));
-
-    expect(onCancelQueue).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows queue loading state for queue and cancel actions', () => {
-    const { rerender } = renderRunningControls({ isQueueLoading: true });
+  it('shows the queue loading state', () => {
+    renderRunningControls({ isQueueLoading: true });
 
     expect(
       screen
         .getByRole('button', { name: '队列' })
-        .querySelector('.animate-spin')
-    ).toBeInTheDocument();
-
-    rerender(
-      <ActionBarRunningControls
-        isQueued={true}
-        isQueueLoading={true}
-        isCompactingContext={false}
-        isStopping={false}
-        hasQueueableContent={true}
-        sessionId="session-1"
-        onQueueMessage={vi.fn()}
-        onCancelQueue={vi.fn()}
-        onStopExecution={vi.fn()}
-      />
-    );
-
-    expect(
-      screen
-        .getByRole('button', { name: '取消队列' })
         .querySelector('.animate-spin')
     ).toBeInTheDocument();
   });
@@ -109,14 +103,12 @@ describe('ActionBarRunningControls', () => {
 
     rerender(
       <ActionBarRunningControls
-        isQueued={false}
         isQueueLoading={false}
         isCompactingContext={false}
         isStopping={true}
         hasQueueableContent={true}
         sessionId="session-1"
         onQueueMessage={vi.fn()}
-        onCancelQueue={vi.fn()}
         onStopExecution={onStopExecution}
       />
     );

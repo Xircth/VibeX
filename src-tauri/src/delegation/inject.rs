@@ -26,11 +26,12 @@ pub(crate) struct CompanionFeatureFlags {
     pub feedback: bool,
     pub ask: bool,
     pub session_info: bool,
+    pub session_control: bool,
 }
 
 impl CompanionFeatureFlags {
     fn any(self) -> bool {
-        self.delegation || self.feedback || self.ask || self.session_info
+        self.delegation || self.feedback || self.ask || self.session_info || self.session_control
     }
 
     fn launch_arg(self) -> String {
@@ -39,6 +40,7 @@ impl CompanionFeatureFlags {
             (self.feedback, "feedback"),
             (self.ask, "ask"),
             (self.session_info, "sessions"),
+            (self.session_control, "session-control"),
         ]
         .into_iter()
         .filter_map(|(enabled, name)| enabled.then_some(name))
@@ -72,6 +74,7 @@ impl DelegationInjector for VibexDelegationInjector {
                 feedback: self.features.feedback,
                 ask: self.features.ask,
                 session_info: self.features.session_info,
+                session_control: self.features.session_control,
             },
         );
         CompanionInjection::Injected(InjectedMcpServer {
@@ -180,6 +183,7 @@ mod tests {
                 feedback: false,
                 ask: false,
                 session_info: false,
+                session_control: false,
             },
         };
         let conversation_id = Uuid::new_v4();
@@ -221,6 +225,7 @@ mod tests {
                 feedback: false,
                 ask: false,
                 session_info: false,
+                session_control: false,
             },
         }
         .companion(CompanionInjectionContext {

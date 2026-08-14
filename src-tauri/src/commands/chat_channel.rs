@@ -1794,6 +1794,7 @@ async fn send_task(
             mode_override: None,
             config_overrides: Vec::new(),
             plugin_actions: Vec::new(),
+            queued_input_claim: None,
         })
         .await;
 

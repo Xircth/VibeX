@@ -1,4 +1,5 @@
-import vibeXLogo from '@/assets/vibex_logo.png';
+import { useTheme } from '@/components/ThemeProvider';
+import { resolveAppLogo } from '@/lib/appIcon';
 import { APP_NAME } from '@/lib/branding';
 
 interface LogoProps {
@@ -18,12 +19,15 @@ export function Logo({
   size = 'default',
   className = '',
 }: LogoProps) {
+  const { resolvedTheme } = useTheme();
+  const logo = resolveAppLogo('lite', resolvedTheme);
+
   return (
     <span
       className={`logo inline-flex items-center gap-2 select-none ${className}`}
     >
       <img
-        src={vibeXLogo}
+        src={logo}
         alt={`${APP_NAME} logo`}
         className={`${logoSizeClass[size]} shrink-0 object-contain`}
       />

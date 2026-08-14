@@ -59,4 +59,24 @@ impl Principal {
             Self::Remote { scopes, .. } => scopes.contains(required_scope),
         }
     }
+
+    pub(crate) fn evidence(&self) -> serde_json::Value {
+        match self {
+            Self::LocalDesktop => serde_json::json!({
+                "id": "local-desktop",
+                "scopes": ["workflow.approve"]
+            }),
+            Self::Remote {
+                subject,
+                credential_id,
+                device_id,
+                scopes,
+            } => serde_json::json!({
+                "id": subject,
+                "credentialId": credential_id,
+                "deviceId": device_id,
+                "scopes": scopes,
+            }),
+        }
+    }
 }

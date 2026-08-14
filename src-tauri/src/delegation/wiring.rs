@@ -36,7 +36,11 @@ pub struct DelegationState {
 
 /// Build the broker (trait impls over runtime + DB), spawn the resolver and the
 /// companion socket listener, and return the handles. Call once at startup.
-pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> DelegationState {
+pub(crate) fn build_delegation(
+    runtime: Arc<AgentRuntime>,
+    pool: SqlitePool,
+    conversation_context: conversations::ConversationContext,
+) -> DelegationState {
     let map = Arc::new(Mutex::new(HashMap::new()));
     let spawner = Arc::new(RuntimeSpawner {
         runtime: runtime.clone(),
@@ -60,6 +64,7 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
         memory: features.clone(),
         pool: feature_pool,
         runtime: runtime.clone(),
+        conversations: conversations::ScopedConversationControl::new(conversation_context),
     });
     let socket_path = default_socket_path(&std::env::temp_dir());
 
@@ -82,6 +87,7 @@ pub(crate) fn build_delegation(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> 
                 feedback: true,
                 ask: true,
                 session_info: true,
+                session_control: true,
             },
         },
     ));

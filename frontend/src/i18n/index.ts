@@ -30,6 +30,7 @@ import tasksZh from './locales/zh-CN/tasks.json';
 import dialogsZh from './locales/zh-CN/dialogs.json';
 import conversationZh from './locales/zh-CN/conversation.json';
 import panelsZh from './locales/zh-CN/panels.json';
+import workflowZh from './locales/zh-CN/workflow.json';
 import commonEn from './locales/en/common.json';
 import settingsEn from './locales/en/settings.json';
 import statusbarEn from './locales/en/statusbar.json';
@@ -38,6 +39,7 @@ import tasksEn from './locales/en/tasks.json';
 import dialogsEn from './locales/en/dialogs.json';
 import conversationEn from './locales/en/conversation.json';
 import panelsEn from './locales/en/panels.json';
+import workflowEn from './locales/en/workflow.json';
 
 export const NAMESPACES = [
   'common',
@@ -48,6 +50,7 @@ export const NAMESPACES = [
   'dialogs',
   'conversation',
   'panels',
+  'workflow',
 ] as const;
 
 export const resources = {
@@ -60,6 +63,7 @@ export const resources = {
     dialogs: dialogsZh,
     conversation: conversationZh,
     panels: panelsZh,
+    workflow: workflowZh,
   },
   en: {
     common: commonEn,
@@ -70,6 +74,7 @@ export const resources = {
     dialogs: dialogsEn,
     conversation: conversationEn,
     panels: panelsEn,
+    workflow: workflowEn,
   },
 } as const;
 

@@ -69,6 +69,7 @@ browser-runtime = { path = "../crates/browser-runtime" }
 artifacts = { path = "../crates/artifacts" }
 office-runtime = { path = "../crates/office-runtime" }
 automation = { path = "../crates/automation" }
+workflows = { path = "../crates/workflows" }
 application = { path = "../crates/application" }
 remote-protocol = { path = "../crates/remote-protocol" }
 plugins = { path = "../crates/plugins" }

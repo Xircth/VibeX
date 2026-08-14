@@ -162,13 +162,12 @@ export function canCompactContext({
 
 export function getSubmitShortcutAction({
   isAttemptRunning,
-  isQueued,
 }: {
   isAttemptRunning: boolean;
   isQueued: boolean;
 }): SubmitShortcutAction {
   if (!isAttemptRunning) return 'send';
-  return isQueued ? 'none' : 'queue';
+  return 'queue';
 }
 
 export function buildQueuedFollowUp({

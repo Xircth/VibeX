@@ -92,6 +92,8 @@ impl ConnectionSpawner for RuntimeSpawner {
                 delegation_id: link.delegation_call_id.clone(),
                 agent_id: link.agent_type.clone(),
                 prompt: task.clone(),
+                policy: serde_json::to_value(&link.policy)
+                    .map_err(|error| SpawnerError::SendPrompt(error.to_string()))?,
             },
         )
         .await

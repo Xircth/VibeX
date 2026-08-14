@@ -12,15 +12,19 @@ use agents::{
     runtime::{CancelAgentPromptInput, ConnectAgentInput, SendAgentPromptInput},
 };
 use async_trait::async_trait;
-use conversations::{CreateDelegatedConversation, create_delegated_conversation};
+use conversations::{
+    ConversationContext, ConversationRelationControl, CreateDelegatedConversation,
+    ScopedConversationControl, ScopedConversationControlError, create_delegated_conversation,
+};
 use db::models::session::Session;
 use delegation::{
-    ChildStatusLookup, ChildStatusRecord, ConnectionSpawner, DelegationBroker,
-    DelegationCompletedEvent, DelegationConfig, DelegationError, DelegationEventEmitter,
-    DelegationLink, DelegationListener, DelegationMetaWriter, DelegationOutcome,
-    DelegationStartedEvent, DepthLookup, ParentSessionLookup, SpawnerError, TaskStatus, TokenEntry,
-    TokenPermissions, TokenRegistry, outcome_from_turn,
+    ChildStatusLookup, ChildStatusRecord, CompanionFeaturePort, ConnectionSpawner,
+    DelegationBroker, DelegationCompletedEvent, DelegationConfig, DelegationError,
+    DelegationEventEmitter, DelegationLink, DelegationListener, DelegationMetaWriter,
+    DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup, ParentSessionLookup,
+    SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry, outcome_from_turn,
 };
+use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::{
     sync::{Mutex, broadcast::error::RecvError},
@@ -35,7 +39,11 @@ pub(crate) struct HeadlessDelegationRuntime {
 }
 
 impl HeadlessDelegationRuntime {
-    pub(crate) fn start(runtime: Arc<AgentRuntime>, pool: SqlitePool) -> Self {
+    pub(crate) fn start(
+        runtime: Arc<AgentRuntime>,
+        pool: SqlitePool,
+        conversation_context: ConversationContext,
+    ) -> Self {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
             Arc::new(RuntimeSpawner {
@@ -44,7 +52,7 @@ impl HeadlessDelegationRuntime {
                 map: map.clone(),
             }),
             Arc::new(DbDepthLookup { pool: pool.clone() }),
-            Arc::new(DbChildStatusLookup { pool }),
+            Arc::new(DbChildStatusLookup { pool: pool.clone() }),
             Arc::new(NoopMetaWriter),
             Arc::new(RuntimeEventEmitter {
                 runtime: runtime.clone(),
@@ -57,11 +65,15 @@ impl HeadlessDelegationRuntime {
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
         }));
-        let listener = Arc::new(DelegationListener::new(
+        let listener = Arc::new(DelegationListener::new_with_features(
             broker.clone(),
             tokens.clone(),
             Arc::new(RuntimeParentLookup {
                 runtime: runtime.clone(),
+            }),
+            Arc::new(HeadlessCompanionFeatures {
+                pool,
+                conversations: ScopedConversationControl::new(conversation_context),
             }),
         ));
         let listen_path = socket_path.clone();
@@ -84,6 +96,154 @@ impl Drop for HeadlessDelegationRuntime {
         for task in &self.tasks {
             task.abort();
         }
+    }
+}
+
+struct HeadlessCompanionFeatures {
+    pool: SqlitePool,
+    conversations: ScopedConversationControl,
+}
+
+impl std::fmt::Debug for HeadlessCompanionFeatures {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HeadlessCompanionFeatures")
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl CompanionFeaturePort for HeadlessCompanionFeatures {
+    async fn feedback(&self, _scope: &DelegationScope) -> Value {
+        json!({ "count": 0, "feedback": [] })
+    }
+
+    async fn commit_feedback(&self, _scope: &DelegationScope, _ids: &[String]) {}
+
+    async fn session_info(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        _max_messages: u32,
+    ) -> Value {
+        let Ok(conversation_id) = Uuid::parse_str(conversation_id) else {
+            return json!({ "found": false, "conversation_id": conversation_id });
+        };
+        let Ok(Some(summary)) = ConversationRelationControl::new(self.pool.clone())
+            .companion_scope_target(scope.parent_conversation_id, conversation_id)
+            .await
+        else {
+            return json!({ "found": false, "conversation_id": conversation_id });
+        };
+        json!({
+            "found": true,
+            "conversation_id": summary.id,
+            "title": summary.title,
+            "agent_id": summary.agent_id,
+            "status": summary.status,
+            "workspace_id": summary.workspace_id,
+            "message_count": summary.message_count,
+            "parent_conversation_id": summary.parent_session_id,
+            "messages": [],
+        })
+    }
+
+    async fn session_send(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        operation_id: &str,
+        text: &str,
+    ) -> Value {
+        match self
+            .conversations
+            .submit_text(
+                scope.parent_conversation_id,
+                conversation_id,
+                operation_id,
+                text,
+            )
+            .await
+        {
+            Ok(submission) => json!({
+                "accepted": true,
+                "conversation_id": conversation_id,
+                "input": submission.input,
+                "turn": submission.turn,
+            }),
+            Err(error) => companion_control_error(conversation_id, error, true),
+        }
+    }
+
+    async fn session_cancel(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        reason: Option<&str>,
+    ) -> Value {
+        match self
+            .conversations
+            .cancel_turn(
+                scope.parent_conversation_id,
+                conversation_id,
+                reason.map(str::to_string),
+            )
+            .await
+        {
+            Ok(()) => json!({ "accepted": true, "conversation_id": conversation_id }),
+            Err(error) => companion_control_error(conversation_id, error, true),
+        }
+    }
+
+    async fn session_wait(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        after_sequence: Option<i64>,
+        wait_ms: Option<u64>,
+    ) -> Value {
+        match self
+            .conversations
+            .wait(
+                scope.parent_conversation_id,
+                conversation_id,
+                after_sequence,
+                wait_ms,
+            )
+            .await
+        {
+            Ok(snapshot) => serde_json::to_value(snapshot).unwrap_or(Value::Null),
+            Err(error) => companion_control_error(conversation_id, error, false),
+        }
+    }
+}
+
+fn companion_control_error(
+    conversation_id: &str,
+    error: ScopedConversationControlError,
+    send: bool,
+) -> Value {
+    let code = match &error {
+        ScopedConversationControlError::InvalidConversationId => "invalid_conversation_id",
+        ScopedConversationControlError::InvalidOperationId => "invalid_operation_id",
+        ScopedConversationControlError::OutOfScope => "conversation_out_of_scope",
+        ScopedConversationControlError::MissingAgent => "conversation_missing_agent",
+        ScopedConversationControlError::Internal(_) => "conversation_control_failed",
+    };
+    if send {
+        json!({
+            "accepted": false,
+            "conversation_id": conversation_id,
+            "error_code": code,
+            "message": error.to_string(),
+        })
+    } else {
+        json!({
+            "found": false,
+            "conversation_id": conversation_id,
+            "error_code": code,
+            "message": error.to_string(),
+        })
     }
 }
 
@@ -148,6 +308,8 @@ impl ConnectionSpawner for RuntimeSpawner {
                 delegation_id: link.delegation_call_id.clone(),
                 agent_id: link.agent_type.clone(),
                 prompt: task.clone(),
+                policy: serde_json::to_value(&link.policy)
+                    .map_err(|error| SpawnerError::SendPrompt(error.to_string()))?,
             },
         )
         .await
@@ -381,6 +543,8 @@ impl DelegationInjector for HeadlessDelegationInjector {
             },
             TokenPermissions {
                 delegation: true,
+                session_info: true,
+                session_control: true,
                 ..TokenPermissions::default()
             },
         );
@@ -395,7 +559,7 @@ impl DelegationInjector for HeadlessDelegationInjector {
                 "--token".to_string(),
                 token,
                 "--features".to_string(),
-                "delegation".to_string(),
+                "delegation,sessions,session-control".to_string(),
             ],
         })
     }

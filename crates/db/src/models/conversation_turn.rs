@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, FromRow, Sqlite, SqlitePool};
+use sqlx::{Executor, FromRow, Sqlite, SqliteConnection, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -59,13 +59,26 @@ impl ConversationTurnRecord {
         id: Uuid,
         input: CreateConversationTurn<'_>,
     ) -> Result<Self, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::create_pending_on_connection(&mut conn, id, input).await
+    }
+
+    /// Create a pending turn on the caller's transaction connection.
+    ///
+    /// Queue dispatch uses this together with the input `Dispatched` event so a
+    /// crash can never leave one side committed without the other.
+    pub async fn create_pending_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        input: CreateConversationTurn<'_>,
+    ) -> Result<Self, sqlx::Error> {
         let ordinal: i64 = sqlx::query_scalar(
             r#"SELECT COALESCE(MAX(ordinal), 0) + 1
                FROM conversation_turns
                WHERE conversation_id = ?"#,
         )
         .bind(input.conversation_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
 
         sqlx::query_as::<_, Self>(&format!(
@@ -82,7 +95,7 @@ impl ConversationTurnRecord {
         .bind(input.prompt_id)
         .bind(input.text_preview)
         .bind(input.input_blocks_json)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
     }
 
@@ -183,6 +196,15 @@ impl ConversationTurnRecord {
     }
 
     pub async fn set_origin(pool: &SqlitePool, id: Uuid, origin: &str) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::set_origin_on_connection(&mut conn, id, origin).await
+    }
+
+    pub async fn set_origin_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        origin: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE conversation_turns
                SET origin = ?, updated_at = datetime('now', 'subsec')
@@ -190,7 +212,7 @@ impl ConversationTurnRecord {
         )
         .bind(origin)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }

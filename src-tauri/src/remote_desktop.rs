@@ -90,6 +90,7 @@ impl RemoteDesktopRegistry {
         profile_id: &str,
         command: &str,
         args: Value,
+        operation_id: Option<OperationId>,
     ) -> Result<Value, AppError> {
         if command.is_empty()
             || !command
@@ -116,7 +117,7 @@ impl RemoteDesktopRegistry {
                 remote_protocol::PROTOCOL_VERSION,
             )
             .json(&serde_json::json!({
-                "operation_id": OperationId::new(),
+                "operation_id": operation_id.unwrap_or_default(),
                 "args": args,
             }))
             .send()
@@ -280,14 +281,26 @@ mod tests {
 
         assert_eq!(
             registry
-                .call("window-a", "shared-name", "ping", serde_json::json!({}))
+                .call(
+                    "window-a",
+                    "shared-name",
+                    "ping",
+                    serde_json::json!({}),
+                    None
+                )
                 .await
                 .expect("call a"),
             "window-a"
         );
         assert_eq!(
             registry
-                .call("window-b", "shared-name", "ping", serde_json::json!({}))
+                .call(
+                    "window-b",
+                    "shared-name",
+                    "ping",
+                    serde_json::json!({}),
+                    None
+                )
                 .await
                 .expect("call b"),
             "window-b"
@@ -295,13 +308,25 @@ mod tests {
         registry.disconnect_window("window-a").await;
         assert!(
             registry
-                .call("window-a", "shared-name", "ping", serde_json::json!({}))
+                .call(
+                    "window-a",
+                    "shared-name",
+                    "ping",
+                    serde_json::json!({}),
+                    None
+                )
                 .await
                 .is_err()
         );
         assert!(
             registry
-                .call("window-b", "shared-name", "ping", serde_json::json!({}))
+                .call(
+                    "window-b",
+                    "shared-name",
+                    "ping",
+                    serde_json::json!({}),
+                    None
+                )
                 .await
                 .is_ok()
         );

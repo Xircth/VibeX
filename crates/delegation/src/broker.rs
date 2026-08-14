@@ -22,7 +22,7 @@ use std::{
 };
 
 use agents::AgentId;
-use tokio::sync::Notify;
+use tokio::sync::{Mutex as AsyncMutex, Notify, OwnedMutexGuard};
 use uuid::Uuid;
 
 use crate::{
@@ -33,12 +33,10 @@ use crate::{
     spawner::ConnectionSpawner,
     types::{
         DelegationConfig, DelegationError, DelegationLink, DelegationOutcome, DelegationRequest,
-        DelegationScope, DelegationTaskReport, TaskStatus,
+        DelegationScope, DelegationTaskReport, DelegationWorkspaceAccess, TaskStatus,
     },
 };
 
-/// Per-result text cap. Full output stays in the child session.
-const COMPLETED_TEXT_CAP: usize = 256 * 1024;
 const COMPLETED_METADATA_CAP: usize = 4_096;
 
 /// Hard ceiling on a single bounded status wait. The listener also caps the
@@ -71,6 +69,8 @@ struct RunningTask {
     agent_type: AgentId,
     started_at: Instant,
     external_handle: Option<String>,
+    max_result_bytes: usize,
+    _workspace_write_guard: Option<OwnedMutexGuard<()>>,
 }
 
 /// A delegation that has reached a terminal state, cached for status polls.
@@ -93,6 +93,7 @@ struct SetupReservation {
     started_at: Instant,
     external_handle: Option<String>,
     child_connection_id: String,
+    workspace_write_guard: Option<OwnedMutexGuard<()>>,
 }
 
 struct ParentSetupLease {
@@ -136,6 +137,12 @@ struct PendingInner {
     /// reservation. Parent teardown marks these even if its bounded historical
     /// tombstone is later evicted.
     parent_setup_leases: HashMap<String, Vec<Weak<AtomicBool>>>,
+    /// Accepted starts that have not reached the setup map yet. They count
+    /// against active-child limits so parallel callers cannot oversubscribe.
+    active_reservations: HashMap<String, String>,
+    /// Monotonic for one parent connection lifetime. Failed spawn attempts are
+    /// still calls and therefore consume the hard budget.
+    calls_started: HashMap<String, u32>,
 }
 
 /// Everything `finalize` needs to resolve a task to a terminal report,
@@ -150,6 +157,8 @@ struct FinalizeCtx {
     child_session_id: Uuid,
     agent_type: AgentId,
     duration_ms: u64,
+    max_result_bytes: usize,
+    _workspace_write_guard: Option<OwnedMutexGuard<()>>,
 }
 
 /// Outcome of the post-send registration step.
@@ -158,6 +167,7 @@ enum Resolution {
     Early {
         outcome: DelegationOutcome,
         reserved_at: Instant,
+        workspace_write_guard: Option<OwnedMutexGuard<()>>,
     },
     /// No early terminal; the task is now tracked as running.
     Registered,
@@ -190,6 +200,9 @@ pub struct DelegationBroker {
     pending: Arc<Mutex<PendingInner>>,
     /// Woken whenever a task reaches a terminal state (used by status waits in T2.5).
     result_notify: Arc<Notify>,
+    /// Unknown writers are serialized per canonical working directory. Weak
+    /// values let idle directories disappear without a cleanup task.
+    workspace_write_locks: Arc<Mutex<HashMap<String, Weak<AsyncMutex<()>>>>>,
 }
 
 impl DelegationBroker {
@@ -210,7 +223,28 @@ impl DelegationBroker {
             config: Arc::new(Mutex::new(config.normalized())),
             pending: Arc::new(Mutex::new(PendingInner::default())),
             result_notify: Arc::new(Notify::new()),
+            workspace_write_locks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    async fn acquire_workspace_write(
+        &self,
+        working_dir: Option<&str>,
+    ) -> Option<OwnedMutexGuard<()>> {
+        let key = working_dir?.to_string();
+        let lock = {
+            let mut locks = self.workspace_write_locks.lock().unwrap();
+            locks.retain(|_, lock| lock.strong_count() > 0);
+            match locks.get(&key).and_then(Weak::upgrade) {
+                Some(lock) => lock,
+                None => {
+                    let lock = Arc::new(AsyncMutex::new(()));
+                    locks.insert(key, Arc::downgrade(&lock));
+                    lock
+                }
+            }
+        };
+        Some(lock.lock_owned().await)
     }
 
     pub fn config_snapshot(&self) -> DelegationConfig {
@@ -288,6 +322,49 @@ impl DelegationBroker {
         }
 
         let call_id = Uuid::new_v4().to_string();
+        {
+            let mut pending = self.pending.lock().unwrap();
+            let started = pending
+                .calls_started
+                .get(&req.parent_connection_id)
+                .copied()
+                .unwrap_or(0);
+            if started >= config.max_calls_per_parent {
+                let error = DelegationError::CallLimitExceeded {
+                    started,
+                    limit: config.max_calls_per_parent,
+                };
+                return failed_setup_report("call_limit", &error.to_string());
+            }
+            let active = pending
+                .active_reservations
+                .values()
+                .filter(|parent| *parent == &req.parent_connection_id)
+                .count()
+                + pending
+                    .setups
+                    .values()
+                    .filter(|setup| setup.parent_connection_id == req.parent_connection_id)
+                    .count()
+                + pending
+                    .running
+                    .values()
+                    .filter(|task| task.parent_connection_id == req.parent_connection_id)
+                    .count();
+            if active >= config.max_active_children as usize {
+                let error = DelegationError::ActiveChildLimitExceeded {
+                    active: active as u32,
+                    limit: config.max_active_children,
+                };
+                return failed_setup_report("active_child_limit", &error.to_string());
+            }
+            pending
+                .calls_started
+                .insert(req.parent_connection_id.clone(), started + 1);
+            pending
+                .active_reservations
+                .insert(call_id.clone(), req.parent_connection_id.clone());
+        }
         // Fall back to a synthetic tool-use id when the MCP client didn't supply
         // one (full ACP tool_call correlation is deferred to M5). `has_real_tool_call`
         // records this explicitly so meta writes can be skipped without inferring
@@ -298,6 +375,22 @@ impl DelegationBroker {
         } else {
             format!("delegation-{call_id}")
         };
+
+        let workspace_write_guard =
+            if req.workspace_access == DelegationWorkspaceAccess::WriteSerialized {
+                self.acquire_workspace_write(req.working_dir.as_deref())
+                    .await
+            } else {
+                None
+            };
+        if parent_setup_lease.revoked.load(Ordering::Acquire) {
+            self.pending
+                .lock()
+                .unwrap()
+                .active_reservations
+                .remove(&call_id);
+            return failed_setup_report("canceled", "parent connection is closed");
+        }
 
         // Spawn the child connection.
         let child_connection_id = match self
@@ -311,6 +404,11 @@ impl DelegationBroker {
         {
             Ok(id) => id,
             Err(err) => {
+                self.pending
+                    .lock()
+                    .unwrap()
+                    .active_reservations
+                    .remove(&call_id);
                 remove_parent_setup_lease(
                     &mut self.pending.lock().unwrap(),
                     &req.parent_connection_id,
@@ -334,6 +432,7 @@ impl DelegationBroker {
                 &parent_setup_lease.revoked,
             );
             if !canceled {
+                pending.active_reservations.remove(&call_id);
                 pending.setups.insert(
                     call_id.clone(),
                     SetupReservation {
@@ -342,8 +441,11 @@ impl DelegationBroker {
                         started_at: Instant::now(),
                         external_handle: req.external_handle.clone(),
                         child_connection_id: child_connection_id.clone(),
+                        workspace_write_guard,
                     },
                 );
+            } else {
+                pending.active_reservations.remove(&call_id);
             }
             canceled
         };
@@ -357,6 +459,7 @@ impl DelegationBroker {
             parent_tool_use_id: parent_tool_use_id.clone(),
             delegation_call_id: call_id.clone(),
             agent_type: req.agent_type.clone(),
+            policy: config.policy_snapshot(req.workspace_access),
         };
         let child_session_id = match self
             .spawner
@@ -368,14 +471,20 @@ impl DelegationBroker {
                 // Preserve whichever terminal arrived first. A cancellation
                 // buffered during setup must not be overwritten by a later send
                 // error.
-                let (early_outcome, reserved_at) = {
+                let (early_outcome, reserved_at, workspace_write_guard) = {
                     let mut pending = self.pending.lock().unwrap();
-                    let reserved_at = pending
-                        .setups
-                        .remove(&call_id)
+                    let reservation = pending.setups.remove(&call_id);
+                    let reserved_at = reservation
+                        .as_ref()
                         .map(|reservation| reservation.started_at)
                         .unwrap_or_else(Instant::now);
-                    (pending.early_completes.remove(&call_id), reserved_at)
+                    let workspace_write_guard =
+                        reservation.and_then(|reservation| reservation.workspace_write_guard);
+                    (
+                        pending.early_completes.remove(&call_id),
+                        reserved_at,
+                        workspace_write_guard,
+                    )
                 };
                 if let Some(child_session_id) = err.linked_child_session_id() {
                     self.event_emitter
@@ -406,6 +515,8 @@ impl DelegationBroker {
                                 child_session_id,
                                 agent_type: req.agent_type,
                                 duration_ms: reserved_at.elapsed().as_millis() as u64,
+                                max_result_bytes: config.max_result_bytes,
+                                _workspace_write_guard: workspace_write_guard,
                             },
                             outcome,
                         )
@@ -420,7 +531,8 @@ impl DelegationBroker {
                                 child_session_id, ..
                             } => *child_session_id,
                         };
-                        let (status, text, error_code, message) = terminal_fields(&outcome);
+                        let (status, text, error_code, message) =
+                            terminal_fields(&outcome, config.max_result_bytes);
                         let completed = CompletedTask {
                             parent_connection_id: req.parent_connection_id.clone(),
                             parent_conversation_id: req.parent_session_id,
@@ -463,15 +575,18 @@ impl DelegationBroker {
         // Drain any terminal that beat registration; otherwise register running.
         let resolution = {
             let mut pending = self.pending.lock().unwrap();
-            let reserved_at = pending
-                .setups
-                .remove(&call_id)
+            let reservation = pending.setups.remove(&call_id);
+            let reserved_at = reservation
+                .as_ref()
                 .map(|reservation| reservation.started_at)
                 .unwrap_or_else(Instant::now);
+            let workspace_write_guard =
+                reservation.and_then(|reservation| reservation.workspace_write_guard);
             if let Some(outcome) = pending.early_completes.remove(&call_id) {
                 Resolution::Early {
                     outcome,
                     reserved_at,
+                    workspace_write_guard,
                 }
             } else {
                 pending.running.insert(
@@ -486,6 +601,8 @@ impl DelegationBroker {
                         agent_type: req.agent_type.clone(),
                         started_at: reserved_at,
                         external_handle: req.external_handle.clone(),
+                        max_result_bytes: config.max_result_bytes,
+                        _workspace_write_guard: workspace_write_guard,
                     },
                 );
                 Resolution::Registered
@@ -496,6 +613,7 @@ impl DelegationBroker {
             Resolution::Early {
                 outcome,
                 reserved_at,
+                workspace_write_guard,
             } => {
                 let ctx = FinalizeCtx {
                     call_id,
@@ -507,6 +625,8 @@ impl DelegationBroker {
                     child_session_id,
                     agent_type: req.agent_type.clone(),
                     duration_ms: reserved_at.elapsed().as_millis() as u64,
+                    max_result_bytes: config.max_result_bytes,
+                    _workspace_write_guard: workspace_write_guard,
                 };
                 self.finalize(ctx, outcome).await
             }
@@ -520,6 +640,23 @@ impl DelegationBroker {
                         )
                         .await;
                 }
+                let broker = self.clone();
+                let deadline_call_id = call_id.clone();
+                let deadline_ms = config.child_deadline_ms;
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(deadline_ms)).await;
+                    broker
+                        .complete_call(
+                            &deadline_call_id,
+                            DelegationOutcome::from_err(
+                                DelegationError::DeadlineExceeded {
+                                    limit_ms: deadline_ms,
+                                },
+                                Some(child_session_id),
+                            ),
+                        )
+                        .await;
+                });
                 running_report(&call_id, child_session_id, req.agent_type)
             }
         }
@@ -619,6 +756,8 @@ impl DelegationBroker {
             child_session_id: task.child_session_id,
             agent_type: task.agent_type,
             duration_ms: task.started_at.elapsed().as_millis() as u64,
+            max_result_bytes: task.max_result_bytes,
+            _workspace_write_guard: task._workspace_write_guard,
         };
         self.finalize(ctx, outcome).await;
     }
@@ -627,7 +766,7 @@ impl DelegationBroker {
     /// terminal meta, emit the completed event, and wake status waiters. Shared
     /// by normal completion and the setup-window early-resolution path.
     async fn finalize(&self, ctx: FinalizeCtx, outcome: DelegationOutcome) -> DelegationTaskReport {
-        let (status, text, error_code, message) = terminal_fields(&outcome);
+        let (status, text, error_code, message) = terminal_fields(&outcome, ctx.max_result_bytes);
         let completed = CompletedTask {
             parent_connection_id: ctx.parent_connection_id.clone(),
             parent_conversation_id: ctx.parent_conversation_id,
@@ -1053,11 +1192,11 @@ fn setup_matches(scope: &DelegationScope, setup: &SetupReservation) -> bool {
         && setup.parent_conversation_id == scope.parent_conversation_id
 }
 
-fn cap_text(text: &str) -> String {
-    if text.len() <= COMPLETED_TEXT_CAP {
+fn cap_text(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
         text.to_string()
     } else {
-        let mut end = COMPLETED_TEXT_CAP;
+        let mut end = max_bytes;
         while !text.is_char_boundary(end) {
             end -= 1;
         }
@@ -1067,11 +1206,12 @@ fn cap_text(text: &str) -> String {
 
 fn terminal_fields(
     outcome: &DelegationOutcome,
+    max_result_bytes: usize,
 ) -> (TaskStatus, Option<String>, Option<String>, Option<String>) {
     match outcome {
         DelegationOutcome::Ok(success) => (
             TaskStatus::Completed,
-            Some(cap_text(&success.text)),
+            Some(cap_text(&success.text, max_result_bytes)),
             None,
             None,
         ),
@@ -1243,6 +1383,7 @@ mod tests {
             working_dir: Some("/work".to_string()),
             requested_working_dir: Some("/work".to_string()),
             external_handle: None,
+            workspace_access: DelegationWorkspaceAccess::ReadOnlyShared,
         }
     }
 
@@ -1377,6 +1518,90 @@ mod tests {
         assert_eq!(report.status, TaskStatus::Failed);
         assert_eq!(report.error_code.as_deref(), Some("depth_limit"));
         assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
+    }
+
+    #[tokio::test]
+    async fn active_child_budget_rejects_parallel_fan_out_before_spawn() {
+        let config = DelegationConfig {
+            max_active_children: 1,
+            ..DelegationConfig::default()
+        };
+        let h = harness(MockDepthLookup::default(), config);
+        let mut first_request = request(Uuid::nil());
+        first_request.workspace_access = DelegationWorkspaceAccess::WriteSerialized;
+        let first = h.broker.start_delegation(first_request).await;
+        assert_eq!(first.status, TaskStatus::Running);
+
+        let rejected = h.broker.start_delegation(request(Uuid::nil())).await;
+        assert_eq!(rejected.status, TaskStatus::Failed);
+        assert_eq!(rejected.error_code.as_deref(), Some("active_child_limit"));
+        assert_eq!(h.spawner.calls.lock().unwrap().spawned.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn unknown_writers_are_serialized_for_the_same_working_directory() {
+        let config = DelegationConfig {
+            max_active_children: 2,
+            ..DelegationConfig::default()
+        };
+        let h = harness(MockDepthLookup::default(), config);
+        let mut first_request = request(Uuid::nil());
+        first_request.workspace_access = DelegationWorkspaceAccess::WriteSerialized;
+        let first = h.broker.start_delegation(first_request).await;
+        let first_task_id = first.task_id.expect("first task accepted");
+
+        let second_broker = h.broker.clone();
+        let mut second_request = request(Uuid::nil());
+        second_request.workspace_access = DelegationWorkspaceAccess::WriteSerialized;
+        let second =
+            tokio::spawn(async move { second_broker.start_delegation(second_request).await });
+        tokio::task::yield_now().await;
+        assert_eq!(
+            h.spawner.calls.lock().unwrap().spawned.len(),
+            1,
+            "second writer must wait before spawning"
+        );
+
+        h.broker
+            .complete_call(&first_task_id, ok_outcome(first.child_session_id.unwrap()))
+            .await;
+        let second = tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second writer unblocked")
+            .expect("join second writer");
+        assert_eq!(second.status, TaskStatus::Running);
+        assert_eq!(h.spawner.calls.lock().unwrap().spawned.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn call_budget_counts_completed_and_failed_attempts() {
+        let config = DelegationConfig {
+            max_active_children: 2,
+            max_calls_per_parent: 2,
+            ..DelegationConfig::default()
+        };
+        let h = harness(MockDepthLookup::default(), config);
+        for _ in 0..2 {
+            let started = h.broker.start_delegation(request(Uuid::nil())).await;
+            let task_id = started.task_id.expect("accepted task");
+            h.broker
+                .complete_call(&task_id, ok_outcome(started.child_session_id.unwrap()))
+                .await;
+        }
+
+        let rejected = h.broker.start_delegation(request(Uuid::nil())).await;
+        assert_eq!(rejected.status, TaskStatus::Failed);
+        assert_eq!(rejected.error_code.as_deref(), Some("call_limit"));
+        assert_eq!(h.spawner.calls.lock().unwrap().spawned.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn result_text_uses_the_snapshotted_byte_limit() {
+        let outcome = ok_text_outcome(Uuid::new_v4(), "界".repeat(1_000));
+        let (_, text, _, _) = terminal_fields(&outcome, 1_024);
+        let text = text.expect("capped result");
+        assert!(text.len() <= 1_024);
+        assert!(text.is_char_boundary(text.len()));
     }
 
     #[tokio::test]

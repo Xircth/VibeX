@@ -12,6 +12,15 @@ vi.mock('@/features/agents/sendAgentRuntimeTurn', () => ({
 
 const profile = { executor: 'codex' as const };
 type ProcessStub = { id: string; status: string };
+const compactSubmission = {
+  input: { id: 'input-1' },
+  turn: {
+    conversationId: 'session-1',
+    turnId: 'turn-1',
+    status: 'running',
+    lastSequence: 1n,
+  },
+};
 const compactEligibility = {
   hasWorkspaceForTyping: true,
   isSendingFollowUp: false,
@@ -56,12 +65,7 @@ describe('useSessionComposerContextCompact', () => {
   it('uses hook-owned compact eligibility when compacting', async () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
-    sendAgentRuntimeTurnMock.mockResolvedValue({
-      conversationId: 'session-1',
-      turnId: 'turn-1',
-      status: 'running',
-      lastSequence: 1n,
-    });
+    sendAgentRuntimeTurnMock.mockResolvedValue(compactSubmission);
 
     const { result } = renderHook(() =>
       useSessionComposerContextCompact({
@@ -92,10 +96,8 @@ describe('useSessionComposerContextCompact', () => {
     const setFollowUpError = vi.fn();
     const clearStopping = vi.fn();
     sendAgentRuntimeTurnMock.mockResolvedValue({
-      conversationId: 'session-1',
-      turnId: 'process-1',
-      status: 'running',
-      lastSequence: 1n,
+      ...compactSubmission,
+      turn: { ...compactSubmission.turn, turnId: 'process-1' },
     });
 
     const { result, rerender } = renderHook(
@@ -133,12 +135,7 @@ describe('useSessionComposerContextCompact', () => {
 
   it('clears pending compact state after the timeout window', async () => {
     vi.useFakeTimers();
-    sendAgentRuntimeTurnMock.mockResolvedValue({
-      conversationId: 'session-1',
-      turnId: 'turn-1',
-      status: 'running',
-      lastSequence: 1n,
-    });
+    sendAgentRuntimeTurnMock.mockResolvedValue(compactSubmission);
 
     const { result } = renderHook(() =>
       useSessionComposerContextCompact({

@@ -7,7 +7,7 @@ use agents::{
     runtime::AgentRuntime,
 };
 use async_trait::async_trait;
-use db::models::conversation::DbConversationSummary;
+use conversations::ConversationRelationControl;
 use delegation::{CompanionFeaturePort, DelegationScope, InMemoryCompanionFeatures};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -17,6 +17,7 @@ pub(crate) struct RuntimeCompanionFeatures {
     pub memory: Arc<InMemoryCompanionFeatures>,
     pub pool: SqlitePool,
     pub runtime: Arc<AgentRuntime>,
+    pub conversations: conversations::ScopedConversationControl,
 }
 
 impl std::fmt::Debug for RuntimeCompanionFeatures {
@@ -107,15 +108,12 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
         let Ok(conversation_id) = Uuid::parse_str(conversation_id) else {
             return json!({ "found": false, "conversation_id": conversation_id });
         };
-        let (Ok(Some(parent)), Ok(Some(summary))) = (
-            DbConversationSummary::find_by_id(&self.pool, scope.parent_conversation_id).await,
-            DbConversationSummary::find_by_id(&self.pool, conversation_id).await,
-        ) else {
+        let Ok(Some(summary)) = ConversationRelationControl::new(self.pool.clone())
+            .companion_scope_target(scope.parent_conversation_id, conversation_id)
+            .await
+        else {
             return json!({ "found": false, "conversation_id": conversation_id });
         };
-        if parent.workspace_id != summary.workspace_id {
-            return json!({ "found": false, "conversation_id": conversation_id });
-        }
         let messages = load_compact_transcript(&self.pool, conversation_id, max_messages).await;
         json!({
             "found": true,
@@ -128,6 +126,103 @@ impl CompanionFeaturePort for RuntimeCompanionFeatures {
             "parent_conversation_id": summary.parent_session_id,
             "messages": messages,
         })
+    }
+
+    async fn session_send(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        operation_id: &str,
+        text: &str,
+    ) -> Value {
+        match self
+            .conversations
+            .submit_text(
+                scope.parent_conversation_id,
+                conversation_id,
+                operation_id,
+                text,
+            )
+            .await
+        {
+            Ok(submission) => json!({
+                "accepted": true,
+                "conversation_id": conversation_id,
+                "input": submission.input,
+                "turn": submission.turn,
+            }),
+            Err(error) => json!({
+                "accepted": false,
+                "conversation_id": conversation_id,
+                "error_code": scoped_error_code(&error),
+                "message": error.to_string(),
+            }),
+        }
+    }
+
+    async fn session_cancel(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        reason: Option<&str>,
+    ) -> Value {
+        match self
+            .conversations
+            .cancel_turn(
+                scope.parent_conversation_id,
+                conversation_id,
+                reason.map(str::to_string),
+            )
+            .await
+        {
+            Ok(()) => json!({ "accepted": true, "conversation_id": conversation_id }),
+            Err(error) => json!({
+                "accepted": false,
+                "conversation_id": conversation_id,
+                "error_code": scoped_error_code(&error),
+                "message": error.to_string(),
+            }),
+        }
+    }
+
+    async fn session_wait(
+        &self,
+        scope: &DelegationScope,
+        conversation_id: &str,
+        after_sequence: Option<i64>,
+        wait_ms: Option<u64>,
+    ) -> Value {
+        match self
+            .conversations
+            .wait(
+                scope.parent_conversation_id,
+                conversation_id,
+                after_sequence,
+                wait_ms,
+            )
+            .await
+        {
+            Ok(snapshot) => serde_json::to_value(snapshot)
+                .unwrap_or_else(|error| json!({ "found": false, "message": error.to_string() })),
+            Err(error) => json!({
+                "found": false,
+                "conversation_id": conversation_id,
+                "error_code": scoped_error_code(&error),
+                "message": error.to_string(),
+            }),
+        }
+    }
+}
+
+fn scoped_error_code(error: &conversations::ScopedConversationControlError) -> &'static str {
+    match error {
+        conversations::ScopedConversationControlError::InvalidConversationId => {
+            "invalid_conversation_id"
+        }
+        conversations::ScopedConversationControlError::InvalidOperationId => "invalid_operation_id",
+        conversations::ScopedConversationControlError::OutOfScope => "conversation_out_of_scope",
+        conversations::ScopedConversationControlError::MissingAgent => "conversation_missing_agent",
+        conversations::ScopedConversationControlError::Internal(_) => "conversation_control_failed",
     }
 }
 

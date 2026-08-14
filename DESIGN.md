@@ -112,7 +112,7 @@ components:
     backgroundColor: "{colors.raised-control-bg}"
     hoverBackgroundColor: "{colors.raised-control-hover}"
     border: "none"
-    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
+    shadow: "0 0 4px #0d121c24"
     rounded: "{rounded.control}"
     padding: "0 12px"
     height: "32px"
@@ -127,7 +127,7 @@ components:
   select-default:
     backgroundColor: "{colors.raised-control-bg}"
     border: "none"
-    shadow: "0 1px 1px #0d121c14, 0 2px 4px #0d121c1a"
+    shadow: "0 0 4px #0d121c24"
     rounded: "{rounded.control}"
     padding: "0 10px"
     height: "32px"
@@ -317,7 +317,7 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 ### Controls
 
 - **Switch**: dark-ink track with a white thumb when on; dark mode adds a light hairline so the track stays distinct. Keep a clear off state and never use the switch as the only signal for a meaningful change.
-- **Secondary / outline buttons and selects**: borderless, very light cool-gray surface in light mode, compact control shadow, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow-led hierarchy.
+- **Secondary / outline buttons and selects**: borderless, with a very light cool-gray surface in light mode, an evenly distributed compact shadow on all four sides, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow hierarchy.
 - **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
 
 ### Iconography

@@ -1,7 +1,7 @@
 use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool, Type};
+use sqlx::{FromRow, SqliteConnection, SqlitePool, Type};
 use strum_macros::{Display, EnumString};
 use thiserror::Error;
 use ts_rs::TS;
@@ -187,6 +187,16 @@ impl Session {
         id: Uuid,
         workspace_id: Uuid,
     ) -> Result<Self, SessionError> {
+        let mut conn = pool.acquire().await.map_err(SessionError::from)?;
+        Self::create_on_connection(&mut conn, data, id, workspace_id).await
+    }
+
+    pub async fn create_on_connection(
+        conn: &mut SqliteConnection,
+        data: &CreateSession,
+        id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<Self, SessionError> {
         sqlx::query_as::<_, Session>(
             r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
                                      agent_id)
@@ -218,7 +228,7 @@ impl Session {
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
         .bind(data.agent_id.as_ref().map(AgentId::as_str))
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(SessionError::from)
     }
@@ -238,10 +248,33 @@ impl Session {
         parent_tool_use_id: &str,
         delegation_call_id: &str,
     ) -> Result<Self, SessionError> {
+        let mut conn = pool.acquire().await.map_err(SessionError::from)?;
+        Self::create_with_delegation_on_connection(
+            &mut conn,
+            data,
+            id,
+            workspace_id,
+            parent_session_id,
+            parent_tool_use_id,
+            delegation_call_id,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_with_delegation_on_connection(
+        conn: &mut SqliteConnection,
+        data: &CreateSession,
+        id: Uuid,
+        workspace_id: Uuid,
+        parent_session_id: Uuid,
+        parent_tool_use_id: &str,
+        delegation_call_id: &str,
+    ) -> Result<Self, SessionError> {
         sqlx::query_as::<_, Session>(
             r#"INSERT INTO sessions (id, workspace_id, task_id, name, initial_prompt, status, executor,
-                                     parent_session_id, parent_tool_use_id, delegation_call_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     agent_id, parent_session_id, parent_tool_use_id, delegation_call_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id,
                          workspace_id,
                          task_id,
@@ -268,10 +301,11 @@ impl Session {
         )
         .bind(data.status.clone().unwrap_or_default())
         .bind(data.executor.clone())
+        .bind(data.agent_id.as_ref().map(AgentId::as_str))
         .bind(parent_session_id)
         .bind(parent_tool_use_id)
         .bind(delegation_call_id)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(SessionError::from)
     }
@@ -530,6 +564,7 @@ mod tests {
         assert_eq!(child.parent_session_id, Some(parent_id));
         assert_eq!(child.parent_tool_use_id.as_deref(), Some("toolu_abc"));
         assert_eq!(child.delegation_call_id.as_deref(), Some("call-123"));
+        assert_eq!(child.agent_id.as_ref().map(AgentId::as_str), Some("codex"));
 
         let found = Session::find_by_delegation_call_id(&pool, "call-123")
             .await

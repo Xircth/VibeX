@@ -8,6 +8,7 @@ import { ProjectRail } from '@/components/layout/ProjectRail';
 import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
 import { ProjectTasks } from '@/pages/ProjectTasks';
 import { Projects } from '@/pages/Projects';
+import { WorkflowInspector } from '@/pages/workflows/WorkflowInspector';
 import {
   AgentSettings,
   AppearanceSettings,
@@ -117,6 +118,7 @@ export function MainAppRoutes() {
         <Route path="/" element={<Projects />} />
         <Route path="/local-projects" element={<Projects />} />
         <Route path="/local-projects/:projectId" element={<Projects />} />
+        <Route path="/workflows/:runId" element={<WorkflowInspector />} />
         <Route
           path="/mcp-servers"
           element={<Navigate to="/settings/mcp" replace />}

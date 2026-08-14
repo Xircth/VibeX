@@ -142,9 +142,13 @@ async function extractAndRun(baseName, launch) {
 }
 
 async function main() {
+  const args = process.argv.slice(2);
+  if (args[0] === "conversation" || args[0] === "workflow") {
+    await require("./control").run(args);
+    return;
+  }
   fs.mkdirSync(versionCacheDir, { recursive: true });
 
-  const args = process.argv.slice(2);
   const isMcpMode = args.includes("--mcp");
   const isReviewMode = args[0] === "review";
 

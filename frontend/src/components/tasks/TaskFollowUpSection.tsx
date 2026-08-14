@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AgentKind } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
 import { useAttemptRepo } from '@/hooks/useAttemptRepo';
@@ -75,6 +76,7 @@ import {
   canTypeFollowUp as getCanTypeFollowUp,
   hasPendingToolApproval,
   isComposerExecutionActive,
+  buildQueuedFollowUp,
 } from './follow-up/sessionComposerSubmit';
 import { canEnhancePrompt as getCanEnhancePrompt } from './follow-up/sessionComposerPromptEnhancement';
 import { useSessionComposerPromptEnhancement } from './follow-up/useSessionComposerPromptEnhancement';
@@ -206,6 +208,25 @@ export function TaskFollowUpSection({
   const isComposerExecutionRunning = isComposerExecutionActive({
     isAttemptRunning,
     isConversationTurnInFlight: conversationTurnInFlight,
+  });
+  const { data: steeringTarget } = useQuery({
+    queryKey: ['conversation-steering-target', sessionId],
+    queryFn: async () => {
+      if (!sessionId) return null;
+      const detail = await conversationApi.detail(sessionId);
+      if (
+        !detail?.active_binding?.capabilities.steering ||
+        !detail.current_turn ||
+        !['pending', 'queued', 'running', 'blocked'].includes(
+          detail.current_turn.status
+        )
+      ) {
+        return null;
+      }
+      return { turnId: detail.current_turn.id };
+    },
+    enabled: Boolean(sessionId && isComposerExecutionRunning),
+    refetchInterval: isComposerExecutionRunning ? 2_000 : false,
   });
   const summaryRepoId = useMemo(
     () => getSummaryRepoId(selectedRepoId, repos),
@@ -372,6 +393,8 @@ export function TaskFollowUpSection({
   const {
     queueMessage,
     cancelQueue,
+    beginEditQueue,
+    moveQueue,
     isQueueLoading,
     isQueued,
     queueIndicatorState,
@@ -382,12 +405,12 @@ export function TaskFollowUpSection({
     processCount: processes.length,
   });
   const handleEditQueuedMessage = useCallback(
-    async (queuedMessage: QueuedMessage) => {
+    (queuedMessage: QueuedMessage) => {
+      beginEditQueue(queuedMessage);
       setLocalMessage(queuedMessage.data.message);
       setAttachedImages(queuedMessage.data.images.map(imageAttachmentFromPath));
-      await cancelQueue();
     },
-    [cancelQueue, setAttachedImages, setLocalMessage]
+    [beginEditQueue, setAttachedImages, setLocalMessage]
   );
 
   const { notices: conversationStatusNotices, question: pendingAgentQuestion } =
@@ -555,6 +578,57 @@ export function TaskFollowUpSection({
     onSendFailure: handleSendFailure,
     onAfterSendCleanup: handleAfterSendWithSessionControlCleanup,
   });
+  const [isSteering, setIsSteering] = useState(false);
+  const handleSteer = useCallback(async () => {
+    if (!sessionId || !steeringTarget) return;
+    const followUp = buildQueuedFollowUp({
+      message: localMessage,
+      conflictMarkdown: conflictResolutionInstructions,
+      reviewMarkdown,
+      images: attachedImagePaths,
+      executorProfile: effectiveExecutorProfile,
+    });
+    if (!followUp) return;
+    if (followUp.pluginActions.length > 0) {
+      setFollowUpError('运行中纠偏不执行插件动作，请改为加入队列。');
+      return;
+    }
+    setIsSteering(true);
+    setFollowUpError(null);
+    try {
+      const receipt = await conversationApi.steer({
+        conversationId: sessionId,
+        expectedTurnId: steeringTarget.turnId,
+        text: followUp.message,
+        images: followUp.images,
+      });
+      if (receipt.status === 'accepted') {
+        cancelDebouncedSave();
+        await handleAfterSendWithSessionControlCleanup();
+        return;
+      }
+      setFollowUpError(
+        receipt.status === 'unknown'
+          ? `纠偏送达状态未知；为避免重复注入，内容已保留。${receipt.message ? ` ${receipt.message}` : ''}`
+          : receipt.message || 'Agent 未接受本次运行中纠偏。'
+      );
+    } catch (error) {
+      setFollowUpError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSteering(false);
+    }
+  }, [
+    attachedImagePaths,
+    cancelDebouncedSave,
+    conflictResolutionInstructions,
+    effectiveExecutorProfile,
+    handleAfterSendWithSessionControlCleanup,
+    localMessage,
+    reviewMarkdown,
+    sessionId,
+    setFollowUpError,
+    steeringTarget,
+  ]);
   const { isCompactingContext, canCompactContext, handleCompactContext } =
     useSessionComposerContextCompact({
       sessionId,
@@ -769,11 +843,10 @@ export function TaskFollowUpSection({
 
               <MessageQueueIndicator
                 isQueued={queueIndicatorState.isQueued}
-                queuedMessage={queueIndicatorState.queuedMessage}
-                messagePreview={queueIndicatorState.messagePreview}
-                attachmentCount={queueIndicatorState.attachmentCount}
+                queuedMessages={queueIndicatorState.queuedMessages}
                 onEditQueuedMessage={handleEditQueuedMessage}
                 onDeleteQueuedMessage={cancelQueue}
+                onMoveQueuedMessage={moveQueue}
               />
             </div>
           </div>
@@ -867,11 +940,12 @@ export function TaskFollowUpSection({
             onSelectConfigOption={handleSelectConfigOption}
             isEditable={isEditable}
             isAttemptRunning={isComposerExecutionRunning}
-            isQueued={queueIndicatorState.isQueued}
             isQueueLoading={isQueueLoading}
             canCompactContext={canCompactContext}
             isCompactingContext={isCompactingContext}
             isStopping={isStopping}
+            isSteering={isSteering}
+            supportsSteering={Boolean(steeringTarget)}
             isSendingFollowUp={isSendingFollowUp}
             canSendFollowUp={canSendFollowUp}
             isAwaitingNewSessionConfirmation={isAwaitingNewSessionConfirmation}
@@ -888,7 +962,7 @@ export function TaskFollowUpSection({
             comments={comments}
             onCompactContext={handleCompactContext}
             onQueueMessage={handleQueueMessage}
-            onCancelQueue={cancelQueue}
+            onSteer={handleSteer}
             onStopExecution={stopExecution}
             onSendFollowUp={onSendFollowUp}
             onEnhancePrompt={handleEnhancePrompt}

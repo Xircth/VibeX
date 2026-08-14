@@ -179,6 +179,7 @@ fn assistant_blocks(message: &Value) -> Vec<ContentBlock> {
                 tool_name: name,
                 input_preview,
                 meta: None,
+                images: Vec::new(),
             });
             blocks.push(ContentBlock::ToolResult {
                 tool_use_id: id,

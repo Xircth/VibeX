@@ -5,8 +5,9 @@ use application::{ApplicationDomainPort, ApplicationError, DomainCommand, Princi
 use artifacts::{ArtifactRepository, OpenPreview, SqliteArtifactRepository};
 use async_trait::async_trait;
 use automation::{
-    AutomationDraft, AutomationDraftInput, BuiltinTemplateCatalog, ClaimedRun,
+    AutomationDraft, AutomationDraftInput, AutomationTarget, BuiltinTemplateCatalog, ClaimedRun,
     PluginActionCatalogPort, RunStatus, ScheduleService, ScheduleSpec, SystemClock, TurnLaunchSpec,
+    WorkflowAutomationDraft,
 };
 use chrono::{DateTime, Utc};
 use conversations::{ConversationContext, ConversationSessionService};
@@ -89,6 +90,7 @@ impl ServerApplicationDomains {
                 Ok(json!({ "active": self.owns_automation_engine }))
             }
             DomainCommand::AutomationCreate => self.automation_create(args).await,
+            DomainCommand::AutomationCreateWorkflow => self.automation_create_workflow(args).await,
             DomainCommand::AutomationUpdate => self.automation_update(args).await,
             DomainCommand::AutomationSetEnabled => self.automation_set_enabled(args).await,
             DomainCommand::AutomationDelete => self.automation_delete(args).await,
@@ -402,6 +404,35 @@ impl ServerApplicationDomains {
         serialize(automation_view(record))
     }
 
+    async fn automation_create_workflow(&self, args: Value) -> Result<Value, ApplicationError> {
+        let args: WorkflowAutomationInputArgs = parse(args)?;
+        let mut draft = args.input;
+        draft.launch.workspace.root_folder =
+            ProjectRepo::find_repos_for_project(&self.pool, draft.launch.workspace.project_id)
+                .await
+                .map_err(internal_error)?
+                .into_iter()
+                .next()
+                .map(|repo| repo.path.to_string_lossy().to_string())
+                .ok_or_else(|| ApplicationError::bad_request("project has no repository"))?;
+        draft.launch.workspace.branch = draft
+            .launch
+            .workspace
+            .branch
+            .map(|branch| branch.trim().to_string())
+            .filter(|branch| !branch.is_empty());
+        draft
+            .launch
+            .validate()
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let record = self
+            .automation_store()
+            .create_workflow(draft, Utc::now())
+            .await
+            .map_err(internal_error)?;
+        serialize(automation_view(record))
+    }
+
     async fn automation_update(&self, args: Value) -> Result<Value, ApplicationError> {
         let args: AutomationUpdateArgs = parse(args)?;
         let draft = self.normalize_draft(args.input).await?;
@@ -470,16 +501,30 @@ impl ServerApplicationDomains {
         {
             return Err(ApplicationError::conflict("automation run is not running"));
         }
-        if let Some(run) = store.run(args.run_id).await.map_err(internal_error)?
-            && let Some(conversation_id) = run.snapshot.conversation_id
-        {
-            ConversationSessionService::new(self.conversations.clone())
-                .cancel_turn(
-                    conversation_id,
-                    Some("automation run cancelled".to_string()),
+        if let Some(run) = store.run(args.run_id).await.map_err(internal_error)? {
+            if let Some(conversation_id) = run.snapshot.conversation_id {
+                ConversationSessionService::new(self.conversations.clone())
+                    .cancel_turn(
+                        conversation_id,
+                        Some("automation run cancelled".to_string()),
+                    )
+                    .await
+                    .map_err(internal_error)?;
+            }
+            if let Some(workflow_run_id) = run.workflow_run_id {
+                application::WorkflowExecutionPort::cancel(
+                    &application::WorkflowStoreExecutionPort::with_conversations(
+                        self.pool.clone(),
+                        self.conversations.clone(),
+                    ),
+                    Uuid::new_v4(),
+                    application::CancelWorkflowRequest {
+                        run_id: workflow_run_id,
+                        reason: Some("automation run cancelled".to_string()),
+                    },
                 )
-                .await
-                .map_err(internal_error)?;
+                .await?;
+            }
         }
         self.automation
             .reconcile_running_turns()
@@ -711,6 +756,11 @@ struct AutomationInputArgs {
 }
 
 #[derive(Deserialize)]
+struct WorkflowAutomationInputArgs {
+    input: WorkflowAutomationDraft,
+}
+
+#[derive(Deserialize)]
 struct AutomationUpdateArgs {
     id: Uuid,
     input: AutomationDraftRequest,
@@ -781,7 +831,8 @@ struct AutomationView {
     spec_version: u16,
     trigger: ScheduleSpec,
     next_run_at: Option<DateTime<Utc>>,
-    launch: TurnLaunchSpec,
+    target: AutomationTarget,
+    launch: Option<TurnLaunchSpec>,
     migration_required: bool,
     unseen_failure_count: i64,
     last_run_status: Option<String>,
@@ -801,6 +852,7 @@ struct AutomationRunView {
     conversation_id: Option<Uuid>,
     turn_id: Option<Uuid>,
     workspace_id: Option<Uuid>,
+    workflow_run_id: Option<Uuid>,
     stop_reason: Option<String>,
     summary: Option<String>,
     error: Option<String>,
@@ -810,6 +862,10 @@ struct AutomationRunView {
 }
 
 fn automation_view(record: AutomationRecord) -> AutomationView {
+    let launch = match &record.target {
+        AutomationTarget::Turn(spec) => Some(spec.clone()),
+        AutomationTarget::Workflow(_) => None,
+    };
     AutomationView {
         id: record.id,
         name: record.name,
@@ -817,7 +873,8 @@ fn automation_view(record: AutomationRecord) -> AutomationView {
         spec_version: record.spec_version,
         trigger: record.trigger,
         next_run_at: record.next_run_at,
-        launch: record.launch_spec,
+        target: record.target,
+        launch,
         migration_required: record.legacy_migration_status == "migration_required",
         unseen_failure_count: record.unseen_failure_count,
         last_run_status: record.last_run_status,
@@ -844,6 +901,7 @@ fn automation_run_view(run: AutomationRunRecord) -> AutomationRunView {
         conversation_id: run.snapshot.conversation_id,
         turn_id: run.snapshot.turn_id,
         workspace_id: run.snapshot.workspace_id,
+        workflow_run_id: run.workflow_run_id,
         stop_reason: run.stop_reason,
         summary: run.summary,
         error: run.snapshot.error,

@@ -1,6 +1,18 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { ThemeMode } from 'shared/types';
 import { backendListen } from '@/lib/backendTransport';
+import {
+  applyNativeAppIcon,
+  getAppIconStyle,
+  resolveAppLogo,
+  subscribeAppIconStyle,
+} from '@/lib/appIcon';
 
 type ResolvedTheme = 'light' | 'dark';
 
@@ -34,6 +46,11 @@ export function ThemeProvider({
   const [theme, setThemeState] = useState<ThemeMode>(initialTheme);
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
     getSystemTheme()
+  );
+  const appIconStyle = useSyncExternalStore(
+    subscribeAppIconStyle,
+    getAppIconStyle,
+    getAppIconStyle
   );
 
   // Update theme when initialTheme changes
@@ -71,6 +88,16 @@ export function ThemeProvider({
     root.classList.remove('light', 'dark');
     root.classList.add(resolvedTheme);
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    const favicon = document.querySelector<HTMLLinkElement>(
+      'link[data-app-icon]'
+    );
+    if (favicon) favicon.href = resolveAppLogo(appIconStyle, resolvedTheme);
+    void applyNativeAppIcon(appIconStyle, resolvedTheme).catch((error) =>
+      console.error('Failed to apply application icon', error)
+    );
+  }, [appIconStyle, resolvedTheme]);
 
   // Listen for cross-window theme changes (e.g. settings window → main window)
   useEffect(() => {

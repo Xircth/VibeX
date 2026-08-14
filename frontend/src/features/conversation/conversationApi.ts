@@ -18,6 +18,11 @@ import type {
   ConversationSearchHit,
   ConversationTimelinePage,
   ConversationTurnSnapshot,
+  ConversationInputPayload,
+  ConversationInputSubmission,
+  ConversationInputView,
+  ConversationOutputView,
+  ConversationSteeringReceipt,
   DbConversationDetail,
   DbConversationSummary,
   ExecutorProfileId,
@@ -145,6 +150,10 @@ export function createConversationApi(transport: BackendTransport) {
       request: ConversationCreateRequest
     ): Promise<DbConversationSummary> =>
       callApplicationCommand(transport, 'conversation_create', request),
+    output: (conversationId: string): Promise<ConversationOutputView> =>
+      callApplicationCommand(transport, 'conversation_output', {
+        conversationId,
+      }),
     // Conversation detail (metadata + projected timeline) from the durable event log.
     detail: (sessionId: string): Promise<DbConversationDetail | null> =>
       call('conversation_detail', { sessionId }),
@@ -164,6 +173,79 @@ export function createConversationApi(transport: BackendTransport) {
           ...request,
           images: request.images ?? [],
         },
+      }),
+
+    submitInput: (
+      conversationId: string,
+      payload: ConversationInputPayload,
+      operationId?: string
+    ): Promise<ConversationInputSubmission> =>
+      operationId
+        ? callApplicationCommand(
+            transport,
+            'conversation_input_submit',
+            { request: { conversationId, payload } },
+            { operationId }
+          )
+        : callApplicationCommand(transport, 'conversation_input_submit', {
+            request: { conversationId, payload },
+          }),
+
+    steer: (
+      request: {
+        conversationId: string;
+        expectedTurnId: string;
+        text: string;
+        images?: string[];
+      },
+      operationId?: string
+    ): Promise<ConversationSteeringReceipt> =>
+      operationId
+        ? callApplicationCommand(
+            transport,
+            'conversation_steer',
+            { request },
+            { operationId }
+          )
+        : callApplicationCommand(transport, 'conversation_steer', { request }),
+
+    listInputs: (conversationId: string): Promise<ConversationInputView[]> =>
+      callApplicationCommand(transport, 'conversation_input_list', {
+        request: { conversationId },
+      }),
+
+    listRelations: (conversationId: string) =>
+      callApplicationCommand(transport, 'conversation_relation_list', {
+        request: { conversationId },
+      }),
+
+    updateInput: (request: {
+      conversationId: string;
+      inputId: string;
+      expectedRevision: number;
+      payload: ConversationInputPayload;
+    }): Promise<ConversationInputView> =>
+      callApplicationCommand(transport, 'conversation_input_update', {
+        request,
+      }),
+
+    reorderInput: (request: {
+      conversationId: string;
+      inputId: string;
+      expectedRevision: number;
+      sortKey: number;
+    }): Promise<ConversationInputView> =>
+      callApplicationCommand(transport, 'conversation_input_reorder', {
+        request,
+      }),
+
+    cancelInput: (request: {
+      conversationId: string;
+      inputId: string;
+      expectedRevision: number;
+    }): Promise<ConversationInputView> =>
+      callApplicationCommand(transport, 'conversation_input_cancel', {
+        request,
       }),
 
     // Gap backfill: the timeline rows that changed since `afterSequence` (消灭双投影) —

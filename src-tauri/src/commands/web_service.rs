@@ -467,6 +467,7 @@ async fn api_start_turn(
             mode_override: request.mode_override,
             config_overrides: request.config_overrides,
             plugin_actions: Vec::new(),
+            queued_input_claim: None,
         })
         .await;
     notify_events_after(&pool, conversation_id, previous_last_sequence).await;

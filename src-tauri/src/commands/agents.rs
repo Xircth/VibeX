@@ -45,6 +45,12 @@ impl From<agents::AgentError> for AppError {
             agents::AgentError::PromptNotFound(message) => {
                 AppError::NotFound(format!("Agent Runtime prompt `{message}` was not found"))
             }
+            agents::AgentError::SteeringUnsupported => {
+                AppError::BadRequest("Agent does not support in-flight steering".to_string())
+            }
+            agents::AgentError::PromptConflict { expected, active } => AppError::Conflict(format!(
+                "Active prompt changed: expected `{expected}`, active is `{active}`"
+            )),
             agents::AgentError::UnsupportedAgent(message) => AppError::NotFound(format!(
                 "Agent `{message}` is not registered in the local Runtime"
             )),

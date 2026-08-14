@@ -34,6 +34,47 @@ pub trait CompanionFeaturePort: std::fmt::Debug + Send + Sync {
     ) -> Value {
         json!({ "found": false, "conversation_id": conversation_id })
     }
+
+    async fn session_send(
+        &self,
+        _scope: &DelegationScope,
+        conversation_id: &str,
+        _operation_id: &str,
+        _text: &str,
+    ) -> Value {
+        json!({
+            "accepted": false,
+            "conversation_id": conversation_id,
+            "error_code": "session_control_unavailable",
+        })
+    }
+
+    async fn session_cancel(
+        &self,
+        _scope: &DelegationScope,
+        conversation_id: &str,
+        _reason: Option<&str>,
+    ) -> Value {
+        json!({
+            "accepted": false,
+            "conversation_id": conversation_id,
+            "error_code": "session_control_unavailable",
+        })
+    }
+
+    async fn session_wait(
+        &self,
+        _scope: &DelegationScope,
+        conversation_id: &str,
+        _after_sequence: Option<i64>,
+        _wait_ms: Option<u64>,
+    ) -> Value {
+        json!({
+            "found": false,
+            "conversation_id": conversation_id,
+            "error_code": "session_control_unavailable",
+        })
+    }
 }
 
 #[derive(Debug, Default)]

@@ -16,7 +16,10 @@ use uuid::Uuid;
 
 use crate::{
     AgentId,
-    events::{AgentAvailableCommand, AgentSessionConfigOption, AgentSessionMode},
+    events::{
+        AgentAvailableCommand, AgentSessionConfigOption, AgentSessionConfigOverride,
+        AgentSessionMode,
+    },
     permissions::{AgentPermissionOption, AgentPermissionRequest, AgentPermissionResponse},
 };
 
@@ -39,6 +42,125 @@ pub enum TurnRole {
 pub struct ConversationPluginActionInvocation {
     pub plugin_id: String,
     pub action_id: String,
+}
+
+/// Canonical, protocol-neutral input persisted before any Agent transport call.
+/// Runtime-specific prompt blocks are derived only when the input is dispatched.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConversationInputPayload {
+    pub agent_id: AgentId,
+    pub workspace_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor_profile_id: Option<serde_json::Value>,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_override: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub config_overrides: Vec<AgentSessionConfigOverride>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+}
+
+/// Input lifecycle facts stored in the Conversation Event Log. The queue table is
+/// a rebuildable claim/read projection of these events, never a second authority.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationInputEvent {
+    Submitted {
+        input_id: Uuid,
+        operation_id: Uuid,
+        revision: u64,
+        sort_key: i64,
+        payload_digest: String,
+        payload: ConversationInputPayload,
+        principal: serde_json::Value,
+    },
+    Updated {
+        input_id: Uuid,
+        revision: u64,
+        payload_digest: String,
+        payload: ConversationInputPayload,
+    },
+    Reordered {
+        input_id: Uuid,
+        revision: u64,
+        sort_key: i64,
+    },
+    Claimed {
+        input_id: Uuid,
+        claim_token: Uuid,
+        claim_deadline: DateTime<Utc>,
+    },
+    ClaimReleased {
+        input_id: Uuid,
+        claim_token: Uuid,
+    },
+    Dispatched {
+        input_id: Uuid,
+        claim_token: Uuid,
+        turn_id: Uuid,
+    },
+    Cancelled {
+        input_id: Uuid,
+        revision: u64,
+    },
+}
+
+/// Durable lifecycle for one attempt to inject guidance into an active Turn.
+/// A requested record is never retried automatically: after an ambiguous
+/// disconnect it settles as `Unknown`, preserving at-most-once semantics.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationSteeringEvent {
+    Requested {
+        steering_id: Uuid,
+        operation_id: Uuid,
+        expected_turn_id: Uuid,
+        payload_digest: String,
+        blocks: Vec<ConversationInputBlock>,
+        principal: serde_json::Value,
+    },
+    Accepted {
+        steering_id: Uuid,
+        expected_turn_id: Uuid,
+    },
+    Rejected {
+        steering_id: Uuid,
+        expected_turn_id: Uuid,
+        code: String,
+        message: String,
+    },
+    Unknown {
+        steering_id: Uuid,
+        expected_turn_id: Uuid,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum ConversationRelationKind {
+    Delegation,
+    Fork,
+    WorkflowStep,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum ConversationRelationVisibility {
+    Visible,
+    Hidden,
 }
 
 /// Token accounting for a single turn.
@@ -149,6 +271,10 @@ pub enum ContentBlock {
         /// Free-form metadata (e.g. delegation binding).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         meta: Option<serde_json::Value>,
+        /// Images returned by the tool call, such as files inspected by an
+        /// Agent image-viewing tool.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageData>,
     },
     ToolResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,6 +431,9 @@ pub struct AcpCapabilitySnapshot {
     pub fork_session: bool,
     pub list_sessions: bool,
     pub delete_session: bool,
+    /// Negotiated support for the ACP `_session/steering` extension. This is
+    /// true only when `InitializeResponse._meta.steering.supported` is true.
+    pub steering: bool,
     pub terminal: bool,
     pub additional_directories: bool,
     pub filesystem_requests: bool,
@@ -624,6 +753,20 @@ pub struct ConversationArtifactPreviewReference {
 pub enum ConversationEvent {
     ConversationCreated {
         title: Option<String>,
+    },
+    ConversationInput {
+        event: ConversationInputEvent,
+    },
+    ConversationSteering {
+        event: ConversationSteeringEvent,
+    },
+    ConversationRelationCreated {
+        relation_id: Uuid,
+        parent_conversation_id: Uuid,
+        child_conversation_id: Uuid,
+        relation_kind: ConversationRelationKind,
+        visibility: ConversationRelationVisibility,
+        metadata: serde_json::Value,
     },
     AgentBindingStarted {
         #[serde(alias = "agent_type")]

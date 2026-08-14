@@ -1,10 +1,18 @@
 use std::sync::Arc;
 
+use agents::conversation::{ContentBlock, ConversationTimelineRow, TurnRole};
 use async_trait::async_trait;
-use conversations::ConversationTurnSnapshot;
+use conversations::{
+    CancelConversationInput, ConversationInputSubmission, ConversationInputView,
+    ConversationProjector, ConversationRelationView, ConversationSteerInput,
+    ConversationSteeringReceipt, ConversationTurnSnapshot, CreateForkConversation,
+    ReorderConversationInput, SubmitConversationInput, UpdateConversationInput,
+    create_fork_conversation,
+};
 use db::models::{
     conversation::{ConversationRecord, CreateConversationRecord, DbConversationSummary},
     conversation_event::ConversationEventRecord,
+    conversation_turn::ConversationTurnRecord,
 };
 use remote_protocol::{
     ConversationId, NotificationOutcome, NotificationSource, OfflineConversationCache, OperationId,
@@ -15,8 +23,12 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
-    ApplicationDomainPort, ApplicationError, DomainCommand, NotificationProjector, Principal,
-    TerminalNotificationEvidence, domain::unavailable_domains,
+    ApplicationDomainPort, ApplicationError, CancelWorkflowRequest, CompleteWorkflowStepRequest,
+    DecideWorkflowRequest, DomainCommand, NotificationProjector, Principal, PublishWorkflowRequest,
+    ResumeWorkflowRequest, StartWorkflowRequest, TerminalNotificationEvidence,
+    ValidateWorkflowRequest, WorkflowEventRecord, WorkflowExecutionPort, WorkflowRunView,
+    WorkflowStepView, WorkflowValidationView, WorkflowVersionView, domain::unavailable_domains,
+    workflow::UnavailableWorkflowExecution,
 };
 
 const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
@@ -25,6 +37,7 @@ const ATTACH_CONVERSATIONS_SCOPE: &str = "conversation.attach";
 const RESPOND_PERMISSION_SCOPE: &str = "conversation.permission";
 const RESPOND_QUESTION_SCOPE: &str = "conversation.question";
 const CANCEL_CONVERSATION_SCOPE: &str = "conversation.cancel";
+const STEER_CONVERSATION_SCOPE: &str = "conversation.steer";
 const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
 const MAX_OFFLINE_EVENTS: i64 = 10_000;
@@ -40,6 +53,21 @@ pub struct CreateConversation {
     pub agent_id: String,
     pub title: Option<String>,
     pub initial_prompt: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateChildConversationRequest {
+    pub parent_conversation_id: Uuid,
+    pub agent_id: String,
+    pub title: Option<String>,
+    pub initial_prompt: Option<String>,
+    #[serde(default = "default_child_visibility")]
+    pub visible: bool,
+}
+
+const fn default_child_visibility() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
@@ -87,6 +115,70 @@ pub struct CancelConversationTurn {
     pub reason: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SteerConversationTurnRequest {
+    pub conversation_id: Uuid,
+    pub expected_turn_id: Uuid,
+    pub text: String,
+    #[serde(default)]
+    pub images: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitConversationInputRequest {
+    pub conversation_id: Uuid,
+    pub payload: agents::ConversationInputPayload,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateConversationInputRequest {
+    pub conversation_id: Uuid,
+    pub input_id: Uuid,
+    pub expected_revision: u64,
+    pub payload: agents::ConversationInputPayload,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderConversationInputRequest {
+    pub conversation_id: Uuid,
+    pub input_id: Uuid,
+    pub expected_revision: u64,
+    pub sort_key: i64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelConversationInputRequest {
+    pub conversation_id: Uuid,
+    pub input_id: Uuid,
+    pub expected_revision: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListConversationInputsRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListConversationRelationsRequest {
+    pub conversation_id: Uuid,
+}
+
+#[derive(Clone, Debug, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct ConversationOutputView {
+    pub conversation_id: Uuid,
+    pub turn: Option<ConversationTurnSnapshot>,
+    pub assistant_text: Option<String>,
+}
+
 #[async_trait]
 pub trait ConversationExecutionPort: Send + Sync {
     async fn start_turn(
@@ -115,6 +207,69 @@ pub trait ConversationExecutionPort: Send + Sync {
     async fn cancel_turn(&self, _request: CancelConversationTurn) -> Result<(), ApplicationError> {
         Err(ApplicationError::capability_unavailable(
             "conversation cancellation is not configured",
+        ))
+    }
+
+    async fn steer(
+        &self,
+        _request: ConversationSteerInput,
+    ) -> Result<ConversationSteeringReceipt, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation steering is not configured",
+        ))
+    }
+
+    async fn submit_input(
+        &self,
+        _request: SubmitConversationInput,
+    ) -> Result<ConversationInputSubmission, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation input submission is not configured",
+        ))
+    }
+
+    async fn list_inputs(
+        &self,
+        _conversation_id: Uuid,
+    ) -> Result<Vec<ConversationInputView>, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation input listing is not configured",
+        ))
+    }
+
+    async fn list_relations(
+        &self,
+        _conversation_id: Uuid,
+    ) -> Result<Vec<ConversationRelationView>, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation relation listing is not configured",
+        ))
+    }
+
+    async fn update_input(
+        &self,
+        _request: UpdateConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation input update is not configured",
+        ))
+    }
+
+    async fn reorder_input(
+        &self,
+        _request: ReorderConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation input reorder is not configured",
+        ))
+    }
+
+    async fn cancel_input(
+        &self,
+        _request: CancelConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation input cancellation is not configured",
         ))
     }
 }
@@ -168,6 +323,25 @@ pub trait ConversationRepository: Send + Sync {
         &self,
         request: CreateConversation,
     ) -> Result<DbConversationSummary, ApplicationError>;
+
+    async fn create_child(
+        &self,
+        _operation_id: Uuid,
+        _request: CreateChildConversationRequest,
+    ) -> Result<DbConversationSummary, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation child creation is not configured",
+        ))
+    }
+
+    async fn output(
+        &self,
+        _conversation_id: Uuid,
+    ) -> Result<ConversationOutputView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "conversation output is not configured",
+        ))
+    }
 
     async fn attach(
         &self,
@@ -267,6 +441,100 @@ impl ConversationRepository for SqliteConversationRepository {
                     "conversation {conversation_id} was not created"
                 ))
             })
+    }
+
+    async fn create_child(
+        &self,
+        operation_id: Uuid,
+        request: CreateChildConversationRequest,
+    ) -> Result<DbConversationSummary, ApplicationError> {
+        let agent_id = agents::AgentId::parse(&request.agent_id)
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let conversation_id = create_fork_conversation(
+            &self.pool,
+            CreateForkConversation {
+                id: operation_id,
+                parent_conversation_id: request.parent_conversation_id,
+                agent_id,
+                title: request.title,
+                initial_prompt: request.initial_prompt,
+                visible: request.visible,
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            conversations::ConversationServiceError::NotFound(message) => {
+                ApplicationError::not_found(message)
+            }
+            conversations::ConversationServiceError::BadRequest(message) => {
+                ApplicationError::bad_request(message)
+            }
+            conversations::ConversationServiceError::Conflict(message) => {
+                ApplicationError::conflict(message)
+            }
+            conversations::ConversationServiceError::Internal(message) => {
+                ApplicationError::internal(message)
+            }
+        })?;
+        DbConversationSummary::find_by_id(&self.pool, conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .ok_or_else(|| {
+                ApplicationError::not_found(format!(
+                    "conversation {conversation_id} was not created"
+                ))
+            })
+    }
+
+    async fn output(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<ConversationOutputView, ApplicationError> {
+        let turn = ConversationTurnRecord::list_for_conversation(&self.pool, conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .into_iter()
+            .last();
+        let last_sequence: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(sequence), 0)
+             FROM conversation_events WHERE conversation_id = ?",
+        )
+        .bind(conversation_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let timeline = ConversationProjector::project(&self.pool, conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let assistant_text = timeline.rows.iter().rev().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                let text = turn
+                    .blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>();
+                (!text.trim().is_empty()).then_some(text)
+            }
+            _ => None,
+        });
+        Ok(ConversationOutputView {
+            conversation_id,
+            turn: turn.map(|turn| ConversationTurnSnapshot {
+                conversation_id,
+                turn_id: turn.id,
+                prompt_id: turn
+                    .prompt_id
+                    .and_then(|value| Uuid::parse_str(&value).ok()),
+                status: turn.status,
+                last_sequence,
+            }),
+            assistant_text,
+        })
     }
 
     async fn attach(
@@ -462,6 +730,7 @@ pub struct ApplicationCore<R> {
     conversations: R,
     execution: Arc<dyn ConversationExecutionPort>,
     domains: Arc<dyn ApplicationDomainPort>,
+    workflows: Arc<dyn WorkflowExecutionPort>,
 }
 
 impl<R> ApplicationCore<R>
@@ -473,6 +742,7 @@ where
             conversations,
             execution: Arc::new(UnavailableConversationExecution),
             domains: unavailable_domains(),
+            workflows: Arc::new(UnavailableWorkflowExecution),
         }
     }
 
@@ -484,6 +754,7 @@ where
             conversations,
             execution,
             domains: unavailable_domains(),
+            workflows: Arc::new(UnavailableWorkflowExecution),
         }
     }
 
@@ -495,6 +766,7 @@ where
             conversations,
             execution: Arc::new(UnavailableConversationExecution),
             domains,
+            workflows: Arc::new(UnavailableWorkflowExecution),
         }
     }
 
@@ -507,7 +779,198 @@ where
             conversations,
             execution,
             domains,
+            workflows: Arc::new(UnavailableWorkflowExecution),
         }
+    }
+
+    pub fn with_all_ports<E, D, W>(
+        conversations: R,
+        execution: Arc<E>,
+        domains: Arc<D>,
+        workflows: Arc<W>,
+    ) -> Self
+    where
+        E: ConversationExecutionPort + 'static,
+        D: ApplicationDomainPort + 'static,
+        W: WorkflowExecutionPort + 'static,
+    {
+        Self {
+            conversations,
+            execution,
+            domains,
+            workflows,
+        }
+    }
+
+    pub fn with_execution_and_workflows<E, W>(
+        conversations: R,
+        execution: Arc<E>,
+        workflows: Arc<W>,
+    ) -> Self
+    where
+        E: ConversationExecutionPort + 'static,
+        W: WorkflowExecutionPort + 'static,
+    {
+        Self {
+            conversations,
+            execution,
+            domains: unavailable_domains(),
+            workflows,
+        }
+    }
+
+    pub fn with_workflows<W>(conversations: R, workflows: Arc<W>) -> Self
+    where
+        W: WorkflowExecutionPort + 'static,
+    {
+        Self {
+            conversations,
+            execution: Arc::new(UnavailableConversationExecution),
+            domains: unavailable_domains(),
+            workflows,
+        }
+    }
+
+    pub async fn publish_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: PublishWorkflowRequest,
+    ) -> Result<WorkflowVersionView, ApplicationError> {
+        if !principal.allows("workflow.write") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write",
+            ));
+        }
+        self.workflows
+            .publish(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn validate_workflow(
+        &self,
+        principal: &Principal,
+        request: ValidateWorkflowRequest,
+    ) -> Result<WorkflowValidationView, ApplicationError> {
+        if !principal.allows("workflow.write") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write",
+            ));
+        }
+        self.workflows.validate(request).await
+    }
+
+    pub async fn start_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: StartWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.run") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.run"));
+        }
+        self.workflows.start(principal, operation_id, request).await
+    }
+
+    pub async fn show_workflow(
+        &self,
+        principal: &Principal,
+        run_id: Uuid,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.show(run_id).await
+    }
+
+    pub async fn workflow_steps(
+        &self,
+        principal: &Principal,
+        run_id: Uuid,
+    ) -> Result<Vec<WorkflowStepView>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.steps(run_id).await
+    }
+
+    pub async fn workflow_version(
+        &self,
+        principal: &Principal,
+        version_id: Uuid,
+    ) -> Result<WorkflowVersionView, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.version(version_id).await
+    }
+
+    pub async fn workflow_events(
+        &self,
+        principal: &Principal,
+        run_id: Uuid,
+        after_sequence: i64,
+        limit: i64,
+    ) -> Result<Vec<WorkflowEventRecord>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.events(run_id, after_sequence, limit).await
+    }
+
+    pub async fn complete_workflow_step(
+        &self,
+        principal: &Principal,
+        request: CompleteWorkflowStepRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.internal") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.internal",
+            ));
+        }
+        self.workflows.complete_step(request).await
+    }
+
+    pub async fn decide_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: DecideWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.approve") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.approve",
+            ));
+        }
+        self.workflows
+            .decide(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn cancel_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: CancelWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.run") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.run"));
+        }
+        self.workflows.cancel(operation_id, request).await
+    }
+
+    pub async fn resume_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ResumeWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.run") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.run"));
+        }
+        self.workflows
+            .resume(principal, operation_id, request)
+            .await
     }
 
     pub async fn list_conversations(
@@ -538,6 +1001,33 @@ where
         self.conversations.create(request).await
     }
 
+    pub async fn create_child_conversation(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: CreateChildConversationRequest,
+    ) -> Result<DbConversationSummary, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.create_child(operation_id, request).await
+    }
+
+    pub async fn conversation_output(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+    ) -> Result<ConversationOutputView, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.conversations.output(conversation_id).await
+    }
+
     pub async fn start_conversation_turn(
         &self,
         principal: &Principal,
@@ -549,6 +1039,141 @@ where
             ));
         }
         self.execution.start_turn(request).await
+    }
+
+    pub async fn submit_conversation_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: SubmitConversationInputRequest,
+    ) -> Result<ConversationInputSubmission, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .submit_input(SubmitConversationInput {
+                conversation_id: request.conversation_id,
+                operation_id,
+                payload: request.payload,
+                principal: principal_evidence(principal),
+            })
+            .await
+    }
+
+    pub async fn steer_conversation_turn(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: SteerConversationTurnRequest,
+    ) -> Result<ConversationSteeringReceipt, ApplicationError> {
+        if !principal.allows(STEER_CONVERSATION_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.steer",
+            ));
+        }
+        self.execution
+            .steer(ConversationSteerInput {
+                conversation_id: request.conversation_id,
+                operation_id,
+                expected_turn_id: request.expected_turn_id,
+                text: request.text,
+                images: request.images,
+                principal: principal_evidence(principal),
+            })
+            .await
+    }
+
+    pub async fn list_conversation_inputs(
+        &self,
+        principal: &Principal,
+        request: ListConversationInputsRequest,
+    ) -> Result<Vec<ConversationInputView>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.execution.list_inputs(request.conversation_id).await
+    }
+
+    pub async fn list_conversation_relations(
+        &self,
+        principal: &Principal,
+        request: ListConversationRelationsRequest,
+    ) -> Result<Vec<ConversationRelationView>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.execution.list_relations(request.conversation_id).await
+    }
+
+    pub async fn update_conversation_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: UpdateConversationInputRequest,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .update_input(UpdateConversationInput {
+                conversation_id: request.conversation_id,
+                input_id: request.input_id,
+                operation_id,
+                expected_revision: request.expected_revision,
+                payload: request.payload,
+            })
+            .await
+    }
+
+    pub async fn reorder_conversation_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ReorderConversationInputRequest,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .reorder_input(ReorderConversationInput {
+                conversation_id: request.conversation_id,
+                input_id: request.input_id,
+                operation_id,
+                expected_revision: request.expected_revision,
+                sort_key: request.sort_key,
+            })
+            .await
+    }
+
+    pub async fn cancel_conversation_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: CancelConversationInputRequest,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .cancel_input(CancelConversationInput {
+                conversation_id: request.conversation_id,
+                input_id: request.input_id,
+                operation_id,
+                expected_revision: request.expected_revision,
+            })
+            .await
     }
 
     pub async fn respond_conversation_permission(
@@ -659,5 +1284,22 @@ where
             .await?;
         bootstrap.ready = true;
         Ok(bootstrap)
+    }
+}
+
+fn principal_evidence(principal: &Principal) -> serde_json::Value {
+    match principal {
+        Principal::LocalDesktop => serde_json::json!({ "kind": "local_desktop" }),
+        Principal::Remote {
+            subject,
+            credential_id,
+            device_id,
+            ..
+        } => serde_json::json!({
+            "kind": "remote",
+            "subject": subject,
+            "credentialId": credential_id,
+            "deviceId": device_id,
+        }),
     }
 }

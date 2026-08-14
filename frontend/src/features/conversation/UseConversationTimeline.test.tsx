@@ -263,6 +263,67 @@ describe('useConversationTimeline', () => {
     );
   });
 
+  it('reconnects the agent session before reloading without resetting rows', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: {
+        ...detail().summary,
+        message_count: 1n,
+      },
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 1n,
+        rows: [userRow('t1', 'keep me', 1n)],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.timeline).toHaveLength(1);
+    ensureSessionControlsMock.mockClear();
+    detailMock.mockClear();
+
+    await act(async () => {
+      await result.current.reconnectAndReload();
+    });
+
+    expect(ensureSessionControlsMock).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(detailMock).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(result.current.timeline).toHaveLength(1);
+  });
+
+  it('keeps projected rows visible when reconnecting fails', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      summary: { ...detail().summary, message_count: 1n },
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 1n,
+        rows: [userRow('t1', 'still visible', 1n)],
+      },
+    });
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    ensureSessionControlsMock.mockRejectedValueOnce(
+      new Error('ACP connection failed')
+    );
+
+    await act(async () => {
+      await expect(
+        result.current.reconnectAndReload()
+      ).resolves.toBeUndefined();
+    });
+
+    expect(result.current.timeline).toHaveLength(1);
+    expect(result.current.error).toBe('ACP connection failed');
+  });
+
   it('hydrates controls for a newly created non-Codex conversation before its first turn', async () => {
     detailMock.mockResolvedValue({
       ...detail(),

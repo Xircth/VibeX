@@ -18,16 +18,18 @@ use agents::{
     },
 };
 use db::models::{
-    conversation::ConversationAgentBindingRecord, conversation_event::AppendConversationEvent,
+    conversation::{ConversationAgentBindingRecord, DbConversationSummary},
+    conversation_event::AppendConversationEvent,
     conversation_turn::ConversationTurnRecord,
 };
 use deployment::Deployment;
 use sqlx::SqlitePool;
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::{sync::mpsc, task::JoinHandle};
 use uuid::Uuid;
 
 use crate::{
-    ConversationContext, ConversationEventAppender, ConversationServiceError,
+    ConversationContext, ConversationEventAppender, ConversationEventPublisher,
+    ConversationServiceError, ConversationSessionService,
     commit_reminder::{is_complete_ai_reply, start_commit_reminder_if_needed},
     finalize_checkpoint_file_changes,
 };
@@ -38,6 +40,39 @@ pub struct ConversationAgentEventRecorder {
     deployment: Arc<dyn Deployment>,
     active_turns: HashMap<Uuid, Uuid>,
     conversation_context: Option<ConversationContext>,
+    event_publisher: Option<Arc<dyn ConversationEventPublisher>>,
+    coalescer: ConversationEventCoalescer,
+}
+
+/// Events committed by one recorder operation plus completion effects claimed by
+/// the conversation core. Host adapters may react to this result, but never map or
+/// append the runtime event themselves.
+#[derive(Debug, Default)]
+pub struct RecordedConversationBatch {
+    pub events: Vec<ConversationEventEnvelope>,
+    pub completions: Vec<RecordedConversationCompletion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedConversationCompletion {
+    pub conversation_id: Uuid,
+    pub turn_id: Uuid,
+    pub origin: String,
+}
+
+#[derive(Debug, Clone)]
+struct MappedConversationEventRecord {
+    conversation_id: Uuid,
+    turn_id: Option<Uuid>,
+    connection_id: String,
+    source: &'static str,
+    event_kind: String,
+    event: ConversationEvent,
+    raw_json: String,
+    idempotency_key: String,
+    first_agent_sequence: i64,
+    last_agent_sequence: i64,
+    complete_reply: bool,
 }
 
 impl ConversationAgentEventRecorder {
@@ -47,6 +82,8 @@ impl ConversationAgentEventRecorder {
             deployment,
             active_turns: HashMap::new(),
             conversation_context: None,
+            event_publisher: None,
+            coalescer: ConversationEventCoalescer::default(),
         }
     }
 
@@ -55,7 +92,9 @@ impl ConversationAgentEventRecorder {
             pool: context.deployment.db().pool.clone(),
             deployment: context.deployment.clone(),
             active_turns: HashMap::new(),
+            event_publisher: Some(context.event_publisher.clone()),
             conversation_context: Some(context),
+            coalescer: ConversationEventCoalescer::default(),
         }
     }
 
@@ -66,14 +105,47 @@ impl ConversationAgentEventRecorder {
     pub async fn record(
         &mut self,
         envelope: &AgentEventEnvelope,
-    ) -> Result<Vec<ConversationEventEnvelope>, RuntimeEventRecordError> {
+    ) -> Result<RecordedConversationBatch, RuntimeEventRecordError> {
+        let mut records = self.coalescer.flush();
+        if let Some(record) = self.map_record(envelope).await? {
+            records.push(record);
+        }
+        self.append_records(records).await
+    }
+
+    /// Buffer adjacent text/reasoning chunks and persist every record that is ready.
+    /// The host controls the flush cadence; mapping, turn association, idempotency,
+    /// and durable append remain owned by this recorder.
+    pub async fn record_buffered(
+        &mut self,
+        envelope: &AgentEventEnvelope,
+    ) -> Result<RecordedConversationBatch, RuntimeEventRecordError> {
+        let Some(record) = self.map_record(envelope).await? else {
+            return Ok(RecordedConversationBatch::default());
+        };
+        let records = self.coalescer.push(record);
+        self.append_records(records).await
+    }
+
+    /// Persist the buffered streaming tail, if any.
+    pub async fn flush_buffered(
+        &mut self,
+    ) -> Result<RecordedConversationBatch, RuntimeEventRecordError> {
+        let records = self.coalescer.flush();
+        self.append_records(records).await
+    }
+
+    async fn map_record(
+        &mut self,
+        envelope: &AgentEventEnvelope,
+    ) -> Result<Option<MappedConversationEventRecord>, RuntimeEventRecordError> {
         let Some(session_id) = envelope.session_id else {
-            return Ok(Vec::new());
+            return Ok(None);
         };
         let conversation_id = session_id.0;
         let turn_id = self.event_turn_id(conversation_id, &envelope.event).await?;
         let Some(event) = map_agent_event(envelope, turn_id) else {
-            return Ok(Vec::new());
+            return Ok(None);
         };
 
         if let AgentEvent::SessionLinked { acp_session_id, .. } = &envelope.event
@@ -89,80 +161,154 @@ impl ConversationAgentEventRecorder {
             .await?;
         }
 
+        if let AgentEvent::SessionInfoUpdated { patch } = &envelope.event
+            && let Some(title) = patch
+                .get("title")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+        {
+            DbConversationSummary::backfill_title(&self.pool, conversation_id, title).await?;
+        }
+
         let source = conversation_event_source(&envelope.event);
         let event_kind = conversation_event_kind(&event);
-        let normalized_json = serde_json::to_string(&event)?;
         let raw_json = serde_json::to_string(&envelope.event)?;
         let connection_id = envelope.connection_id.to_string();
         let idempotency_key = format!("agent:{}:{event_kind}", envelope.sequence);
-        let record = ConversationEventAppender::append(
-            &self.pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id,
-                turn_id,
-                binding_id: None,
-                connection_id: Some(&connection_id),
-                prompt_id: None,
-                source,
-                event_kind: &event_kind,
-                normalized_json: &normalized_json,
-                raw_json: Some(&raw_json),
-                idempotency_key: Some(&idempotency_key),
-            },
-        )
-        .await?;
-        let durable = ConversationEventEnvelope {
-            id: record.id,
-            conversation_id: record.conversation_id,
-            turn_id: record.turn_id,
-            sequence: record.sequence,
-            source: record.source,
-            event: serde_json::from_str(&record.normalized_json)?,
-            created_at: record.created_at,
-        };
-        let terminal = is_terminal_conversation_event(&durable.event);
-        let mut events = vec![durable];
-
-        if terminal && let Some(turn_id) = turn_id {
-            if let Some(file_event) =
-                finalize_checkpoint_file_changes(self.deployment.as_ref(), conversation_id, turn_id)
-                    .await?
-            {
-                events.push(file_event);
-            }
-            self.active_turns.remove(&conversation_id);
-        }
-        if matches!(
+        let complete_reply = matches!(
             &envelope.event,
             AgentEvent::PromptFinished { finished }
                 if is_complete_ai_reply(finished.stop_reason.as_deref())
-        ) && let Some(turn_id) = turn_id
-            && let Some(context) = self.conversation_context.clone()
-        {
-            match ConversationTurnRecord::claim_completion_effects(&self.pool, turn_id).await {
-                Ok(true) => {
-                    if let Err(error) =
-                        start_commit_reminder_if_needed(context, conversation_id, turn_id).await
-                    {
-                        tracing::warn!(
-                            %conversation_id,
-                            %turn_id,
-                            %error,
-                            "failed to start commit reminder"
-                        );
-                    }
+        );
+
+        Ok(Some(MappedConversationEventRecord {
+            conversation_id,
+            turn_id,
+            connection_id,
+            source,
+            event_kind,
+            event,
+            raw_json,
+            idempotency_key,
+            first_agent_sequence: envelope.sequence,
+            last_agent_sequence: envelope.sequence,
+            complete_reply,
+        }))
+    }
+
+    async fn append_records(
+        &mut self,
+        records: Vec<MappedConversationEventRecord>,
+    ) -> Result<RecordedConversationBatch, RuntimeEventRecordError> {
+        let mut batch = RecordedConversationBatch::default();
+        for mapped in records {
+            let normalized_json = serde_json::to_string(&mapped.event)?;
+            let record = ConversationEventAppender::append(
+                &self.pool,
+                AppendConversationEvent {
+                    id: Uuid::new_v4(),
+                    conversation_id: mapped.conversation_id,
+                    turn_id: mapped.turn_id,
+                    binding_id: None,
+                    connection_id: Some(&mapped.connection_id),
+                    prompt_id: None,
+                    source: mapped.source,
+                    event_kind: &mapped.event_kind,
+                    normalized_json: &normalized_json,
+                    raw_json: Some(&mapped.raw_json),
+                    idempotency_key: Some(&mapped.idempotency_key),
+                },
+            )
+            .await?;
+            let durable = ConversationEventEnvelope {
+                id: record.id,
+                conversation_id: record.conversation_id,
+                turn_id: record.turn_id,
+                sequence: record.sequence,
+                source: record.source.clone(),
+                event: serde_json::from_str(&record.normalized_json)?,
+                created_at: record.created_at,
+            };
+            let terminal = is_terminal_conversation_event(&durable.event);
+            batch.events.push(durable);
+
+            if terminal && let Some(turn_id) = mapped.turn_id {
+                if let Some(file_event) = finalize_checkpoint_file_changes(
+                    self.deployment.as_ref(),
+                    mapped.conversation_id,
+                    turn_id,
+                )
+                .await?
+                {
+                    batch.events.push(file_event);
                 }
-                Ok(false) => {}
-                Err(error) => tracing::warn!(
-                    %conversation_id,
-                    %turn_id,
+                self.active_turns.remove(&mapped.conversation_id);
+            }
+
+            // Publish only after the terminal checkpoint append. The desktop
+            // publisher reads the durable tail, so one publication includes both.
+            if let Some(publisher) = &self.event_publisher {
+                publisher.publish(&record).await;
+            }
+
+            // A terminal Turn makes the conversation idle. Let the same
+            // Conversation Core claim and dispatch the next durable input; hosts
+            // never maintain their own queue effects.
+            if terminal
+                && let Some(context) = self.conversation_context.clone()
+                && let Err(error) = ConversationSessionService::new(context)
+                    .dispatch_next_queued_input(mapped.conversation_id)
+                    .await
+            {
+                tracing::warn!(
+                    conversation_id = %mapped.conversation_id,
                     %error,
-                    "failed to claim completion effects"
-                ),
+                    "failed to dispatch the next durable conversation input"
+                );
+            }
+
+            if mapped.complete_reply
+                && let Some(turn_id) = mapped.turn_id
+                && let Some(context) = self.conversation_context.clone()
+            {
+                match ConversationTurnRecord::claim_completion_effects(&self.pool, turn_id).await {
+                    Ok(true) => {
+                        if let Some(turn) =
+                            ConversationTurnRecord::find_by_id(&self.pool, turn_id).await?
+                        {
+                            batch.completions.push(RecordedConversationCompletion {
+                                conversation_id: mapped.conversation_id,
+                                turn_id,
+                                origin: turn.origin,
+                            });
+                        }
+                        if let Err(error) = start_commit_reminder_if_needed(
+                            context,
+                            mapped.conversation_id,
+                            turn_id,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                conversation_id = %mapped.conversation_id,
+                                %turn_id,
+                                %error,
+                                "failed to start commit reminder"
+                            );
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(error) => tracing::warn!(
+                        conversation_id = %mapped.conversation_id,
+                        %turn_id,
+                        %error,
+                        "failed to claim completion effects"
+                    ),
+                }
             }
         }
-        Ok(events)
+        Ok(batch)
     }
 
     async fn active_turn_id(&mut self, conversation_id: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
@@ -209,6 +355,139 @@ impl ConversationAgentEventRecorder {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoalescedDeltaKind {
+    AssistantText,
+    AssistantReasoning,
+}
+
+#[derive(Debug, Clone)]
+struct PendingConversationDelta {
+    base: MappedConversationEventRecord,
+    kind: CoalescedDeltaKind,
+    text: String,
+    message_id: Option<String>,
+    chunk_count: usize,
+}
+
+#[derive(Debug, Default)]
+struct ConversationEventCoalescer {
+    pending: Option<PendingConversationDelta>,
+}
+
+impl ConversationEventCoalescer {
+    fn push(
+        &mut self,
+        record: MappedConversationEventRecord,
+    ) -> Vec<MappedConversationEventRecord> {
+        match streaming_delta_parts(&record.event) {
+            Some((kind, text, message_id)) => self.push_delta(record, kind, text, message_id),
+            None => {
+                let mut ready = self.flush();
+                ready.push(record);
+                ready
+            }
+        }
+    }
+
+    fn flush(&mut self) -> Vec<MappedConversationEventRecord> {
+        self.pending
+            .take()
+            .map(PendingConversationDelta::into_record)
+            .into_iter()
+            .collect()
+    }
+
+    fn push_delta(
+        &mut self,
+        record: MappedConversationEventRecord,
+        kind: CoalescedDeltaKind,
+        text: String,
+        message_id: Option<String>,
+    ) -> Vec<MappedConversationEventRecord> {
+        if let Some(pending) = &mut self.pending
+            && pending.can_merge(&record, kind, &message_id)
+        {
+            pending.text.push_str(&text);
+            pending.base.last_agent_sequence = record.last_agent_sequence;
+            pending.chunk_count += 1;
+            return Vec::new();
+        }
+
+        let ready = self.flush();
+        self.pending = Some(PendingConversationDelta {
+            base: record,
+            kind,
+            text,
+            message_id,
+            chunk_count: 1,
+        });
+        ready
+    }
+}
+
+impl PendingConversationDelta {
+    fn can_merge(
+        &self,
+        record: &MappedConversationEventRecord,
+        kind: CoalescedDeltaKind,
+        message_id: &Option<String>,
+    ) -> bool {
+        self.kind == kind
+            && self.base.conversation_id == record.conversation_id
+            && self.base.turn_id == record.turn_id
+            && self.base.connection_id == record.connection_id
+            && self.base.source == record.source
+            && &self.message_id == message_id
+    }
+
+    fn into_record(mut self) -> MappedConversationEventRecord {
+        self.base.event = match self.kind {
+            CoalescedDeltaKind::AssistantText => ConversationEvent::AssistantTextDelta {
+                text: self.text,
+                message_id: self.message_id,
+            },
+            CoalescedDeltaKind::AssistantReasoning => ConversationEvent::AssistantReasoningDelta {
+                text: self.text,
+                message_id: self.message_id,
+            },
+        };
+        self.base.event_kind = conversation_event_kind(&self.base.event);
+        self.base.idempotency_key = format!(
+            "agent:{}-{}:{}",
+            self.base.first_agent_sequence, self.base.last_agent_sequence, self.base.event_kind
+        );
+        self.base.raw_json = serde_json::json!({
+            "coalesced": true,
+            "first_sequence": self.base.first_agent_sequence,
+            "last_sequence": self.base.last_agent_sequence,
+            "chunk_count": self.chunk_count,
+            "kind": self.base.event_kind,
+        })
+        .to_string();
+        self.base.complete_reply = false;
+        self.base
+    }
+}
+
+fn streaming_delta_parts(
+    event: &ConversationEvent,
+) -> Option<(CoalescedDeltaKind, String, Option<String>)> {
+    match event {
+        ConversationEvent::AssistantTextDelta { text, message_id } => Some((
+            CoalescedDeltaKind::AssistantText,
+            text.clone(),
+            message_id.clone(),
+        )),
+        ConversationEvent::AssistantReasoningDelta { text, message_id } => Some((
+            CoalescedDeltaKind::AssistantReasoning,
+            text.clone(),
+            message_id.clone(),
+        )),
+        _ => None,
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeEventRecordError {
     #[error(transparent)]
@@ -220,25 +499,19 @@ pub enum RuntimeEventRecordError {
 }
 
 /// Start the durable runtime-event bridge for a host composition root.
-pub fn start_agent_event_persistence(context: ConversationContext) -> JoinHandle<()> {
-    let mut receiver = context.agent_runtime.subscribe_events();
+pub fn start_agent_event_persistence(
+    context: ConversationContext,
+    mut receiver: mpsc::UnboundedReceiver<AgentEventEnvelope>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut recorder = ConversationAgentEventRecorder::with_context(context);
-        loop {
-            match receiver.recv().await {
-                Ok(envelope) => {
-                    if let Err(error) = recorder.record(&envelope).await {
-                        tracing::warn!(
-                            sequence = envelope.sequence,
-                            %error,
-                            "failed to persist agent runtime event"
-                        );
-                    }
-                }
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "agent runtime event recorder lagged");
-                }
-                Err(broadcast::error::RecvError::Closed) => break,
+        while let Some(envelope) = receiver.recv().await {
+            if let Err(error) = recorder.record(&envelope).await {
+                tracing::warn!(
+                    sequence = envelope.sequence,
+                    %error,
+                    "failed to persist agent runtime event"
+                );
             }
         }
     })
@@ -326,8 +599,8 @@ fn map_agent_event(
                 raw_output_append: None,
                 content: None,
                 locations: None,
-                metadata: None,
-                images: Vec::new(),
+                metadata: tool_call.meta.clone(),
+                images: tool_call.images.clone(),
             },
         }),
         AgentEvent::ToolCallUpdate { update } => Some(ConversationEvent::ToolCallUpsert {
@@ -347,8 +620,8 @@ fn map_agent_event(
                     .as_ref()
                     .map(|content| serde_json::json!({ "text": content })),
                 locations: Some(Vec::<ConversationFileLocation>::new()),
-                metadata: None,
-                images: Vec::new(),
+                metadata: update.meta.clone(),
+                images: update.images.clone(),
             },
         }),
         AgentEvent::Plan { plan } => Some(ConversationEvent::PlanUpdated {
@@ -371,8 +644,8 @@ fn map_agent_event(
                 cache_creation_input_tokens: 0,
                 cache_read_input_tokens: 0,
                 context_window_max: usage.limit,
-                cost_amount: None,
-                cost_currency: None,
+                cost_amount: usage.cost_amount,
+                cost_currency: usage.cost_currency.clone(),
             },
         }),
         AgentEvent::SessionModes { modes, current } => {
@@ -560,6 +833,7 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
         | AgentEvent::ToolCallUpdate { .. }
         | AgentEvent::Plan { .. }
         | AgentEvent::Usage { .. }
+        | AgentEvent::SessionInfoUpdated { .. }
         | AgentEvent::TurnCompleted { .. }
         | AgentEvent::PromptFinished { .. } => "acp",
         _ => "runtime",
@@ -571,4 +845,148 @@ fn conversation_event_kind(event: &ConversationEvent) -> String {
         .ok()
         .and_then(|value| value["kind"].as_str().map(str::to_string))
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use agents::{
+        AgentConnectionId, AgentEvent, AgentEventEnvelope, AgentSessionId, AgentToolCall,
+        AgentUsage, conversation::ConversationEvent,
+    };
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::{
+        ConversationEventCoalescer, MappedConversationEventRecord, conversation_event_kind,
+        conversation_event_source, map_agent_event,
+    };
+
+    #[test]
+    fn shared_recorder_coalesces_consecutive_text_without_dropping_boundaries() {
+        let mut coalescer = ConversationEventCoalescer::default();
+        assert!(
+            coalescer
+                .push(mapped_record(
+                    10,
+                    ConversationEvent::AssistantTextDelta {
+                        text: "hel".to_string(),
+                        message_id: None,
+                    },
+                ))
+                .is_empty()
+        );
+        assert!(
+            coalescer
+                .push(mapped_record(
+                    11,
+                    ConversationEvent::AssistantTextDelta {
+                        text: "lo".to_string(),
+                        message_id: None,
+                    },
+                ))
+                .is_empty()
+        );
+
+        let ready = coalescer.push(mapped_record(
+            12,
+            ConversationEvent::TurnCompleted {
+                stop_reason: Some("end_turn".to_string()),
+            },
+        ));
+        assert_eq!(ready.len(), 2);
+        assert_eq!(ready[0].idempotency_key, "agent:10-11:assistant_text_delta");
+        assert!(ready[0].raw_json.contains("\"chunk_count\":2"));
+        assert!(matches!(
+            &ready[0].event,
+            ConversationEvent::AssistantTextDelta { text, .. } if text == "hello"
+        ));
+        assert!(matches!(
+            ready[1].event,
+            ConversationEvent::TurnCompleted { .. }
+        ));
+    }
+
+    #[test]
+    fn shared_mapping_preserves_tool_metadata() {
+        let metadata = serde_json::json!({ "file_path": "src/main.rs" });
+        let image = agents::conversation::ImageData {
+            data: "AAAA".to_string(),
+            mime_type: "image/png".to_string(),
+            uri: Some("assets/logo.png".to_string()),
+        };
+        let envelope = envelope(AgentEvent::ToolCall {
+            tool_call: AgentToolCall {
+                id: "tool-1".to_string(),
+                title: "Edit file".to_string(),
+                kind: Some("edit".to_string()),
+                input_preview: None,
+                meta: Some(metadata.clone()),
+                images: vec![image.clone()],
+            },
+        });
+
+        let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::ToolCallUpsert { tool_call })
+                if tool_call.metadata == Some(metadata) && tool_call.images == vec![image]
+        ));
+    }
+
+    #[test]
+    fn shared_mapping_preserves_usage_cost() {
+        let envelope = envelope(AgentEvent::Usage {
+            usage: AgentUsage {
+                used: 120,
+                limit: Some(200_000),
+                cost_amount: Some(0.42),
+                cost_currency: Some("USD".to_string()),
+            },
+        });
+
+        let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::UsageUpdated { usage })
+                if usage.cost_amount == Some(0.42)
+                    && usage.cost_currency.as_deref() == Some("USD")
+        ));
+    }
+
+    #[test]
+    fn session_info_updates_are_classified_as_acp_events() {
+        assert_eq!(
+            conversation_event_source(&AgentEvent::SessionInfoUpdated {
+                patch: serde_json::json!({ "title": "Thread title" }),
+            }),
+            "acp"
+        );
+    }
+
+    fn envelope(event: AgentEvent) -> AgentEventEnvelope {
+        AgentEventEnvelope {
+            sequence: 1,
+            workspace_id: Uuid::new_v4(),
+            connection_id: AgentConnectionId::new(),
+            session_id: Some(AgentSessionId::new()),
+            event,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn mapped_record(sequence: i64, event: ConversationEvent) -> MappedConversationEventRecord {
+        MappedConversationEventRecord {
+            conversation_id: Uuid::nil(),
+            turn_id: Some(Uuid::nil()),
+            connection_id: "connection".to_string(),
+            source: "acp",
+            event_kind: conversation_event_kind(&event),
+            event,
+            raw_json: "{}".to_string(),
+            idempotency_key: format!("agent:{sequence}:test"),
+            first_agent_sequence: sequence,
+            last_agent_sequence: sequence,
+            complete_reply: false,
+        }
+    }
 }

@@ -72,13 +72,15 @@ pub use conversation::{
     ConversationErrorView, ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
     ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
     ConversationFileChangeSummary, ConversationFileLocation, ConversationInputBlock,
-    ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
-    ConversationPlanEntry, ConversationPluginActionInvocation, ConversationQuestionRequest,
-    ConversationQuestionResponse, ConversationSessionNotice, ConversationSummary,
-    ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
-    ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
-    ConversationUsage, ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy,
-    SessionStats, SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
+    ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
+    ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
+    ConversationPluginActionInvocation, ConversationQuestionRequest, ConversationQuestionResponse,
+    ConversationRelationKind, ConversationRelationVisibility, ConversationSessionNotice,
+    ConversationSteeringEvent, ConversationSummary, ConversationTerminalPatch,
+    ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
+    ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn,
+    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
+    TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
@@ -92,8 +94,8 @@ pub use events::{
     AgentListedSession, AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished,
     AgentSessionConfigChoice, AgentSessionConfigDependency, AgentSessionConfigOption,
     AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionListPage,
-    AgentSessionMode, AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall,
-    AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
+    AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt, AgentTerminalOutput,
+    AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use history::{
@@ -172,6 +174,7 @@ pub use runtime::{
     AgentRuntime, CancelAgentPromptInput, ConnectAgentInput, EnsureAgentSessionInput,
     NoopEventSink, RespondAgentElicitationInput, RespondAgentPermissionInput,
     ResumeAgentSessionInput, RuntimeEventSink, RuntimeSnapshot, SendAgentPromptInput,
+    SteerAgentPromptInput, runtime_event_channel,
 };
 pub use session::{AgentPromptQueue, QueueTransition};
 pub use session_gate::{

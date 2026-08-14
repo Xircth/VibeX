@@ -17,7 +17,8 @@ export interface RemoteDesktopBridge {
   call(
     profileId: string,
     command: string,
-    args?: Record<string, unknown>
+    args?: Record<string, unknown>,
+    operationId?: string
   ): Promise<unknown>;
   capabilities(profileId: string): Promise<ServerCapabilities>;
 }
@@ -31,12 +32,13 @@ const tauriBridge: RemoteDesktopBridge = {
     const { tauriInvoke } = await import('@/lib/tauriApi');
     await tauriInvoke('remote_desktop_disconnect', { profileId });
   },
-  async call(profileId, command, args) {
+  async call(profileId, command, args, operationId) {
     const { tauriInvoke } = await import('@/lib/tauriApi');
     return tauriInvoke('remote_desktop_call', {
       profileId,
       command,
       args: args ?? {},
+      operationId,
     });
   },
   async capabilities(profileId) {
@@ -110,8 +112,17 @@ export class RemoteDesktopTransport implements BackendTransport {
     );
   }
 
-  call(command: string, args?: Record<string, unknown>): Promise<unknown> {
-    return this.bridge.call(this.profileId, command, args);
+  call(
+    command: string,
+    args?: Record<string, unknown>,
+    options?: { operationId?: string }
+  ): Promise<unknown> {
+    return this.bridge.call(
+      this.profileId,
+      command,
+      args,
+      options?.operationId
+    );
   }
 
   capabilities(): Promise<ServerCapabilities> {

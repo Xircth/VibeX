@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ExecutorProfileId } from 'shared/types';
+import type { ConversationInputPayload, ExecutorProfileId } from 'shared/types';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
-import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import {
-  buildCancelQueueMutationInput,
-  buildQueueMutationInput,
   getQueueIndicatorState,
-  getQueueSnapshot,
   getQueueStatusQueryKey,
+  inputViewToQueuedMessage,
+  type QueuedMessage,
   type QueueStatus,
-  shouldRefreshQueueStatus,
 } from './sessionComposerQueue';
+import { conversationApi } from '@/features/conversation/conversationApi';
 
-const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty' };
+const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty', messages: [] };
 
 export function useSessionComposerQueue({
   sessionId,
@@ -27,112 +25,42 @@ export function useSessionComposerQueue({
   processCount?: number;
 }) {
   const queryClient = useQueryClient();
-  const prevProcessCountRef = useRef(processCount);
-  const { data: queueStatus = EMPTY_QUEUE_STATUS } = useQuery<QueueStatus>({
-    queryKey: getQueueStatusQueryKey(sessionId),
-    queryFn: () =>
-      Promise.resolve(
-        queryClient.getQueryData<QueueStatus>(
-          getQueueStatusQueryKey(sessionId)
-        ) ?? EMPTY_QUEUE_STATUS
-      ),
-    enabled: Boolean(sessionId),
-  });
+  const editingInputRef = useRef<QueuedMessage | null>(null);
+  const queryKey = getQueueStatusQueryKey(sessionId);
+  const { data: queueStatus = EMPTY_QUEUE_STATUS, refetch } =
+    useQuery<QueueStatus>({
+      queryKey,
+      queryFn: async () => {
+        if (!sessionId) return EMPTY_QUEUE_STATUS;
+        const inputs = await conversationApi.listInputs(sessionId);
+        const messages = inputs
+          .filter((input) => ['queued', 'claimed'].includes(input.status))
+          .map(inputViewToQueuedMessage);
+        return messages.length === 0
+          ? EMPTY_QUEUE_STATUS
+          : { status: 'queued', messages };
+      },
+      enabled: Boolean(sessionId),
+      // Process transitions are a cheap signal that a claim/dispatch may have
+      // changed. Durable events remain the authority; this only refreshes the view.
+      // A second window can enqueue while this one is idle. Event publication is
+      // the fast path; bounded polling guarantees eventual convergence if a host
+      // event is missed during suspension or reconnect.
+      refetchInterval: isAttemptRunning ? 2_000 : 5_000,
+    });
+
   const refreshQueueStatus = useCallback(async () => {
     if (!sessionId) return { data: EMPTY_QUEUE_STATUS } as const;
-    const status =
-      queryClient.getQueryData<QueueStatus>(
-        getQueueStatusQueryKey(sessionId)
-      ) ?? EMPTY_QUEUE_STATUS;
-    return { data: status } as const;
-  }, [queryClient, sessionId]);
+    return refetch();
+  }, [refetch, sessionId]);
 
   useEffect(() => {
-    const prevCount = prevProcessCountRef.current;
-    prevProcessCountRef.current = processCount;
-    if (
-      shouldRefreshQueueStatus({
-        hasWorkspace: !!workspaceId,
-        isAttemptRunning,
-        previousProcessCount: prevCount,
-        currentProcessCount: processCount,
-      })
-    ) {
-      void refreshQueueStatus();
-    }
-  }, [isAttemptRunning, workspaceId, processCount, refreshQueueStatus]);
+    if (sessionId) void refetch();
+  }, [processCount, refetch, sessionId]);
 
-  useEffect(() => {
-    if (!sessionId) return;
-    void refreshQueueStatus();
-  }, [refreshQueueStatus, sessionId]);
-
-  const startQueuedTurnMutation = useMutation({
-    mutationFn: ({
-      sessionId,
-      message,
-      agentMessage,
-      images,
-      executorProfileId,
-      pluginActions,
-    }: {
-      sessionId: string;
-      message: string;
-      agentMessage?: string;
-      images: string[];
-      executorProfileId: ExecutorProfileId;
-      pluginActions: SessionComposerPluginActionInvocation[];
-    }) =>
-      sendAgentRuntimeTurn({
-        workspaceId: workspaceId ?? '',
-        sessionId,
-        text: agentMessage ?? message,
-        displayText: message,
-        images,
-        executorProfileId,
-        pluginActions,
-      }),
-    onSuccess: (_turn, variables) => {
-      queryClient.setQueryData(
-        getQueueStatusQueryKey(variables.sessionId),
-        EMPTY_QUEUE_STATUS
-      );
-    },
-  });
-
-  // A conversation has one active turn. Persist the follow-up locally while it
-  // runs, then use the normal start-turn path only after it settles.
-  const dispatchedQueueKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    const queuedMessage = getQueueSnapshot(queueStatus).queuedMessage;
-    const queueKey = queuedMessage?.created_at ?? null;
-    if (
-      isAttemptRunning ||
-      !workspaceId ||
-      !sessionId ||
-      !queuedMessage ||
-      !queueKey ||
-      dispatchedQueueKeyRef.current === queueKey
-    ) {
-      return;
-    }
-
-    dispatchedQueueKeyRef.current = queueKey;
-    void startQueuedTurnMutation.mutateAsync({
-      sessionId,
-      message: queuedMessage.data.message,
-      agentMessage: queuedMessage.data.agentMessage,
-      images: queuedMessage.data.images,
-      executorProfileId: queuedMessage.executorProfileId,
-      pluginActions: queuedMessage.data.pluginActions ?? [],
-    });
-  }, [
-    isAttemptRunning,
-    queueStatus,
-    sessionId,
-    startQueuedTurnMutation,
-    workspaceId,
-  ]);
+  const refresh = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
 
   const queueMutation = useMutation({
     mutationFn: async ({
@@ -149,48 +77,58 @@ export function useSessionComposerQueue({
       images: string[];
       executorProfileId: ExecutorProfileId;
       pluginActions: SessionComposerPluginActionInvocation[];
-    }) => ({
-      sessionId,
-      message,
-      agentMessage,
-      images,
-      executorProfileId,
-      pluginActions,
-      createdAt: new Date().toISOString(),
-    }),
-    onSuccess: (message) => {
-      const status: QueueStatus = {
-        status: 'queued',
-        message: {
-          session_id: message.sessionId,
-          created_at: message.createdAt,
-          updated_at: message.createdAt,
-          executorProfileId: message.executorProfileId,
-          data: {
-            message: message.message,
-            agentMessage: message.agentMessage,
-            images: message.images,
-            pluginActions: message.pluginActions,
-          },
-        },
+    }) => {
+      const payload: ConversationInputPayload = {
+        agentId: executorProfileId.executor,
+        workspaceId: workspaceId ?? '',
+        executorProfileId:
+          executorProfileId as unknown as ConversationInputPayload['executorProfileId'],
+        text: agentMessage ?? message,
+        displayText: message,
+        images,
+        pluginActions,
       };
-      queryClient.setQueryData(
-        getQueueStatusQueryKey(message.sessionId),
-        status
-      );
+      const editing = editingInputRef.current;
+      if (editing?.session_id === sessionId && editing.status === 'queued') {
+        const updated = await conversationApi.updateInput({
+          conversationId: sessionId,
+          inputId: editing.id,
+          expectedRevision: Number(editing.revision),
+          payload,
+        });
+        editingInputRef.current = null;
+        return updated;
+      }
+      return (await conversationApi.submitInput(sessionId, payload)).input;
     },
+    onSuccess: refresh,
   });
 
   const cancelMutation = useMutation({
-    mutationFn: async ({ sessionId }: { sessionId: string }) => {
-      return { sessionId };
-    },
-    onSuccess: (_result, variables) => {
-      queryClient.setQueryData(
-        getQueueStatusQueryKey(variables.sessionId),
-        EMPTY_QUEUE_STATUS
-      );
-    },
+    mutationFn: (message: QueuedMessage) =>
+      conversationApi.cancelInput({
+        conversationId: message.session_id,
+        inputId: message.id,
+        expectedRevision: Number(message.revision),
+      }),
+    onSuccess: refresh,
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: ({
+      message,
+      sortKey,
+    }: {
+      message: QueuedMessage;
+      sortKey: bigint;
+    }) =>
+      conversationApi.reorderInput({
+        conversationId: message.session_id,
+        inputId: message.id,
+        expectedRevision: Number(message.revision),
+        sortKey: Number(sortKey),
+      }),
+    onSuccess: refresh,
   });
 
   const queueMessage = useCallback(
@@ -201,7 +139,8 @@ export function useSessionComposerQueue({
       pluginActions: SessionComposerPluginActionInvocation[] = [],
       agentMessage?: string
     ) => {
-      const queueInput = buildQueueMutationInput({
+      if (!sessionId || !workspaceId) return;
+      await queueMutation.mutateAsync({
         sessionId,
         message,
         agentMessage,
@@ -209,31 +148,57 @@ export function useSessionComposerQueue({
         executorProfileId,
         pluginActions,
       });
-      if (!queueInput || !workspaceId) return;
-      await queueMutation.mutateAsync(queueInput);
     },
-    [sessionId, workspaceId, queueMutation]
+    [queueMutation, sessionId, workspaceId]
   );
 
-  const cancelQueue = useCallback(async () => {
-    const cancelInput = buildCancelQueueMutationInput(sessionId);
-    if (!cancelInput) return;
-    await cancelMutation.mutateAsync(cancelInput);
-  }, [sessionId, cancelMutation]);
+  const cancelQueue = useCallback(
+    async (message?: QueuedMessage) => {
+      const target = message ?? queueStatus.messages.at(-1);
+      if (!target || target.status !== 'queued') return;
+      await cancelMutation.mutateAsync(target);
+    },
+    [cancelMutation, queueStatus.messages]
+  );
 
-  const { isQueued } = getQueueSnapshot(queueStatus);
+  const beginEditQueue = useCallback((message: QueuedMessage) => {
+    if (message.status === 'queued') editingInputRef.current = message;
+  }, []);
+
+  const moveQueue = useCallback(
+    async (message: QueuedMessage, direction: -1 | 1) => {
+      const index = queueStatus.messages.findIndex(
+        (candidate) => candidate.id === message.id
+      );
+      const neighbor = queueStatus.messages[index + direction];
+      if (!neighbor || message.status !== 'queued') return;
+      const outerNeighbor = queueStatus.messages[index + direction * 2];
+      const sortKey = outerNeighbor
+        ? (neighbor.sortKey + outerNeighbor.sortKey) / 2n
+        : neighbor.sortKey + BigInt(direction) * 1024n;
+      await reorderMutation.mutateAsync({ message, sortKey });
+    },
+    [queueStatus.messages, reorderMutation]
+  );
+
+  const queuedMessages = queueStatus.messages;
+  const isQueued = queuedMessages.length > 0;
 
   return {
     queueStatus,
+    queuedMessages,
     refreshQueueStatus,
     queueMutation,
     cancelMutation,
+    reorderMutation,
     queueMessage,
     cancelQueue,
+    beginEditQueue,
+    moveQueue,
     isQueueLoading:
       queueMutation.isPending ||
-      startQueuedTurnMutation.isPending ||
-      cancelMutation.isPending,
+      cancelMutation.isPending ||
+      reorderMutation.isPending,
     isQueued,
     queueIndicatorState: getQueueIndicatorState(queueStatus, isAttemptRunning),
   };

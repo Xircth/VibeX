@@ -11,11 +11,14 @@ use db::models::{
         AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
         find_conversation_event_by_idempotency, insert_conversation_event,
     },
+    conversation_input::{ConversationInputRecord, CreateConversationInput},
+    conversation_relation::ConversationRelationRecord,
     conversation_side_effects::{
         ConversationFileChangeRecord, ConversationPermissionRecord, ConversationTerminalRecord,
         InsertConversationFileChange, UpsertConversationPermission, UpsertConversationTerminal,
     },
     conversation_snapshot::ConversationProjectionSnapshotRecord,
+    conversation_steering::ConversationSteeringRecord,
     conversation_tool::{ConversationToolCallRecord, UpsertConversationToolCall},
     conversation_turn::ConversationTurnRecord,
 };
@@ -61,7 +64,7 @@ impl ConversationEventAppender {
         }
     }
 
-    async fn append_and_apply(
+    pub(crate) async fn append_and_apply(
         conn: &mut SqliteConnection,
         input: AppendConversationEvent<'_>,
     ) -> Result<ConversationEventRecord, sqlx::Error> {
@@ -105,6 +108,252 @@ impl ConversationStateApplier {
         };
 
         match event {
+            ConversationEvent::ConversationInput { event } => match event {
+                agents::ConversationInputEvent::Submitted {
+                    input_id,
+                    operation_id,
+                    revision,
+                    sort_key,
+                    payload_digest,
+                    payload,
+                    principal,
+                } => {
+                    if revision != 1 {
+                        return Err(projection_conflict(format!(
+                            "input {input_id} submission revision must be 1"
+                        )));
+                    }
+                    let payload_json = json_string(&payload)?;
+                    let principal_json = json_string(&principal)?;
+                    ConversationInputRecord::create_on_connection(
+                        conn,
+                        CreateConversationInput {
+                            id: input_id,
+                            conversation_id: record.conversation_id,
+                            operation_id,
+                            payload_digest: &payload_digest,
+                            payload_json: &payload_json,
+                            principal_json: &principal_json,
+                            sort_key,
+                        },
+                    )
+                    .await?;
+                }
+                agents::ConversationInputEvent::Updated {
+                    input_id,
+                    revision,
+                    payload_digest,
+                    payload,
+                } => {
+                    let payload_json = json_string(&payload)?;
+                    let revision = event_revision(revision)?;
+                    require_input_projection(
+                        input_id,
+                        "update",
+                        ConversationInputRecord::update_payload_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            revision,
+                            &payload_digest,
+                            &payload_json,
+                        )
+                        .await?,
+                    )?;
+                }
+                agents::ConversationInputEvent::Reordered {
+                    input_id,
+                    revision,
+                    sort_key,
+                } => {
+                    let revision = event_revision(revision)?;
+                    require_input_projection(
+                        input_id,
+                        "reorder",
+                        ConversationInputRecord::reorder_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            revision,
+                            sort_key,
+                        )
+                        .await?,
+                    )?;
+                }
+                agents::ConversationInputEvent::Claimed {
+                    input_id,
+                    claim_token,
+                    claim_deadline,
+                } => {
+                    require_input_projection(
+                        input_id,
+                        "claim",
+                        ConversationInputRecord::claim_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            claim_token,
+                            claim_deadline,
+                        )
+                        .await?,
+                    )?;
+                }
+                agents::ConversationInputEvent::ClaimReleased {
+                    input_id,
+                    claim_token,
+                } => {
+                    require_input_projection(
+                        input_id,
+                        "release claim",
+                        ConversationInputRecord::release_claim_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            claim_token,
+                        )
+                        .await?,
+                    )?;
+                }
+                agents::ConversationInputEvent::Dispatched {
+                    input_id,
+                    claim_token,
+                    turn_id,
+                } => {
+                    require_input_projection(
+                        input_id,
+                        "dispatch",
+                        ConversationInputRecord::dispatch_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            claim_token,
+                            turn_id,
+                        )
+                        .await?,
+                    )?;
+                }
+                agents::ConversationInputEvent::Cancelled { input_id, revision } => {
+                    let revision = event_revision(revision)?;
+                    require_input_projection(
+                        input_id,
+                        "cancel",
+                        ConversationInputRecord::cancel_on_connection(
+                            conn,
+                            record.conversation_id,
+                            input_id,
+                            revision,
+                        )
+                        .await?,
+                    )?;
+                }
+            },
+            ConversationEvent::ConversationSteering { event } => match event {
+                agents::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    operation_id,
+                    expected_turn_id,
+                    payload_digest,
+                    blocks,
+                    principal,
+                } => {
+                    let blocks_json = json_string(&blocks)?;
+                    let principal_json = json_string(&principal)?;
+                    ConversationSteeringRecord::create_on_connection(
+                        conn,
+                        db::models::conversation_steering::CreateConversationSteering {
+                            id: steering_id,
+                            conversation_id: record.conversation_id,
+                            operation_id,
+                            expected_turn_id,
+                            payload_digest: &payload_digest,
+                            blocks_json: &blocks_json,
+                            principal_json: &principal_json,
+                        },
+                    )
+                    .await?;
+                }
+                agents::ConversationSteeringEvent::Accepted {
+                    steering_id,
+                    expected_turn_id,
+                } => {
+                    ConversationSteeringRecord::settle_on_connection(
+                        conn,
+                        record.conversation_id,
+                        steering_id,
+                        expected_turn_id,
+                        "accepted",
+                        None,
+                        None,
+                    )
+                    .await?;
+                }
+                agents::ConversationSteeringEvent::Rejected {
+                    steering_id,
+                    expected_turn_id,
+                    code,
+                    message,
+                } => {
+                    ConversationSteeringRecord::settle_on_connection(
+                        conn,
+                        record.conversation_id,
+                        steering_id,
+                        expected_turn_id,
+                        "rejected",
+                        Some(&code),
+                        Some(&message),
+                    )
+                    .await?;
+                }
+                agents::ConversationSteeringEvent::Unknown {
+                    steering_id,
+                    expected_turn_id,
+                    message,
+                } => {
+                    ConversationSteeringRecord::settle_on_connection(
+                        conn,
+                        record.conversation_id,
+                        steering_id,
+                        expected_turn_id,
+                        "unknown",
+                        Some("delivery_unknown"),
+                        Some(&message),
+                    )
+                    .await?;
+                }
+            },
+            ConversationEvent::ConversationRelationCreated {
+                relation_id,
+                parent_conversation_id,
+                child_conversation_id,
+                relation_kind,
+                visibility,
+                metadata,
+            } => {
+                if parent_conversation_id != record.conversation_id {
+                    return Err(projection_conflict(format!(
+                        "relation {relation_id} parent does not match its event stream"
+                    )));
+                }
+                let relation_kind = match relation_kind {
+                    agents::ConversationRelationKind::Delegation => "delegation",
+                    agents::ConversationRelationKind::Fork => "fork",
+                    agents::ConversationRelationKind::WorkflowStep => "workflow_step",
+                };
+                let visibility = match visibility {
+                    agents::ConversationRelationVisibility::Visible => "visible",
+                    agents::ConversationRelationVisibility::Hidden => "hidden",
+                };
+                ConversationRelationRecord::create_on_connection(
+                    conn,
+                    relation_id,
+                    parent_conversation_id,
+                    child_conversation_id,
+                    relation_kind,
+                    visibility,
+                    &json_string(&metadata)?,
+                )
+                .await?;
+            }
             ConversationEvent::UserTurnQueued => {
                 if let Some(turn_id) = record.turn_id {
                     ConversationTurnRecord::mark_queued(&mut *conn, turn_id).await?;
@@ -437,6 +686,8 @@ impl ConversationProjector {
         // carry the user's input from create_pending); their status is re-derived by
         // replaying the status events below.
         for table in [
+            "conversation_inputs",
+            "conversation_steering",
             "conversation_tool_calls",
             "conversation_permissions",
             "conversation_terminals",
@@ -447,6 +698,10 @@ impl ConversationProjector {
                 .execute(&mut *conn)
                 .await?;
         }
+        sqlx::query("DELETE FROM conversation_relations WHERE parent_conversation_id = ?")
+            .bind(conversation_id)
+            .execute(&mut *conn)
+            .await?;
 
         let events =
             ConversationEventRecord::events_since(&mut *conn, conversation_id, 0, i64::MAX).await?;
@@ -824,12 +1079,15 @@ impl ProjectionFold {
                                     tool_name,
                                     kind,
                                     input_preview,
+                                    images,
                                     ..
-                                } if *id == call_id => Some((tool_name, kind, input_preview)),
+                                } if *id == call_id => {
+                                    Some((tool_name, kind, input_preview, images))
+                                }
                                 _ => None,
                             });
                     match existing_use {
-                        Some((tool_name, kind, input_preview)) => {
+                        Some((tool_name, kind, input_preview, images)) => {
                             if let Some(title) = tool_call.title {
                                 *tool_name = title;
                             }
@@ -838,6 +1096,9 @@ impl ProjectionFold {
                             }
                             if let Some(raw) = tool_call.raw_input {
                                 *input_preview = Some(raw.to_string());
+                            }
+                            if !tool_call.images.is_empty() {
+                                *images = tool_call.images.clone();
                             }
                         }
                         None => {
@@ -854,6 +1115,7 @@ impl ProjectionFold {
                                     .as_ref()
                                     .map(|value| value.to_string()),
                                 meta: tool_call.metadata.clone(),
+                                images: tool_call.images.clone(),
                             });
                         }
                     }
@@ -1480,6 +1742,29 @@ fn json_string_ref<T: Serialize>(value: &Option<T>) -> Result<Option<String>, sq
 
 fn json_decode_error(error: serde_json::Error) -> sqlx::Error {
     sqlx::Error::Decode(Box::new(error))
+}
+
+fn event_revision(revision: u64) -> Result<i64, sqlx::Error> {
+    i64::try_from(revision)
+        .map_err(|_| projection_conflict(format!("input revision {revision} exceeds i64")))
+}
+
+fn require_input_projection(
+    input_id: Uuid,
+    operation: &str,
+    applied: bool,
+) -> Result<(), sqlx::Error> {
+    if applied {
+        Ok(())
+    } else {
+        Err(projection_conflict(format!(
+            "cannot {operation} conversation input {input_id} from its current state"
+        )))
+    }
+}
+
+fn projection_conflict(message: String) -> sqlx::Error {
+    sqlx::Error::Protocol(message)
 }
 
 #[cfg(test)]
@@ -2331,16 +2616,22 @@ mod tests {
             other => panic!("expected AppendText, got {other:?}"),
         }
 
-        let completed = append_event(
+        let failed = append_event(
             &pool,
             conversation_id,
             Some(turn_id),
             "runtime",
-            ConversationEvent::TurnCompleted { stop_reason: None },
+            ConversationEvent::TurnFailed {
+                error: ConversationError {
+                    message: "ACP connection closed".into(),
+                    code: Some("connection_closed".into()),
+                    raw: None,
+                },
+            },
             None,
         )
         .await;
-        let ops = projector.apply(&completed).expect("ops");
+        let ops = projector.apply(&failed).expect("ops");
         // The terminal event upserts the full assistant row — folded text included —
         // at the terminal sequence, flushing the streamed deltas authoritatively.
         let assistant = ops.iter().find_map(|op| match op {
@@ -2349,8 +2640,8 @@ mod tests {
             }
             _ => None,
         });
-        let assistant = assistant.expect("assistant row upserted on turn completion");
-        assert_eq!(assistant.revision, completed.sequence);
+        let assistant = assistant.expect("assistant row upserted on turn failure");
+        assert_eq!(assistant.revision, failed.sequence);
         match &assistant.row {
             ConversationTimelineRow::MessageTurn { turn, phase } => {
                 assert_eq!(phase, "settled");
@@ -2778,6 +3069,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn timeline_preserves_images_viewed_by_a_tool_call() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "view-image-1".into(),
+                    title: Some("View image".into()),
+                    kind: Some("read".into()),
+                    status: Some("completed".into()),
+                    raw_input: Some(serde_json::json!({"path": "assets/logo.png"})),
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: vec![agents::conversation::ImageData {
+                        data: "AAAA".into(),
+                        mime_type: "image/png".into(),
+                        uri: Some("assets/logo.png".into()),
+                    }],
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let images = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(&turn.blocks)
+                }
+                _ => None,
+            })
+            .flatten()
+            .find_map(|block| match block {
+                ContentBlock::ToolUse { images, .. } => Some(images),
+                _ => None,
+            })
+            .expect("tool images");
+
+        assert_eq!(images[0].data, "AAAA");
+        assert_eq!(images[0].mime_type, "image/png");
+    }
+
+    #[tokio::test]
     async fn conversation_side_effect_projection_updates_state_tables() {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
@@ -3082,6 +3431,7 @@ mod tests {
                 delegation_id: delegation_id.into(),
                 agent_id: AgentId::parse("codex").unwrap(),
                 prompt: "Review the diff".into(),
+                policy: serde_json::json!({"workspaceAccess": "write_serialized"}),
             },
         )
         .await
@@ -3149,6 +3499,18 @@ mod tests {
             .expect("child exists");
         assert_eq!(child.parent_session_id, Some(parent_conversation_id));
         assert_eq!(child.parent_tool_use_id.as_deref(), Some("tool-1"));
+        let relation = ConversationRelationRecord::find(
+            &pool,
+            parent_conversation_id,
+            child_conversation_id,
+            "delegation",
+        )
+        .await
+        .expect("find relation")
+        .expect("relation exists");
+        let metadata: serde_json::Value =
+            serde_json::from_str(&relation.metadata_json).expect("relation metadata");
+        assert_eq!(metadata["policy"]["workspaceAccess"], "write_serialized");
     }
 
     #[tokio::test]

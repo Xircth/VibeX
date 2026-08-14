@@ -180,9 +180,7 @@ describe('PluginActionEditor', () => {
     expect(
       screen.queryByRole('status', { name: 'OfficeCLI 安装进度' })
     ).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(onReadyChange).toHaveBeenLastCalledWith(true)
-    );
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
     expect(call).toHaveBeenCalledTimes(3);
   });
 

@@ -6,9 +6,11 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatToolCalls, type ChatToolCallItem } from '@astryxdesign/core/Chat';
+import { ChevronDown, Images } from 'lucide-react';
 import type {
   ActionType,
   FileChange,
+  ImageData,
   MessageTurn,
   TaskWithAttemptStatus,
 } from 'shared/types';
@@ -21,6 +23,9 @@ import { getToolChatStatus, ToolCallResultDetail } from './tools/ToolCardShell';
 import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
 import { resolveToolFilePath } from './tools/FileToolCard';
+import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
+import { useExpandable } from '@/stores/useExpandableStore';
+import { cn } from '@/lib/utils';
 
 type ToolSummaryCategory =
   | 'commands'
@@ -42,6 +47,85 @@ const SUMMARY_ORDER: ToolSummaryCategory[] = [
 ];
 
 type FileReadAction = Extract<ActionType, { action: 'file_read' }>;
+
+type ViewedImage = {
+  key: string;
+  image: ImageData;
+  path: string;
+};
+
+function imageSource(image: ImageData): string | null {
+  if (image.data) return `data:${image.mime_type};base64,${image.data}`;
+  return image.uri ?? null;
+}
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function ViewedImages({
+  expansionKey,
+  images,
+}: {
+  expansionKey: string;
+  images: ViewedImage[];
+}) {
+  const { t } = useTranslation('conversation');
+  const [expanded, toggle] = useExpandable(expansionKey, false);
+  const openImagePreview = useOpenImagePreview();
+
+  return (
+    <section className="rounded-lg bg-card text-foreground">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-expanded={expanded}
+        onClick={() => toggle()}
+      >
+        <Images className="h-4 w-4" aria-hidden="true" />
+        <span>{t('viewedImages.summary', { count: images.length })}</span>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 transition-transform motion-reduce:transition-none',
+            expanded ? 'rotate-0' : '-rotate-90'
+          )}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded ? (
+        <div className="flex flex-wrap gap-2 px-2 pb-2" role="list">
+          {images.map(({ key, image, path }) => {
+            const src = imageSource(image);
+            if (!src) return null;
+            return (
+              <div key={key} role="listitem">
+                <button
+                  type="button"
+                  className="h-24 w-24 overflow-hidden rounded-lg border border-border bg-muted/30 p-1 hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={path}
+                  aria-label={t('viewedImages.preview', { path })}
+                  onClick={() =>
+                    openImagePreview({
+                      imageUrl: src,
+                      altText: path,
+                      fileName: fileName(path),
+                    })
+                  }
+                >
+                  <img
+                    src={src}
+                    alt={path}
+                    className="h-full w-full rounded-md object-contain"
+                  />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 function FileReadStats({
   action,
@@ -169,6 +253,7 @@ export function TurnToolCalls({
             entry: toolBlockToNormalizedEntry(item.use, item.result, timestamp),
             index,
             toolUseId: item.use.tool_use_id,
+            images: item.use.images ?? [],
           },
         ];
       }),
@@ -179,7 +264,8 @@ export function TurnToolCalls({
     const next = Object.fromEntries(
       SUMMARY_ORDER.map((category) => [category, 0])
     ) as Record<ToolSummaryCategory, number>;
-    for (const { entry } of entries) {
+    for (const { entry, images } of entries) {
+      if (images.length > 0) continue;
       if (entry.entry_type.type !== 'tool_use') continue;
       next[summaryCategory(entry.entry_type.action_type.action)] += 1;
     }
@@ -196,8 +282,9 @@ export function TurnToolCalls({
       : []
   ).join(t('messageTurnView.toolSummary.separator'));
 
-  const calls: ChatToolCallItem[] = entries.map(
-    ({ entry, index, toolUseId }) => {
+  const calls: ChatToolCallItem[] = entries.flatMap(
+    ({ entry, index, toolUseId, images }) => {
+      if (images.length > 0) return [];
       if (entry.entry_type.type !== 'tool_use') {
         throw new Error('Turn tool aggregate received a non-tool entry');
       }
@@ -209,50 +296,76 @@ export function TurnToolCalls({
         action.action === 'file_edit'
           ? fileEditStats(action.changes)
           : { additions: undefined, deletions: undefined };
-      return {
-        key: toolUseId || expansionKey,
-        name: summary.label,
-        target:
+      return [
+        {
+          key: toolUseId || expansionKey,
+          name: summary.label,
+          target:
+            action.action === 'file_read'
+              ? undefined
+              : summary.detail || entry.content.trim() || undefined,
+          additions: editStats.additions,
+          deletions: editStats.deletions,
+          stats:
+            action.action === 'file_read' ? (
+              <FileReadStats
+                action={action}
+                workspacePath={workspacePath ?? attempt.container_ref}
+              />
+            ) : undefined,
+          status: getToolChatStatus(toolEntry.status),
+          errorMessage:
+            toolEntry.status.status === 'failed'
+              ? t('messageTurnView.toolSummary.failed')
+              : undefined,
+          resultDetail: (
+            <ToolCallResultDetail>
+              <DisplayConversationEntry
+                entry={entry}
+                expansionKey={expansionKey}
+                taskAttempt={attempt}
+                task={task ?? undefined}
+                toolDetailOnly
+              />
+            </ToolCallResultDetail>
+          ),
+        },
+      ];
+    }
+  );
+
+  const viewedImages = entries.flatMap(
+    ({ entry, toolUseId, images }, entryIndex): ViewedImage[] => {
+      if (images.length === 0 || entry.entry_type.type !== 'tool_use')
+        return [];
+      const action = entry.entry_type.action_type;
+      return images.map((image, imageIndex) => ({
+        key: `${toolUseId ?? entryIndex}:${imageIndex}`,
+        image,
+        path:
           action.action === 'file_read'
-            ? undefined
-            : summary.detail || entry.content.trim() || undefined,
-        additions: editStats.additions,
-        deletions: editStats.deletions,
-        stats:
-          action.action === 'file_read' ? (
-            <FileReadStats
-              action={action}
-              workspacePath={workspacePath ?? attempt.container_ref}
-            />
-          ) : undefined,
-        status: getToolChatStatus(toolEntry.status),
-        errorMessage:
-          toolEntry.status.status === 'failed'
-            ? t('messageTurnView.toolSummary.failed')
-            : undefined,
-        resultDetail: (
-          <ToolCallResultDetail>
-            <DisplayConversationEntry
-              entry={entry}
-              expansionKey={expansionKey}
-              taskAttempt={attempt}
-              task={task ?? undefined}
-              toolDetailOnly
-            />
-          </ToolCallResultDetail>
-        ),
-      };
+            ? action.path
+            : image.uri || t('viewedImages.image', { count: imageIndex + 1 }),
+      }));
     }
   );
 
   return (
-    <div className="conv-entry-item vibex-turn-tool-calls">
-      <ChatToolCalls
-        calls={calls}
-        label={label}
-        alwaysGroup
-        defaultIsExpanded={false}
-      />
+    <div className="conv-entry-item vibex-turn-tool-calls space-y-1">
+      {viewedImages.length > 0 ? (
+        <ViewedImages
+          expansionKey={`viewed-images:${turnId}:${offset}`}
+          images={viewedImages}
+        />
+      ) : null}
+      {calls.length > 0 ? (
+        <ChatToolCalls
+          calls={calls}
+          label={label}
+          alwaysGroup
+          defaultIsExpanded={false}
+        />
+      ) : null}
     </div>
   );
 }

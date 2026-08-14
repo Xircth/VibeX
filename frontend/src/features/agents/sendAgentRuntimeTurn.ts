@@ -2,7 +2,8 @@ import type { AgentId, ExecutorProfileId } from 'shared/types';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import type {
   AgentSessionConfigOverride,
-  ConversationTurnSnapshot,
+  ConversationInputSubmission,
+  ConversationInputPayload,
 } from 'shared/types';
 import type { ConversationPluginActionInvocation } from '@/features/conversation/conversationApi';
 
@@ -40,17 +41,18 @@ export async function sendAgentRuntimeTurn({
   modeOverride,
   configOverrides,
   pluginActions,
-}: AgentRuntimeTurnInput): Promise<ConversationTurnSnapshot> {
-  return conversationApi.startTurn({
+}: AgentRuntimeTurnInput): Promise<ConversationInputSubmission> {
+  const payload: ConversationInputPayload = {
     agentId: agentTypeFromExecutor(executorProfileId.executor),
     workspaceId,
-    conversationId: sessionId,
-    executorProfileId,
+    executorProfileId:
+      executorProfileId as unknown as ConversationInputPayload['executorProfileId'],
     text,
     displayText: displayText ?? text,
     images,
     modeOverride: modeOverride ?? null,
     configOverrides: configOverrides ?? [],
     pluginActions: pluginActions ?? [],
-  });
+  };
+  return conversationApi.submitInput(sessionId, payload);
 }

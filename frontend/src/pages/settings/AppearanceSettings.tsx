@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AppWindow,
   Languages,
   LayoutGrid,
   Loader2,
@@ -19,6 +20,13 @@ import {
   type UiLanguage,
 } from '@/lib/uiLanguage';
 import { useTheme } from '@/components/ThemeProvider';
+import {
+  APP_ICON_STYLES,
+  getAppIconStyle,
+  resolveAppLogo,
+  setAppIconStyle,
+  type AppIconStyle,
+} from '@/lib/appIcon';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Label } from '@/components/ui/label';
 import {
@@ -50,7 +58,7 @@ import {
 
 export function AppearanceSettings() {
   const { config, loading, updateAndSaveConfig } = useUserSystem();
-  const { setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const { t } = useTranslation('settings');
   const [draft, setDraft] = useState<Config | null>(() =>
     config ? structuredClone(config) : null
@@ -59,6 +67,9 @@ export function AppearanceSettings() {
   const [zoom, setZoom] = useState<number>(() => getUiZoom());
   const [language, setLanguage] = useState<UiLanguage>(() => getUiLanguage());
   const [monoFont, setMonoFontState] = useState<string>(() => getMonoFontId());
+  const [appIconStyle, setAppIconStyleState] = useState<AppIconStyle>(() =>
+    getAppIconStyle()
+  );
   const savedWorkspaceArrangement = useLayoutArrangement();
   const savedKanbanArrangement = useKanbanArrangement();
   const [workspaceArrangementDraft, setWorkspaceArrangementDraft] = useState(
@@ -178,6 +189,48 @@ export function AppearanceSettings() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={AppWindow}
+          title={t('appearance.appIcon.title')}
+          description={t('appearance.appIcon.description')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('appearance.appIcon.label')}</Label>
+              <p className="settings-row__description">
+                {t('appearance.appIcon.hint')}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <img
+                src={resolveAppLogo(appIconStyle, resolvedTheme)}
+                alt=""
+                aria-hidden="true"
+                className="h-10 w-10 shrink-0 object-contain"
+              />
+              <Select
+                value={appIconStyle}
+                onValueChange={(value) => {
+                  const next = value as AppIconStyle;
+                  setAppIconStyleState(next);
+                  setAppIconStyle(next);
+                }}
+              >
+                <SelectTrigger className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {APP_ICON_STYLES.map((style) => (
+                    <SelectItem key={style} value={style}>
+                      {t(`appearance.appIcon.styles.${style}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </SettingsSection>
 

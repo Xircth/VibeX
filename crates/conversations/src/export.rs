@@ -294,6 +294,7 @@ mod tests {
                         kind: None,
                         input_preview: Some("auth.ts".into()),
                         meta: None,
+                        images: Vec::new(),
                     },
                 ],
             ),

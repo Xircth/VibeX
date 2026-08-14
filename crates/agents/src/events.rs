@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     AgentId,
-    conversation::SessionLoadFailureReason,
+    conversation::{ImageData, SessionLoadFailureReason},
     elicitation::{AgentElicitationRequest, AgentElicitationResponse},
     ids::{
         AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
@@ -58,6 +58,25 @@ pub enum AgentContentBlock {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentSteerOutcome {
+    Injected,
+    PromptRequired,
+    StartedNewTurn,
+}
+
+/// Protocol-neutral acknowledgement for one in-flight steering request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct AgentSteerReceipt {
+    pub outcome: AgentSteerOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentToolCall {
@@ -69,6 +88,8 @@ pub struct AgentToolCall {
     pub input_preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -85,6 +106,8 @@ pub struct AgentToolCallUpdate {
     pub input_preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageData>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -504,6 +527,7 @@ mod tests {
                     kind: Some("edit".to_string()),
                     input_preview: Some("{}".to_string()),
                     meta: None,
+                    images: Vec::new(),
                 },
             },
             AgentEvent::ToolCallUpdate {
@@ -513,6 +537,7 @@ mod tests {
                     content: Some("ok".to_string()),
                     input_preview: None,
                     meta: None,
+                    images: Vec::new(),
                 },
             },
             AgentEvent::SessionLoadFailed {

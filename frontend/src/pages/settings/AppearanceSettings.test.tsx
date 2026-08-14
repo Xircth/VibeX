@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   config: { theme: 'SYSTEM' as Config['theme'] } as Config,
   updateAndSaveConfig: vi.fn(),
   setTheme: vi.fn(),
+  setAppIconStyle: vi.fn(),
   backendEmit: vi.fn(),
   setUiZoom: vi.fn(),
   setMonoFont: vi.fn(),
@@ -26,7 +27,14 @@ vi.mock('@/components/ConfigProvider', () => ({
 }));
 
 vi.mock('@/components/ThemeProvider', () => ({
-  useTheme: () => ({ setTheme: mocks.setTheme }),
+  useTheme: () => ({ setTheme: mocks.setTheme, resolvedTheme: 'light' }),
+}));
+
+vi.mock('@/lib/appIcon', () => ({
+  APP_ICON_STYLES: ['default', 'lite'],
+  getAppIconStyle: () => 'default',
+  resolveAppLogo: () => '/app-logo-light-default.png',
+  setAppIconStyle: mocks.setAppIconStyle,
 }));
 
 vi.mock('@/lib/backendTransport', () => ({
@@ -101,15 +109,15 @@ describe('AppearanceSettings', () => {
     render(<AppearanceSettings />);
     const selects = screen.getAllByRole('combobox');
 
-    await user.click(selects[1]);
+    await user.click(selects[2]);
     await user.click(screen.getByRole('option', { name: '110%' }));
     expect(mocks.setUiZoom).toHaveBeenCalledWith(1.1);
 
-    await user.click(selects[2]);
+    await user.click(selects[3]);
     await user.click(screen.getByRole('option', { name: 'Menlo' }));
     expect(mocks.setMonoFont).toHaveBeenCalledWith('menlo');
 
-    await user.click(selects[3]);
+    await user.click(selects[4]);
     await user.click(screen.getByRole('option', { name: 'English' }));
     expect(mocks.setUiLanguage).toHaveBeenCalledWith('en');
 
@@ -126,5 +134,17 @@ describe('AppearanceSettings', () => {
     expect(mocks.backendEmit).toHaveBeenCalledWith('theme-changed', {
       theme: ThemeMode.DARK,
     });
+  });
+
+  it('applies and remembers the selected application icon style', async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByText('应用图标')).toBeInTheDocument();
+    const selects = screen.getAllByRole('combobox');
+    await user.click(selects[1]);
+    await user.click(screen.getByRole('option', { name: '纯标记' }));
+
+    expect(mocks.setAppIconStyle).toHaveBeenCalledWith('lite');
   });
 });

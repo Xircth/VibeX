@@ -3,8 +3,12 @@ use agents::{
 };
 use async_trait::async_trait;
 use conversations::{
-    ConversationContext, ConversationServiceError, ConversationSessionService,
-    ConversationStartTurnInput, ConversationTurnSnapshot,
+    CancelConversationInput, ConversationContext, ConversationInputControl,
+    ConversationInputControlError, ConversationInputSubmission, ConversationInputView,
+    ConversationRelationControl, ConversationRelationView, ConversationServiceError,
+    ConversationSessionService, ConversationStartTurnInput, ConversationSteerInput,
+    ConversationSteeringReceipt, ConversationTurnSnapshot, ReorderConversationInput,
+    SubmitConversationInput, UpdateConversationInput,
 };
 use executors::profile::ExecutorProfileId;
 
@@ -15,13 +19,31 @@ use crate::{
 
 pub struct ConversationSessionExecutionPort {
     service: ConversationSessionService,
+    inputs: ConversationInputControl,
+    relations: ConversationRelationControl,
 }
 
 impl ConversationSessionExecutionPort {
     pub fn new(context: ConversationContext) -> Self {
+        let inputs = ConversationInputControl::with_publisher(
+            context.deployment.db().pool.clone(),
+            context.event_publisher.clone(),
+        );
         Self {
+            relations: ConversationRelationControl::new(context.deployment.db().pool.clone()),
             service: ConversationSessionService::new(context),
+            inputs,
         }
+    }
+
+    pub async fn dispatch_next_queued_input(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Option<ConversationTurnSnapshot>, ApplicationError> {
+        self.service
+            .dispatch_next_queued_input(conversation_id)
+            .await
+            .map_err(map_service_error)
     }
 }
 
@@ -63,6 +85,7 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                         action_id: invocation.action_id,
                     })
                     .collect(),
+                queued_input_claim: None,
             })
             .await
             .map(|(turn, _)| turn)
@@ -99,6 +122,78 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
             .await
             .map_err(map_service_error)
     }
+
+    async fn steer(
+        &self,
+        request: ConversationSteerInput,
+    ) -> Result<ConversationSteeringReceipt, ApplicationError> {
+        self.service.steer(request).await.map_err(map_service_error)
+    }
+
+    async fn submit_input(
+        &self,
+        request: SubmitConversationInput,
+    ) -> Result<ConversationInputSubmission, ApplicationError> {
+        let conversation_id = request.conversation_id;
+        let submitted = self.inputs.submit(request).await.map_err(map_input_error)?;
+        let dispatched = self.dispatch_next_queued_input(conversation_id).await?;
+        let input = self
+            .inputs
+            .find(conversation_id, submitted.id)
+            .await
+            .map_err(map_input_error)?;
+        let turn = match (dispatched, input.turn_id) {
+            (Some(turn), _) => Some(turn),
+            (None, Some(turn_id)) => self
+                .service
+                .turn_snapshot(turn_id)
+                .await
+                .map_err(map_service_error)?,
+            (None, None) => None,
+        };
+        Ok(ConversationInputSubmission { input, turn })
+    }
+
+    async fn list_inputs(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Vec<ConversationInputView>, ApplicationError> {
+        self.inputs
+            .list(conversation_id)
+            .await
+            .map_err(map_input_error)
+    }
+
+    async fn list_relations(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Vec<ConversationRelationView>, ApplicationError> {
+        self.relations
+            .list_children(conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn update_input(
+        &self,
+        request: UpdateConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        self.inputs.update(request).await.map_err(map_input_error)
+    }
+
+    async fn reorder_input(
+        &self,
+        request: ReorderConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        self.inputs.reorder(request).await.map_err(map_input_error)
+    }
+
+    async fn cancel_input(
+        &self,
+        request: CancelConversationInput,
+    ) -> Result<ConversationInputView, ApplicationError> {
+        self.inputs.cancel(request).await.map_err(map_input_error)
+    }
 }
 
 fn map_service_error(error: ConversationServiceError) -> ApplicationError {
@@ -107,5 +202,27 @@ fn map_service_error(error: ConversationServiceError) -> ApplicationError {
         ConversationServiceError::BadRequest(message) => ApplicationError::bad_request(message),
         ConversationServiceError::Conflict(message) => ApplicationError::conflict(message),
         ConversationServiceError::Internal(message) => ApplicationError::internal(message),
+    }
+}
+
+fn map_input_error(error: ConversationInputControlError) -> ApplicationError {
+    match error {
+        ConversationInputControlError::NotFound(_) => {
+            ApplicationError::not_found(error.to_string())
+        }
+        ConversationInputControlError::EmptyInput
+        | ConversationInputControlError::InputTooLarge { .. } => {
+            ApplicationError::bad_request(error.to_string())
+        }
+        ConversationInputControlError::OperationConflict { .. }
+        | ConversationInputControlError::StateConflict { .. }
+        | ConversationInputControlError::RevisionOverflow => {
+            ApplicationError::conflict(error.to_string())
+        }
+        ConversationInputControlError::InvalidStatus(_)
+        | ConversationInputControlError::Serialization(_)
+        | ConversationInputControlError::Database(_) => {
+            ApplicationError::internal(error.to_string())
+        }
     }
 }

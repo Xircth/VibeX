@@ -1,4 +1,4 @@
-use remote_protocol::ServerCapabilities;
+use remote_protocol::{OperationId, ServerCapabilities};
 use serde_json::Value;
 
 use crate::{error::AppError, remote_desktop::RemoteDesktopProfileInput, state::AppState};
@@ -40,10 +40,15 @@ pub async fn remote_desktop_call(
     profile_id: String,
     command: String,
     args: Value,
+    operation_id: Option<String>,
 ) -> Result<Value, AppError> {
+    let operation_id = operation_id
+        .map(|value| OperationId::parse(&value))
+        .transpose()
+        .map_err(|error| AppError::BadRequest(format!("invalid operation id: {error}")))?;
     state
         .remote_desktop
-        .call(window.label(), &profile_id, &command, args)
+        .call(window.label(), &profile_id, &command, args, operation_id)
         .await
 }
 

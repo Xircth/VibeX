@@ -274,7 +274,7 @@ describe('session composer submit helpers', () => {
     ).toBe(false);
   });
 
-  it('selects the submit shortcut side effect without duplicating queued work', () => {
+  it('allows multiple durable follow-ups while a turn is running', () => {
     expect(
       getSubmitShortcutAction({ isAttemptRunning: false, isQueued: false })
     ).toBe('send');
@@ -283,7 +283,7 @@ describe('session composer submit helpers', () => {
     ).toBe('queue');
     expect(
       getSubmitShortcutAction({ isAttemptRunning: true, isQueued: true })
-    ).toBe('none');
+    ).toBe('queue');
   });
 
   it('treats a streaming canonical turn as active while legacy process state lags', () => {

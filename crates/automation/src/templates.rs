@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     AgentSelectionIntent, AutomationDraftInput, IsolationSpec, ScheduleSpec, TurnLaunchSpecInput,
-    WorkspaceTarget,
+    WorkflowLaunchSpec, WorkspaceTarget,
 };
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -15,6 +15,15 @@ pub struct AutomationDraft {
     pub enabled: bool,
     pub trigger: ScheduleSpec,
     pub launch: AutomationDraftInput,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowAutomationDraft {
+    pub name: String,
+    pub enabled: bool,
+    pub trigger: ScheduleSpec,
+    pub launch: WorkflowLaunchSpec,
 }
 
 #[derive(Clone, Debug, PartialEq)]

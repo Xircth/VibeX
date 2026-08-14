@@ -1,49 +1,33 @@
-import type { ExecutorProfileId } from 'shared/types';
+import type { ConversationInputView, ExecutorProfileId } from 'shared/types';
 import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
 
-export const QUEUE_STATUS_QUERY_KEY = 'queue-status';
+export const QUEUE_STATUS_QUERY_KEY = 'conversation-inputs';
 
 export type QueueStatusQueryKey = readonly [
   typeof QUEUE_STATUS_QUERY_KEY,
   string | undefined,
 ];
 
-export type QueueMutationInput = {
-  sessionId: string;
-  message: string;
-  agentMessage?: string;
-  images: string[];
-  executorProfileId: ExecutorProfileId;
-  pluginActions: SessionComposerPluginActionInvocation[];
-};
-
-export type CancelQueueMutationInput = {
-  sessionId: string;
-};
-
 export type QueuedMessage = {
-  id?: string;
-  session_id?: string;
-  sequence?: number;
-  created_at?: string;
-  updated_at?: string;
+  id: string;
+  session_id: string;
+  revision: bigint;
+  sortKey: bigint;
+  status: 'queued' | 'claimed';
+  created_at: string;
+  updated_at: string;
   executorProfileId: ExecutorProfileId;
   data: {
     message: string;
     agentMessage?: string;
     images: string[];
-    pluginActions?: SessionComposerPluginActionInvocation[];
+    pluginActions: SessionComposerPluginActionInvocation[];
   };
 };
 
 export type QueueStatus =
-  | {
-      status: 'queued';
-      message: QueuedMessage;
-    }
-  | {
-      status: 'empty';
-    };
+  | { status: 'queued'; messages: QueuedMessage[] }
+  | { status: 'empty'; messages: [] };
 
 export function getQueueStatusQueryKey(
   sessionId: string | undefined
@@ -51,79 +35,51 @@ export function getQueueStatusQueryKey(
   return [QUEUE_STATUS_QUERY_KEY, sessionId];
 }
 
-export function buildQueueMutationInput({
-  sessionId,
-  message,
-  agentMessage,
-  images,
-  executorProfileId,
-  pluginActions = [],
-}: {
-  sessionId: string | undefined;
-  message: string;
-  agentMessage?: string;
-  images: string[];
-  executorProfileId: ExecutorProfileId;
-  pluginActions?: SessionComposerPluginActionInvocation[];
-}): QueueMutationInput | null {
-  if (!sessionId) return null;
-
+export function inputViewToQueuedMessage(
+  input: ConversationInputView
+): QueuedMessage {
+  const displayText = input.payload.displayText ?? input.payload.text;
+  const executorProfileId = (input.payload.executorProfileId ?? {
+    executor: input.payload.agentId,
+  }) as unknown as ExecutorProfileId;
   return {
-    sessionId,
-    message,
-    agentMessage,
-    images,
+    id: input.id,
+    session_id: input.conversationId,
+    revision: BigInt(input.revision),
+    sortKey: BigInt(input.sortKey),
+    status: input.status === 'claimed' ? 'claimed' : 'queued',
+    created_at: input.createdAt,
+    updated_at: input.updatedAt,
     executorProfileId,
-    pluginActions,
+    data: {
+      message: displayText,
+      agentMessage:
+        displayText === input.payload.text ? undefined : input.payload.text,
+      images: input.payload.images ?? [],
+      pluginActions: input.payload.pluginActions ?? [],
+    },
   };
-}
-
-export function buildCancelQueueMutationInput(
-  sessionId: string | undefined
-): CancelQueueMutationInput | null {
-  if (!sessionId) return null;
-  return { sessionId };
-}
-
-export type QueueSnapshot = {
-  isQueued: boolean;
-  queuedMessage: QueuedMessage | null;
-};
-
-export function getQueueSnapshot(
-  status: QueueStatus | undefined
-): QueueSnapshot {
-  if (status?.status !== 'queued') {
-    return { isQueued: false, queuedMessage: null };
-  }
-
-  return { isQueued: true, queuedMessage: status.message };
-}
-
-export function getVisibleQueuedMessage(
-  status: QueueStatus | undefined,
-  isAttemptRunning: boolean
-): QueuedMessage | null {
-  if (!isAttemptRunning) return null;
-  return getQueueSnapshot(status).queuedMessage;
 }
 
 export function getQueueIndicatorState(
   status: QueueStatus | undefined,
-  isAttemptRunning: boolean
+  _isAttemptRunning: boolean
 ): {
   isQueued: boolean;
-  queuedMessage: QueuedMessage | null;
-  messagePreview: string | null;
-  attachmentCount: number;
+  queuedMessages: QueuedMessage[];
 } {
-  const queuedMessage = getVisibleQueuedMessage(status, isAttemptRunning);
+  const queuedMessages = status?.status === 'queued' ? status.messages : [];
+  return { isQueued: queuedMessages.length > 0, queuedMessages };
+}
 
+export function getQueueSnapshot(status: QueueStatus | undefined): {
+  isQueued: boolean;
+  queuedMessage: QueuedMessage | null;
+} {
+  const messages = status?.status === 'queued' ? status.messages : [];
   return {
-    isQueued: Boolean(queuedMessage),
-    queuedMessage,
-    messagePreview: queuedMessage?.data.message ?? null,
-    attachmentCount: queuedMessage?.data.images.length ?? 0,
+    isQueued: messages.length > 0,
+    queuedMessage: messages.at(-1) ?? null,
   };
 }
 
@@ -131,28 +87,8 @@ export function getAttachImageQueueSeed({
   fallbackMessage,
 }: {
   fallbackMessage: string;
-}): {
-  scratchMessage: string;
-} {
-  return {
-    scratchMessage: fallbackMessage,
-  };
-}
-
-export function shouldRefreshQueueStatus({
-  hasWorkspace,
-  isAttemptRunning,
-  previousProcessCount,
-  currentProcessCount,
-}: {
-  hasWorkspace: boolean;
-  isAttemptRunning: boolean;
-  previousProcessCount: number;
-  currentProcessCount: number;
-}): boolean {
-  if (!hasWorkspace) return false;
-  if (!isAttemptRunning) return true;
-  return currentProcessCount > previousProcessCount;
+}): { scratchMessage: string } {
+  return { scratchMessage: fallbackMessage };
 }
 
 export function getEditorChangeSideEffects({
@@ -161,12 +97,9 @@ export function getEditorChangeSideEffects({
 }: {
   queueStatus: QueueStatus | undefined;
   hasFollowUpError: boolean;
-}): {
-  shouldPersistDraft: boolean;
-  shouldClearError: boolean;
-} {
+}): { shouldPersistDraft: boolean; shouldClearError: boolean } {
   return {
-    shouldPersistDraft: !getQueueSnapshot(queueStatus).isQueued,
+    shouldPersistDraft: queueStatus?.status !== 'queued',
     shouldClearError: hasFollowUpError,
   };
 }

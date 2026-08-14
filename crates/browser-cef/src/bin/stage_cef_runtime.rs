@@ -16,10 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_root = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| workspace.join("target"));
-    let target_path = env::var_os("VIBEX_BUILD_TARGET")
+    let target = env::var_os("VIBEX_BUILD_TARGET")
         .or_else(|| env::var_os("TAURI_ENV_TARGET_TRIPLE"))
-        .map(|target| target_root.join(target).join(&profile))
-        .unwrap_or_else(|| target_root.join(&profile));
+        .map(PathBuf::from);
+    let target_path = resolve_target_path(&target_root, &profile, target.as_deref());
     let stage_root = target_root.join("cef-runtime").join(env::consts::OS);
     fs::create_dir_all(&stage_root)?;
 
@@ -37,6 +37,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("staged CEF runtime at {}", stage_root.display());
     Ok(())
+}
+
+#[cfg(feature = "cef-host")]
+fn resolve_target_path(
+    target_root: &std::path::Path,
+    profile: &str,
+    target: Option<&std::path::Path>,
+) -> PathBuf {
+    let default_path = target_root.join(profile);
+    let Some(target) = target else {
+        return default_path;
+    };
+    let target_path = target_root.join(target).join(profile);
+    if target_path
+        .join(format!("vibex{}", env::consts::EXE_SUFFIX))
+        .is_file()
+    {
+        target_path
+    } else {
+        default_path
+    }
 }
 
 #[cfg(feature = "cef-host")]
@@ -118,6 +139,48 @@ fn stage_platform_runtime(
         "app/vibex.app/Contents/Frameworks/Chromium Embedded Framework.framework/Helpers/vibex Helper.app/Contents/MacOS/vibex Helper",
         "framework-links/vibex Helper.app",
     ])
+}
+
+#[cfg(all(test, feature = "cef-host"))]
+mod tests {
+    use std::fs;
+
+    use super::resolve_target_path;
+
+    #[test]
+    fn uses_target_directory_when_it_contains_the_app_binary() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_path = temp.path().join("aarch64-apple-darwin/release");
+        fs::create_dir_all(&target_path).unwrap();
+        fs::write(
+            target_path.join(format!("vibex{}", std::env::consts::EXE_SUFFIX)),
+            [],
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_target_path(
+                temp.path(),
+                "release",
+                Some(std::path::Path::new("aarch64-apple-darwin")),
+            ),
+            target_path,
+        );
+    }
+
+    #[test]
+    fn falls_back_when_tauri_target_directory_has_no_app_binary() {
+        let temp = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            resolve_target_path(
+                temp.path(),
+                "release",
+                Some(std::path::Path::new("aarch64-apple-darwin")),
+            ),
+            temp.path().join("release"),
+        );
+    }
 }
 
 #[cfg(all(feature = "cef-host", target_os = "linux"))]

@@ -54,6 +54,28 @@ export type AutomationDraftRequest = {
   launch: AutomationLaunchInput;
 };
 
+export type WorkflowLaunchInput = {
+  specVersion: number;
+  definitionVersionId: string;
+  input: unknown;
+  policyOverride: unknown | null;
+  workspace: AutomationLaunchInput['workspace'];
+};
+
+export type WorkflowAutomationDraftRequest = {
+  name: string;
+  enabled: boolean;
+  trigger: AutomationSchedule;
+  launch: WorkflowLaunchInput;
+};
+
+export type AutomationTarget =
+  | {
+      kind: 'turn';
+      spec: AutomationLaunchInput & { specVersion: number };
+    }
+  | { kind: 'workflow'; spec: WorkflowLaunchInput };
+
 export type AutomationView = {
   id: string;
   name: string;
@@ -61,7 +83,8 @@ export type AutomationView = {
   specVersion: number;
   trigger: AutomationSchedule;
   nextRunAt: string | null;
-  launch: AutomationLaunchInput & { specVersion: number };
+  target: AutomationTarget;
+  launch: (AutomationLaunchInput & { specVersion: number }) | null;
   migrationRequired: boolean;
   unseenFailureCount: number;
   lastRunStatus: AutomationRunStatus | null;
@@ -87,6 +110,7 @@ export type AutomationRunView = {
   conversationId: string | null;
   turnId: string | null;
   workspaceId: string | null;
+  workflowRunId: string | null;
   stopReason: string | null;
   summary: string | null;
   error: string | null;
@@ -114,6 +138,11 @@ export function createAutomationApi(transport: BackendTransport) {
 
     create: (input: AutomationDraftRequest) =>
       transport.call('automation_create', {
+        input,
+      }) as Promise<AutomationView>,
+
+    createWorkflow: (input: WorkflowAutomationDraftRequest) =>
+      transport.call('automation_create_workflow', {
         input,
       }) as Promise<AutomationView>,
 

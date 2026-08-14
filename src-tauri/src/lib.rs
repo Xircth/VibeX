@@ -26,7 +26,14 @@ mod tray;
 mod workspace_paths;
 use state::AppState;
 
-const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
+const APP_ICON_LIGHT_DEFAULT_BYTES: &[u8] =
+    include_bytes!("../../frontend/src/assets/app-logo-light-default.png");
+const APP_ICON_DARK_DEFAULT_BYTES: &[u8] =
+    include_bytes!("../../frontend/src/assets/app-logo-dark.png");
+const APP_ICON_LIGHT_LITE_BYTES: &[u8] =
+    include_bytes!("../../frontend/src/assets/app-logo-light-lite.png");
+const APP_ICON_DARK_LITE_BYTES: &[u8] =
+    include_bytes!("../../frontend/src/assets/app-logo-dark-lite.png");
 const MAIN_WINDOW_CLOSE_REQUESTED_EVENT: &str = "main-window-close-requested";
 const BROWSER_EVENT: &str = "browser://event";
 const CEF_COMMAND_CAPACITY: usize = 512;
@@ -195,12 +202,43 @@ fn install_rustls_crypto_provider() {
 }
 
 pub(crate) fn load_app_icon() -> Result<Image<'static>, tauri::Error> {
-    Image::from_bytes(APP_ICON_BYTES).map(|icon| icon.to_owned())
+    Image::from_bytes(native_app_icon_bytes("default", "light").expect("default app icon exists"))
+        .map(|icon| icon.to_owned())
 }
 
 pub(crate) fn apply_app_icon(window: &tauri::WebviewWindow) -> Result<(), String> {
     let icon = load_app_icon().map_err(|error| error.to_string())?;
     window.set_icon(icon).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn set_app_icon(app: tauri::AppHandle, style: String, theme: String) -> Result<(), String> {
+    let bytes = native_app_icon_bytes(&style, &theme)?;
+    let icon = Image::from_bytes(bytes)
+        .map(|icon| icon.to_owned())
+        .map_err(|error| error.to_string())?;
+
+    for window in app.webview_windows().values() {
+        window
+            .set_icon(icon.clone())
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(tray) = app.tray_by_id(tray::TRAY_ICON_ID) {
+        tray.set_icon(Some(icon))
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn native_app_icon_bytes(style: &str, theme: &str) -> Result<&'static [u8], String> {
+    match (style, theme) {
+        ("default", "light") => Ok(APP_ICON_LIGHT_DEFAULT_BYTES),
+        ("default", "dark") => Ok(APP_ICON_DARK_DEFAULT_BYTES),
+        ("lite", "light") => Ok(APP_ICON_LIGHT_LITE_BYTES),
+        ("lite", "dark") => Ok(APP_ICON_DARK_LITE_BYTES),
+        _ => Err("Unsupported application icon style or theme".to_string()),
+    }
 }
 
 #[tauri::command]
@@ -270,9 +308,58 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         ) {
             tracing::error!("startup crash-recovery failed: {}", error);
         }
+        if let Err(error) = tauri::async_runtime::block_on(
+            application::WorkflowStoreExecutionPort::new(state.deployment.db().pool.clone())
+                .reconcile_interrupted(),
+        ) {
+            tracing::error!("workflow startup reconciliation failed: {}", error);
+        }
+        let workflow_dispatcher =
+            application::WorkflowAgentDispatcher::new(state.conversation_context());
+        tauri::async_runtime::spawn(async move {
+            loop {
+                match workflow_dispatcher.tick().await {
+                    Ok(true) => continue,
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Err(error) => {
+                        tracing::warn!(%error, "workflow dispatcher tick failed");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        });
         events::start_event_forwarding(&app.handle().clone(), &state);
         events::start_agent_event_forwarding(&app.handle().clone(), &state);
         events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
+        let relation_pool = state.deployment.db().pool.clone();
+        let relation_publisher = state.conversation_context().event_publisher;
+        tauri::async_runtime::spawn(async move {
+            match conversations::ConversationRelationControl::with_publisher(
+                relation_pool,
+                relation_publisher,
+            )
+            .backfill_legacy_delegations()
+            .await
+            {
+                Ok(created) if created > 0 => {
+                    tracing::info!(created, "backfilled legacy conversation relations")
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(%error, "conversation relation backfill failed")
+                }
+            }
+        });
+        let queued_input_context = state.conversation_context();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) =
+                conversation_service::ConversationSessionService::new(queued_input_context)
+                    .dispatch_queued_inputs()
+                    .await
+            {
+                tracing::warn!(%error, "failed to resume durable conversation inputs");
+            }
+        });
         settings_watcher::start(app.handle().clone());
 
         // Backfill the conversation full-text index for any conversation not
@@ -410,6 +497,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
     .invoke_handler(tauri::generate_handler![
         health_check,
         exit_app,
+        set_app_icon,
         commands::browser::browser_create_tab,
         commands::browser::browser_apply_intent,
         commands::browser::browser_close_tab,
@@ -541,6 +629,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::automation::automation_list,
         commands::automation::automation_engine_status,
         commands::automation::automation_create,
+        commands::automation::automation_create_workflow,
         commands::automation::automation_update,
         commands::automation::automation_set_enabled,
         commands::automation::automation_delete,
@@ -900,7 +989,31 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use tauri::image::Image;
+
     use super::install_rustls_crypto_provider;
+    #[cfg(target_os = "macos")]
+    use super::native_app_icon_bytes;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn default_macos_icons_keep_transparent_corners() {
+        for theme in ["light", "dark"] {
+            let bytes = native_app_icon_bytes("default", theme).expect("default icon exists");
+            let icon = Image::from_bytes(bytes).expect("default icon is a valid PNG");
+            let rgba = icon.rgba();
+            let width = icon.width() as usize;
+            let height = icon.height() as usize;
+            let corner_pixels = [0, width - 1, (height - 1) * width, height * width - 1];
+
+            for pixel in corner_pixels {
+                assert_eq!(rgba[pixel * 4 + 3], 0, "{theme} icon corner is opaque");
+            }
+            let center = ((height / 2) * width + width / 2) * 4;
+            assert_ne!(rgba[center + 3], 0, "{theme} icon center is transparent");
+        }
+    }
 
     #[test]
     fn installs_rustls_crypto_provider_for_reqwest_clients() {

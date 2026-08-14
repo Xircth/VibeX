@@ -243,7 +243,7 @@ export function DesktopToastWindow() {
     [removeToast]
   );
 
-  // 窗口内直接回复：复用 conversation_start_turn 向会话发起新一轮追问。
+  // 窗口内直接回复：与主 Composer 共用持久 Conversation input 控制面。
   // 发送后保持主窗口在后台（不抢焦点），仅在卡片内提示「已发送」后淡出。
   const handleReplySubmit = useCallback(
     async (toast: DesktopToastItem) => {
@@ -263,10 +263,9 @@ export function DesktopToastWindow() {
 
       try {
         const session = await sessionsApi.getById(toast.sessionId);
-        await conversationApi.startTurn({
+        await conversationApi.submitInput(toast.sessionId, {
           agentId: resolveAgentType(session, t),
           workspaceId: toast.workspaceId,
-          conversationId: toast.sessionId,
           text,
         });
         setReplyStatus((previous) => ({ ...previous, [toast.id]: 'sent' }));

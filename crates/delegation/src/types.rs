@@ -27,6 +27,14 @@ pub struct DelegationRequest {
     pub working_dir: Option<String>,
     pub requested_working_dir: Option<String>,
     pub external_handle: Option<String>,
+    pub workspace_access: DelegationWorkspaceAccess,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelegationWorkspaceAccess {
+    ReadOnlyShared,
+    WriteSerialized,
 }
 
 /// Authority carried by a companion token. Task reads and cancellation must
@@ -62,6 +70,12 @@ pub struct DelegationSuccess {
 pub enum DelegationError {
     #[error("depth limit exceeded ({current_depth} >= {limit})")]
     DepthLimitExceeded { current_depth: u32, limit: u32 },
+    #[error("active child limit exceeded ({active} >= {limit})")]
+    ActiveChildLimitExceeded { active: u32, limit: u32 },
+    #[error("delegation call limit exceeded ({started} >= {limit})")]
+    CallLimitExceeded { started: u32, limit: u32 },
+    #[error("child deadline exceeded ({limit_ms}ms)")]
+    DeadlineExceeded { limit_ms: u64 },
     #[error("invalid agent type")]
     InvalidAgentType,
     #[error("invalid working dir: {0}")]
@@ -109,6 +123,9 @@ impl DelegationOutcome {
     pub fn from_err(err: DelegationError, child_session_id: Option<Uuid>) -> Self {
         let code = match &err {
             DelegationError::DepthLimitExceeded { .. } => "depth_limit",
+            DelegationError::ActiveChildLimitExceeded { .. } => "active_child_limit",
+            DelegationError::CallLimitExceeded { .. } => "call_limit",
+            DelegationError::DeadlineExceeded { .. } => "deadline",
             DelegationError::InvalidAgentType => "invalid_agent_type",
             DelegationError::InvalidWorkingDir(_) => "invalid_working_dir",
             DelegationError::SpawnFailed(_) => "spawn_failed",
@@ -192,6 +209,20 @@ pub struct DelegationLink {
     pub parent_tool_use_id: String,
     pub delegation_call_id: String,
     pub agent_type: AgentId,
+    pub policy: DelegationPolicySnapshot,
+}
+
+/// Immutable limits attached to a delegated child so its durable relation can
+/// explain the authority under which it was launched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationPolicySnapshot {
+    pub depth_limit: u32,
+    pub max_active_children: u32,
+    pub max_calls_per_parent: u32,
+    pub child_deadline_ms: u64,
+    pub max_result_bytes: usize,
+    pub workspace_access: String,
 }
 
 /// Runtime-tunable delegation knobs.
@@ -201,12 +232,38 @@ pub struct DelegationConfig {
     pub enabled: bool,
     /// Max delegation chain depth (root → child = depth 1). Default 1.
     pub depth_limit: u32,
+    pub max_active_children: u32,
+    pub max_calls_per_parent: u32,
+    pub child_deadline_ms: u64,
+    pub max_result_bytes: usize,
 }
 
 impl DelegationConfig {
     pub(crate) fn normalized(mut self) -> Self {
         self.depth_limit = self.depth_limit.clamp(1, 8);
+        self.max_active_children = self.max_active_children.clamp(1, 64);
+        self.max_calls_per_parent = self.max_calls_per_parent.clamp(1, 1_024);
+        self.child_deadline_ms = self.child_deadline_ms.clamp(1_000, 24 * 60 * 60 * 1_000);
+        self.max_result_bytes = self.max_result_bytes.clamp(1_024, 1024 * 1024);
         self
+    }
+
+    pub fn policy_snapshot(
+        &self,
+        workspace_access: DelegationWorkspaceAccess,
+    ) -> DelegationPolicySnapshot {
+        DelegationPolicySnapshot {
+            depth_limit: self.depth_limit,
+            max_active_children: self.max_active_children,
+            max_calls_per_parent: self.max_calls_per_parent,
+            child_deadline_ms: self.child_deadline_ms,
+            max_result_bytes: self.max_result_bytes,
+            workspace_access: match workspace_access {
+                DelegationWorkspaceAccess::ReadOnlyShared => "read_only_shared",
+                DelegationWorkspaceAccess::WriteSerialized => "write_serialized",
+            }
+            .to_string(),
+        }
     }
 }
 
@@ -215,6 +272,10 @@ impl Default for DelegationConfig {
         Self {
             enabled: true,
             depth_limit: 1,
+            max_active_children: 4,
+            max_calls_per_parent: 16,
+            child_deadline_ms: 30 * 60 * 1_000,
+            max_result_bytes: 256 * 1024,
         }
     }
 }
@@ -232,6 +293,20 @@ mod tests {
                     limit: 1,
                 },
                 "depth_limit",
+            ),
+            (
+                DelegationError::ActiveChildLimitExceeded {
+                    active: 2,
+                    limit: 2,
+                },
+                "active_child_limit",
+            ),
+            (
+                DelegationError::CallLimitExceeded {
+                    started: 4,
+                    limit: 4,
+                },
+                "call_limit",
             ),
             (DelegationError::InvalidAgentType, "invalid_agent_type"),
             (DelegationError::ChildRefusal, "child_refusal"),

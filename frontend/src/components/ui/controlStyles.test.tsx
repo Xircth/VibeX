@@ -114,13 +114,19 @@ describe('shared raised controls', () => {
     expect(css).toContain('--switch-checked-border: hsl(0 0% 100% / 0.34);');
     expect(css).toContain('--_ring: var(--_primary);');
     expect(css).toContain('--surface-raised-control: hsl(220 14% 97%);');
-    expect(css).toContain('--shadow-control:');
+    expect(css).toContain(
+      '--shadow-raised-control: 0 0 4px hsl(220 36% 8% / 0.14);'
+    );
     expect(css).toContain('border: 0 !important;');
-    expect(css).toContain('box-shadow: var(--shadow-control) !important;');
+    expect(css).toContain(
+      'box-shadow: var(--shadow-raised-control) !important;'
+    );
     expect(css).toContain('.primary-control,');
     expect(css).toContain('.destructive-control {');
     expect(design).toContain('primary: "#3F6CC4"');
     expect(design).toContain('primary-control-foreground: "#ffffff"');
+    expect(design).toContain('border: "none"');
+    expect(design).toContain('shadow: "0 0 4px #0d121c24"');
     expect(css).toContain(".raised-control[aria-disabled='true']");
     expect(css).toContain('opacity: 0.5;');
     expect(tailwind).toContain("DEFAULT: 'var(--radius)'");

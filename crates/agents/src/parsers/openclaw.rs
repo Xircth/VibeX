@@ -146,6 +146,7 @@ fn assistant_blocks(message: &Value) -> Vec<ContentBlock> {
                         .get("arguments")
                         .map(|args| truncate(&args.to_string(), TOOL_INPUT_LIMIT)),
                     meta: None,
+                    images: Vec::new(),
                 }),
                 _ => {}
             }

@@ -27,9 +27,29 @@ type WireSubscriptionBootstrap = Omit<
 const APPLICATION_COMMANDS = new Set([
   'conversation_list',
   'conversation_create',
+  'conversation_child_create',
+  'conversation_output',
   'conversation_start_turn',
+  'conversation_steer',
+  'conversation_input_submit',
+  'conversation_input_list',
+  'conversation_relation_list',
+  'conversation_input_update',
+  'conversation_input_reorder',
+  'conversation_input_cancel',
   'conversation_respond_permission',
   'conversation_cancel_turn',
+  'workflow_publish',
+  'workflow_validate',
+  'workflow_start',
+  'workflow_show',
+  'workflow_version',
+  'workflow_steps',
+  'workflow_events',
+  'workflow_complete_step',
+  'workflow_decide',
+  'workflow_cancel',
+  'workflow_resume',
 ]);
 
 function sequenceToWire(sequence: bigint): number {
@@ -54,7 +74,8 @@ export class TauriTransport implements BackendTransport {
 
   async call(
     command: string,
-    args?: Record<string, unknown>
+    args?: Record<string, unknown>,
+    options?: { operationId?: string }
   ): Promise<unknown> {
     const { tauriInvoke } = await import('@/lib/tauriApi');
     if (APPLICATION_COMMANDS.has(command)) {
@@ -62,7 +83,7 @@ export class TauriTransport implements BackendTransport {
         'application_call',
         {
           command,
-          operationId: globalThis.crypto.randomUUID(),
+          operationId: options?.operationId ?? globalThis.crypto.randomUUID(),
           args: args ?? {},
         }
       );
@@ -97,6 +118,7 @@ export class TauriTransport implements BackendTransport {
         'conversation.permission',
         'conversation.question',
         'conversation.cancel',
+        'conversation.steer',
         'plugin.read',
         'plugin.write',
         'artifact.read',
@@ -104,6 +126,10 @@ export class TauriTransport implements BackendTransport {
         'automation.read',
         'automation.write',
         'delegation.read',
+        'workflow.read',
+        'workflow.write',
+        'workflow.run',
+        'workflow.approve',
         'desktop.tauri',
       ],
     };

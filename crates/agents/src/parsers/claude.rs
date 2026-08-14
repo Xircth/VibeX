@@ -112,6 +112,7 @@ fn block_from_item(item: &Value) -> Option<ContentBlock> {
                 // into a rich tool card.
                 input_preview: item.get("input").map(|input| input.to_string()),
                 meta: None,
+                images: Vec::new(),
             })
         }
         "tool_result" => Some(ContentBlock::ToolResult {

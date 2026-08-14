@@ -543,6 +543,10 @@ export function AutomationsSettings({
   };
 
   const startEdit = (automation: AutomationView) => {
+    if (!automation.launch) {
+      toast.error(t('automations.workflowEditUnavailable'));
+      return;
+    }
     setEditingId(automation.id);
     setDraft({
       name: automation.name,
@@ -1249,6 +1253,12 @@ function AutomationList({
                 {automation.name}
               </span>
               <span className="mt-0.5 block text-[11px] text-foreground">
+                {t(
+                  automation.target?.kind === 'workflow'
+                    ? 'automations.targetWorkflow'
+                    : 'automations.targetTurn'
+                )}
+                {' · '}
                 {automation.trigger.kind === 'schedule'
                   ? t('automations.cronSummary', {
                       cron: automation.trigger.cron,
@@ -1274,7 +1284,7 @@ function AutomationList({
               aria-label={t('automations.toggleAria', {
                 name: automation.name,
               })}
-              disabled={!mutable}
+              disabled={!mutable || automation.target?.kind === 'workflow'}
             />
           </div>
           <div className="mt-2 flex items-center justify-end gap-1">
@@ -1295,7 +1305,7 @@ function AutomationList({
               variant="ghost"
               className="h-7 px-2"
               onClick={() => onEdit(automation)}
-              disabled={!mutable}
+              disabled={!mutable || automation.target?.kind === 'workflow'}
               aria-label={t('automations.editNamed', {
                 name: automation.name,
               })}
@@ -1390,6 +1400,14 @@ function RunHistory({
               <span className="block truncate text-foreground">
                 {run.summary ?? run.error ?? run.stopReason}
               </span>
+            ) : null}
+            {run.workflowRunId ? (
+              <Link
+                className="mt-0.5 block text-primary underline-offset-2 hover:underline"
+                to={`/workflows/${run.workflowRunId}`}
+              >
+                {t('automations.openWorkflow')}
+              </Link>
             ) : null}
           </span>
           {run.status === 'running' ? (

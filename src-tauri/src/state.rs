@@ -1,13 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
 };
 
-use agents::{AgentId, AgentRuntime};
+use agents::{AgentEventEnvelope, AgentId, AgentRuntime, runtime_event_channel};
 use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
     desktop_toast::DesktopToastPayload,
@@ -169,6 +169,7 @@ pub struct AppState {
     pub local_usage_cache: Arc<Mutex<HashMap<String, LocalUsageCacheEntry>>>,
     pub agent_management_runtime: Arc<AgentManagementRuntimeState>,
     pub agent_runtime: Arc<AgentRuntime>,
+    pub conversation_agent_events: StdMutex<Option<mpsc::UnboundedReceiver<AgentEventEnvelope>>>,
     pub delegation: crate::delegation::DelegationState,
     pub conversation_turn_locks: Arc<Mutex<HashMap<uuid::Uuid, Arc<Mutex<()>>>>>,
     pub conversation_runtime_states:
@@ -186,13 +187,14 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(app_handle: tauri::AppHandle) -> Result<Self, deployment::DeploymentError> {
-        let deployment = LocalDeployment::new().await?;
+        let deployment = Arc::new(LocalDeployment::new().await?);
         let pty = deployment.pty().clone();
         let pool = deployment.db().pool.clone();
         // The event-sourced `conversation_events` log is the single authoritative
-        // record (批次D). The first-generation `agent_*` shadow tables are retired, so
-        // the runtime uses the no-op sink instead of the old SQLite mirror.
-        let agent_runtime = Arc::new(AgentRuntime::default());
+        // record (批次D). The first-generation `agent_*` shadow tables are retired;
+        // runtime events now flow through one lossless receiver into that log.
+        let (agent_event_sink, conversation_agent_events) = runtime_event_channel();
+        let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
         let office_runtime = Arc::new(
             crate::office_runtime::OfficeRuntime::new(
                 pool.clone(),
@@ -267,13 +269,31 @@ impl AppState {
                 }
             });
         }
-        // Build the delegation broker over the runtime + DB and start its
-        // listener + resolver. Live from startup; ClaudeCode MCP injection (so
-        // the agent auto-calls it) lands in a follow-up.
-        let delegation = crate::delegation::build_delegation(agent_runtime.clone(), pool);
+        let conversation_turn_locks = Arc::new(Mutex::new(HashMap::new()));
+        let conversation_runtime_states = Arc::new(Mutex::new(HashMap::new()));
+        let conversation_row_projectors = Arc::new(Mutex::new(HashMap::new()));
+        let conversation_context = conversations::ConversationContext {
+            deployment: deployment.clone(),
+            agent_runtime: agent_runtime.clone(),
+            turn_locks: conversation_turn_locks.clone(),
+            runtime_states: conversation_runtime_states.clone(),
+            row_projectors: conversation_row_projectors.clone(),
+            host: Arc::new(crate::conversation_service::AppConversationHost {
+                deployment: deployment.clone(),
+            }),
+            event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
+                app_handle: app_handle.clone(),
+                deployment: deployment.clone(),
+                row_projectors: conversation_row_projectors.clone(),
+            }),
+        };
+        // Build the delegation broker over the same ConversationContext used by
+        // desktop commands, so companion send/wait cannot grow a second runtime.
+        let delegation =
+            crate::delegation::build_delegation(agent_runtime.clone(), pool, conversation_context);
         Ok(Self {
             app_handle,
-            deployment: Arc::new(deployment),
+            deployment,
             pty,
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),
             conversation_streams: Arc::new(Mutex::new(HashSet::new())),
@@ -281,10 +301,11 @@ impl AppState {
             local_usage_cache: Arc::new(Mutex::new(HashMap::new())),
             agent_management_runtime: Arc::new(AgentManagementRuntimeState::default()),
             agent_runtime,
+            conversation_agent_events: StdMutex::new(Some(conversation_agent_events)),
             delegation,
-            conversation_turn_locks: Arc::new(Mutex::new(HashMap::new())),
-            conversation_runtime_states: Arc::new(Mutex::new(HashMap::new())),
-            conversation_row_projectors: Arc::new(Mutex::new(HashMap::new())),
+            conversation_turn_locks,
+            conversation_runtime_states,
+            conversation_row_projectors,
             office_runtime,
             plugin_control_plane,
             remote_desktop,

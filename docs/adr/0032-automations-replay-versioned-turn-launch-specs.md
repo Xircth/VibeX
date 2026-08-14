@@ -7,6 +7,10 @@ decision-makers:
 
 # 自动化重放版本化 TurnLaunchSpec，并产生真实 Conversation 与 Turn
 
+> 2026-08-13 后续决策：
+> [ADR-0045](0045-workflows-orchestrate-conversation-turns.md) 保留本 ADR 的 direct-Turn
+> target，并增加版本化 Workflow target 与对应的 target-specific recovery。
+
 VibeX 自动化按 Codeg 的产品语义重建：Automation 不是 cron 包装器，也不是后台
 执行一段自由 shell，而是一份保存并可重复解析的“发起 Turn”配置。每次触发创建
 AutomationRun、真实 Conversation 和真实 Turn；Conversation 事件日志是执行事实，

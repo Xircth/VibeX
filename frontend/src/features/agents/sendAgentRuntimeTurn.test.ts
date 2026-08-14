@@ -1,24 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sendAgentRuntimeTurn } from './sendAgentRuntimeTurn';
 
-const { startTurnMock } = vi.hoisted(() => ({
-  startTurnMock: vi.fn(),
+const { submitInputMock } = vi.hoisted(() => ({
+  submitInputMock: vi.fn(),
 }));
 
 vi.mock('@/features/conversation/conversationApi', () => ({
   conversationApi: {
-    startTurn: startTurnMock,
+    submitInput: submitInputMock,
   },
 }));
 
 describe('sendAgentRuntimeTurn', () => {
-  it('starts a canonical conversation turn with text and image paths', async () => {
-    startTurnMock.mockResolvedValue({
-      conversationId: 'session-1',
-      turnId: 'turn-1',
-      promptId: 'prompt-1',
-      status: 'running',
-      lastSequence: 2n,
+  it('submits canonical durable input with text and image paths', async () => {
+    submitInputMock.mockResolvedValue({
+      input: { id: 'input-1', status: 'dispatched' },
+      turn: { turnId: 'turn-1' },
     });
 
     await sendAgentRuntimeTurn({
@@ -41,10 +38,9 @@ describe('sendAgentRuntimeTurn', () => {
       ],
     });
 
-    expect(startTurnMock).toHaveBeenCalledWith({
+    expect(submitInputMock).toHaveBeenCalledWith('session-1', {
       agentId: 'codex',
       workspaceId: 'workspace-1',
-      conversationId: 'session-1',
       executorProfileId: {
         executor: 'codex' as const,
         variant: null,
@@ -65,13 +61,10 @@ describe('sendAgentRuntimeTurn', () => {
   });
 
   it('defaults mode/config overrides to null/empty when unset', async () => {
-    startTurnMock.mockClear();
-    startTurnMock.mockResolvedValue({
-      conversationId: 'session-1',
-      turnId: 'turn-2',
-      promptId: 'prompt-2',
-      status: 'running',
-      lastSequence: 3n,
+    submitInputMock.mockClear();
+    submitInputMock.mockResolvedValue({
+      input: { id: 'input-2', status: 'dispatched' },
+      turn: { turnId: 'turn-2' },
     });
 
     await sendAgentRuntimeTurn({
@@ -85,7 +78,8 @@ describe('sendAgentRuntimeTurn', () => {
       text: 'hello',
     });
 
-    expect(startTurnMock).toHaveBeenCalledWith(
+    expect(submitInputMock).toHaveBeenCalledWith(
+      'session-1',
       expect.objectContaining({
         text: 'hello',
         displayText: 'hello',

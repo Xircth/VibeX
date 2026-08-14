@@ -1,4 +1,20 @@
 {
+  "children": {
+    "title": "Child conversations ({{count}})",
+    "active": "{{count}} active",
+    "waiting": "{{count}} waiting",
+    "budget": "Calls {{callsUsed}}/{{maxCalls}} · active {{active}}/{{maxActive}}",
+    "untitled": "Untitled conversation",
+    "queued": "{{count}} queued",
+    "open": "Open child conversation",
+    "status": {
+      "todo": "Ready",
+      "inprogress": "In progress",
+      "inreview": "In review",
+      "done": "Done",
+      "archived": "Archived"
+    }
+  },
   "artifact": {
     "openPreview": "Open preview",
     "openPreviewAria": "Open {{name}} preview",
@@ -184,6 +200,12 @@
     "copyPath": "Copy path",
     "path": "Path",
     "tool": "Tool"
+  },
+  "viewedImages": {
+    "summary_one": "Viewed {{count}} image",
+    "summary_other": "Viewed {{count}} images",
+    "preview": "Preview image: {{path}}",
+    "image": "Image {{count}}"
   },
   "goalTool": {
     "title": "Goal",

@@ -1,6 +1,10 @@
 use std::str::FromStr;
 
-use automation::{AutomationDraft, ClaimStorePort, ScheduleSpec};
+use automation::{
+    AutomationDraft, AutomationTarget, ClaimStorePort, IsolationSpec, RecoveryStorePort,
+    ScheduleSpec, WORKFLOW_AUTOMATION_SPEC_VERSION, WorkflowAutomationDraft, WorkflowLaunchSpec,
+    WorkspaceTarget,
+};
 use chrono::Utc;
 use db::models::automation_v2::SqliteAutomationStore;
 use sqlx::{
@@ -231,6 +235,87 @@ async fn automation_record_projects_last_status_and_unseen_failures() {
         .expect("automation");
     assert_eq!(loaded.last_run_status.as_deref(), Some("interrupted"));
     assert_eq!(loaded.unseen_failure_count, 2);
+}
+
+#[tokio::test]
+async fn workflow_automation_round_trips_and_links_its_run() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let store = SqliteAutomationStore::new(pool);
+    let definition_version_id = Uuid::new_v4();
+    let workspace_id = Uuid::new_v4();
+    let automation = store
+        .create_workflow(
+            WorkflowAutomationDraft {
+                name: "nightly workflow".to_string(),
+                enabled: true,
+                trigger: ScheduleSpec::Manual,
+                launch: WorkflowLaunchSpec {
+                    spec_version: WORKFLOW_AUTOMATION_SPEC_VERSION,
+                    definition_version_id,
+                    input: serde_json::json!({ "scope": "changed" }),
+                    policy_override: None,
+                    workspace: WorkspaceTarget {
+                        project_id: Uuid::new_v4(),
+                        root_folder: "/tmp/project".to_string(),
+                        branch: Some("main".to_string()),
+                        isolation: IsolationSpec::WorktreePerRun,
+                    },
+                },
+            },
+            Utc::now(),
+        )
+        .await
+        .expect("create workflow automation");
+    assert!(matches!(
+        automation.target,
+        AutomationTarget::Workflow(ref spec)
+            if spec.definition_version_id == definition_version_id
+                && spec.input == serde_json::json!({ "scope": "changed" })
+    ));
+
+    let run = store
+        .run_now(automation.id, Utc::now())
+        .await
+        .expect("claim manual run");
+    let workflow_run_id = Uuid::new_v4();
+    store
+        .attach_workflow_run(run.snapshot.run_id, workflow_run_id, workspace_id)
+        .await
+        .expect("link workflow run");
+    let loaded = store
+        .run(run.snapshot.run_id)
+        .await
+        .expect("load run")
+        .expect("run exists");
+    assert_eq!(loaded.workflow_run_id, Some(workflow_run_id));
+    assert_eq!(loaded.snapshot.workspace_id, Some(workspace_id));
+
+    let interrupted = store
+        .interrupt_running(Utc::now())
+        .await
+        .expect("startup recovery");
+    assert!(interrupted.is_empty());
+    assert_eq!(
+        store
+            .run(run.snapshot.run_id)
+            .await
+            .expect("reload linked run")
+            .expect("linked run exists")
+            .snapshot
+            .status,
+        automation::RunStatus::Running
+    );
 }
 
 #[tokio::test]

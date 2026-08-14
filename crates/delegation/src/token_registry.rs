@@ -24,6 +24,7 @@ pub struct TokenPermissions {
     pub feedback: bool,
     pub ask: bool,
     pub session_info: bool,
+    pub session_control: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +33,7 @@ pub enum TokenFeature {
     Feedback,
     Ask,
     SessionInfo,
+    SessionControl,
 }
 
 impl TokenPermissions {
@@ -41,6 +43,7 @@ impl TokenPermissions {
             TokenFeature::Feedback => self.feedback,
             TokenFeature::Ask => self.ask,
             TokenFeature::SessionInfo => self.session_info,
+            TokenFeature::SessionControl => self.session_control,
         }
     }
 
@@ -51,6 +54,7 @@ impl TokenPermissions {
             feedback: true,
             ask: true,
             session_info: true,
+            session_control: true,
         }
     }
 }

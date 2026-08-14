@@ -32,6 +32,26 @@ impl RuntimeEventSink for NoopEventSink {
     fn emit(&self, _envelope: AgentEventEnvelope) {}
 }
 
+struct UnboundedRuntimeEventSink {
+    sender: mpsc::UnboundedSender<AgentEventEnvelope>,
+}
+
+impl RuntimeEventSink for UnboundedRuntimeEventSink {
+    fn emit(&self, envelope: AgentEventEnvelope) {
+        let _ = self.sender.send(envelope);
+    }
+}
+
+/// A lossless, non-blocking event path for the single Conversation persistence
+/// consumer. Live observers continue to use the bounded broadcast channel.
+pub fn runtime_event_channel() -> (
+    Arc<dyn RuntimeEventSink>,
+    mpsc::UnboundedReceiver<AgentEventEnvelope>,
+) {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    (Arc::new(UnboundedRuntimeEventSink { sender }), receiver)
+}
+
 #[derive(Debug, Clone)]
 pub struct ConnectAgentInput {
     pub agent_id: AgentId,
@@ -57,6 +77,14 @@ pub struct CancelAgentPromptInput {
     pub connection_id: AgentConnectionId,
     pub session_id: AgentSessionId,
     pub prompt_id: AgentPromptId,
+}
+
+#[derive(Debug, Clone)]
+pub struct SteerAgentPromptInput {
+    pub connection_id: AgentConnectionId,
+    pub session_id: AgentSessionId,
+    pub expected_prompt_id: AgentPromptId,
+    pub blocks: Vec<AgentContentBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -894,13 +922,28 @@ impl AgentRuntime {
         &self,
         session_id: AgentSessionId,
     ) -> AgentResult<AgentSessionControlsSnapshot> {
-        self.state
-            .read()
-            .await
-            .sessions
-            .get(&session_id)
-            .map(|session| session.controls.clone())
-            .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))
+        let (connection_id, controls, ready) = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&session_id)
+                .ok_or_else(|| AgentError::SessionNotFound(session_id.to_string()))?;
+            let ready = state
+                .connections
+                .get(&session.snapshot.connection_id)
+                .is_some_and(|connection| {
+                    connection.snapshot.status == AgentConnectionStatus::Ready
+                });
+            (
+                session.snapshot.connection_id,
+                session.controls.clone(),
+                ready,
+            )
+        };
+        if !ready || !self.connection_manager.has_connection(connection_id).await {
+            return Err(AgentError::ConnectionNotFound(connection_id.to_string()));
+        }
+        Ok(controls)
     }
 
     /// Fork the live ACP session behind `session_id` (P1-4). Returns the new
@@ -1209,6 +1252,43 @@ impl AgentRuntime {
                 "invalid prompt cancel transition".to_string(),
             )),
         }
+    }
+
+    pub async fn steer_prompt(
+        &self,
+        input: SteerAgentPromptInput,
+    ) -> AgentResult<crate::AgentSteerReceipt> {
+        if input.blocks.is_empty() {
+            return Err(AgentError::Runtime(
+                "steering input must include at least one content block".to_string(),
+            ));
+        }
+        let active_prompt_id = {
+            let state = self.state.read().await;
+            let session = state
+                .sessions
+                .get(&input.session_id)
+                .ok_or_else(|| AgentError::SessionNotFound(input.session_id.to_string()))?;
+            if session.snapshot.connection_id != input.connection_id {
+                return Err(AgentError::SessionNotFound(input.session_id.to_string()));
+            }
+            session.queue.active()
+        }
+        .ok_or_else(|| AgentError::PromptNotFound(input.expected_prompt_id.to_string()))?;
+        if active_prompt_id != input.expected_prompt_id {
+            return Err(AgentError::PromptConflict {
+                expected: input.expected_prompt_id.to_string(),
+                active: active_prompt_id.to_string(),
+            });
+        }
+        self.connection_manager
+            .steer_prompt(
+                input.connection_id,
+                input.session_id,
+                input.expected_prompt_id,
+                input.blocks,
+            )
+            .await
     }
 
     pub async fn respond_permission(&self, input: RespondAgentPermissionInput) -> AgentResult<()> {
@@ -1546,6 +1626,31 @@ mod tests {
             env: BTreeMap::new(),
             runtime_version: "test-runtime".to_string(),
             acp_version: "test-acp".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn durable_event_channel_preserves_a_burst_larger_than_live_broadcast_capacity() {
+        let (sink, mut receiver) = runtime_event_channel();
+        let workspace_id = Uuid::new_v4();
+        let connection_id = AgentConnectionId::new();
+
+        for sequence in 1..=600 {
+            sink.emit(AgentEventEnvelope {
+                sequence,
+                workspace_id,
+                connection_id,
+                session_id: None,
+                event: AgentEvent::RawAcpDiagnostic {
+                    raw: serde_json::json!({ "sequence": sequence }),
+                },
+                created_at: Utc::now(),
+            });
+        }
+
+        for expected in 1..=600 {
+            let event = receiver.recv().await.expect("durable event");
+            assert_eq!(event.sequence, expected);
         }
     }
 
@@ -2624,6 +2729,39 @@ mod tests {
                 capabilities: None,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn session_controls_snapshot_rejects_a_failed_connection() {
+        let runtime = AgentRuntime::new_with_driver(Arc::new(NoopEventSink), false);
+        let workspace_id = Uuid::new_v4();
+        let session_id = AgentSessionId::new();
+        let prepared = runtime
+            .prepare_session(EnsureAgentSessionInput {
+                agent_id: AgentId::parse("codex").unwrap(),
+                launch_lock: test_launch_lock(),
+                workspace_id,
+                working_dir: PathBuf::from("C:/failed-connection"),
+                additional_directories: Vec::new(),
+                session_id,
+                acp_session_id: "external-session".to_string(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        runtime
+            .state
+            .write()
+            .await
+            .connections
+            .get_mut(&prepared.session.connection_id)
+            .expect("connection")
+            .snapshot
+            .status = AgentConnectionStatus::Failed;
+
+        assert!(runtime.session_controls_snapshot(session_id).await.is_err());
     }
 
     #[tokio::test]

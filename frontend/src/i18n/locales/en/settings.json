@@ -61,6 +61,16 @@
       "label": "App theme",
       "hint": "Dark mode (Ayu Mirage) is tuned for code-dense sessions."
     },
+    "appIcon": {
+      "title": "Application icon",
+      "description": "Choose the standard framed icon or the standalone mark.",
+      "label": "Icon style",
+      "hint": "The light and dark versions switch automatically with the theme.",
+      "styles": {
+        "default": "Standard",
+        "lite": "Standalone mark"
+      }
+    },
     "zoom": {
       "title": "Interface zoom",
       "description": "Scale the whole interface for your display and eyesight. Applies instantly and is remembered.",
@@ -229,6 +239,9 @@
     "enabled": "Enabled",
     "trigger": "Trigger",
     "triggerManual": "Manual",
+    "targetTurn": "Agent turn",
+    "targetWorkflow": "Workflow",
+    "workflowEditUnavailable": "Workflow automations are version-pinned. Create a replacement to change the workflow target.",
     "triggerCron": "Scheduled (cron)",
     "runTime": "Run time",
     "timezone": "IANA timezone",
@@ -253,6 +266,7 @@
     "runHistoryAria": "Run history",
     "noRuns": "No runs yet",
     "cancelRun": "Cancel run",
+    "openWorkflow": "Open workflow run",
     "unseenFailures": "{{count}} unread failures",
     "lastRunStatus": "Last: {{status}}",
     "migrationRequired": "Migration required",

@@ -10,7 +10,7 @@ use agents::{
     AgentPromptId, AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride,
     AgentSessionControlsSnapshot, AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput,
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
-    SendAgentPromptInput, SessionLaunchLock,
+    SendAgentPromptInput, SessionLaunchLock, SteerAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
@@ -19,6 +19,7 @@ use agents::{
     },
     validate_session_defaults,
 };
+use chrono::Utc;
 use db::models::{
     agent_management::SessionDefaultRepository,
     conversation::{
@@ -27,6 +28,7 @@ use db::models::{
     },
     conversation_event::AppendConversationEvent,
     conversation_side_effects::ConversationPermissionRecord,
+    conversation_steering::ConversationSteeringRecord,
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     repo::Repo,
     session::{CreateSession, Session, SessionStatus},
@@ -38,12 +40,16 @@ use deployment::Deployment;
 use executors::profile::ExecutorProfileId;
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::{ConversationEventAppender, ConversationProjector};
+use crate::{
+    ConversationEventAppender, ConversationInputControl, ConversationInputControlError,
+    ConversationInputStatus, ConversationProjector,
+};
 
 /// Agent launch settings (auto-approve + env), resolved from persisted AgentSetting.
 /// Moved here so both the orchestration core and the host impl share one type.
@@ -75,12 +81,36 @@ impl From<sqlx::Error> for ConversationServiceError {
 }
 impl From<agents::AgentError> for ConversationServiceError {
     fn from(e: agents::AgentError) -> Self {
-        ConversationServiceError::Internal(e.to_string())
+        match e {
+            agents::AgentError::SteeringUnsupported => Self::BadRequest(e.to_string()),
+            agents::AgentError::PromptConflict { .. } => Self::Conflict(e.to_string()),
+            agents::AgentError::ConnectionNotFound(_)
+            | agents::AgentError::SessionNotFound(_)
+            | agents::AgentError::PromptNotFound(_) => Self::NotFound(e.to_string()),
+            _ => Self::Internal(e.to_string()),
+        }
     }
 }
 impl From<serde_json::Error> for ConversationServiceError {
     fn from(e: serde_json::Error) -> Self {
         ConversationServiceError::Internal(e.to_string())
+    }
+}
+impl From<ConversationInputControlError> for ConversationServiceError {
+    fn from(error: ConversationInputControlError) -> Self {
+        match error {
+            ConversationInputControlError::NotFound(_) => Self::NotFound(error.to_string()),
+            ConversationInputControlError::EmptyInput
+            | ConversationInputControlError::InputTooLarge { .. } => {
+                Self::BadRequest(error.to_string())
+            }
+            ConversationInputControlError::OperationConflict { .. }
+            | ConversationInputControlError::StateConflict { .. }
+            | ConversationInputControlError::RevisionOverflow => Self::Conflict(error.to_string()),
+            ConversationInputControlError::InvalidStatus(_)
+            | ConversationInputControlError::Serialization(_)
+            | ConversationInputControlError::Database(_) => Self::Internal(error.to_string()),
+        }
     }
 }
 impl From<services::services::container::ContainerError> for ConversationServiceError {
@@ -96,6 +126,212 @@ pub struct CreateDelegatedConversation {
     pub delegation_id: String,
     pub agent_id: AgentId,
     pub prompt: String,
+    pub policy: serde_json::Value,
+}
+
+pub struct CreateWorkflowConversation {
+    pub id: Uuid,
+    pub parent_conversation_id: Uuid,
+    pub workspace_id: Uuid,
+    pub workflow_run_id: Uuid,
+    pub workflow_step_id: String,
+    pub agent_id: AgentId,
+    pub prompt: String,
+    pub visible: bool,
+}
+
+pub struct CreateForkConversation {
+    pub id: Uuid,
+    pub parent_conversation_id: Uuid,
+    pub agent_id: AgentId,
+    pub title: Option<String>,
+    pub initial_prompt: Option<String>,
+    pub visible: bool,
+}
+
+/// Create a durable programmable child and its fork relation atomically. The
+/// caller supplies an operation-derived id, so retries return the same child;
+/// reusing that id with a different payload fails closed.
+pub async fn create_fork_conversation(
+    pool: &SqlitePool,
+    input: CreateForkConversation,
+) -> Result<Uuid, ConversationServiceError> {
+    let payload_digest = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&serde_json::json!({
+            "parentConversationId": input.parent_conversation_id,
+            "agentId": input.agent_id.as_str(),
+            "title": input.title,
+            "initialPrompt": input.initial_prompt,
+            "visible": input.visible,
+        }))?)
+    );
+    if ConversationRecord::find_by_id(pool, input.id)
+        .await?
+        .is_some()
+    {
+        let metadata = sqlx::query_scalar::<_, String>(
+            "SELECT metadata_json FROM conversation_relations
+             WHERE parent_conversation_id = ? AND child_conversation_id = ?
+               AND kind = 'fork'",
+        )
+        .bind(input.parent_conversation_id)
+        .bind(input.id)
+        .fetch_optional(pool)
+        .await?;
+        if metadata
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
+            .and_then(|value| value["payloadDigest"].as_str().map(str::to_string))
+            .as_deref()
+            == Some(payload_digest.as_str())
+        {
+            return Ok(input.id);
+        }
+        return Err(ConversationServiceError::Conflict(
+            "conversation child operation id was reused with a different payload".to_string(),
+        ));
+    }
+    let parent = ConversationRecord::find_by_id(pool, input.parent_conversation_id)
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::NotFound(format!(
+                "Parent Conversation {} not found",
+                input.parent_conversation_id
+            ))
+        })?;
+    let relation = ConversationEvent::ConversationRelationCreated {
+        relation_id: Uuid::new_v4(),
+        parent_conversation_id: input.parent_conversation_id,
+        child_conversation_id: input.id,
+        relation_kind: agents::ConversationRelationKind::Fork,
+        visibility: if input.visible {
+            agents::ConversationRelationVisibility::Visible
+        } else {
+            agents::ConversationRelationVisibility::Hidden
+        },
+        metadata: serde_json::json!({ "payloadDigest": payload_digest }),
+    };
+    let normalized_json = serde_json::to_string(&relation)?;
+    let relation_key = format!("conversation-relation-fork:{}", input.id);
+    let session = CreateSession {
+        executor: None,
+        agent_id: Some(input.agent_id),
+        task_id: parent.task_id,
+        name: input.title,
+        initial_prompt: input.initial_prompt,
+        status: Some(SessionStatus::InProgress),
+    };
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    let transaction = async {
+        Session::create_on_connection(&mut conn, &session, input.id, parent.workspace_id)
+            .await
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        ConversationEventAppender::append_and_apply(
+            &mut conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: input.parent_conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "system",
+                event_kind: "conversation_relation_created",
+                normalized_json: &normalized_json,
+                raw_json: None,
+                idempotency_key: Some(&relation_key),
+            },
+        )
+        .await?;
+        Ok::<_, ConversationServiceError>(())
+    }
+    .await;
+    match transaction {
+        Ok(()) => sqlx::query("COMMIT").execute(&mut *conn).await?,
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(error);
+        }
+    };
+    Ok(input.id)
+}
+
+pub async fn create_workflow_conversation(
+    pool: &SqlitePool,
+    input: CreateWorkflowConversation,
+) -> Result<Uuid, ConversationServiceError> {
+    if let Some(existing) = ConversationRecord::find_by_id(pool, input.id).await? {
+        if existing.workspace_id == input.workspace_id {
+            return Ok(input.id);
+        }
+        return Err(ConversationServiceError::Conflict(format!(
+            "Workflow child Conversation {} already belongs to another workspace",
+            input.id
+        )));
+    }
+    let relation = ConversationEvent::ConversationRelationCreated {
+        relation_id: Uuid::new_v4(),
+        parent_conversation_id: input.parent_conversation_id,
+        child_conversation_id: input.id,
+        relation_kind: agents::ConversationRelationKind::WorkflowStep,
+        visibility: if input.visible {
+            agents::ConversationRelationVisibility::Visible
+        } else {
+            agents::ConversationRelationVisibility::Hidden
+        },
+        metadata: serde_json::json!({
+            "workflowRunId": input.workflow_run_id,
+            "workflowStepId": &input.workflow_step_id,
+        }),
+    };
+    let normalized_json = serde_json::to_string(&relation)?;
+    let relation_key = format!(
+        "conversation-relation-workflow:{}:{}:{}",
+        input.workflow_run_id, input.workflow_step_id, input.id
+    );
+    let session = CreateSession {
+        executor: None,
+        agent_id: Some(input.agent_id),
+        task_id: None,
+        name: Some(format!("Workflow · {}", input.workflow_step_id)),
+        initial_prompt: Some(input.prompt),
+        status: Some(SessionStatus::InProgress),
+    };
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    let transaction = async {
+        Session::create_on_connection(&mut conn, &session, input.id, input.workspace_id)
+            .await
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        ConversationEventAppender::append_and_apply(
+            &mut conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: input.parent_conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "system",
+                event_kind: "conversation_relation_created",
+                normalized_json: &normalized_json,
+                raw_json: None,
+                idempotency_key: Some(&relation_key),
+            },
+        )
+        .await?;
+        Ok::<_, ConversationServiceError>(())
+    }
+    .await;
+    match transaction {
+        Ok(()) => sqlx::query("COMMIT").execute(&mut *conn).await?,
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(error);
+        }
+    };
+    Ok(input.id)
 }
 
 /// Create the durable one-shot child Conversation before launching its first
@@ -113,24 +349,75 @@ pub async fn create_delegated_conversation(
                 input.parent_conversation_id
             ))
         })?;
-    Session::create_with_delegation(
-        pool,
-        &CreateSession {
-            executor: None,
-            agent_id: Some(input.agent_id),
-            task_id: parent.task_id,
-            name: None,
-            initial_prompt: Some(input.prompt),
-            status: Some(SessionStatus::InProgress),
-        },
-        input.id,
-        parent.workspace_id,
-        input.parent_conversation_id,
-        &input.parent_tool_call_id,
-        &input.delegation_id,
-    )
-    .await
-    .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+    let relation_id = Uuid::new_v4();
+    let relation = ConversationEvent::ConversationRelationCreated {
+        relation_id,
+        parent_conversation_id: input.parent_conversation_id,
+        child_conversation_id: input.id,
+        relation_kind: agents::ConversationRelationKind::Delegation,
+        visibility: agents::ConversationRelationVisibility::Visible,
+        metadata: serde_json::json!({
+            "parentToolCallId": &input.parent_tool_call_id,
+            "delegationId": &input.delegation_id,
+            "policy": &input.policy,
+        }),
+    };
+    let normalized_json = serde_json::to_string(&relation)?;
+    let relation_key = format!("conversation-relation-delegation:{}", input.id);
+    let session = CreateSession {
+        executor: None,
+        agent_id: Some(input.agent_id),
+        task_id: parent.task_id,
+        name: None,
+        initial_prompt: Some(input.prompt),
+        status: Some(SessionStatus::InProgress),
+    };
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    let transaction = async {
+        Session::create_with_delegation_on_connection(
+            &mut conn,
+            &session,
+            input.id,
+            parent.workspace_id,
+            input.parent_conversation_id,
+            &input.parent_tool_call_id,
+            &input.delegation_id,
+        )
+        .await
+        .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        ConversationEventAppender::append_and_apply(
+            &mut conn,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: input.parent_conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                source: "system",
+                event_kind: "conversation_relation_created",
+                normalized_json: &normalized_json,
+                raw_json: None,
+                idempotency_key: Some(&relation_key),
+            },
+        )
+        .await?;
+        Ok::<_, ConversationServiceError>(())
+    }
+    .await;
+    match transaction {
+        Ok(()) => {
+            if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err(error.into());
+            }
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(error);
+        }
+    }
     Ok(input.id)
 }
 
@@ -251,6 +538,54 @@ pub struct ConversationStartTurnInput {
     pub config_overrides: Vec<AgentSessionConfigOverride>,
     /// Structured PluginAction identities retained in the durable turn event.
     pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+    /// Present only when this turn was claimed from the durable input queue.
+    /// InputDispatched(input -> turn) is persisted before any Agent prompt send.
+    pub queued_input_claim: Option<QueuedConversationInputClaim>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct QueuedConversationInputClaim {
+    pub input_id: Uuid,
+    pub claim_token: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum ConversationSteeringStatus {
+    Requested,
+    Accepted,
+    Rejected,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct ConversationSteeringReceipt {
+    pub steering_id: Uuid,
+    pub conversation_id: Uuid,
+    pub operation_id: Uuid,
+    pub expected_turn_id: Uuid,
+    pub status: ConversationSteeringStatus,
+    pub code: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConversationSteerInput {
+    pub conversation_id: Uuid,
+    pub operation_id: Uuid,
+    pub expected_turn_id: Uuid,
+    pub text: String,
+    pub images: Vec<String>,
+    pub principal: serde_json::Value,
+}
+
+enum SteeringSettlement {
+    Accepted,
+    Rejected { code: &'static str, message: String },
+    Unknown { message: String },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -281,6 +616,16 @@ impl ConversationSessionService {
         input: ConversationStartTurnInput,
         origin: &str,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        let turn_lock = self.turn_lock(input.conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
+        self.start_turn_under_lock(input, origin).await
+    }
+
+    async fn start_turn_under_lock(
+        &self,
+        input: ConversationStartTurnInput,
+        origin: &str,
+    ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
         let display_text = input
             .display_text
             .as_deref()
@@ -296,16 +641,6 @@ impl ConversationSessionService {
                 "Agent prompt must include text or an image".to_string(),
             ));
         }
-
-        let turn_lock = {
-            let mut locks = self.ctx.turn_locks.lock().await;
-            Arc::clone(
-                locks
-                    .entry(input.conversation_id)
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
-        let _turn_guard = turn_lock.lock().await;
 
         let pool = &self.ctx.deployment.db().pool;
         let workspace = Workspace::find_by_id(pool, input.workspace_id)
@@ -360,41 +695,178 @@ impl ConversationSessionService {
             .ensure_conversation(pool, &input, &display_text)
             .await?;
         ensure_conversation_has_no_in_flight_turn(pool, &conversation).await?;
-        ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &display_text)
-            .await?;
-        ConversationRecord::update_status(pool, input.conversation_id, SessionStatus::InProgress)
-            .await?;
-
         let turn_id = Uuid::new_v4();
-        let turn = ConversationTurnRecord::create_pending(
-            pool,
-            turn_id,
-            CreateConversationTurn {
-                conversation_id: input.conversation_id,
-                prompt_id: None,
-                text_preview: Some(&display_text),
-                input_blocks_json: &serde_json::to_string(&conversation_blocks)
-                    .map_err(|error| ConversationServiceError::Internal(error.to_string()))?,
-            },
-        )
-        .await?;
-        if origin != crate::commit_reminder::USER_ORIGIN {
-            ConversationTurnRecord::set_origin(pool, turn.id, origin).await?;
-        }
-        ConversationRecord::update_active_turn(pool, input.conversation_id, Some(turn.id)).await?;
+        let conversation_blocks_json = serde_json::to_string(&conversation_blocks)
+            .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        let created_event = ConversationEvent::UserTurnCreated {
+            blocks: conversation_blocks,
+            plugin_actions: input.plugin_actions.clone(),
+        };
 
-        let created = self
-            .append_event(
-                input.conversation_id,
-                Some(turn.id),
-                "user",
-                ConversationEvent::UserTurnCreated {
-                    blocks: conversation_blocks,
-                    plugin_actions: input.plugin_actions.clone(),
+        let (turn, created) = if let Some(claim) = input.queued_input_claim {
+            // The durable input is the acceptance boundary. Its claim, the Turn row,
+            // active-turn pointer, and both causal events therefore commit together.
+            // Agent I/O begins only after this transaction has committed and published.
+            let dispatched_event = ConversationEvent::ConversationInput {
+                event: agents::ConversationInputEvent::Dispatched {
+                    input_id: claim.input_id,
+                    claim_token: claim.claim_token,
+                    turn_id,
                 },
-                Some(format!("turn:{}:created", turn.id)),
+            };
+            let dispatched_json = serde_json::to_string(&dispatched_event)
+                .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+            let created_json = serde_json::to_string(&created_event)
+                .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+            let dispatched_key = format!("conversation-input:{}:dispatched", claim.input_id);
+            let created_key = format!("turn:{turn_id}:created");
+            let dispatched_id = Uuid::new_v4();
+            let created_id = Uuid::new_v4();
+            let mut conn = pool.acquire().await?;
+            sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+            let transaction = async {
+                let active_status: Option<String> = sqlx::query_scalar(
+                    r#"SELECT status
+                       FROM conversation_turns
+                       WHERE id = (
+                           SELECT active_turn_id FROM sessions WHERE id = ?
+                       )"#,
+                )
+                .bind(input.conversation_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+                if active_status
+                    .as_deref()
+                    .is_some_and(is_in_flight_turn_status)
+                {
+                    return Err(ConversationServiceError::Conflict(
+                        "Conversation already has an active turn".to_string(),
+                    ));
+                }
+
+                ConversationRecord::capture_initial_prompt_on_connection(
+                    &mut conn,
+                    input.conversation_id,
+                    &display_text,
+                )
+                .await?;
+                ConversationRecord::update_status_on_connection(
+                    &mut conn,
+                    input.conversation_id,
+                    SessionStatus::InProgress,
+                )
+                .await?;
+                let turn = ConversationTurnRecord::create_pending_on_connection(
+                    &mut conn,
+                    turn_id,
+                    CreateConversationTurn {
+                        conversation_id: input.conversation_id,
+                        prompt_id: None,
+                        text_preview: Some(&display_text),
+                        input_blocks_json: &conversation_blocks_json,
+                    },
+                )
+                .await?;
+                if origin != crate::commit_reminder::USER_ORIGIN {
+                    ConversationTurnRecord::set_origin_on_connection(&mut conn, turn.id, origin)
+                        .await?;
+                }
+                ConversationRecord::update_active_turn_on_connection(
+                    &mut conn,
+                    input.conversation_id,
+                    Some(turn.id),
+                )
+                .await?;
+                let dispatched = ConversationEventAppender::append_and_apply(
+                    &mut conn,
+                    AppendConversationEvent {
+                        id: dispatched_id,
+                        conversation_id: input.conversation_id,
+                        turn_id: Some(turn.id),
+                        binding_id: None,
+                        connection_id: None,
+                        prompt_id: None,
+                        source: "system",
+                        event_kind: "conversation_input",
+                        normalized_json: &dispatched_json,
+                        raw_json: None,
+                        idempotency_key: Some(&dispatched_key),
+                    },
+                )
+                .await?;
+                let created = ConversationEventAppender::append_and_apply(
+                    &mut conn,
+                    AppendConversationEvent {
+                        id: created_id,
+                        conversation_id: input.conversation_id,
+                        turn_id: Some(turn.id),
+                        binding_id: None,
+                        connection_id: None,
+                        prompt_id: None,
+                        source: "user",
+                        event_kind: "user_turn_created",
+                        normalized_json: &created_json,
+                        raw_json: None,
+                        idempotency_key: Some(&created_key),
+                    },
+                )
+                .await?;
+                Ok::<_, ConversationServiceError>((turn, dispatched, created))
+            }
+            .await;
+            let (turn, dispatched, created) = match transaction {
+                Ok(committed) => {
+                    if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                        let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                        return Err(error.into());
+                    }
+                    committed
+                }
+                Err(error) => {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err(error);
+                }
+            };
+            drop(conn);
+            self.ctx.event_publisher.publish(&dispatched).await;
+            self.ctx.event_publisher.publish(&created).await;
+            (turn, created)
+        } else {
+            ConversationRecord::capture_initial_prompt(pool, input.conversation_id, &display_text)
+                .await?;
+            ConversationRecord::update_status(
+                pool,
+                input.conversation_id,
+                SessionStatus::InProgress,
             )
             .await?;
+            let turn = ConversationTurnRecord::create_pending(
+                pool,
+                turn_id,
+                CreateConversationTurn {
+                    conversation_id: input.conversation_id,
+                    prompt_id: None,
+                    text_preview: Some(&display_text),
+                    input_blocks_json: &conversation_blocks_json,
+                },
+            )
+            .await?;
+            if origin != crate::commit_reminder::USER_ORIGIN {
+                ConversationTurnRecord::set_origin(pool, turn.id, origin).await?;
+            }
+            ConversationRecord::update_active_turn(pool, input.conversation_id, Some(turn.id))
+                .await?;
+            let created = self
+                .append_event(
+                    input.conversation_id,
+                    Some(turn.id),
+                    "user",
+                    created_event,
+                    Some(format!("turn:{}:created", turn.id)),
+                )
+                .await?;
+            (turn, created)
+        };
 
         self.update_runtime_state(input.conversation_id, |state| {
             state.conversation_id = Some(input.conversation_id);
@@ -476,6 +948,392 @@ impl ConversationSessionService {
                 Err(error)
             }
         }
+    }
+
+    async fn turn_lock(&self, conversation_id: Uuid) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.ctx.turn_locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(conversation_id)
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
+    }
+
+    /// Dispatch exactly one durable queued input when the conversation is idle.
+    /// The per-conversation turn lock covers idle-check -> claim -> Turn creation,
+    /// so concurrent host/remote dispatchers cannot strand a second claim.
+    pub async fn dispatch_next_queued_input(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
+        let pool = &self.ctx.deployment.db().pool;
+        let conversation = ConversationRecord::find_by_id(pool, conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Conversation {conversation_id} not found"
+                ))
+            })?;
+        if let Some(active_turn_id) = conversation.active_turn_id
+            && let Some(active_turn) =
+                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+            && is_in_flight_turn_status(&active_turn.status)
+        {
+            return Ok(None);
+        }
+
+        let inputs = ConversationInputControl::with_publisher(
+            pool.clone(),
+            self.ctx.event_publisher.clone(),
+        );
+        let Some(claim) = inputs
+            .claim_next(conversation_id, chrono::Duration::seconds(30))
+            .await?
+        else {
+            return Ok(None);
+        };
+        let input_id = claim.input.id;
+        let claim_token = claim.claim_token;
+        let payload = claim.input.payload;
+        let executor_profile_id = payload
+            .executor_profile_id
+            .map(serde_json::from_value::<ExecutorProfileId>)
+            .transpose()
+            .map_err(|error| ConversationServiceError::BadRequest(error.to_string()));
+        let executor_profile_id = match executor_profile_id {
+            Ok(profile) => profile,
+            Err(error) => {
+                inputs
+                    .release_claim(conversation_id, input_id, claim_token)
+                    .await?;
+                return Err(error);
+            }
+        };
+        let result = self
+            .start_turn_under_lock(
+                ConversationStartTurnInput {
+                    agent_id: payload.agent_id,
+                    workspace_id: payload.workspace_id,
+                    conversation_id,
+                    executor_profile_id,
+                    text: payload.text,
+                    display_text: payload.display_text,
+                    images: payload.images,
+                    mode_override: payload.mode_override,
+                    config_overrides: payload.config_overrides,
+                    plugin_actions: payload.plugin_actions,
+                    queued_input_claim: Some(QueuedConversationInputClaim {
+                        input_id,
+                        claim_token,
+                    }),
+                },
+                crate::commit_reminder::LOCAL_USER_ORIGIN,
+            )
+            .await;
+        match result {
+            Ok((turn, _)) => Ok(Some(turn)),
+            Err(error) => {
+                let current = inputs.find(conversation_id, input_id).await?;
+                if current.status == ConversationInputStatus::Claimed {
+                    inputs
+                        .release_claim(conversation_id, input_id, claim_token)
+                        .await?;
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// Read a durable Turn snapshot for idempotent command retries. This does
+    /// not consult the in-memory runtime state.
+    pub async fn turn_snapshot(
+        &self,
+        turn_id: Uuid,
+    ) -> Result<Option<ConversationTurnSnapshot>, ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
+            return Ok(None);
+        };
+        let last_sequence = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(sequence), 0)
+             FROM conversation_events WHERE conversation_id = ?",
+        )
+        .bind(turn.conversation_id)
+        .fetch_one(pool)
+        .await?;
+        Ok(Some(ConversationTurnSnapshot {
+            conversation_id: turn.conversation_id,
+            turn_id: turn.id,
+            prompt_id: turn
+                .prompt_id
+                .as_deref()
+                .and_then(|value| Uuid::parse_str(value).ok()),
+            status: turn.status,
+            last_sequence,
+        }))
+    }
+
+    /// Inject guidance into exactly one currently active Turn. This never
+    /// falls back to queueing or starting a new Turn: the caller receives a
+    /// durable accepted/rejected/unknown receipt for the negotiated wire call.
+    pub async fn steer(
+        &self,
+        input: ConversationSteerInput,
+    ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
+        if input.text.trim().is_empty() && input.images.is_empty() {
+            return Err(ConversationServiceError::BadRequest(
+                "Steering input must include text or an image".to_string(),
+            ));
+        }
+        let payload_digest = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&serde_json::json!({
+                "text": &input.text,
+                "images": &input.images,
+            }))?)
+        );
+        let pool = &self.ctx.deployment.db().pool;
+        if let Some(existing) = ConversationSteeringRecord::find_by_operation(
+            pool,
+            input.conversation_id,
+            input.operation_id,
+        )
+        .await?
+        {
+            let principal = serde_json::from_str::<serde_json::Value>(&existing.principal_json)?;
+            if existing.expected_turn_id != input.expected_turn_id
+                || existing.payload_digest != payload_digest
+                || principal != input.principal
+            {
+                return Err(ConversationServiceError::Conflict(format!(
+                    "Steering operation {} was retried with different intent",
+                    input.operation_id
+                )));
+            }
+            return steering_receipt(existing);
+        }
+
+        let conversation = ConversationRecord::find_by_id(pool, input.conversation_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Conversation {} not found",
+                    input.conversation_id
+                ))
+            })?;
+        let active_turn_id = conversation.active_turn_id.ok_or_else(|| {
+            ConversationServiceError::Conflict("Conversation has no active Turn".to_string())
+        })?;
+        if active_turn_id != input.expected_turn_id {
+            return Err(ConversationServiceError::Conflict(format!(
+                "Active Turn changed: expected {}, active is {}",
+                input.expected_turn_id, active_turn_id
+            )));
+        }
+        let active_turn = ConversationTurnRecord::find_by_id(pool, active_turn_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!("Turn {active_turn_id} not found"))
+            })?;
+        if !is_in_flight_turn_status(&active_turn.status) {
+            return Err(ConversationServiceError::Conflict(format!(
+                "Turn {active_turn_id} is no longer active"
+            )));
+        }
+
+        let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
+            .await?
+            .ok_or_else(|| {
+                ConversationServiceError::NotFound(format!(
+                    "Workspace {} not found",
+                    conversation.workspace_id
+                ))
+            })?;
+        let container_ref = self
+            .ctx
+            .deployment
+            .container()
+            .ensure_container_exists(&workspace)
+            .await?;
+        let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
+        let working_dir = self
+            .ctx
+            .host
+            .resolve_working_dir(&workspace, &container_ref, &repos)
+            .unwrap_or(container_ref);
+        let agent_blocks = self
+            .ctx
+            .host
+            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images)
+            .await?;
+        let visible_blocks =
+            conversation_input_blocks_with_display_text(&agent_blocks, &input.text);
+        let steering_id = Uuid::new_v4();
+        self.append_event(
+            input.conversation_id,
+            Some(input.expected_turn_id),
+            "user",
+            ConversationEvent::ConversationSteering {
+                event: agents::ConversationSteeringEvent::Requested {
+                    steering_id,
+                    operation_id: input.operation_id,
+                    expected_turn_id: input.expected_turn_id,
+                    payload_digest,
+                    blocks: visible_blocks,
+                    principal: input.principal,
+                },
+            },
+            Some(format!(
+                "conversation-steering-operation:{}",
+                input.operation_id
+            )),
+        )
+        .await?;
+
+        let runtime_session_id = AgentSessionId(input.conversation_id);
+        let runtime = self.runtime_snapshot(input.conversation_id).await;
+        let connection_id = runtime
+            .connection_id
+            .as_deref()
+            .and_then(parse_agent_connection_id);
+        let prompt_id = runtime
+            .active_prompt_id
+            .as_deref()
+            .and_then(parse_agent_prompt_id);
+        if runtime.active_turn_id != Some(input.expected_turn_id)
+            || connection_id.is_none()
+            || prompt_id.is_none()
+        {
+            return self
+                .settle_steering(
+                    input.conversation_id,
+                    steering_id,
+                    input.expected_turn_id,
+                    SteeringSettlement::Rejected {
+                        code: "turn_not_live",
+                        message: "The expected Turn is not live on this host".to_string(),
+                    },
+                )
+                .await;
+        }
+        let controls = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(runtime_session_id)
+            .await;
+        if !controls
+            .as_ref()
+            .ok()
+            .and_then(|controls| controls.capabilities.as_ref())
+            .is_some_and(|capabilities| capabilities.steering)
+        {
+            return self
+                .settle_steering(
+                    input.conversation_id,
+                    steering_id,
+                    input.expected_turn_id,
+                    SteeringSettlement::Rejected {
+                        code: "steering_unsupported",
+                        message: "Agent did not negotiate in-flight steering".to_string(),
+                    },
+                )
+                .await;
+        }
+
+        let result = self
+            .ctx
+            .agent_runtime
+            .steer_prompt(SteerAgentPromptInput {
+                connection_id: connection_id.expect("checked above"),
+                session_id: runtime_session_id,
+                expected_prompt_id: prompt_id.expect("checked above"),
+                blocks: agent_blocks,
+            })
+            .await;
+        let settlement = match result {
+            Ok(receipt) => match receipt.outcome {
+                agents::AgentSteerOutcome::Injected => SteeringSettlement::Accepted,
+                agents::AgentSteerOutcome::PromptRequired => SteeringSettlement::Rejected {
+                    code: "no_running_turn",
+                    message: receipt
+                        .reason
+                        .unwrap_or_else(|| "Agent found no running Turn".to_string()),
+                },
+                agents::AgentSteerOutcome::StartedNewTurn => SteeringSettlement::Unknown {
+                    message: "Agent started a new Turn despite promptRequired fallback policy"
+                        .to_string(),
+                },
+            },
+            Err(agents::AgentError::SteeringUnsupported) => SteeringSettlement::Rejected {
+                code: "steering_unsupported",
+                message: "Agent did not negotiate in-flight steering".to_string(),
+            },
+            Err(agents::AgentError::PromptConflict { .. })
+            | Err(agents::AgentError::PromptNotFound(_)) => SteeringSettlement::Rejected {
+                code: "turn_conflict",
+                message: "The expected Turn is no longer active".to_string(),
+            },
+            Err(error) => SteeringSettlement::Unknown {
+                message: error.to_string(),
+            },
+        };
+        self.settle_steering(
+            input.conversation_id,
+            steering_id,
+            input.expected_turn_id,
+            settlement,
+        )
+        .await
+    }
+
+    async fn settle_steering(
+        &self,
+        conversation_id: Uuid,
+        steering_id: Uuid,
+        expected_turn_id: Uuid,
+        settlement: SteeringSettlement,
+    ) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
+        let event = match settlement {
+            SteeringSettlement::Accepted => agents::ConversationSteeringEvent::Accepted {
+                steering_id,
+                expected_turn_id,
+            },
+            SteeringSettlement::Rejected { code, message } => {
+                agents::ConversationSteeringEvent::Rejected {
+                    steering_id,
+                    expected_turn_id,
+                    code: code.to_string(),
+                    message,
+                }
+            }
+            SteeringSettlement::Unknown { message } => agents::ConversationSteeringEvent::Unknown {
+                steering_id,
+                expected_turn_id,
+                message,
+            },
+        };
+        self.append_event(
+            conversation_id,
+            Some(expected_turn_id),
+            "runtime",
+            ConversationEvent::ConversationSteering { event },
+            Some(format!("conversation-steering:{steering_id}:settled")),
+        )
+        .await?;
+        let record = ConversationSteeringRecord::find_by_id(
+            &self.ctx.deployment.db().pool,
+            conversation_id,
+            steering_id,
+        )
+        .await?
+        .ok_or_else(|| {
+            ConversationServiceError::Internal(format!(
+                "Steering receipt {steering_id} projection is missing"
+            ))
+        })?;
+        steering_receipt(record)
     }
 
     pub async fn respond_permission(
@@ -974,6 +1832,14 @@ impl ConversationSessionService {
     /// agents here. Returns the number of turns recovered.
     pub async fn recover_interrupted_turns(&self) -> Result<usize, ConversationServiceError> {
         let pool = &self.ctx.deployment.db().pool;
+        let inputs = ConversationInputControl::with_publisher(
+            pool.clone(),
+            self.ctx.event_publisher.clone(),
+        );
+        let released_claims = inputs.recover_stale_claims(Utc::now()).await?;
+        if released_claims > 0 {
+            tracing::info!(released_claims, "released stale unsubmitted input claims");
+        }
         let in_flight = ConversationTurnRecord::list_in_flight(pool).await?;
         if in_flight.is_empty() {
             return Ok(0);
@@ -1030,6 +1896,27 @@ impl ConversationSessionService {
         }
 
         Ok(count)
+    }
+
+    /// Resume durable queues after host event persistence is online. Each
+    /// conversation dispatches at most one Turn; terminal events pump the rest.
+    pub async fn dispatch_queued_inputs(&self) -> Result<usize, ConversationServiceError> {
+        let conversation_ids =
+            db::models::conversation_input::ConversationInputRecord::queued_conversation_ids(
+                &self.ctx.deployment.db().pool,
+            )
+            .await?;
+        let mut started = 0;
+        for conversation_id in conversation_ids {
+            if self
+                .dispatch_next_queued_input(conversation_id)
+                .await?
+                .is_some()
+            {
+                started += 1;
+            }
+        }
+        Ok(started)
     }
 
     /// Remove a conversation's entries from the in-memory coordination maps (turn
@@ -1350,6 +2237,31 @@ async fn append_and_publish_conversation_event(
     let record = ConversationEventAppender::append(pool, input).await?;
     publisher.publish(&record).await;
     Ok(record)
+}
+
+fn steering_receipt(
+    record: ConversationSteeringRecord,
+) -> Result<ConversationSteeringReceipt, ConversationServiceError> {
+    let status = match record.status.as_str() {
+        "requested" => ConversationSteeringStatus::Requested,
+        "accepted" => ConversationSteeringStatus::Accepted,
+        "rejected" => ConversationSteeringStatus::Rejected,
+        "unknown" => ConversationSteeringStatus::Unknown,
+        status => {
+            return Err(ConversationServiceError::Internal(format!(
+                "Invalid steering status `{status}`"
+            )));
+        }
+    };
+    Ok(ConversationSteeringReceipt {
+        steering_id: record.id,
+        conversation_id: record.conversation_id,
+        operation_id: record.operation_id,
+        expected_turn_id: record.expected_turn_id,
+        status,
+        code: record.code,
+        message: record.message,
+    })
 }
 
 async fn ensure_conversation_has_no_in_flight_turn(

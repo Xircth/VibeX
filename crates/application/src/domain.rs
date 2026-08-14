@@ -25,6 +25,7 @@ pub enum DomainCommand {
     AutomationList,
     AutomationEngineStatus,
     AutomationCreate,
+    AutomationCreateWorkflow,
     AutomationUpdate,
     AutomationSetEnabled,
     AutomationDelete,
@@ -59,6 +60,7 @@ impl DomainCommand {
             Self::AutomationList => "automation_list",
             Self::AutomationEngineStatus => "automation_engine_status",
             Self::AutomationCreate => "automation_create",
+            Self::AutomationCreateWorkflow => "automation_create_workflow",
             Self::AutomationUpdate => "automation_update",
             Self::AutomationSetEnabled => "automation_set_enabled",
             Self::AutomationDelete => "automation_delete",
@@ -96,6 +98,7 @@ impl DomainCommand {
             | Self::OfficePluginSetEnabled
             | Self::PluginSkillsConfigure => "plugin.write",
             Self::AutomationCreate
+            | Self::AutomationCreateWorkflow
             | Self::AutomationUpdate
             | Self::AutomationSetEnabled
             | Self::AutomationDelete
@@ -130,6 +133,7 @@ impl FromStr for DomainCommand {
             Self::AutomationList,
             Self::AutomationEngineStatus,
             Self::AutomationCreate,
+            Self::AutomationCreateWorkflow,
             Self::AutomationUpdate,
             Self::AutomationSetEnabled,
             Self::AutomationDelete,

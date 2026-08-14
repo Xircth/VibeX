@@ -11,6 +11,20 @@ import type {
   ServerCapabilities,
   SubscriptionRequest,
   ConversationTurnSnapshot,
+  ConversationInputPayload,
+  ConversationInputSubmission,
+  ConversationInputView,
+  ConversationRelationView,
+  ConversationOutputView,
+  ConversationSteeringReceipt,
+  WorkflowDefinition,
+  WorkflowPolicy,
+  WorkflowVersionView,
+  WorkflowRunView,
+  WorkflowStepView,
+  WorkflowEventRecord,
+  WorkflowReviewDecision,
+  WorkflowValidationView,
 } from 'shared/types';
 
 export type {
@@ -45,6 +59,10 @@ export interface ApplicationCommandMap {
     };
     result: DbConversationSummary;
   };
+  conversation_output: {
+    args: { conversationId: string };
+    result: ConversationOutputView;
+  };
   conversation_start_turn: {
     args: {
       request: {
@@ -60,6 +78,123 @@ export interface ApplicationCommandMap {
       };
     };
     result: ConversationTurnSnapshot;
+  };
+  conversation_steer: {
+    args: {
+      request: {
+        conversationId: string;
+        expectedTurnId: string;
+        text: string;
+        images?: string[];
+      };
+    };
+    result: ConversationSteeringReceipt;
+  };
+  conversation_input_submit: {
+    args: {
+      request: { conversationId: string; payload: ConversationInputPayload };
+    };
+    result: ConversationInputSubmission;
+  };
+  conversation_input_list: {
+    args: { request: { conversationId: string } };
+    result: ConversationInputView[];
+  };
+  conversation_relation_list: {
+    args: { request: { conversationId: string } };
+    result: ConversationRelationView[];
+  };
+  conversation_input_update: {
+    args: {
+      request: {
+        conversationId: string;
+        inputId: string;
+        expectedRevision: number;
+        payload: ConversationInputPayload;
+      };
+    };
+    result: ConversationInputView;
+  };
+  conversation_input_reorder: {
+    args: {
+      request: {
+        conversationId: string;
+        inputId: string;
+        expectedRevision: number;
+        sortKey: number;
+      };
+    };
+    result: ConversationInputView;
+  };
+  conversation_input_cancel: {
+    args: {
+      request: {
+        conversationId: string;
+        inputId: string;
+        expectedRevision: number;
+      };
+    };
+    result: ConversationInputView;
+  };
+  workflow_publish: {
+    args: {
+      request: {
+        definitionId?: string | null;
+        definition: WorkflowDefinition;
+      };
+    };
+    result: WorkflowVersionView;
+  };
+  workflow_validate: {
+    args: { request: { definition: WorkflowDefinition } };
+    result: WorkflowValidationView;
+  };
+  workflow_start: {
+    args: {
+      request: {
+        definitionVersionId: string;
+        workspaceId: string;
+        input: unknown;
+        policyOverride?: WorkflowPolicy | null;
+      };
+    };
+    result: WorkflowRunView;
+  };
+  workflow_show: {
+    args: { runId: string };
+    result: WorkflowRunView;
+  };
+  workflow_version: {
+    args: { versionId: string };
+    result: WorkflowVersionView;
+  };
+  workflow_steps: {
+    args: { runId: string };
+    result: WorkflowStepView[];
+  };
+  workflow_events: {
+    args: { runId: string; afterSequence?: number; limit?: number };
+    result: WorkflowEventRecord[];
+  };
+  workflow_complete_step: {
+    args: {
+      request: { runId: string; stepId: string; output?: unknown | null };
+    };
+    result: WorkflowRunView;
+  };
+  workflow_decide: {
+    args: {
+      request: { runId: string; stepId: string; decision: unknown };
+    };
+    result: WorkflowRunView;
+  };
+  workflow_cancel: {
+    args: { request: { runId: string; reason?: string | null } };
+    result: WorkflowRunView;
+  };
+  workflow_resume: {
+    args: { request: { runId: string; decision: WorkflowReviewDecision } };
+    result: WorkflowRunView;
   };
   conversation_respond_permission: {
     args: {
@@ -97,7 +232,11 @@ export type ApplicationCommandResult<C extends ApplicationCommandName> =
 
 export interface BackendTransport {
   readonly environment: BackendEnvironment;
-  call(command: string, args?: Record<string, unknown>): Promise<unknown>;
+  call(
+    command: string,
+    args?: Record<string, unknown>,
+    options?: { operationId?: string }
+  ): Promise<unknown>;
   stream?<T>(
     command: string,
     args: Record<string, unknown>,
@@ -120,7 +259,12 @@ export interface BackendTransport {
 export function callApplicationCommand<C extends ApplicationCommandName>(
   transport: BackendTransport,
   command: C,
-  args: ApplicationCommandArgs<C>
+  args: ApplicationCommandArgs<C>,
+  options?: { operationId?: string }
 ): Promise<ApplicationCommandResult<C>> {
-  return transport.call(command, args) as Promise<ApplicationCommandResult<C>>;
+  return (
+    options
+      ? transport.call(command, args, options)
+      : transport.call(command, args)
+  ) as Promise<ApplicationCommandResult<C>>;
 }

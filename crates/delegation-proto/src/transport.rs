@@ -33,6 +33,12 @@ pub enum BrokerMessage {
     Ask(BrokerAskRequest),
     /// `get_session_info` — read a referenced Conversation.
     SessionInfo(BrokerSessionRequest),
+    /// `send_session_input` — append one idempotent input to a scoped Conversation.
+    SessionSend(BrokerSessionSendRequest),
+    /// `cancel_session_turn` — cancel a scoped Conversation's active Turn.
+    SessionCancel(BrokerSessionCancelRequest),
+    /// `wait_for_session` — wait for a scoped Conversation to advance or settle.
+    SessionWait(BrokerSessionWaitRequest),
 }
 
 /// `delegate_to_agent` call. `parent_connection_id` is the runtime-internal ACP
@@ -101,6 +107,36 @@ pub struct BrokerSessionRequest {
     pub conversation_id: String,
     #[serde(default = "default_max_messages")]
     pub max_messages: u32,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BrokerSessionSendRequest {
+    pub token: String,
+    pub conversation_id: String,
+    pub operation_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BrokerSessionCancelRequest {
+    pub token: String,
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BrokerSessionWaitRequest {
+    pub token: String,
+    pub conversation_id: String,
+    /// Return when the Conversation sequence advances past this cursor. When
+    /// omitted, only a terminal Turn completes the wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_sequence: Option<i64>,
+    /// `None` = immediate snapshot; `Some(0)` = wait until the next matching
+    /// state; `Some(ms)` = wait up to `ms` (the listener caps it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_ms: Option<u64>,
 }
 
 fn default_max_messages() -> u32 {
@@ -225,6 +261,47 @@ mod tests {
             BrokerMessage::Call(req) => {
                 assert_eq!(req.external_handle.as_deref(), Some("ext"));
                 assert_eq!(req.input["task"], "line1\nline2");
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn scoped_session_control_round_trips_operation_and_cursor() {
+        let (mut tx, mut rx) = tokio::io::duplex(4096);
+        let operation_id = "550e8400-e29b-41d4-a716-446655440000".to_string();
+        let sent = BrokerMessage::SessionSend(BrokerSessionSendRequest {
+            token: "tok".to_string(),
+            conversation_id: "child".to_string(),
+            operation_id: operation_id.clone(),
+            text: "continue".to_string(),
+        });
+        write_frame(&mut tx, &sent).await.expect("write send");
+        match read_frame::<_, BrokerMessage>(&mut rx)
+            .await
+            .expect("read send")
+        {
+            BrokerMessage::SessionSend(request) => {
+                assert_eq!(request.operation_id, operation_id);
+                assert_eq!(request.text, "continue");
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+
+        let sent = BrokerMessage::SessionWait(BrokerSessionWaitRequest {
+            token: "tok".to_string(),
+            conversation_id: "child".to_string(),
+            after_sequence: Some(42),
+            wait_ms: Some(5_000),
+        });
+        write_frame(&mut tx, &sent).await.expect("write wait");
+        match read_frame::<_, BrokerMessage>(&mut rx)
+            .await
+            .expect("read wait")
+        {
+            BrokerMessage::SessionWait(request) => {
+                assert_eq!(request.after_sequence, Some(42));
+                assert_eq!(request.wait_ms, Some(5_000));
             }
             other => panic!("unexpected variant: {other:?}"),
         }

@@ -18,43 +18,60 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('Logo 组件与设置页展示 VibeX 内部品牌', () => {
+test('Logo 组件与外观设置展示 VibeX 内部品牌', () => {
   const logoSource = readFrontendFile('src/components/Logo.tsx');
-  const settingsSource = readFrontendFile('src/pages/settings/SettingsLayout.tsx');
+  const settingsSource = readFrontendFile(
+    'src/pages/settings/AppearanceSettings.tsx'
+  );
 
   assert.match(logoSource, brandPattern);
-  assert.match(logoSource, /vibex\.png/);
-  assert.match(settingsSource, /Logo/);
+  assert.match(logoSource, /resolveAppLogo/);
+  assert.match(logoSource, /resolveAppLogo\('lite', resolvedTheme\)/);
+  assert.doesNotMatch(logoSource, /getAppIconStyle/);
+  assert.match(settingsSource, /appIconStyle/);
+  assert.match(settingsSource, /setAppIconStyle/);
+});
+
+test('新品牌图标完整覆盖明暗主题与标准、纯标记样式', () => {
+  const appIconSource = readFrontendFile('src/lib/appIcon.ts');
+  const expectedAssets = [
+    'app-logo-light-default.png',
+    'app-logo-dark.png',
+    'app-logo-light-lite.png',
+    'app-logo-dark-lite.png',
+  ];
+
+  for (const asset of expectedAssets) {
+    assert.match(appIconSource, new RegExp(asset.replace('.', '\\.')));
+    assert.ok(fs.existsSync(path.join(frontendRoot, 'src/assets', asset)));
+  }
 });
 
 test('关键前端页面品牌文案更新为 VibeX', () => {
-  const welcomeSource = readFrontendFile('src/components/welcome/WelcomePage.tsx');
-  const statusBarSource = readFrontendFile('src/components/layout/StatusBar.tsx');
-  const onboardingSource = readFrontendFile(
-    'src/components/dialogs/global/OnboardingDialog.tsx'
+  const welcomeSource = readFrontendFile(
+    'src/components/welcome/WelcomePage.tsx'
   );
-  const disclaimerSource = readFrontendFile(
-    'src/components/dialogs/global/DisclaimerDialog.tsx'
+  const statusBarSource = readFrontendFile(
+    'src/components/layout/StatusBar.tsx'
   );
-  const projectContextSource = readFrontendFile('src/contexts/ProjectContext.tsx');
+  const projectContextSource = readFrontendFile(
+    'src/contexts/ProjectContext.tsx'
+  );
 
   assert.doesNotMatch(welcomeSource, /Vibe Kanban Promax/);
   assert.match(welcomeSource, brandPattern);
   assert.doesNotMatch(statusBarSource, /Vibe Kanban Promax/);
   assert.match(statusBarSource, brandPattern);
-  assert.doesNotMatch(onboardingSource, /Welcome to Vibe Kanban/);
-  assert.match(onboardingSource, brandPattern);
-  assert.doesNotMatch(disclaimerSource, /Vibe Kanban runs AI coding agents/);
-  assert.match(disclaimerSource, brandPattern);
   assert.doesNotMatch(projectContextSource, /vibe-kanban(?!.*vibex)/);
   assert.match(projectContextSource, brandPattern);
 });
 
-test('桌面宿主页不再暴露独立 Web/PWA 图标入口', () => {
+test('桌面宿主页使用可随主题更新的新应用图标入口', () => {
   const indexSource = readFrontendFile('index.html');
 
   assert.doesNotMatch(indexSource, /favicon-vk/);
-  assert.doesNotMatch(indexSource, /site\.webmanifest/);
+  assert.match(indexSource, /app-logo-light-default\.png/);
+  assert.match(indexSource, /data-app-icon/);
   assert.match(indexSource, /<title>VibeX<\/title>/);
 });
 

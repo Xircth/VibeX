@@ -36,8 +36,11 @@ export const configuredBackendTransport: BackendTransport = {
   get environment() {
     return getBackendTransport().environment;
   },
-  call(command, args) {
-    return getBackendTransport().call(command, args);
+  call(command, args, options) {
+    const transport = getBackendTransport();
+    return options === undefined
+      ? transport.call(command, args)
+      : transport.call(command, args, options);
   },
   subscribe(request) {
     const transport = getBackendTransport();

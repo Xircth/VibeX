@@ -5,7 +5,10 @@ import {
   type ChatComposerToken,
   type ChatComposerTrigger,
 } from '@astryxdesign/core/Chat';
-import type { SearchableItem, SearchSource } from '@astryxdesign/core/Typeahead';
+import type {
+  SearchableItem,
+  SearchSource,
+} from '@astryxdesign/core/Typeahead';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { formatSessionComposerCommand } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
@@ -15,9 +18,7 @@ type TagFileResult = {
   description?: string;
 };
 
-function toSearchableItem(
-  entry: TagFileResult
-): SearchableItem {
+function toSearchableItem(entry: TagFileResult): SearchableItem {
   return {
     id: `${entry.type}-${entry.label}`,
     label: entry.label,

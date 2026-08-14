@@ -247,6 +247,7 @@
     --shadow-card: 0 2px 7px hsl(220 36% 8% / 0.075);
     --shadow-control:
       0 1px 1px hsl(220 36% 8% / 0.08), 0 2px 4px hsl(220 36% 8% / 0.1);
+    --shadow-raised-control: 0 0 4px hsl(220 36% 8% / 0.14);
     --status-init: var(--neutral);
     --status-init-foreground: var(--neutral-foreground);
     --status-running: var(--info);
@@ -323,6 +324,7 @@
     --shadow-card: 0 2px 7px hsl(220 48% 2% / 0.24);
     --shadow-control:
       0 1px 1px hsl(220 48% 2% / 0.2), 0 2px 4px hsl(220 48% 2% / 0.3);
+    --shadow-raised-control: 0 0 4px hsl(220 48% 2% / 0.38);
     --switch-checked-border: hsl(0 0% 100% / 0.34);
     --usage-pink: hsl(340 26% 24% / 0.6);
     --usage-pink-border: hsl(340 34% 66% / 0.22);
@@ -1261,7 +1263,7 @@
     border: 0 !important;
     border-radius: var(--radius) !important;
     background: var(--surface-raised-control) !important;
-    box-shadow: var(--shadow-control) !important;
+    box-shadow: var(--shadow-raised-control) !important;
     color: var(--text-strong) !important;
     transition:
       color 150ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1283,7 +1285,7 @@
   .raised-control:focus-visible {
     outline: none;
     box-shadow:
-      var(--shadow-control),
+      var(--shadow-raised-control),
       0 0 0 2px var(--focus-ring) !important;
   }
 
@@ -2913,7 +2915,7 @@
     flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--border-strong);
-    border-radius: 14px;
+    border-radius: var(--radius);
     background: var(--surface-card-strong);
     color: var(--text-primary);
     box-shadow: 0 5px 8px hsl(220 36% 8% / 0.1);
@@ -3002,7 +3004,7 @@
     align-items: center;
     gap: 10px;
     border: 1px solid var(--border-subtle);
-    border-radius: 10px;
+    border-radius: var(--radius);
     background: var(--surface-card-strong);
     padding: 9px 11px;
     color: var(--text-primary);
@@ -3058,7 +3060,7 @@
   .agent-question-option
     input[type='checkbox']
     + .agent-question-option-indicator {
-    border-radius: 4px;
+    border-radius: var(--radius);
   }
 
   .agent-question-option input:checked + .agent-question-option-indicator {
@@ -3111,7 +3113,7 @@
     width: 100%;
     height: 38px;
     border: 1px solid var(--border-strong);
-    border-radius: 9px;
+    border-radius: var(--radius);
     background: var(--surface-card-strong);
     padding: 0 11px;
     color: var(--text-primary);
@@ -7024,7 +7026,7 @@
   gap: 7px;
   padding: 0 11px;
   border: 0;
-  border-radius: calc(var(--radius) - 3px);
+  border-radius: var(--radius);
   outline: 0;
   background: transparent;
   color: var(--text-muted);
@@ -7400,7 +7402,7 @@
   gap: 3px;
   padding: 7px 9px;
   border: 0;
-  border-radius: calc(var(--radius) - 3px);
+  border-radius: var(--radius);
   outline: 0;
   background: transparent;
   color: var(--text-default);
@@ -7692,7 +7694,7 @@
   min-height: 32px;
   padding: 0 7px;
   border: 0;
-  border-radius: calc(var(--radius) - 3px);
+  border-radius: var(--radius);
   outline: 0;
   background: transparent;
   color: var(--text-muted);

@@ -21,7 +21,7 @@ use crate::{
     lookups::ParentSessionLookup,
     steering::{NoopCompanionFeatures, SharedCompanionFeatures},
     token_registry::{TokenFeature, TokenRegistry},
-    types::{DelegationRequest, DelegationScope, DelegationTaskReport},
+    types::{DelegationRequest, DelegationScope, DelegationTaskReport, DelegationWorkspaceAccess},
 };
 
 /// Bridges companion connections to the broker.
@@ -149,6 +149,73 @@ impl DelegationListener {
                     }),
                 },
             ),
+            BrokerMessage::SessionSend(req) => BrokerResponse::Payload(
+                match self
+                    .authorized_entry(&req.token, TokenFeature::SessionControl)
+                    .await
+                {
+                    Some(entry) => {
+                        self.features
+                            .session_send(
+                                &scope_for(&entry),
+                                &req.conversation_id,
+                                &req.operation_id,
+                                &req.text,
+                            )
+                            .await
+                    }
+                    None => json!({
+                        "accepted": false,
+                        "conversation_id": req.conversation_id,
+                        "error_code": "invalid_token",
+                    }),
+                },
+            ),
+            BrokerMessage::SessionCancel(req) => BrokerResponse::Payload(
+                match self
+                    .authorized_entry(&req.token, TokenFeature::SessionControl)
+                    .await
+                {
+                    Some(entry) => {
+                        self.features
+                            .session_cancel(
+                                &scope_for(&entry),
+                                &req.conversation_id,
+                                req.reason.as_deref(),
+                            )
+                            .await
+                    }
+                    None => json!({
+                        "accepted": false,
+                        "conversation_id": req.conversation_id,
+                        "error_code": "invalid_token",
+                    }),
+                },
+            ),
+            BrokerMessage::SessionWait(req) => BrokerResponse::Payload(
+                match self
+                    .authorized_entry(&req.token, TokenFeature::SessionControl)
+                    .await
+                {
+                    Some(entry) => {
+                        let scope = scope_for(&entry);
+                        tokio::select! {
+                            outcome = self.features.session_wait(
+                                &scope,
+                                &req.conversation_id,
+                                req.after_sequence,
+                                req.wait_ms.map(|value| value.min(60_000)),
+                            ) => outcome,
+                            _ = wait_for_peer_close(conn) => return Ok(()),
+                        }
+                    }
+                    None => json!({
+                        "found": false,
+                        "conversation_id": req.conversation_id,
+                        "error_code": "invalid_token",
+                    }),
+                },
+            ),
         };
         write_frame(conn, &response).await
     }
@@ -217,6 +284,9 @@ impl DelegationListener {
                 working_dir,
                 requested_working_dir,
                 external_handle: req.external_handle,
+                // Companion calls currently receive write-capable Agent tools;
+                // without enforceable read-only evidence they must serialize.
+                workspace_access: DelegationWorkspaceAccess::WriteSerialized,
             })
             .await
     }
@@ -853,6 +923,7 @@ mod tests {
                 feedback: false,
                 ask: false,
                 session_info: false,
+                session_control: false,
             },
         );
         let scope = DelegationScope {

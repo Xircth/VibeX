@@ -16,7 +16,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **新建或重设计 UI、视觉层级和交互**：[`frontend-design`](/Users/sean/.agents/skills/frontend-design/SKILL.md) 与 [`impeccable`](/Users/sean/Documents/Projetcs/VibeX/.agents/skills/impeccable/SKILL.md)。
 - **macOS/Tahoe 原生体验、平台交互或窗口外观**：[`apple-design`](/Users/sean/.agents/skills/apple-design/SKILL.md)、[`macos-app-design`](/Users/sean/.agents/skills/macos-app-design/SKILL.md)。
 - **探索多个 UI 方向**：[`design-an-interface`](/Users/sean/.agents/skills/design-an-interface/SKILL.md)。**审查可用性、可访问性与 Web 规范**：[`web-design-guidelines`](/Users/sean/.agents/skills/web-design-guidelines/SKILL.md)。
-- **浏览器自动化和前端 E2E 验证**：[`webapp-testing`](/Users/sean/.agents/skills/webapp-testing/SKILL.md)、[`agent-browser`](/Users/sean/.agents/skills/agent-browser/SKILL.md)、[`e2e-testing-patterns`](/Users/sean/.agents/skills/e2e-testing-patterns/SKILL.md)。
+- **浏览器自动化和前端 E2E 验证**：[`webapp-testing`](/Users/sean/.agents/skills/webapp-testing/SKILL.md)、[`e2e-testing-patterns`](/Users/sean/.agents/skills/e2e-testing-patterns/SKILL.md)。
 
 ### Tauri、Rust 与桌面能力
 
@@ -56,6 +56,9 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Conversation（会话）** — 用户与一个 agent 之间的持久对话。其完整历史由事件日志权威记录，与任何 agent 进程的存活无关。
 - **Conversation panel（会话面板）** — 在 Server-bound window 中呈现一个 Conversation 的唯一 Dockview 视图；同一窗口重复打开只聚焦已有面板，关闭或移动面板只改变布局，不取消在途 Turn，也不删除 Conversation。
 - **Conversation draft（会话草稿）** — 属于 Server 上某个 Conversation、可由已授权设备继续编辑的未提交 Composer 内容；每次保存基于 revision，冲突必须保留服务器版本与本机版本，不能静默覆盖。
+- **Conversation input（会话输入）** — 已被 Server 接受、等待产生新 Turn 的持久用户意图；它与未提交的 Conversation draft、向在途 Turn 纠偏的 Steering 都不同。
+- **Queued conversation input（排队会话输入）** — 尚未被认领并绑定到 Turn 的 Conversation input；同一 Conversation 的多个输入具有稳定顺序，可由所有已授权设备一致查看和修改。
+- **Turn steering（回合纠偏）** — 用户针对指定在途 Turn 追加的即时指导；它属于该 Turn，不创建新 Turn，也不能在 Agent 不支持时静默变成排队输入。
 - **Turn（回合）** — 会话内一次“用户发起 → agent 应答完毕”的完整周期。同一会话内同一时刻至多一个 turn 在途。
 - **In-flight turn（在途回合）** — 已开始、尚未到达终态的 turn。
 - **Turn 终态** — 每个 turn 最终恰好落在以下四个终态之一：
@@ -71,6 +74,12 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Timeline row（时间线行）** — 投影的最小单元：时间线上一个可独立更新的条目（一条消息、一次工具调用、一次权限请求等）。前端渲染的唯一输入。
 - **Revision（行修订号）** — 单个时间线行的单调版本号，用于增量更新的幂等去重。
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。
+- **Conversation relation（会话关系）** — 两个独立 Conversation 之间用于导航、可见性和汇总的亲子关系；它不共享历史，也不参与任一 Conversation 的事件读取。
+- **Delegated conversation（委派会话）** — 父 Conversation 为一项明确任务创建的 child Conversation；其 Conversation 与 Turn 事实独立持久化，父级只持有关系、策略和结果摘要。
+
+会话输入、纠偏、关系与委派策略见
+[ADR-0044](docs/adr/0044-conversation-control-plane-and-durable-inputs.md)。
+
 - **Workspace-less conversation（无工作区会话）** — 一种不挂靠任何 Project / Workspace 的 Conversation：没有 worktree、没有隔离工作区、没有 git 面板，用于纯聊天/咨询场景。与常规会话的唯一区别是缺少 Workspace 归属；其事件日志、Turn 生命周期、恢复与中断语义与常规会话**完全一致**。因无仓库工作区，其 agent 的文件/终端工具根目录由宿主指定的**专用临时目录**提供（而非某个项目仓库），并据此成为一个能力受限的低权限模式。落地决策（数据模型 + 工作目录/沙箱）见 ADR-0006。
 
 ## Channel domain
@@ -81,13 +90,28 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Automation domain
 
-- **Automation（自动化）** — 一份版本化、transport-neutral 的 `TurnLaunchSpec`，保存结构化 prompt blocks、Agent/mode/config、PluginAction、workspace/branch/isolation 与 manual/schedule 触发；它不是 cron 字符串加任意命令。
-- **Automation run（自动化运行）** — Automation 的一次真实执行实例，必须产生一个 Conversation 与 Turn，并由同一持久 Turn 终态投影为 completed/failed/cancelled/interrupted；`start_turn` 成功后仍是 running。
+- **Automation（自动化）** — 一份版本化的触发配置，在 manual 或 schedule 条件满足时启动一个 Turn 或一个版本化 Workflow；它不是 cron 字符串加任意命令。
+- **Automation run（自动化运行）** — Automation 的一次真实触发实例；它记录触发与目标运行的关联，终态由对应 Turn 或 Workflow run 的持久事实决定。
 - **Automation owner（自动化所有者）** — 对同一数据目录唯一持有 Engine lease 的 desktop 或 `vibex-server` 宿主。只有 owner 可以 reconciliation、claim due 和 tick；退出后另一宿主才可接管。
 - **Due claim（到期认领）** — 在同一事务内创建 Run 并推进 `next_run_at` 的操作；双 Engine/双 tick 不得产生双调度。
 - **Automation isolation（自动化隔离）** — 默认每个 Run 创建独立 worktree；shared-root 必须显式选择并通过 clean/branch 检查。运行绝不自动 merge、push、publish 或 deploy。
-- **Automation recovery（自动化恢复）** — 启动时把遗留 running Run 变为 Interrupted，释放锁且绝不重发对应 Turn。停机期间至多补一次最近错过的 schedule，其余错过触发不排队。
+- **Automation recovery（自动化恢复）** — 启动时把遗留的 direct-Turn Run 变为 Interrupted；已关联 Workflow run 的 Run 协调原运行并跟随其终态，两者都绝不重新触发目标。停机期间至多补一次最近错过的 schedule，其余错过触发不排队。
 - **Automation retention（自动化保留）** — terminal Run 与其独立 worktree 默认保留 30 天，并受每个数据目录 10 GiB 配额约束；按完成时间从旧到新清理。running Run 永不参与清理，worktree 删除失败时保留 Run 证据供后续重试，目录计量不跟随符号链接。
+
+## Workflow domain
+
+- **Workflow definition（工作流定义）** — 一份不可变、版本化的步骤依赖图，声明输入、Agent 或 Approval steps、输出引用和执行策略；修改会产生新版本，不改变已开始的运行。
+- **Workflow run（工作流运行）** — Workflow definition 某一版本在一组输入与工作区上的持久执行实例；它拥有步骤编排事实，但不复制 child Conversation 与 Turn 的历史。
+- **Workflow step（工作流步骤）** — Workflow definition 中具有稳定身份、依赖、输入和输出契约的最小执行单位。
+- **Step run（步骤运行）** — Workflow step 在某次 Workflow run 中的一次可审计执行；重试产生新的 attempt，不能覆盖旧证据。
+- **Agent step（Agent 步骤）** — 通过 child Conversation 与一个或多个真实 Turn 完成工作的 Workflow step。
+- **Approval step（审批步骤）** — 等待已授权主体作出持久决定的 Workflow step；它不是 Agent Turn。
+- **Accepted step output（已接受步骤输出）** — 已通过该步骤输出契约验证、可被下游步骤引用的结构化结果；Agent 的自由文本回答本身不自动成为该结果。
+- **Workflow checkpoint（工作流检查点）** — 用于证明已完成步骤所依赖工作区状态的持久证据；摘要相同但检查点不一致时不能自动复用步骤结果。
+- **Needs review（需要复核）** — 系统无法证明自动继续或重试不会重复副作用时的非终态；只有明确用户决定才能推进或结束运行。
+
+Workflow 领域与 Automation 的关系见
+[ADR-0045](docs/adr/0045-workflows-orchestrate-conversation-turns.md)。
 
 ## Plugin, Tool, and Artifact domain
 

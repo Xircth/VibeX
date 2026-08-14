@@ -165,6 +165,7 @@ pub async fn start_commit_reminder_if_needed(
                 plugin_actions: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
+                queued_input_claim: None,
             },
             COMMIT_REMINDER_ORIGIN,
         )

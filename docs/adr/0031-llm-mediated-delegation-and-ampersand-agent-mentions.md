@@ -47,6 +47,10 @@ UI 不得仅因出现 Mention 就显示子任务已经启动。
 
 ## 暂不采用显式 Graph 编排
 
+> 2026-08-13 后续决策：该延期项已由
+> [ADR-0045](0045-workflows-orchestrate-conversation-turns.md) 落实。LLM-mediated
+> delegation 保留；确定性编排进入独立 Workflow 领域，不进入 Delegation API。
+
 由用户或后端确定性创建 fan-out/fan-in 图、预算、重试和汇总节点的
 Graph Engineering 模式具有价值，但当前没有稳定领域基础。本阶段不建立半成品图
 模型，也不把图概念泄漏进 Delegation API。未来应通过独立 ADR 决定 Workflow Graph

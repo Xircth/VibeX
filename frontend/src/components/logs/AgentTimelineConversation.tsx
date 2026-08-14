@@ -38,6 +38,7 @@ import { ArtifactTimelineCard } from '@/components/NormalizedConversation/Artifa
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { ConversationChildrenSummary } from '@/features/conversation/ConversationChildrenSummary';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { ConfirmDialog } from '@/components/dialogs';
@@ -55,6 +56,7 @@ import {
 } from '@/components/conversation-thread/messageNavEntries';
 import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
+import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
 import {
   useOptionalConversationStatus,
@@ -468,6 +470,8 @@ const AgentTimelineConversation = forwardRef<
   }, [conversationError]);
   // Stable reference (memoized in the hook) for the reset-to-here retry flow.
   const conversationResetAndReload = conversation.resetAndReload;
+  // Restore a failed ACP connection without clearing the durable/live timeline.
+  const conversationReconnectAndReload = conversation.reconnectAndReload;
   // Stable reference for answering permission requests inline.
   const conversationRespondPermission = conversation.respondPermission;
   const [respondingPermissionId, setRespondingPermissionId] = useState<
@@ -545,9 +549,9 @@ const AgentTimelineConversation = forwardRef<
   );
   const handleOpenChild = useMemo(() => {
     if (!projectId || !workspaceId) return undefined;
-    return (childConversationId: string) =>
+    return (childConversationId: string, childWorkspaceId = workspaceId) =>
       navigate(
-        paths.projectSession(projectId, workspaceId, childConversationId)
+        paths.projectSession(projectId, childWorkspaceId, childConversationId)
       );
   }, [navigate, projectId, workspaceId]);
   // Read the composer's live profile selection so resend stays same-source.
@@ -1051,7 +1055,7 @@ const AgentTimelineConversation = forwardRef<
         id: latestTurnErrorRow.row_id,
         kind: 'turn-error' as const,
         error: latestTurnError,
-        onReload: conversationResetAndReload,
+        onReload: conversationReconnectAndReload,
       });
     }
     if (latestInterruptedRow) {
@@ -1077,7 +1081,7 @@ const AgentTimelineConversation = forwardRef<
     }
     return notices;
   }, [
-    conversationResetAndReload,
+    conversationReconnectAndReload,
     handleRetry,
     latestInterruptedRow,
     latestSessionNoticeRow,
@@ -1118,12 +1122,21 @@ const AgentTimelineConversation = forwardRef<
           )}
         >
           <div className="conv-thread-content min-w-0">
+            {attempt.session?.executor === 'workflow' && sessionId ? (
+              <WorkflowRunCard runId={sessionId} />
+            ) : null}
+            {attempt.session?.executor !== 'workflow' && sessionId ? (
+              <ConversationChildrenSummary
+                conversationId={sessionId}
+                onOpenChild={handleOpenChild}
+              />
+            ) : null}
             {latestTurnErrorNotice &&
             !usesComposerStatusDock &&
             !isStatusDismissed(latestTurnErrorNotice) ? (
               <TurnErrorCard
                 error={latestTurnErrorNotice.error}
-                onReload={conversationResetAndReload}
+                onReload={conversationReconnectAndReload}
                 onDismiss={() => dismissStatus(latestTurnErrorNotice)}
               />
             ) : null}

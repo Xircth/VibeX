@@ -12,7 +12,9 @@ pub struct StartupRecoveryReport {
 
 #[async_trait]
 pub trait RecoveryStorePort: Clone + Send + Sync + 'static {
-    /// Atomically settles every orphaned running row as interrupted.
+    /// Atomically settles orphaned direct/unlinked launches as interrupted.
+    /// Runs linked to a durable Workflow remain running and are reconciled
+    /// against that Workflow after the host restarts.
     async fn interrupt_running(&self, now: DateTime<Utc>) -> Result<Vec<Uuid>, EngineError>;
 
     /// Atomically advances each due schedule from `now` and returns at most one

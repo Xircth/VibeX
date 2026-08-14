@@ -283,11 +283,13 @@
   },
   "messageQueue": {
     "description": "消息已排队，当前运行完成后会自动发送。",
+    "descriptionCount": "已排队 {{count}} 条消息",
     "editMessage": "编辑队列消息",
     "deleteMessage": "删除队列消息",
     "moveUp": "上移队列消息",
     "moveDown": "下移队列消息",
-    "singleQueueOnly": "当前仅支持单条队列"
+    "sending": "正在发送",
+    "attachmentOnly": "仅附件"
   },
   "usageDashboard": {
     "today": "今天",

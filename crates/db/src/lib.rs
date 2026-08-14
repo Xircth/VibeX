@@ -12,6 +12,7 @@ use utils::assets::asset_dir;
 pub mod models;
 
 async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), Error> {
+    // Keep this call in the DB crate so every composition embeds the same migration set.
     sqlx::migrate!("./migrations").run(pool).await?;
     models::agent_management::legacy_migration::LegacyAgentMigration::run(pool)
         .await

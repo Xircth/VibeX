@@ -43,6 +43,9 @@ export type UseConversationTimelineResult = {
    *  (possibly truncated) durable log. Used by reset-to-here, where the server
    *  rewrites history and live events restart from a lower sequence. */
   resetAndReload: () => Promise<void>;
+  /** Restore the concrete ACP session, then refresh its durable projection without
+   *  clearing rows or buffered stream content. */
+  reconnectAndReload: () => Promise<void>;
   cancel: (reason?: string) => Promise<void>;
   respondPermission: (
     permissionId: string,
@@ -124,6 +127,26 @@ export function useConversationTimeline(
     pendingBatchesRef.current = [];
     dispatch({ type: 'reset', conversationId });
     return loadDetail();
+  }, [conversationId, loadDetail]);
+
+  const reconnectAndReload = useCallback(async (): Promise<void> => {
+    if (!conversationId) return;
+    try {
+      const controls =
+        await conversationApi.ensureSessionControls(conversationId);
+      dispatch({
+        type: 'session_controls_hydrated',
+        conversationId,
+        controls,
+      });
+      await loadDetail();
+    } catch (error: unknown) {
+      dispatch({
+        type: 'load_error',
+        conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }, [conversationId, loadDetail]);
 
   useEffect(() => {
@@ -298,6 +321,7 @@ export function useConversationTimeline(
       removeOptimisticTurn,
       refresh: loadDetail,
       resetAndReload,
+      reconnectAndReload,
       cancel,
       respondPermission,
       respondQuestion,
@@ -308,6 +332,7 @@ export function useConversationTimeline(
       removeOptimisticTurn,
       loadDetail,
       resetAndReload,
+      reconnectAndReload,
       cancel,
       respondPermission,
       respondQuestion,

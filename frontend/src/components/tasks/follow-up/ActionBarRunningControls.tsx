@@ -1,53 +1,56 @@
-import { Clock, Loader2, X } from 'lucide-react';
+import { Clock, CornerDownLeft, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { ComposerPrimaryActionButton } from './ComposerPrimaryActionButton';
 
 type ActionBarRunningControlsProps = {
-  isQueued: boolean;
   isQueueLoading: boolean;
   isCompactingContext: boolean;
   isStopping: boolean;
+  isSteering?: boolean;
+  supportsSteering?: boolean;
   hasQueueableContent: boolean;
   sessionId?: string;
   onQueueMessage: () => void;
-  onCancelQueue: () => void;
+  onSteer?: () => void;
   onStopExecution: () => void;
 };
 
 export function ActionBarRunningControls({
-  isQueued,
   isQueueLoading,
   isCompactingContext,
   isStopping,
+  isSteering = false,
+  supportsSteering = false,
   hasQueueableContent,
   sessionId,
   onQueueMessage,
-  onCancelQueue,
+  onSteer,
   onStopExecution,
 }: ActionBarRunningControlsProps) {
   return (
     <div className="flex items-center gap-1">
       {!isCompactingContext ? (
-        isQueued ? (
-          <Button
-            onClick={onCancelQueue}
-            disabled={isQueueLoading || !sessionId}
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs"
-            aria-label={'\u53d6\u6d88\u961f\u5217'}
-          >
-            {isQueueLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <>
-                <X className="mr-1 h-3.5 w-3.5" />
-                {'\u53d6\u6d88\u961f\u5217'}
-              </>
-            )}
-          </Button>
-        ) : (
+        <>
+          {supportsSteering ? (
+            <Button
+              onClick={onSteer}
+              disabled={isSteering || !sessionId || !hasQueueableContent}
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              aria-label={'\u7ea0\u504f'}
+            >
+              {isSteering ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+              ) : (
+                <>
+                  <CornerDownLeft className="mr-1 h-3.5 w-3.5" />
+                  {'\u7ea0\u504f'}
+                </>
+              )}
+            </Button>
+          ) : null}
           <Button
             onClick={onQueueMessage}
             disabled={isQueueLoading || !sessionId || !hasQueueableContent}
@@ -57,7 +60,7 @@ export function ActionBarRunningControls({
             aria-label={'\u961f\u5217'}
           >
             {isQueueLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
             ) : (
               <>
                 <Clock className="mr-1 h-3.5 w-3.5" />
@@ -65,7 +68,7 @@ export function ActionBarRunningControls({
               </>
             )}
           </Button>
-        )
+        </>
       ) : null}
       <ComposerPrimaryActionButton
         action="stop"

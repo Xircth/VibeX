@@ -1,13 +1,16 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use application::{
+    Principal, StartWorkflowRequest, WorkflowExecutionPort, WorkflowStoreExecutionPort,
+};
 use async_trait::async_trait;
 use automation::{
     AgentRuntimeVersionEvidence, AutomationEngine, AutomationRetentionService, AutomationRunner,
-    ClaimedRun, ComponentVersionEvidence, ConnectionLaunch, IsolationSpec, PreparedWorkspace,
-    ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError, RunExecutionRequest,
-    RunStatus, StartupRecoveryReport, SystemClock, ToolLockVersionEvidence, TurnLaunchSpec,
-    TurnLauncherPort, WorkspaceError, WorkspacePreparationRequest, WorkspacePreparerPort,
-    WorkspaceRetentionPort,
+    AutomationTarget, ClaimedRun, ComponentVersionEvidence, ConnectionLaunch, IsolationSpec,
+    PreparedWorkspace, ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError,
+    RunExecutionRequest, RunStatus, StartupRecoveryReport, SystemClock, ToolLockVersionEvidence,
+    TurnLaunchSpec, TurnLauncherPort, WorkflowLaunchSpec, WorkspaceError,
+    WorkspacePreparationRequest, WorkspacePreparerPort, WorkspaceRetentionPort,
 };
 use db::models::{
     automation_v2::{AutomationRunRecord, SqliteAutomationStore},
@@ -107,32 +110,147 @@ impl HeadlessAutomationRuntime {
                 return;
             }
         };
-        let runner = AutomationRunner::new(
-            self.store.clone(),
-            ServerWorkspacePreparer {
-                deployment: self.deployment.clone(),
-                store: self.store.clone(),
-            },
-            ServerTurnLauncher {
-                deployment: self.deployment.clone(),
-                conversation_context: self.conversation_context.clone(),
-                office: self.office.clone(),
-            },
-        );
-        if let Err(error) = runner
-            .execute(&RunExecutionRequest {
-                run_id: claimed.run_id,
-                automation_id: claimed.automation_id,
-                launch_spec: automation.launch_spec,
+        match automation.target {
+            AutomationTarget::Turn(launch_spec) => {
+                let runner = AutomationRunner::new(
+                    self.store.clone(),
+                    ServerWorkspacePreparer {
+                        deployment: self.deployment.clone(),
+                        store: self.store.clone(),
+                    },
+                    ServerTurnLauncher {
+                        deployment: self.deployment.clone(),
+                        conversation_context: self.conversation_context.clone(),
+                        office: self.office.clone(),
+                    },
+                );
+                if let Err(error) = runner
+                    .execute(&RunExecutionRequest {
+                        run_id: claimed.run_id,
+                        automation_id: claimed.automation_id,
+                        launch_spec,
+                    })
+                    .await
+                    && error != RunError::Cancelled
+                {
+                    tracing::warn!(
+                        run_id = %claimed.run_id,
+                        "headless Automation run failed to launch: {error}"
+                    );
+                }
+            }
+            AutomationTarget::Workflow(spec) => {
+                if let Err(error) = self
+                    .execute_workflow(claimed.run_id, claimed.automation_id, spec)
+                    .await
+                {
+                    tracing::warn!(
+                        run_id = %claimed.run_id,
+                        "headless Automation workflow failed to launch: {error}"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn execute_workflow(
+        &self,
+        automation_run_id: Uuid,
+        automation_id: Uuid,
+        spec: WorkflowLaunchSpec,
+    ) -> Result<(), String> {
+        let policy_override = match spec.policy_override.map(serde_json::from_value).transpose() {
+            Ok(policy) => policy,
+            Err(error) => {
+                let _ = automation::RunStorePort::settle(
+                    &self.store,
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+                return Err(error.to_string());
+            }
+        };
+        let preparer = ServerWorkspacePreparer {
+            deployment: self.deployment.clone(),
+            store: self.store.clone(),
+        };
+        let workspace = match preparer
+            .prepare(&WorkspacePreparationRequest {
+                automation_id,
+                run_id: automation_run_id,
+                target: spec.workspace,
             })
             .await
-            && error != RunError::Cancelled
         {
-            tracing::warn!(
-                run_id = %claimed.run_id,
-                "headless Automation run failed to launch: {error}"
-            );
+            Ok(workspace) => workspace,
+            Err(error) => {
+                let _ = automation::RunStorePort::settle(
+                    &self.store,
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+                return Err(error.to_string());
+            }
+        };
+        let workflows = WorkflowStoreExecutionPort::with_conversations(
+            self.deployment.db().pool.clone(),
+            self.conversation_context.clone(),
+        );
+        let run = match workflows
+            .start(
+                &Principal::local_desktop(),
+                automation_run_id,
+                StartWorkflowRequest {
+                    definition_version_id: spec.definition_version_id,
+                    workspace_id: workspace.workspace_id,
+                    input: spec.input,
+                    policy_override,
+                },
+            )
+            .await
+        {
+            Ok(run) => run,
+            Err(error) => {
+                let _ = preparer.release(&workspace).await;
+                let _ = automation::RunStorePort::settle(
+                    &self.store,
+                    automation_run_id,
+                    RunStatus::Failed,
+                    Some(error.to_string()),
+                )
+                .await;
+                return Err(error.to_string());
+            }
+        };
+        if let Err(error) = self
+            .store
+            .attach_workflow_run(automation_run_id, run.id, workspace.workspace_id)
+            .await
+        {
+            let _ = workflows
+                .cancel(
+                    Uuid::new_v4(),
+                    application::CancelWorkflowRequest {
+                        run_id: run.id,
+                        reason: Some("automation launch correlation failed".to_string()),
+                    },
+                )
+                .await;
+            let _ = preparer.release(&workspace).await;
+            let _ = automation::RunStorePort::settle(
+                &self.store,
+                automation_run_id,
+                RunStatus::Failed,
+                Some(error.to_string()),
+            )
+            .await;
+            return Err(error.to_string());
         }
+        Ok(())
     }
 
     pub(crate) async fn reconcile_running_turns(&self) -> Result<(), String> {
@@ -142,7 +260,9 @@ impl HeadlessAutomationRuntime {
             .await
             .map_err(|error| error.to_string())?
         {
-            self.reconcile_run_terminal(&run).await?;
+            if self.reconcile_run_terminal(&run).await? {
+                continue;
+            }
             if run.snapshot.cancellation_requested
                 && let Some(conversation_id) = run.snapshot.conversation_id
             {
@@ -154,11 +274,55 @@ impl HeadlessAutomationRuntime {
                     .await
                     .map_err(|error| error.to_string())?;
             }
+            if run.snapshot.cancellation_requested
+                && let Some(workflow_run_id) = run.workflow_run_id
+            {
+                WorkflowStoreExecutionPort::with_conversations(
+                    self.deployment.db().pool.clone(),
+                    self.conversation_context.clone(),
+                )
+                .cancel(
+                    Uuid::new_v4(),
+                    application::CancelWorkflowRequest {
+                        run_id: workflow_run_id,
+                        reason: Some("automation run cancelled".to_string()),
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            }
         }
         Ok(())
     }
 
     async fn reconcile_run_terminal(&self, run: &AutomationRunRecord) -> Result<bool, String> {
+        if let Some(workflow_run_id) = run.workflow_run_id {
+            let workflow = WorkflowStoreExecutionPort::new(self.deployment.db().pool.clone())
+                .show(workflow_run_id)
+                .await
+                .map_err(|error| error.to_string())?;
+            let terminal = match workflow.status.as_str() {
+                "completed" => Some((RunStatus::Completed, None)),
+                "failed" => Some((RunStatus::Failed, Some("workflow failed".to_string()))),
+                "cancelled" => Some((RunStatus::Cancelled, None)),
+                "interrupted" => Some((
+                    RunStatus::Interrupted,
+                    Some("workflow interrupted".to_string()),
+                )),
+                _ => None,
+            };
+            let Some((status, error)) = terminal else {
+                return Ok(false);
+            };
+            return automation::RunStorePort::settle(
+                &self.store,
+                run.snapshot.run_id,
+                status,
+                error,
+            )
+            .await
+            .map_err(|error| error.to_string());
+        }
         let Some(turn_id) = run.snapshot.turn_id else {
             return Ok(false);
         };
@@ -706,6 +870,7 @@ impl TurnLauncherPort for ServerTurnLauncher {
                                 action_id: invocation.action.id.as_str().to_owned(),
                             })
                             .collect(),
+                        queued_input_claim: None,
                     },
                     conversations::commit_reminder::AUTOMATION_ORIGIN,
                 )

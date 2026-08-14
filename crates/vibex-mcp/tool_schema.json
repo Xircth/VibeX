@@ -120,5 +120,75 @@
         }
       }
     }
+  },
+  {
+    "name": "send_session_input",
+    "description": "Append one durable input to this parent Conversation or one of its descendants. The operation_id makes retries idempotent: reuse it only for the exact same target and text. The input starts immediately when the target is idle or remains in its durable queue when busy.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["conversation_id", "operation_id", "text"],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The parent Conversation or a descendant created in this companion scope."
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "A caller-generated stable UUID for safe retry of this exact input."
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The next instruction for the target Conversation."
+        }
+      }
+    }
+  },
+  {
+    "name": "cancel_session_turn",
+    "description": "Cancel the active Turn in this parent Conversation or one of its descendants. This never grants access outside the companion scope and does not delete the Conversation or its durable queue.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["conversation_id"],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The parent Conversation or a descendant created in this companion scope."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional audit reason for the cancellation."
+        }
+      }
+    }
+  },
+  {
+    "name": "wait_for_session",
+    "description": "Wait for this parent Conversation or one of its descendants to reach a terminal Turn, or for its durable event sequence to advance past after_sequence. Omit wait_ms for an immediate snapshot; use a positive value up to 60000 ms for a bounded wait; 0 waits until the condition is met. Re-call with the returned lastSequence as after_sequence to follow later work.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["conversation_id"],
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The parent Conversation or a descendant created in this companion scope."
+        },
+        "after_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Return when the Conversation event sequence advances past this cursor."
+        },
+        "wait_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000,
+          "description": "Bounded wait in milliseconds; 0 means wait until the condition is met."
+        }
+      }
+    }
   }
 ]

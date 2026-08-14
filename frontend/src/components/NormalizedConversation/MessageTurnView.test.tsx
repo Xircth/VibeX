@@ -9,15 +9,17 @@ const conversationMessageStyles = readFileSync(
   'utf8'
 );
 
-const { markdownMock, userMarkdownMock, openFilePreviewMock } = vi.hoisted(
-  () => ({
-    markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
-    userMarkdownMock: vi.fn(({ value }: { value: string }) => (
-      <div>{value}</div>
-    )),
-    openFilePreviewMock: vi.fn(),
-  })
-);
+const {
+  markdownMock,
+  userMarkdownMock,
+  openFilePreviewMock,
+  openImagePreviewMock,
+} = vi.hoisted(() => ({
+  markdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
+  userMarkdownMock: vi.fn(({ value }: { value: string }) => <div>{value}</div>),
+  openFilePreviewMock: vi.fn(),
+  openImagePreviewMock: vi.fn(),
+}));
 
 function toolUseBlock(index: number, toolName: string, input: unknown) {
   return {
@@ -41,6 +43,10 @@ vi.mock('@/contexts/PanelActionsContext', () => ({
   useOptionalPanelActionsContext: () => ({
     openFilePreview: openFilePreviewMock,
   }),
+}));
+
+vi.mock('@/hooks/useOpenImagePreview', () => ({
+  useOpenImagePreview: () => openImagePreviewMock,
 }));
 
 vi.mock('./ThinkingEntry', () => ({
@@ -71,6 +77,7 @@ describe('MessageTurnView', () => {
     markdownMock.mockClear();
     userMarkdownMock.mockClear();
     openFilePreviewMock.mockClear();
+    openImagePreviewMock.mockClear();
   });
 
   it('renders a user turn with the Astryx user-message semantics', () => {
@@ -487,6 +494,56 @@ describe('MessageTurnView', () => {
       '/workspace/project/src/0.ts',
       { displayPath: 'src/0.ts', title: 'src/0.ts' }
     );
+  });
+
+  it('expands images viewed by the agent and opens the configured preview', () => {
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-viewed-image:assistant',
+            role: 'assistant',
+            blocks: [
+              {
+                ...toolUseBlock(1, 'view_image', {
+                  path: 'assets/logo.png',
+                }),
+                kind: 'read',
+                images: [
+                  {
+                    data: 'AAAA',
+                    mime_type: 'image/png',
+                    uri: 'assets/logo.png',
+                  },
+                ],
+              },
+            ],
+            timestamp: '2026-08-13T00:00:00.000Z',
+          } as never
+        }
+        phase="settled"
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+        collapseProcess={false}
+        workspacePath="/workspace/project"
+      />
+    );
+
+    const disclosure = screen.getByRole('button', {
+      name: '已查看 1 张图像',
+    });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(disclosure);
+    const image = screen.getByRole('img', { name: 'assets/logo.png' });
+    expect(image).toHaveAttribute('src', 'data:image/png;base64,AAAA');
+
+    fireEvent.click(image);
+    expect(openImagePreviewMock).toHaveBeenCalledWith({
+      imageUrl: 'data:image/png;base64,AAAA',
+      altText: 'assets/logo.png',
+      fileName: 'logo.png',
+    });
   });
 
   it('renders context compaction duration and resulting context length', () => {

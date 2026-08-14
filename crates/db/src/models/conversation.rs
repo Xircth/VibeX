@@ -9,7 +9,7 @@
 use api_types::AgentId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqliteConnection, SqlitePool};
 use ts_rs::TS;
 use uuid::Uuid;
 
@@ -301,6 +301,15 @@ impl ConversationRecord {
         id: Uuid,
         status: SessionStatus,
     ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::update_status_on_connection(&mut conn, id, status).await
+    }
+
+    pub async fn update_status_on_connection(
+        conn: &mut SqliteConnection,
+        id: Uuid,
+        status: SessionStatus,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"UPDATE sessions
                SET status = ?, updated_at = datetime('now', 'subsec')
@@ -308,7 +317,7 @@ impl ConversationRecord {
         )
         .bind(status)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }
@@ -317,6 +326,15 @@ impl ConversationRecord {
     /// created before its first turn. Later turns never replace the seed.
     pub async fn capture_initial_prompt(
         pool: &SqlitePool,
+        id: Uuid,
+        prompt: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::capture_initial_prompt_on_connection(&mut conn, id, prompt).await
+    }
+
+    pub async fn capture_initial_prompt_on_connection(
+        conn: &mut SqliteConnection,
         id: Uuid,
         prompt: &str,
     ) -> Result<bool, sqlx::Error> {
@@ -334,13 +352,22 @@ impl ConversationRecord {
         )
         .bind(prompt)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(result.rows_affected() > 0)
     }
 
     pub async fn update_active_turn(
         pool: &SqlitePool,
+        id: Uuid,
+        active_turn_id: Option<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        Self::update_active_turn_on_connection(&mut conn, id, active_turn_id).await
+    }
+
+    pub async fn update_active_turn_on_connection(
+        conn: &mut SqliteConnection,
         id: Uuid,
         active_turn_id: Option<Uuid>,
     ) -> Result<(), sqlx::Error> {
@@ -351,7 +378,7 @@ impl ConversationRecord {
         )
         .bind(active_turn_id)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         Ok(())
     }

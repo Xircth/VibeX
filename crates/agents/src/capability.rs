@@ -12,6 +12,14 @@ const MAX_CAPABILITY_META_BYTES: usize = 16 * 1024;
 pub struct AcpCapabilityNormalizer;
 
 impl AcpCapabilityNormalizer {
+    pub fn steering_is_advertised(initialize_meta: Option<&serde_json::Value>) -> bool {
+        initialize_meta
+            .and_then(|meta| meta.get("steering"))
+            .and_then(|steering| steering.get("supported"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
     pub fn normalize(
         protocol_version: ProtocolVersion,
         capabilities: &AgentCapabilities,
@@ -47,6 +55,7 @@ impl AcpCapabilityNormalizer {
             fork_session: session.fork.is_some(),
             list_sessions: session.list.is_some(),
             delete_session: session.delete.is_some(),
+            steering: false,
             // Client-side support is derived from the exact advertisement
             // sent in this handshake, not an optimistic product default.
             terminal: client_capabilities.terminal,
@@ -64,5 +73,28 @@ impl AcpCapabilityNormalizer {
             config_options: Vec::new(),
             available_commands: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AcpCapabilityNormalizer;
+
+    #[test]
+    fn steering_requires_the_exact_negotiated_initialize_marker() {
+        assert!(AcpCapabilityNormalizer::steering_is_advertised(Some(
+            &serde_json::json!({ "steering": { "supported": true } })
+        )));
+        for meta in [
+            serde_json::json!({}),
+            serde_json::json!({ "steering": true }),
+            serde_json::json!({ "steering": { "supported": false } }),
+            serde_json::json!({ "steering": { "supported": "yes" } }),
+        ] {
+            assert!(!AcpCapabilityNormalizer::steering_is_advertised(Some(
+                &meta
+            )));
+        }
+        assert!(!AcpCapabilityNormalizer::steering_is_advertised(None));
     }
 }

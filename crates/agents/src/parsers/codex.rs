@@ -92,6 +92,7 @@ fn record_from_item(value: &Value) -> Option<ParsedRecord> {
                     // the renderer can parse it into a rich tool card.
                     input_preview: payload.get("arguments").map(codex_tool_input),
                     meta: None,
+                    images: Vec::new(),
                 },
             };
             (TurnRole::Assistant, block)

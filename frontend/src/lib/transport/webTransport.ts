@@ -122,14 +122,15 @@ export class WebTransport implements BackendTransport {
 
   async call(
     command: string,
-    args?: Record<string, unknown>
+    args?: Record<string, unknown>,
+    options?: { operationId?: string }
   ): Promise<unknown> {
     const response = await this.request(
       `/api/v1/call/${encodeURIComponent(command)}`,
       {
         method: 'POST',
         body: JSON.stringify({
-          operation_id: globalThis.crypto.randomUUID(),
+          operation_id: options?.operationId ?? globalThis.crypto.randomUUID(),
           args: args ?? {},
         }),
       }

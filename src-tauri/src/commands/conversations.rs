@@ -21,6 +21,7 @@ use automation::{
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
+    ConversationRelationControl, CreateConversationRelation,
 };
 use db::models::{
     conversation::{
@@ -368,12 +369,16 @@ pub async fn application_call(
 ) -> Result<remote_protocol::CommandResponse<serde_json::Value>, remote_protocol::ErrorEnvelope> {
     use application::{
         ApplicationCore, CommandRegistry, ConversationSessionExecutionPort, Principal,
-        SqliteConversationRepository,
+        SqliteConversationRepository, WorkflowStoreExecutionPort,
     };
 
-    CommandRegistry::new(ApplicationCore::with_execution(
+    CommandRegistry::new(ApplicationCore::with_execution_and_workflows(
         SqliteConversationRepository::new(state.deployment.db().pool.clone()),
         std::sync::Arc::new(ConversationSessionExecutionPort::new(
+            state.conversation_context(),
+        )),
+        std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
+            state.deployment.db().pool.clone(),
             state.conversation_context(),
         )),
     ))
@@ -617,6 +622,7 @@ pub async fn conversation_start_turn(
                         },
                     )
                     .collect(),
+                queued_input_claim: None,
             },
             conversations::commit_reminder::LOCAL_USER_ORIGIN,
         )
@@ -943,6 +949,16 @@ pub async fn conversation_fork(
     let exported = export_conversation_bundle(pool, source_id, None).await?;
     let result = import_conversation_bundle(pool, exported.bundle, summary.workspace_id).await?;
     let new_id = result.conversation_id;
+    let conversation_context = state.conversation_context();
+    ConversationRelationControl::with_publisher(pool.clone(), conversation_context.event_publisher)
+        .create(CreateConversationRelation {
+            parent_conversation_id: source_id,
+            child_conversation_id: new_id,
+            kind: agents::ConversationRelationKind::Fork,
+            visibility: agents::ConversationRelationVisibility::Visible,
+            metadata: serde_json::json!({ "source": "conversation_fork" }),
+        })
+        .await?;
 
     let base = summary
         .title

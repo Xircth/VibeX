@@ -2,9 +2,10 @@
 
 use async_trait::async_trait;
 use automation::{
-    AutomationDraft, ClaimStorePort, ClaimedRun, EngineError, IsolationSpec, PreparedWorkspace,
-    RecoveryStorePort, RetainedRun, RetentionError, RetentionStorePort, RunError, RunSnapshot,
-    RunStatus, RunStorePort, ScheduleSpec, TurnLaunchCorrelation, TurnLaunchSpec, next_run_after,
+    AutomationDraft, AutomationTarget, ClaimStorePort, ClaimedRun, EngineError, IsolationSpec,
+    PreparedWorkspace, RecoveryStorePort, RetainedRun, RetentionError, RetentionStorePort,
+    RunError, RunSnapshot, RunStatus, RunStorePort, ScheduleSpec, TurnLaunchCorrelation,
+    TurnLaunchSpec, WorkflowAutomationDraft, WorkflowLaunchSpec, next_run_after,
 };
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, Sqlite, SqliteConnection, SqlitePool, Transaction};
@@ -23,7 +24,7 @@ pub struct AutomationRecord {
     pub spec_version: u16,
     pub trigger: ScheduleSpec,
     pub next_run_at: Option<DateTime<Utc>>,
-    pub launch_spec: TurnLaunchSpec,
+    pub target: AutomationTarget,
     pub legacy_migration_status: String,
     pub last_run_status: Option<String>,
     pub unseen_failure_count: i64,
@@ -41,6 +42,7 @@ pub struct AutomationRunRecord {
     pub seen: bool,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    pub workflow_run_id: Option<Uuid>,
 }
 
 #[derive(FromRow)]
@@ -54,6 +56,8 @@ struct AutomationRow {
     timezone: String,
     next_run_at: Option<DateTime<Utc>>,
     turn_launch_spec_json: String,
+    target_kind: String,
+    workflow_launch_spec_json: Option<String>,
     legacy_migration_status: String,
     last_run_status: Option<String>,
     unseen_failure_count: i64,
@@ -80,14 +84,16 @@ struct RunRow {
     seen: bool,
     started_at: DateTime<Utc>,
     finished_at: Option<DateTime<Utc>>,
+    workflow_run_id: Option<Uuid>,
 }
 
 const AUTOMATION_COLUMNS: &str = "id,name,enabled,spec_version,trigger_kind,cron,timezone,\
-    next_run_at,turn_launch_spec_json,legacy_migration_status,last_run_status,\
+    next_run_at,turn_launch_spec_json,target_kind,workflow_launch_spec_json,\
+    legacy_migration_status,last_run_status,\
     unseen_failure_count,created_at,updated_at";
 const RUN_COLUMNS: &str = "id,automation_id,trigger,scheduled_for,status,conversation_id,turn_id,\
     connection_id,worktree_workspace_id,resolved_versions_json,cancellation_requested,error,\
-    stop_reason,summary,seen,started_at,finished_at";
+    stop_reason,summary,seen,started_at,finished_at,workflow_run_id";
 
 impl SqliteAutomationStore {
     pub fn new(pool: SqlitePool) -> Self {
@@ -140,6 +146,47 @@ impl SqliteAutomationStore {
         self.find(id).await?.ok_or(sqlx::Error::RowNotFound)
     }
 
+    pub async fn create_workflow(
+        &self,
+        draft: WorkflowAutomationDraft,
+        now: DateTime<Utc>,
+    ) -> Result<AutomationRecord, sqlx::Error> {
+        draft.launch.validate().map_err(protocol_error)?;
+        let next_run_at = if draft.enabled {
+            next_run_after(&draft.trigger, now).map_err(protocol_error)?
+        } else {
+            None
+        };
+        let (trigger_kind, cron, timezone) = schedule_columns(&draft.trigger);
+        let id = Uuid::new_v4();
+        let launch_json = serde_json::to_string(&draft.launch).map_err(protocol_error)?;
+        sqlx::query(
+            "INSERT INTO automations
+             (id,name,enabled,spec_version,trigger_kind,cron,timezone,next_run_at,
+              turn_launch_spec_json,target_kind,workflow_launch_spec_json,isolation,
+              project_id,root_folder,branch,legacy_migration_status,created_at,updated_at)
+             VALUES (?,?,?,?,?,?,?,?,'{}','workflow',?,?,?,?,?,'ready',?,?)",
+        )
+        .bind(id)
+        .bind(draft.name)
+        .bind(draft.enabled)
+        .bind(i64::from(draft.launch.spec_version))
+        .bind(trigger_kind)
+        .bind(cron)
+        .bind(timezone)
+        .bind(next_run_at)
+        .bind(launch_json)
+        .bind(isolation_str(&draft.launch.workspace.isolation))
+        .bind(draft.launch.workspace.project_id)
+        .bind(&draft.launch.workspace.root_folder)
+        .bind(&draft.launch.workspace.branch)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.find(id).await?.ok_or(sqlx::Error::RowNotFound)
+    }
+
     pub async fn find(&self, id: Uuid) -> Result<Option<AutomationRecord>, sqlx::Error> {
         let row = sqlx::query_as::<_, AutomationRow>(&format!(
             "SELECT {AUTOMATION_COLUMNS} FROM automations WHERE id = ?"
@@ -168,7 +215,8 @@ impl SqliteAutomationStore {
         let result = sqlx::query(
             "UPDATE automations
              SET name=?,enabled=?,spec_version=?,trigger_kind=?,cron=?,timezone=?,
-                 next_run_at=?,turn_launch_spec_json=?,isolation=?,project_id=?,
+                 next_run_at=?,turn_launch_spec_json=?,target_kind='turn',
+                 workflow_launch_spec_json=NULL,isolation=?,project_id=?,
                  root_folder=?,branch=?,legacy_migration_status='ready',updated_at=?
              WHERE id=?",
         )
@@ -203,6 +251,30 @@ impl SqliteAutomationStore {
         rows.into_iter().map(parse_automation_row).collect()
     }
 
+    pub async fn attach_workflow_run(
+        &self,
+        automation_run_id: Uuid,
+        workflow_run_id: Uuid,
+        workspace_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        let updated = sqlx::query(
+            "UPDATE automation_runs
+             SET workflow_run_id = ?, worktree_workspace_id = ?
+             WHERE id = ? AND status = 'running' AND workflow_run_id IS NULL",
+        )
+        .bind(workflow_run_id)
+        .bind(workspace_id)
+        .bind(automation_run_id)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(sqlx::Error::Protocol(
+                "automation workflow run is already attached or terminal".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn set_enabled(
         &self,
         id: Uuid,
@@ -212,12 +284,7 @@ impl SqliteAutomationStore {
         let automation = self.find(id).await?.ok_or(sqlx::Error::RowNotFound)?;
         if enabled
             && (automation.legacy_migration_status != "ready"
-                || automation
-                    .launch_spec
-                    .workspace
-                    .root_folder
-                    .trim()
-                    .is_empty())
+                || automation.target.workspace().root_folder.trim().is_empty())
         {
             return Err(protocol_error(
                 "legacy automation must be reviewed before it can be enabled",
@@ -522,25 +589,32 @@ impl RecoveryStorePort for SqliteAutomationStore {
             .await
             .map_err(|error| EngineError::RecoveryStore(error.to_string()))?;
         let ids = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM automation_runs WHERE status = 'running'",
+            "SELECT id FROM automation_runs
+             WHERE status = 'running' AND workflow_run_id IS NULL",
         )
         .fetch_all(&mut *transaction)
+        .await
+        .map_err(|error| EngineError::RecoveryStore(error.to_string()))?;
+        sqlx::query(
+            "DELETE FROM automation_shared_root_locks
+             WHERE run_id IN (
+                SELECT id FROM automation_runs
+                WHERE status = 'running' AND workflow_run_id IS NULL
+             )",
+        )
+        .execute(&mut *transaction)
         .await
         .map_err(|error| EngineError::RecoveryStore(error.to_string()))?;
         sqlx::query(
             "UPDATE automation_runs
              SET status = 'interrupted', stop_reason = 'host_restarted',
                  finished_at = ?
-             WHERE status = 'running'",
+             WHERE status = 'running' AND workflow_run_id IS NULL",
         )
         .bind(now)
         .execute(&mut *transaction)
         .await
         .map_err(|error| EngineError::RecoveryStore(error.to_string()))?;
-        sqlx::query("DELETE FROM automation_shared_root_locks")
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| EngineError::RecoveryStore(error.to_string()))?;
         transaction
             .commit()
             .await
@@ -833,7 +907,24 @@ fn parse_automation_row(row: AutomationRow) -> Result<AutomationRecord, sqlx::Er
         spec_version: u16::try_from(row.spec_version).map_err(protocol_error)?,
         trigger,
         next_run_at: row.next_run_at,
-        launch_spec: serde_json::from_str(&row.turn_launch_spec_json).map_err(protocol_error)?,
+        target: match row.target_kind.as_str() {
+            "turn" => AutomationTarget::Turn(
+                serde_json::from_str(&row.turn_launch_spec_json).map_err(protocol_error)?,
+            ),
+            "workflow" => AutomationTarget::Workflow(
+                serde_json::from_str::<WorkflowLaunchSpec>(
+                    row.workflow_launch_spec_json.as_deref().ok_or_else(|| {
+                        protocol_error("workflow automation is missing its launch spec")
+                    })?,
+                )
+                .map_err(protocol_error)?,
+            ),
+            other => {
+                return Err(protocol_error(format!(
+                    "unknown automation target `{other}`"
+                )));
+            }
+        },
         legacy_migration_status: row.legacy_migration_status,
         last_run_status: row.last_run_status,
         unseen_failure_count: row.unseen_failure_count,
@@ -869,6 +960,7 @@ fn parse_run_row(row: RunRow) -> Result<AutomationRunRecord, sqlx::Error> {
         seen: row.seen,
         started_at: row.started_at,
         finished_at: row.finished_at,
+        workflow_run_id: row.workflow_run_id,
     })
 }
 

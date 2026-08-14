@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use agents::AgentRuntime;
+use agents::{AgentRuntime, runtime_event_channel};
 use application::{
     ApplicationCore, ApplicationError, CancelConversationTurn, ConversationExecutionPort,
     ConversationSessionExecutionPort, RespondConversationPermission, RespondConversationQuestion,
@@ -44,6 +44,8 @@ pub enum ServerBootstrapError {
     Automation(#[from] EngineError),
     #[error("plugin bootstrap failed: {0}")]
     Plugin(String),
+    #[error("conversation recovery failed: {0}")]
+    Conversation(String),
 }
 
 pub struct ServerBootstrapConfig {
@@ -93,6 +95,58 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
     async fn cancel_turn(&self, request: CancelConversationTurn) -> Result<(), ApplicationError> {
         self.inner.cancel_turn(request).await
     }
+
+    async fn steer(
+        &self,
+        request: conversations::ConversationSteerInput,
+    ) -> Result<conversations::ConversationSteeringReceipt, ApplicationError> {
+        self.inner.steer(request).await
+    }
+
+    async fn submit_input(
+        &self,
+        request: conversations::SubmitConversationInput,
+    ) -> Result<conversations::ConversationInputSubmission, ApplicationError> {
+        for invocation in &request.payload.plugin_actions {
+            self.office
+                .resolve_bundled_action_for_agent(
+                    &invocation.plugin_id,
+                    &invocation.action_id,
+                    request.payload.agent_id.as_str(),
+                )
+                .await
+                .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        }
+        self.inner.submit_input(request).await
+    }
+
+    async fn list_inputs(
+        &self,
+        conversation_id: uuid::Uuid,
+    ) -> Result<Vec<conversations::ConversationInputView>, ApplicationError> {
+        self.inner.list_inputs(conversation_id).await
+    }
+
+    async fn update_input(
+        &self,
+        request: conversations::UpdateConversationInput,
+    ) -> Result<conversations::ConversationInputView, ApplicationError> {
+        self.inner.update_input(request).await
+    }
+
+    async fn reorder_input(
+        &self,
+        request: conversations::ReorderConversationInput,
+    ) -> Result<conversations::ConversationInputView, ApplicationError> {
+        self.inner.reorder_input(request).await
+    }
+
+    async fn cancel_input(
+        &self,
+        request: conversations::CancelConversationInput,
+    ) -> Result<conversations::ConversationInputView, ApplicationError> {
+        self.inner.cancel_input(request).await
+    }
 }
 
 impl ServerBootstrapConfig {
@@ -121,6 +175,7 @@ pub struct HeadlessServer {
     automation_recovery: Option<StartupRecoveryReport>,
     agent_event_task: Option<JoinHandle<()>>,
     _delegation_runtime: HeadlessDelegationRuntime,
+    workflow_dispatch_task: JoinHandle<()>,
 }
 
 impl HeadlessServer {
@@ -130,7 +185,8 @@ impl HeadlessServer {
         let provisioned = SqliteTokenHashStore::new(pool.clone())
             .provision(config.token)
             .await?;
-        let agent_runtime = Arc::new(AgentRuntime::default());
+        let (agent_event_sink, agent_events) = runtime_event_channel();
+        let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
         let conversation_context = ConversationContext {
             deployment: application_deployment,
@@ -143,9 +199,27 @@ impl HeadlessServer {
             host: Arc::new(DefaultConversationHost),
             event_publisher: Arc::new(conversations::NoopConversationEventPublisher),
         };
-        let agent_event_task = start_agent_event_persistence(conversation_context.clone());
-        let delegation_runtime =
-            HeadlessDelegationRuntime::start(agent_runtime.clone(), pool.clone());
+        let agent_event_task =
+            start_agent_event_persistence(conversation_context.clone(), agent_events);
+        let conversation_service =
+            conversations::ConversationSessionService::new(conversation_context.clone());
+        conversation_service
+            .recover_interrupted_turns()
+            .await
+            .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        conversations::ConversationRelationControl::new(pool.clone())
+            .backfill_legacy_delegations()
+            .await
+            .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        conversation_service
+            .dispatch_queued_inputs()
+            .await
+            .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        let delegation_runtime = HeadlessDelegationRuntime::start(
+            agent_runtime.clone(),
+            pool.clone(),
+            conversation_context.clone(),
+        );
 
         let managed_tools_root = config.data_dir.join("managed-tools");
         let office_runtime = Arc::new(
@@ -186,7 +260,29 @@ impl HeadlessServer {
             office: office_runtime.clone(),
         });
         let repository = SqliteConversationRepository::new(pool.clone());
-        let core = ApplicationCore::with_ports(repository, execution, domains);
+        let workflows = Arc::new(application::WorkflowStoreExecutionPort::with_conversations(
+            pool.clone(),
+            conversation_context.clone(),
+        ));
+        workflows
+            .reconcile_interrupted()
+            .await
+            .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        let core = ApplicationCore::with_all_ports(repository, execution, domains, workflows);
+        let workflow_dispatcher =
+            application::WorkflowAgentDispatcher::new(conversation_context.clone());
+        let workflow_dispatch_task = tokio::spawn(async move {
+            loop {
+                match workflow_dispatcher.tick().await {
+                    Ok(true) => continue,
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Err(error) => {
+                        tracing::warn!(%error, "workflow dispatcher tick failed");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        });
         let runtime = ServerRuntime::from_sqlite_auth_with_preview_proxy(
             config.server,
             pool.clone(),
@@ -205,6 +301,7 @@ impl HeadlessServer {
             automation_recovery,
             agent_event_task: Some(agent_event_task),
             _delegation_runtime: delegation_runtime,
+            workflow_dispatch_task,
         })
     }
 
@@ -275,6 +372,7 @@ impl HeadlessServer {
 
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        self.workflow_dispatch_task.abort();
         if let Some(task) = self.agent_event_task.take() {
             task.abort();
         }

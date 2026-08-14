@@ -24,7 +24,8 @@ use std::{
 
 use delegation_proto::{
     BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerFeedbackRequest, BrokerMessage, BrokerRequest, BrokerSessionCancelRequest,
+    BrokerSessionRequest, BrokerSessionSendRequest, BrokerSessionWaitRequest, BrokerStatusRequest,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -49,6 +50,7 @@ struct CompanionFeatures {
     feedback: bool,
     ask: bool,
     session_info: bool,
+    session_control: bool,
 }
 
 impl CompanionFeatures {
@@ -61,6 +63,7 @@ impl CompanionFeatures {
                 feedback: false,
                 ask: false,
                 session_info: false,
+                session_control: false,
             },
             Some(value) => {
                 let has = |name: &str| value.split(',').any(|f| f.trim() == name);
@@ -69,6 +72,7 @@ impl CompanionFeatures {
                     feedback: has("feedback"),
                     ask: has("ask"),
                     session_info: has("sessions"),
+                    session_control: has("session-control"),
                 }
             }
         }
@@ -80,6 +84,9 @@ impl CompanionFeatures {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
             "get_session_info" => self.session_info,
+            "send_session_input" | "cancel_session_turn" | "wait_for_session" => {
+                self.session_control
+            }
             _ => false,
         }
     }
@@ -402,6 +409,43 @@ impl Companion {
                     max_messages,
                 }))
             }
+            "send_session_input" => {
+                let conversation_id = required_string(arguments, "conversation_id")?;
+                let operation_id = required_string(arguments, "operation_id")?;
+                let text = required_string(arguments, "text")?;
+                if text.trim().is_empty() {
+                    return Err("text must not be empty".to_string());
+                }
+                Ok(BrokerMessage::SessionSend(BrokerSessionSendRequest {
+                    token,
+                    conversation_id,
+                    operation_id,
+                    text,
+                }))
+            }
+            "cancel_session_turn" => {
+                let conversation_id = required_string(arguments, "conversation_id")?;
+                let reason = arguments
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                Ok(BrokerMessage::SessionCancel(BrokerSessionCancelRequest {
+                    token,
+                    conversation_id,
+                    reason,
+                }))
+            }
+            "wait_for_session" => {
+                let conversation_id = required_string(arguments, "conversation_id")?;
+                let after_sequence = arguments.get("after_sequence").and_then(Value::as_i64);
+                let wait_ms = arguments.get("wait_ms").and_then(Value::as_u64);
+                Ok(BrokerMessage::SessionWait(BrokerSessionWaitRequest {
+                    token,
+                    conversation_id,
+                    after_sequence,
+                    wait_ms,
+                }))
+            }
             other => Err(format!("unknown tool: {other}")),
         }
     }
@@ -419,6 +463,15 @@ impl Companion {
         )
         .await;
     }
+}
+
+fn required_string(arguments: &Value, name: &str) -> Result<String, String> {
+    arguments
+        .get(name)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| format!("{name} is required"))
 }
 
 fn initialize_result() -> Value {
@@ -653,6 +706,45 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["get_session_info"]);
+    }
+
+    #[test]
+    fn session_control_exposes_send_cancel_and_wait_only() {
+        let value = respond_text(classify(
+            "session-control",
+            r#"{"jsonrpc":"2.0","id":32,"method":"tools/list"}"#,
+        ));
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            vec![
+                "send_session_input",
+                "cancel_session_turn",
+                "wait_for_session"
+            ]
+        );
+    }
+
+    #[test]
+    fn session_send_requires_explicit_operation_id() {
+        let companion = companion("session-control");
+        let error = companion
+            .build_message(
+                "send_session_input",
+                &json!({
+                    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+                    "text": "continue"
+                }),
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(error, "operation_id is required");
     }
 
     #[test]

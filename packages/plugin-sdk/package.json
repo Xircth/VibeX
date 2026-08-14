@@ -1,0 +1,49 @@
+{
+  "name": "@vibex/plugin-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Typed SDK for VibeX App, Agent, and Host plugin contributions",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./src/worker.ts",
+      "default": "./dist/worker.js"
+    },
+    "./app": {
+      "types": "./src/app.ts",
+      "default": "./dist/app.js"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "default": "./dist/testing.js"
+    },
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./stdio": {
+      "types": "./src/stdio.ts",
+      "default": "./dist/stdio.js"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

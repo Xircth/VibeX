@@ -130,16 +130,11 @@ impl PluginV1Migration {
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
-    /// Preserve immutable v1 evidence, then remove every legacy runtime row
-    /// and any placeholder v2 membership that was derived from the retired
-    /// built-in presets. Product code must only observe real Plugin v2
-    /// manifests after this boundary.
+    /// Preserve immutable v1 evidence, then remove every legacy runtime row.
+    /// Retired v2/control shadow tables are dropped by the v4 cutover migration.
     pub async fn retire_all(pool: &SqlitePool) -> Result<Vec<LegacyPluginEvidence>, sqlx::Error> {
         let evidence = Self::migrate_all(pool).await?;
         let mut transaction = pool.begin().await?;
-        sqlx::query("DELETE FROM plugin_v2_registry WHERE source = 'legacy_builtin_mapping'")
-            .execute(&mut *transaction)
-            .await?;
         sqlx::query("DELETE FROM plugins")
             .execute(&mut *transaction)
             .await?;
@@ -171,40 +166,6 @@ impl PluginV1Migration {
         .execute(&mut *transaction)
         .await?;
 
-        if let Some(stable_id) = mapped_plugin_id {
-            let normalized_manifest = serde_json::json!({
-                "$schema": "vibex-plugin/v2",
-                "id": stable_id,
-                "version": "0.0.0-migration",
-                "name": plugin.name,
-                "dependencies": [],
-                "skills": [],
-                "actions": []
-            })
-            .to_string();
-            sqlx::query(
-                "INSERT OR IGNORE INTO plugin_v2_registry \
-                 (plugin_id, schema_version, name, normalized_manifest_json, source, \
-                  membership, legacy_plugin_id, created_at, updated_at) \
-                 VALUES (?,2,?,?,'legacy_builtin_mapping','builtin',?,?,?)",
-            )
-            .bind(stable_id)
-            .bind(&plugin.name)
-            .bind(normalized_manifest)
-            .bind(plugin.id)
-            .bind(captured_at)
-            .bind(captured_at)
-            .execute(&mut *transaction)
-            .await?;
-            sqlx::query(
-                "INSERT OR IGNORE INTO plugin_v2_activation \
-                 (plugin_id, enabled, updated_at) VALUES (?,0,?)",
-            )
-            .bind(stable_id)
-            .bind(captured_at)
-            .execute(&mut *transaction)
-            .await?;
-        }
         transaction.commit().await
     }
 }
@@ -327,7 +288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retirement_preserves_evidence_but_removes_runtime_rows() {
+    async fn retirement_preserves_evidence_and_read_only_shadow_tables() {
         let pool = setup_pool().await;
         let known_id = Uuid::parse_str("3f8e2b10-7c44-4c5e-9a11-d2af01000003").expect("known id");
         insert_legacy(&pool, known_id, "Understand Anything", true, "must-not-run").await;
@@ -350,12 +311,12 @@ mod tests {
             .await
             .expect("count retired rows");
         assert_eq!(legacy_rows, 0);
-        let legacy_registry_rows: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM plugin_v2_registry WHERE source = 'legacy_builtin_mapping'",
+        let legacy_registry_tables: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plugin_v2_registry'",
         )
         .fetch_one(&pool)
         .await
-        .expect("count legacy mapped registry rows");
-        assert_eq!(legacy_registry_rows, 0);
+        .expect("verify retired shadow table");
+        assert_eq!(legacy_registry_tables, 1);
     }
 }

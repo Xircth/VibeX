@@ -121,6 +121,7 @@ export class TauriTransport implements BackendTransport {
         'conversation.steer',
         'plugin.read',
         'plugin.write',
+        'plugin.surface',
         'artifact.read',
         'artifact.preview',
         'automation.read',

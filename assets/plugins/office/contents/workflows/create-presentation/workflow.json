@@ -1,0 +1,7 @@
+{
+  "label": "创建 PPT",
+  "entrypoints": ["action", "command"],
+  "promptBlocks": [{ "type": "text", "text": "澄清受众与目标后，创建新的 PPTX 并验证输出。" }],
+  "requires": { "skills": ["office-pptx"], "runtimes": ["officecli"] },
+  "artifactIntent": { "mediaTypes": ["application/vnd.openxmlformats-officedocument.presentationml.presentation"], "previewProvider": "office-preview" }
+}

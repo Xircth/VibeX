@@ -62,3 +62,10 @@ All standard corner utilities resolve through `--radius` (`14px`). Use
 outline actions plus selectors use the shared borderless raised-control surface
 and centered-shadow tokens; apply `.raised-control` to native controls and do
 not recreate the light fill or shadow locally.
+
+For inputs, searches, and selects, enforce a single visual frame: exactly one
+element or component owns the background, border, radius, shadow, and focus ring.
+Layout/label wrappers must remain visually transparent. When a custom wrapper is
+the frame, reset the nested native input to transparent, borderless, and
+shadowless. Do not style both wrapper and child as controls, and do not use broad
+descendant selectors for control chrome.

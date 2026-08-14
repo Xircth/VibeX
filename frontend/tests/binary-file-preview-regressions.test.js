@@ -17,7 +17,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('preview panel classifies image, pdf, and word files before loading text content', () => {
+test('preview panel keeps Office rendering behind plugin file openers', () => {
   const source = readFrontendFile(
     'src/components/panels/DockviewPreviewPanel.tsx'
   );
@@ -39,11 +39,8 @@ test('preview panel classifies image, pdf, and word files before loading text co
   assert.match(source, /Loading image preview/);
   assert.match(source, /Loading PDF preview/);
   assert.match(source, /effectivePreviewKind === 'pdf'/);
-  assert.match(source, /effectivePreviewKind === 'document'/);
-  assert.match(source, /useDocumentPreview/);
-  assert.match(source, /Read-only document preview/);
-  assert.match(source, /format === 'html'/);
-  assert.match(source, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(source, /effectivePreviewKind === 'document'/);
+  assert.doesNotMatch(source, /useDocumentPreview/);
   assert.match(source, /PDF preview is unavailable/);
   assert.match(source, /Binary file preview is not supported/);
   assert.match(source, /Image preview is unavailable/);
@@ -52,12 +49,11 @@ test('preview panel classifies image, pdf, and word files before loading text co
   assert.match(hookSource, /URL\.revokeObjectURL\(nextObjectUrl\)/);
   assert.match(apiSource, /readBinaryAsset: async \(path: string\)/);
   assert.match(apiSource, /'read_binary_asset'/);
-  assert.match(apiSource, /format: 'text' \| 'html'/);
+  assert.doesNotMatch(apiSource, /read_document_preview/);
   assert.match(backendSource, /pub async fn read_binary_asset/);
   assert.match(backendSource, /data_base64/);
   assert.match(backendSource, /mime_type/);
-  assert.match(backendSource, /extract_docx_html_from_xml/);
-  assert.match(backendSource, /format: "html"\.to_string\(\)/);
+  assert.doesNotMatch(backendSource, /read_document_preview/);
   assert.match(zoomableImageSource, /Wheel to zoom/);
   assert.match(zoomableImageSource, /Drag to pan/);
   assert.match(zoomableImageSource, /View image at actual size/);
@@ -135,13 +131,13 @@ test('binary read failures are downgraded from noisy global console errors', () 
   );
 });
 
-test('backend rejects binary blobs when text file content commands are used and exposes document preview extraction', () => {
+test('backend rejects binary blobs and has no Office-specific preview extraction', () => {
   const source = readRepoFile('src-tauri/src/commands/file_tree.rs');
 
   assert.match(source, /fn read_utf8_text_file/);
   assert.match(source, /Binary file cannot be opened as text/);
   assert.match(source, /blob\.is_binary\(\)/);
-  assert.match(source, /pub async fn read_document_preview/);
-  assert.match(source, /extract_docx_text_from_xml/);
-  assert.match(source, /extract_word_text_with_powershell/);
+  assert.doesNotMatch(source, /pub async fn read_document_preview/);
+  assert.doesNotMatch(source, /extract_docx_text_from_xml/);
+  assert.doesNotMatch(source, /extract_word_text_with_powershell/);
 });

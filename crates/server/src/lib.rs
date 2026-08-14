@@ -19,6 +19,8 @@ pub use auth::{
 };
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
-pub use preview_proxy::{PreviewProxyRegistry, PreviewRegistrationError};
+pub use preview_proxy::{
+    PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
+};
 pub use runtime::ServerRuntime;
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};

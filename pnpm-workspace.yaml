@@ -1,6 +1,8 @@
 packages:
   - frontend
   - launch-site
+  - packages/*
+  - assets/plugins/*
 
 onlyBuiltDependencies:
   - core-js

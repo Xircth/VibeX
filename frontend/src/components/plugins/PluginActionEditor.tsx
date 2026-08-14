@@ -122,7 +122,6 @@ export function PluginActionEditor({
   const [isInstalling, setIsInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const installAttemptRef = useRef<{
-    taskId: string;
     cancelRequested: boolean;
   } | null>(null);
   const componentReadiness = Boolean(
@@ -189,25 +188,21 @@ export function PluginActionEditor({
     });
   };
 
-  const installDependency = async () => {
+  const installDependency = async (
+    action: PluginActionDefinition | null = value
+  ) => {
+    if (!action) return;
     if (installAttemptRef.current) return;
-    const taskId = crypto.randomUUID();
-    const attempt = { taskId, cancelRequested: false };
+    const attempt = { cancelRequested: false };
     installAttemptRef.current = attempt;
     setIsInstalling(true);
     setInstallError(null);
     try {
-      const result = await transport.call('officecli_install', {
-        taskId,
-      });
-      if (
-        attempt.cancelRequested ||
-        (typeof result === 'object' &&
-          result !== null &&
-          'installed' in result &&
-          result.installed === false)
-      ) {
-        return;
+      for (const runtimeId of action.requiredTools) {
+        await transport.call('plugin_control_install_runtime', {
+          pluginId: action.pluginId,
+          runtimeId,
+        });
       }
       const refreshedCatalog = await transport.call('plugin_action_catalog');
       if (!isPluginActionCatalog(refreshedCatalog)) {
@@ -232,18 +227,8 @@ export function PluginActionEditor({
     if (!attempt) return;
     attempt.cancelRequested = true;
     setInstallError(null);
-    try {
-      const canceled = await transport.call('officecli_cancel_install', {
-        taskId: attempt.taskId,
-      });
-      if (canceled === false) {
-        attempt.cancelRequested = false;
-        setInstallError(t('pluginActions.cancelFailed'));
-      }
-    } catch (error) {
-      attempt.cancelRequested = false;
-      setInstallError(error instanceof Error ? error.message : String(error));
-    }
+    installAttemptRef.current = null;
+    setIsInstalling(false);
   };
 
   const selectAction = (action: PluginActionDefinition) => {
@@ -265,7 +250,7 @@ export function PluginActionEditor({
       (!catalog.readiness.enabled ||
         catalog.readiness.dependency.status !== 'ready')
     ) {
-      void installDependency();
+      void installDependency(action);
     }
   };
 

@@ -49,7 +49,7 @@ export const GitDiffModal = memo(function GitDiffModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm animate-in fade-in duration-150"
+      className="modal-surface fixed inset-0 z-50 flex flex-col animate-in fade-in duration-150"
       role="dialog"
       aria-modal="true"
     >

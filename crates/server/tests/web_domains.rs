@@ -39,6 +39,27 @@ async fn call(app: Router, command: &str, args: serde_json::Value) -> serde_json
     .data
 }
 
+async fn call_status(app: Router, command: &str, args: serde_json::Value) -> StatusCode {
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/call/{command}"))
+            .header("authorization", format!("Bearer {TOKEN}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "operation_id": OperationId::new(),
+                    "args": args,
+                })
+                .to_string(),
+            ))
+            .expect("request"),
+    )
+    .await
+    .expect("response")
+    .status()
+}
+
 #[tokio::test]
 async fn one_authenticated_application_surface_opens_product_domains_for_the_web_ui() {
     let data_dir = TempDir::new().expect("data dir");
@@ -55,6 +76,91 @@ async fn one_authenticated_application_surface_opens_product_domains_for_the_web
         serde_json::json!([]),
         "freshly imported plugins stay disabled until the user enables them"
     );
+
+    let product_plugins = call(app.clone(), "plugin_control_catalog", serde_json::json!({})).await;
+    assert_eq!(product_plugins["plugins"][0]["id"], "vibex.office");
+    assert_eq!(
+        product_plugins["plugins"][0]["description"],
+        "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
+    );
+    assert_eq!(
+        product_plugins["plugins"][0]["formats"],
+        serde_json::json!(["vibex"])
+    );
+    assert_eq!(
+        product_plugins["plugins"][0]["appContributions"][0]["kind"], "file_opener",
+        "declared application extensions remain visible while disabled"
+    );
+    assert_eq!(
+        product_plugins["plugins"][0]["appContributions"][1]["kind"],
+        "preview_provider"
+    );
+
+    let detail = call(
+        app.clone(),
+        "plugin_product_detail",
+        serde_json::json!({ "pluginId": "vibex.office" }),
+    )
+    .await;
+    assert_eq!(detail["contents"].as_array().expect("contents").len(), 9);
+    assert!(
+        detail["readme"]
+            .as_str()
+            .expect("README")
+            .starts_with("# VibeX Office")
+    );
+    assert_eq!(detail["config"]["previewMode"], "read-only");
+
+    let saved = call(
+        app.clone(),
+        "plugin_save_config",
+        serde_json::json!({
+            "pluginId": "vibex.office",
+            "config": { "previewMode": "editable", "idleTimeoutMinutes": 12 }
+        }),
+    )
+    .await;
+    assert_eq!(saved["config"]["previewMode"], "editable");
+
+    let contributions = call(
+        app.clone(),
+        "plugin_contribution_catalog",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(contributions["generation"], 0);
+    assert_eq!(contributions["items"], serde_json::json!([]));
+
+    let grants = call(
+        app.clone(),
+        "plugin_control_grant_permissions",
+        serde_json::json!({
+            "pluginId": "vibex.office",
+            "permissionIds": ["preview-opened-office-file"]
+        }),
+    )
+    .await;
+    assert_eq!(
+        grants,
+        serde_json::json!([]),
+        "Full Trust plugins do not require capability grants"
+    );
+
+    let missing_runtime = call_status(
+        app.clone(),
+        "plugin_control_install_runtime",
+        serde_json::json!({ "pluginId": "vibex.office", "runtimeId": "missing" }),
+    )
+    .await;
+    assert_eq!(missing_runtime, StatusCode::NOT_FOUND);
+
+    let failed_preview = call_status(
+        app.clone(),
+        "plugin_open_file_preview",
+        serde_json::json!({ "filePath": "/definitely/missing/spec.docx" }),
+    )
+    .await;
+    assert_eq!(failed_preview, StatusCode::NOT_FOUND);
 
     let artifacts = call(
         app.clone(),

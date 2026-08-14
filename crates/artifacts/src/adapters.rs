@@ -1,32 +1,20 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
-    process::Stdio,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, SqlitePool};
-use tokio::{
-    fs,
-    io::{AsyncBufReadExt, BufReader},
-    net::TcpStream,
-    process::{Child, Command},
-    sync::Mutex,
-    time::{Instant, sleep, timeout},
-};
+use tokio::fs;
 use tool_runtime::{InstallationLockStore, ToolRuntime};
 use uuid::Uuid;
 
 use crate::{
-    ArtifactFilesystem, ArtifactRecord, ArtifactRepository, Clock, OfficeProcessId,
-    OfficeProcessRuntime, PendingPreviewEvent, PendingRevisionEvent, PortError, ProducerEvidence,
-    ResolvedToolInstallation, TcpReadyProbe, ToolInstallationResolver, ToolLockEvidence,
+    ArtifactFilesystem, ArtifactRecord, ArtifactRepository, Clock, PendingPreviewEvent,
+    PendingRevisionEvent, PortError, ProducerEvidence, ResolvedToolInstallation,
+    ToolInstallationResolver, ToolLockEvidence,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -118,176 +106,6 @@ impl Clock for SystemClock {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64
-    }
-}
-
-struct OfficeChild {
-    child: Child,
-}
-
-#[derive(Default)]
-pub struct TokioOfficeProcessRuntime {
-    next_id: AtomicU64,
-    children: Mutex<HashMap<OfficeProcessId, OfficeChild>>,
-}
-
-#[async_trait]
-impl OfficeProcessRuntime for TokioOfficeProcessRuntime {
-    async fn resolve_artifact_path(
-        &self,
-        scope_root: &Path,
-        relative_path: &Path,
-    ) -> Result<PathBuf, PortError> {
-        let canonical_root = fs::canonicalize(scope_root).await.map_err(port_error)?;
-        let canonical_file = fs::canonicalize(canonical_root.join(relative_path))
-            .await
-            .map_err(port_error)?;
-        if canonical_file == canonical_root || !canonical_file.starts_with(&canonical_root) {
-            return Err(PortError::new(
-                "Office artifact escaped its canonical scope immediately before spawn",
-            ));
-        }
-        Ok(canonical_file)
-    }
-
-    async fn spawn(
-        &self,
-        executable: &Path,
-        file: &Path,
-        requested_port: u16,
-    ) -> Result<OfficeProcessId, PortError> {
-        if !executable.is_absolute() {
-            return Err(PortError::new("OfficeCLI executable path must be absolute"));
-        }
-        if !file.is_absolute() {
-            return Err(PortError::new("Office artifact path must be absolute"));
-        }
-        let mut command = Command::new(executable);
-        command
-            .arg("watch")
-            .arg(file)
-            .arg("--port")
-            .arg(requested_port.to_string())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .env("OFFICECLI_SKIP_UPDATE", "1")
-            .kill_on_drop(true);
-        hide_window(&mut command);
-        let child = command.spawn().map_err(port_error)?;
-        let id = OfficeProcessId(self.next_id.fetch_add(1, Ordering::SeqCst) + 1);
-        self.children.lock().await.insert(id, OfficeChild { child });
-        Ok(id)
-    }
-
-    async fn wait_ready_announcement(
-        &self,
-        process: OfficeProcessId,
-        ready_timeout: Duration,
-    ) -> Result<u16, PortError> {
-        let stdout = {
-            let mut children = self.children.lock().await;
-            children
-                .get_mut(&process)
-                .ok_or_else(|| PortError::new("OfficeCLI process is not registered"))?
-                .child
-                .stdout
-                .take()
-                .ok_or_else(|| PortError::new("OfficeCLI stdout is unavailable"))?
-        };
-        let mut lines = BufReader::new(stdout).lines();
-        timeout(ready_timeout, async {
-            loop {
-                let line = lines
-                    .next_line()
-                    .await
-                    .map_err(port_error)?
-                    .ok_or_else(|| PortError::new("OfficeCLI exited before readiness"))?;
-                if let Some(port) = parse_watch_port(&line) {
-                    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-                    return Ok(port);
-                }
-            }
-        })
-        .await
-        .map_err(|_| PortError::new("OfficeCLI readiness announcement timed out"))?
-    }
-
-    async fn is_running(&self, process: OfficeProcessId) -> Result<bool, PortError> {
-        let mut children = self.children.lock().await;
-        let Some(entry) = children.get_mut(&process) else {
-            return Ok(false);
-        };
-        match entry.child.try_wait().map_err(port_error)? {
-            None => Ok(true),
-            Some(_) => {
-                children.remove(&process);
-                Ok(false)
-            }
-        }
-    }
-
-    async fn terminate(&self, process: OfficeProcessId) -> Result<(), PortError> {
-        let Some(mut entry) = self.children.lock().await.remove(&process) else {
-            return Ok(());
-        };
-        if entry.child.try_wait().map_err(port_error)?.is_none() {
-            entry.child.start_kill().map_err(port_error)?;
-            let _ = entry.child.wait().await;
-        }
-        Ok(())
-    }
-}
-
-fn parse_watch_port(line: &str) -> Option<u16> {
-    let marker = "http://";
-    let start = line.find(marker)? + marker.len();
-    let authority = line[start..]
-        .split_whitespace()
-        .next()?
-        .trim_end_matches('/');
-    authority
-        .rsplit_once(':')?
-        .1
-        .trim_end_matches('/')
-        .parse()
-        .ok()
-}
-
-#[cfg(windows)]
-fn hide_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn hide_window(_command: &mut Command) {}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TokioTcpReadyProbe;
-
-#[async_trait]
-impl TcpReadyProbe for TokioTcpReadyProbe {
-    async fn wait_until_ready(&self, port: u16, ready_timeout: Duration) -> Result<(), PortError> {
-        let deadline = Instant::now() + ready_timeout;
-        loop {
-            if timeout(
-                Duration::from_millis(250),
-                TcpStream::connect(("127.0.0.1", port)),
-            )
-            .await
-            .is_ok_and(|result| result.is_ok())
-            {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(PortError::new(format!(
-                    "OfficeCLI port {port} did not become ready"
-                )));
-            }
-            sleep(Duration::from_millis(25)).await;
-        }
     }
 }
 

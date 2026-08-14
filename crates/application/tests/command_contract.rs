@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use application::{
     ApplicationCore, ApplicationDomainPort, CommandRegistry, ConversationRepository, DomainCommand,
     Principal, RegisteredCommand,
@@ -14,20 +12,53 @@ struct EmptyConversations;
 struct CatalogDomain;
 
 #[test]
-fn plugin_skill_configuration_is_registered_as_a_write_command() {
-    let command = DomainCommand::from_str("plugin_skills_configure")
-        .expect("plugin Skill configuration command");
-
-    assert_eq!(command, DomainCommand::PluginSkillsConfigure);
-    assert_eq!(command.required_scope(), "plugin.write");
-}
-
-#[test]
 fn agent_skill_listing_is_available_through_the_application_domain() {
     let command = "list_agent_skills"
         .parse::<DomainCommand>()
         .expect("agent Skill listing should parse");
     assert_eq!(command.required_scope(), "application.call");
+}
+
+#[test]
+fn product_plugin_inventory_and_file_opener_are_remote_read_contracts() {
+    for name in [
+        "plugin_control_catalog",
+        "plugin_contribution_catalog",
+        "plugin_resolve_file_opener",
+    ] {
+        let command = name.parse::<DomainCommand>().expect("plugin read command");
+        assert_eq!(command.required_scope(), "plugin.read");
+    }
+    assert_eq!(
+        "plugin_control_set_enabled"
+            .parse::<DomainCommand>()
+            .expect("plugin write command")
+            .required_scope(),
+        "plugin.write"
+    );
+    assert_eq!(
+        "plugin_control_grant_permissions"
+            .parse::<DomainCommand>()
+            .expect("permission write command")
+            .required_scope(),
+        "plugin.write"
+    );
+}
+
+#[test]
+fn app_extension_host_uses_a_dedicated_remote_scope() {
+    for name in [
+        "plugin_surface_open",
+        "plugin_surface_invoke",
+        "plugin_surface_revoke",
+    ] {
+        assert_eq!(
+            name.parse::<DomainCommand>()
+                .expect("App surface command")
+                .required_scope(),
+            "plugin.surface"
+        );
+    }
 }
 
 #[async_trait]

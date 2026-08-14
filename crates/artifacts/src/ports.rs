@@ -1,15 +1,11 @@
-use std::{
-    net::{Ipv4Addr, SocketAddrV4, TcpListener},
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::{
-    ArtifactEvent, ArtifactRecord, OfficeProcessId, PendingPreviewEvent, PendingRevisionEvent,
-    PortError, ResolvedToolInstallation, ToolLockEvidence,
+    ArtifactEvent, ArtifactRecord, PendingPreviewEvent, PendingRevisionEvent, PortError,
+    ResolvedToolInstallation, ToolLockEvidence,
 };
 
 #[async_trait]
@@ -101,46 +97,4 @@ pub trait ToolInstallationResolver: Send + Sync {
 
 pub trait Clock: Send + Sync {
     fn now_unix_ms(&self) -> u64;
-}
-
-#[async_trait]
-pub trait OfficeProcessRuntime: Send + Sync {
-    fn allocate_port(&self) -> Result<u16, PortError> {
-        let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))
-            .map_err(|error| PortError::new(error.to_string()))?;
-        listener
-            .local_addr()
-            .map(|address| address.port())
-            .map_err(|error| PortError::new(error.to_string()))
-    }
-
-    async fn resolve_artifact_path(
-        &self,
-        scope_root: &Path,
-        relative_path: &Path,
-    ) -> Result<PathBuf, PortError> {
-        Ok(scope_root.join(relative_path))
-    }
-
-    async fn spawn(
-        &self,
-        executable: &Path,
-        file: &Path,
-        requested_port: u16,
-    ) -> Result<OfficeProcessId, PortError>;
-
-    async fn wait_ready_announcement(
-        &self,
-        process: OfficeProcessId,
-        timeout: Duration,
-    ) -> Result<u16, PortError>;
-
-    async fn is_running(&self, process: OfficeProcessId) -> Result<bool, PortError>;
-
-    async fn terminate(&self, process: OfficeProcessId) -> Result<(), PortError>;
-}
-
-#[async_trait]
-pub trait TcpReadyProbe: Send + Sync {
-    async fn wait_until_ready(&self, port: u16, timeout: Duration) -> Result<(), PortError>;
 }

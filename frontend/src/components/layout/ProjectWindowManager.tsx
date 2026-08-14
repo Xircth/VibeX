@@ -372,8 +372,10 @@ export function ProjectWindowManager() {
   const pruneProjectState = useWindowProjectsStore(
     (state) => state.pruneProjectState
   );
-  const isSettingsWindowRoute = location.pathname.startsWith('/settings');
-  const shouldManageProjectWindows = !isSettingsWindowRoute;
+  const isAppManagementRoute =
+    location.pathname.startsWith('/settings') ||
+    location.pathname.startsWith('/plugins');
+  const shouldManageProjectWindows = !isAppManagementRoute;
 
   useEffect(() => {
     if (!shouldManageProjectWindows || !projectId) {

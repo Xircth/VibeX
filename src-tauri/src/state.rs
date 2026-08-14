@@ -7,6 +7,7 @@ use std::{
 use agents::{AgentEventEnvelope, AgentId, AgentRuntime, runtime_event_channel};
 use deployment::Deployment;
 use local_deployment::{LocalDeployment, pty::PtyService};
+use tauri::Manager;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::commands::{
@@ -180,8 +181,11 @@ pub struct AppState {
     /// (`forget_conversation_runtime`).
     pub conversation_row_projectors:
         Arc<Mutex<HashMap<uuid::Uuid, conversations::IncrementalRowProjector>>>,
-    pub office_runtime: Arc<crate::office_runtime::OfficeRuntime>,
+    pub plugin_preview_host: Arc<dyn plugins::PluginPreviewHost>,
     pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    pub plugin_worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+    pub plugin_capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub plugin_app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
     pub remote_desktop: Arc<crate::remote_desktop::RemoteDesktopRegistry>,
 }
 
@@ -195,80 +199,146 @@ impl AppState {
         // runtime events now flow through one lossless receiver into that log.
         let (agent_event_sink, conversation_agent_events) = runtime_event_channel();
         let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
-        let office_runtime = Arc::new(
-            crate::office_runtime::OfficeRuntime::new(
-                pool.clone(),
-                utils::assets::asset_dir().join("managed-tools"),
-            )
-            .await?,
-        );
         let plugin_control_plane = Arc::new(plugins::PluginControlPlane::new(Arc::new(
             plugins::SqlitePluginRegistry::new(pool.clone()),
         )));
-        let bundled_office = office_runtime::materialize_bundled_plugin_package(
-            &utils::assets::asset_dir().join("plugins/office"),
-        )
-        .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
-        if plugin_control_plane
-            .plugin(bundled_office.id.as_str())
-            .await
-            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?
-            .is_none()
-        {
-            plugin_control_plane
-                .import(bundled_office, plugins::ConflictDecision::Reject)
+        let plugin_worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
+            crate::managed_artifacts::directory(&app_handle).map_err(|error| {
+                deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string()))
+            })?,
+        ));
+        let plugin_preview_host: Arc<dyn plugins::PluginPreviewHost> = Arc::new(
+            plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
+        );
+        let plugin_capability_broker = Arc::new(plugins::HostCapabilityBroker::new(
+            plugin_control_plane.clone(),
+            plugin_preview_host.clone(),
+        ));
+        let bundled_plugin_roots =
+            utils::assets::materialize_builtin_plugins(&utils::assets::asset_dir())
+                .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+        for builtin_root in bundled_plugin_roots {
+            let mut builtin =
+                plugins::PluginPackage::inspect(&builtin_root, plugins::PluginSourceKind::Builtin)
+                    .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+            let installed = plugin_control_plane
+                .plugin(builtin.id.as_str())
                 .await
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
+            match installed {
+                None => {
+                    plugin_control_plane
+                        .import(builtin, plugins::ConflictDecision::Reject)
+                        .await
+                        .map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                        })?;
+                }
+                Some(installed)
+                    if installed.package_digest
+                        != plugins::package_content_digest(&builtin_root).map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                        })? =>
+                {
+                    if installed.config_schema.is_some() {
+                        builtin
+                            .write_config(installed.config.clone())
+                            .map_err(|error| {
+                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                            })?;
+                        builtin = plugins::PluginPackage::inspect(
+                            &builtin_root,
+                            plugins::PluginSourceKind::Builtin,
+                        )
+                        .map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                        })?;
+                    }
+                    if installed.activation == plugins::PluginActivation::Enabled {
+                        let grants = plugins::candidate_capability_grants(&builtin, &[], &[])
+                            .map_err(|error| {
+                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                            })?;
+                        let node = plugin_worker_runtime.resolve().await.map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                        })?;
+                        plugin_control_plane
+                            .update_and_activate(
+                                &node,
+                                builtin,
+                                &grants,
+                                plugin_capability_broker.clone(),
+                            )
+                            .await
+                            .map_err(|error| {
+                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                            })?;
+                    } else {
+                        plugin_control_plane
+                            .import(builtin, plugins::ConflictDecision::Replace)
+                            .await
+                            .map_err(|error| {
+                                deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                            })?;
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        let enabled_worker_exists = plugin_control_plane
+            .catalog()
+            .await
+            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?
+            .iter()
+            .any(|plugin| {
+                plugin.activation == plugins::PluginActivation::Enabled
+                    && plugin.entrypoints.worker.is_some()
+            });
+        let recovery_failures = if enabled_worker_exists {
+            match plugin_worker_runtime.resolve().await {
+                Ok(node) => {
+                    let candidate_root = app_handle
+                        .path()
+                        .app_data_dir()
+                        .map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string()))
+                        })?
+                        .join("plugins")
+                        .join("dev-candidates");
+                    plugin_control_plane
+                        .recover_enabled_workers(
+                            &node,
+                            &candidate_root,
+                            plugin_capability_broker.clone(),
+                        )
+                        .await
+                        .map_err(|error| {
+                            deployment::DeploymentError::Other(anyhow::anyhow!(error))
+                        })?
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        for failure in recovery_failures {
+            tracing::warn!(
+                plugin_id = %failure.plugin_id,
+                code = %failure.code,
+                error = %failure.message,
+                "enabled plugin Worker could not be restored"
+            );
         }
         let remote_desktop = Arc::new(
             crate::remote_desktop::RemoteDesktopRegistry::new()
                 .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?,
         );
-        if office_runtime.should_restore_enabled_on_startup() {
-            let runtime = office_runtime.clone();
-            let control_plane = plugin_control_plane.clone();
-            tokio::spawn(async move {
-                if let Err(error) = runtime.restore_enabled_on_startup().await {
-                    tracing::warn!(
-                        "managed Office plugin startup restore remains not-ready: {error}"
-                    );
-                    return;
-                }
-                if let Err(error) = control_plane.set_enabled("vibex.office", true).await {
-                    tracing::warn!("failed to synchronize Office plugin activation: {error}");
-                    return;
-                }
-                match runtime.detect().await {
-                    Ok(Some(lock)) => {
-                        let executable_path = match runtime.global_executable_path() {
-                            Ok(path) => path,
-                            Err(error) => {
-                                tracing::warn!(
-                                    "restored Office Runtime is not globally visible: {error}"
-                                );
-                                return;
-                            }
-                        };
-                        if let Err(error) = control_plane
-                            .record_runtime(plugins::RuntimeInstallation {
-                                id: lock.tool_id,
-                                version: lock.version,
-                                executable_path,
-                                installer: "vibex_bundled_binary".to_owned(),
-                                probe: vec!["--version".to_owned()],
-                            })
-                            .await
-                        {
-                            tracing::warn!("failed to synchronize Office Runtime lock: {error}");
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        tracing::warn!("failed to read restored Office Runtime lock: {error}");
-                    }
-                }
-            });
-        }
+        let plugin_app_surfaces = Arc::new(plugins::PluginAppSurfaceHost::new(
+            plugin_control_plane.clone(),
+        ));
         let conversation_turn_locks = Arc::new(Mutex::new(HashMap::new()));
         let conversation_runtime_states = Arc::new(Mutex::new(HashMap::new()));
         let conversation_row_projectors = Arc::new(Mutex::new(HashMap::new()));
@@ -306,8 +376,11 @@ impl AppState {
             conversation_turn_locks,
             conversation_runtime_states,
             conversation_row_projectors,
-            office_runtime,
+            plugin_preview_host,
             plugin_control_plane,
+            plugin_worker_runtime,
+            plugin_capability_broker,
+            plugin_app_surfaces,
             remote_desktop,
         })
     }

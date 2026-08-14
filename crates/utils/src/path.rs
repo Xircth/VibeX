@@ -7,6 +7,22 @@ pub const VIBE_IMAGES_DIR: &str = ".vibe-images";
 /// .git is not in .gitignore but should never be watched.
 pub const ALWAYS_SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 
+/// Returns the root for Host-managed executable artifacts.
+///
+/// On macOS 26, Mach-O processes below `~/Library/Application Support` can be
+/// held in dyld when an ancestor is interpreted as an application bundle (for
+/// example VibeX's `com.vibex.app` data directory). Databases and configuration
+/// stay in Tauri app data; executable runtimes use this user-owned launch root.
+#[cfg(target_os = "macos")]
+pub fn managed_artifacts_directory(home_dir: &Path, _app_data_dir: &Path) -> PathBuf {
+    home_dir.join(".local").join("share").join("vibex")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn managed_artifacts_directory(_home_dir: &Path, app_data_dir: &Path) -> PathBuf {
+    app_data_dir.to_path_buf()
+}
+
 /// Convert absolute paths to relative paths based on worktree path
 /// This is a robust implementation that handles symlinks and edge cases
 pub fn make_path_relative(path: &str, worktree_path: &str) -> String {
@@ -236,5 +252,17 @@ mod tests {
         assert_eq!(normalized, PathBuf::from(r"\\server\share\workspace"));
         #[cfg(not(windows))]
         assert_eq!(normalized, PathBuf::from(r"\\?\UNC\server\share\workspace"));
+    }
+
+    #[test]
+    fn managed_artifacts_avoid_macos_app_bundle_data_directories() {
+        let home = Path::new("/Users/developer");
+        let app_data = home.join("Library/Application Support/com.vibex.app");
+        let root = managed_artifacts_directory(home, &app_data);
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(root, home.join(".local/share/vibex"));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(root, app_data);
     }
 }

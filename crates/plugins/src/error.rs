@@ -75,10 +75,10 @@ impl PluginError {
         }
     }
 
-    pub(crate) fn skill_required(plugin_id: &str) -> Self {
+    pub(crate) fn contribution_required(plugin_id: &str) -> Self {
         Self {
-            code: "plugin_skill_required",
-            message: format!("plugin `{plugin_id}` must contain at least one Skill"),
+            code: "plugin_contribution_required",
+            message: format!("plugin `{plugin_id}` must contain at least one valid contribution"),
         }
     }
 
@@ -120,15 +120,6 @@ impl PluginError {
         Self {
             code: "native_command_rejected",
             message: format!("official plugin command rejected: {reason}"),
-        }
-    }
-
-    pub(crate) fn shell_trust_required(plugin_id: &str) -> Self {
-        Self {
-            code: "plugin_shell_trust_required",
-            message: format!(
-                "plugin `{plugin_id}` must be explicitly trusted before its shell installer can run"
-            ),
         }
     }
 

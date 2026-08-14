@@ -23,8 +23,7 @@ use conversations::{
 use db::models::automation_v2::SqliteAutomationStore;
 use deployment::{Deployment, DeploymentError};
 use local_deployment::LocalDeployment;
-use office_runtime::OfficeRuntime;
-use plugins::PluginService;
+use plugins::{ConflictDecision, PluginControlPlane, PluginPreviewHost, SqlitePluginRegistry};
 use sqlx::SqlitePool;
 use tokio::{sync::Mutex, task::JoinHandle};
 
@@ -56,24 +55,33 @@ pub struct ServerBootstrapConfig {
 
 struct PluginAwareConversationExecution {
     inner: ConversationSessionExecutionPort,
-    office: Arc<OfficeRuntime>,
+    plugin_control_plane: Arc<PluginControlPlane>,
 }
 
 #[async_trait]
 impl ConversationExecutionPort for PluginAwareConversationExecution {
     async fn start_turn(
         &self,
-        request: StartConversationTurn,
+        mut request: StartConversationTurn,
     ) -> Result<conversations::ConversationTurnSnapshot, ApplicationError> {
+        let mut action_prompts = Vec::new();
         for invocation in &request.plugin_actions {
-            self.office
-                .resolve_bundled_action_for_agent(
-                    &invocation.plugin_id,
-                    &invocation.action_id,
-                    &request.agent_id,
-                )
+            let action = self
+                .plugin_control_plane
+                .resolve_action(&invocation.plugin_id, &invocation.action_id)
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+            action_prompts.extend(action.prompt_blocks.into_iter().map(|block| match block {
+                plugins::PromptBlock::Text { text } => text,
+            }));
+        }
+        if !action_prompts.is_empty() {
+            let mut prompt = Vec::with_capacity(action_prompts.len() + 1);
+            if !request.text.trim().is_empty() {
+                prompt.push(request.text);
+            }
+            prompt.extend(action_prompts);
+            request.text = prompt.join("\n");
         }
         self.inner.start_turn(request).await
     }
@@ -108,12 +116,8 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
         request: conversations::SubmitConversationInput,
     ) -> Result<conversations::ConversationInputSubmission, ApplicationError> {
         for invocation in &request.payload.plugin_actions {
-            self.office
-                .resolve_bundled_action_for_agent(
-                    &invocation.plugin_id,
-                    &invocation.action_id,
-                    request.payload.agent_id.as_str(),
-                )
+            self.plugin_control_plane
+                .resolve_action(&invocation.plugin_id, &invocation.action_id)
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         }
@@ -169,7 +173,6 @@ pub struct HeadlessServer {
     runtime: ServerRuntime<SqliteConversationRepository>,
     issued_token: Option<ServerToken>,
     _agent_runtime: Arc<AgentRuntime>,
-    office_runtime: Arc<OfficeRuntime>,
     automation_runtime: HeadlessAutomationRuntime,
     automation_owner: Option<AutomationEngine<File>>,
     automation_recovery: Option<StartupRecoveryReport>,
@@ -221,12 +224,110 @@ impl HeadlessServer {
             conversation_context.clone(),
         );
 
-        let managed_tools_root = config.data_dir.join("managed-tools");
-        let office_runtime = Arc::new(
-            OfficeRuntime::new(pool.clone(), managed_tools_root.clone())
-                .await
-                .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?,
+        let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
+            SqlitePluginRegistry::new(pool.clone()),
+        )));
+        let preview_host: Arc<dyn PluginPreviewHost> = Arc::new(
+            plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
+        let capability_broker = Arc::new(plugins::HostCapabilityBroker::new(
+            plugin_control_plane.clone(),
+            preview_host.clone(),
+        ));
+        let worker_runtime = Arc::new(plugins::PluginWorkerRuntimeProvider::new(
+            config.data_dir.clone(),
+        ));
+        let bundled_plugin_roots = utils::assets::materialize_builtin_plugins(&config.data_dir)
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+        for builtin_root in bundled_plugin_roots {
+            let mut builtin =
+                plugins::PluginPackage::inspect(&builtin_root, plugins::PluginSourceKind::Builtin)
+                    .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+            let installed = plugin_control_plane
+                .plugin(builtin.id.as_str())
+                .await
+                .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+            match installed {
+                None => {
+                    plugin_control_plane
+                        .import(builtin, ConflictDecision::Reject)
+                        .await
+                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                }
+                Some(installed)
+                    if installed.package_digest
+                        != plugins::package_content_digest(&builtin_root)
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))? =>
+                {
+                    if installed.config_schema.is_some() {
+                        builtin
+                            .write_config(installed.config.clone())
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                        builtin = plugins::PluginPackage::inspect(
+                            &builtin_root,
+                            plugins::PluginSourceKind::Builtin,
+                        )
+                        .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                    }
+                    if installed.activation == plugins::PluginActivation::Enabled {
+                        let grants = plugins::candidate_capability_grants(&builtin, &[], &[])
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                        let node = worker_runtime
+                            .resolve()
+                            .await
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                        plugin_control_plane
+                            .update_and_activate(&node, builtin, &grants, capability_broker.clone())
+                            .await
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                    } else {
+                        plugin_control_plane
+                            .import(builtin, ConflictDecision::Replace)
+                            .await
+                            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        let enabled_worker_exists = plugin_control_plane
+            .catalog()
+            .await
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?
+            .iter()
+            .any(|plugin| {
+                plugin.activation == plugins::PluginActivation::Enabled
+                    && plugin.entrypoints.worker.is_some()
+            });
+        let recovery_failures = if enabled_worker_exists {
+            match worker_runtime.resolve().await {
+                Ok(node) => plugin_control_plane
+                    .recover_enabled_workers(
+                        &node,
+                        &config.data_dir.join("plugins").join("dev-candidates"),
+                        capability_broker.clone(),
+                    )
+                    .await
+                    .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?,
+                Err(error) => {
+                    tracing::warn!(%error, "Plugin Worker Runtime could not be provisioned");
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+        for failure in recovery_failures {
+            tracing::warn!(
+                plugin_id = %failure.plugin_id,
+                code = %failure.code,
+                error = %failure.message,
+                "enabled plugin Worker could not be restored"
+            );
+        }
+        let app_surfaces = Arc::new(plugins::PluginAppSurfaceHost::new(
+            plugin_control_plane.clone(),
+        ));
         let data_dir_key = config.data_dir.to_string_lossy().into_owned();
         let automation_owner =
             AutomationEngine::acquire(&data_dir_key, FileOwnerLock::default()).await?;
@@ -242,22 +343,28 @@ impl HeadlessServer {
         let automation_runtime = HeadlessAutomationRuntime::new(
             deployment.clone(),
             conversation_context.clone(),
-            managed_tools_root,
-            office_runtime.clone(),
+            plugin_control_plane.clone(),
         );
         let preview_proxy = PreviewProxyRegistry::default();
         let domains = Arc::new(ServerApplicationDomains::new(
-            pool.clone(),
-            office_runtime.clone(),
-            preview_proxy.clone(),
-            automation_runtime.clone(),
-            automation_owner.is_some(),
-            conversation_context.clone(),
-            deployment.clone(),
+            crate::domains::ServerDomainDependencies {
+                pool: pool.clone(),
+                plugin_control_plane: plugin_control_plane.clone(),
+                preview_host,
+                capability_broker,
+                app_surfaces,
+                preview_proxy: preview_proxy.clone(),
+                automation: automation_runtime.clone(),
+                owns_automation_engine: automation_owner.is_some(),
+                conversations: conversation_context.clone(),
+                deployment: deployment.clone(),
+                runtime_root: config.data_dir.join("plugins/runtimes"),
+                worker_runtime,
+            },
         ));
         let execution = Arc::new(PluginAwareConversationExecution {
             inner: ConversationSessionExecutionPort::new(conversation_context.clone()),
-            office: office_runtime.clone(),
+            plugin_control_plane: plugin_control_plane.clone(),
         });
         let repository = SqliteConversationRepository::new(pool.clone());
         let workflows = Arc::new(application::WorkflowStoreExecutionPort::with_conversations(
@@ -295,7 +402,6 @@ impl HeadlessServer {
             runtime,
             issued_token: provisioned.issued_token,
             _agent_runtime: agent_runtime,
-            office_runtime,
             automation_runtime,
             automation_owner,
             automation_recovery,
@@ -321,14 +427,6 @@ impl HeadlessServer {
 
     pub fn take_issued_token(&mut self) -> Option<ServerToken> {
         self.issued_token.take()
-    }
-
-    pub fn plugin_service(&self) -> &PluginService {
-        self.office_runtime.plugin_service()
-    }
-
-    pub fn artifact_service(&self) -> &artifacts::ArtifactService {
-        self.office_runtime.artifact_service_ref()
     }
 
     pub const fn owns_automation_engine(&self) -> bool {

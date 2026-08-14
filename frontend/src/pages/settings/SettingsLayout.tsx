@@ -90,7 +90,7 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     capability: 'automation.read',
   },
   {
-    path: '/settings/plugins',
+    path: '/plugins',
     labelKey: 'plugins',
     icon: Puzzle,
     capability: 'plugin.read',

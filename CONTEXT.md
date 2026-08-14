@@ -115,44 +115,55 @@ Workflow 领域与 Automation 的关系见
 
 ## Plugin, Tool, and Artifact domain
 
-- **Plugin control plane（插件控制面）** — VibeX 对 VibeX、Codex 与 Claude Code 插件提供的统一目录与管理入口；它汇总安装、启用、更新和兼容性状态，但不取代外部 Agent 的原生插件存储权威。
-- **Plugin source package（插件源包）** — 被导入的原始、只读插件包及其来源格式。Codex 与 Claude Code 源包由对应 Agent 的原生插件位置持有，VibeX 只保存路径、内容摘要与可追溯引用并投影其状态；软链接只提供浏览入口，不能充当插件身份或安装事实。从 VibeX 发起导入也必须先进入该原生位置。同一目录包含 VibeX、Codex 与 Claude Code manifests 时仍是一个源包，通过格式徽标展示多个生态投影，不重复生成 Plugin 条目。
-- **Linked development plugin（链接开发插件）** — 用户显式选择持续跟随其开发目录的 Plugin；它与默认生成稳定快照的普通安装分离，源文件变化后必须重新校验声明与信任状态。
-- **Portable plugin identity（可移植插件身份）** — 跨来源格式关联同一逻辑 Plugin 的显式稳定 ID；不同生态中仅名称相同的源包不会自动合并。同一 ID 在控制面中只能保留一个源包，发生冲突时用户必须选择保留原包或以新包替换，不能并存或静默覆盖；替换后的源包继承按该 ID 建立的 Plugin trust grant。
-- **Plugin contribution（插件贡献）** — 源包向运行环境提供的独立能力，例如 Skill、Plugin Command、Runtime requirement、MCP 或 Agent 专属扩展；兼容性按贡献判断，不能由源包格式单独推断。
-- **Portable plugin（可移植插件）** — 至少贡献一个 Skill、以 Skill 作为跨 Agent 入口的 VibeX Plugin；没有 Skill 的 Codex 或 Claude Code 原生源包只能作为对应 Agent 的专属插件纳入控制面。
-- **Plugin membership（插件纳入关系）** — 插件是否属于当前 VibeX catalog；与 installation、Agent binding、dependency、skill 和 provider readiness 分离。
-- **Plugin installation（插件安装）** — 插件源包及其 Runtime 已经进入用户级全局环境的状态；同一安装可被多个 Project 与 Agent binding 复用，不为每个 Agent 重复安装 Runtime。VibeX 发起和验证安装不等于拥有系统全局环境中的全部安装副作用。
-- **Agent binding（Agent 绑定）** — 用户允许某个已安装 Plugin 在特定 Agent 或 Project 中暴露其贡献的独立关系；绑定不改变插件源包或 Runtime 的所有权。
-- **Cross-Agent plugin（跨 Agent 插件）** — 以 Skill 作为所有 Agent 的共同入口、且所需配套 Runtime 已在用户级全局环境中解析就绪的 Plugin；Agent 不需要拥有该 Runtime 的独立安装。Agent 专属贡献缺失不否定其 Skill 层面的跨 Agent 可用性。
-- **Plugin activation（插件启用状态）** — 用户是否允许一个已纳入 Plugin 的后续动作；新导入 Plugin 默认不启用，用户确认后默认向所有支持 Skill 的已安装 Agent 建立 binding，并为尚未安装的 Agent 保存待应用意图；用户可以取消个别 Agent。启用不能伪造 Runtime、Skill、MCP 或 Provider readiness。
-- **Skill projection（Skill 投影）** — VibeX 把 Plugin Skill 暴露到 Agent 原生 Skill 目录的只读入口；优先使用带 VibeX provenance 的软链接，不支持链接时使用受控副本，协调与卸载只能修改 VibeX 拥有的投影，不能覆盖用户同名 Skill。
-- **PluginAction（插件动作）** — Composer 与 Automation 共用、对一个或多个 Plugin Skill 调用进行封装的结构化 Prompt 意图；它保留 prompt blocks、所需 Skill/Runtime 与可选 Artifact intent，插入动作不等于自动发送或执行。
-- **Invocation definition（调用定义）** — Plugin 对一次 Skill 调用维护的唯一规范化定义；PluginAction 与 Plugin Command 只是同一调用定义在结构化 UI/Automation 与斜杠入口中的不同投影，不分别复制 Prompt 或依赖声明。
-- **Plugin Command（插件命令）** — 由 VibeX 解析并保留 Plugin/Command 身份的可移植斜杠入口；它可以调用 Plugin Skill，但不是某个 Agent 的原生命令。
+- **Plugin control plane（插件控制面）** — VibeX Plugin Package 的唯一安装、授权、启停、更新、诊断、回滚与卸载事实来源；它也可以读取 Agent-native plugin 的投影，但不夺取 Agent 原生存储与信任权威。详细决定见 ADR-0046。
+- **Plugin module（插件模块）** — VibeX Plugin Package 的独立产品入口：保留设置侧栏的单列目录，点击条目进入只有“内容/配置”主 Tab 的独立详情页。用户界面不把一个插件拆成平台扩展与 Agent 扩展，也不以 Skill、MCP、Runtime 或 contribution 数量解释产品。
+- **Agent plugin setting（Agent 插件设置）** — “设置 → Agent → 对应 Agent”底部默认折叠的 Agent-native plugin 管理上下文；使用列表加预览，只呈现该 Agent 拥有的 Skill、MCP、Runtime、Hook 与 Workflow。操作能力取决于该 Agent 的可靠原生适配器，不能展示或授予 VibeX App 扩展权。
+- **Plugin source package（插件源包）** — 被发现或导入的原始只读包及来源证据；它尚不是安装、授权或激活事实。一个源码目录可以同时包含 VibeX 与 Agent 原生格式，各格式的执行权仍分别建立。
+- **VibeX Plugin Package（VibeX 插件包）** — 以一个身份、版本和生命周期提供完整功能的产品包；内部可以连接 App、Agent、Host 或 Runtime 扩展点，但它们不是用户分类。公共布局、README summary、contents、depends 与 config 见 ADR-0047。
+- **Plugin summary（插件一句话简介）** — 根 `README.md` frontmatter 中独立的 `summary` 标签；必须是一句话，不从 Markdown 标题或段落推断，供目录与详情标题区显示。
+- **Plugin content（插件内容）** — 根 `contents/` 下可供用户或 Agent 查看、使用的 Skill、MCP、Hook、Workflow、模板与其他资源；Host 只通过已验证的结构化 content index 暴露它们。
+- **Plugin config（插件配置）** — 根 `config.json` 的内容；它是配置页编辑的唯一事实，由 manifest schema 校验和 Host 原子写回，不计入 executable package digest。
+- **Plugin dependency（插件依赖）** — 根 `depends/` 下由 manifest 显式引用的 Runtime、CLI、package 或 service 描述；目录存在不自动授予执行权。
+- **Plugin identity（插件身份）** — 由稳定 Publisher identity 与 Plugin ID 共同组成的产品身份；显示名称、目录名和相似内容不能建立身份，同 ID 不同 Publisher 的包不能继承权限或数据。
+- **Linked development plugin（链接开发插件）** — 用户显式选择持续跟随其开发目录的 Plugin；它与普通安装的不可变快照分离，源内容变化后必须重新校验 contribution、权限和身份，VibeX 永不删除该开发目录。
+- **Plugin contribution（插件贡献）** — Plugin Package 向一个明确宿主扩展点提供的独立能力；每项贡献有稳定身份、类型、兼容条件与 readiness，兼容性按贡献判断而不是由包格式或是否含 Skill推断。
+- **Agent contribution（Agent 贡献）** — 向 Agent 会话或原生配置提供的 Skill、MCP、Runtime、Hook 或 Workflow；它可以与 App contribution 同包，但只有建立 Agent binding 后才向该 Agent 暴露。
+- **App contribution（App 贡献）** — 向 VibeX 用户界面提供的文件 opener、preview provider、设置、命令、状态或自定义 surface；它不因与 Agent contribution 同包而获得主应用执行权。
+- **Host contribution（Host 贡献）** — 在 VibeX Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
+- **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
+- **Plugin membership（插件纳入关系）** — Plugin 是否属于当前 Host 的 catalog；与 installation、activation、permission、Agent binding 和 contribution readiness 分离。
+- **Plugin installation（插件安装）** — 一个精确 package version/digest 已作为当前 Host 的不可变安装物被接受并持久记录；它不等于启用，也不证明所需权限或 Runtime 已经就绪。
+- **Plugin activation（插件启用意图）** — 用户是否允许已安装 Plugin 发布可用 contributions 的持久意图；新安装默认禁用，启用不能伪造 permission、Runtime、Agent binding 或 contribution readiness。
+- **Activation Generation（激活代）** — 一个 Plugin 的 package、permission、Runtime locks 与全部已就绪 contributions 一次原子发布的不可变运行快照；候选代在完整验证前不可见，失败更新必须保留上一完整激活代。
+- **Plugin capability request（插件能力请求）** — Package 在执行前静态声明可能需要使用的宿主能力及最大 scope；声明只形成待决请求，不构成授权。
+- **Plugin capability grant（插件能力授权）** — 用户在一个 Host 上对明确 Publisher、Plugin identity、能力集合、scope 与信任等级作出的可撤销授权；能力扩大、发布者变化或高风险执行入口变化必须重新授权。
+- **Full-trust Plugin（全信任插件）** — 用户安装或启用 VibeX Plugin Package，即信任该包以与 VibeX Host 相同的本机权限运行 Worker、App 与声明的 Runtime；不再存在逐 capability、scope 或 Trusted Native 二次授权。独立 Worker/App frame 只提供生命周期、热更新与崩溃隔离，不是安全沙箱。见 ADR-0048。
+- **Plugin Worker（插件工作进程）** — 在 VibeX Host 上隔离执行插件后端代码、且只能通过已授权宿主能力产生副作用的运行实例；它的存活不等于 Plugin 安装或激活事实。
+- **App surface（应用扩展面）** — App contribution 在 VibeX 用户界面中的一个宿主渲染或隔离渲染实例；其能力受客户端兼容性、激活代和短期 surface 授权共同约束。
+- **Sandboxed plugin surface（沙箱插件扩展面）** — 与主应用文档、存储、凭据和宿主运行时隔离的自定义 App surface；只通过带作用域和期限的消息桥访问声明且已授权的能力。
+- **Agent binding（Agent 绑定）** — 用户允许某个已激活 Plugin 的 Agent contributions 在特定 Agent 或 Project 中暴露的关系；绑定不改变 package、Runtime 或 Agent 原生配置的所有权。
+- **Cross-Agent plugin（跨 Agent 插件）** — 其一个或多个 Agent contributions 可被多个 Agent adapter 等价投影的 VibeX Plugin；App contribution 是否存在不影响其跨 Agent 定义。
+- **Skill projection（Skill 投影）** — VibeX 把 Plugin Skill 暴露到 Agent 原生 Skill 位置的受控只读入口；协调与卸载只能修改 VibeX 拥有的投影，不能覆盖用户同名 Skill。
+- **Plugin Workflow（插件工作流）** — VibeX Plugin Package 在 `contents/workflows/` 中提供的版本化、结构化流程资源；Composer、Automation 或 Agent binding 只能引用同一 Workflow 身份与依赖证据，不再另建 PluginAction 公共概念。
+- **Plugin Command（插件命令）** — 由 VibeX 解析并保留 Plugin/Command 身份的可移植斜杠入口；它不是某个 Agent 的原生命令。
 - **Agent Command（Agent 命令）** — 由 Codex、Claude Code 或其他 Agent Runtime 定义并执行的原生斜杠命令；VibeX 只在对应 Agent 上发现和透传，不能宣称跨 Agent 可移植。
-- **Command candidate（命令候选项）** — Composer 在用户输入 `/` 后展示的一个带来源身份的候选；同名 Plugin Command、Skill 与 Agent Command 可以并存，界面分别标记“插件”“技能”“原生”，用户选择后由结构化身份而非显示名称决定实际调用，任何来源都不能静默覆盖另一来源。
-- **Runtime requirement（运行时需求）** — Plugin 作者对 Skill 配套 CLI、Binary、包、MCP 或其他工具的声明式需求；作者声明可以保持宽松，不能被当作已经解析、验证或安装的事实。
-- **Runtime installation lock（运行时安装锁）** — VibeX 将 Runtime requirement 解析并安装到用户级全局环境后形成的持久证据，记录实际版本、平台、来源、完整性证据与绝对入口；所有 Agent 复用同一 lock。Lock 证明 VibeX 观察到的解析结果，不自动声称 VibeX 拥有或能够完整删除系统级副作用。
-- **Runtime displacement（Runtime 替换）** — 安装一个 Plugin 时把用户级全局环境中其他 Plugin 正在使用的同名 Runtime 改为另一版本的级联操作；VibeX 必须在执行前列出受影响 Plugin、当前版本、目标版本以及将被删除的旧 Plugin 并取得确认。确认后可以在存在在途 Turn 时直接覆盖、不保留旧 Runtime 版本，并删除所有依赖旧版本的 Plugin。
-- **Cascading plugin removal（级联插件删除）** — Runtime displacement 经确认后对所有依赖被替换版本的 Plugin 执行的完整移除。VibeX Plugin 删除 membership、Agent bindings、Skill projections、受管源包快照与 Plugin trust grant；Linked development plugin 只删除 VibeX 引用和投影，不删除用户源目录；Codex/Claude 原生 Plugin 必须经可靠原生适配器卸载，否则阻止整个 displacement。级联删除不移除全局 Runtime、Artifact、Conversation、Automation 或 operation audit；引用已删除 PluginAction 的 Automation 保留并标记不可用。确认前必须逐项列出将删除的 Plugin 与将失效的 Automation。
-- **Plugin trust grant（插件信任授权）** — 用户仅按 Plugin ID 持续授予的用户权限代码执行权；首次授权后，即使来源未签名或后续版本改变 Shell installer recipe，也不需要因来源、发布者或脚本摘要变化重新取得信任。以同 ID 新包替换现有 Plugin 时授权继续有效；卸载 Plugin 或用户显式撤销时授权终止。
-- **Shell installer recipe（Shell 安装配方）** — Plugin 提供、可能修改 VibeX 目录外用户环境的任意 shell 安装逻辑；首次执行前必须展示具体来源与风险并取得 Plugin trust grant，后续安装、手动更新或修复即使脚本已经改变也由 VibeX 直接执行，不再逐次确认。启用 Plugin 本身不隐含创建信任授权。
-- **Runtime probe（Runtime 探测）** — 在普通 Agent 可见的用户环境中重新解析 Runtime 命令并验证实际版本与可用性的检查；安装进程返回成功不能替代 probe，只有 probe 通过后才能形成 Runtime installation lock。
-- **Runtime removal（Runtime 移除）** — 删除 Plugin 配套 Runtime 的独立破坏性操作；卸载 Plugin 不移除其用户级全局 Runtime。Plugin trust grant 不授权卸载 shell，任何未来提供的独立 Runtime 清理操作都必须再次展示并确认，无法确定外部副作用时只能移除 VibeX 自有状态并保留 Runtime。
-- **Runtime inventory（Runtime 清单）** — 控制面独立呈现的用户级全局 Runtime 目录，展示命令、版本、实际路径、来源、引用 Plugin 与 probe 状态；它不自动清理 Runtime，任何清理都是与 Plugin 卸载分离的手动操作。
-- **Tolerant plugin manifest（宽容插件声明）** — 仅以 schema、稳定身份、版本、名称和至少一个 Skill 构成 Portable plugin 的最小契约；未知字段原样保留并警告，无效的可选贡献只使对应贡献不可用，不使整个源包无法导入。
-- **VibeX plugin package（VibeX 插件包）** — 以 `.vibex-plugin/plugin.json` 作为声明入口的 Portable plugin 源包；省略显式 Skill 列表时自动发现 `skills/*/SKILL.md`，显式列表存在时以声明为准，最终必须至少解析出一个有效 Skill。
-- **External runtime side effect（外部 Runtime 副作用）** — Shell installer recipe 在 VibeX 所有权范围外创建或修改的状态；VibeX 不能承诺自动发现或完整卸载，任何卸载 shell 都是另一项需要明确展示的代码执行操作。
-- **Plugin MCP binding（插件 MCP 绑定）** — Plugin 内置 MCP 向 Agent 原生配置的投影关系；VibeX 默认可以为所有支持的 Agent 启用，也允许用户在执行前进入 MCP 设置选择具体 Agent，不为跳过配置步骤的用户制造未启用的隐式状态。
-- **Native plugin reconciliation（原生插件协调）** — VibeX 重新读取 Codex 或 Claude Code 原生插件权威后更新控制面投影的过程；外部更新、禁用、删除或链接失效必须如实呈现，VibeX 不能依据旧投影静默恢复原生状态。
-- **Native plugin management capability（原生插件管理能力）** — 某个 Codex 或 Claude Code 适配器已经可靠实现的 discover、install、enable、update 或 uninstall 操作；没有稳定接口的操作只能降级为只读状态或打开原生管理入口，不能通过猜测配置格式宣称支持。
-- **Native plugin trust（原生插件信任）** — Codex 或 Claude Code 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX 展示来源、贡献与风险并委托原生机制完成授权，不能用 VibeX 的 Plugin trust grant 替代或伪造原生信任。
-- **External prerequisite（外部前置条件）** — Skill 文档使用、但 Plugin manifest 未声明为 Runtime requirement 的 CLI 或服务；它不阻止 Plugin 导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能把其依赖状态标记为未知。
-- **Plugin operation audit（插件操作审计）** — 对 Plugin trust grant、Shell installer recipe、Runtime displacement 与原生插件配置变更的持久记录；保存时间、Plugin ID、操作、版本变化、命令摘要、退出状态和受影响 Plugin，不保存秘密环境变量或凭据。
-- **Unified plugin view（统一插件视图）** — 插件设置中的单一 Plugin 列表，以来源和格式徽标及筛选器区分生态；同一 Plugin 的能力、Agent、Runtime、MCP、信任与来源在一个详情上下文中呈现，不按 VibeX、Codex 与 Claude Code 重复列出。
-- **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Plugin、Skill、Runtime 与原生 Agent 配置集合；远程设置管理和 shell 执行作用于 Host 而不是桌面客户端，只有本机桌面或具备服务器管理权限的设备可以创建、替换或撤销 Plugin trust grant。
-- **Legacy plugin evidence（旧插件证据）** — v1 manifest 的完整只读保存；其旧 `install_command` 不会因迁移而自动执行或自动升级为受信任 Shell installer recipe。启动迁移会在保存证据后删除所有 v1 运行时行与历史占位 membership。
+- **Command candidate（命令候选项）** — Composer 展示的一个带结构化来源身份的命令候选；同名 Plugin Command、Skill 与 Agent Command 可以并存，任何来源都不能按显示名称静默覆盖另一来源。
+- **Runtime requirement（运行时需求）** — Plugin 作者对一个 Runtime resource 的声明式约束；声明不是已经解析、验证、安装或就绪的事实。
+- **Runtime installation lock（运行时安装锁）** — Host 对一个 Runtime requirement 实际解析结果的持久证据，记录精确版本、目标平台、来源、完整性、入口与 probe 证据；不同版本可以并存，lock 不自动声明 Host 拥有外部安装。
+- **Runtime reference（运行时引用）** — Plugin installation、Activation Generation 或运行租约对精确 Runtime lock 的占用；只有引用归零的 Host-owned Runtime 才能进入回收候选。
+- **Runtime probe（运行时探测）** — 对 Runtime lock 的入口、内容、版本与所需能力进行有界验证；安装进程成功不能替代 probe。
+- **Runtime inventory（运行时清单）** — 当前 Host 上精确 Runtime locks、所有权、完整性、probe 与引用关系的可审计目录；它不把同名命令压缩成一个用户全局版本。
+- **Global command export（全局命令导出）** — 用户显式允许 Host 把某个 Runtime 的稳定 shim 暴露给普通终端的独立贡献；它不是 Runtime 安装默认副作用，也不能覆盖非 VibeX 所有的命令。
+- **Trusted native contribution（受信原生贡献）** — 需要任意 shell、原生 sidecar 或不能被普通 Capability Broker 约束的高风险贡献；入口内容变化后必须重新授权，卸载副作用另行确认。
+- **Plugin MCP binding（插件 MCP 绑定）** — Plugin 内置 MCP contribution 向 Agent 原生配置的投影关系；原生配置仍是 Agent Runtime 的权威，VibeX 不能为跳过配置步骤的用户制造隐式启用状态。
+- **Agent-native plugin（Agent 原生插件）** — 由 Codex、Claude Code 或其他 Agent 自身的包格式、存储、生命周期与信任机制持有的插件；它可与 VibeX Package 共享源码或身份引用，但不会自动获得 VibeX App/Worker 执行权。
+- **Native plugin reconciliation（原生插件协调）** — VibeX 重新读取 Agent-native plugin 权威后更新投影的过程；外部更新、禁用、删除或链接失效必须如实呈现，不能依据旧投影静默恢复原生状态。
+- **Native plugin management capability（原生插件管理能力）** — 某个 Agent adapter 已可靠实现的 discover、install、enable、update 或 uninstall 操作；没有稳定接口的操作只能降级为只读或打开原生入口。
+- **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX capability grant 与原生信任不能互相替代或伪造。
+- **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
+- **Plugin operation audit（插件操作审计）** — 对安装、授权、激活代切换、Runtime、原生投影与破坏性操作的持久证据；记录身份、版本/digest、操作结果与影响范围，不保存秘密或凭据。
+- **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
+- **Legacy plugin evidence（旧插件证据）** — 对旧 manifest、信任、Runtime 与激活记录的完整只读保存；它只用于迁移解释，不会自动执行旧脚本、获得新授权或重新成为可运行插件。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
 - **Artifact preview lease（产物预览租约）** — 对一个已解析 Tool lock、文件、provider 进程和短期 capability 的引用计数租约；最后一个 lease 关闭、过期或进程崩溃时可回收。
 

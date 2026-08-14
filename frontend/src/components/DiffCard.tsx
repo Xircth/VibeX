@@ -562,8 +562,6 @@ export default function DiffCard({
               'Image diff content is not rendered in this card.'
             ) : previewKind === 'pdf' ? (
               'PDF diff content is not rendered in this card.'
-            ) : previewKind === 'document' || previewKind === 'office' ? (
-              'Office document diff content is not rendered in this card.'
             ) : (
               'Binary diff content is not rendered in this card.'
             )

@@ -2,6 +2,7 @@
 
 mod command;
 mod conversation;
+mod conversation_artifacts;
 mod conversation_execution;
 mod domain;
 mod error;
@@ -19,6 +20,7 @@ pub use conversation::{
     RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
     SteerConversationTurnRequest, SubmitConversationInputRequest, UpdateConversationInputRequest,
 };
+pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
 pub use conversations::{
     ConversationInputStatus, ConversationInputSubmission, ConversationInputView,

@@ -1,55 +1,130 @@
 {
-  "$schema": "vibex-plugin/v3",
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
   "id": "vibex.office",
-  "version": "2.0.0",
+  "publisher": "vibex",
+  "version": "3.0.0",
   "name": "VibeX Office",
-  "description": "Create, edit, analyze, and preview PPTX, DOCX, and XLSX artifacts.",
-  "author": "VibeX",
-  "runtimes": [
+  "readme": "README.md",
+  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "previewMode": {
+          "title": "预览模式",
+          "type": "string",
+          "enum": ["read-only", "editable"],
+          "default": "read-only"
+        },
+        "idleTimeoutMinutes": {
+          "title": "空闲后停止预览",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 10
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "dependencies": [
     {
-      "id": "officecli",
-      "command": "officecli",
-      "version": "1.0.140",
-      "probe": ["--version"],
-      "install": { "type": "existing" }
+      "kind": "runtime",
+      "descriptor": "depends/runtimes/officecli.json"
     }
   ],
-  "actions": [
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "format": "javascript-esm",
+      "protocol": "1.0"
+    }
+  },
+  "integrations": [
+    {
+      "id": "office-pptx",
+      "kind": "content.skill",
+      "resource": "contents/skills/office-pptx",
+      "targets": ["codex", "claude-code", "acp"]
+    },
+    {
+      "id": "office-docx",
+      "kind": "content.skill",
+      "resource": "contents/skills/office-docx",
+      "targets": ["codex", "claude-code", "acp"]
+    },
+    {
+      "id": "office-xlsx",
+      "kind": "content.skill",
+      "resource": "contents/skills/office-xlsx",
+      "targets": ["codex", "claude-code", "acp"]
+    },
     {
       "id": "create-presentation",
-      "label": "创建 PPT",
-      "skill": "office-pptx",
-      "prompt": "澄清受众与目标后，创建新的 PPTX 并验证输出。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/create-presentation/workflow.json"
     },
     {
       "id": "modify-presentation",
-      "label": "修改 PPT",
-      "skill": "office-pptx",
-      "prompt": "按要求修改现有 PPTX，保留未指定内容并验证输出。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/modify-presentation/workflow.json"
     },
     {
       "id": "create-document",
-      "label": "创建 DOCX",
-      "skill": "office-docx",
-      "prompt": "根据用户目标创建结构清晰的 DOCX 并验证输出。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/create-document/workflow.json"
     },
     {
       "id": "modify-document",
-      "label": "修改 DOCX",
-      "skill": "office-docx",
-      "prompt": "按要求修改现有 DOCX，保留未指定内容并验证输出。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/modify-document/workflow.json"
     },
     {
       "id": "analyze-spreadsheet",
-      "label": "分析 Excel",
-      "skill": "office-xlsx",
-      "prompt": "检查工作表结构和数据质量，分析 XLSX 并给出可追溯结论。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/analyze-spreadsheet/workflow.json"
     },
     {
       "id": "generate-spreadsheet",
-      "label": "生成 Excel",
-      "skill": "office-xlsx",
-      "prompt": "根据用户需求生成 XLSX，校验公式、格式与关键结果。"
+      "kind": "workflow.binding",
+      "resource": "contents/workflows/generate-spreadsheet/workflow.json"
+    },
+    {
+      "id": "office-file-opener",
+      "kind": "file.opener",
+      "label": "Office Preview",
+      "extensions": ["docx", "xlsx", "pptx"],
+      "mediaTypes": [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ],
+      "priority": 100,
+      "previewProvider": "office-preview"
+    },
+    {
+      "id": "office-preview",
+      "kind": "artifact.preview",
+      "mediaTypes": [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ],
+      "runtime": "officecli",
+      "maxConcurrentPreviews": 4,
+      "handler": "office-preview",
+      "process": {
+        "argv": ["watch", "{artifact}", "--port", "{port}"],
+        "readyTimeoutSeconds": 15,
+        "environment": { "OFFICECLI_SKIP_UPDATE": "1" }
+      }
     }
-  ]
+  ],
+  "interface": { "icon": "assets/icon.svg" }
 }

@@ -104,17 +104,11 @@ export {
   searchApi,
   skillsApi,
   skillsMarketApi,
-  officeApi,
-  OFFICECLI_INSTALL_EVENT,
 } from './misc';
 export type {
   FileTreeEntry,
   DirectoryChildrenResponse,
   BinaryAssetResponse,
-  DocumentPreviewResponse,
-  OfficecliInfo,
-  OfficecliInstallEvent,
-  OfficeWatchStartResult,
   ReadFileResponse,
   TextSearchMatch,
   TextSearchFileResult,

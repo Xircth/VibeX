@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0046
 date: 2026-08-11
 decision-makers:
   - VibeX maintainers

@@ -218,6 +218,20 @@ function isProcessGroupRunning(pid) {
     if (error.code === 'ESRCH') {
       return false;
     }
+    if (error.code === 'EPERM') {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (processError) {
+        if (processError.code === 'ESRCH') {
+          return false;
+        }
+        if (processError.code === 'EPERM') {
+          return true;
+        }
+        throw processError;
+      }
+    }
     throw error;
   }
 }
@@ -387,6 +401,26 @@ function refreshBundleExecutables(paths) {
   }
 }
 
+function signDevBundle(appRoot) {
+  for (const args of [
+    ['--force', '--deep', '--sign', '-', appRoot],
+    ['--verify', '--deep', '--strict', appRoot],
+  ]) {
+    const result = spawnSync('/usr/bin/codesign', args, {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(
+        `failed to prepare the macOS development bundle: ${(
+          result.stderr || result.stdout
+        ).trim()}`
+      );
+    }
+  }
+}
+
 function isTrackedDevAppCommand(command, appExecutable) {
   const normalized = command.trim();
   return (
@@ -474,6 +508,7 @@ async function run() {
   }
   terminateTrackedDevApp(paths);
   refreshBundleExecutables(paths);
+  signDevBundle(paths.appRoot);
 
   const child = spawn(paths.appExecutable, parsed.appArgs, {
     cwd: workspaceRoot,
@@ -500,6 +535,7 @@ module.exports = {
   parseCargoRunArgs,
   replaceExecutable,
   resolveMacosDevPaths,
+  signDevBundle,
 };
 
 if (require.main === module) {

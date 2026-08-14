@@ -163,6 +163,40 @@ async fn preview_proxy_rejects_unknown_ports_and_ssrf_paths() {
 }
 
 #[tokio::test]
+async fn preview_proxy_rejects_upstream_redirects_instead_of_following_them() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let port = listener.local_addr().expect("upstream port").port();
+    let upstream = Router::new().route(
+        "/",
+        get(|| async {
+            (
+                StatusCode::FOUND,
+                [(header::LOCATION, "http://169.254.169.254/latest/meta-data")],
+            )
+        }),
+    );
+    let upstream = tokio::spawn(async move { axum::serve(listener, upstream).await });
+    let runtime = runtime().await;
+    let registry = runtime.preview_proxy_registry();
+    let lease = Uuid::new_v4();
+    registry
+        .register(lease, port, CAPABILITY, future_expiry())
+        .await
+        .expect("registration");
+
+    let response = request_get(
+        runtime.router(),
+        &format!("/api/v1/previews/{lease}?cap={CAPABILITY}"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    upstream.abort();
+}
+
+#[tokio::test]
 async fn proxy_does_not_forward_cap_or_server_credentials_and_rewrites_html_and_sse() {
     let observed = Arc::new(Mutex::new(Vec::<(String, bool, bool, bool)>::new()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

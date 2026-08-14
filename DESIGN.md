@@ -38,7 +38,8 @@ materials:
   # Liquid Glass = navigation / controls layer ONLY. Never on content.
   glass-titlebar: "blur(18px) saturate(1.2) over var(--surface-topbar)"
   glass-sidebar: "blur(30px) saturate(1.8) over var(--surface-sidebar)"
-  popover-surface: "opaque #fafafa in light mode; dark Ayu overlay in dark mode  # menus, dialogs, toasts"
+  glass-popover: "blur(24px) saturate(1.55)  # menus, popovers, toasts"
+  dialog-surface: "opaque #FAFAFA in light mode; solid themed surface in dark mode"
   content-surface: "opaque var(--surface-card-strong) + 1px hairline  # lists, cards, editors"
   reduce-transparency-fallback: "drop blur, fill with solid panel + hairline"
 typography:
@@ -188,7 +189,8 @@ Translucent, blurred, lightly saturated material that floats and lets the worksp
 
 - **Title bar** (`.settings-titlebar`, `.workspace-topbar`): `blur(18px) saturate(1.2)` over a near-white translucent fill, 1px hairline beneath. Unified with the window; the whole strip is a drag region.
 - **Sidebar** (`.settings-sidebar`): a rounded, inset floating panel — `blur(30px) saturate(1.8)`, full hairline border, `14px` corners, soft shell shadow. Content scrolls independently beneath it.
-- **Popovers, menus, dialogs, toasts**: opaque `#FAFAFA` in light mode with a popover shadow; dark mode retains the dark Ayu overlay surface.
+- **Popovers, menus, toasts**: `blur(24px) saturate(1.55)` glass with a popover shadow.
+- **Dialogs**: opaque `--surface-dialog` with a popover shadow. The light-mode value is exactly `#FAFAFA`; dark mode uses the solid themed dialog surface. Dialog content never inherits translucent popover glass.
 
 ### The Content Layer — Opaque Grouped Surfaces
 
@@ -200,6 +202,8 @@ Everything users read, edit, or scan. **No glass here.** Use opaque panels:
 ### Named Rules
 
 **The Two-Layer Rule.** Before styling a surface, name its layer. Chrome may be glass; content must be opaque.
+
+**The Opaque Dialog Rule.** Every modal implementation—shared Dialog, Astryx Dialog, and exceptional fullscreen/custom modals—must resolve its visible surface through `--surface-dialog`. Do not apply `--surface-popover`, glass blur, or a one-off background to a dialog.
 
 **The No-Glass-On-Glass Rule.** Never stack a glass surface on another glass surface (e.g. a blurred popover inside a blurred sidebar reads as mud). One glass layer between the eye and the content.
 
@@ -319,6 +323,17 @@ The workhorse content surface: an opaque `.settings-surface` card with a quiet h
 - **Switch**: dark-ink track with a white thumb when on; dark mode adds a light hairline so the track stays distinct. Keep a clear off state and never use the switch as the only signal for a meaningful change.
 - **Secondary / outline buttons and selects**: borderless, with a very light cool-gray surface in light mode, an evenly distributed compact shadow on all four sides, and `14px` radius. Dark mode uses the reciprocal dark surface while preserving the same shadow hierarchy.
 - **Inputs / fields**: Control Wash background, 1px hairline, `14px` radius, `32px` compact height; blue focus ring at low opacity; error state in Review Red **with a text explanation**.
+
+#### Single control frame rule
+
+Every search field, input, select, and composite control has exactly one visual
+owner for its background, border, corner radius, and focus ring. If the control
+component owns that frame, ancestor elements may only provide layout and labels;
+they must not add another padded, bordered, rounded, or filled shell. If a custom
+wrapper owns the frame, the nested native input must be transparent, borderless,
+shadowless, and fill the wrapper. Never style both a field wrapper and its input
+as controls, and avoid broad descendant selectors that can silently reintroduce
+a second frame when a component's internal markup changes.
 
 ### Iconography
 

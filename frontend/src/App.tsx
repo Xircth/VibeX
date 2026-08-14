@@ -93,7 +93,7 @@ function MainWindowCloseToastBridge() {
       role="presentation"
     >
       <section
-        className="w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl"
+        className="modal-surface w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-border text-foreground shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="main-window-close-title"
@@ -245,7 +245,12 @@ function MainAppContent() {
       pathname: location.pathname,
     });
     if (startupPromptStep !== 'none') return;
-    if (location.pathname.startsWith('/settings')) return;
+    if (
+      location.pathname.startsWith('/settings') ||
+      location.pathname.startsWith('/plugins')
+    ) {
+      return;
+    }
 
     crashPromptShownRef.current = true;
     void (async () => {

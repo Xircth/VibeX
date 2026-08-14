@@ -6,6 +6,8 @@ import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { ProjectRail } from '@/components/layout/ProjectRail';
 import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
+import { PluginsPage } from '@/pages/Plugins';
+import { PluginDetailPage } from '@/pages/plugins/ProductPlugins';
 import { ProjectTasks } from '@/pages/ProjectTasks';
 import { Projects } from '@/pages/Projects';
 import { WorkflowInspector } from '@/pages/workflows/WorkflowInspector';
@@ -20,7 +22,6 @@ import {
   InstructionsSettings,
   LogsSettings,
   McpSettings,
-  PluginsSettings,
   SettingsLayout,
   ShortcutSettings,
   SkillsSettings,
@@ -81,31 +82,34 @@ export function MainAppRoutes() {
       </Route>
 
       <Route
-        path="/settings/*"
         element={
           <MainLegacyScope>
             <SettingsLayout />
           </MainLegacyScope>
         }
       >
-        <Route index element={<Navigate to="agents" replace />} />
-        <Route path="agents" element={<AgentSettings />} />
-        <Route path="appearance" element={<AppearanceSettings />} />
-        <Route path="general" element={<GeneralSettings />} />
-        <Route path="mcp" element={<McpSettings />} />
-        <Route path="skills" element={<SkillsSettings />} />
-        <Route path="instructions" element={<InstructionsSettings />} />
-        <Route path="shortcuts" element={<ShortcutSettings />} />
-        <Route path="editor" element={<EditorSettings />} />
-        <Route path="version-control" element={<VersionControlSettings />} />
-        <Route path="worktrees" element={<WorktreeSettings />} />
-        <Route path="chat-channels" element={<ChatChannelSettings />} />
-        <Route path="automations" element={<AutomationsSettings />} />
-        <Route path="plugins" element={<PluginsSettings />} />
-        <Route path="web-service" element={<WebServiceSettings />} />
-        <Route path="devices" element={<DeviceSettings />} />
-        <Route path="logs" element={<LogsSettings />} />
-        <Route path="system" element={<SystemSettings />} />
+        <Route path="/settings/*">
+          <Route index element={<Navigate to="agents" replace />} />
+          <Route path="agents" element={<AgentSettings />} />
+          <Route path="appearance" element={<AppearanceSettings />} />
+          <Route path="general" element={<GeneralSettings />} />
+          <Route path="mcp" element={<McpSettings />} />
+          <Route path="skills" element={<SkillsSettings />} />
+          <Route path="instructions" element={<InstructionsSettings />} />
+          <Route path="shortcuts" element={<ShortcutSettings />} />
+          <Route path="editor" element={<EditorSettings />} />
+          <Route path="version-control" element={<VersionControlSettings />} />
+          <Route path="worktrees" element={<WorktreeSettings />} />
+          <Route path="chat-channels" element={<ChatChannelSettings />} />
+          <Route path="automations" element={<AutomationsSettings />} />
+          <Route path="plugins" element={<Navigate to="/plugins" replace />} />
+          <Route path="web-service" element={<WebServiceSettings />} />
+          <Route path="devices" element={<DeviceSettings />} />
+          <Route path="logs" element={<LogsSettings />} />
+          <Route path="system" element={<SystemSettings />} />
+        </Route>
+        <Route path="/plugins" element={<PluginsPage />} />
+        <Route path="/plugins/:pluginId" element={<PluginDetailPage />} />
       </Route>
 
       <Route

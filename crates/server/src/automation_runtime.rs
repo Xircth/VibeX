@@ -23,7 +23,6 @@ use db::models::{
 };
 use deployment::Deployment;
 use local_deployment::LocalDeployment;
-use office_runtime::OfficeRuntime;
 use plugins::PromptBlock;
 use uuid::Uuid;
 
@@ -32,21 +31,20 @@ pub(crate) struct HeadlessAutomationRuntime {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
     store: SqliteAutomationStore,
-    office: Arc<OfficeRuntime>,
+    plugin_control_plane: Arc<plugins::PluginControlPlane>,
 }
 
 impl HeadlessAutomationRuntime {
     pub(crate) fn new(
         deployment: Arc<LocalDeployment>,
         conversation_context: conversations::ConversationContext,
-        _managed_tools_root: PathBuf,
-        office: Arc<OfficeRuntime>,
+        plugin_control_plane: Arc<plugins::PluginControlPlane>,
     ) -> Self {
         Self {
             store: SqliteAutomationStore::new(deployment.db().pool.clone()),
             deployment,
             conversation_context,
-            office,
+            plugin_control_plane,
         }
     }
 
@@ -121,7 +119,7 @@ impl HeadlessAutomationRuntime {
                     ServerTurnLauncher {
                         deployment: self.deployment.clone(),
                         conversation_context: self.conversation_context.clone(),
-                        office: self.office.clone(),
+                        plugin_control_plane: self.plugin_control_plane.clone(),
                     },
                 );
                 if let Err(error) = runner
@@ -645,7 +643,7 @@ async fn find_or_create_shared_workspace(
 struct ServerTurnLauncher {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
-    office: Arc<OfficeRuntime>,
+    plugin_control_plane: Arc<plugins::PluginControlPlane>,
 }
 
 #[async_trait]
@@ -668,62 +666,18 @@ impl TurnLauncherPort for ServerTurnLauncher {
         .map_err(launcher_error)?;
         let mut plugins = Vec::new();
         let mut tool_locks = Vec::new();
-        let control_plane = plugins::PluginControlPlane::new(Arc::new(
-            plugins::SqlitePluginRegistry::new(pool.clone()),
-        ));
-        if control_plane
-            .plugin("vibex.office")
-            .await
-            .map_err(launcher_error)?
-            .is_none()
-        {
-            let package = office_runtime::materialize_bundled_plugin_package(
-                &utils::assets::asset_dir().join("plugins/office"),
-            )
-            .map_err(launcher_error)?;
-            control_plane
-                .import(package, plugins::ConflictDecision::Reject)
-                .await
-                .map_err(launcher_error)?;
-        }
-        let legacy_office_enabled: bool = sqlx::query_scalar(
-            "SELECT COALESCE(enabled, 0) FROM plugin_v2_activation WHERE plugin_id = 'vibex.office'",
-        )
-        .fetch_optional(pool)
-        .await
-        .map_err(launcher_error)?
-        .unwrap_or(false);
-        if legacy_office_enabled {
-            control_plane
-                .set_enabled("vibex.office", true)
-                .await
-                .map_err(launcher_error)?;
-            if let Some(lock) = self.office.detect().await.map_err(launcher_error)? {
-                control_plane
-                    .record_runtime(plugins::RuntimeInstallation {
-                        id: lock.tool_id,
-                        version: lock.version,
-                        executable_path: self
-                            .office
-                            .global_executable_path()
-                            .map_err(launcher_error)?,
-                        installer: "vibex_bundled_binary".to_owned(),
-                        probe: vec!["--version".to_owned()],
-                    })
-                    .await
-                    .map_err(launcher_error)?;
-            }
-        }
-        let runtime_inventory = control_plane
+        let runtime_inventory = self
+            .plugin_control_plane
             .runtime_inventory()
             .await
             .map_err(launcher_error)?;
         for action in &spec.plugin_actions {
-            control_plane
+            self.plugin_control_plane
                 .resolve_action(action.plugin_id.as_str(), action.action.id.as_str())
                 .await
                 .map_err(launcher_error)?;
-            let plugin = control_plane
+            let plugin = self
+                .plugin_control_plane
                 .plugin(action.plugin_id.as_str())
                 .await
                 .map_err(launcher_error)?

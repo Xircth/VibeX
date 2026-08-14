@@ -17,6 +17,8 @@ describe('ArtifactTimelineCard', () => {
           loopbackPort: 43123,
           capabilityToken: 'capability-1',
           expiresAtUnixMs: Date.now() + 60_000,
+          previewUrl:
+            'http://127.0.0.1:42100/api/v1/previews/lease-1/c/capability-1/',
           docxFallbackSupported: true,
         };
       }
@@ -58,7 +60,7 @@ describe('ArtifactTimelineCard', () => {
     });
     expect(await screen.findByTitle('Q3-plan.pptx 预览')).toHaveAttribute(
       'src',
-      'http://127.0.0.1:43123/'
+      'http://127.0.0.1:42100/api/v1/previews/lease-1/c/capability-1/'
     );
     expect(
       screen.getByRole('button', { name: '打开 Q3-plan.pptx 预览' })

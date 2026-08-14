@@ -1,0 +1,85 @@
+{
+  "lockVersion": 1,
+  "packageDigest": "ab3ac85deb9bead9a9b26c81292082e1f4fc30e1e7342763652e36fcc88e30c5",
+  "files": [
+    {
+      "path": ".vibex-plugin/content.index.json",
+      "size": 1053,
+      "sha256": "a623a9fb5ccfa380d28a31845f39fd85a0af257a348877a08549fb7c96122eb5"
+    },
+    {
+      "path": ".vibex-plugin/plugin.json",
+      "size": 3769,
+      "sha256": "9874c2b6c07ec6fd58fc031e1f2290b7479b1fecc28e22f9b9c07aebc64f6a4f"
+    },
+    {
+      "path": "README.md",
+      "size": 644,
+      "sha256": "f609b3a0fbe5eb2c5521f9f82905e1e852f0b38907056b91c2c278aeae050ec6"
+    },
+    {
+      "path": "assets/icon.svg",
+      "size": 429,
+      "sha256": "2ef88d04a396f24b9fedf154018792a10ac1fbbd5239e73e520f804c60266b1d"
+    },
+    {
+      "path": "contents/skills/office-docx/SKILL.md",
+      "size": 405,
+      "sha256": "f7be1bca9f19a0f4aba2b522db423dbcfe799a6c0fe8e8963bb3ca510d015a71"
+    },
+    {
+      "path": "contents/skills/office-pptx/SKILL.md",
+      "size": 409,
+      "sha256": "afed73b61db64378d35dba5f4cddb267632939c47feba32fe133e7d57c5c75d4"
+    },
+    {
+      "path": "contents/skills/office-xlsx/SKILL.md",
+      "size": 416,
+      "sha256": "75d498bfb24845c967764fc261ce1c4e531288cf729012a7fdb0f07658219a6f"
+    },
+    {
+      "path": "contents/workflows/analyze-spreadsheet/workflow.json",
+      "size": 418,
+      "sha256": "c56396537fc5c401f457c08935aaf993fae293cafda7761bc83b3a5137e60a84"
+    },
+    {
+      "path": "contents/workflows/create-document/workflow.json",
+      "size": 408,
+      "sha256": "f90c580c74088a101ba6a073385b3eeec281a942bb8a959563b8ad962ff97d49"
+    },
+    {
+      "path": "contents/workflows/create-presentation/workflow.json",
+      "size": 409,
+      "sha256": "ce53de417964f87b8a8f1cad567c99e5b4bb5c5d511c30fdb56d8df9b5682969"
+    },
+    {
+      "path": "contents/workflows/generate-spreadsheet/workflow.json",
+      "size": 411,
+      "sha256": "f7f0a577ed15b9e79c0b2883fed8d5dec63c6012e8cb4d06c204ce350d0941af"
+    },
+    {
+      "path": "contents/workflows/modify-document/workflow.json",
+      "size": 413,
+      "sha256": "15adefb31984f8f6b05d4e649ddad5588c20154fbeb7e7b70721ebfb58c8c48f"
+    },
+    {
+      "path": "contents/workflows/modify-presentation/workflow.json",
+      "size": 414,
+      "sha256": "9a308999cc8855ba5256bd2bf248d79ed42482b377a50ae6388343acd61fa87f"
+    },
+    {
+      "path": "depends/runtimes/officecli.json",
+      "size": 1415,
+      "sha256": "b742bf7a03df49465af7fb443970429de837c05e7048666abb13a1393b1d7857"
+    },
+    {
+      "path": "dist/worker.mjs",
+      "size": 5038,
+      "sha256": "853470d147f9a8e7ff632eb6efb30506ad8dde5af7a0828c7f81e4880a48fbb2"
+    }
+  ],
+  "build": {
+    "cliVersion": "1.0.0",
+    "reproducible": true
+  }
+}

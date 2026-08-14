@@ -124,6 +124,7 @@ where
                 CapabilityId::new("application.call"),
                 CapabilityId::new("plugin.read"),
                 CapabilityId::new("plugin.write"),
+                CapabilityId::new("plugin.surface"),
                 CapabilityId::new("artifact.read"),
                 CapabilityId::new("artifact.preview"),
                 CapabilityId::new("preview.proxy"),
@@ -151,7 +152,8 @@ where
                 core,
                 config,
                 preview_proxy,
-                preview_client: reqwest::Client::new(),
+                preview_client: crate::preview_proxy::preview_client()
+                    .expect("build loopback-only preview client"),
             }),
         }
     }

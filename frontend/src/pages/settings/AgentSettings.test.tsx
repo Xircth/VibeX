@@ -42,6 +42,14 @@ vi.mock('@/features/agent-management/api', () => ({
   agentManagementApi: api,
 }));
 
+vi.mock('./PluginsSettings', () => ({
+  PluginsSettings: ({ ecosystem }: { ecosystem: string }) => (
+    <section aria-label={`${ecosystem} native plugins`}>
+      Native plugin manager
+    </section>
+  ),
+}));
+
 vi.mock('@/lib/tauriApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/tauriApi')>();
   return { ...original, tauriListen: vi.fn().mockResolvedValue(vi.fn()) };
@@ -130,6 +138,83 @@ describe('AgentSettings', () => {
       await screen.findByRole('region', { name: '鉴权管理' })
     ).toBeVisible();
     expect(screen.queryByText('Agent Skills')).not.toBeInTheDocument();
+  });
+
+  it('places Codex native plugins in a collapsed section below configuration', async () => {
+    const user = userEvent.setup();
+    render(<AgentSettings />);
+
+    const configuration = await screen.findByRole('region', {
+      name: '鉴权管理',
+    });
+    const plugins = screen.getByRole('button', { name: '插件' });
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(plugins).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByRole('region', { name: 'codex native plugins' })
+    ).not.toBeInTheDocument();
+    expect(
+      configuration.compareDocumentPosition(plugins) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    await user.click(plugins);
+
+    expect(plugins).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('region', { name: 'codex native plugins' })
+    ).toBeVisible();
+    expect(configuration).toBeVisible();
+  });
+
+  it('binds the Claude Code collapsed plugin section to its ecosystem', async () => {
+    const user = userEvent.setup();
+    api.bar.mockResolvedValue([
+      {
+        agent_id: 'claude_code',
+        display_name: 'Claude Code',
+        description: 'Claude Code ACP',
+        icon_light: null,
+        icon_dark: null,
+        icon_svg: null,
+        source: 'built_in_profile',
+        built_in: true,
+        retired: false,
+        enabled: true,
+        position: 0,
+        lifecycle: 'ready',
+        authentication: 'account',
+        runtime_version: '1.0.0',
+        acp_version: '1.0.0',
+        active_operation: null,
+        rollback_available: false,
+      },
+    ]);
+    api.readConfig.mockResolvedValue({
+      agent_id: 'claude_code',
+      available: false,
+      settings_features: [],
+      path: null,
+      paths: [],
+      fields: [],
+      files: [],
+      applies_to_next_session: true,
+    });
+    api.actions.mockResolvedValue({ agent_id: 'claude_code', actions: [] });
+
+    render(<AgentSettings />);
+    const plugins = await screen.findByRole('button', { name: '插件' });
+    expect(plugins).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByRole('region', { name: 'claude_code native plugins' })
+    ).not.toBeInTheDocument();
+
+    await user.click(plugins);
+
+    expect(plugins).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('region', { name: 'claude_code native plugins' })
+    ).toBeVisible();
   });
 
   it('requires destructive confirmation before uninstalling an Agent', async () => {

@@ -1,0 +1,7 @@
+{
+  "label": "创建 DOCX",
+  "entrypoints": ["action", "command"],
+  "promptBlocks": [{ "type": "text", "text": "根据用户目标创建结构清晰的 DOCX 并验证输出。" }],
+  "requires": { "skills": ["office-docx"], "runtimes": ["officecli"] },
+  "artifactIntent": { "mediaTypes": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"], "previewProvider": "office-preview" }
+}

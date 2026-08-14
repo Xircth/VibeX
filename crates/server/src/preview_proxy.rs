@@ -20,6 +20,47 @@ use uuid::Uuid;
 
 use crate::runtime::ServerState;
 
+#[derive(Clone)]
+struct StandalonePreviewProxy {
+    registry: PreviewProxyRegistry,
+    client: reqwest::Client,
+}
+
+/// Starts the same capability-checked preview proxy used by the remote Server
+/// on a loopback-only listener for the Desktop shell.
+pub async fn start_loopback_preview_proxy(
+    registry: PreviewProxyRegistry,
+) -> anyhow::Result<String> {
+    let state = StandalonePreviewProxy {
+        registry,
+        client: preview_client()?,
+    };
+    let router = axum::Router::new()
+        .route(
+            "/api/v1/previews/{lease_id}",
+            axum::routing::get(standalone_proxy_root),
+        )
+        .route(
+            "/api/v1/previews/{lease_id}/{*path}",
+            axum::routing::get(standalone_proxy_path),
+        )
+        .with_state(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router).await {
+            tracing::warn!(%error, "Desktop preview proxy stopped");
+        }
+    });
+    Ok(format!("http://{address}"))
+}
+
+pub fn preview_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
 #[derive(Clone, Debug)]
 struct PreviewRegistration {
     loopback_port: u16,
@@ -159,7 +200,70 @@ async fn proxy<R>(
     if capability.is_empty() {
         return proxy_error(PreviewProxyError::WrongCapability);
     }
-    let registration = match state.preview_proxy.authorize(lease_id, &capability).await {
+    proxy_with(
+        &state.preview_proxy,
+        &state.preview_client,
+        lease_id,
+        path,
+        capability,
+    )
+    .await
+}
+
+async fn standalone_proxy_root(
+    State(state): State<StandalonePreviewProxy>,
+    Path(lease_id): Path<Uuid>,
+    query: Query<PreviewCapabilityQuery>,
+) -> Response {
+    proxy_with(
+        &state.registry,
+        &state.client,
+        lease_id,
+        String::new(),
+        query.cap.clone().unwrap_or_default(),
+    )
+    .await
+}
+
+async fn standalone_proxy_path(
+    State(state): State<StandalonePreviewProxy>,
+    Path((lease_id, path)): Path<(Uuid, String)>,
+    query: Query<PreviewCapabilityQuery>,
+) -> Response {
+    let (capability, upstream_path) = capability_and_path(path, query.cap.clone());
+    proxy_with(
+        &state.registry,
+        &state.client,
+        lease_id,
+        upstream_path,
+        capability,
+    )
+    .await
+}
+
+fn capability_and_path(path: String, query_capability: Option<String>) -> (String, String) {
+    if let Some(capability_path) = path.strip_prefix("c/") {
+        let mut parts = capability_path.splitn(2, '/');
+        (
+            parts.next().unwrap_or_default().to_string(),
+            parts.next().unwrap_or_default().to_string(),
+        )
+    } else {
+        (query_capability.unwrap_or_default(), path)
+    }
+}
+
+async fn proxy_with(
+    registry: &PreviewProxyRegistry,
+    client: &reqwest::Client,
+    lease_id: Uuid,
+    path: String,
+    capability: String,
+) -> Response {
+    if capability.is_empty() {
+        return proxy_error(PreviewProxyError::WrongCapability);
+    }
+    let registration = match registry.authorize(lease_id, &capability).await {
         Ok(registration) => registration,
         Err(error) => return proxy_error(error),
     };
@@ -167,10 +271,13 @@ async fn proxy<R>(
         return proxy_error(PreviewProxyError::InvalidPath);
     }
     let upstream = format!("http://127.0.0.1:{}/{}", registration.loopback_port, path);
-    let response = match state.preview_client.get(upstream).send().await {
+    let response = match client.get(upstream).send().await {
         Ok(response) => response,
         Err(_) => return proxy_error(PreviewProxyError::UpstreamUnavailable),
     };
+    if response.status().is_redirection() {
+        return proxy_error(PreviewProxyError::UpstreamUnavailable);
+    }
     let status = response.status();
     let content_type = response
         .headers()

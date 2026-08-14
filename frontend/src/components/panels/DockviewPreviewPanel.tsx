@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import {
   useBinaryAssetPreview,
-  useDocumentPreview,
   useFileAtHead,
   useFileContent,
   useSaveFile,
@@ -43,10 +42,14 @@ import {
   isBinaryContentError,
 } from '@/utils/filePreviewKind';
 import { ZoomableImagePreview } from '@/components/previews/ZoomableImagePreview';
-import { OfficePreview } from '@/components/previews/OfficePreview';
-import { ReadonlyDocumentPreview } from '@/components/previews/ReadonlyDocumentPreview';
 import { FilePreviewLoading } from './FilePreviewLoading';
 import { resolveImagePreviewSource } from '@/lib/imagePreviewRegistry';
+import { PluginFilePreview } from '@/components/previews/PluginFilePreview';
+import { PluginArtifactEditor } from '@/components/previews/PluginArtifactEditor';
+import {
+  pluginControlApi,
+  type ResolvedPluginFileOpener,
+} from '@/lib/api/plugins';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/AstryxMarkdown')
@@ -103,6 +106,12 @@ function isMarkdownFile(filePath: string): boolean {
   return ext === 'md' || ext === 'mdx' || ext === 'markdown';
 }
 
+function fileExtension(filePath: string) {
+  const name = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
+  const index = name.lastIndexOf('.');
+  return index >= 0 ? name.slice(index + 1).toLowerCase() : undefined;
+}
+
 function getPathSegments(filePath: string): string[] {
   return filePath
     .replace(/\\/g, '/')
@@ -132,6 +141,14 @@ function PreviewPlaceholder({
   );
 }
 
+function ContentLoadingFallback({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+      {label}
+    </div>
+  );
+}
+
 const markdownRenderStateMap = new Map<string, boolean>();
 
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
@@ -148,15 +165,40 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
     [filePath, rootPath]
   );
+  const [pluginOpener, setPluginOpener] =
+    useState<ResolvedPluginFileOpener | null>(null);
+  const [pluginResolutionPending, setPluginResolutionPending] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setPluginOpener(null);
+    setPluginResolutionPending(Boolean(filePath));
+    if (!filePath) return;
+    void pluginControlApi
+      .resolveFileOpener(fileExtension(filePath))
+      .then((resolved) => {
+        if (!cancelled) setPluginOpener(resolved);
+      })
+      .catch(() => {
+        if (!cancelled) setPluginOpener(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPluginResolutionPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath]);
   const previewKind = useMemo(() => getFilePreviewKind(filePath), [filePath]);
   const shouldFetchFileContent =
+    !pluginResolutionPending &&
+    !pluginOpener &&
     previewKind === 'text' &&
     !(mode === 'diff' && modifiedContentOverride !== null);
   const shouldFetchHeadContent =
+    !pluginResolutionPending &&
+    !pluginOpener &&
     previewKind === 'text' &&
     !(mode === 'diff' && originalContentOverride !== null);
-  const shouldFetchDocumentPreview =
-    previewKind === 'document' && mode !== 'diff';
 
   const {
     data: content,
@@ -170,11 +212,6 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   } = useFileAtHead(
     mode === 'diff' && shouldFetchHeadContent ? resolvedFilePath : null
   );
-  const {
-    data: documentPreview,
-    isLoading: isLoadingDocumentPreview,
-    error: documentPreviewError,
-  } = useDocumentPreview(shouldFetchDocumentPreview ? resolvedFilePath : null);
   const saveFile = useSaveFile();
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
@@ -202,14 +239,6 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       ? contentError.message
       : String(contentError);
   }, [contentError]);
-  const documentPreviewErrorMessage = useMemo(() => {
-    if (!documentPreviewError) {
-      return null;
-    }
-    return documentPreviewError instanceof Error
-      ? documentPreviewError.message
-      : String(documentPreviewError);
-  }, [documentPreviewError]);
   const hasBinaryReadError = isBinaryContentError(contentError);
   const effectivePreviewKind =
     previewKind === 'text' && hasBinaryReadError ? 'binary' : previewKind;
@@ -412,7 +441,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
           )}
         </div>
 
-        {isDiffMode ? (
+        {pluginResolutionPending ? (
+          <ContentLoadingFallback label="Loading file handler..." />
+        ) : isDiffMode ? (
           <>
             <span className="flex select-none items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
               <GitCompare className="h-3 w-3" />
@@ -463,8 +494,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
               title="PDF diff is not supported here"
               description="Open the PDF in read-only preview mode instead of the text diff panel."
             />
-          ) : effectivePreviewKind === 'document' ||
-            effectivePreviewKind === 'office' ? (
+          ) : pluginOpener ? (
             <PreviewPlaceholder
               icon={FileText}
               title="Office document diff is not supported here"
@@ -497,6 +527,19 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                 />
               </Suspense>
             </div>
+          )
+        ) : pluginOpener ? (
+          pluginOpener.target === 'app_surface' ? (
+            <PluginArtifactEditor
+              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}`}
+              opener={pluginOpener}
+              filePath={resolvedFilePath ?? filePath}
+            />
+          ) : (
+            <PluginFilePreview
+              key={`${pluginOpener.pluginId}:${pluginOpener.generation}:${resolvedFilePath ?? filePath}`}
+              filePath={resolvedFilePath ?? filePath}
+            />
           )
         ) : effectivePreviewKind === 'binary' ? (
           <PreviewPlaceholder
@@ -565,29 +608,6 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
                 />
               )}
             </div>
-          )
-        ) : effectivePreviewKind === 'office' ? (
-          <OfficePreview
-            key={resolvedFilePath ?? filePath}
-            filePath={resolvedFilePath ?? filePath}
-          />
-        ) : effectivePreviewKind === 'document' ? (
-          isLoadingDocumentPreview ? (
-            <FilePreviewLoading
-              fileName={resolvedDisplayPath ?? filePath}
-              label={`Opening ${resolvedDisplayPath ?? filePath}`}
-            />
-          ) : documentPreviewErrorMessage ? (
-            <PreviewPlaceholder
-              icon={FileText}
-              title="Document preview failed"
-              description={documentPreviewErrorMessage}
-            />
-          ) : (
-            <ReadonlyDocumentPreview
-              content={documentPreview?.content ?? ''}
-              format={documentPreview?.format ?? 'text'}
-            />
           )
         ) : isLoading ? (
           <FilePreviewLoading

@@ -56,6 +56,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Conversation（会话）** — 用户与一个 agent 之间的持久对话。其完整历史由事件日志权威记录，与任何 agent 进程的存活无关。
 - **Conversation panel（会话面板）** — 在 Server-bound window 中呈现一个 Conversation 的唯一 Dockview 视图；同一窗口重复打开只聚焦已有面板，关闭或移动面板只改变布局，不取消在途 Turn，也不删除 Conversation。
 - **Conversation draft（会话草稿）** — 属于 Server 上某个 Conversation、可由已授权设备继续编辑的未提交 Composer 内容；每次保存基于 revision，冲突必须保留服务器版本与本机版本，不能静默覆盖。
+- **Session auxiliary capability（会话辅助能力）** — Composer 与时间线周围的用量、计划、目标、压缩、草稿与查找只呈现 Agent 或用户明确给出的事实；缺失保持缺失，不得从自由文本或本地化文案反推，也不得把未知填成零或成功。见 [ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
 - **Conversation input（会话输入）** — 已被 Server 接受、等待产生新 Turn 的持久用户意图；它与未提交的 Conversation draft、向在途 Turn 纠偏的 Steering 都不同。
 - **Queued conversation input（排队会话输入）** — 尚未被认领并绑定到 Turn 的 Conversation input；同一 Conversation 的多个输入具有稳定顺序，可由所有已授权设备一致查看和修改。
 - **Turn steering（回合纠偏）** — 用户针对指定在途 Turn 追加的即时指导；它属于该 Turn，不创建新 Turn，也不能在 Agent 不支持时静默变成排队输入。
@@ -80,6 +81,8 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 会话输入、纠偏、关系与委派策略见
 [ADR-0044](docs/adr/0044-conversation-control-plane-and-durable-inputs.md)。
+会话辅助能力的事实来源见
+[ADR-0058](docs/adr/0058-session-auxiliary-capability-honesty.md)。
 
 - **Workspace-less conversation（无工作区会话）** — 一种不挂靠任何 Project / Workspace 的 Conversation：没有 worktree、没有隔离工作区、没有 git 面板，用于纯聊天/咨询场景。与常规会话的唯一区别是缺少 Workspace 归属；其事件日志、Turn 生命周期、恢复与中断语义与常规会话**完全一致**。因无仓库工作区，其 agent 的文件/终端工具根目录由宿主指定的**专用临时目录**提供（而非某个项目仓库），并据此成为一个能力受限的低权限模式。落地决策（数据模型 + 工作目录/沙箱）见 ADR-0006。
 

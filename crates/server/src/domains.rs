@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::{PreviewProxyRegistry, automation_runtime::HeadlessAutomationRuntime};
 
 #[derive(Clone)]
-pub(crate) struct ServerApplicationDomains {
+pub struct ServerApplicationDomains {
     pool: SqlitePool,
     plugin_control_plane: Arc<plugins::PluginControlPlane>,
     preview_host: Arc<dyn plugins::PluginPreviewHost>,
@@ -43,23 +43,23 @@ pub(crate) struct ServerApplicationDomains {
     worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
 }
 
-pub(crate) struct ServerDomainDependencies {
-    pub(crate) pool: SqlitePool,
-    pub(crate) plugin_control_plane: Arc<plugins::PluginControlPlane>,
-    pub(crate) preview_host: Arc<dyn plugins::PluginPreviewHost>,
-    pub(crate) capability_broker: Arc<plugins::HostCapabilityBroker>,
-    pub(crate) app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
-    pub(crate) preview_proxy: PreviewProxyRegistry,
-    pub(crate) automation: HeadlessAutomationRuntime,
-    pub(crate) owns_automation_engine: bool,
-    pub(crate) conversations: ConversationContext,
-    pub(crate) deployment: Arc<LocalDeployment>,
-    pub(crate) runtime_root: std::path::PathBuf,
-    pub(crate) worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
+pub struct ServerDomainDependencies {
+    pub pool: SqlitePool,
+    pub plugin_control_plane: Arc<plugins::PluginControlPlane>,
+    pub preview_host: Arc<dyn plugins::PluginPreviewHost>,
+    pub capability_broker: Arc<plugins::HostCapabilityBroker>,
+    pub app_surfaces: Arc<plugins::PluginAppSurfaceHost>,
+    pub preview_proxy: PreviewProxyRegistry,
+    pub automation: HeadlessAutomationRuntime,
+    pub owns_automation_engine: bool,
+    pub conversations: ConversationContext,
+    pub deployment: Arc<LocalDeployment>,
+    pub runtime_root: std::path::PathBuf,
+    pub worker_runtime: Arc<plugins::PluginWorkerRuntimeProvider>,
 }
 
 impl ServerApplicationDomains {
-    pub(crate) fn new(dependencies: ServerDomainDependencies) -> Self {
+    pub fn new(dependencies: ServerDomainDependencies) -> Self {
         let ServerDomainDependencies {
             pool,
             plugin_control_plane,

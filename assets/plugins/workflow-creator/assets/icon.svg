@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="VibeX Workflow Creator">
+  <rect width="64" height="64" rx="14" fill="#0f766e"/>
+  <circle cx="18" cy="32" r="6" fill="#ccfbf1"/>
+  <circle cx="46" cy="18" r="6" fill="#ccfbf1"/>
+  <circle cx="46" cy="46" r="6" fill="#ccfbf1"/>
+  <path d="M24 32h16M40 24v8M40 32v8" fill="none" stroke="#ccfbf1" stroke-width="3" stroke-linecap="round"/>
+</svg>

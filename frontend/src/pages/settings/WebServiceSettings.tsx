@@ -36,6 +36,7 @@ const DEFAULT_CONFIG: WebServiceConfig = {
   port: 17891,
   token: null,
   auto_start: false,
+  allow_lan: false,
 };
 
 function sameConfig(a: WebServiceConfig, b: WebServiceConfig): boolean {
@@ -374,6 +375,28 @@ export function WebServiceSettings({
                 setDraft((previous) => ({
                   ...previous,
                   auto_start: checked,
+                }))
+              }
+            />
+          </div>
+
+          <div className="settings-row">
+            <div>
+              <Label htmlFor="web-service-lan" className="text-xs">
+                {t('webService.allowLanLabel')}
+              </Label>
+              <p className="settings-row__description">
+                {t('webService.allowLanDescription')}
+              </p>
+            </div>
+            <Switch
+              id="web-service-lan"
+              className="settings-switch"
+              checked={Boolean(draft.allow_lan)}
+              onCheckedChange={(checked: boolean) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  allow_lan: checked,
                 }))
               }
             />

@@ -65,6 +65,10 @@ pub struct InjectedRemoteMcpServer {
 pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection;
 
+    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
+        Vec::new()
+    }
+
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
         Vec::new()
     }

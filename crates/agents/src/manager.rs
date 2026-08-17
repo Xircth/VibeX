@@ -2136,6 +2136,12 @@ impl AgentConnectionRunner {
                     },
                 ),
             }
+            for server in injector.extra_stdio_servers() {
+                servers.push(acp::schema::v1::McpServer::Stdio(
+                    acp::schema::v1::McpServerStdio::new(server.name, server.command)
+                        .args(server.args),
+                ));
+            }
         }
         servers
     }

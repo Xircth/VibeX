@@ -27,7 +27,7 @@ use plugins::PromptBlock;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub(crate) struct HeadlessAutomationRuntime {
+pub struct HeadlessAutomationRuntime {
     deployment: Arc<LocalDeployment>,
     conversation_context: conversations::ConversationContext,
     store: SqliteAutomationStore,
@@ -35,7 +35,7 @@ pub(crate) struct HeadlessAutomationRuntime {
 }
 
 impl HeadlessAutomationRuntime {
-    pub(crate) fn new(
+    pub fn new(
         deployment: Arc<LocalDeployment>,
         conversation_context: conversations::ConversationContext,
         plugin_control_plane: Arc<plugins::PluginControlPlane>,

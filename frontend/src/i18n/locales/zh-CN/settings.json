@@ -553,8 +553,8 @@
     }
   },
   "webService": {
-    "title": "Web 服务",
-    "description": "管理本机 Web 服务监听、访问控制和启动状态。",
+    "title": "远程访问",
+    "description": "让工作站、手机和浏览器连上这个 Host。",
     "statusUnchecked": "未检查",
     "statusRunning": "运行中",
     "statusStopped": "已停止",
@@ -591,7 +591,9 @@
     "portProbeResult": "端口 {{port}}：{{result}}",
     "available": "可用",
     "autoStartLabel": "自动启动",
-    "autoStartDescription": "应用启动时自动启动 Web 服务。",
+    "autoStartDescription": "应用启动时打开 Remote Protocol。",
+    "allowLanLabel": "允许局域网",
+    "allowLanDescription": "监听全部网卡。公网访问必须经过 TLS 反代。",
     "tokenLabel": "访问 Token",
     "tokenDescription": "Token 会被遮罩显示，可重新生成或复制。",
     "tokenPlaceholder": "尚未生成",

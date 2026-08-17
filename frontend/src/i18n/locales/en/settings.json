@@ -553,8 +553,8 @@
     }
   },
   "webService": {
-    "title": "Web Service",
-    "description": "Manage the local Web service listener, access control, and startup status.",
+    "title": "Remote access",
+    "description": "Listen for Workstation, Companion, and browser clients on this Host.",
     "statusUnchecked": "Not checked",
     "statusRunning": "Running",
     "statusStopped": "Stopped",
@@ -591,7 +591,9 @@
     "portProbeResult": "Port {{port}}: {{result}}",
     "available": "Available",
     "autoStartLabel": "Auto start",
-    "autoStartDescription": "Automatically start the Web service when the app launches.",
+    "autoStartDescription": "Start Remote Protocol when the app launches.",
+    "allowLanLabel": "Allow LAN",
+    "allowLanDescription": "Bind every interface. Put TLS in front of this Host.",
     "tokenLabel": "Access Token",
     "tokenDescription": "The token is displayed masked; you can regenerate or copy it.",
     "tokenPlaceholder": "Not generated yet",

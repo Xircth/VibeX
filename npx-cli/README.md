@@ -4,13 +4,16 @@
 
 ## Quick Start
 
-Run vibex instantly without installation:
+`npx vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
+It downloads the signed-or-checksummed server binary for this platform, then
+serves the same Remote Protocol used by Workstation and Companion clients.
 
 ```bash
 npx vibex
 ```
 
-This will launch the application locally and open it in your browser automatically.
+Prefer the official Host family tarball from GitHub Releases when you need
+`vibex-mcp`, bundled plugins, and `SHA256SUMS` together.
 
 ## What is VibeX?
 

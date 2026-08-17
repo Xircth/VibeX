@@ -6,12 +6,7 @@ use std::{
 };
 
 use agents::{AgentRuntime, runtime_event_channel};
-use application::{
-    ApplicationCore, ApplicationError, CancelConversationTurn, ConversationExecutionPort,
-    ConversationSessionExecutionPort, RespondConversationPermission, RespondConversationQuestion,
-    SqliteConversationRepository, StartConversationTurn,
-};
-use async_trait::async_trait;
+use application::SqliteConversationRepository;
 use automation::{
     AutomationEngine, EngineError, FileOwnerLock, StartupReconciler, StartupRecoveryReport,
     SystemClock,
@@ -30,7 +25,6 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use crate::{
     PreviewProxyRegistry, ServerConfig, ServerRuntime, ServerToken, SqliteTokenHashStore,
     automation_runtime::HeadlessAutomationRuntime, delegation_runtime::HeadlessDelegationRuntime,
-    domains::ServerApplicationDomains,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -51,106 +45,6 @@ pub struct ServerBootstrapConfig {
     pub data_dir: PathBuf,
     pub server: ServerConfig,
     pub token: Option<ServerToken>,
-}
-
-struct PluginAwareConversationExecution {
-    inner: ConversationSessionExecutionPort,
-    plugin_control_plane: Arc<PluginControlPlane>,
-}
-
-#[async_trait]
-impl ConversationExecutionPort for PluginAwareConversationExecution {
-    async fn start_turn(
-        &self,
-        mut request: StartConversationTurn,
-    ) -> Result<conversations::ConversationTurnSnapshot, ApplicationError> {
-        let mut action_prompts = Vec::new();
-        for invocation in &request.plugin_actions {
-            let action = self
-                .plugin_control_plane
-                .resolve_action(&invocation.plugin_id, &invocation.action_id)
-                .await
-                .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-            action_prompts.extend(action.prompt_blocks.into_iter().map(|block| match block {
-                plugins::PromptBlock::Text { text } => text,
-            }));
-        }
-        if !action_prompts.is_empty() {
-            let mut prompt = Vec::with_capacity(action_prompts.len() + 1);
-            if !request.text.trim().is_empty() {
-                prompt.push(request.text);
-            }
-            prompt.extend(action_prompts);
-            request.text = prompt.join("\n");
-        }
-        self.inner.start_turn(request).await
-    }
-
-    async fn respond_permission(
-        &self,
-        request: RespondConversationPermission,
-    ) -> Result<(), ApplicationError> {
-        self.inner.respond_permission(request).await
-    }
-
-    async fn respond_question(
-        &self,
-        request: RespondConversationQuestion,
-    ) -> Result<(), ApplicationError> {
-        self.inner.respond_question(request).await
-    }
-
-    async fn cancel_turn(&self, request: CancelConversationTurn) -> Result<(), ApplicationError> {
-        self.inner.cancel_turn(request).await
-    }
-
-    async fn steer(
-        &self,
-        request: conversations::ConversationSteerInput,
-    ) -> Result<conversations::ConversationSteeringReceipt, ApplicationError> {
-        self.inner.steer(request).await
-    }
-
-    async fn submit_input(
-        &self,
-        request: conversations::SubmitConversationInput,
-    ) -> Result<conversations::ConversationInputSubmission, ApplicationError> {
-        for invocation in &request.payload.plugin_actions {
-            self.plugin_control_plane
-                .resolve_action(&invocation.plugin_id, &invocation.action_id)
-                .await
-                .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        }
-        self.inner.submit_input(request).await
-    }
-
-    async fn list_inputs(
-        &self,
-        conversation_id: uuid::Uuid,
-    ) -> Result<Vec<conversations::ConversationInputView>, ApplicationError> {
-        self.inner.list_inputs(conversation_id).await
-    }
-
-    async fn update_input(
-        &self,
-        request: conversations::UpdateConversationInput,
-    ) -> Result<conversations::ConversationInputView, ApplicationError> {
-        self.inner.update_input(request).await
-    }
-
-    async fn reorder_input(
-        &self,
-        request: conversations::ReorderConversationInput,
-    ) -> Result<conversations::ConversationInputView, ApplicationError> {
-        self.inner.reorder_input(request).await
-    }
-
-    async fn cancel_input(
-        &self,
-        request: conversations::CancelConversationInput,
-    ) -> Result<conversations::ConversationInputView, ApplicationError> {
-        self.inner.cancel_input(request).await
-    }
 }
 
 impl ServerBootstrapConfig {
@@ -351,36 +245,28 @@ impl HeadlessServer {
             plugin_control_plane.clone(),
         );
         let preview_proxy = PreviewProxyRegistry::default();
-        let domains = Arc::new(ServerApplicationDomains::new(
-            crate::domains::ServerDomainDependencies {
-                pool: pool.clone(),
-                plugin_control_plane: plugin_control_plane.clone(),
-                preview_host,
-                capability_broker,
-                app_surfaces,
-                preview_proxy: preview_proxy.clone(),
-                automation: automation_runtime.clone(),
-                owns_automation_engine: automation_owner.is_some(),
-                conversations: conversation_context.clone(),
-                deployment: deployment.clone(),
-                runtime_root: config.data_dir.join("plugins/runtimes"),
-                worker_runtime,
-            },
-        ));
-        let execution = Arc::new(PluginAwareConversationExecution {
-            inner: ConversationSessionExecutionPort::new(conversation_context.clone()),
-            plugin_control_plane: plugin_control_plane.clone(),
-        });
-        let repository = SqliteConversationRepository::new(pool.clone());
-        let workflows = Arc::new(application::WorkflowStoreExecutionPort::with_conversations(
+        crate::start_chat_inbound(pool.clone(), conversation_context.clone());
+        application::WorkflowStoreExecutionPort::with_conversations(
             pool.clone(),
             conversation_context.clone(),
-        ));
-        workflows
-            .reconcile_interrupted()
-            .await
-            .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
-        let core = ApplicationCore::with_all_ports(repository, execution, domains, workflows);
+        )
+        .reconcile_interrupted()
+        .await
+        .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
+        let core = crate::host_application_core(
+            pool.clone(),
+            conversation_context.clone(),
+            plugin_control_plane,
+            preview_host,
+            capability_broker,
+            app_surfaces,
+            preview_proxy.clone(),
+            automation_runtime.clone(),
+            automation_owner.is_some(),
+            deployment.clone(),
+            config.data_dir.join("plugins/runtimes"),
+            worker_runtime,
+        );
         let workflow_dispatcher =
             application::WorkflowAgentDispatcher::new(conversation_context.clone());
         let workflow_dispatch_task = tokio::spawn(async move {

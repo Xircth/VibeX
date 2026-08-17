@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use agents::{
     AgentConnectionStatus, AgentContentBlock, AgentEvent, AgentId, AgentRuntime,
@@ -572,6 +568,17 @@ impl DelegationInjector for HeadlessDelegationInjector {
             ],
         })
     }
+
+    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
+        if !self.official_mcp.allow_workflow_mcp() {
+            return Vec::new();
+        }
+        vec![InjectedMcpServer {
+            name: "vibex-workflow-mcp".to_string(),
+            command: locate_named_sibling("vibex-workflow-mcp"),
+            args: Vec::new(),
+        }]
+    }
 }
 
 fn spawn_resolver(
@@ -671,10 +678,14 @@ fn process_socket_path() -> PathBuf {
 }
 
 fn locate_companion() -> PathBuf {
+    locate_named_sibling("vibex-mcp")
+}
+
+fn locate_named_sibling(base: &str) -> PathBuf {
     let name = if cfg!(windows) {
-        "vibex-mcp.exe"
+        format!("{base}.exe")
     } else {
-        "vibex-mcp"
+        base.to_string()
     };
     if let Ok(path) = std::env::var("VIBEX_MCP_BIN") {
         let path = PathBuf::from(path);
@@ -684,9 +695,9 @@ fn locate_companion() -> PathBuf {
     }
     std::env::current_exe()
         .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join(name)))
+        .and_then(|path| path.parent().map(|parent| parent.join(&name)))
         .filter(|path| path.is_file())
-        .unwrap_or_else(|| Path::new(name).to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 fn preview(text: &str) -> String {

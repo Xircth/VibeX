@@ -1,0 +1,20 @@
+services:
+  vibex:
+    build:
+      context: .
+      args:
+        HOST_FAMILY: dist/host-family
+    # image: ghcr.io/vibex/vibex-server:latest
+    ports:
+      - "127.0.0.1:3080:3080"
+    volumes:
+      - vibex-data:/data
+    environment:
+      VIBEX_SERVER_LISTEN: 127.0.0.1:3080
+      # Set to 0.0.0.0:3080 and VIBEX_SERVER_ALLOW_LAN=1 only behind TLS.
+      VIBEX_STATIC_ROOT: /app/web
+      VIBEX_DATA_DIR: /data
+    restart: unless-stopped
+
+volumes:
+  vibex-data:

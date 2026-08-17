@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/vibex-workflow-creator/SKILL.md",
+      "kind": "skill",
+      "title": "工作流开发"
+    }
+  ]
+}

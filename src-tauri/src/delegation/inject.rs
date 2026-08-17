@@ -99,6 +99,17 @@ impl DelegationInjector for VibexDelegationInjector {
         })
     }
 
+    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
+        if !self.official_mcp.allow_workflow_mcp() {
+            return Vec::new();
+        }
+        vec![InjectedMcpServer {
+            name: "vibex-workflow-mcp".to_string(),
+            command: locate_named_sibling("vibex-workflow-mcp"),
+            args: Vec::new(),
+        }]
+    }
+
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
         services::services::mcp::scan_local_sync()
             .unwrap_or_default()
@@ -137,14 +148,6 @@ impl DelegationInjector for VibexDelegationInjector {
     }
 }
 
-fn bin_name() -> &'static str {
-    if cfg!(windows) {
-        "vibex-mcp.exe"
-    } else {
-        "vibex-mcp"
-    }
-}
-
 /// Locate the companion: `VIBEX_MCP_BIN` env → sibling of the running exe →
 /// bare name (resolved via PATH by the agent when it spawns the server). In dev
 /// the companion and the app exe both sit in `target/debug`, so the sibling
@@ -156,15 +159,24 @@ fn locate_vibex_mcp_binary() -> PathBuf {
             return candidate;
         }
     }
+    locate_named_sibling("vibex-mcp")
+}
+
+fn locate_named_sibling(base: &str) -> PathBuf {
+    let name = if cfg!(windows) {
+        format!("{base}.exe")
+    } else {
+        base.to_string()
+    };
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()
     {
-        let candidate = dir.join(bin_name());
+        let candidate = dir.join(&name);
         if candidate.exists() {
             return candidate;
         }
     }
-    PathBuf::from(bin_name())
+    PathBuf::from(name)
 }
 
 #[cfg(test)]

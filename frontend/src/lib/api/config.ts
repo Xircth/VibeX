@@ -339,6 +339,7 @@ export interface WebServiceConfig {
   port: number;
   token: string | null;
   auto_start: boolean;
+  allow_lan?: boolean;
 }
 
 export interface WebServerStatus {

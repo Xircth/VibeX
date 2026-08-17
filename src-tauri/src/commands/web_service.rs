@@ -59,6 +59,8 @@ pub struct WebServiceConfig {
     pub port: u16,
     pub token: Option<String>,
     pub auto_start: bool,
+    #[serde(default)]
+    pub allow_lan: bool,
 }
 
 impl Default for WebServiceConfig {
@@ -67,6 +69,7 @@ impl Default for WebServiceConfig {
             port: DEFAULT_PORT,
             token: None,
             auto_start: false,
+            allow_lan: false,
         }
     }
 }
@@ -620,11 +623,43 @@ pub async fn get_web_server_status() -> Result<WebServerStatus, AppError> {
 #[tauri::command]
 pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
     let config = load_config().await?;
-    let service_router = router(WebServiceRouterState {
-        app,
-        token: config.token.clone(),
-    });
-    start_web_server_with_router(config, service_router).await
+    let state = app.state::<AppState>();
+    let listen = std::net::SocketAddr::from((
+        if config.allow_lan {
+            std::net::Ipv4Addr::UNSPECIFIED
+        } else {
+            std::net::Ipv4Addr::LOCALHOST
+        },
+        config.port,
+    ));
+    let server_config = server::ServerConfig::default()
+        .with_listen_addr(listen, config.allow_lan)
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    let core = server::host_application_core(
+        state.deployment.db().pool.clone(),
+        state.conversation_context(),
+        state.plugin_control_plane.clone(),
+        state.plugin_preview_host.clone(),
+        state.plugin_capability_broker.clone(),
+        state.plugin_app_surfaces.clone(),
+        server::PreviewProxyRegistry::default(),
+        server::HeadlessAutomationRuntime::new(
+            state.deployment.clone(),
+            state.conversation_context(),
+            state.plugin_control_plane.clone(),
+        ),
+        false,
+        state.deployment.clone(),
+        utils::assets::asset_dir().join("plugins/runtimes"),
+        state.plugin_worker_runtime.clone(),
+    );
+    let runtime = server::ServerRuntime::from_sqlite_auth_with_preview_proxy(
+        server_config,
+        state.deployment.db().pool.clone(),
+        core,
+        server::PreviewProxyRegistry::default(),
+    );
+    start_web_server_with_router(config, runtime.router()).await
 }
 
 async fn start_web_server_with_router(
@@ -742,6 +777,7 @@ mod tests {
             port,
             token: None,
             auto_start: false,
+            allow_lan: false,
         };
 
         let outcome = tokio::time::timeout(

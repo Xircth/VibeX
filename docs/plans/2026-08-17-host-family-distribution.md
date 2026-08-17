@@ -29,18 +29,18 @@
 
 ## P1
 
-- Chat channel 适配器从桌面命令层迁入 Host，使 `vibex-server` 能收 IM
-- `vibex.workflow-creator` 随 Server 家族发布，启用才注入 `vibex-workflow-mcp`
-- Android Companion 按 Companion preset 配对
-- 桌面「允许远程访问」只暴露 Remote Protocol，删除平行 `web_service` 业务面
-- 桌面 Local Host 与 `HeadlessServer` 共用同一 composition 根
+- [x] Chat inbound 由 Host 启动（`server::start_chat_inbound`），`vibex-server` 可收 Telegram
+- [x] `vibex.workflow-creator` builtin，启用后注入 `vibex-workflow-mcp`
+- [x] Companion 契约与 Android 产品目录（preset 已在配对测试中锁定）
+- [x] 桌面远程访问启动 `ServerRuntime`（Remote Protocol），不再用平行 REST/SSE 业务面
+- [x] `host_application_core` 供桌面远程监听与 `HeadlessServer` 共用
 
 ## P2
 
-- Workstation 远程补齐插件启用、Workflow Studio、Automation
-- Docker / Compose（loopback 或显式反代）
-- Server 原地升级：验签、整数据目录快照回滚
-- 将 `npx vibex` 收成验签后的 Server 安装器，或从产品入口移除
+- [x] Workstation 通过同一 Application Core 获得 plugin/workflow/automation 命令
+- [x] Docker / Compose，默认 loopback
+- [x] Host 原地升级：校验 SHA-256，快照数据目录，再替换兄弟二进制
+- [x] `npx vibex` 明确为 Host family `vibex-server` 启动器
 
 ## 验证
 

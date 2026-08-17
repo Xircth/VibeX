@@ -455,7 +455,11 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::chat_channel::set_audit_pool(
             app.state::<state::AppState>().deployment.db().pool.clone(),
         );
-        commands::chat_channel::start_inbound_manager(app.handle().clone());
+        let host_state = app.state::<state::AppState>();
+        server::start_chat_inbound(
+            host_state.deployment.db().pool.clone(),
+            host_state.conversation_context(),
+        );
 
         // One durable Automation v2 Engine owns this data directory. Startup
         // reconciliation and catch-up happen behind the owner lease.

@@ -66,6 +66,7 @@ describe('WebServiceSettings', () => {
       port: 17891,
       token: null,
       auto_start: false,
+      allow_lan: false,
     });
     webServiceApiMock.getStatus.mockResolvedValue(stoppedStatus);
     webServiceApiMock.updateConfig.mockImplementation(async (config) => config);
@@ -144,6 +145,7 @@ describe('WebServiceSettings', () => {
         port: 19000,
         token: null,
         auto_start: true,
+        allow_lan: false,
       })
     );
   });

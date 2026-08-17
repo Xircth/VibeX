@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.workflow-creator",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "VibeX Workflow Creator",
+  "readme": "README.md",
+  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": { "type": "object", "properties": {}, "additionalProperties": false }
+  },
+  "integrations": [
+    {
+      "id": "vibex-workflow-creator",
+      "kind": "content.skill",
+      "resource": "contents/skills/vibex-workflow-creator",
+      "targets": ["codex", "claude-code", "acp"]
+    }
+  ],
+  "interface": { "icon": "assets/icon.svg" }
+}

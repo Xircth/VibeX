@@ -20,8 +20,15 @@ node scripts/package-host-family.js \
 
 Apple Developer ID and Windows Authenticode are not required for this family.
 Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
-present. Docker/Compose remains P2. See
-[ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md).
+present.
+
+Docker defaults to loopback. Compose publishes `127.0.0.1:3080`. LAN or public
+bind requires `VIBEX_SERVER_ALLOW_LAN=1` and an external TLS proxy.
+
+In-place upgrade: verify `SHA256SUMS`, snapshot the data directory, then replace
+`vibex-server`, `vibex-mcp`, and `web/`. See `server::apply_host_upgrade`.
+
+See [ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md).
 
 ## P1 distribution contract
 

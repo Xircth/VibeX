@@ -7,6 +7,11 @@ decision-makers:
 
 # 多 Agent 采用 Codeg 式异步委派，Agent Mention 使用 `&`
 
+> 2026-08-17：companion 拆成两个内置插件、`&` 的出现条件、凭据寿命与平台
+> `vibex-mcp` 退场见
+> [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
+> 下文的异步委派行为、`&` 语法、one-shot 子任务与 Broker 不变量仍然有效。
+
 VibeX 的首个完整多 Agent 协作模式采用 Codeg 已验证的 LLM-mediated delegation：
 父 Agent 通过按会话注入的 `vibex-mcp` companion 调用异步委派工具，主进程内
 Delegation Broker 创建一次性子 Conversation/Turn，父 Agent 通过状态工具等待、
@@ -70,8 +75,10 @@ Graph Engineering 模式具有价值，但当前没有稳定领域基础。本�
 - 现有“v1 仅 Claude Code 注入”的限制被取代；实施时按 Agent 真实 MCP 能力逐个开放，
   不能使用静态白名单冒充能力协商。
 - 前端必须新增 `&Agent` Mention、委派卡片、子会话导航和刷新后状态重建。
-- `ask_user_question`、`check_user_feedback` 与 `get_session_info` 可以使用同一
-  companion/listener，但按独立 feature flag 暴露。
+- `ask_user_question`、`check_user_feedback` 与 `get_session_info` 曾可与委派共用
+  同一 companion；ADR-0057 将它们迁到独立的会话增强插件 MCP，按该插件配置开关
+  暴露。
+- `&` 不再按 Agent 是否协商到 MCP 显示；见 ADR-0057 第 7 节。
 - LLM-mediated delegation 天生不是确定性调度；产品文案与测试必须如实验证“工具
   调用发生后”的行为，不把 Mention 本身当作执行保证。
 

@@ -189,6 +189,10 @@
     "unreadableEventTitle": "Some conversation history cannot be displayed",
     "unreadableEventDescription": "VibeX cannot read one historical record. The rest of the conversation is unaffected."
   },
+  "liveFeedback": {
+    "placeholder": "Steer this turn",
+    "send": "Send"
+  },
   "feedbackCheck": {
     "label": "Feedback",
     "checkItems": "Check Items",

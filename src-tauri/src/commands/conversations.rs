@@ -203,6 +203,13 @@ pub struct ConversationCloseRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConversationSubmitFeedbackRequest {
+    pub conversation_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConversationTruncateToTurnRequest {
     pub conversation_id: String,
     /// The user-turn ordinal to reset to: this turn and everything after it is removed.
@@ -761,6 +768,42 @@ pub async fn conversation_respond_question(
         .await;
     notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
     result.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn conversation_submit_feedback(
+    state: tauri::State<'_, AppState>,
+    request: ConversationSubmitFeedbackRequest,
+) -> Result<(), AppError> {
+    let text = request.text.trim();
+    if text.is_empty() {
+        return Err(AppError::BadRequest("feedback is empty".into()));
+    }
+    let conversation_id = Uuid::parse_str(&request.conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    let gate = state.plugin_control_plane.official_product_mcp_gate();
+    if !gate.allow_session_mcp() || gate.session_features() & plugins::SESSION_FEAT_FEEDBACK == 0 {
+        return Err(AppError::Conflict("live feedback is off".into()));
+    }
+    let connection_id = state
+        .conversation_runtime_states
+        .lock()
+        .await
+        .get(&conversation_id)
+        .and_then(|runtime| runtime.connection_id.clone())
+        .ok_or_else(|| AppError::Conflict("no live session".into()))?;
+    state
+        .delegation
+        .features
+        .push_feedback(
+            delegation::DelegationScope {
+                parent_connection_id: connection_id,
+                parent_conversation_id: conversation_id,
+            },
+            text,
+        )
+        .await;
+    Ok(())
 }
 
 /// Immediately switch the conversation's live ACP session mode

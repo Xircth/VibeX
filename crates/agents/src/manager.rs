@@ -63,8 +63,8 @@ use crate::{
     conversation::SessionLoadFailureReason,
     decide_auto_permission_response,
     delegation_inject::{
-        CompanionCapabilities, CompanionInjection, CompanionInjectionContext, DelegationInjector,
-        InjectedRemoteMcpTransport,
+        CompanionCapabilities, CompanionInjectionContext, CompanionInjectionList,
+        DelegationInjector, InjectedRemoteMcpTransport,
     },
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
@@ -2112,20 +2112,22 @@ impl AgentConnectionRunner {
         if companion_capabilities.accepts_session_mcp_servers
             && let Some(injector) = &self.delegation_injector
         {
-            match injector.companion(CompanionInjectionContext {
+            match injector.injected_stdio_servers(CompanionInjectionContext {
                 parent_connection_id: &self.snapshot.connection_id.0.to_string(),
                 parent_conversation_id: session_id.0,
                 agent_id: &self.snapshot.agent_id,
                 working_root: working_dir,
                 capabilities: companion_capabilities,
             }) {
-                CompanionInjection::Injected(server) => {
-                    servers.push(acp::schema::v1::McpServer::Stdio(
-                        acp::schema::v1::McpServerStdio::new(server.name, server.command)
-                            .args(server.args),
-                    ));
+                CompanionInjectionList::Injected(injected) => {
+                    for server in injected {
+                        servers.push(acp::schema::v1::McpServer::Stdio(
+                            acp::schema::v1::McpServerStdio::new(server.name, server.command)
+                                .args(server.args),
+                        ));
+                    }
                 }
-                CompanionInjection::Unsupported { code } => self.emit(
+                CompanionInjectionList::Unsupported { code } => self.emit(
                     Some(session_id),
                     None,
                     AgentEvent::RawAcpDiagnostic {

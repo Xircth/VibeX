@@ -7,6 +7,10 @@ decision-makers:
 
 # 官方产品 MCP 随 Host 分发、由官方插件激活
 
+> 2026-08-17：多智能体协同与会话增强拆成两个插件、两套 MCP，见
+> [ADR-0057](0057-session-enhance-and-multi-agent-plugins.md)。
+> 本决定中「官方 MCP 由官方插件激活、默认禁用、只影响新 session」仍然有效。
+
 `vibex-mcp` 与 `vibex-workflow-mcp` 是 VibeX 官方产品 MCP。它们作为 Host 家族
 的原生文件随桌面和 Server 发行，但只有对应官方插件启用后才注入 Agent session。
 

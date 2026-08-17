@@ -1092,14 +1092,18 @@ export function SessionComposerInput({
         loadingText: 'Loading commands...',
         emptySearchResultsText: 'No matching commands found.',
       },
-      {
-        character: '&',
-        searchSource: agentMentionSource,
-        onSelect: makeToken,
-        renderItem,
-        loadingText: t('agentMention.loading'),
-        emptySearchResultsText: t('agentMention.noMatches'),
-      },
+      ...(agentMentions.capability === 'supported'
+        ? [
+            {
+              character: '&' as const,
+              searchSource: agentMentionSource,
+              onSelect: makeToken,
+              renderItem,
+              loadingText: t('agentMention.loading'),
+              emptySearchResultsText: t('agentMention.noMatches'),
+            },
+          ]
+        : []),
       {
         character: '!',
         searchSource: pluginSource,
@@ -1127,6 +1131,7 @@ export function SessionComposerInput({
     ],
     [
       agentMentionSource,
+      agentMentions.capability,
       dollarSource,
       fileReferenceSource,
       makeToken,

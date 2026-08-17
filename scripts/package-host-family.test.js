@@ -14,11 +14,11 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   fs.writeFileSync(mcp, "mcp-bin");
   fs.mkdirSync(path.join(root, "web"));
   fs.writeFileSync(path.join(root, "web", "index.html"), "<html></html>");
-  const plugin = path.join(root, "plugins", "collaboration");
+  const plugin = path.join(root, "plugins", "multi-agent");
   fs.mkdirSync(path.join(plugin, ".vibex-plugin"), { recursive: true });
   fs.writeFileSync(
     path.join(plugin, ".vibex-plugin", "plugin.json"),
-    JSON.stringify({ id: "vibex.collaboration" }),
+    JSON.stringify({ id: "vibex.multi-agent" }),
   );
   fs.mkdirSync(path.join(root, "plugins", "scratch"));
   fs.writeFileSync(path.join(root, "plugins", "scratch", "notes.txt"), "ignore");
@@ -39,7 +39,7 @@ test("packages server, companion, web UI, and bundled plugins with checksums", (
   );
   assert.ok(
     fs.existsSync(
-      path.join(output, "plugins", "bundled", "collaboration", ".vibex-plugin", "plugin.json"),
+      path.join(output, "plugins", "bundled", "multi-agent", ".vibex-plugin", "plugin.json"),
     ),
   );
   assert.equal(fs.existsSync(path.join(output, "plugins", "bundled", "scratch")), false);

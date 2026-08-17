@@ -76,6 +76,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 - **Snapshot（投影快照）** — 投影在某个事件序号处的物化缓存，纯粹是重放的加速手段，可随时丢弃重建。
 - **Conversation relation（会话关系）** — 两个独立 Conversation 之间用于导航、可见性和汇总的亲子关系；它不共享历史，也不参与任一 Conversation 的事件读取。
 - **Delegated conversation（委派会话）** — 父 Conversation 为一项明确任务创建的 child Conversation；其 Conversation 与 Turn 事实独立持久化，父级只持有关系、策略和结果摘要。
+- **Agent mention（Agent 提及）** — Composer 中用 `&` 插入的结构化引用，表示用户要求父 Agent 考虑把工作委派给该 Agent。它不是前端直接创建子会话的命令。仅当多智能体协同插件已启用、且当前 Conversation 已在启用后完成投递时出现。见 ADR-0031 与 ADR-0057。
 
 会话输入、纠偏、关系与委派策略见
 [ADR-0044](docs/adr/0044-conversation-control-plane-and-durable-inputs.md)。
@@ -93,6 +94,9 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 ## Automation domain
 
 - **Automation（自动化）** — 一份版本化的触发配置，在 manual 或 schedule 条件满足时启动一个 Turn 或一个版本化 Workflow；它不是 cron 字符串加任意命令。
+- **Single-conversation automation（单次会话自动化）** — 目标为直接创建一个普通 Turn 的 Automation；“单次会话”是产品文案，领域模型仍使用 Turn，不引入含义不明确的 Common 目标类型。
+- **Automation spec（自动化规格）** — 可复制、粘贴和版本化的 Automation 创作配置，使用显式格式版本与 Turn/Workflow target union；它不包含数据库身份、运行历史、引擎调度状态、凭据或机器相关路径，导入后必须先解析当前 Host 的 Workspace、Agent 与 Workflow 引用并保持禁用，直到用户确认启用。
+- **Automation target kind（自动化目标类型）** — Automation 创建时确定的 Turn 或 Workflow 目标类别；类别在其生命周期内不可切换，也不提供保持同一 Automation 身份的隐式转换。
 - **Automation run（自动化运行）** — Automation 的一次真实触发实例；它记录触发与目标运行的关联，终态由对应 Turn 或 Workflow run 的持久事实决定。
 - **Automation owner（自动化所有者）** — 对同一数据目录唯一持有 Engine lease 的 desktop 或 `vibex-server` 宿主。只有 owner 可以 reconciliation、claim due 和 tick；退出后另一宿主才可接管。
 - **Due claim（到期认领）** — 在同一事务内创建 Run 并推进 `next_run_at` 的操作；双 Engine/双 tick 不得产生双调度。
@@ -102,15 +106,30 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Workflow domain
 
+- **Workflow source artifact（工作流源产物）** — Workspace 中可由用户、Agent、原生编辑器或 Plugin 编辑的 Workflow 创作事实源；它可以反复保存和进入版本控制，本身不等于已经发布或正在运行的 Workflow definition。
 - **Workflow definition（工作流定义）** — 一份不可变、版本化的步骤依赖图，声明输入、Agent 或 Approval steps、输出引用和执行策略；修改会产生新版本，不改变已开始的运行。
+- **Workflow publish（工作流发布）** — 校验 Workflow source artifact 并生成不可变 Workflow definition 版本的显式操作；Automation 绑定精确发布版本，不自动跟随源产物或其他 Automation 后续发布的新版本。
 - **Workflow run（工作流运行）** — Workflow definition 某一版本在一组输入与工作区上的持久执行实例；它拥有步骤编排事实，但不复制 child Conversation 与 Turn 的历史。
+- **Derived workflow run（派生工作流运行）** — 从既有 Workflow run 的指定步骤创建的新运行；原运行保持只读，满足定义、输入、输出契约与工作区检查点要求的上游结果可以作为复用证据，指定步骤及其传递下游产生新的执行记录。
+- **Workflow run pause（工作流运行暂停）** — 先关闭新步骤调度、再取消全部在途 Turn，最终进入可恢复 `paused` 状态的非终态操作；暂停不回滚已经发生的文件或外部副作用，继续节点对话会在原 Child Conversation 中创建新 Turn，而不是恢复已取消 Turn。
 - **Workflow step（工作流步骤）** — Workflow definition 中具有稳定身份、依赖、输入和输出契约的最小执行单位。
 - **Step run（步骤运行）** — Workflow step 在某次 Workflow run 中的一次可审计执行；重试产生新的 attempt，不能覆盖旧证据。
 - **Agent step（Agent 步骤）** — 通过 child Conversation 与一个或多个真实 Turn 完成工作的 Workflow step。
+- **Agent step conversation（Agent 步骤会话）** — Agent step 拥有的持久 Child Conversation；自动初始 Prompt、用户或 Controller Agent 的 Steering、取消与后续输入都形成可见对话，但每次继续生成仍创建新的不可变 Turn。
 - **Approval step（审批步骤）** — 等待已授权主体作出持久决定的 Workflow step；它不是 Agent Turn。
-- **Accepted step output（已接受步骤输出）** — 已通过该步骤输出契约验证、可被下游步骤引用的结构化结果；Agent 的自由文本回答本身不自动成为该结果。
+- **Candidate step output（候选步骤输出）** — Agent step 的某个已完成 Turn 的最后一条非空 Assistant 原始文本；输出 Schema 只作为 Prompt 示例，不对候选做解析或格式校验。继续对话可以产生新候选。
+- **Accepted step output（已接受步骤输出）** — 已按 automatic 或 manual 完成策略接受、可被下游 Prompt 引用的候选原始文本；它可以不是合法 JSON。
+- **Completion gate（完成门）** — Workflow definition 对步骤完成后的持久确认策略；它可以授权 human 或与 worker 分离的 Controller Agent 接受候选输出，但不能把普通 Agent Step 的自我确认等同于独立 Approval step。
+- **Confirmation node projection（确认节点投影）** — Studio 为 manual Agent step 派生的可视确认节点；它打开所属 Agent step 对话并反映等待/放行状态，但不属于 Workflow definition、依赖或可执行 Step。
+- **Debug breakpoint（调试断点）** — 只属于某次 Debug run、使指定步骤在完成后等待检查的临时覆盖；它不修改或发布 Workflow definition。
+- **Workflow controller agent（工作流控制 Agent）** — 用户在 Workspace 会话中授权、通过 Workflow MCP 查看节点证据、追加节点输入或接受候选输出的 Agent principal；它与实际执行 Agent step 的 worker principal 分离，所有控制操作都必须可审计。
 - **Workflow checkpoint（工作流检查点）** — 用于证明已完成步骤所依赖工作区状态的持久证据；摘要相同但检查点不一致时不能自动复用步骤结果。
 - **Needs review（需要复核）** — 系统无法证明自动继续或重试不会重复副作用时的非终态；只有明确用户决定才能推进或结束运行。
+- **Workflow authoring adapter（工作流创作适配器）** — 原生编辑页、Plugin artifact editor 或 Agent/MCP 等面向同一 Workflow source artifact 与 Workflow Core 的入口；适配器不得拥有独立的校验器、执行器、版本事实或运行状态机。
+- **Workflow MCP（工作流 MCP）** — 依赖正在运行的 VibeX Host、把 Agent 工具调用适配到同一 Workflow Application Core 的本地协议入口；它不是独立 Workflow runtime，Host 不可用时不提供发布、调试或运行能力。
+- **Plugin-scoped MCP（插件域 MCP）** — 由一个 Plugin 独立拥有身份、工具目录、版本兼容与 Agent binding 的 MCP Server；不同产品能力不因都调用 VibeX Host 就合并为平台内置的通用 MCP，Host 只统一提供生命周期、短期授权、连接上下文和公共 Application Core seam。
+- **Workflow debug run（工作流调试运行）** — 从草稿输入或既有运行证据创建的可审计执行实例；它可以只运行选中步骤，也可以从选中步骤继续传递下游，但两种范围共享同一运行、隔离、Conversation 与事件语义。
+- **Workflow run subscription（工作流运行订阅）** — 以持久 sequence 为权威的 snapshot、缺失事件 replay、high-water 与 live event 契约；编辑器、Inspector、Plugin 和动效都消费同一投影，不以客户端轮询状态作为运行事实。
 
 Workflow 领域与 Automation 的关系见
 [ADR-0045](docs/adr/0045-workflows-orchestrate-conversation-turns.md)。
@@ -133,9 +152,13 @@ Workflow 领域与 Automation 的关系见
 - **App contribution（App 贡献）** — 向 VibeX 用户界面提供的文件 opener、preview provider、设置、命令、状态或自定义 surface；它不因与 Agent contribution 同包而获得主应用执行权。
 - **Host contribution（Host 贡献）** — 在 VibeX Host 上提供的受控后台处理、事件响应或调度能力；客户端只观察其投影，不在本地复制执行。
 - **Runtime resource（运行时资源）** — Plugin contribution 使用的 CLI、Binary、MCP 或 sidecar 资源；声明、精确解析、安装所有权、运行租约和就绪状态彼此分离。
+- **Host-managed Plugin MCP（Host 托管插件 MCP）** — Plugin 通过公共 manifest 声明、由 Host 解析 Runtime 并按 Agent session 启动的本地 MCP Server；Host 注入绑定 Workspace 与父 Conversation 的连接上下文，Plugin 不持久保存 Server 地址或凭据。新 MCP 以 `2026-07-28` protocol revision 为主并按协议协商兼容版本。通用 seam 见 ADR-0051；会话增强与多智能体协同的产品拆分见 ADR-0057。
+- **Session enhancement plugin（会话增强插件）** — 内置、不可卸载、默认禁用的产品插件，向会话提供提问、实时反馈、会话查询与会话控制；启停与单工具开关属于该插件，不属于「设置 → 常规」。见 ADR-0057。
+- **Multi-agent collaboration plugin（多智能体协同插件）** — 内置、不可卸载、默认禁用的产品插件，向会话提供 LLM-mediated 委派；插件启停即委托启停。深度、结果缓存与子智能体会话默认只属于该插件配置，且只作用于委派子会话。见 ADR-0057。
+- **Plugin detail panel（插件详情扩展面）** — 产品详情「配置」Tab 上由插件提供的自定义 App surface；`config.json` 仍是配置真相源，页面布局由插件定义，Host 不按插件 ID 特判设置页。
 - **Plugin membership（插件纳入关系）** — Plugin 是否属于当前 Host 的 catalog；与 installation、activation、permission、Agent binding 和 contribution readiness 分离。
 - **Plugin installation（插件安装）** — 一个精确 package version/digest 已作为当前 Host 的不可变安装物被接受并持久记录；它不等于启用，也不证明所需权限或 Runtime 已经就绪。
-- **Plugin activation（插件启用意图）** — 用户是否允许已安装 Plugin 发布可用 contributions 的持久意图；新安装默认禁用，启用不能伪造 permission、Runtime、Agent binding 或 contribution readiness。
+- **Plugin activation（插件启用意图）** — 用户是否允许已安装 Plugin 发布可用 contributions 的持久意图；新安装（含内置插件）默认禁用，启用不能伪造 permission、Runtime、Agent binding 或 contribution readiness。
 - **Activation Generation（激活代）** — 一个 Plugin 的 package、permission、Runtime locks 与全部已就绪 contributions 一次原子发布的不可变运行快照；候选代在完整验证前不可见，失败更新必须保留上一完整激活代。
 - **Plugin capability request（插件能力请求）** — Package 在执行前静态声明可能需要使用的宿主能力及最大 scope；声明只形成待决请求，不构成授权。
 - **Plugin capability grant（插件能力授权）** — 用户在一个 Host 上对明确 Publisher、Plugin identity、能力集合、scope 与信任等级作出的可撤销授权；能力扩大、发布者变化或高风险执行入口变化必须重新授权。
@@ -144,6 +167,7 @@ Workflow 领域与 Automation 的关系见
 - **App surface（应用扩展面）** — App contribution 在 VibeX 用户界面中的一个宿主渲染或隔离渲染实例；其能力受客户端兼容性、激活代和短期 surface 授权共同约束。
 - **Sandboxed plugin surface（沙箱插件扩展面）** — 与主应用文档、存储、凭据和宿主运行时隔离的自定义 App surface；只通过带作用域和期限的消息桥访问声明且已授权的能力。
 - **Agent binding（Agent 绑定）** — 用户允许某个已激活 Plugin 的 Agent contributions 在特定 Agent 或 Project 中暴露的关系；绑定不改变 package、Runtime 或 Agent 原生配置的所有权。
+- **All-agents binding intent（全 Agent 绑定意图）** — Plugin 默认把兼容的 Agent contributions 投影给当前及未来所有已安装、已启用且支持相应能力的 Agent，并以显式排除项记录用户修改；插件设置与 Agent/MCP 设置只能编辑同一绑定事实。
 - **Cross-Agent plugin（跨 Agent 插件）** — 其一个或多个 Agent contributions 可被多个 Agent adapter 等价投影的 VibeX Plugin；App contribution 是否存在不影响其跨 Agent 定义。
 - **Skill projection（Skill 投影）** — VibeX 把 Plugin Skill 暴露到 Agent 原生 Skill 位置的受控只读入口；协调与卸载只能修改 VibeX 拥有的投影，不能覆盖用户同名 Skill。
 - **Plugin Workflow（插件工作流）** — VibeX Plugin Package 在 `contents/workflows/` 中提供的版本化、结构化流程资源；Composer、Automation 或 Agent binding 只能引用同一 Workflow 身份与依赖证据，不再另建 PluginAction 公共概念。
@@ -164,7 +188,7 @@ Workflow 领域与 Automation 的关系见
 - **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX capability grant 与原生信任不能互相替代或伪造。
 - **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
 - **Plugin operation audit（插件操作审计）** — 对安装、授权、激活代切换、Runtime、原生投影与破坏性操作的持久证据；记录身份、版本/digest、操作结果与影响范围，不保存秘密或凭据。
-- **Official product MCP（官方产品 MCP）** — 随 Host 家族分发的 `vibex-mcp` 与 `vibex-workflow-mcp`。磁盘上有二进制不等于已注入；只有 `vibex.collaboration` 或 `vibex.workflow-creator` 启用后才进入新的 Agent session。
+- **Official product MCP（官方产品 MCP）** — 随 Host 家族分发、由内置产品插件拥有的 MCP。磁盘上有 Runtime 不等于已注入；只有对应插件启用后才进入之后新开或 rebind 的 Agent session。当前成员为会话增强、多智能体协同与 Workflow Creator。见 ADR-0057。
 - **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
 - **Legacy plugin evidence（旧插件证据）** — 对旧 manifest、信任、Runtime 与激活记录的完整只读保存；它只用于迁移解释，不会自动执行旧脚本、获得新授权或重新成为可运行插件。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
@@ -198,8 +222,9 @@ Workflow 领域与 Automation 的关系见
 - **Agent kind（agent 身份）** — Agent 的全系统唯一、稳定身份标识（如 `claude_code` 或 `codex`），回答“这是哪个 Agent”；普通 Agent 的初始标识可以由 Registry id 派生，但此后不随 Registry 条目改名或换 id 自动改变，也不是只允许固定成员的封闭枚举。
 - **Agent source（Agent 来源）** — VibeX 获取 Agent 接入契约的受控来源；允许 VibeX Built-in Agent Profile、ACP 官方 Registry 与用户声明的 Registry-compatible distribution。用户声明来源不等于官方来源，且不包含任意启动命令、自定义 Registry URL 或 PATH 自动发现。
 - **User-declared agent definition（用户声明 Agent 定义）** — 用户为官方 Registry 尚未收录的本地 ACP Agent 提供的版本化接入契约；只接受 Binary、npx 或 uvx 的 Registry-compatible distribution，保存稳定 Agent id、明确分发方式与定义 digest，并复用统一冻结安装计划、Installation lock 和 LaunchGate。
+- **Community ACP preset（社区 ACP 预设）** — VibeX 为官方 Registry 尚未收录、但已有成熟开源 ACP 适配器的 Agent 提供的 Registry-compatible 分发模板；它出现在 ACP 注册表「手动添加」页，添加后走用户声明定义同一管线，不得显示为官方 Registry 或 VibeX 已验证。已提升为内置 Agent 的预设只展示已内置状态，不能再以同一身份重复添加。
 - **Agent profile（Agent 档案）** — 驱动统一 Agent 管线的声明式接入契约，描述身份、运行拓扑、分发、检测和版本信息；来源不同不会改变安装、配置或运行语义。
-- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、Hermes、CodeBuddy、Kimi Code、Pi、Grok 与 Cursor。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅与 Provider 管理动作。
+- **Built-in agent（内置 agent）** — 由 VibeX 预先加入并给予默认展示策略的 Agent；当前成员为 Claude Code、Codex、Gemini、OpenClaw、OpenCode、Cline、Hermes、CodeBuddy、Kimi Code、Pi、Grok、Cursor 与 DeepSeek Harness。它们与其他 Agent 使用同一安装、探测和会话管线，但可由档案声明各自的官方账号、订阅、Provider 与原生插件管理动作。
 - **Built-in agent profile（内置 agent 档案）** — VibeX 为内置 Agent 提供的 Agent 档案，可声明其本地 Runtime、ACP 适配器、检测候选、依赖环境、验证组合、原生配置与白名单管理动作，但不能改变统一 Agent 管线的语义。
 - **Agent management capability（Agent 管理能力）** — Agent 在统一设置界面中提供的认证状态、账户状态、订阅入口、Provider 连接以及官方登录、注销和初始化动作。管理动作必须由 Built-in Agent Profile 完整声明，不能接受用户提供的程序、参数、URL 或任意 shell 文本。
 - **Profile management action（档案管理动作）** — Built-in Agent Profile 固定声明的登录、注销、初始化或订阅入口；VibeX 只解析当前安装锁或 PATH 中的同名官方可执行文件，并在用户点击后于可见终端中启动，或打开固定官方 URL。
@@ -211,6 +236,9 @@ Workflow 领域与 Automation 的关系见
 - **Agent authentication mode（Agent 鉴权模式）** — Grok/Cursor 等 Runtime 在订阅登录与显式密钥之间的用户选择；模式保存于 Agent 设置，预检查验证所选模式，启动门在订阅模式下清除继承进程的冲突密钥。
 - **OpenCode Provider catalog（OpenCode Provider 目录）** — `models.dev` 的结构化 Provider/模型能力目录；在线响应经 24 小时缓存，离线时使用最后有效缓存或随应用发布的完整快照，不包含用户凭据。Provider 连接同时管理 SDK 包、API 适配器、端点、模型映射与 enabled/disabled 状态。
 - **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；VibeX 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
+- **DeepSeek Harness 鉴权模式** — 仅 `deepseek`（官方 API Key + `https://api.deepseek.com`）与 `custom`（名称、备注、Base URL、API Key）两种；凭据写入 `$DSH_HOME/.credentials.yaml`，自定义端点投影到 `DEEPSEEK_BASE_URL`，密钥不回显。
+- **DeepSeek Harness 会话默认配置** — 默认 Agent preset（standard / code / minimal / cordis）、沙箱权限与推理档位；写入 Agent 环境，作用于后续新建会话。
+- **DeepSeek Harness plugin（DeepSeek Harness 插件）** — 默认 profile（`$DSH_HOME/profiles/default`）中的 DSH bundle；添加与移除通过官方 `dsh plugin` CLI，`@deepseek-ai/dsh-base` 不可移除。
 - **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
 - **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
 - **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Gemini 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据；IPC 只暴露凭据是否存在，不回显密钥。绑定或更新已绑定预设时，后端把字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。

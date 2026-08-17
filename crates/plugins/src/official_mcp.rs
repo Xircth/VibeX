@@ -1,41 +1,85 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::PluginActivation;
 
-/// Builtin product id that gates injection of `vibex-mcp`.
+/// Predecessor id. Still observed so an older install that enabled this
+/// plugin continues to open the multi-agent gate.
 pub const COLLABORATION_PLUGIN_ID: &str = "vibex.collaboration";
+
+/// Builtin product that owns `vibex-delegation-mcp`.
+pub const MULTI_AGENT_PLUGIN_ID: &str = "vibex.multi-agent";
+
+/// Builtin product that owns `vibex-session-mcp`.
+pub const SESSION_ENHANCE_PLUGIN_ID: &str = "vibex.session-enhance";
 
 /// Builtin product id that gates injection of `vibex-workflow-mcp`.
 pub const WORKFLOW_CREATOR_PLUGIN_ID: &str = "vibex.workflow-creator";
 
+pub const SESSION_FEAT_FEEDBACK: u8 = 1;
+pub const SESSION_FEAT_ASK: u8 = 1 << 1;
+pub const SESSION_FEAT_SESSIONS: u8 = 1 << 2;
+pub const SESSION_FEAT_SESSION_CONTROL: u8 = 1 << 3;
+pub const SESSION_FEAT_ALL: u8 =
+    SESSION_FEAT_FEEDBACK | SESSION_FEAT_ASK | SESSION_FEAT_SESSIONS | SESSION_FEAT_SESSION_CONTROL;
+
 /// Process-local switch read by the synchronous companion injector.
 #[derive(Debug, Default)]
 pub struct OfficialProductMcpGate {
-    collaboration: AtomicBool,
+    multi_agent: AtomicBool,
+    session_enhance: AtomicBool,
     workflow: AtomicBool,
+    session_features: AtomicU8,
 }
 
 impl OfficialProductMcpGate {
+    pub fn allow_delegation_mcp(&self) -> bool {
+        self.multi_agent.load(Ordering::SeqCst)
+    }
+
+    /// Backward-compatible name used by ADR-0055 tests and older callers.
     pub fn allow_vibex_mcp(&self) -> bool {
-        self.collaboration.load(Ordering::SeqCst)
+        self.allow_delegation_mcp()
+    }
+
+    pub fn allow_session_mcp(&self) -> bool {
+        self.session_enhance.load(Ordering::SeqCst)
     }
 
     pub fn allow_workflow_mcp(&self) -> bool {
         self.workflow.load(Ordering::SeqCst)
     }
 
+    pub fn session_features(&self) -> u8 {
+        if !self.allow_session_mcp() {
+            return 0;
+        }
+        let bits = self.session_features.load(Ordering::SeqCst);
+        if bits == 0 { SESSION_FEAT_ALL } else { bits }
+    }
+
+    pub fn set_session_features(&self, bits: u8) {
+        self.session_features.store(bits, Ordering::SeqCst);
+    }
+
     pub fn observe(&self, plugin_id: &str, activation: PluginActivation) {
         let enabled = activation == PluginActivation::Enabled;
         match plugin_id {
-            COLLABORATION_PLUGIN_ID => self.collaboration.store(enabled, Ordering::SeqCst),
+            MULTI_AGENT_PLUGIN_ID | COLLABORATION_PLUGIN_ID => {
+                self.multi_agent.store(enabled, Ordering::SeqCst);
+            }
+            SESSION_ENHANCE_PLUGIN_ID => {
+                self.session_enhance.store(enabled, Ordering::SeqCst);
+            }
             WORKFLOW_CREATOR_PLUGIN_ID => self.workflow.store(enabled, Ordering::SeqCst),
             _ => {}
         }
     }
 
     pub fn reset(&self) {
-        self.collaboration.store(false, Ordering::SeqCst);
+        self.multi_agent.store(false, Ordering::SeqCst);
+        self.session_enhance.store(false, Ordering::SeqCst);
         self.workflow.store(false, Ordering::SeqCst);
+        self.session_features.store(0, Ordering::SeqCst);
     }
 }
 
@@ -46,16 +90,33 @@ mod tests {
     #[test]
     fn official_mcp_stays_off_until_the_matching_plugin_is_enabled() {
         let gate = OfficialProductMcpGate::default();
-        assert!(!gate.allow_vibex_mcp());
+        assert!(!gate.allow_delegation_mcp());
+        assert!(!gate.allow_session_mcp());
         assert!(!gate.allow_workflow_mcp());
+
+        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Enabled);
+        assert!(gate.allow_delegation_mcp());
+        assert!(!gate.allow_session_mcp());
 
         gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Enabled);
-        assert!(gate.allow_vibex_mcp());
-        assert!(!gate.allow_workflow_mcp());
+        assert!(gate.allow_delegation_mcp());
 
+        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Disabled);
         gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Disabled);
+        gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
         gate.observe(WORKFLOW_CREATOR_PLUGIN_ID, PluginActivation::Enabled);
-        assert!(!gate.allow_vibex_mcp());
+        assert!(!gate.allow_delegation_mcp());
+        assert!(gate.allow_session_mcp());
         assert!(gate.allow_workflow_mcp());
+        assert_eq!(gate.session_features(), SESSION_FEAT_ALL);
+    }
+
+    #[test]
+    fn session_feature_bits_are_ignored_while_the_plugin_is_off() {
+        let gate = OfficialProductMcpGate::default();
+        gate.set_session_features(SESSION_FEAT_ASK);
+        assert_eq!(gate.session_features(), 0);
+        gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
+        assert_eq!(gate.session_features(), SESSION_FEAT_ASK);
     }
 }

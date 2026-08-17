@@ -59,11 +59,34 @@ pub struct InjectedRemoteMcpServer {
     pub headers: Vec<(String, String)>,
 }
 
-/// Asked, per new ACP session, for a companion MCP server to inject (or `None`
-/// to skip). Implementations may mint + register a per-launch token as a side
+/// Zero or more Host-owned stdio MCP servers for one ACP session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompanionInjectionList {
+    Injected(Vec<InjectedMcpServer>),
+    Unsupported { code: &'static str },
+}
+
+/// Asked, per new ACP session, for companion MCP servers to inject.
+/// Implementations may mint + register a per-launch token as a side
 /// effect; they must be cheap and non-blocking (called on the connection runner).
 pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection;
+
+    fn injected_stdio_servers(
+        &self,
+        context: CompanionInjectionContext<'_>,
+    ) -> CompanionInjectionList {
+        match self.companion(context) {
+            CompanionInjection::Injected(server) => {
+                let mut servers = vec![server];
+                servers.extend(self.extra_stdio_servers());
+                CompanionInjectionList::Injected(servers)
+            }
+            CompanionInjection::Unsupported { code } => {
+                CompanionInjectionList::Unsupported { code }
+            }
+        }
+    }
 
     fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
         Vec::new()

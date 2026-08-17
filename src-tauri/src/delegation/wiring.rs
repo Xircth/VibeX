@@ -83,13 +83,6 @@ pub(crate) fn build_delegation(
         crate::delegation::inject::VibexDelegationInjector {
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
-            features: crate::delegation::inject::CompanionFeatureFlags {
-                delegation: true,
-                feedback: true,
-                ask: true,
-                session_info: true,
-                session_control: true,
-            },
             official_mcp,
         },
     ));

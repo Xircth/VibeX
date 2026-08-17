@@ -68,6 +68,12 @@ function codexTransport(): BackendTransport {
           },
         };
       }
+      if (command === 'plugin_control_catalog') {
+        return {
+          plugins: [{ id: 'vibex.multi-agent', enabled: true }],
+          runtimes: [],
+        };
+      }
       return null;
     }),
   };
@@ -101,6 +107,12 @@ describe('AgentMention', () => {
             active_binding: {
               capabilities: { mcp_servers: true },
             },
+          };
+        }
+        if (command === 'plugin_control_catalog') {
+          return {
+            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
+            runtimes: [],
           };
         }
         throw new Error(`Unexpected command: ${command}`);

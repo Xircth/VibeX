@@ -371,6 +371,12 @@ impl AppState {
             conversation_context,
             plugin_control_plane.official_product_mcp_gate(),
         );
+        crate::commands::plugin_control::refresh_official_product_runtime(
+            &plugin_control_plane,
+            &delegation.broker,
+        )
+        .await
+        .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error.to_string())))?;
         Ok(Self {
             app_handle,
             local_deployment,

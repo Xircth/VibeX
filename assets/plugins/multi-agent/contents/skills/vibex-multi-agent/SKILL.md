@@ -1,9 +1,9 @@
 ---
-name: vibex-collaboration
+name: vibex-multi-agent
 description: 通过 VibeX 委派工具把工作交给被 `&Agent` mention 的其它 Agent。
 ---
 
-# VibeX Collaboration
+# 多智能体协同
 
 当用户用 `[&Codex](vibex://agent/codex)` 这类结构化 mention 点名其它 Agent 时，调用 `delegate_to_agent`。Mention 本身不是已经开始的子任务。
 

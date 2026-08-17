@@ -457,6 +457,74 @@ pub async fn plugin_control_catalog(
     Ok(PluginControlCatalogDto { plugins, runtimes })
 }
 
+pub(crate) async fn refresh_official_product_runtime(
+    plane: &plugins::PluginControlPlane,
+    broker: &delegation::DelegationBroker,
+) -> Result<(), AppError> {
+    plane
+        .sync_official_product_mcp_gate()
+        .await
+        .map_err(plugin_error)?;
+    let gate = plane.official_product_mcp_gate();
+
+    if let Some(plugin) = plane
+        .plugin(plugins::SESSION_ENHANCE_PLUGIN_ID)
+        .await
+        .map_err(plugin_error)?
+        && let Ok(detail) = plugin.product_detail()
+    {
+        gate.set_session_features(session_enhance_feature_bits(&detail.config));
+    }
+
+    let mut config = broker.config_snapshot();
+    config.enabled = gate.allow_delegation_mcp();
+    if let Some(plugin) = plane
+        .plugin(plugins::MULTI_AGENT_PLUGIN_ID)
+        .await
+        .map_err(plugin_error)?
+        && let Ok(detail) = plugin.product_detail()
+    {
+        if let Some(depth) = detail
+            .config
+            .get("depthLimit")
+            .and_then(serde_json::Value::as_u64)
+        {
+            config.depth_limit = depth as u32;
+        }
+    }
+    broker.set_config(config);
+    Ok(())
+}
+
+fn session_enhance_feature_bits(config: &serde_json::Value) -> u8 {
+    let mut bits = 0;
+    if config.get("feedback").and_then(serde_json::Value::as_bool) != Some(false) {
+        bits |= plugins::SESSION_FEAT_FEEDBACK;
+    }
+    if config.get("question").and_then(serde_json::Value::as_bool) != Some(false) {
+        bits |= plugins::SESSION_FEAT_ASK;
+    }
+    if config
+        .get("sessionInfo")
+        .and_then(serde_json::Value::as_bool)
+        != Some(false)
+    {
+        bits |= plugins::SESSION_FEAT_SESSIONS;
+    }
+    if config
+        .get("sessionControl")
+        .and_then(serde_json::Value::as_bool)
+        != Some(false)
+    {
+        bits |= plugins::SESSION_FEAT_SESSION_CONTROL;
+    }
+    bits
+}
+
+async fn apply_official_product_runtime(state: &AppState) -> Result<(), AppError> {
+    refresh_official_product_runtime(&state.plugin_control_plane, &state.delegation.broker).await
+}
+
 #[tauri::command]
 pub async fn plugin_product_detail(
     state: State<'_, AppState>,
@@ -484,6 +552,7 @@ pub async fn plugin_save_config(
         .map_err(plugin_error)?
         .ok_or_else(|| AppError::NotFound(format!("plugin {plugin_id}")))?;
     plugin.write_config(config).map_err(plugin_error)?;
+    apply_official_product_runtime(&state).await?;
     let refreshed = plugins::PluginPackage::inspect(&plugin.source.path, plugin.source.kind)
         .map_err(plugin_error)?;
     product_detail_dto(refreshed.product_detail().map_err(plugin_error)?)
@@ -1289,6 +1358,7 @@ pub async fn plugin_control_set_enabled(
             .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?;
         plugin
     };
+    apply_official_product_runtime(&state).await?;
     Ok(plugin_dto(plugin))
 }
 

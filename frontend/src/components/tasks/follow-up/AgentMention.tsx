@@ -35,6 +35,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function pluginEnabled(catalog: unknown, pluginId: string): boolean {
+  if (!isRecord(catalog) || !Array.isArray(catalog.plugins)) return false;
+  return catalog.plugins.some(
+    (plugin) =>
+      isRecord(plugin) && plugin.id === pluginId && plugin.enabled === true
+  );
+}
+
 function readCandidates(value: unknown): AgentMentionCandidate[] {
   if (!Array.isArray(value)) return [];
 
@@ -89,24 +97,37 @@ export function AgentMentionProvider({
         if (active) setLoading(false);
       });
 
-    if (conversationId) {
-      void transport
-        .call('conversation_detail', { sessionId: conversationId })
-        .then((detail) => {
-          if (!active || !isRecord(detail)) return;
-          const binding = detail.active_binding;
-          if (!isRecord(binding) || !isRecord(binding.capabilities)) return;
-          const supportsCompanion = binding.capabilities.mcp_servers;
-          if (typeof supportsCompanion === 'boolean') {
-            setCapability(supportsCompanion ? 'supported' : 'unsupported');
-          }
-        })
-        .catch(() => {
-          if (active) setCapability('unknown');
-        });
-    } else {
-      setCapability('unknown');
-    }
+    void Promise.all([
+      conversationId
+        ? transport.call('conversation_detail', { sessionId: conversationId })
+        : Promise.resolve(null),
+      transport.call('plugin_control_catalog'),
+    ])
+      .then(([detail, catalog]) => {
+        if (!active) return;
+        const pluginOn = pluginEnabled(catalog, 'vibex.multi-agent');
+        if (!pluginOn) {
+          setCapability('unsupported');
+          return;
+        }
+        if (!conversationId) {
+          setCapability('unsupported');
+          return;
+        }
+        if (!isRecord(detail)) {
+          setCapability('unsupported');
+          return;
+        }
+        const binding = detail.active_binding;
+        const injected =
+          isRecord(binding) &&
+          isRecord(binding.capabilities) &&
+          binding.capabilities.mcp_servers === true;
+        setCapability(injected ? 'supported' : 'unsupported');
+      })
+      .catch(() => {
+        if (active) setCapability('unsupported');
+      });
 
     return () => {
       active = false;

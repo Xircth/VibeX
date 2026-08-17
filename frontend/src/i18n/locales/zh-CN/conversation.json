@@ -189,6 +189,10 @@
     "unreadableEventTitle": "部分会话记录无法显示",
     "unreadableEventDescription": "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。"
   },
+  "liveFeedback": {
+    "placeholder": "给这一回合纠偏",
+    "send": "发送"
+  },
   "feedbackCheck": {
     "label": "反馈",
     "checkItems": "检查项",

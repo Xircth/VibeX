@@ -1,102 +1,88 @@
 //! Concrete `DelegationInjector`: mints a per-launch token, registers it, and
-//! returns the `vibex-mcp` companion entry plus global remote MCP entries to
-//! splice into a capable ACP parent's `session/new`. Lives here (not in `agents`)
-//! so it can touch the token
-//! registry + locate the companion binary.
+//! returns the official product MCP entries plus global remote MCP entries to
+//! splice into a capable ACP parent's `session/new`.
 
 use std::{path::PathBuf, sync::Arc};
 
 use agents::{
-    CompanionInjection, CompanionInjectionContext, DelegationInjector, InjectedMcpServer,
-    InjectedRemoteMcpServer, InjectedRemoteMcpTransport,
+    CompanionInjection, CompanionInjectionContext, CompanionInjectionList, DelegationInjector,
+    InjectedMcpServer, InjectedRemoteMcpServer, InjectedRemoteMcpTransport,
 };
 use delegation::{TokenEntry, TokenPermissions, TokenRegistry};
+use plugins::{
+    SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
+};
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub(crate) struct VibexDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
-    pub features: CompanionFeatureFlags,
     pub official_mcp: Arc<plugins::OfficialProductMcpGate>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CompanionFeatureFlags {
-    pub delegation: bool,
-    pub feedback: bool,
-    pub ask: bool,
-    pub session_info: bool,
-    pub session_control: bool,
-}
-
-impl CompanionFeatureFlags {
-    fn any(self) -> bool {
-        self.delegation || self.feedback || self.ask || self.session_info || self.session_control
-    }
-
-    fn launch_arg(self) -> String {
-        [
-            (self.delegation, "delegation"),
-            (self.feedback, "feedback"),
-            (self.ask, "ask"),
-            (self.session_info, "sessions"),
-            (self.session_control, "session-control"),
-        ]
-        .into_iter()
-        .filter_map(|(enabled, name)| enabled.then_some(name))
-        .collect::<Vec<_>>()
-        .join(",")
-    }
 }
 
 impl DelegationInjector for VibexDelegationInjector {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection {
-        if !self.features.any() {
-            return CompanionInjection::Unsupported {
+        match self.injected_stdio_servers(context) {
+            CompanionInjectionList::Injected(mut servers) if !servers.is_empty() => {
+                CompanionInjection::Injected(servers.remove(0))
+            }
+            CompanionInjectionList::Injected(_) => CompanionInjection::Unsupported {
                 code: "companion_features_disabled",
-            };
+            },
+            CompanionInjectionList::Unsupported { code } => {
+                CompanionInjection::Unsupported { code }
+            }
         }
-        if !self.official_mcp.allow_vibex_mcp() {
-            return CompanionInjection::Unsupported {
-                code: "official_product_mcp_disabled",
-            };
-        }
+    }
+
+    fn injected_stdio_servers(
+        &self,
+        context: CompanionInjectionContext<'_>,
+    ) -> CompanionInjectionList {
         if !context.capabilities.accepts_session_mcp_servers {
-            return CompanionInjection::Unsupported {
+            return CompanionInjectionList::Unsupported {
                 code: "delegation_parent_unsupported",
             };
         }
-        let token = Uuid::new_v4().to_string();
-        self.tokens.register_with_permissions(
-            token.clone(),
-            TokenEntry {
-                parent_connection_id: context.parent_connection_id.to_string(),
-                parent_conversation_id: context.parent_conversation_id,
-                working_root: context.working_root.to_path_buf(),
-            },
-            TokenPermissions {
-                delegation: self.features.delegation,
-                feedback: self.features.feedback,
-                ask: self.features.ask,
-                session_info: self.features.session_info,
-                session_control: self.features.session_control,
-            },
-        );
-        CompanionInjection::Injected(InjectedMcpServer {
-            name: "vibex-mcp".to_string(),
-            command: locate_vibex_mcp_binary(),
-            args: vec![
-                "--parent-connection-id".to_string(),
-                context.parent_connection_id.to_string(),
-                "--socket-path".to_string(),
-                self.socket_path.to_string_lossy().to_string(),
-                "--token".to_string(),
-                token,
-                "--features".to_string(),
-                self.features.launch_arg(),
-            ],
-        })
+
+        let mut servers = Vec::new();
+        if self.official_mcp.allow_delegation_mcp() {
+            servers.push(self.product_server(
+                context,
+                "vibex-delegation-mcp",
+                "delegation",
+                TokenPermissions {
+                    delegation: true,
+                    ..TokenPermissions::default()
+                },
+            ));
+        }
+        if self.official_mcp.allow_session_mcp() {
+            let bits = self.official_mcp.session_features();
+            let features = session_feature_arg(bits);
+            if !features.is_empty() {
+                servers.push(self.product_server(
+                    context,
+                    "vibex-session-mcp",
+                    &features,
+                    TokenPermissions {
+                        feedback: bits & SESSION_FEAT_FEEDBACK != 0,
+                        ask: bits & SESSION_FEAT_ASK != 0,
+                        session_info: bits & SESSION_FEAT_SESSIONS != 0,
+                        session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
+                        ..TokenPermissions::default()
+                    },
+                ));
+            }
+        }
+
+        if servers.is_empty() {
+            return CompanionInjectionList::Unsupported {
+                code: "official_product_mcp_disabled",
+            };
+        }
+        CompanionInjectionList::Injected(servers)
     }
 
     fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
@@ -148,10 +134,54 @@ impl DelegationInjector for VibexDelegationInjector {
     }
 }
 
-/// Locate the companion: `VIBEX_MCP_BIN` env → sibling of the running exe →
-/// bare name (resolved via PATH by the agent when it spawns the server). In dev
-/// the companion and the app exe both sit in `target/debug`, so the sibling
-/// lookup finds it.
+impl VibexDelegationInjector {
+    fn product_server(
+        &self,
+        context: CompanionInjectionContext<'_>,
+        name: &str,
+        features: &str,
+        permissions: TokenPermissions,
+    ) -> InjectedMcpServer {
+        let token = Uuid::new_v4().to_string();
+        self.tokens.register_with_permissions(
+            token.clone(),
+            TokenEntry {
+                parent_connection_id: context.parent_connection_id.to_string(),
+                parent_conversation_id: context.parent_conversation_id,
+                working_root: context.working_root.to_path_buf(),
+            },
+            permissions,
+        );
+        InjectedMcpServer {
+            name: name.to_string(),
+            command: locate_vibex_mcp_binary(),
+            args: vec![
+                "--parent-connection-id".to_string(),
+                context.parent_connection_id.to_string(),
+                "--socket-path".to_string(),
+                self.socket_path.to_string_lossy().to_string(),
+                "--token".to_string(),
+                token,
+                "--features".to_string(),
+                features.to_string(),
+            ],
+        }
+    }
+}
+
+fn session_feature_arg(bits: u8) -> String {
+    [
+        (bits & SESSION_FEAT_FEEDBACK != 0, "feedback"),
+        (bits & SESSION_FEAT_ASK != 0, "ask"),
+        (bits & SESSION_FEAT_SESSIONS != 0, "sessions"),
+        (bits & SESSION_FEAT_SESSION_CONTROL != 0, "session-control"),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, name)| enabled.then_some(name))
+    .collect::<Vec<_>>()
+    .join(",")
+}
+
 fn locate_vibex_mcp_binary() -> PathBuf {
     if let Ok(path) = std::env::var("VIBEX_MCP_BIN") {
         let candidate = PathBuf::from(path);
@@ -184,120 +214,114 @@ mod tests {
     use std::path::Path;
 
     use agents::{
-        AgentId, CompanionCapabilities, CompanionInjection, CompanionInjectionContext,
+        AgentId, CompanionCapabilities, CompanionInjectionContext, CompanionInjectionList,
         DelegationInjector,
+    };
+    use plugins::{
+        MULTI_AGENT_PLUGIN_ID, OfficialProductMcpGate, PluginActivation, SESSION_ENHANCE_PLUGIN_ID,
+        SESSION_FEAT_ASK,
     };
 
     use super::*;
 
-    fn enabled_gate() -> Arc<plugins::OfficialProductMcpGate> {
-        let gate = Arc::new(plugins::OfficialProductMcpGate::default());
-        gate.observe(
-            plugins::COLLABORATION_PLUGIN_ID,
-            plugins::PluginActivation::Enabled,
-        );
+    fn gate(ids: &[&str]) -> Arc<OfficialProductMcpGate> {
+        let gate = Arc::new(OfficialProductMcpGate::default());
+        for id in ids {
+            gate.observe(id, PluginActivation::Enabled);
+        }
         gate
     }
 
+    fn context<'a>(agent: &'a AgentId, accepts: bool) -> CompanionInjectionContext<'a> {
+        CompanionInjectionContext {
+            parent_connection_id: "parent-1",
+            parent_conversation_id: Uuid::new_v4(),
+            agent_id: agent,
+            working_root: Path::new("/workspace"),
+            capabilities: CompanionCapabilities {
+                accepts_session_mcp_servers: accepts,
+            },
+        }
+    }
+
     #[test]
-    fn companion_injection_follows_capability() {
+    fn injects_two_named_servers_when_both_plugins_are_on() {
         let tokens = Arc::new(TokenRegistry::new());
         let injector = VibexDelegationInjector {
-            tokens: Arc::clone(&tokens),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            features: CompanionFeatureFlags {
-                delegation: true,
-                feedback: false,
-                ask: false,
-                session_info: false,
-                session_control: false,
-            },
-            official_mcp: enabled_gate(),
-        };
-        let conversation_id = Uuid::new_v4();
-        let supported_agent = AgentId::parse("vendor.capable-agent").unwrap();
-
-        let supported = injector.companion(CompanionInjectionContext {
-            parent_connection_id: "parent-1",
-            parent_conversation_id: conversation_id,
-            agent_id: &supported_agent,
-            working_root: Path::new("/workspace"),
-            capabilities: CompanionCapabilities {
-                accepts_session_mcp_servers: true,
-            },
-        });
-        assert!(matches!(supported, CompanionInjection::Injected(_)));
-
-        let unsupported_agent = AgentId::parse("claude_code").unwrap();
-        let unsupported = injector.companion(CompanionInjectionContext {
-            parent_connection_id: "parent-2",
-            parent_conversation_id: Uuid::new_v4(),
-            agent_id: &unsupported_agent,
-            working_root: Path::new("/workspace"),
-            capabilities: CompanionCapabilities {
-                accepts_session_mcp_servers: false,
-            },
-        });
-        assert_eq!(
-            unsupported,
-            CompanionInjection::Unsupported {
-                code: "delegation_parent_unsupported"
-            }
-        );
-
-        let disabled = VibexDelegationInjector {
-            tokens: Arc::clone(&tokens),
-            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            features: CompanionFeatureFlags {
-                delegation: false,
-                feedback: false,
-                ask: false,
-                session_info: false,
-                session_control: false,
-            },
-            official_mcp: enabled_gate(),
-        }
-        .companion(CompanionInjectionContext {
-            parent_connection_id: "parent-3",
-            parent_conversation_id: Uuid::new_v4(),
-            agent_id: &supported_agent,
-            working_root: Path::new("/workspace"),
-            capabilities: CompanionCapabilities {
-                accepts_session_mcp_servers: true,
-            },
-        });
-        assert_eq!(
-            disabled,
-            CompanionInjection::Unsupported {
-                code: "companion_features_disabled"
-            }
-        );
-
-        let gated = VibexDelegationInjector {
             tokens,
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            features: CompanionFeatureFlags {
-                delegation: true,
-                feedback: false,
-                ask: false,
-                session_info: false,
-                session_control: false,
-            },
-            official_mcp: Arc::new(plugins::OfficialProductMcpGate::default()),
-        }
-        .companion(CompanionInjectionContext {
-            parent_connection_id: "parent-4",
-            parent_conversation_id: Uuid::new_v4(),
-            agent_id: &supported_agent,
-            working_root: Path::new("/workspace"),
-            capabilities: CompanionCapabilities {
-                accepts_session_mcp_servers: true,
-            },
-        });
+            official_mcp: gate(&[MULTI_AGENT_PLUGIN_ID, SESSION_ENHANCE_PLUGIN_ID]),
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected injection");
+        };
+        let names: Vec<_> = servers.iter().map(|server| server.name.as_str()).collect();
+        assert_eq!(names, ["vibex-delegation-mcp", "vibex-session-mcp"]);
+        assert!(
+            servers[0]
+                .args
+                .windows(2)
+                .any(|window| window == ["--features", "delegation"])
+        );
+    }
+
+    #[test]
+    fn session_plugin_can_inject_without_delegation() {
+        let tokens = Arc::new(TokenRegistry::new());
+        let official_mcp = gate(&[SESSION_ENHANCE_PLUGIN_ID]);
+        official_mcp.set_session_features(SESSION_FEAT_ASK);
+        let injector = VibexDelegationInjector {
+            tokens,
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp,
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
+        let CompanionInjectionList::Injected(servers) =
+            injector.injected_stdio_servers(context(&agent, true))
+        else {
+            panic!("expected session injection");
+        };
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].name, "vibex-session-mcp");
+        assert!(
+            servers[0]
+                .args
+                .windows(2)
+                .any(|window| window == ["--features", "ask"])
+        );
+    }
+
+    #[test]
+    fn both_plugins_off_is_official_product_disabled() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: Arc::new(OfficialProductMcpGate::default()),
+        };
+        let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
-            gated,
-            CompanionInjection::Unsupported {
+            injector.injected_stdio_servers(context(&agent, true)),
+            CompanionInjectionList::Unsupported {
                 code: "official_product_mcp_disabled"
+            }
+        );
+    }
+
+    #[test]
+    fn parent_without_session_mcp_is_unsupported() {
+        let injector = VibexDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate(&[MULTI_AGENT_PLUGIN_ID]),
+        };
+        let agent = AgentId::parse("claude_code").unwrap();
+        assert_eq!(
+            injector.injected_stdio_servers(context(&agent, false)),
+            CompanionInjectionList::Unsupported {
+                code: "delegation_parent_unsupported"
             }
         );
     }

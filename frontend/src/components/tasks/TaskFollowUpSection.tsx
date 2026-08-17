@@ -47,6 +47,7 @@ import {
 } from './follow-up/SessionComposerInput';
 import { SessionComposerFrame } from './follow-up/SessionComposerFrame';
 import { AgentMentionProvider } from './follow-up/AgentMention';
+import { LiveFeedbackBar } from './follow-up/LiveFeedbackBar';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
 import {
   clearComposerImageAttachments,
@@ -905,6 +906,10 @@ export function TaskFollowUpSection({
               onRenameSession={handleRenameSession}
             />
           )}
+          <LiveFeedbackBar
+            conversationId={sessionId}
+            visible={isComposerExecutionRunning}
+          />
           <AgentMentionProvider
             transport={configuredBackendTransport}
             conversationId={sessionId}

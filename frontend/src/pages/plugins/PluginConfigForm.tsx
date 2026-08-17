@@ -94,6 +94,10 @@ export function PluginConfigForm({
             </span>
           );
 
+          if (schema.type === 'object') {
+            return null;
+          }
+
           if (schema.type === 'boolean') {
             return (
               <div key={key} className="product-plugin-config-row">

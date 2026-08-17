@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  "manifestVersion": 4,
+  "apiVersion": "1.0",
+  "id": "vibex.multi-agent",
+  "publisher": "vibex",
+  "version": "1.0.0",
+  "name": "多智能体协同",
+  "readme": "README.md",
+  "engines": { "vibex": ">=0.1.3 <1.0.0", "pluginSdk": "^1.0.0" },
+  "content": {
+    "root": "contents",
+    "index": ".vibex-plugin/content.index.json"
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "depthLimit": {
+          "title": "最大委托深度",
+          "description": "限制委托链（根 → 子 → 孙）的最大递归深度。",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 1
+        },
+        "completedCacheMaxMb": {
+          "title": "已完成结果缓存（MB）",
+          "description": "运行中委托会话已完成子智能体结果的内存缓存。0 表示不限，会话结束后仍会清除。",
+          "type": "integer",
+          "minimum": 0,
+          "default": 512
+        },
+        "agentDefaults": {
+          "title": "子智能体配置",
+          "description": "仅作用于委托拉起的新子会话，不是全局新会话默认。",
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        }
+      }
+    }
+  },
+  "integrations": [
+    {
+      "id": "vibex-multi-agent",
+      "kind": "content.skill",
+      "resource": "contents/skills/vibex-multi-agent",
+      "targets": ["codex", "claude-code", "acp"]
+    }
+  ],
+  "interface": { "icon": "assets/icon.svg" }
+}

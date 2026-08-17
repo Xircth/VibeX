@@ -1,0 +1,5 @@
+{
+  "depthLimit": 1,
+  "completedCacheMaxMb": 512,
+  "agentDefaults": {}
+}

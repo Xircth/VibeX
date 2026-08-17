@@ -632,6 +632,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::conversations::conversation_timeline_page,
         commands::conversations::conversation_respond_permission,
         commands::conversations::conversation_respond_question,
+        commands::conversations::conversation_submit_feedback,
         commands::conversations::conversation_set_session_mode,
         commands::conversations::conversation_set_session_config_option,
         commands::conversations::conversation_cancel_turn,

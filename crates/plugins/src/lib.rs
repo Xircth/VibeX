@@ -47,7 +47,9 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_mcp::{
-    COLLABORATION_PLUGIN_ID, OfficialProductMcpGate, WORKFLOW_CREATOR_PLUGIN_ID,
+    COLLABORATION_PLUGIN_ID, MULTI_AGENT_PLUGIN_ID, OfficialProductMcpGate,
+    SESSION_ENHANCE_PLUGIN_ID, SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK,
+    SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, WORKFLOW_CREATOR_PLUGIN_ID,
 };
 pub use package::{
     AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,

@@ -262,10 +262,7 @@ async fn inbound_targets() -> Result<Vec<InboundTarget>, String> {
                 targets.push(InboundTarget {
                     channel_id: channel.id,
                     kind: "weixin".into(),
-                    signature: format!(
-                        "wx:{}:{token}",
-                        config_str(&channel.config, "base_url")
-                    ),
+                    signature: format!("wx:{}:{token}", config_str(&channel.config, "base_url")),
                     token,
                     config: channel.config,
                 });
@@ -944,7 +941,9 @@ async fn telegram_send_reply(
         payload["reply_markup"] = json!({ "inline_keyboard": rows });
     }
     let _ = client
-        .post(format!("https://api.telegram.org/bot{bot_token}/sendMessage"))
+        .post(format!(
+            "https://api.telegram.org/bot{bot_token}/sendMessage"
+        ))
         .json(&payload)
         .send()
         .await;
@@ -999,19 +998,17 @@ async fn handle_telegram_callback(
 fn help_text(prefix: &str) -> String {
     format!(
         "VibeX Host commands:\n\
-         {prefix} folder [n]\n\
+         {prefix} folder [n|name]\n\
          {prefix} agent [n|id]\n\
          {prefix} task <text>\n\
          {prefix} sessions\n\
-         {prefix} use <n>\n\
-         {prefix} resume <n>\n\
+         {prefix} resume [n|id]\n\
          {prefix} cancel\n\
          {prefix} approve [always]\n\
          {prefix} deny\n\
          {prefix} search <keyword>\n\
          {prefix} today\n\
          {prefix} status\n\
-         {prefix} ping\n\
          {prefix} help"
     )
 }
@@ -1202,18 +1199,41 @@ struct ConversationRow {
     agent_type: Option<String>,
 }
 
-async fn recent_conversations(pool: &SqlitePool) -> Result<Vec<ConversationRow>, sqlx::Error> {
-    sqlx::query_as::<_, ConversationRow>(
-        r#"SELECT s.id, s.workspace_id, s.name AS title, COALESCE(s.agent_id, b.agent_type) AS agent_type
+const CONVERSATION_SELECT: &str = r#"SELECT s.id, s.workspace_id, s.name AS title, COALESCE(s.agent_id, b.agent_type) AS agent_type
            FROM sessions s
            LEFT JOIN conversation_agent_bindings b
              ON b.conversation_id = s.id
-           WHERE s.deleted_at IS NULL
+           WHERE s.deleted_at IS NULL"#;
+
+async fn recent_conversations(pool: &SqlitePool) -> Result<Vec<ConversationRow>, sqlx::Error> {
+    sqlx::query_as::<_, ConversationRow>(&format!(
+        "{CONVERSATION_SELECT}
            ORDER BY s.updated_at DESC, s.created_at DESC
-           LIMIT 10"#,
-    )
+           LIMIT 10"
+    ))
     .fetch_all(pool)
     .await
+}
+
+fn resolve_conversation<'a>(
+    rows: &'a [ConversationRow],
+    args: &str,
+) -> Result<Option<&'a ConversationRow>, usize> {
+    let needle = args.trim();
+    if needle.is_empty() {
+        return Ok(None);
+    }
+    if let Ok(index) = needle.parse::<usize>() {
+        return rows
+            .get(index.saturating_sub(1))
+            .map(Some)
+            .ok_or(rows.len());
+    }
+    let lowered = needle.to_lowercase();
+    Ok(rows.iter().find(|row| {
+        let id = row.id.to_string();
+        id.eq_ignore_ascii_case(needle) || id.to_lowercase().starts_with(&lowered)
+    }))
 }
 
 async fn select_conversation(
@@ -1223,14 +1243,51 @@ async fn select_conversation(
     args: &str,
     prefix: &str,
 ) -> String {
-    let Ok(index) = args.trim().parse::<usize>() else {
-        return format!("usage: {prefix} use <n>");
-    };
     let Ok(rows) = recent_conversations(pool).await else {
         return "failed to list conversations".to_string();
     };
-    let Some(row) = rows.get(index.saturating_sub(1)) else {
-        return format!("index out of range; {} conversations", rows.len());
+    if args.trim().is_empty() {
+        return if rows.is_empty() {
+            "No conversations on this Host.".to_string()
+        } else {
+            format!(
+                "{}\nusage: {prefix} resume [n|id]",
+                format_conversation_list(&rows)
+            )
+        };
+    }
+    let row = match resolve_conversation(&rows, args) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            if let Ok(id) = Uuid::parse_str(args.trim()) {
+                match sqlx::query_as::<_, ConversationRow>(&format!(
+                    "{CONVERSATION_SELECT} AND s.id = ?"
+                ))
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                {
+                    Ok(Some(found)) => {
+                        if let Ok(mut bridge) = session_bridge().lock() {
+                            bridge.insert(
+                                (channel_id.to_string(), sender_id.to_string()),
+                                found.id.to_string(),
+                            );
+                        }
+                        return format!(
+                            "selected {} · {}",
+                            found.title.clone().unwrap_or_else(|| "untitled".into()),
+                            &found.id.to_string()[..8]
+                        );
+                    }
+                    _ => return "conversation not found".to_string(),
+                }
+            }
+            return format!("usage: {prefix} resume [n|id]");
+        }
+        Err(count) => {
+            return format!("index out of range; {count} conversations");
+        }
     };
     if let Ok(mut bridge) = session_bridge().lock() {
         bridge.insert(
@@ -1259,16 +1316,13 @@ async fn channel_status_text() -> String {
         .channels
         .into_iter()
         .map(|channel| {
-            let state = states
-                .get(&channel.id)
-                .cloned()
-                .unwrap_or_else(|| {
-                    if channel.enabled {
-                        "disconnected".into()
-                    } else {
-                        "disabled".into()
-                    }
-                });
+            let state = states.get(&channel.id).cloned().unwrap_or_else(|| {
+                if channel.enabled {
+                    "disconnected".into()
+                } else {
+                    "disabled".into()
+                }
+            });
             format!("• {} [{}] {state}", channel.id, channel.kind)
         })
         .collect::<Vec<_>>()
@@ -1276,46 +1330,51 @@ async fn channel_status_text() -> String {
 }
 
 async fn search_conversations(pool: &SqlitePool, args: &str, prefix: &str) -> String {
-    if args.trim().is_empty() {
+    let keyword = args.trim();
+    if keyword.is_empty() {
         return format!("usage: {prefix} search <keyword>");
     }
-    match recent_conversations(pool).await {
-        Ok(rows) => {
-            let keyword = args.to_lowercase();
-            let matched = rows
-                .into_iter()
-                .filter(|row| {
-                    row.title
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&keyword)
-                })
-                .collect::<Vec<_>>();
-            if matched.is_empty() {
-                format!("No conversations matching `{args}`.")
-            } else {
-                format_conversation_list(&matched)
-            }
+    let pattern = format!("%{keyword}%");
+    match sqlx::query_as::<_, ConversationRow>(&format!(
+        "{CONVERSATION_SELECT}
+           AND (s.name LIKE ? OR CAST(s.id AS TEXT) LIKE ?)
+           ORDER BY s.updated_at DESC, s.created_at DESC
+           LIMIT 10"
+    ))
+    .bind(&pattern)
+    .bind(&pattern)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(matched) if matched.is_empty() => {
+            format!("No conversations matching `{keyword}`.")
         }
+        Ok(matched) => format_conversation_list(&matched),
         Err(error) => format!("search failed: {error}"),
     }
 }
 
 async fn today_conversations(pool: &SqlitePool) -> String {
-    match recent_conversations(pool).await {
-        Ok(rows) => {
-            let today = chrono::Utc::now().date_naive();
-            let count = rows.len();
-            format!("Recent conversations on this Host: {count} (today {today})")
-        }
+    match sqlx::query_as::<_, ConversationRow>(&format!(
+        "{CONVERSATION_SELECT}
+           AND date(s.created_at) = date('now')
+           ORDER BY s.created_at DESC
+           LIMIT 20"
+    ))
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) if rows.is_empty() => "No conversations created today.".to_string(),
+        Ok(rows) => format!(
+            "Today ({})\n{}",
+            chrono::Utc::now().date_naive(),
+            format_conversation_list(&rows)
+        ),
         Err(error) => format!("failed to list today: {error}"),
     }
 }
 
-async fn recent_projects(
-    pool: &SqlitePool,
-) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+async fn recent_projects(pool: &SqlitePool) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
     sqlx::query_as::<_, (Uuid, String)>(
         r#"SELECT id, name FROM projects ORDER BY updated_at DESC, created_at DESC LIMIT 10"#,
     )
@@ -1349,7 +1408,11 @@ async fn select_folder(
             .take(8)
             .map(|(index, (_, name))| {
                 let label = if name.chars().count() > 20 {
-                    format!("{}. {}…", index + 1, name.chars().take(18).collect::<String>())
+                    format!(
+                        "{}. {}…",
+                        index + 1,
+                        name.chars().take(18).collect::<String>()
+                    )
                 } else {
                     format!("{}. {name}", index + 1)
                 };
@@ -1367,10 +1430,7 @@ async fn select_folder(
     CommandReply::text(format!("selected project {}", project.1))
 }
 
-fn resolve_project<'a>(
-    projects: &'a [(Uuid, String)],
-    args: &str,
-) -> Option<&'a (Uuid, String)> {
+fn resolve_project<'a>(projects: &'a [(Uuid, String)], args: &str) -> Option<&'a (Uuid, String)> {
     if let Ok(index) = args.trim().parse::<usize>() {
         return projects.get(index.saturating_sub(1));
     }
@@ -1396,7 +1456,11 @@ async fn recent_agents(pool: &SqlitePool) -> Result<Vec<String>, sqlx::Error> {
     )
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().flatten().filter(|id| !id.is_empty()).collect())
+    Ok(rows
+        .into_iter()
+        .flatten()
+        .filter(|id| !id.is_empty())
+        .collect())
 }
 
 async fn select_agent(
@@ -1423,7 +1487,12 @@ async fn select_agent(
             .iter()
             .enumerate()
             .take(8)
-            .map(|(index, id)| (format!("{}. {id}", index + 1), format!("cb:a:{}", index + 1)))
+            .map(|(index, id)| {
+                (
+                    format!("{}. {id}", index + 1),
+                    format!("cb:a:{}", index + 1),
+                )
+            })
             .collect();
         return CommandReply::text(text).with_buttons(buttons);
     }
@@ -1443,7 +1512,10 @@ async fn select_agent(
         return CommandReply::text(format!("invalid agent id: {agent_id}"));
     }
     if let Ok(mut bridge) = agent_bridge().lock() {
-        bridge.insert((channel_id.to_string(), sender_id.to_string()), agent_id.clone());
+        bridge.insert(
+            (channel_id.to_string(), sender_id.to_string()),
+            agent_id.clone(),
+        );
     }
     CommandReply::text(format!("selected agent {agent_id}"))
 }
@@ -1482,16 +1554,15 @@ async fn send_task(
         .and_then(|id| rows.iter().find(|row| row.id == id))
         .or_else(|| (rows.len() == 1).then(|| rows.first()).flatten());
     let Some(target) = target else {
-        return format!("select a conversation with {prefix} use <n> or a project with {prefix} folder <n>");
+        return format!(
+            "select a conversation with {prefix} use <n> or a project with {prefix} folder <n>"
+        );
     };
-    let selected_agent = agent_bridge()
-        .lock()
-        .ok()
-        .and_then(|bridge| {
-            bridge
-                .get(&(channel_id.to_string(), sender_id.to_string()))
-                .cloned()
-        });
+    let selected_agent = agent_bridge().lock().ok().and_then(|bridge| {
+        bridge
+            .get(&(channel_id.to_string(), sender_id.to_string()))
+            .cloned()
+    });
     let Some(agent_id) = selected_agent
         .as_deref()
         .or(target.agent_type.as_deref())
@@ -1507,8 +1578,7 @@ async fn send_task(
                 .get(&(channel_id.to_string(), sender_id.to_string()))
                 .copied()
         })
-        .map(|project_id| async move { latest_workspace_for_project(pool, project_id).await })
-        ;
+        .map(|project_id| async move { latest_workspace_for_project(pool, project_id).await });
     let workspace_id = if let Some(lookup) = workspace_id {
         match lookup.await {
             Ok(Some(id)) => id,
@@ -1559,7 +1629,10 @@ async fn respond_permission(
     else {
         return "failed to read permission requests".to_string();
     };
-    let Some(pending) = permissions.into_iter().find(|record| record.status == "pending") else {
+    let Some(pending) = permissions
+        .into_iter()
+        .find(|record| record.status == "pending")
+    else {
         return "No pending permission request.".to_string();
     };
     let options: Vec<agents::AgentPermissionOption> =
@@ -1591,7 +1664,10 @@ async fn cancel_turn(
     };
     let _ = pool;
     match ConversationSessionService::new(conversations.clone())
-        .cancel_turn(conversation_id, Some("Cancelled from chat channel".to_string()))
+        .cancel_turn(
+            conversation_id,
+            Some("Cancelled from chat channel".to_string()),
+        )
         .await
     {
         Ok(()) => "cancelled".to_string(),
@@ -1616,10 +1692,12 @@ mod tests {
     #[test]
     fn topic_mode_ignores_plain_text_in_general_topic() {
         let config = json!({ "topic_mode": true });
-        assert!(config
-            .get("topic_mode")
-            .and_then(Value::as_bool)
-            .unwrap_or(false));
+        assert!(
+            config
+                .get("topic_mode")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        );
     }
 
     #[test]
@@ -1669,10 +1747,45 @@ mod tests {
     fn help_lists_the_full_command_surface() {
         let help = help_text("/");
         for command in [
-            "folder", "agent", "task", "sessions", "approve", "deny", "cancel", "search", "today",
+            "folder [n|name]",
+            "agent [n|id]",
+            "task <text>",
+            "sessions",
+            "resume [n|id]",
+            "cancel",
+            "approve [always]",
+            "deny",
+            "search <keyword>",
+            "today",
+            "status",
+            "help",
         ] {
             assert!(help.contains(command), "{help} should list {command}");
         }
+        assert!(!help.contains("ping"), "{help} should not advertise ping");
+    }
+
+    #[test]
+    fn resolve_conversation_accepts_index_and_id_prefix() {
+        let id = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let rows = [ConversationRow {
+            id,
+            workspace_id: id,
+            title: Some("demo".into()),
+            agent_type: Some("claude-code".into()),
+        }];
+        assert_eq!(
+            resolve_conversation(&rows, "1").unwrap().map(|row| row.id),
+            Some(id)
+        );
+        assert_eq!(
+            resolve_conversation(&rows, "aaaaaaaa")
+                .unwrap()
+                .map(|row| row.id),
+            Some(id)
+        );
+        assert!(resolve_conversation(&rows, "2").is_err());
+        assert!(resolve_conversation(&rows, "zzzz").unwrap().is_none());
     }
 
     #[test]

@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BellRing,
   History,
   KeyRound,
   Loader2,
-  MessageSquare,
   Plus,
   Save,
   Search,
@@ -15,7 +13,6 @@ import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui/toast';
 
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -43,9 +40,21 @@ import {
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import type { ChatChannelMessageLog } from 'shared/types';
 
-import { SettingsPageHeader, SettingsSection } from './SettingsUi';
-
 type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+type ChatChannelTab = 'channels' | 'commands' | 'events';
+
+const TABS: Array<{
+  value: ChatChannelTab;
+  labelKey:
+    | 'chatChannels.tabChannels'
+    | 'chatChannels.tabCommands'
+    | 'chatChannels.tabEvents';
+}> = [
+  { value: 'channels', labelKey: 'chatChannels.tabChannels' },
+  { value: 'commands', labelKey: 'chatChannels.tabCommands' },
+  { value: 'events', labelKey: 'chatChannels.tabEvents' },
+];
 
 const CHANNEL_KINDS = [
   { value: 'telegram' },
@@ -56,20 +65,102 @@ const CHANNEL_KINDS = [
 ];
 
 const EVENT_OPTIONS = [
-  { value: 'prompt_started', labelKey: 'chatChannels.events.promptStarted' },
-  { value: 'prompt_finished', labelKey: 'chatChannels.events.promptFinished' },
+  {
+    value: 'prompt_started',
+    labelKey: 'chatChannels.events.promptStarted',
+    descriptionKey: 'chatChannels.events.promptStartedDescription',
+  },
+  {
+    value: 'prompt_finished',
+    labelKey: 'chatChannels.events.promptFinished',
+    descriptionKey: 'chatChannels.events.promptFinishedDescription',
+  },
   {
     value: 'permission_requested',
     labelKey: 'chatChannels.events.permissionRequested',
+    descriptionKey: 'chatChannels.events.permissionRequestedDescription',
   },
-  { value: 'error', labelKey: 'chatChannels.events.error' },
+  {
+    value: 'error',
+    labelKey: 'chatChannels.events.error',
+    descriptionKey: 'chatChannels.events.errorDescription',
+  },
   {
     value: 'connection_status_changed',
     labelKey: 'chatChannels.events.connectionStatusChanged',
+    descriptionKey: 'chatChannels.events.connectionStatusChangedDescription',
   },
-  { value: 'session_created', labelKey: 'chatChannels.events.sessionCreated' },
-  { value: 'turn_completed', labelKey: 'chatChannels.events.turnCompleted' },
-];
+  {
+    value: 'session_created',
+    labelKey: 'chatChannels.events.sessionCreated',
+    descriptionKey: 'chatChannels.events.sessionCreatedDescription',
+  },
+  {
+    value: 'turn_completed',
+    labelKey: 'chatChannels.events.turnCompleted',
+    descriptionKey: 'chatChannels.events.turnCompletedDescription',
+  },
+] as const;
+
+const COMMAND_CATALOG = [
+  { usage: 'folder [n|name]', descriptionKey: 'chatChannels.commands.folder' },
+  { usage: 'agent [n|id]', descriptionKey: 'chatChannels.commands.agent' },
+  { usage: 'task <text>', descriptionKey: 'chatChannels.commands.task' },
+  { usage: 'sessions', descriptionKey: 'chatChannels.commands.sessions' },
+  { usage: 'resume [n|id]', descriptionKey: 'chatChannels.commands.resume' },
+  { usage: 'cancel', descriptionKey: 'chatChannels.commands.cancel' },
+  {
+    usage: 'approve [always]',
+    descriptionKey: 'chatChannels.commands.approve',
+  },
+  { usage: 'deny', descriptionKey: 'chatChannels.commands.deny' },
+  {
+    usage: 'search <keyword>',
+    descriptionKey: 'chatChannels.commands.search',
+  },
+  { usage: 'today', descriptionKey: 'chatChannels.commands.today' },
+  { usage: 'status', descriptionKey: 'chatChannels.commands.status' },
+  { usage: 'help', descriptionKey: 'chatChannels.commands.help' },
+] as const;
+
+const WEBHOOK_PAYLOAD_EXAMPLES = [
+  {
+    event: 'prompt_started',
+    labelKey: 'chatChannels.events.promptStarted',
+    value: `{
+  "event": "prompt_started",
+  "body": "🚀 Turn started\\nThe agent started a turn.",
+  "source": "vibex"
+}`,
+  },
+  {
+    event: 'prompt_finished',
+    labelKey: 'chatChannels.events.promptFinished',
+    value: `{
+  "event": "prompt_finished",
+  "body": "✅ Turn complete\\nThe agent finished this turn.",
+  "source": "vibex"
+}`,
+  },
+  {
+    event: 'permission_requested',
+    labelKey: 'chatChannels.events.permissionRequested',
+    value: `{
+  "event": "permission_requested",
+  "body": "🔐 Permission request\\nThe agent is waiting for approval.",
+  "source": "vibex"
+}`,
+  },
+  {
+    event: 'error',
+    labelKey: 'chatChannels.events.error',
+    value: `{
+  "event": "error",
+  "body": "❌ Agent error\\nThe agent reported an error.",
+  "source": "vibex"
+}`,
+  },
+] as const;
 
 interface SecretMeta {
   label: string;
@@ -304,29 +395,13 @@ function errorMessage(error: unknown): string {
 
 export function ChatChannelSettings() {
   const { t } = useTranslation(['settings', 'common']);
-  const COMMANDS = [
-    'folder [n]',
-    'agent [n|id]',
-    'task <text>',
-    'sessions',
-    'use <n>',
-    'resume <n>',
-    'cancel',
-    'approve [always]',
-    'deny',
-    'search <keyword>',
-    'today',
-    'status',
-    'ping',
-    'help',
-  ] as const;
+  const [tab, setTab] = useState<ChatChannelTab>('channels');
 
   const [channels, setChannels] = useState<ChatChannel[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Create / edit dialog state.
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<ChatChannel | null>(
     null
@@ -334,7 +409,6 @@ export function ChatChannelSettings() {
   const [draft, setDraft] = useState<ChannelDraft>(() => emptyDraft());
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  // Delivery/audit log viewer (P2-7).
   const [logChannelId, setLogChannelId] = useState<string | null>(null);
   const [logs, setLogs] = useState<ChatChannelMessageLog[]>([]);
 
@@ -356,17 +430,15 @@ export function ChatChannelSettings() {
   const logChannelIdRef = useRef(logChannelId);
   logChannelIdRef.current = logChannelId;
 
-  // App-level notification settings.
   const [eventFilter, setEventFilter] = useState<string[]>([]);
   const [savedEventFilter, setSavedEventFilter] = useState<string[]>([]);
   const [prefix, setPrefix] = useState('/vibex');
   const [savedPrefix, setSavedPrefix] = useState('/vibex');
   const [includePromptText, setIncludePromptText] = useState(false);
-  const [savingEvents, setSavingEvents] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
-  const [webhooks, setWebhooks] = useState<Array<{ url: string; enabled: boolean }>>(
-    []
-  );
+  const [webhooks, setWebhooks] = useState<
+    Array<{ url: string; enabled: boolean }>
+  >([]);
   const [webhookDraft, setWebhookDraft] = useState('');
   const [messageLanguage, setMessageLanguage] = useState('en');
   const [weixinQrOpen, setWeixinQrOpen] = useState(false);
@@ -387,16 +459,23 @@ export function ChatChannelSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelList, channelStatuses, filter, commandPrefix, promptText, hooks, language] =
-        await Promise.all([
-          chatChannelApi.list(),
-          chatChannelApi.statuses().catch(() => []),
-          chatChannelApi.getEventFilter(),
-          chatChannelApi.getCommandPrefix(),
-          chatChannelApi.getIncludePromptText(),
-          chatChannelApi.getWebhooks().catch(() => []),
-          chatChannelApi.getLanguage().catch(() => 'en'),
-        ]);
+      const [
+        channelList,
+        channelStatuses,
+        filter,
+        commandPrefix,
+        promptText,
+        hooks,
+        language,
+      ] = await Promise.all([
+        chatChannelApi.list(),
+        chatChannelApi.statuses().catch(() => []),
+        chatChannelApi.getEventFilter(),
+        chatChannelApi.getCommandPrefix(),
+        chatChannelApi.getIncludePromptText(),
+        chatChannelApi.getWebhooks().catch(() => []),
+        chatChannelApi.getLanguage().catch(() => 'en'),
+      ]);
       setChannels(channelList);
       setStatuses(
         Object.fromEntries(
@@ -424,7 +503,12 @@ export function ChatChannelSettings() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!weixinQrOpen || !weixinQrId || !editingChannel || weixinQrStatus !== 'waiting') {
+    if (
+      !weixinQrOpen ||
+      !weixinQrId ||
+      !editingChannel ||
+      weixinQrStatus !== 'waiting'
+    ) {
       return;
     }
     const timer = window.setInterval(() => {
@@ -588,30 +672,28 @@ export function ChatChannelSettings() {
     }
   };
 
-  const toggleEvent = (eventName: string, checked: boolean) => {
-    setEventFilter((previous) =>
-      checked
-        ? [...new Set([...previous, eventName])]
-        : previous.filter((item) => item !== eventName)
-    );
-  };
-
-  const saveEventFilter = async () => {
-    setSavingEvents(true);
+  const persistEventFilter = async (next: string[]) => {
+    const previous = eventFilter;
+    setEventFilter(next);
     try {
       const saved = await chatChannelApi.setEventFilter({
-        enabled_events: eventFilter,
+        enabled_events: next,
       });
       setEventFilter(saved.enabled_events);
       setSavedEventFilter(saved.enabled_events);
-      toast.success(t('chatChannels.eventFilterSaved'));
     } catch (error) {
+      setEventFilter(previous);
       toast.error(t('chatChannels.eventFilterSaveFailed'), {
         description: errorMessage(error),
       });
-    } finally {
-      setSavingEvents(false);
     }
+  };
+
+  const toggleEvent = (eventName: string, checked: boolean) => {
+    const next = checked
+      ? [...new Set([...eventFilter, eventName])]
+      : eventFilter.filter((item) => item !== eventName);
+    void persistEventFilter(next);
   };
 
   const savePrefix = async () => {
@@ -642,46 +724,125 @@ export function ChatChannelSettings() {
     }
   };
 
+  const persistWebhooks = async (
+    next: Array<{ url: string; enabled: boolean }>
+  ) => {
+    const previous = webhooks;
+    setWebhooks(next);
+    try {
+      const saved = await chatChannelApi.setWebhooks(next);
+      setWebhooks(saved);
+    } catch (error) {
+      setWebhooks(previous);
+      toast.error(t('chatChannels.settingSaveFailed'), {
+        description: errorMessage(error),
+      });
+    }
+  };
+
+  const addWebhook = () => {
+    const url = webhookDraft.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      toast.error(t('chatChannels.webhookUrlInvalid'));
+      return;
+    }
+    setWebhookDraft('');
+    void persistWebhooks([...webhooks, { url, enabled: true }]);
+  };
+
   const updateDraft = (patch: Partial<ChannelDraft>) =>
     setDraft((previous) => ({ ...previous, ...patch }));
 
+  const focusTab = (next: ChatChannelTab) => {
+    setTab(next);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>(`[data-chat-channel-tab="${next}"]`)
+        ?.focus();
+    });
+  };
+
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('chatChannels.title')}
-        description={t('chatChannels.description')}
-      />
-
-      <div className="settings-sections">
-        <SettingsSection
-          icon={SendHorizontal}
-          title={t('chatChannels.channelsTitle')}
-          description={t('chatChannels.channelsCount', {
-            count: channels.length,
-          })}
-          action={
+      <div className="chat-channel-heading">
+        <div className="chat-channel-heading__copy">
+          <h2>{t('chatChannels.title')}</h2>
+          <p>{t('chatChannels.description')}</p>
+        </div>
+        <div className="chat-channel-heading__actions">
+          <div
+            className="chat-channel-tabs"
+            role="tablist"
+            aria-label={t('chatChannels.tabsAria')}
+            onKeyDown={(event) => {
+              const index = TABS.findIndex((item) => item.value === tab);
+              let next = index;
+              if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
+              else if (event.key === 'ArrowLeft') {
+                next = (index - 1 + TABS.length) % TABS.length;
+              } else if (event.key === 'Home') next = 0;
+              else if (event.key === 'End') next = TABS.length - 1;
+              else return;
+              event.preventDefault();
+              focusTab(TABS[next].value);
+            }}
+          >
+            {TABS.map((item) => {
+              const active = tab === item.value;
+              return (
+                <button
+                  key={item.value}
+                  type="button"
+                  role="tab"
+                  data-chat-channel-tab={item.value}
+                  aria-selected={active}
+                  tabIndex={active ? 0 : -1}
+                  className={active ? 'is-active' : undefined}
+                  onClick={() => setTab(item.value)}
+                >
+                  {t(item.labelKey)}
+                </button>
+              );
+            })}
+          </div>
+          {tab === 'channels' && channels.length > 0 ? (
             <Button size="sm" className="h-8 text-xs" onClick={openCreate}>
               <Plus className="mr-1 h-3.5 w-3.5" />
               {t('chatChannels.newChannel')}
             </Button>
-          }
+          ) : null}
+        </div>
+      </div>
+
+      {tab === 'channels' ? (
+        <div
+          role="tabpanel"
+          className="settings-card overflow-hidden rounded-lg border"
         >
           {loading ? (
-            <div className="flex items-center justify-center py-10">
+            <div className="flex items-center justify-center py-16">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : channels.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-10 text-center">
-              <SendHorizontal className="h-8 w-8 text-muted-foreground/60" />
+            <div className="chat-channel-empty">
+              <SendHorizontal className="h-10 w-10 text-muted-foreground/50" />
               <p className="text-sm font-medium">
                 {t('chatChannels.emptyTitle')}
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className="max-w-sm text-xs text-muted-foreground">
                 {t('chatChannels.emptyHint')}
               </p>
+              <Button
+                size="sm"
+                className="mt-2 h-8 text-xs"
+                onClick={openCreate}
+              >
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                {t('chatChannels.newChannel')}
+              </Button>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 p-3">
               {channels.length > 4 ? (
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
@@ -814,110 +975,24 @@ export function ChatChannelSettings() {
               </div>
             </div>
           )}
-        </SettingsSection>
+        </div>
+      ) : null}
 
-        <SettingsSection
-          icon={BellRing}
-          title={t('chatChannels.eventsTitle')}
-          description={t('chatChannels.eventsDescription')}
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => void saveEventFilter()}
-              disabled={savingEvents}
-            >
-              {savingEvents ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Save className="mr-1 h-3.5 w-3.5" />
-              )}
-              {t('common:save')}
-            </Button>
-          }
-        >
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {EVENT_OPTIONS.map((event) => {
-                const checked = eventFilter.includes(event.value);
-                return (
-                  <div
-                    key={event.value}
-                    className="flex items-center gap-2 rounded-md border border-[var(--border-content)] px-2.5 py-2 text-left text-xs transition-colors hover:bg-[var(--surface-control-hover)]"
-                  >
-                    <Checkbox
-                      id={`chat-event-${event.value}`}
-                      checked={checked}
-                      onCheckedChange={(value) =>
-                        toggleEvent(event.value, value === true)
-                      }
-                    />
-                    <Label
-                      htmlFor={`chat-event-${event.value}`}
-                      className="cursor-pointer text-xs font-normal"
-                    >
-                      {t(event.labelKey)}
-                    </Label>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-between gap-4 pt-1">
-              <div>
-                <Label className="text-xs">
-                  {t('chatChannels.includePromptLabel')}
+      {tab === 'commands' ? (
+        <div role="tabpanel" className="space-y-3">
+          <div className="settings-card overflow-hidden rounded-lg border">
+            <div className="flex items-end justify-between gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Label htmlFor="chat-prefix" className="text-sm">
+                  {t('chatChannels.prefixLabel')}
                 </Label>
-                <p className="settings-row__description">
-                  {t('chatChannels.includePromptDescription')}
-                </p>
+                <Input
+                  id="chat-prefix"
+                  value={prefix}
+                  onChange={(event) => setPrefix(event.target.value)}
+                  placeholder="/vibex"
+                />
               </div>
-              <Switch
-                className="settings-switch"
-                checked={includePromptText}
-                onCheckedChange={(checked: boolean) =>
-                  void togglePromptText(checked)
-                }
-              />
-            </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={MessageSquare}
-          title={t('chatChannels.commandTitle')}
-          description={t('chatChannels.commandDescription')}
-        >
-          <div className="settings-row settings-row--stacked">
-            <div>
-              <Label htmlFor="chat-prefix" className="text-xs">
-                {t('chatChannels.prefixLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {t('chatChannels.prefixHint')}
-              </p>
-            </div>
-            <div className="space-y-2">
-              {COMMANDS.map((command) => (
-                <div
-                  key={command}
-                  className="flex items-center justify-between rounded-md border border-[var(--border-content)] px-3 py-2"
-                >
-                  <code className="text-xs">
-                    {prefix || '/'}
-                    {command}
-                  </code>
-                </div>
-              ))}
-            </div>
-            <div className="flex max-w-sm gap-2">
-              <Input
-                id="chat-prefix"
-                value={prefix}
-                onChange={(event) => setPrefix(event.target.value)}
-                placeholder="/vibex"
-              />
               <Button
                 size="sm"
                 className="h-8 shrink-0 text-xs"
@@ -932,68 +1007,10 @@ export function ChatChannelSettings() {
                 {t('common:save')}
               </Button>
             </div>
-          </div>
-        </SettingsSection>
-
-        <SettingsSection
-          icon={BellRing}
-          title={t('chatChannels.webhooksTitle')}
-          description={t('chatChannels.webhooksDescription')}
-        >
-          <div className="space-y-2 px-4 pb-4">
-            {webhooks.map((hook, index) => (
-              <div key={`${hook.url}-${index}`} className="flex items-center gap-2 text-xs">
-                <Switch
-                  className="settings-switch"
-                  checked={hook.enabled}
-                  onCheckedChange={(checked: boolean) => {
-                    const next = webhooks.map((item, itemIndex) =>
-                      itemIndex === index ? { ...item, enabled: checked } : item
-                    );
-                    setWebhooks(next);
-                    void chatChannelApi.setWebhooks(next);
-                  }}
-                />
-                <span className="min-w-0 flex-1 truncate font-mono">{hook.url}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => {
-                    const next = webhooks.filter((_, itemIndex) => itemIndex !== index);
-                    setWebhooks(next);
-                    void chatChannelApi.setWebhooks(next);
-                  }}
-                >
-                  {t('common:delete')}
-                </Button>
-              </div>
-            ))}
-            <div className="flex gap-2">
-              <Input
-                value={webhookDraft}
-                onChange={(event) => setWebhookDraft(event.target.value)}
-                placeholder="https://example.com/hooks/vibex"
-              />
-              <Button
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => {
-                  const url = webhookDraft.trim();
-                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                    return;
-                  }
-                  const next = [...webhooks, { url, enabled: true }];
-                  setWebhooks(next);
-                  setWebhookDraft('');
-                  void chatChannelApi.setWebhooks(next);
-                }}
-              >
-                {t('chatChannels.addWebhook')}
-              </Button>
-            </div>
-            <div className="flex items-center justify-between pt-2">
-              <Label className="text-xs">{t('chatChannels.messageLanguage')}</Label>
+            <div className="flex items-center justify-between gap-4 border-t border-[var(--border-subtle)] px-4 py-3">
+              <Label className="text-sm">
+                {t('chatChannels.messageLanguage')}
+              </Label>
               <Select
                 value={messageLanguage}
                 onValueChange={(value) => {
@@ -1001,7 +1018,7 @@ export function ChatChannelSettings() {
                   void chatChannelApi.setLanguage(value);
                 }}
               >
-                <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectTrigger className="h-8 w-36 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1011,8 +1028,161 @@ export function ChatChannelSettings() {
               </Select>
             </div>
           </div>
-        </SettingsSection>
-      </div>
+
+          <div className="settings-card overflow-hidden rounded-lg border">
+            {COMMAND_CATALOG.map((command) => (
+              <div key={command.usage} className="chat-channel-command">
+                <div className="min-w-0">
+                  <code className="chat-channel-command-usage">
+                    {prefix.endsWith('/') ? prefix : `${prefix || '/'} `}
+                    {command.usage}
+                  </code>
+                  <p className="chat-channel-command-copy">
+                    {t(command.descriptionKey)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'events' ? (
+        <div role="tabpanel" className="space-y-3">
+          <div className="settings-card overflow-hidden rounded-lg border">
+            {EVENT_OPTIONS.map((event) => {
+              const checked = eventFilter.includes(event.value);
+              return (
+                <div key={event.value} className="chat-channel-event">
+                  <div className="min-w-0">
+                    <Label
+                      htmlFor={`chat-event-${event.value}`}
+                      className="cursor-pointer text-sm font-medium"
+                    >
+                      {t(event.labelKey)}
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t(event.descriptionKey)}
+                    </p>
+                  </div>
+                  <Switch
+                    id={`chat-event-${event.value}`}
+                    className="settings-switch shrink-0"
+                    checked={checked}
+                    onCheckedChange={(value: boolean) =>
+                      toggleEvent(event.value, value)
+                    }
+                    aria-label={t(event.labelKey)}
+                  />
+                </div>
+              );
+            })}
+            <div className="chat-channel-event border-t border-[var(--border-subtle)]">
+              <div className="min-w-0">
+                <Label
+                  htmlFor="chat-include-prompt"
+                  className="cursor-pointer text-sm font-medium"
+                >
+                  {t('chatChannels.includePromptLabel')}
+                </Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('chatChannels.includePromptDescription')}
+                </p>
+              </div>
+              <Switch
+                id="chat-include-prompt"
+                className="settings-switch shrink-0"
+                checked={includePromptText}
+                onCheckedChange={(checked: boolean) =>
+                  void togglePromptText(checked)
+                }
+                aria-label={t('chatChannels.includePromptLabel')}
+              />
+            </div>
+          </div>
+
+          <div className="settings-card overflow-hidden rounded-lg border">
+            <div className="px-4 py-3">
+              <h3 className="text-sm font-semibold">
+                {t('chatChannels.webhooksTitle')}
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('chatChannels.webhooksDescription')}
+              </p>
+            </div>
+            {webhooks.map((hook, index) => (
+              <div
+                key={`${hook.url}-${index}`}
+                className="chat-channel-webhook"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Switch
+                    className="settings-switch"
+                    checked={hook.enabled}
+                    onCheckedChange={(checked: boolean) => {
+                      void persistWebhooks(
+                        webhooks.map((item, itemIndex) =>
+                          itemIndex === index
+                            ? { ...item, enabled: checked }
+                            : item
+                        )
+                      );
+                    }}
+                    aria-label={hook.url}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                    {hook.url}
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 px-2 text-xs"
+                  onClick={() => {
+                    void persistWebhooks(
+                      webhooks.filter((_, itemIndex) => itemIndex !== index)
+                    );
+                  }}
+                >
+                  {t('common:delete')}
+                </Button>
+              </div>
+            ))}
+            <div className="flex gap-2 border-t border-[var(--border-subtle)] px-4 py-3">
+              <Input
+                value={webhookDraft}
+                onChange={(event) => setWebhookDraft(event.target.value)}
+                placeholder="https://example.com/hooks/vibex"
+              />
+              <Button
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                onClick={addWebhook}
+              >
+                {t('chatChannels.addWebhook')}
+              </Button>
+            </div>
+            <div className="px-4 pb-2 pt-3">
+              <p className="text-sm font-medium">
+                {t('chatChannels.webhookPayloadTitle')}
+              </p>
+            </div>
+            <div className="chat-channel-payload-list">
+              {WEBHOOK_PAYLOAD_EXAMPLES.map((example) => (
+                <figure
+                  key={example.event}
+                  className="chat-channel-payload-card"
+                >
+                  <figcaption>{t(example.labelKey)}</figcaption>
+                  <pre>
+                    <code>{example.value}</code>
+                  </pre>
+                </figure>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog
         open={weixinQrOpen}
@@ -1089,7 +1259,6 @@ export function ChatChannelSettings() {
             </div>
           </div>
 
-          {/* Telegram */}
           {draft.kind === 'telegram' ? (
             <div className="space-y-1.5">
               <Label htmlFor="tg-chat" className="text-xs">
@@ -1139,7 +1308,6 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {/* Feishu (app mode) */}
           {draft.kind === 'feishu' ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -1171,7 +1339,6 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {/* QQ (OneBot) */}
           {draft.kind === 'qq' ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -1243,7 +1410,6 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {/* Generic webhook */}
           {draft.kind === 'webhook' ? (
             <div className="space-y-1.5">
               <Label htmlFor="wh-url" className="text-xs">
@@ -1260,8 +1426,6 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {/* Inbound allowlist (P0-0): only senders/chats listed here — plus the
-              bound destination above — may drive agents remotely. */}
           {INBOUND_KINDS.has(draft.kind) ? (
             <div className="space-y-1.5">
               <Label htmlFor="channel-allowlist" className="text-xs">
@@ -1285,7 +1449,6 @@ export function ChatChannelSettings() {
             </div>
           ) : null}
 
-          {/* Secret (per type) */}
           <div className="space-y-1.5">
             <Label htmlFor="channel-secret" className="text-xs">
               {secret.label}
@@ -1336,7 +1499,9 @@ export function ChatChannelSettings() {
                         const QRCode = (await import('qrcode')).default;
                         setWeixinQrImage(
                           await QRCode.toDataURL(
-                            qr.qrcode_url || qr.qrcode_img_content || qr.qrcode_id,
+                            qr.qrcode_url ||
+                              qr.qrcode_img_content ||
+                              qr.qrcode_id,
                             { margin: 1, width: 220 }
                           )
                         );

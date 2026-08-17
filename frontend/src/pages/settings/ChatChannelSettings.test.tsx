@@ -108,6 +108,7 @@ describe('ChatChannelSettings', () => {
     mocks.setEventFilter.mockImplementation(async (filter) => filter);
     mocks.setCommandPrefix.mockImplementation(async (prefix) => prefix);
     mocks.setIncludePromptText.mockImplementation(async (enabled) => enabled);
+    mocks.setWebhooks.mockImplementation(async (hooks) => hooks);
     mocks.toastWarning.mockReturnValue('toast-id');
   });
 
@@ -150,30 +151,52 @@ describe('ChatChannelSettings', () => {
     );
   });
 
+  it('switches among 渠道, 指令, and 事件 without an 其他 tab', async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    const tablist = await screen.findByRole('tablist', {
+      name: '消息渠道分区',
+    });
+    expect(within(tablist).getByRole('tab', { name: '渠道' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(within(tablist).queryByRole('tab', { name: '其他' })).toBeNull();
+    expect(screen.getByRole('heading', { name: '消息渠道' })).toBeVisible();
+    expect(await screen.findByText('暂无渠道')).toBeVisible();
+
+    await user.click(within(tablist).getByRole('tab', { name: '指令' }));
+    expect(screen.getByLabelText('命令前缀')).toBeVisible();
+    expect(screen.getByText('/vibex folder [n|name]')).toBeVisible();
+    expect(screen.getByText('/vibex resume [n|id]')).toBeVisible();
+    expect(screen.queryByText('/vibex ping')).not.toBeInTheDocument();
+    expect(screen.queryByText('暂无渠道')).not.toBeInTheDocument();
+
+    await user.click(within(tablist).getByRole('tab', { name: '事件' }));
+    expect(screen.getByRole('switch', { name: '任务开始' })).toBeVisible();
+    expect(screen.getByText('事件 Webhook')).toBeVisible();
+    expect(screen.getByText('负载示例')).toBeVisible();
+  });
+
   it('persists event filters, prompt privacy, and the command prefix', async () => {
     const user = userEvent.setup();
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
     renderSettings();
-    expect(await screen.findByText('事件通知')).toBeVisible();
 
-    const eventsSection = screen.getByText('事件通知').closest('section');
+    await user.click(await screen.findByRole('tab', { name: '事件' }));
+    await user.click(screen.getByRole('switch', { name: '任务结束' }));
     await user.click(
-      within(eventsSection!).getByRole('checkbox', { name: '任务结束' })
+      screen.getByRole('switch', { name: '在通知中包含提示词内容' })
     );
-    await user.click(
-      within(eventsSection!).getByRole('button', { name: '保存' })
-    );
-    await user.click(within(eventsSection!).getByRole('switch'));
 
-    const commandSection = screen.getByText('命令入口').closest('section');
-    const prefixInput = within(commandSection!).getByLabelText('命令前缀');
+    await user.click(screen.getByRole('tab', { name: '指令' }));
+    const prefixInput = screen.getByLabelText('命令前缀');
     await user.clear(prefixInput);
     await user.type(prefixInput, '/team');
-    await user.click(
-      within(commandSection!).getByRole('button', { name: '保存' })
-    );
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(mocks.setEventFilter).toHaveBeenCalledWith({

@@ -456,10 +456,11 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             app.state::<state::AppState>().deployment.db().pool.clone(),
         );
         let host_state = app.state::<state::AppState>();
-        server::start_chat_inbound(
-            host_state.deployment.db().pool.clone(),
-            host_state.conversation_context(),
-        );
+        let inbound_pool = host_state.deployment.db().pool.clone();
+        let inbound_conversations = host_state.conversation_context();
+        tauri::async_runtime::spawn(async move {
+            server::start_chat_inbound(inbound_pool, inbound_conversations);
+        });
 
         // One durable Automation v2 Engine owns this data directory. Startup
         // reconciliation and catch-up happen behind the owner lease.

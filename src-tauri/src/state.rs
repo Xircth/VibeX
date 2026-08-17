@@ -158,6 +158,7 @@ impl AgentManagementRuntimeState {
 
 pub struct AppState {
     pub app_handle: tauri::AppHandle,
+    pub local_deployment: Arc<LocalDeployment>,
     pub deployment: Arc<dyn Deployment>,
     /// PTY session registry for terminal commands. A shared (Arc-backed) handle to the
     /// same registry the deployment owns — kept as a first-class field because
@@ -191,8 +192,9 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(app_handle: tauri::AppHandle) -> Result<Self, deployment::DeploymentError> {
-        let deployment = Arc::new(LocalDeployment::new().await?);
-        let pty = deployment.pty().clone();
+        let local_deployment = Arc::new(LocalDeployment::new().await?);
+        let deployment: Arc<dyn Deployment> = local_deployment.clone();
+        let pty = local_deployment.pty().clone();
         let pool = deployment.db().pool.clone();
         // The event-sourced `conversation_events` log is the single authoritative
         // record (批次D). The first-generation `agent_*` shadow tables are retired;
@@ -371,6 +373,7 @@ impl AppState {
         );
         Ok(Self {
             app_handle,
+            local_deployment,
             deployment,
             pty,
             file_tree_watchers: Arc::new(Mutex::new(HashSet::new())),

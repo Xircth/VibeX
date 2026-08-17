@@ -16,6 +16,7 @@ chrono = { workspace = true }
 conversations = { path = "../conversations" }
 db = { path = "../db" }
 delegation = { path = "../delegation" }
+delegation-proto = { path = "../delegation-proto" }
 deployment = { path = "../deployment" }
 dirs = { workspace = true }
 futures = { workspace = true }

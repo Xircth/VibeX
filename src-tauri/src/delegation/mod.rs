@@ -11,10 +11,10 @@
 
 mod emitter;
 mod features;
-mod inject;
+pub(crate) mod inject;
 mod lookups;
 mod resolver;
 mod spawner;
 mod wiring;
 
-pub(crate) use wiring::{DelegationState, build_delegation};
+pub(crate) use wiring::{DelegationState, RuntimeConversationLookup, build_delegation};

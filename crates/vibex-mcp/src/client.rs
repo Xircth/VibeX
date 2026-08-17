@@ -3,6 +3,42 @@
 
 use delegation_proto::{BrokerMessage, BrokerResponse, read_frame, write_frame};
 
+/// POST one broker message to the Host HTTP companion endpoint.
+pub async fn call_http(
+    server_url: &str,
+    server_token: Option<&str>,
+    conversation_id: Option<&str>,
+    product: &str,
+    message: &BrokerMessage,
+) -> std::io::Result<BrokerResponse> {
+    let url = format!(
+        "{}/internal/companion",
+        server_url.trim_end_matches('/')
+    );
+    let mut request = reqwest::Client::new().post(url).json(message);
+    if let Some(token) = server_token {
+        request = request.bearer_auth(token);
+    }
+    if let Some(conversation_id) = conversation_id {
+        request = request.header("x-vibex-conversation-id", conversation_id);
+    }
+    request = request.header("x-vibex-product", product);
+    let response = request
+        .send()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    if !response.status().is_success() {
+        return Err(std::io::Error::other(format!(
+            "companion http {}",
+            response.status()
+        )));
+    }
+    response
+        .json()
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}
+
 /// Connect to the broker socket, send `message`, and return its response.
 pub async fn call_broker(
     socket_path: &str,

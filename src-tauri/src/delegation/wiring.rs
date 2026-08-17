@@ -32,6 +32,7 @@ pub struct DelegationState {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub features: Arc<InMemoryCompanionFeatures>,
+    pub listener: Arc<DelegationListener>,
 }
 
 /// Build the broker (trait impls over runtime + DB), spawn the resolver and the
@@ -90,12 +91,15 @@ pub(crate) fn build_delegation(
     let listener = Arc::new(DelegationListener::new_with_features(
         broker.clone(),
         tokens.clone(),
-        Arc::new(RuntimeParentLookup { runtime }),
+        Arc::new(RuntimeParentLookup {
+            runtime: runtime.clone(),
+        }),
         runtime_features,
     ));
     let listen_path = socket_path.clone();
+    let listen_listener = listener.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = listener.run(listen_path).await {
+        if let Err(err) = listen_listener.run(listen_path).await {
             tracing::warn!("delegation listener stopped: {err}");
         }
     });
@@ -105,6 +109,30 @@ pub(crate) fn build_delegation(
         tokens,
         socket_path,
         features,
+        listener,
+    }
+}
+
+pub(crate) struct RuntimeConversationLookup {
+    pub runtime: Arc<AgentRuntime>,
+}
+
+#[async_trait::async_trait]
+impl server::ProductMcpSessionLookup for RuntimeConversationLookup {
+    async fn resolve(&self, conversation_id: uuid::Uuid) -> Option<(String, PathBuf)> {
+        let snapshot = self.runtime.snapshot().await;
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id.0 == conversation_id)?;
+        let connection = snapshot
+            .connections
+            .iter()
+            .find(|connection| connection.id == session.connection_id)?;
+        Some((
+            connection.id.0.to_string(),
+            PathBuf::from(&connection.working_dir),
+        ))
     }
 }
 

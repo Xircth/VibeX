@@ -155,16 +155,40 @@ impl VibexDelegationInjector {
         InjectedMcpServer {
             name: name.to_string(),
             command: locate_vibex_mcp_binary(),
-            args: vec![
-                "--parent-connection-id".to_string(),
-                context.parent_connection_id.to_string(),
-                "--socket-path".to_string(),
-                self.socket_path.to_string_lossy().to_string(),
-                "--token".to_string(),
-                token,
-                "--features".to_string(),
-                features.to_string(),
-            ],
+            args: {
+                let mut args = vec![
+                    "--parent-connection-id".to_string(),
+                    context.parent_connection_id.to_string(),
+                    "--socket-path".to_string(),
+                    self.socket_path.to_string_lossy().to_string(),
+                    "--token".to_string(),
+                    token,
+                    "--features".to_string(),
+                    features.to_string(),
+                    "--conversation-id".to_string(),
+                    context.parent_conversation_id.to_string(),
+                ];
+                if let Some(url) = self.official_mcp.http_base() {
+                    args.push("--server-url".to_string());
+                    args.push(url);
+                    if name == "vibex-delegation-mcp" {
+                        args.push("--product".to_string());
+                        args.push("delegation".to_string());
+                        if let Some(plugin_token) = self.official_mcp.delegation_token() {
+                            args.push("--server-token".to_string());
+                            args.push(plugin_token);
+                        }
+                    } else {
+                        args.push("--product".to_string());
+                        args.push("session".to_string());
+                        if let Some(plugin_token) = self.official_mcp.session_token() {
+                            args.push("--server-token".to_string());
+                            args.push(plugin_token);
+                        }
+                    }
+                }
+                args
+            },
         }
     }
 }
@@ -182,7 +206,7 @@ fn session_feature_arg(bits: u8) -> String {
     .join(",")
 }
 
-fn locate_vibex_mcp_binary() -> PathBuf {
+pub(crate) fn locate_vibex_mcp_binary() -> PathBuf {
     if let Ok(path) = std::env::var("VIBEX_MCP_BIN") {
         let candidate = PathBuf::from(path);
         if candidate.exists() {

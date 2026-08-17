@@ -117,8 +117,12 @@ impl ConnectionSpawner for RuntimeSpawner {
                 connection_id: conn,
                 session_id,
                 blocks: vec![AgentContentBlock::Text { text: task }],
-                mode_override: None,
-                config_overrides: Vec::new(),
+                mode_override: link.preferred_mode_id,
+                config_overrides: link
+                    .preferred_config_values
+                    .into_iter()
+                    .map(|(key, value)| agents::AgentSessionConfigOverride { key, value })
+                    .collect(),
             })
             .await
         {

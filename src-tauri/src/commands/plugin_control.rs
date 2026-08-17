@@ -491,9 +491,128 @@ pub(crate) async fn refresh_official_product_runtime(
         {
             config.depth_limit = depth as u32;
         }
+        if let Some(mb) = detail
+            .config
+            .get("completedCacheMaxMb")
+            .and_then(serde_json::Value::as_u64)
+        {
+            config.completed_cache_cap_bytes = mb.saturating_mul(1024 * 1024);
+        }
+        config.agent_defaults = parse_agent_defaults(detail.config.get("agentDefaults"));
     }
     broker.set_config(config);
+    project_official_product_mcp(gate.as_ref()).await;
     Ok(())
+}
+
+async fn project_official_product_mcp(gate: &plugins::OfficialProductMcpGate) {
+    let binary = crate::delegation::inject::locate_vibex_mcp_binary();
+    let command = binary.to_string_lossy().into_owned();
+    let url = gate.http_base();
+    if gate.allow_delegation_mcp() {
+        let mut args = vec!["--features".to_string(), "delegation".to_string()];
+        if let Some(url) = &url {
+            args.extend([
+                "--server-url".to_string(),
+                url.clone(),
+                "--product".to_string(),
+                "delegation".to_string(),
+            ]);
+            if let Some(token) = gate.delegation_token() {
+                args.extend(["--server-token".to_string(), token]);
+            }
+        }
+        let _ = services::services::mcp::upsert_local_server(
+            "vibex.multi-agent.vibex-delegation-mcp".to_string(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": command,
+                "args": args,
+            }),
+            true,
+            Vec::new(),
+        )
+        .await;
+    }
+    if gate.allow_session_mcp() {
+        let features = session_feature_arg(gate.session_features());
+        let mut args = vec!["--features".to_string(), features];
+        if let Some(url) = &url {
+            args.extend([
+                "--server-url".to_string(),
+                url.clone(),
+                "--product".to_string(),
+                "session".to_string(),
+            ]);
+            if let Some(token) = gate.session_token() {
+                args.extend(["--server-token".to_string(), token]);
+            }
+        }
+        let _ = services::services::mcp::upsert_local_server(
+            "vibex.session-enhance.vibex-session-mcp".to_string(),
+            serde_json::json!({
+                "type": "stdio",
+                "command": command,
+                "args": args,
+            }),
+            true,
+            Vec::new(),
+        )
+        .await;
+    }
+}
+
+fn session_feature_arg(bits: u8) -> String {
+    [
+        (bits & plugins::SESSION_FEAT_FEEDBACK != 0, "feedback"),
+        (bits & plugins::SESSION_FEAT_ASK != 0, "ask"),
+        (bits & plugins::SESSION_FEAT_SESSIONS != 0, "sessions"),
+        (
+            bits & plugins::SESSION_FEAT_SESSION_CONTROL != 0,
+            "session-control",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(enabled, name)| enabled.then_some(name))
+    .collect::<Vec<_>>()
+    .join(",")
+}
+
+fn parse_agent_defaults(
+    value: Option<&serde_json::Value>,
+) -> std::collections::BTreeMap<String, delegation::AgentDelegationDefaults> {
+    let Some(object) = value.and_then(serde_json::Value::as_object) else {
+        return std::collections::BTreeMap::new();
+    };
+    object
+        .iter()
+        .filter_map(|(agent_id, defaults)| {
+            let record = defaults.as_object()?;
+            let mode_id = record
+                .get("modeId")
+                .or_else(|| record.get("mode_id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|mode| !mode.is_empty())
+                .map(str::to_string);
+            let config_values = record
+                .get("configValues")
+                .or_else(|| record.get("config_values"))
+                .and_then(serde_json::Value::as_object)
+                .into_iter()
+                .flatten()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_string()))
+                })
+                .collect();
+            Some((
+                agent_id.clone(),
+                delegation::AgentDelegationDefaults {
+                    mode_id,
+                    config_values,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn session_enhance_feature_bits(config: &serde_json::Value) -> u8 {

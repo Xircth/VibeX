@@ -371,6 +371,15 @@ impl AppState {
             conversation_context,
             plugin_control_plane.official_product_mcp_gate(),
         );
+        let _ = server::start_product_mcp_gateway(
+            delegation.listener.clone(),
+            delegation.tokens.clone(),
+            plugin_control_plane.official_product_mcp_gate(),
+            Arc::new(crate::delegation::RuntimeConversationLookup {
+                runtime: agent_runtime.clone(),
+            }),
+        )
+        .await;
         crate::commands::plugin_control::refresh_official_product_runtime(
             &plugin_control_plane,
             &delegation.broker,

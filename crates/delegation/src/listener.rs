@@ -67,7 +67,31 @@ impl DelegationListener {
         C: AsyncRead + AsyncWrite + Unpin,
     {
         let message: BrokerMessage = read_frame(conn).await?;
-        let response = match message {
+        if matches!(message, BrokerMessage::Ask(_)) {
+            let response = match message {
+                BrokerMessage::Ask(req) => BrokerResponse::Payload(
+                    match self.authorized_entry(&req.token, TokenFeature::Ask).await {
+                        Some(entry) => {
+                            let scope = scope_for(&entry);
+                            tokio::select! {
+                                outcome = self.features.ask(&scope, req.questions) => outcome,
+                                _ = wait_for_peer_close(conn) => return Ok(()),
+                            }
+                        }
+                        None => json!({ "declined": true, "answers": [] }),
+                    },
+                ),
+                _ => unreachable!(),
+            };
+            return write_frame(conn, &response).await;
+        }
+        let response = self.handle_message(message).await;
+        write_frame(conn, &response).await
+    }
+
+    /// Dispatch one already-authenticated-or-token-bearing broker message.
+    pub async fn handle_message(&self, message: BrokerMessage) -> BrokerResponse {
+        match message {
             BrokerMessage::Call(req) => {
                 let report = self.process_call(req).await;
                 BrokerResponse::Task(to_wire_report(report))
@@ -119,13 +143,7 @@ impl DelegationListener {
             }
             BrokerMessage::Ask(req) => BrokerResponse::Payload(
                 match self.authorized_entry(&req.token, TokenFeature::Ask).await {
-                    Some(entry) => {
-                        let scope = scope_for(&entry);
-                        tokio::select! {
-                            outcome = self.features.ask(&scope, req.questions) => outcome,
-                            _ = wait_for_peer_close(conn) => return Ok(()),
-                        }
-                    }
+                    Some(entry) => self.features.ask(&scope_for(&entry), req.questions).await,
                     None => json!({ "declined": true, "answers": [] }),
                 },
             ),
@@ -198,16 +216,14 @@ impl DelegationListener {
                     .await
                 {
                     Some(entry) => {
-                        let scope = scope_for(&entry);
-                        tokio::select! {
-                            outcome = self.features.session_wait(
-                                &scope,
+                        self.features
+                            .session_wait(
+                                &scope_for(&entry),
                                 &req.conversation_id,
                                 req.after_sequence,
                                 req.wait_ms.map(|value| value.min(60_000)),
-                            ) => outcome,
-                            _ = wait_for_peer_close(conn) => return Ok(()),
-                        }
+                            )
+                            .await
                     }
                     None => json!({
                         "found": false,
@@ -216,8 +232,7 @@ impl DelegationListener {
                     }),
                 },
             ),
-        };
-        write_frame(conn, &response).await
+        }
     }
 
     async fn authorized_entry(

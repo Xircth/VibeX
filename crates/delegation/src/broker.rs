@@ -173,19 +173,76 @@ enum Resolution {
     Registered,
 }
 
-/// Cache only terminal metadata. The child conversation and durable completion
-/// event already own the full output, so duplicating it here only consumes RAM.
-fn insert_completed(inner: &mut PendingInner, call_id: String, mut task: CompletedTask) {
-    task.text = None;
+/// Keep the newest result for each parent. Older text is dropped first when the
+/// parent exceeds `cap_bytes` (0 = no byte budget). Entry count is still bounded.
+fn insert_completed(
+    inner: &mut PendingInner,
+    call_id: String,
+    task: CompletedTask,
+    cap_bytes: u64,
+) {
     if inner.completed.insert(call_id.clone(), task).is_none() {
         inner.completed_order.push_back(call_id);
     }
+    evict_completed(inner, cap_bytes);
+}
+
+fn evict_completed(inner: &mut PendingInner, cap_bytes: u64) {
     while inner.completed.len() > COMPLETED_METADATA_CAP {
         let Some(oldest) = inner.completed_order.pop_front() else {
             break;
         };
         inner.completed.remove(&oldest);
     }
+    if cap_bytes == 0 {
+        return;
+    }
+    let mut parents = std::collections::BTreeSet::new();
+    for task in inner.completed.values() {
+        parents.insert(task.parent_connection_id.clone());
+    }
+    for parent in parents {
+        loop {
+            let parent_ids: Vec<String> = inner
+                .completed_order
+                .iter()
+                .filter(|id| {
+                    inner
+                        .completed
+                        .get(*id)
+                        .is_some_and(|task| task.parent_connection_id == parent)
+                })
+                .cloned()
+                .collect();
+            if parent_ids.len() <= 1 {
+                break;
+            }
+            let used: u64 = parent_ids
+                .iter()
+                .filter_map(|id| inner.completed.get(id))
+                .map(completed_task_bytes)
+                .sum();
+            if used <= cap_bytes {
+                break;
+            }
+            let Some(oldest) = parent_ids.first().cloned() else {
+                break;
+            };
+            inner.completed.remove(&oldest);
+            inner.completed_order.retain(|id| id != &oldest);
+        }
+    }
+}
+
+fn completed_task_bytes(task: &CompletedTask) -> u64 {
+    task.text.as_ref().map(|text| text.len() as u64).unwrap_or(0)
+}
+
+fn drop_completed_for_parent(inner: &mut PendingInner, parent_connection_id: &str) {
+    inner.completed.retain(|_, task| task.parent_connection_id != parent_connection_id);
+    inner
+        .completed_order
+        .retain(|id| inner.completed.contains_key(id));
 }
 
 /// Cheap-to-clone handle over the broker's `Arc`-wrapped dependencies + state.
@@ -454,12 +511,19 @@ impl DelegationBroker {
             return failed_setup_report("canceled", "canceled by MCP client");
         }
 
+        let defaults = config
+            .agent_defaults
+            .get(req.agent_type.as_str())
+            .cloned()
+            .unwrap_or_default();
         let link = DelegationLink {
             parent_session_id: req.parent_session_id,
             parent_tool_use_id: parent_tool_use_id.clone(),
             delegation_call_id: call_id.clone(),
             agent_type: req.agent_type.clone(),
             policy: config.policy_snapshot(req.workspace_access),
+            preferred_mode_id: defaults.mode_id,
+            preferred_config_values: defaults.config_values,
         };
         let child_session_id = match self
             .spawner
@@ -548,6 +612,7 @@ impl DelegationBroker {
                             &mut self.pending.lock().unwrap(),
                             call_id.clone(),
                             completed.clone(),
+                            self.config_snapshot().completed_cache_cap_bytes,
                         );
                         self.result_notify.notify_waiters();
                         completed_report(&call_id, &completed)
@@ -780,7 +845,12 @@ impl DelegationBroker {
         };
         {
             let mut pending = self.pending.lock().unwrap();
-            insert_completed(&mut pending, ctx.call_id.clone(), completed.clone());
+            insert_completed(
+                &mut pending,
+                ctx.call_id.clone(),
+                completed.clone(),
+                self.config_snapshot().completed_cache_cap_bytes,
+            );
         }
 
         let _ = self.spawner.release_child(ctx.child_session_id).await;
@@ -946,7 +1016,12 @@ impl DelegationBroker {
         };
         {
             let mut pending = self.pending.lock().unwrap();
-            insert_completed(&mut pending, task_id.to_string(), completed.clone());
+            insert_completed(
+                &mut pending,
+                task_id.to_string(),
+                completed.clone(),
+                self.config_snapshot().completed_cache_cap_bytes,
+            );
         }
 
         let _ = self.spawner.cancel(&task.child_connection_id).await;
@@ -1004,6 +1079,7 @@ impl DelegationBroker {
                     lease.store(true, Ordering::Release);
                 }
             }
+            drop_completed_for_parent(&mut pending, &parent_connection_id);
             let mut tasks = pending
                 .running
                 .iter()
@@ -1265,7 +1341,7 @@ fn completed_report(call_id: &str, task: &CompletedTask) -> DelegationTaskReport
         text: task.text.clone(),
         error_code: task.error_code.clone(),
         message: task.message.clone().or_else(|| {
-            (task.status == TaskStatus::Completed)
+            (task.status == TaskStatus::Completed && task.text.is_none())
                 .then(|| "open the child session for full output".to_string())
         }),
         duration_ms: task.duration_ms,
@@ -2332,5 +2408,74 @@ mod tests {
 
         assert_eq!(start.await.unwrap().status, TaskStatus::Canceled);
         assert!(h.spawner.calls.lock().unwrap().spawned.is_empty());
+    }
+
+    #[test]
+    fn completed_cache_evicts_oldest_text_for_the_same_parent() {
+        let mut inner = PendingInner::default();
+        for index in 0..3 {
+            insert_completed(
+                &mut inner,
+                format!("task-{index}"),
+                CompletedTask {
+                    parent_connection_id: "parent".into(),
+                    parent_conversation_id: Uuid::nil(),
+                    status: TaskStatus::Completed,
+                    child_session_id: None,
+                    agent_type: None,
+                    text: Some("x".repeat(8)),
+                    error_code: None,
+                    message: None,
+                    duration_ms: None,
+                },
+                16,
+            );
+        }
+        assert!(!inner.completed.contains_key("task-0"));
+        assert!(inner.completed.contains_key("task-2"));
+        assert_eq!(
+            inner.completed["task-2"].text.as_deref(),
+            Some("xxxxxxxx")
+        );
+    }
+
+    #[test]
+    fn parent_close_drops_that_parents_cached_results() {
+        let mut inner = PendingInner::default();
+        insert_completed(
+            &mut inner,
+            "keep".into(),
+            CompletedTask {
+                parent_connection_id: "other".into(),
+                parent_conversation_id: Uuid::nil(),
+                status: TaskStatus::Completed,
+                child_session_id: None,
+                agent_type: None,
+                text: Some("kept".into()),
+                error_code: None,
+                message: None,
+                duration_ms: None,
+            },
+            0,
+        );
+        insert_completed(
+            &mut inner,
+            "drop".into(),
+            CompletedTask {
+                parent_connection_id: "parent".into(),
+                parent_conversation_id: Uuid::nil(),
+                status: TaskStatus::Completed,
+                child_session_id: None,
+                agent_type: None,
+                text: Some("gone".into()),
+                error_code: None,
+                message: None,
+                duration_ms: None,
+            },
+            0,
+        );
+        drop_completed_for_parent(&mut inner, "parent");
+        assert!(inner.completed.contains_key("keep"));
+        assert!(!inner.completed.contains_key("drop"));
     }
 }

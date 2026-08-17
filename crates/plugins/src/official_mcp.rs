@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::Mutex;
 
 use crate::PluginActivation;
 
@@ -29,6 +30,9 @@ pub struct OfficialProductMcpGate {
     session_enhance: AtomicBool,
     workflow: AtomicBool,
     session_features: AtomicU8,
+    delegation_token: Mutex<Option<String>>,
+    session_token: Mutex<Option<String>>,
+    http_base: Mutex<Option<String>>,
 }
 
 impl OfficialProductMcpGate {
@@ -61,14 +65,48 @@ impl OfficialProductMcpGate {
         self.session_features.store(bits, Ordering::SeqCst);
     }
 
+    pub fn delegation_token(&self) -> Option<String> {
+        self.delegation_token.lock().unwrap().clone()
+    }
+
+    pub fn session_token(&self) -> Option<String> {
+        self.session_token.lock().unwrap().clone()
+    }
+
+    pub fn ensure_delegation_token(&self) -> String {
+        ensure_token(&self.delegation_token)
+    }
+
+    pub fn ensure_session_token(&self) -> String {
+        ensure_token(&self.session_token)
+    }
+
+    pub fn set_http_base(&self, base: Option<String>) {
+        *self.http_base.lock().unwrap() = base;
+    }
+
+    pub fn http_base(&self) -> Option<String> {
+        self.http_base.lock().unwrap().clone()
+    }
+
     pub fn observe(&self, plugin_id: &str, activation: PluginActivation) {
         let enabled = activation == PluginActivation::Enabled;
         match plugin_id {
             MULTI_AGENT_PLUGIN_ID | COLLABORATION_PLUGIN_ID => {
                 self.multi_agent.store(enabled, Ordering::SeqCst);
+                if enabled {
+                    let _ = self.ensure_delegation_token();
+                } else {
+                    *self.delegation_token.lock().unwrap() = None;
+                }
             }
             SESSION_ENHANCE_PLUGIN_ID => {
                 self.session_enhance.store(enabled, Ordering::SeqCst);
+                if enabled {
+                    let _ = self.ensure_session_token();
+                } else {
+                    *self.session_token.lock().unwrap() = None;
+                }
             }
             WORKFLOW_CREATOR_PLUGIN_ID => self.workflow.store(enabled, Ordering::SeqCst),
             _ => {}
@@ -80,7 +118,18 @@ impl OfficialProductMcpGate {
         self.session_enhance.store(false, Ordering::SeqCst);
         self.workflow.store(false, Ordering::SeqCst);
         self.session_features.store(0, Ordering::SeqCst);
+        *self.delegation_token.lock().unwrap() = None;
+        *self.session_token.lock().unwrap() = None;
+        *self.http_base.lock().unwrap() = None;
     }
+}
+
+fn ensure_token(slot: &Mutex<Option<String>>) -> String {
+    let mut guard = slot.lock().unwrap();
+    if guard.is_none() {
+        *guard = Some(uuid::Uuid::new_v4().to_string());
+    }
+    guard.clone().expect("token just inserted")
 }
 
 #[cfg(test)]

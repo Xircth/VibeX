@@ -210,6 +210,8 @@ pub struct DelegationLink {
     pub delegation_call_id: String,
     pub agent_type: AgentId,
     pub policy: DelegationPolicySnapshot,
+    pub preferred_mode_id: Option<String>,
+    pub preferred_config_values: std::collections::BTreeMap<String, String>,
 }
 
 /// Immutable limits attached to a delegated child so its durable relation can
@@ -225,6 +227,15 @@ pub struct DelegationPolicySnapshot {
     pub workspace_access: String,
 }
 
+/// Per-agent session overrides applied only to delegated children.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentDelegationDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_id: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub config_values: std::collections::BTreeMap<String, String>,
+}
+
 /// Runtime-tunable delegation knobs.
 #[derive(Debug, Clone)]
 pub struct DelegationConfig {
@@ -236,6 +247,11 @@ pub struct DelegationConfig {
     pub max_calls_per_parent: u32,
     pub child_deadline_ms: u64,
     pub max_result_bytes: usize,
+    /// Per-parent in-memory result cache. `0` means unlimited until the parent
+    /// connection ends.
+    pub completed_cache_cap_bytes: u64,
+    /// Session options applied only when spawning a delegated child.
+    pub agent_defaults: std::collections::BTreeMap<String, AgentDelegationDefaults>,
 }
 
 impl DelegationConfig {
@@ -245,6 +261,10 @@ impl DelegationConfig {
         self.max_calls_per_parent = self.max_calls_per_parent.clamp(1, 1_024);
         self.child_deadline_ms = self.child_deadline_ms.clamp(1_000, 24 * 60 * 60 * 1_000);
         self.max_result_bytes = self.max_result_bytes.clamp(1_024, 1024 * 1024);
+        self.agent_defaults.retain(|_, defaults| {
+            defaults.mode_id.as_ref().is_some_and(|mode| !mode.is_empty())
+                || !defaults.config_values.is_empty()
+        });
         self
     }
 
@@ -276,6 +296,8 @@ impl Default for DelegationConfig {
             max_calls_per_parent: 16,
             child_deadline_ms: 30 * 60 * 1_000,
             max_result_bytes: 256 * 1024,
+            completed_cache_cap_bytes: 512 * 1024 * 1024,
+            agent_defaults: std::collections::BTreeMap::new(),
         }
     }
 }

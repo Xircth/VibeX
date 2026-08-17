@@ -17,6 +17,7 @@ import {
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { SettingsActionBar } from '@/pages/settings/SettingsUi';
+import { AgentSessionDefaultsField } from './AgentSessionDefaultsField';
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -93,6 +94,21 @@ export function PluginConfigForm({
               {description ? <small>{description}</small> : null}
             </span>
           );
+
+          if (key === 'agentDefaults' || schema['x-widget'] === 'agent-session-defaults') {
+            return (
+              <div key={key} className="product-plugin-config-block">
+                {copy}
+                <AgentSessionDefaultsField
+                  value={draft[key]}
+                  disabled={!supports('plugin.write')}
+                  onChange={(value) =>
+                    setDraft((current) => ({ ...current, [key]: value }))
+                  }
+                />
+              </div>
+            );
+          }
 
           if (schema.type === 'object') {
             return null;

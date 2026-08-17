@@ -42,6 +42,10 @@ struct Args {
     socket_path: String,
     token: String,
     features: CompanionFeatures,
+    server_url: Option<String>,
+    server_token: Option<String>,
+    conversation_id: Option<String>,
+    product: String,
 }
 
 /// Which tool groups this companion exposes (from `--features`).
@@ -97,6 +101,10 @@ fn parse_args() -> Result<Args, String> {
     let mut socket_path = None;
     let mut token = None;
     let mut features = None;
+    let mut server_url = None;
+    let mut server_token = None;
+    let mut conversation_id = None;
+    let mut product = None;
 
     let mut argv = std::env::args().skip(1);
     while let Some(flag) = argv.next() {
@@ -109,6 +117,10 @@ fn parse_args() -> Result<Args, String> {
             "--socket-path" => socket_path = Some(take()?),
             "--token" => token = Some(take()?),
             "--features" => features = Some(take()?),
+            "--server-url" => server_url = Some(take()?),
+            "--server-token" => server_token = Some(take()?),
+            "--conversation-id" => conversation_id = Some(take()?),
+            "--product" => product = Some(take()?),
             // Accepted for forward-compat; parent death is detected via stdin EOF.
             "--parent-pid" => {
                 let _ = take()?;
@@ -118,10 +130,16 @@ fn parse_args() -> Result<Args, String> {
     }
 
     Ok(Args {
-        parent_connection_id: parent_connection_id.ok_or("missing --parent-connection-id")?,
-        socket_path: socket_path.ok_or("missing --socket-path")?,
-        token: token.ok_or("missing --token")?,
+        parent_connection_id: parent_connection_id.unwrap_or_default(),
+        socket_path: socket_path.unwrap_or_default(),
+        token: token
+            .or_else(|| server_token.clone())
+            .ok_or("missing --token or --server-token")?,
         features: CompanionFeatures::parse(features.as_deref()),
+        server_url,
+        server_token,
+        conversation_id,
+        product: product.unwrap_or_else(|| "delegation".to_string()),
     })
 }
 
@@ -187,6 +205,10 @@ struct Companion {
     token: String,
     features: CompanionFeatures,
     tools: Vec<Value>,
+    server_url: Option<String>,
+    server_token: Option<String>,
+    conversation_id: Option<String>,
+    product: String,
 }
 
 impl Companion {
@@ -198,6 +220,28 @@ impl Companion {
             token: args.token,
             features: args.features,
             tools,
+            server_url: args.server_url,
+            server_token: args.server_token,
+            conversation_id: args.conversation_id,
+            product: args.product,
+        }
+    }
+
+    async fn send(
+        &self,
+        message: &delegation_proto::BrokerMessage,
+    ) -> std::io::Result<delegation_proto::BrokerResponse> {
+        if let Some(url) = &self.server_url {
+            client::call_http(
+                url,
+                self.server_token.as_deref(),
+                self.conversation_id.as_deref(),
+                &self.product,
+                message,
+            )
+            .await
+        } else {
+            client::call_broker(&self.socket_path, message).await
         }
     }
 
@@ -293,7 +337,7 @@ impl Companion {
         let outcome = tokio::select! {
             biased;
             _ = cancel_rx => None, // canceled: suppress response per MCP spec
-            result = client::call_broker(&self.socket_path, &message) => Some(result),
+            result = self.send(&message) => Some(result),
         };
         inflight.take(&key).await;
 
@@ -313,14 +357,12 @@ impl Companion {
                 };
                 let relayed = write_opt(&stdout, respond(id, render_result(&outcome))).await;
                 if relayed && !feedback_ids.is_empty() {
-                    let _ = client::call_broker(
-                        &self.socket_path,
-                        &BrokerMessage::CommitFeedback(BrokerCommitFeedbackRequest {
+                    let _ = self
+                        .send(&BrokerMessage::CommitFeedback(BrokerCommitFeedbackRequest {
                             token: self.token.clone(),
                             ids: feedback_ids,
-                        }),
-                    )
-                    .await;
+                        }))
+                        .await;
                 }
             }
             Some(Err(err)) => {
@@ -459,7 +501,7 @@ impl Companion {
         });
         let _ = tokio::time::timeout(
             std::time::Duration::from_millis(500),
-            client::call_broker(&self.socket_path, &message),
+            self.send(&message),
         )
         .await;
     }
@@ -620,6 +662,10 @@ mod tests {
             socket_path: "/tmp/does-not-matter.sock".to_string(),
             token: "tok".to_string(),
             features: CompanionFeatures::parse(Some(features)),
+            server_url: None,
+            server_token: None,
+            conversation_id: None,
+            product: "delegation".to_string(),
         }))
     }
 

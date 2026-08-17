@@ -11,6 +11,7 @@ mod delegation_runtime;
 mod domains;
 mod host_core;
 mod preview_proxy;
+mod product_mcp;
 mod runtime;
 mod token_store;
 mod update;
@@ -33,6 +34,7 @@ pub use host_core::host_application_core;
 pub use preview_proxy::{
     PreviewProxyRegistry, PreviewRegistrationError, start_loopback_preview_proxy,
 };
+pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
 pub use runtime::ServerRuntime;
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};
 pub use update::{HostUpgradeError, HostUpgradePlan, apply_host_upgrade, plan_host_upgrade};

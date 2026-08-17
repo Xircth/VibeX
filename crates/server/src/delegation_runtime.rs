@@ -76,6 +76,19 @@ impl HeadlessDelegationRuntime {
             }),
         ));
         let listen_path = socket_path.clone();
+        let gateway_listener = listener.clone();
+        let gateway_tokens = tokens.clone();
+        let gateway_gate = official_mcp.clone();
+        let gateway_runtime = runtime.clone();
+        tokio::spawn(async move {
+            let _ = crate::start_product_mcp_gateway(
+                gateway_listener,
+                gateway_tokens,
+                gateway_gate,
+                Arc::new(RuntimeConversationLookup { runtime: gateway_runtime }),
+            )
+            .await;
+        });
         let listener_task = tokio::spawn(async move {
             if let Err(error) = listener.run(listen_path).await {
                 tracing::warn!(%error, "headless delegation listener stopped");
@@ -95,6 +108,29 @@ impl Drop for HeadlessDelegationRuntime {
         for task in &self.tasks {
             task.abort();
         }
+    }
+}
+
+struct RuntimeConversationLookup {
+    runtime: Arc<AgentRuntime>,
+}
+
+#[async_trait]
+impl crate::ProductMcpSessionLookup for RuntimeConversationLookup {
+    async fn resolve(&self, conversation_id: Uuid) -> Option<(String, PathBuf)> {
+        let snapshot = self.runtime.snapshot().await;
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id.0 == conversation_id)?;
+        let connection = snapshot
+            .connections
+            .iter()
+            .find(|connection| connection.id == session.connection_id)?;
+        Some((
+            connection.id.0.to_string(),
+            PathBuf::from(&connection.working_dir),
+        ))
     }
 }
 

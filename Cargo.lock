@@ -6126,6 +6126,7 @@ dependencies = [
  "conversations",
  "db",
  "delegation",
+ "delegation-proto",
  "deployment",
  "dirs 5.0.1",
  "futures",
@@ -8348,6 +8349,7 @@ name = "vibex-mcp"
 version = "0.1.3"
 dependencies = [
  "delegation-proto",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",

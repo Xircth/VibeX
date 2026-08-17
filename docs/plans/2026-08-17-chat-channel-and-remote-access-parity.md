@@ -27,17 +27,17 @@
       会话上的无前缀 follow-up
 - [x] 权限出站后可用 IM `/approve` `/deny` 互斥答复
 - [x] 连接态投影到设置页状态灯
-- [ ] Telegram inline 按钮（folder/agent/approve）
+- [x] Telegram inline 按钮（folder/agent/approve）+ callback_query
 - [x] 设置页：状态灯、命令目录
 - [x] IM 命令与设置页中英（出站卡片仍待全面 i18n）
 
 ## P2 — 超过 CodeG 的渠道深度
 
 - [x] Telegram Topic 模式（总题忽略纯文本；一题一会话键）
-- [ ] 微信 iLink 扫码入站（仍为企业微信出站）
+- [x] 微信 iLink 扫码入站（企业微信群机器人仍可出站）
 - [x] 每通道日报（按配置时刻发送）
 - [x] 独立事件 Webhook 投递入口（`post_event_webhooks`）
-- [ ] 设置页独立 Webhook 编辑与 IM 出站全文 i18n
+- [x] 设置页独立 Webhook 编辑与 IM 出站中英切换
 
 ## 验证
 

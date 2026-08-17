@@ -502,6 +502,35 @@ export const chatChannelApi = {
       prefix,
     });
   },
+  getWebhooks: async (): Promise<Array<{ url: string; enabled: boolean }>> => {
+    return backendCall('get_chat_event_webhooks');
+  },
+  setWebhooks: async (
+    webhooks: Array<{ url: string; enabled: boolean }>
+  ): Promise<Array<{ url: string; enabled: boolean }>> => {
+    return backendCall('set_chat_event_webhooks', { webhooks });
+  },
+  getLanguage: async (): Promise<string> => {
+    return backendCall('get_chat_message_language');
+  },
+  setLanguage: async (language: string): Promise<string> => {
+    return backendCall('set_chat_message_language', { language });
+  },
+  weixinGetQrcode: async (): Promise<{
+    qrcode_id: string;
+    qrcode_url: string;
+    qrcode_img_content: string;
+  }> => {
+    return backendCall('weixin_get_qrcode');
+  },
+  weixinCheckQrcode: async (
+    channelId: string,
+    qrcode: string
+  ): Promise<{ status: string }> => {
+    return backendCall('weixin_check_qrcode', {
+      request: { channel_id: channelId, qrcode },
+    });
+  },
   getIncludePromptText: async (): Promise<boolean> => {
     return backendCall<boolean>('get_chat_include_prompt_text');
   },

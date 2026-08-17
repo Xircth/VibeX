@@ -87,7 +87,7 @@ impl RichMessage {
         self
     }
 
-    fn to_plain(&self) -> String {
+    pub fn to_plain(&self) -> String {
         let mut text = String::new();
         if let Some(title) = &self.title {
             text.push_str(title);
@@ -111,41 +111,88 @@ fn level_emoji(level: MsgLevel) -> &'static str {
 
 /// Build a rich notification from an agent event. `include_prompt_text` gates
 /// whether the user's prompt text is exposed to external channels.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImLang {
+    En,
+    ZhCn,
+}
+
+impl ImLang {
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "zh" | "zh-CN" | "zh-cn" | "zh_CN" => Self::ZhCn,
+            _ => Self::En,
+        }
+    }
+}
+
 pub fn build_rich(event: &AgentEvent, include_prompt_text: bool) -> RichMessage {
+    build_rich_localized(event, include_prompt_text, ImLang::En)
+}
+
+pub fn build_rich_localized(
+    event: &AgentEvent,
+    include_prompt_text: bool,
+    lang: ImLang,
+) -> RichMessage {
+    let zh = lang == ImLang::ZhCn;
     match event {
         AgentEvent::PromptStarted { snapshot } => {
             let body = if include_prompt_text && !snapshot.text_preview.trim().is_empty() {
                 snapshot.text_preview.clone()
-            } else {
+            } else if zh {
                 "智能体开始执行任务。".to_string()
+            } else {
+                "The agent started a turn.".to_string()
             };
-            RichMessage::info(body).with_title("🚀 任务开始")
+            RichMessage::info(body).with_title(if zh { "🚀 任务开始" } else { "🚀 Turn started" })
         }
-        AgentEvent::PromptFinished { finished } => RichMessage::info("智能体已完成本次任务。")
-            .with_title("✅ 任务完成")
-            .with_field("Prompt", finished.prompt_id.to_string()),
-        AgentEvent::PermissionRequested { request } => {
-            RichMessage::info("智能体正在等待你的授权。")
-                .with_title("🔐 权限请求")
-                .with_field("操作", request.title.clone())
-                .level(MsgLevel::Warning)
-        }
-        AgentEvent::Error { error } => RichMessage::info("智能体运行出现错误。")
-            .with_title("❌ 运行错误")
-            .with_field("信息", error.message.clone())
-            .level(MsgLevel::Error),
+        AgentEvent::PromptFinished { finished } => RichMessage::info(if zh {
+            "智能体已完成本次任务。"
+        } else {
+            "The agent finished this turn."
+        })
+        .with_title(if zh { "✅ 任务完成" } else { "✅ Turn complete" })
+        .with_field("Prompt", finished.prompt_id.to_string()),
+        AgentEvent::PermissionRequested { request } => RichMessage::info(if zh {
+            "智能体正在等待你的授权。"
+        } else {
+            "The agent is waiting for approval."
+        })
+        .with_title(if zh {
+            "🔐 权限请求"
+        } else {
+            "🔐 Permission request"
+        })
+        .with_field(if zh { "操作" } else { "Action" }, request.title.clone())
+        .level(MsgLevel::Warning),
+        AgentEvent::Error { error } => RichMessage::info(if zh {
+            "智能体运行出现错误。"
+        } else {
+            "The agent reported an error."
+        })
+        .with_title(if zh { "❌ 运行错误" } else { "❌ Agent error" })
+        .with_field(if zh { "信息" } else { "Detail" }, error.message.clone())
+        .level(MsgLevel::Error),
         AgentEvent::ConnectionStatusChanged { snapshot } => RichMessage::info(format!(
-            "{:?} 连接状态变更为 {:?}",
+            "{:?} -> {:?}",
             snapshot.agent_id, snapshot.status
         ))
-        .with_title("🔌 连接状态"),
-        AgentEvent::SessionCreated { snapshot } => RichMessage::info("新的会话已创建。")
-            .with_title("🆕 会话创建")
-            .with_field("Session", snapshot.id.to_string()),
-        AgentEvent::TurnCompleted { .. } => {
-            RichMessage::info("智能体完成了一个回合。").with_title("🔄 回合完成")
-        }
-        _ => RichMessage::info("VibeX 事件").with_title("VibeX"),
+        .with_title(if zh { "🔌 连接状态" } else { "🔌 Connection" }),
+        AgentEvent::SessionCreated { snapshot } => RichMessage::info(if zh {
+            "新的会话已创建。"
+        } else {
+            "A new conversation was created."
+        })
+        .with_title(if zh { "🆕 会话创建" } else { "🆕 Conversation created" })
+        .with_field("Session", snapshot.id.to_string()),
+        AgentEvent::TurnCompleted { .. } => RichMessage::info(if zh {
+            "智能体完成了一个回合。"
+        } else {
+            "The agent completed a turn."
+        })
+        .with_title(if zh { "🔄 回合完成" } else { "🔄 Turn completed" }),
+        _ => RichMessage::info("VibeX").with_title("VibeX"),
     }
 }
 

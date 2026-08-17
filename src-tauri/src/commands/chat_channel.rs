@@ -30,7 +30,7 @@ use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::chat_delivery::{
-    RichMessage, build_rich, channel_has_token, delete_channel_token, deliver_rich, event_key,
+    RichMessage, build_rich_localized, channel_has_token, delete_channel_token, deliver_rich, event_key,
     feishu_tenant_token, http_client, import_legacy_channel_tokens, load_channel_token,
     load_channel_tokens, save_channel_token, should_send, telegram_post,
 };
@@ -132,6 +132,10 @@ struct ChatChannelStore {
     /// Whether notifications may include the user's prompt text (privacy: off).
     #[serde(default)]
     include_prompt_text: bool,
+    #[serde(default)]
+    event_webhooks: Vec<EventWebhookConfig>,
+    #[serde(default)]
+    message_language: String,
 }
 
 impl Default for ChatChannelStore {
@@ -141,8 +145,17 @@ impl Default for ChatChannelStore {
             event_filter: default_event_filter(),
             command_prefix: default_command_prefix(),
             include_prompt_text: false,
+            event_webhooks: Vec::new(),
+            message_language: "en".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EventWebhookConfig {
+    pub url: String,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -670,6 +683,108 @@ pub async fn set_chat_include_prompt_text(enabled: bool) -> Result<bool, AppErro
     Ok(enabled)
 }
 
+#[tauri::command]
+pub async fn get_chat_event_webhooks() -> Result<Vec<EventWebhookConfig>, AppError> {
+    Ok(load_store().await?.event_webhooks)
+}
+
+#[tauri::command]
+pub async fn set_chat_event_webhooks(
+    webhooks: Vec<EventWebhookConfig>,
+) -> Result<Vec<EventWebhookConfig>, AppError> {
+    let cleaned = webhooks
+        .into_iter()
+        .filter(|hook| {
+            let url = hook.url.trim();
+            url.starts_with("http://") || url.starts_with("https://")
+        })
+        .map(|mut hook| {
+            hook.url = hook.url.trim().to_string();
+            hook
+        })
+        .collect::<Vec<_>>();
+    let mut store = load_store().await?;
+    store.event_webhooks = cleaned.clone();
+    save_store(&store).await?;
+    Ok(cleaned)
+}
+
+#[tauri::command]
+pub async fn get_chat_message_language() -> Result<String, AppError> {
+    let lang = load_store().await?.message_language;
+    Ok(if lang.trim().is_empty() {
+        "en".to_string()
+    } else {
+        lang
+    })
+}
+
+#[tauri::command]
+pub async fn set_chat_message_language(language: String) -> Result<String, AppError> {
+    let language = match language.as_str() {
+        "zh-CN" | "zh" | "zh-cn" => "zh-CN".to_string(),
+        _ => "en".to_string(),
+    };
+    let mut store = load_store().await?;
+    store.message_language = language.clone();
+    save_store(&store).await?;
+    Ok(language)
+}
+
+#[tauri::command]
+pub async fn weixin_get_qrcode() -> Result<server::WeixinQrcodeInfo, AppError> {
+    server::weixin_get_qrcode()
+        .await
+        .map_err(AppError::Internal)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WeixinCheckQrcodeRequest {
+    pub channel_id: String,
+    pub qrcode: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WeixinQrcodeStatusPublic {
+    pub status: String,
+}
+
+#[tauri::command]
+pub async fn weixin_check_qrcode(
+    request: WeixinCheckQrcodeRequest,
+) -> Result<WeixinQrcodeStatusPublic, AppError> {
+    let status = server::weixin_check_qrcode(&request.qrcode)
+        .await
+        .map_err(AppError::Internal)?;
+    if status.status == "confirmed" {
+        if let Some(token) = status.bot_token.as_deref() {
+            save_channel_token(&request.channel_id, token).await?;
+        }
+        if let Some(base_url) = status.base_url.clone() {
+            let mut store = load_store().await?;
+            if let Some(channel) = store
+                .channels
+                .iter_mut()
+                .find(|channel| channel.id == request.channel_id)
+            {
+                let mut config = if channel.config.is_null() {
+                    json!({})
+                } else {
+                    channel.config.clone()
+                };
+                config["mode"] = json!("ilink");
+                config["base_url"] = json!(base_url);
+                channel.config = config;
+                channel.updated_at = Utc::now().to_rfc3339();
+            }
+            save_store(&store).await?;
+        }
+    }
+    Ok(WeixinQrcodeStatusPublic {
+        status: status.status,
+    })
+}
+
 pub async fn notify_agent_event(envelope: &AgentEventEnvelope) -> Result<(), AppError> {
     ensure_secrets_migrated().await.ok();
     let Some(event) = event_key(&envelope.event) else {
@@ -683,7 +798,9 @@ pub async fn notify_agent_event(envelope: &AgentEventEnvelope) -> Result<(), App
 
     let ids: Vec<String> = store.channels.iter().map(|c| c.id.clone()).collect();
     let tokens = load_channel_tokens(&ids).await;
-    let msg = build_rich(&envelope.event, store.include_prompt_text);
+    let lang = services::services::chat_delivery::ImLang::parse(&store.message_language);
+    let msg = build_rich_localized(&envelope.event, store.include_prompt_text, lang);
+    let _ = server::post_event_webhooks(event, &msg.to_plain()).await;
 
     for channel in store.channels.iter().filter(|channel| channel.enabled) {
         if !should_send(&channel.id, event, msg.level) {

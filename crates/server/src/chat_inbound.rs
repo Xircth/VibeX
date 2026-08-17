@@ -146,7 +146,7 @@ fn connection_states() -> &'static StdMutex<HashMap<String, String>> {
     STATES.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-fn set_connection_state(channel_id: &str, state: &str) {
+pub(crate) fn set_connection_state(channel_id: &str, state: &str) {
     if let Ok(mut states) = connection_states().lock() {
         states.insert(channel_id.to_string(), state.to_string());
     }
@@ -254,6 +254,22 @@ async fn inbound_targets() -> Result<Vec<InboundTarget>, String> {
                 token,
                 config: channel.config,
             }),
+            "weixin"
+                if !token.is_empty()
+                    && (config_str(&channel.config, "mode") == "ilink"
+                        || !config_str(&channel.config, "base_url").is_empty()) =>
+            {
+                targets.push(InboundTarget {
+                    channel_id: channel.id,
+                    kind: "weixin".into(),
+                    signature: format!(
+                        "wx:{}:{token}",
+                        config_str(&channel.config, "base_url")
+                    ),
+                    token,
+                    config: channel.config,
+                });
+            }
             "qq" => {
                 let ws_url = qq_ws_url(&channel.config);
                 if !ws_url.is_empty() {
@@ -326,7 +342,9 @@ fn authorized_identities(kind: &str, config: &Value) -> HashSet<String> {
 fn is_sender_authorized(kind: &str, config: &Value, sender_id: &str, chat_id: &str) -> bool {
     let identities = authorized_identities(kind, config);
     if identities.is_empty() {
-        return false;
+        // iLink trust is the QR-bound bot token; an empty list would make a
+        // just-scanned bot unable to receive its first command.
+        return kind == "weixin" && config_str(config, "mode") == "ilink";
     }
     identities.contains(sender_id) || identities.contains(chat_id)
 }
@@ -383,6 +401,15 @@ fn spawn_receiver(
             target.token.clone(),
             shutdown,
         ),
+        "weixin" => crate::weixin_ilink::spawn_weixin_ilink_loop(
+            pool,
+            conversations,
+            target.channel_id.clone(),
+            target.token.clone(),
+            config_str(&target.config, "base_url"),
+            target.config.clone(),
+            shutdown,
+        ),
         "feishu" => spawn_feishu_loop(
             pool,
             conversations,
@@ -429,6 +456,19 @@ fn spawn_telegram_loop(
                 if let Some(update_id) = update.get("update_id").and_then(Value::as_i64) {
                     offset = update_id + 1;
                 }
+                if let Some(callback) = update.get("callback_query") {
+                    handle_telegram_callback(
+                        &pool,
+                        &conversations,
+                        &client,
+                        &bot_token,
+                        &channel_id,
+                        &config,
+                        callback,
+                    )
+                    .await;
+                    continue;
+                }
                 let Some(text) = update.pointer("/message/text").and_then(Value::as_str) else {
                     continue;
                 };
@@ -456,7 +496,7 @@ fn spawn_telegram_loop(
                     Some(thread) if topic_mode => format!("{sender_id}:topic:{thread}"),
                     _ => sender_id,
                 };
-                let reply = dispatch_command(
+                let reply = dispatch_command_reply(
                     &pool,
                     &conversations,
                     text.trim(),
@@ -470,12 +510,7 @@ fn spawn_telegram_loop(
                 if reply.is_empty() {
                     continue;
                 }
-                let _ = client
-                    .post(format!(
-                        "https://api.telegram.org/bot{bot_token}/sendMessage"
-                    ))
-                    .json(&json!({ "chat_id": chat_id, "text": reply }))
-                    .send()
+                telegram_send_reply(&client, &bot_token, &chat_id, thread_id.as_deref(), &reply)
                     .await;
             }
         }
@@ -861,6 +896,106 @@ async fn handle_feishu_event(
     }
 }
 
+struct CommandReply {
+    text: String,
+    buttons: Vec<(String, String)>,
+}
+
+impl CommandReply {
+    fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            buttons: Vec::new(),
+        }
+    }
+
+    fn with_buttons(mut self, buttons: Vec<(String, String)>) -> Self {
+        self.buttons = buttons;
+        self
+    }
+
+    fn is_empty(&self) -> bool {
+        self.text.trim().is_empty() && self.buttons.is_empty()
+    }
+}
+
+async fn telegram_send_reply(
+    client: &reqwest::Client,
+    bot_token: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    reply: &CommandReply,
+) {
+    let mut payload = json!({ "chat_id": chat_id, "text": reply.text });
+    if let Some(thread) = thread_id {
+        payload["message_thread_id"] = json!(thread);
+    }
+    if !reply.buttons.is_empty() {
+        let rows: Vec<Vec<Value>> = reply
+            .buttons
+            .chunks(2)
+            .map(|chunk| {
+                chunk
+                    .iter()
+                    .map(|(label, data)| json!({ "text": label, "callback_data": data }))
+                    .collect()
+            })
+            .collect();
+        payload["reply_markup"] = json!({ "inline_keyboard": rows });
+    }
+    let _ = client
+        .post(format!("https://api.telegram.org/bot{bot_token}/sendMessage"))
+        .json(&payload)
+        .send()
+        .await;
+}
+
+async fn handle_telegram_callback(
+    pool: &SqlitePool,
+    conversations: &ConversationContext,
+    client: &reqwest::Client,
+    bot_token: &str,
+    channel_id: &str,
+    config: &Value,
+    callback: &Value,
+) {
+    let callback_id = callback.get("id").and_then(Value::as_str).unwrap_or("");
+    let data = callback.get("data").and_then(Value::as_str).unwrap_or("");
+    let sender_id = callback
+        .pointer("/from/id")
+        .and_then(value_to_id)
+        .unwrap_or_default();
+    let chat_id = callback
+        .pointer("/message/chat/id")
+        .and_then(value_to_id)
+        .unwrap_or_default();
+    let thread_id = callback
+        .pointer("/message/message_thread_id")
+        .and_then(value_to_id);
+    let _ = client
+        .post(format!(
+            "https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+        ))
+        .json(&json!({ "callback_query_id": callback_id }))
+        .send()
+        .await;
+    let reply = dispatch_command_reply(
+        pool,
+        conversations,
+        data,
+        &sender_id,
+        &chat_id,
+        channel_id,
+        "telegram",
+        config,
+    )
+    .await;
+    if reply.is_empty() {
+        return;
+    }
+    telegram_send_reply(client, bot_token, &chat_id, thread_id.as_deref(), &reply).await;
+}
+
 fn help_text(prefix: &str) -> String {
     format!(
         "VibeX Host commands:\n\
@@ -882,7 +1017,7 @@ fn help_text(prefix: &str) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn dispatch_command(
+pub(crate) async fn dispatch_command(
     pool: &SqlitePool,
     conversations: &ConversationContext,
     text: &str,
@@ -892,8 +1027,33 @@ async fn dispatch_command(
     kind: &str,
     config: &Value,
 ) -> String {
+    dispatch_command_reply(
+        pool,
+        conversations,
+        text,
+        sender_id,
+        chat_id,
+        channel_id,
+        kind,
+        config,
+    )
+    .await
+    .text
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_command_reply(
+    pool: &SqlitePool,
+    conversations: &ConversationContext,
+    text: &str,
+    sender_id: &str,
+    chat_id: &str,
+    channel_id: &str,
+    kind: &str,
+    config: &Value,
+) -> CommandReply {
     if !is_sender_authorized(kind, config, sender_id, chat_id) {
-        return String::new();
+        return CommandReply::text(String::new());
     }
     let store = load_store().await.unwrap_or_default();
     let prefix = if store.command_prefix.trim().is_empty() {
@@ -902,38 +1062,55 @@ async fn dispatch_command(
         store.command_prefix
     };
     let Some(rest) = text.strip_prefix(&prefix) else {
-        if selected_conversation(channel_id, sender_id).is_some() {
-            return send_task(pool, conversations, channel_id, sender_id, text, &prefix).await;
+        if text.starts_with("cb:") {
+            return dispatch_callback(pool, conversations, text, sender_id, channel_id, &prefix)
+                .await;
         }
-        return String::new();
+        if selected_conversation(channel_id, sender_id).is_some() {
+            return CommandReply::text(
+                send_task(pool, conversations, channel_id, sender_id, text, &prefix).await,
+            );
+        }
+        return CommandReply::text(String::new());
     };
     let rest = rest.trim();
     let mut parts = rest.splitn(2, char::is_whitespace);
     let command = parts.next().unwrap_or("").to_lowercase();
     let args = parts.next().unwrap_or("").trim();
     match command.as_str() {
-        "" | "help" | "start" => help_text(&prefix),
-        "ping" => "VibeX Host online".to_string(),
-        "status" => channel_status_text().await,
-        "conversations" | "sessions" | "ls" => list_conversations(pool).await,
-        "use" | "resume" => select_conversation(pool, channel_id, sender_id, args, &prefix).await,
+        "" | "help" | "start" => CommandReply::text(help_text(&prefix)).with_buttons(vec![
+            ("Approve".into(), "cb:p:once".into()),
+            ("Deny".into(), "cb:p:deny".into()),
+        ]),
+        "ping" => CommandReply::text(if store.message_language.starts_with("zh") {
+            "VibeX Host 在线"
+        } else {
+            "VibeX Host online"
+        }),
+        "status" => CommandReply::text(channel_status_text().await),
+        "conversations" | "sessions" | "ls" => CommandReply::text(list_conversations(pool).await),
+        "use" | "resume" => CommandReply::text(
+            select_conversation(pool, channel_id, sender_id, args, &prefix).await,
+        ),
         "folder" => select_folder(pool, channel_id, sender_id, args, &prefix).await,
         "agent" => select_agent(pool, channel_id, sender_id, args, &prefix).await,
-        "search" => search_conversations(pool, args, &prefix).await,
-        "today" => today_conversations(pool).await,
-        "task" | "do" | "ask" => {
-            send_task(pool, conversations, channel_id, sender_id, args, &prefix).await
-        }
+        "search" => CommandReply::text(search_conversations(pool, args, &prefix).await),
+        "today" => CommandReply::text(today_conversations(pool).await),
+        "task" | "do" | "ask" => CommandReply::text(
+            send_task(pool, conversations, channel_id, sender_id, args, &prefix).await,
+        ),
         "approve" | "allow" => {
             let intent = if args.eq_ignore_ascii_case("always") {
                 agents::RemotePermissionIntent::ApproveAlways
             } else {
                 agents::RemotePermissionIntent::ApproveOnce
             };
-            respond_permission(pool, conversations, channel_id, sender_id, intent, &prefix)
-                .await
+            CommandReply::text(
+                respond_permission(pool, conversations, channel_id, sender_id, intent, &prefix)
+                    .await,
+            )
         }
-        "deny" | "reject" => {
+        "deny" | "reject" => CommandReply::text(
             respond_permission(
                 pool,
                 conversations,
@@ -942,12 +1119,55 @@ async fn dispatch_command(
                 agents::RemotePermissionIntent::Deny,
                 &prefix,
             )
-            .await
+            .await,
+        ),
+        "cancel" | "stop" => CommandReply::text(
+            cancel_turn(pool, conversations, channel_id, sender_id, &prefix).await,
+        ),
+        _ => CommandReply::text(format!("unknown command; {prefix} help")),
+    }
+}
+
+async fn dispatch_callback(
+    pool: &SqlitePool,
+    conversations: &ConversationContext,
+    text: &str,
+    sender_id: &str,
+    channel_id: &str,
+    prefix: &str,
+) -> CommandReply {
+    let Some(payload) = text.strip_prefix("cb:") else {
+        return CommandReply::text(String::new());
+    };
+    let mut parts = payload.splitn(2, ':');
+    let kind = parts.next().unwrap_or("");
+    let value = parts.next().unwrap_or("");
+    match kind {
+        "f" => select_folder(pool, channel_id, sender_id, value, prefix).await,
+        "a" => select_agent(pool, channel_id, sender_id, value, prefix).await,
+        "p" if value == "deny" => CommandReply::text(
+            respond_permission(
+                pool,
+                conversations,
+                channel_id,
+                sender_id,
+                agents::RemotePermissionIntent::Deny,
+                prefix,
+            )
+            .await,
+        ),
+        "p" => {
+            let intent = if value == "always" {
+                agents::RemotePermissionIntent::ApproveAlways
+            } else {
+                agents::RemotePermissionIntent::ApproveOnce
+            };
+            CommandReply::text(
+                respond_permission(pool, conversations, channel_id, sender_id, intent, prefix)
+                    .await,
+            )
         }
-        "cancel" | "stop" => {
-            cancel_turn(pool, conversations, channel_id, sender_id, &prefix).await
-        }
-        _ => format!("unknown command; {prefix} help"),
+        _ => CommandReply::text(String::new()),
     }
 }
 
@@ -1109,28 +1329,42 @@ async fn select_folder(
     sender_id: &str,
     args: &str,
     prefix: &str,
-) -> String {
+) -> CommandReply {
     let Ok(projects) = recent_projects(pool).await else {
-        return "failed to list projects".to_string();
+        return CommandReply::text("failed to list projects");
     };
     if args.trim().is_empty() {
         if projects.is_empty() {
-            return "No projects on this Host.".to_string();
+            return CommandReply::text("No projects on this Host.");
         }
-        return projects
-            .into_iter()
+        let text = projects
+            .iter()
             .enumerate()
             .map(|(index, (_, name))| format!("{}. {name}", index + 1))
             .collect::<Vec<_>>()
             .join("\n");
+        let buttons = projects
+            .iter()
+            .enumerate()
+            .take(8)
+            .map(|(index, (_, name))| {
+                let label = if name.chars().count() > 20 {
+                    format!("{}. {}…", index + 1, name.chars().take(18).collect::<String>())
+                } else {
+                    format!("{}. {name}", index + 1)
+                };
+                (label, format!("cb:f:{}", index + 1))
+            })
+            .collect();
+        return CommandReply::text(text).with_buttons(buttons);
     }
     let Some(project) = resolve_project(&projects, args) else {
-        return format!("usage: {prefix} folder <n|name>");
+        return CommandReply::text(format!("usage: {prefix} folder <n|name>"));
     };
     if let Ok(mut bridge) = folder_bridge().lock() {
         bridge.insert((channel_id.to_string(), sender_id.to_string()), project.0);
     }
-    format!("selected project {}", project.1)
+    CommandReply::text(format!("selected project {}", project.1))
 }
 
 fn resolve_project<'a>(
@@ -1171,20 +1405,27 @@ async fn select_agent(
     sender_id: &str,
     args: &str,
     prefix: &str,
-) -> String {
+) -> CommandReply {
     let Ok(agents) = recent_agents(pool).await else {
-        return "failed to list agents".to_string();
+        return CommandReply::text("failed to list agents");
     };
     if args.trim().is_empty() {
         if agents.is_empty() {
-            return "No Agent bindings on this Host.".to_string();
+            return CommandReply::text("No Agent bindings on this Host.");
         }
-        return agents
-            .into_iter()
+        let text = agents
+            .iter()
             .enumerate()
             .map(|(index, id)| format!("{}. {id}", index + 1))
             .collect::<Vec<_>>()
             .join("\n");
+        let buttons = agents
+            .iter()
+            .enumerate()
+            .take(8)
+            .map(|(index, id)| (format!("{}. {id}", index + 1), format!("cb:a:{}", index + 1)))
+            .collect();
+        return CommandReply::text(text).with_buttons(buttons);
     }
     let selected = if let Ok(index) = args.trim().parse::<usize>() {
         agents.get(index.saturating_sub(1)).cloned()
@@ -1196,15 +1437,15 @@ async fn select_agent(
             .cloned()
     };
     let Some(agent_id) = selected else {
-        return format!("usage: {prefix} agent <n|id>");
+        return CommandReply::text(format!("usage: {prefix} agent <n|id>"));
     };
     if agents::AgentId::parse(&agent_id).is_err() {
-        return format!("invalid agent id: {agent_id}");
+        return CommandReply::text(format!("invalid agent id: {agent_id}"));
     }
     if let Ok(mut bridge) = agent_bridge().lock() {
         bridge.insert((channel_id.to_string(), sender_id.to_string()), agent_id.clone());
     }
-    format!("selected agent {agent_id}")
+    CommandReply::text(format!("selected agent {agent_id}"))
 }
 
 async fn latest_workspace_for_project(
@@ -1415,6 +1656,13 @@ mod tests {
             "ou-9",
             "other"
         ));
+    }
+
+    #[test]
+    fn callback_payloads_stay_within_telegram_limit() {
+        assert!(format!("cb:f:8").len() < 64);
+        assert!(format!("cb:a:8").len() < 64);
+        assert!(format!("cb:p:always").len() < 64);
     }
 
     #[test]

@@ -364,6 +364,15 @@ export function ChatChannelSettings() {
   const [includePromptText, setIncludePromptText] = useState(false);
   const [savingEvents, setSavingEvents] = useState(false);
   const [savingPrefix, setSavingPrefix] = useState(false);
+  const [webhooks, setWebhooks] = useState<Array<{ url: string; enabled: boolean }>>(
+    []
+  );
+  const [webhookDraft, setWebhookDraft] = useState('');
+  const [messageLanguage, setMessageLanguage] = useState('en');
+  const [weixinQrOpen, setWeixinQrOpen] = useState(false);
+  const [weixinQrImage, setWeixinQrImage] = useState<string | null>(null);
+  const [weixinQrId, setWeixinQrId] = useState<string | null>(null);
+  const [weixinQrStatus, setWeixinQrStatus] = useState('idle');
 
   const secret = secretMeta(draft.kind, t);
 
@@ -378,13 +387,15 @@ export function ChatChannelSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelList, channelStatuses, filter, commandPrefix, promptText] =
+      const [channelList, channelStatuses, filter, commandPrefix, promptText, hooks, language] =
         await Promise.all([
           chatChannelApi.list(),
           chatChannelApi.statuses().catch(() => []),
           chatChannelApi.getEventFilter(),
           chatChannelApi.getCommandPrefix(),
           chatChannelApi.getIncludePromptText(),
+          chatChannelApi.getWebhooks().catch(() => []),
+          chatChannelApi.getLanguage().catch(() => 'en'),
         ]);
       setChannels(channelList);
       setStatuses(
@@ -397,6 +408,8 @@ export function ChatChannelSettings() {
       setPrefix(commandPrefix.prefix);
       setSavedPrefix(commandPrefix.prefix);
       setIncludePromptText(promptText);
+      setWebhooks(hooks);
+      setMessageLanguage(language);
     } catch (error) {
       toast.error(t('chatChannels.loadFailed'), {
         description: errorMessage(error),
@@ -409,6 +422,27 @@ export function ChatChannelSettings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!weixinQrOpen || !weixinQrId || !editingChannel || weixinQrStatus !== 'waiting') {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void chatChannelApi
+        .weixinCheckQrcode(editingChannel.id, weixinQrId)
+        .then((result) => {
+          if (result.status === 'confirmed') {
+            setWeixinQrStatus('confirmed');
+            setWeixinQrOpen(false);
+            void refresh();
+          } else if (result.status === 'expired') {
+            setWeixinQrStatus('expired');
+          }
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [editingChannel, refresh, weixinQrId, weixinQrOpen, weixinQrStatus]);
 
   useEffect(() => {
     const reloadFromJson = () => {
@@ -900,7 +934,109 @@ export function ChatChannelSettings() {
             </div>
           </div>
         </SettingsSection>
+
+        <SettingsSection
+          icon={BellRing}
+          title={t('chatChannels.webhooksTitle')}
+          description={t('chatChannels.webhooksDescription')}
+        >
+          <div className="space-y-2 px-4 pb-4">
+            {webhooks.map((hook, index) => (
+              <div key={`${hook.url}-${index}`} className="flex items-center gap-2 text-xs">
+                <Switch
+                  className="settings-switch"
+                  checked={hook.enabled}
+                  onCheckedChange={(checked: boolean) => {
+                    const next = webhooks.map((item, itemIndex) =>
+                      itemIndex === index ? { ...item, enabled: checked } : item
+                    );
+                    setWebhooks(next);
+                    void chatChannelApi.setWebhooks(next);
+                  }}
+                />
+                <span className="min-w-0 flex-1 truncate font-mono">{hook.url}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => {
+                    const next = webhooks.filter((_, itemIndex) => itemIndex !== index);
+                    setWebhooks(next);
+                    void chatChannelApi.setWebhooks(next);
+                  }}
+                >
+                  {t('common:delete')}
+                </Button>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Input
+                value={webhookDraft}
+                onChange={(event) => setWebhookDraft(event.target.value)}
+                placeholder="https://example.com/hooks/vibex"
+              />
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  const url = webhookDraft.trim();
+                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    return;
+                  }
+                  const next = [...webhooks, { url, enabled: true }];
+                  setWebhooks(next);
+                  setWebhookDraft('');
+                  void chatChannelApi.setWebhooks(next);
+                }}
+              >
+                {t('chatChannels.addWebhook')}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <Label className="text-xs">{t('chatChannels.messageLanguage')}</Label>
+              <Select
+                value={messageLanguage}
+                onValueChange={(value) => {
+                  setMessageLanguage(value);
+                  void chatChannelApi.setLanguage(value);
+                }}
+              >
+                <SelectTrigger className="h-8 w-36 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="en">English</SelectItem>
+                  <SelectItem value="zh-CN">简体中文</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </SettingsSection>
       </div>
+
+      <Dialog
+        open={weixinQrOpen}
+        onOpenChange={setWeixinQrOpen}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="weixin-qr-title"
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle id="weixin-qr-title">
+              {t('chatChannels.weixinScanTitle')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {weixinQrImage ? (
+              <img src={weixinQrImage} width={220} height={220} alt="" />
+            ) : (
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            )}
+            <p className="text-xs text-muted-foreground">{weixinQrStatus}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={dialogOpen}
@@ -1182,6 +1318,39 @@ export function ChatChannelSettings() {
                 </Button>
               ) : null}
             </div>
+            {draft.kind === 'weixin' && editingChannel ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setWeixinQrOpen(true);
+                  void (async () => {
+                    setWeixinQrStatus('loading');
+                    try {
+                      const qr = await chatChannelApi.weixinGetQrcode();
+                      setWeixinQrId(qr.qrcode_id);
+                      if (qr.qrcode_img_content.startsWith('data:')) {
+                        setWeixinQrImage(qr.qrcode_img_content);
+                      } else {
+                        const QRCode = (await import('qrcode')).default;
+                        setWeixinQrImage(
+                          await QRCode.toDataURL(
+                            qr.qrcode_url || qr.qrcode_img_content || qr.qrcode_id,
+                            { margin: 1, width: 220 }
+                          )
+                        );
+                      }
+                      setWeixinQrStatus('waiting');
+                    } catch {
+                      setWeixinQrStatus('error');
+                    }
+                  })();
+                }}
+              >
+                {t('chatChannels.weixinScan')}
+              </Button>
+            ) : null}
             {draft.kind === 'weixin' ? (
               <p className="text-[11px] text-muted-foreground">
                 {t('chatChannels.weixinHint')}

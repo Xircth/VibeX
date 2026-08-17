@@ -22,6 +22,12 @@ const mocks = vi.hoisted(() => ({
   setCommandPrefix: vi.fn(),
   getIncludePromptText: vi.fn(),
   setIncludePromptText: vi.fn(),
+  getWebhooks: vi.fn(),
+  setWebhooks: vi.fn(),
+  getLanguage: vi.fn(),
+  setLanguage: vi.fn(),
+  weixinGetQrcode: vi.fn(),
+  weixinCheckQrcode: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastWarning: vi.fn(),
@@ -46,6 +52,12 @@ vi.mock('@/lib/api', () => ({
     setCommandPrefix: mocks.setCommandPrefix,
     getIncludePromptText: mocks.getIncludePromptText,
     setIncludePromptText: mocks.setIncludePromptText,
+    getWebhooks: mocks.getWebhooks,
+    setWebhooks: mocks.setWebhooks,
+    getLanguage: mocks.getLanguage,
+    setLanguage: mocks.setLanguage,
+    weixinGetQrcode: mocks.weixinGetQrcode,
+    weixinCheckQrcode: mocks.weixinCheckQrcode,
   },
 }));
 
@@ -91,6 +103,8 @@ describe('ChatChannelSettings', () => {
     });
     mocks.getCommandPrefix.mockResolvedValue({ prefix: '/vibex' });
     mocks.getIncludePromptText.mockResolvedValue(false);
+    mocks.getWebhooks.mockResolvedValue([]);
+    mocks.getLanguage.mockResolvedValue('en');
     mocks.setEventFilter.mockImplementation(async (filter) => filter);
     mocks.setCommandPrefix.mockImplementation(async (prefix) => prefix);
     mocks.setIncludePromptText.mockImplementation(async (enabled) => enabled);

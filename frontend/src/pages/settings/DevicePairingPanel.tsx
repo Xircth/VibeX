@@ -5,12 +5,13 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/toast';
+import { webServiceApi } from '@/lib/api';
 import type {
   BackendTransport,
   DevicePairingChallenge,
 } from '@/lib/backendTransport';
 
-const DEFAULT_DEVICE_SCOPES = ['conversation.read', 'conversation.question'];
+type PairingPreset = 'companion' | 'workstation';
 
 export function DevicePairingPanel({
   transport,
@@ -18,6 +19,7 @@ export function DevicePairingPanel({
   transport: BackendTransport;
 }) {
   const { t } = useTranslation('settings');
+  const [preset, setPreset] = useState<PairingPreset>('companion');
   const [challenge, setChallenge] = useState<DevicePairingChallenge | null>(
     null
   );
@@ -35,6 +37,7 @@ export function DevicePairingPanel({
       pairing_id: challenge.pairing_id,
       pairing_token: challenge.pairing_token,
       expires_at: challenge.expires_at,
+      preset,
     });
     void QRCode.toDataURL(`vibex-pairing:${payload}`, {
       errorCorrectionLevel: 'M',
@@ -46,17 +49,15 @@ export function DevicePairingPanel({
     return () => {
       active = false;
     };
-  }, [challenge]);
+  }, [challenge, preset]);
 
   const createPairing = useCallback(async () => {
-    if (!transport.createDevicePairing) return;
     setBusy(true);
     try {
-      setChallenge(
-        await transport.createDevicePairing({
-          requested_scopes: DEFAULT_DEVICE_SCOPES,
-        })
-      );
+      const created = transport.createDevicePairing
+        ? await transport.createDevicePairing({ preset })
+        : await webServiceApi.createPairing(preset);
+      setChallenge(created);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('webService.pairingFailed')
@@ -64,20 +65,13 @@ export function DevicePairingPanel({
     } finally {
       setBusy(false);
     }
-  }, [t, transport]);
+  }, [preset, t, transport]);
 
   const copyToken = useCallback(async () => {
     if (!challenge) return;
     await navigator.clipboard.writeText(challenge.pairing_token);
     toast.success(t('webService.pairingCopied'));
   }, [challenge, t]);
-
-  if (
-    transport.environment !== 'web' ||
-    typeof transport.createDevicePairing !== 'function'
-  ) {
-    return null;
-  }
 
   return (
     <div className="settings-surface overflow-hidden">
@@ -90,19 +84,36 @@ export function DevicePairingPanel({
             {t('webService.pairingDescription')}
           </p>
         </div>
-        <Button
-          size="sm"
-          className="h-8 shrink-0 text-xs"
-          onClick={() => void createPairing()}
-          disabled={busy}
-        >
-          {busy ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <QrCode className="mr-1 h-3.5 w-3.5" />
-          )}
-          {t('webService.createPairing')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={preset}
+            onChange={(event) =>
+              setPreset(event.target.value as PairingPreset)
+            }
+            aria-label={t('webService.pairingPresetLabel')}
+          >
+            <option value="companion">
+              {t('webService.pairingPresetCompanion')}
+            </option>
+            <option value="workstation">
+              {t('webService.pairingPresetWorkstation')}
+            </option>
+          </select>
+          <Button
+            size="sm"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => void createPairing()}
+            disabled={busy}
+          >
+            {busy ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <QrCode className="mr-1 h-3.5 w-3.5" />
+            )}
+            {t('webService.createPairing')}
+          </Button>
+        </div>
       </div>
 
       {challenge ? (

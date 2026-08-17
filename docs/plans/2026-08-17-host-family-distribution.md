@@ -40,7 +40,9 @@
 - [x] Workstation 通过同一 Application Core 获得 plugin/workflow/automation 命令
 - [x] Docker / Compose，默认 loopback
 - [x] Host 原地升级：校验 SHA-256，快照数据目录，再替换兄弟二进制
-- [x] `npx vibex` 明确为 Host family `vibex-server` 启动器
+- [x] `npx vibex` 下载 GitHub Host family tarball，先验 sidecar SHA-256 和内层 `SHA256SUMS`，再启动 `vibex-server`
+- [x] Feishu / QQ inbound 循环在 Host 上 fail-closed 授权
+- [x] Android `companion-core` 配对客户端 + Compose 壳
 
 ## 验证
 
@@ -51,7 +53,10 @@ cargo test -p remote-protocol
 cargo test -p server device_pairing
 cargo test -p plugins bundled_collaboration
 cargo test -p server --lib
+cargo test -p server --lib chat_inbound
 # desktop injector
 cargo test -p vibex companion_injection
 node --test scripts/package-host-family.test.js
+node --test npx-cli/bin/download.test.js
+node --test mobile/android/companion-core/smoke.test.js
 ```

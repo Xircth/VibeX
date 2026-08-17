@@ -22,6 +22,11 @@ Apple Developer ID and Windows Authenticode are not required for this family.
 Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
 present.
 
+`npx vibex` downloads
+`vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz`
+from the matching GitHub Release, verifies the sidecar `.sha256` and the inner
+`SHA256SUMS`, then runs `vibex-server` with `VIBEX_STATIC_ROOT` set to `web/`.
+
 Docker defaults to loopback. Compose publishes `127.0.0.1:3080`. LAN or public
 bind requires `VIBEX_SERVER_ALLOW_LAN=1` and an external TLS proxy.
 

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
   Globe,
   KeyRound,
   Loader2,
@@ -33,7 +35,7 @@ import {
 import { DevicePairingPanel } from './DevicePairingPanel';
 
 const DEFAULT_CONFIG: WebServiceConfig = {
-  port: 17891,
+  port: 3080,
   token: null,
   auto_start: false,
   allow_lan: false,
@@ -59,6 +61,8 @@ export function WebServiceSettings({
   const [saving, setSaving] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
+  const [tokenRevealed, setTokenRevealed] = useState(false);
+  const [addressQr, setAddressQr] = useState<string | null>(null);
 
   const dirty = useMemo(() => !sameConfig(config, draft), [config, draft]);
 
@@ -135,10 +139,38 @@ export function WebServiceSettings({
     setProbe(null);
   }, [config]);
 
+  useEffect(() => {
+    if (!dirty) return;
+    const timer = window.setTimeout(() => {
+      void saveConfig();
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [dirty, saveConfig]);
+
+  useEffect(() => {
+    const address = status?.address;
+    if (!address) {
+      setAddressQr(null);
+      return;
+    }
+    let active = true;
+    void import('qrcode').then(({ default: QRCode }) =>
+      QRCode.toDataURL(address, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 180,
+      }).then((dataUrl) => {
+        if (active) setAddressQr(dataUrl);
+      })
+    );
+    return () => {
+      active = false;
+    };
+  }, [status?.address]);
+
   const startServer = useCallback(async () => {
     if (dirty) {
-      toast.error(t('webService.saveBeforeStart'));
-      return;
+      await saveConfig();
     }
 
     setStatusBusy(true);
@@ -152,13 +184,14 @@ export function WebServiceSettings({
     } finally {
       setStatusBusy(false);
     }
-  }, [dirty, t]);
+  }, [dirty, saveConfig, t]);
 
   const stopServer = useCallback(async () => {
     setStatusBusy(true);
     try {
       setStatus(await webServiceApi.stop());
       toast.success(t('webService.stopped'));
+      setProbe(await webServiceApi.probePort(draft.port));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('webService.stopFailed')
@@ -242,7 +275,9 @@ export function WebServiceSettings({
                 {t('webService.currentStatusLabel')}
               </Label>
               <p className="settings-row__description">
-                {status?.address ?? t('webService.serviceNotStarted')}
+                {(status?.addresses && status.addresses.length > 0
+                  ? status.addresses.join(' · ')
+                  : status?.address) ?? t('webService.serviceNotStarted')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -273,15 +308,28 @@ export function WebServiceSettings({
                 />
               </Button>
               {status?.address ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => window.open(status.address!, '_blank')}
-                >
-                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                  {t('webService.open')}
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() =>
+                      void copyText(status.address!, t('webService.copyAddress'))
+                    }
+                    aria-label={t('webService.copyAddress')}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => window.open(status.address!, '_blank')}
+                  >
+                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                    {t('webService.open')}
+                  </Button>
+                </>
               ) : null}
               <Switch
                 className="settings-switch"
@@ -347,7 +395,16 @@ export function WebServiceSettings({
             </div>
           </div>
 
-          {probe ? (
+          {probe && !probe.available && !status?.running ? (
+            <div className="mx-4 mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+              <p className="font-medium">
+                {t('webService.stalePortOccupied', { port: probe.port })}
+              </p>
+              <p className="text-muted-foreground">
+                {t('webService.stalePortHint')}
+              </p>
+            </div>
+          ) : probe ? (
             <div className="px-4 pb-3 text-[11px] text-muted-foreground">
               {t('webService.portProbeResult', {
                 port: probe.port,
@@ -355,6 +412,21 @@ export function WebServiceSettings({
                   ? t('webService.available')
                   : probe.message,
               })}
+            </div>
+          ) : null}
+
+          {status?.running && addressQr ? (
+            <div className="flex items-center gap-3 px-4 pb-4">
+              <img
+                src={addressQr}
+                width={96}
+                height={96}
+                alt={t('webService.addressQr')}
+                className="rounded-md bg-white p-1"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('webService.addressQrHint')}
+              </p>
             </div>
           ) : null}
 
@@ -411,12 +483,40 @@ export function WebServiceSettings({
             </div>
             <div className="flex w-full max-w-sm gap-2">
               <Input
-                type="password"
-                readOnly
+                type={tokenRevealed ? 'text' : 'password'}
                 value={draft.token ?? ''}
+                onChange={(event) =>
+                  setDraft((previous) => ({
+                    ...previous,
+                    token: event.target.value || null,
+                  }))
+                }
                 placeholder={t('webService.tokenPlaceholder')}
                 className="font-mono"
+                autoComplete="off"
               />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 shrink-0 p-0"
+                onClick={() => setTokenRevealed((value) => !value)}
+                title={
+                  tokenRevealed
+                    ? t('webService.hideToken')
+                    : t('webService.showToken')
+                }
+                aria-label={
+                  tokenRevealed
+                    ? t('webService.hideToken')
+                    : t('webService.showToken')
+                }
+              >
+                {tokenRevealed ? (
+                  <EyeOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" />
+                )}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

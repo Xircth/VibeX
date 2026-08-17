@@ -346,9 +346,17 @@ export interface WebServerStatus {
   running: boolean;
   port: number;
   address: string | null;
+  addresses?: string[];
   token_configured: boolean;
   started_at: string | null;
   message: string | null;
+}
+
+export interface HostPairingChallenge {
+  pairing_id: string;
+  pairing_token: string;
+  expires_at: string;
+  requested_scopes: string[];
 }
 
 export interface PortProbeResult {
@@ -381,7 +389,19 @@ export const webServiceApi = {
   generateToken: async (): Promise<WebServiceConfig> => {
     return backendCall<WebServiceConfig>('generate_web_service_token');
   },
+  createPairing: async (
+    preset: 'companion' | 'workstation' = 'companion'
+  ): Promise<HostPairingChallenge> => {
+    return backendCall<HostPairingChallenge>('create_host_device_pairing', {
+      request: { preset },
+    });
+  },
 };
+
+export interface ChatChannelStatus {
+  channel_id: string;
+  status: string;
+}
 
 export interface ChatChannel {
   id: string;
@@ -421,6 +441,9 @@ export interface ChatChannelTestResult {
 export const chatChannelApi = {
   list: async (): Promise<ChatChannel[]> => {
     return backendCall<ChatChannel[]>('list_chat_channels');
+  },
+  statuses: async (): Promise<ChatChannelStatus[]> => {
+    return backendCall<ChatChannelStatus[]>('list_chat_channel_statuses');
   },
   messageLogs: async (
     channelId: string,

@@ -24,7 +24,7 @@ describe('DevicePairingPanel', () => {
     await user.click(screen.getByRole('button', { name: '创建设备配对' }));
 
     expect(createDevicePairing).toHaveBeenCalledWith({
-      requested_scopes: ['conversation.read', 'conversation.question'],
+      preset: 'companion',
     });
     expect(
       await screen.findByRole('img', { name: '设备配对二维码' })

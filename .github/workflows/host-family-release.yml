@@ -76,17 +76,25 @@ jobs:
             --plugins assets/plugins \
             --output "dist/host-family/${{ matrix.name }}"
           tar -C dist/host-family -czf "dist/vibex-host-family-${{ matrix.name }}.tar.gz" "${{ matrix.name }}"
+          (
+            cd dist
+            shasum -a 256 "vibex-host-family-${{ matrix.name }}.tar.gz" > "vibex-host-family-${{ matrix.name }}.tar.gz.sha256"
+          )
 
       - name: Upload Host family
         uses: actions/upload-artifact@v4
         with:
           name: vibex-host-family-${{ matrix.name }}
-          path: dist/vibex-host-family-${{ matrix.name }}.tar.gz
+          path: |
+            dist/vibex-host-family-${{ matrix.name }}.tar.gz
+            dist/vibex-host-family-${{ matrix.name }}.tar.gz.sha256
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: dist/vibex-host-family-${{ matrix.name }}.tar.gz
+          files: |
+            dist/vibex-host-family-${{ matrix.name }}.tar.gz
+            dist/vibex-host-family-${{ matrix.name }}.tar.gz.sha256
           fail_on_unmatched_files: true

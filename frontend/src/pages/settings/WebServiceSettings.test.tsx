@@ -14,6 +14,7 @@ const webServiceApiMock = vi.hoisted(() => ({
   stop: vi.fn(),
   probePort: vi.fn(),
   generateToken: vi.fn(),
+  createPairing: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -29,7 +30,7 @@ vi.mock('@/components/ui/toast', () => ({
 
 const stoppedStatus = {
   running: false,
-  port: 17891,
+  port: 3080,
   address: null,
   token_configured: false,
   started_at: null,
@@ -39,7 +40,8 @@ const stoppedStatus = {
 const runningStatus = {
   ...stoppedStatus,
   running: true,
-  address: 'http://127.0.0.1:17891',
+  address: 'http://127.0.0.1:3080',
+  addresses: ['http://127.0.0.1:3080'],
   started_at: '2026-08-03T12:00:00Z',
 };
 
@@ -63,7 +65,7 @@ describe('WebServiceSettings', () => {
       fn.mockReset();
     }
     webServiceApiMock.getConfig.mockResolvedValue({
-      port: 17891,
+      port: 3080,
       token: null,
       auto_start: false,
       allow_lan: false,
@@ -73,14 +75,20 @@ describe('WebServiceSettings', () => {
     webServiceApiMock.start.mockResolvedValue(runningStatus);
     webServiceApiMock.stop.mockResolvedValue(stoppedStatus);
     webServiceApiMock.probePort.mockResolvedValue({
-      port: 17891,
+      port: 3080,
       available: true,
       message: null,
     });
     webServiceApiMock.generateToken.mockResolvedValue({
-      port: 17891,
+      port: 3080,
       token: 'generated-token',
       auto_start: false,
+    });
+    webServiceApiMock.createPairing.mockResolvedValue({
+      pairing_id: 'pair-1',
+      pairing_token: 'pair-once-secret',
+      expires_at: '2026-08-17T00:00:00Z',
+      requested_scopes: ['conversation.read'],
     });
   });
 

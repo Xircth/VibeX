@@ -49,6 +49,14 @@ impl ServerConfig {
         self.static_root = Some(root.as_ref().to_path_buf());
         self
     }
+
+    pub fn bind_ip(allow_lan: bool) -> Ipv4Addr {
+        if allow_lan {
+            Ipv4Addr::UNSPECIFIED
+        } else {
+            Ipv4Addr::LOCALHOST
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -60,5 +68,17 @@ impl Default for ServerConfig {
             allowed_origins: BTreeSet::new(),
             static_root: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServerConfig;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn lan_opt_in_changes_the_bind_address() {
+        assert_eq!(ServerConfig::bind_ip(false), Ipv4Addr::LOCALHOST);
+        assert_eq!(ServerConfig::bind_ip(true), Ipv4Addr::UNSPECIFIED);
     }
 }

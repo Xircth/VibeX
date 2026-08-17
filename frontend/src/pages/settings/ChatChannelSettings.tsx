@@ -190,6 +190,9 @@ interface ChannelDraft {
   enabled: boolean;
   token: string;
   chat_id: string;
+  topic_mode: boolean;
+  daily_report_enabled: boolean;
+  daily_report_time: string;
   app_id: string;
   base_url: string;
   ws_url: string;
@@ -206,6 +209,9 @@ function emptyDraft(): ChannelDraft {
     enabled: true,
     token: '',
     chat_id: '',
+    topic_mode: false,
+    daily_report_enabled: false,
+    daily_report_time: '18:00',
     app_id: '',
     base_url: 'http://127.0.0.1:3000',
     ws_url: '',
@@ -224,6 +230,9 @@ function draftFromChannel(channel: ChatChannel): ChannelDraft {
     enabled: channel.enabled,
     token: '',
     chat_id: cfgStr(c, 'chat_id'),
+    topic_mode: c.topic_mode === true,
+    daily_report_enabled: c.daily_report_enabled === true,
+    daily_report_time: cfgStr(c, 'daily_report_time') || '18:00',
     app_id: cfgStr(c, 'app_id'),
     base_url: cfgStr(c, 'base_url') || 'http://127.0.0.1:3000',
     ws_url: cfgStr(c, 'ws_url'),
@@ -238,7 +247,13 @@ function buildConfig(draft: ChannelDraft): Record<string, unknown> {
   const senders = parseSenders(draft.authorized_senders);
   switch (draft.kind) {
     case 'telegram':
-      return { chat_id: draft.chat_id.trim(), authorized_senders: senders };
+      return {
+        chat_id: draft.chat_id.trim(),
+        topic_mode: draft.topic_mode,
+        daily_report_enabled: draft.daily_report_enabled,
+        daily_report_time: draft.daily_report_time,
+        authorized_senders: senders,
+      };
     case 'feishu':
       return {
         app_id: draft.app_id.trim(),
@@ -289,7 +304,25 @@ function errorMessage(error: unknown): string {
 
 export function ChatChannelSettings() {
   const { t } = useTranslation(['settings', 'common']);
+  const COMMANDS = [
+    'folder [n]',
+    'agent [n|id]',
+    'task <text>',
+    'sessions',
+    'use <n>',
+    'resume <n>',
+    'cancel',
+    'approve [always]',
+    'deny',
+    'search <keyword>',
+    'today',
+    'status',
+    'ping',
+    'help',
+  ] as const;
+
   const [channels, setChannels] = useState<ChatChannel[]>([]);
+  const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -345,14 +378,20 @@ export function ChatChannelSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelList, filter, commandPrefix, promptText] =
+      const [channelList, channelStatuses, filter, commandPrefix, promptText] =
         await Promise.all([
           chatChannelApi.list(),
+          chatChannelApi.statuses().catch(() => []),
           chatChannelApi.getEventFilter(),
           chatChannelApi.getCommandPrefix(),
           chatChannelApi.getIncludePromptText(),
         ]);
       setChannels(channelList);
+      setStatuses(
+        Object.fromEntries(
+          channelStatuses.map((item) => [item.channel_id, item.status])
+        )
+      );
       setEventFilter(filter.enabled_events);
       setSavedEventFilter(filter.enabled_events);
       setPrefix(commandPrefix.prefix);
@@ -642,6 +681,18 @@ export function ChatChannelSettings() {
                             <span className="settings-status-pill-neutral shrink-0 px-1.5 py-0.5 text-[10px] font-medium">
                               {kindLabel(channel.kind, t)}
                             </span>
+                            <span
+                              className={`inline-block h-2 w-2 shrink-0 rounded-full ${
+                                statuses[channel.id] === 'connected'
+                                  ? 'bg-green-500'
+                                  : statuses[channel.id] === 'connecting'
+                                    ? 'bg-yellow-500'
+                                    : statuses[channel.id] === 'error'
+                                      ? 'bg-red-500'
+                                      : 'bg-muted-foreground/40'
+                              }`}
+                              title={statuses[channel.id] ?? 'disconnected'}
+                            />
                             {channel.has_token ? (
                               <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
                                 <KeyRound className="h-3 w-3" />
@@ -813,6 +864,19 @@ export function ChatChannelSettings() {
                 {t('chatChannels.prefixHint')}
               </p>
             </div>
+            <div className="space-y-2">
+              {COMMANDS.map((command) => (
+                <div
+                  key={command}
+                  className="flex items-center justify-between rounded-md border border-[var(--border-content)] px-3 py-2"
+                >
+                  <code className="text-xs">
+                    {prefix || '/'}
+                    {command}
+                  </code>
+                </div>
+              ))}
+            </div>
             <div className="flex max-w-sm gap-2">
               <Input
                 id="chat-prefix"
@@ -903,6 +967,39 @@ export function ChatChannelSettings() {
                 }
                 placeholder={t('chatChannels.telegramChatPlaceholder')}
               />
+              <div className="flex items-center justify-between pt-1">
+                <Label className="text-xs">
+                  {t('chatChannels.topicModeLabel')}
+                </Label>
+                <Switch
+                  className="settings-switch"
+                  checked={draft.topic_mode}
+                  onCheckedChange={(checked: boolean) =>
+                    updateDraft({ topic_mode: checked })
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">
+                  {t('chatChannels.dailyReportLabel')}
+                </Label>
+                <Switch
+                  className="settings-switch"
+                  checked={draft.daily_report_enabled}
+                  onCheckedChange={(checked: boolean) =>
+                    updateDraft({ daily_report_enabled: checked })
+                  }
+                />
+              </div>
+              {draft.daily_report_enabled ? (
+                <Input
+                  type="time"
+                  value={draft.daily_report_time}
+                  onChange={(event) =>
+                    updateDraft({ daily_report_time: event.target.value })
+                  }
+                />
+              ) : null}
             </div>
           ) : null}
 

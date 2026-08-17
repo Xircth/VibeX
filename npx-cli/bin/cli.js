@@ -1,24 +1,21 @@
 #!/usr/bin/env node
 
 const { execSync, spawn } = require("child_process");
-const AdmZip = require("adm-zip");
-const path = require("path");
 const fs = require("fs");
-const { ensureBinary, BINARY_TAG, CACHE_DIR, LOCAL_DEV_MODE, LOCAL_DIST_DIR, R2_BASE_URL, getLatestVersion } = require("./download");
+const path = require("path");
+const {
+  CLI_VERSION,
+  ensureHostFamily,
+  familyTag,
+  hostBinary,
+} = require("./download");
 
-const CLI_VERSION = require("../package.json").version;
-
-// Resolve effective arch for our published 64-bit binaries only.
-// Any ARM → arm64; anything else → x64. On macOS, handle Rosetta.
 function getEffectiveArch() {
   const platform = process.platform;
   const nodeArch = process.arch;
 
   if (platform === "darwin") {
-    // If Node itself is arm64, we're natively on Apple silicon
     if (nodeArch === "arm64") return "arm64";
-
-    // Otherwise check for Rosetta translation
     try {
       const translated = execSync("sysctl -in sysctl.proc_translated", {
         encoding: "utf8",
@@ -30,10 +27,8 @@ function getEffectiveArch() {
     return "x64";
   }
 
-  // Non-macOS: coerce to broad families we support
   if (/arm/i.test(nodeArch)) return "arm64";
 
-  // On Windows with 32-bit Node (ia32), detect OS arch via env
   if (platform === "win32") {
     const pa = process.env.PROCESSOR_ARCHITECTURE || "";
     const paw = process.env.PROCESSOR_ARCHITEW6432 || "";
@@ -43,38 +38,20 @@ function getEffectiveArch() {
   return "x64";
 }
 
-const platform = process.platform;
-const arch = getEffectiveArch();
-
-// Map to our build target names
 function getPlatformDir() {
+  const platform = process.platform;
+  const arch = getEffectiveArch();
   if (platform === "linux" && arch === "x64") return "linux-x64";
   if (platform === "linux" && arch === "arm64") return "linux-arm64";
   if (platform === "win32" && arch === "x64") return "windows-x64";
-  if (platform === "win32" && arch === "arm64") return "windows-arm64";
   if (platform === "darwin" && arch === "x64") return "macos-x64";
   if (platform === "darwin" && arch === "arm64") return "macos-arm64";
 
   console.error(`Unsupported platform: ${platform}-${arch}`);
-  console.error("Supported platforms:");
-  console.error("  - Linux x64");
-  console.error("  - Linux ARM64");
-  console.error("  - Windows x64");
-  console.error("  - Windows ARM64");
-  console.error("  - macOS x64 (Intel)");
-  console.error("  - macOS ARM64 (Apple Silicon)");
+  console.error("Host family tarballs are published for:");
+  console.error("  linux-x64, linux-arm64, macos-x64, macos-arm64, windows-x64");
   process.exit(1);
 }
-
-function getBinaryName(base) {
-  return platform === "win32" ? `${base}.exe` : base;
-}
-
-const platformDir = getPlatformDir();
-// In local dev mode, extract directly to dist directory; otherwise use global cache
-const versionCacheDir = LOCAL_DEV_MODE
-  ? path.join(LOCAL_DIST_DIR, platformDir)
-  : path.join(CACHE_DIR, BINARY_TAG, platformDir);
 
 function showProgress(downloaded, total) {
   const percent = total ? Math.round((downloaded / total) * 100) : 0;
@@ -83,62 +60,15 @@ function showProgress(downloaded, total) {
   process.stderr.write(`\r   Downloading: ${mb}MB / ${totalMb}MB (${percent}%)`);
 }
 
-async function extractAndRun(baseName, launch) {
-  const binName = getBinaryName(baseName);
-  const binPath = path.join(versionCacheDir, binName);
-  const zipPath = path.join(versionCacheDir, `${baseName}.zip`);
-
-  // Clean old binary if exists
-  try {
-    if (fs.existsSync(binPath)) {
-      fs.unlinkSync(binPath);
-    }
-  } catch (err) {
-    if (process.env.VIBEX_DEBUG) {
-      console.warn(`Warning: Could not delete existing binary: ${err.message}`);
-    }
-  }
-
-  // Download if not cached
-  if (!fs.existsSync(zipPath)) {
-    console.error(`Downloading ${baseName}...`);
-    try {
-      await ensureBinary(platformDir, baseName, showProgress);
-      console.error(""); // newline after progress
-    } catch (err) {
-      console.error(`\nDownload failed: ${err.message}`);
-      process.exit(1);
-    }
-  }
-
-  // Extract
-  if (!fs.existsSync(binPath)) {
-    try {
-      const zip = new AdmZip(zipPath);
-      zip.extractAllTo(versionCacheDir, true);
-    } catch (err) {
-      console.error("Extraction failed:", err.message);
-      try {
-        fs.unlinkSync(zipPath);
-      } catch {}
-      process.exit(1);
-    }
-  }
-
-  if (!fs.existsSync(binPath)) {
-    console.error(`Extracted binary not found at: ${binPath}`);
-    console.error("This usually indicates a corrupt download. Please try again.");
+function runBinary(binPath, args, env) {
+  const proc = spawn(binPath, args, { stdio: "inherit", env });
+  proc.on("exit", (code) => process.exit(code || 0));
+  proc.on("error", (error) => {
+    console.error(`${path.basename(binPath)} failed: ${error.message}`);
     process.exit(1);
-  }
-
-  // Set permissions (non-Windows)
-  if (platform !== "win32") {
-    try {
-      fs.chmodSync(binPath, 0o755);
-    } catch {}
-  }
-
-  return launch(binPath);
+  });
+  process.on("SIGINT", () => proc.kill("SIGINT"));
+  process.on("SIGTERM", () => proc.kill("SIGTERM"));
 }
 
 async function main() {
@@ -147,60 +77,45 @@ async function main() {
     await require("./control").run(args);
     return;
   }
-  fs.mkdirSync(versionCacheDir, { recursive: true });
+  if (args[0] === "review") {
+    console.error("review is not part of the Host family package.");
+    process.exit(1);
+  }
+
+  const platformDir = getPlatformDir();
+  console.error(`Fetching VibeX Host family ${familyTag()} for ${platformDir}...`);
+  let family;
+  try {
+    family = await ensureHostFamily(platformDir, showProgress);
+    if (family.source === "download") {
+      console.error("");
+    }
+  } catch (error) {
+    console.error(`\nHost family download failed: ${error.message}`);
+    process.exit(1);
+  }
 
   const isMcpMode = args.includes("--mcp");
-  const isReviewMode = args[0] === "review";
-
-  // Non-blocking update check (skip in MCP mode, local dev mode, and when R2 URL not configured)
-  const hasValidR2Url = !R2_BASE_URL.startsWith("__");
-  if (!isMcpMode && !LOCAL_DEV_MODE && hasValidR2Url) {
-    getLatestVersion()
-      .then((latest) => {
-        if (latest && latest !== CLI_VERSION) {
-          setTimeout(() => {
-            console.log(`\nUpdate available: ${CLI_VERSION} -> ${latest}`);
-            console.log(`Run: npx vibex@latest`);
-          }, 2000);
-        }
-      })
-      .catch(() => {});
+  const serverArgs = args.filter((arg) => arg !== "--mcp");
+  const binName = isMcpMode ? "vibex-mcp" : "vibex-server";
+  const binPath = hostBinary(family.root, binName);
+  if (!fs.existsSync(binPath)) {
+    console.error(`Host family is missing ${binName} at ${binPath}`);
+    process.exit(1);
   }
 
-  if (isMcpMode) {
-    await extractAndRun("vibex-mcp", (bin) => {
-      const proc = spawn(bin, [], { stdio: "inherit" });
-      proc.on("exit", (c) => process.exit(c || 0));
-      proc.on("error", (e) => {
-        console.error("MCP server error:", e.message);
-        process.exit(1);
-      });
-      process.on("SIGINT", () => {
-        proc.kill("SIGINT");
-      });
-      process.on("SIGTERM", () => proc.kill("SIGTERM"));
-    });
-  } else if (isReviewMode) {
-    await extractAndRun("vibex-review", (bin) => {
-      const reviewArgs = args.slice(1);
-      const proc = spawn(bin, reviewArgs, { stdio: "inherit" });
-      proc.on("exit", (c) => process.exit(c || 0));
-      proc.on("error", (e) => {
-        console.error("Review CLI error:", e.message);
-        process.exit(1);
-      });
-    });
-  } else {
-    const modeLabel = LOCAL_DEV_MODE ? " (local dev)" : "";
-    console.log(`Starting VibeX v${CLI_VERSION}${modeLabel}...`);
-    await extractAndRun("vibex", (bin) => {
-      if (platform === "win32") {
-        execSync(`"${bin}"`, { stdio: "inherit" });
-      } else {
-        execSync(`"${bin}"`, { stdio: "inherit" });
-      }
-    });
+  const env = { ...process.env };
+  if (!isMcpMode) {
+    const staticRoot = path.join(family.root, "web");
+    if (fs.existsSync(staticRoot)) {
+      env.VIBEX_STATIC_ROOT = staticRoot;
+    }
   }
+
+  if (!isMcpMode) {
+    console.error(`Starting VibeX Host ${CLI_VERSION} (${family.source})...`);
+  }
+  runBinary(binPath, serverArgs, env);
 }
 
 main().catch((err) => {

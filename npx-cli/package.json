@@ -10,13 +10,11 @@
   "author": "vibex",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vibex/vibex"
+    "url": "https://github.com/Xircth/VibeX"
   },
   "license": "",
-  "description": "NPX wrapper around vibex and vibex-mcp",
-  "dependencies": {
-    "adm-zip": "^0.5.16"
-  },
+  "description": "NPX launcher for the VibeX Host family (vibex-server)",
+  "dependencies": {},
   "files": [
     "bin",
     "dist"

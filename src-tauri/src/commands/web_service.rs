@@ -1,5 +1,9 @@
 use std::{
-    collections::VecDeque, convert::Infallible, net::SocketAddr, path::PathBuf, sync::LazyLock,
+    collections::{BTreeSet, VecDeque},
+    convert::Infallible,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -35,7 +39,7 @@ use crate::{
 
 const SETTINGS_FILE_NAME: &str = "web-service-settings.json";
 const SETTINGS_SECTION: &str = "web_service";
-const DEFAULT_PORT: u16 = 17891;
+const DEFAULT_PORT: u16 = 3080;
 
 static WEB_SERVICE_RUNTIME: LazyLock<Mutex<Option<WebServiceRuntime>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -44,6 +48,7 @@ static WEB_SERVICE_RUNTIME: LazyLock<Mutex<Option<WebServiceRuntime>>> =
 struct WebServiceRuntime {
     port: u16,
     address: String,
+    addresses: Vec<String>,
     started_at: String,
     handle: JoinHandle<()>,
 }
@@ -79,6 +84,8 @@ pub struct WebServerStatus {
     pub running: bool,
     pub port: u16,
     pub address: Option<String>,
+    #[serde(default)]
+    pub addresses: Vec<String>,
     pub token_configured: bool,
     pub started_at: Option<String>,
     pub message: Option<String>,
@@ -579,6 +586,53 @@ async fn api_conversation_events(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
+fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
+    let mut addresses = vec![format!("http://127.0.0.1:{port}")];
+    if !allow_lan {
+        return addresses;
+    }
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
+        && socket.connect("1.1.1.1:80").is_ok()
+        && let Ok(std::net::SocketAddr::V4(addr)) = socket.local_addr()
+        && !addr.ip().is_loopback()
+        && !addr.ip().is_unspecified()
+    {
+        let candidate = format!("http://{}:{port}", addr.ip());
+        if !addresses.contains(&candidate) {
+            addresses.push(candidate);
+        }
+    }
+    addresses
+}
+
+fn resolve_static_root() -> Option<PathBuf> {
+    if let Ok(root) = std::env::var("VIBEX_STATIC_ROOT") {
+        let path = PathBuf::from(root);
+        if path.join("index.html").is_file() {
+            return Some(path);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        for candidate in [dir.join("web"), dir.join("../web")] {
+            if candidate.join("index.html").is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    let dev = PathBuf::from("frontend/dist");
+    dev.join("index.html").is_file().then_some(dev)
+}
+
+fn issue_host_token() -> server::ServerToken {
+    server::ServerToken::new(format!(
+        "vbx_{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    ))
+}
+
 async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
     let runtime = WEB_SERVICE_RUNTIME.lock().await;
     if let Some(runtime) = runtime.as_ref() {
@@ -586,6 +640,7 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
             running: true,
             port: runtime.port,
             address: Some(runtime.address.clone()),
+            addresses: runtime.addresses.clone(),
             token_configured: config.token.is_some(),
             started_at: Some(runtime.started_at.clone()),
             message: None,
@@ -596,6 +651,7 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
         running: false,
         port: config.port,
         address: None,
+        addresses: Vec::new(),
         token_configured: config.token.is_some(),
         started_at: None,
         message: None,
@@ -622,8 +678,22 @@ pub async fn get_web_server_status() -> Result<WebServerStatus, AppError> {
 
 #[tauri::command]
 pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, AppError> {
-    let config = load_config().await?;
+    let mut config = load_config().await?;
     let state = app.state::<AppState>();
+    let pool = state.deployment.db().pool.clone();
+    let store = server::SqliteTokenHashStore::new(pool.clone());
+    let supplied = config
+        .token
+        .as_deref()
+        .and_then(|value| server::ServerToken::try_new(value.to_string()).ok());
+    let provisioned = store
+        .provision(supplied)
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    if let Some(issued) = provisioned.issued_token {
+        config.token = Some(issued.expose_once());
+        config = save_config(&config).await?;
+    }
     let listen = std::net::SocketAddr::from((
         if config.allow_lan {
             std::net::Ipv4Addr::UNSPECIFIED
@@ -632,9 +702,12 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         },
         config.port,
     ));
-    let server_config = server::ServerConfig::default()
+    let mut server_config = server::ServerConfig::default()
         .with_listen_addr(listen, config.allow_lan)
         .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    if let Some(static_root) = resolve_static_root() {
+        server_config = server_config.with_static_root(static_root);
+    }
     let core = server::host_application_core(
         state.deployment.db().pool.clone(),
         state.conversation_context(),
@@ -676,18 +749,23 @@ async fn start_web_server_with_router(
         }
     }
 
-    let listener = TcpListener::bind(("127.0.0.1", config.port))
+    let bind_ip = server::ServerConfig::bind_ip(config.allow_lan);
+    let listener = TcpListener::bind((bind_ip, config.port))
         .await
         .map_err(|error| {
             AppError::Conflict(format!(
-                "Failed to bind web service on 127.0.0.1:{}: {error}",
+                "Failed to bind web service on {bind_ip}:{}: {error}",
                 config.port
             ))
         })?;
     let local_addr = listener.local_addr().map_err(|error| {
         AppError::Internal(format!("Failed to read web service address: {error}"))
     })?;
-    let address = format!("http://{}", local_addr);
+    let addresses = advertised_addresses(local_addr.port(), config.allow_lan);
+    let address = addresses
+        .first()
+        .cloned()
+        .unwrap_or_else(|| format!("http://{local_addr}"));
     let started_at = Utc::now().to_rfc3339();
     let handle = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, service_router).await {
@@ -699,6 +777,7 @@ async fn start_web_server_with_router(
     *runtime = Some(WebServiceRuntime {
         port: local_addr.port(),
         address,
+        addresses,
         started_at,
         handle,
     });
@@ -744,10 +823,56 @@ pub async fn probe_web_service_port(port: u16) -> Result<PortProbeResult, AppErr
 }
 
 #[tauri::command]
-pub async fn generate_web_service_token() -> Result<WebServiceConfig, AppError> {
+pub async fn generate_web_service_token(app: tauri::AppHandle) -> Result<WebServiceConfig, AppError> {
     let mut config = load_config().await?;
-    config.token = Some(Uuid::new_v4().simple().to_string());
+    let plaintext = issue_host_token().expose_once();
+    let store = server::SqliteTokenHashStore::new(app.state::<AppState>().deployment.db().pool.clone());
+    let persisted = server::ServerToken::try_new(plaintext.clone())
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    store
+        .provision(Some(persisted))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    config.token = Some(plaintext);
     save_config(&config).await
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateHostPairingRequest {
+    pub preset: Option<String>,
+}
+
+#[tauri::command]
+pub async fn create_host_device_pairing(
+    app: tauri::AppHandle,
+    request: CreateHostPairingRequest,
+) -> Result<remote_protocol::PairingChallenge, AppError> {
+    let preset = match request.preset.as_deref() {
+        None | Some("") => Some(remote_protocol::DevicePermissionPreset::Companion),
+        Some("companion") => Some(remote_protocol::DevicePermissionPreset::Companion),
+        Some("workstation") => Some(remote_protocol::DevicePermissionPreset::Workstation),
+        Some(other) => {
+            return Err(AppError::BadRequest(format!("unknown pairing preset: {other}")));
+        }
+    };
+    use server::ServerAuth;
+    let auth = server::SqliteServerAuth::new(app.state::<AppState>().deployment.db().pool.clone());
+    let creator = server::AuthenticatedCredential {
+        credential_id: "local-host-owner".to_string(),
+        kind: server::CredentialKind::Server,
+        subject: "server-owner".to_string(),
+        device_id: None,
+        scopes: BTreeSet::from(["device.pair".to_string()]),
+    };
+    auth.create_pairing(
+        &creator,
+        remote_protocol::CreatePairingRequest {
+            preset,
+            requested_scopes: Vec::new(),
+        },
+    )
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))
 }
 
 pub async fn ensure_web_service_autostart(app: tauri::AppHandle) -> Result<(), AppError> {

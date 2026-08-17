@@ -7,6 +7,7 @@ import { ChatChannelSettings } from './ChatChannelSettings';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  statuses: vi.fn(),
   messageLogs: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/api', () => ({
   chatChannelApi: {
     list: mocks.list,
+    statuses: mocks.statuses,
     messageLogs: mocks.messageLogs,
     create: mocks.create,
     update: mocks.update,
@@ -82,6 +84,7 @@ describe('ChatChannelSettings', () => {
         value.mockReset();
     }
     mocks.list.mockResolvedValue([]);
+    mocks.statuses.mockResolvedValue([]);
     mocks.messageLogs.mockResolvedValue([]);
     mocks.getEventFilter.mockResolvedValue({
       enabled_events: ['prompt_started'],
@@ -115,7 +118,13 @@ describe('ChatChannelSettings', () => {
         name: channel.name,
         kind: 'telegram',
         enabled: true,
-        config: { chat_id: '-100123', authorized_senders: ['42'] },
+        config: {
+          chat_id: '-100123',
+          topic_mode: false,
+          daily_report_enabled: false,
+          daily_report_time: '18:00',
+          authorized_senders: ['42'],
+        },
         token: 'secret-token',
       });
     });

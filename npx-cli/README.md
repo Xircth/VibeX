@@ -5,15 +5,22 @@
 ## Quick Start
 
 `npx vibex` launches the Host family `vibex-server` (not the Tauri desktop app).
-It downloads the signed-or-checksummed server binary for this platform, then
-serves the same Remote Protocol used by Workstation and Companion clients.
+It downloads the GitHub Release tarball for this platform, verifies the
+sidecar SHA-256 and the inner `SHA256SUMS`, then starts `vibex-server` with
+`VIBEX_STATIC_ROOT` pointed at the packaged `web/` tree.
 
 ```bash
 npx vibex
+npx vibex --mcp
 ```
 
-Prefer the official Host family tarball from GitHub Releases when you need
-`vibex-mcp`, bundled plugins, and `SHA256SUMS` together.
+Artifacts:
+
+- `vibex-host-family-{linux-x64,linux-arm64,macos-x64,macos-arm64,windows-x64}.tar.gz`
+- matching `.tar.gz.sha256`
+
+Pin a tag with `VIBEX_HOST_FAMILY_TAG=v0.1.3`. Point at an already extracted
+directory with `VIBEX_HOST_FAMILY_DIR`.
 
 ## What is VibeX?
 
@@ -122,7 +129,7 @@ VibeX supports customization through its configuration system:
 
 ## Supported Platforms
 
-- Linux x64
+- Linux x64 / ARM64
 - Windows x64
 - macOS x64 (Intel)
 - macOS ARM64 (Apple Silicon)

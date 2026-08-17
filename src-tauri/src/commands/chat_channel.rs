@@ -437,6 +437,32 @@ pub async fn list_chat_channels() -> Result<Vec<ChatChannel>, AppError> {
         .collect())
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatChannelStatus {
+    pub channel_id: String,
+    pub status: String,
+}
+
+#[tauri::command]
+pub async fn list_chat_channel_statuses() -> Result<Vec<ChatChannelStatus>, AppError> {
+    let states = server::chat_channel_connection_states();
+    let store = load_store().await.unwrap_or_default();
+    Ok(store
+        .channels
+        .into_iter()
+        .map(|channel| ChatChannelStatus {
+            status: states.get(&channel.id).cloned().unwrap_or_else(|| {
+                if channel.enabled {
+                    "disconnected".into()
+                } else {
+                    "disabled".into()
+                }
+            }),
+            channel_id: channel.id,
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub async fn create_chat_channel(payload: ChatChannelPayload) -> Result<ChatChannel, AppError> {
     ensure_secrets_migrated().await?;

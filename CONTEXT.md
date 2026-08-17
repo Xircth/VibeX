@@ -84,7 +84,7 @@ Glossary of domain terms. Keep entries implementation-free; link decisions to AD
 
 ## Channel domain
 
-- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。
+- **Chat channel（聊天通道）** — 会话与外部 IM 之间的桥接：向外投递会话事件通知，向内接收远程命令。它不是 Paired device，配置与适配器属于当前 Host。
 - **Authorized sender（授权发送者）** — 某个聊天通道配置中被明确列入、允许下发入站命令的发送者身份。不在列表内的消息被静默丢弃；授权列表为空时该通道入站整体禁用（fail-closed）。
 - **Remote approval（远程审批）** — 授权发送者经聊天通道对某条待决权限请求做出的响应。语义与桌面端权限响应完全等同：作用于同一事件日志，二者互斥消解同一请求。
 
@@ -162,6 +162,7 @@ Workflow 领域与 Automation 的关系见
 - **Native plugin trust（原生插件信任）** — Agent Runtime 对其原生 hooks、MCP 与其他可执行贡献负责的授权关系；VibeX capability grant 与原生信任不能互相替代或伪造。
 - **External prerequisite（外部前置条件）** — Skill 或说明使用、但 Package 未声明为 Runtime requirement 的 CLI 或服务；它不阻止导入，但 VibeX 不负责安装、probe、冲突分析或 readiness，只能标记依赖未知。
 - **Plugin operation audit（插件操作审计）** — 对安装、授权、激活代切换、Runtime、原生投影与破坏性操作的持久证据；记录身份、版本/digest、操作结果与影响范围，不保存秘密或凭据。
+- **Official product MCP（官方产品 MCP）** — 随 Host 家族分发的 `vibex-mcp` 与 `vibex-workflow-mcp`。磁盘上有二进制不等于已注入；只有 `vibex.collaboration` 或 `vibex.workflow-creator` 启用后才进入新的 Agent session。
 - **Host-bound plugin environment（Host 绑定插件环境）** — 当前 Server Profile 对应 VibeX Host 上的 Package、contributions、Runtime、grants 与 Agent 原生投影集合；远程客户端操作该 Host 的环境，不在客户端复制执行。
 - **Legacy plugin evidence（旧插件证据）** — 对旧 manifest、信任、Runtime 与激活记录的完整只读保存；它只用于迁移解释，不会自动执行旧脚本、获得新授权或重新成为可运行插件。
 - **Artifact（产物）** — 文件系统中一个文件的持久身份；数据库只保存 relative path、revision/hash、producer Plugin/Provider/Tool-lock 与 Conversation event 证据，不保存文件内容。
@@ -182,7 +183,10 @@ Workflow 领域与 Automation 的关系见
 - **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
 - **Device pairing（设备配对）** — 管理员生成五分钟、只可兑换一次的 pairing secret，以批准 scopes 在一个 Server Profile 与一台设备之间建立长期信任关系；临时 secret 到期不会使已经配对的设备失效。
 - **Paired device（已配对设备）** — 代表同一 Server owner 的一个客户端身份，持有长期、可撤销的 device credential；断开、应用重启、网络变化或 Server 管理员 token 轮换都不结束配对关系，Device 不是 User。
-- **Device permission preset（设备权限预设）** — 配对时向用户展示并审批的一组稳定用途，例如可完成 Remote coding loop 的 Developer Device；预设只组织细粒度 scopes，不直接参与授权判断，也不隐含 Server 管理权。
+- **Device permission preset（设备权限预设）** — 配对时向用户展示并审批的一组稳定用途；预设只组织细粒度 scopes，不直接参与授权判断，也不隐含 Server 管理权。当前配对预设为 Workstation Device 与 Companion Device。
+- **Workstation Device（工作站设备）** — 其它桌面 VibeX 连上 Host 后近乎全接管工作：会话、文件、Git、终端、Workflow、Automation 与已安装插件。不含监听、token、设备管理和 Host 升级。
+- **Companion Device（伴随设备）** — 手机薄客户端：会话、审批、只读 Artifact 与离线缓存。不含插件写入、Workflow/Automation 写入或终端。
+- **Host family（Host 家族）** — 同一产品版本打出的 Desktop、`vibex-server` 目录（含 `vibex-mcp`、`web/`、官方插件快照）与后续 Companion 安装包。
 - **Device revocation（设备撤销）** — 管理员显式终止已配对设备的长期信任关系；撤销后新 HTTP 请求和已经建立的 WebSocket 都必须失效，主 token 或 device token 不得出现在 URL、事件或日志。
 - **Offline conversation cache（离线会话缓存）** — 仅包含持久 sequence 与 open events 的只读缓存；`read_only` 必须为 true，不能离线排队写操作。
 - **Terminal notification summary（终态通知摘要）** — 只包含 Conversation/Automation 稳定 ID、终态、时间与 operation id 的无 secret 投影；不包含 prompt、输出、诊断或文件路径，也不直接接入 APNs/FCM。

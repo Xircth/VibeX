@@ -35,7 +35,8 @@ export type {
 };
 
 export type CreateDevicePairingRequest = {
-  requested_scopes: string[];
+  preset?: 'workstation' | 'companion';
+  requested_scopes?: string[];
 };
 
 export type DevicePairingChallenge = {

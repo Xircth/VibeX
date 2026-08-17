@@ -87,7 +87,13 @@ public struct RemoteEvent: Codable {
     public let payload: JSONValue
 }
 
+public enum DevicePermissionPreset: String, Codable {
+    case workstation
+    case companion
+}
+
 public struct CreatePairingRequest: Codable {
+    public let preset: DevicePermissionPreset?
     public let requested_scopes: [String]
 }
 

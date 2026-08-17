@@ -1248,6 +1248,7 @@ pub struct PluginControlPlane {
     registry: Arc<dyn PluginRegistry>,
     contributions: ContributionRegistry,
     activations: ActivationManager,
+    official_mcp: Arc<crate::OfficialProductMcpGate>,
 }
 
 impl PluginControlPlane {
@@ -1256,7 +1257,20 @@ impl PluginControlPlane {
             registry,
             contributions: ContributionRegistry::default(),
             activations: ActivationManager::default(),
+            official_mcp: Arc::new(crate::OfficialProductMcpGate::default()),
         }
+    }
+
+    pub fn official_product_mcp_gate(&self) -> Arc<crate::OfficialProductMcpGate> {
+        self.official_mcp.clone()
+    }
+
+    pub async fn sync_official_product_mcp_gate(&self) -> Result<(), PluginError> {
+        self.official_mcp.reset();
+        for plugin in self.registry.list_plugins().await? {
+            self.official_mcp.observe(plugin.id(), plugin.activation);
+        }
+        Ok(())
     }
 
     fn retire_after_drain(
@@ -1428,10 +1442,13 @@ impl PluginControlPlane {
                 .set_activation(plugin_id, PluginActivation::Disabled)
                 .await?;
         }
-        self.registry
+        let plugin = self
+            .registry
             .plugin(plugin_id)
             .await?
-            .ok_or_else(|| PluginError::not_found(plugin_id))
+            .ok_or_else(|| PluginError::not_found(plugin_id))?;
+        self.official_mcp.observe(plugin.id(), plugin.activation);
+        Ok(plugin)
     }
 
     pub async fn activate_candidate(
@@ -1594,11 +1611,14 @@ impl PluginControlPlane {
             let drain = self.activations.commit(candidate).await;
             self.retire_after_drain(plugin_id.clone(), drain);
         }
-        self.registry
+        let plugin = self
+            .registry
             .plugin(&plugin_id)
             .await
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
-            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
+        self.official_mcp.observe(plugin.id(), plugin.activation);
+        Ok(plugin)
     }
 
     pub async fn rollback_and_activate(

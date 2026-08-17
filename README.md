@@ -77,11 +77,12 @@ Agents join the shared conversation pipeline through the [Agent Client Protocol 
 ### Remote access status
 
 VibeX contains a versioned Remote Protocol, device pairing and revocation, durable
-conversation replay, and a source-build `vibex-server`. First-class desktop Server
-Profiles, official Server containers/binaries, and the Android companion are accepted
-roadmap work and are not yet released product surfaces. See the
-[P0/P1 remote productization plan](./docs/plans/2026-08-09-remote-productization-p0-p1.md)
-and [current headless deployment notes](./docs/deployment/headless-server.md).
+conversation replay, and a packable `vibex-server` Host family. Pair a Workstation
+desktop for near-full remote control, or a Companion for the thin mobile surface.
+Official Server containers and the Android companion remain later slices. See
+[ADR-0054](./docs/adr/0054-host-family-distribution-and-client-surfaces.md),
+the [host-family plan](./docs/plans/2026-08-17-host-family-distribution.md),
+and [headless deployment notes](./docs/deployment/headless-server.md).
 
 VibeX does not operate a cloud relay. Remote clients connect to a user-controlled
 desktop or Headless Host; without an online Host they can only use supported read-only

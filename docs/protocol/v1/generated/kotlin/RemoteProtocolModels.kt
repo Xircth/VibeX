@@ -212,7 +212,10 @@ data class RemoteEvent(
     ).encode()
 }
 
+enum class DevicePermissionPreset { WORKSTATION, COMPANION }
+
 data class CreatePairingRequest(
+    val preset: DevicePermissionPreset?,
     val requested_scopes: List<String>,
 )
 

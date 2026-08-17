@@ -18,6 +18,7 @@ pub(crate) struct VibexDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
     pub features: CompanionFeatureFlags,
+    pub official_mcp: Arc<plugins::OfficialProductMcpGate>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +55,11 @@ impl DelegationInjector for VibexDelegationInjector {
         if !self.features.any() {
             return CompanionInjection::Unsupported {
                 code: "companion_features_disabled",
+            };
+        }
+        if !self.official_mcp.allow_vibex_mcp() {
+            return CompanionInjection::Unsupported {
+                code: "official_product_mcp_disabled",
             };
         }
         if !context.capabilities.accepts_session_mcp_servers {
@@ -172,6 +178,15 @@ mod tests {
 
     use super::*;
 
+    fn enabled_gate() -> Arc<plugins::OfficialProductMcpGate> {
+        let gate = Arc::new(plugins::OfficialProductMcpGate::default());
+        gate.observe(
+            plugins::COLLABORATION_PLUGIN_ID,
+            plugins::PluginActivation::Enabled,
+        );
+        gate
+    }
+
     #[test]
     fn companion_injection_follows_capability() {
         let tokens = Arc::new(TokenRegistry::new());
@@ -185,6 +200,7 @@ mod tests {
                 session_info: false,
                 session_control: false,
             },
+            official_mcp: enabled_gate(),
         };
         let conversation_id = Uuid::new_v4();
         let supported_agent = AgentId::parse("vendor.capable-agent").unwrap();
@@ -218,7 +234,7 @@ mod tests {
         );
 
         let disabled = VibexDelegationInjector {
-            tokens,
+            tokens: Arc::clone(&tokens),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
             features: CompanionFeatureFlags {
                 delegation: false,
@@ -227,6 +243,7 @@ mod tests {
                 session_info: false,
                 session_control: false,
             },
+            official_mcp: enabled_gate(),
         }
         .companion(CompanionInjectionContext {
             parent_connection_id: "parent-3",
@@ -241,6 +258,34 @@ mod tests {
             disabled,
             CompanionInjection::Unsupported {
                 code: "companion_features_disabled"
+            }
+        );
+
+        let gated = VibexDelegationInjector {
+            tokens,
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            features: CompanionFeatureFlags {
+                delegation: true,
+                feedback: false,
+                ask: false,
+                session_info: false,
+                session_control: false,
+            },
+            official_mcp: Arc::new(plugins::OfficialProductMcpGate::default()),
+        }
+        .companion(CompanionInjectionContext {
+            parent_connection_id: "parent-4",
+            parent_conversation_id: Uuid::new_v4(),
+            agent_id: &supported_agent,
+            working_root: Path::new("/workspace"),
+            capabilities: CompanionCapabilities {
+                accepts_session_mcp_servers: true,
+            },
+        });
+        assert_eq!(
+            gated,
+            CompanionInjection::Unsupported {
+                code: "official_product_mcp_disabled"
             }
         );
     }

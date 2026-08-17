@@ -218,11 +218,6 @@ impl HeadlessServer {
             .dispatch_queued_inputs()
             .await
             .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
-        let delegation_runtime = HeadlessDelegationRuntime::start(
-            agent_runtime.clone(),
-            pool.clone(),
-            conversation_context.clone(),
-        );
 
         let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
             SqlitePluginRegistry::new(pool.clone()),
@@ -325,6 +320,16 @@ impl HeadlessServer {
                 "enabled plugin Worker could not be restored"
             );
         }
+        plugin_control_plane
+            .sync_official_product_mcp_gate()
+            .await
+            .map_err(|error| ServerBootstrapError::Plugin(error.to_string()))?;
+        let delegation_runtime = HeadlessDelegationRuntime::start(
+            agent_runtime.clone(),
+            pool.clone(),
+            conversation_context.clone(),
+            plugin_control_plane.official_product_mcp_gate(),
+        );
         let app_surfaces = Arc::new(plugins::PluginAppSurfaceHost::new(
             plugin_control_plane.clone(),
         ));

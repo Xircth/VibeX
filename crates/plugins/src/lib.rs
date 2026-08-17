@@ -9,6 +9,7 @@ mod error;
 mod host_capability_broker;
 mod manifest;
 mod native;
+mod official_mcp;
 mod package;
 mod ports;
 mod preview_host;
@@ -44,6 +45,9 @@ pub use native::{
     FilesystemNativePluginAdapter, NativeAdapterCapabilities, NativeEcosystem, NativePluginAdapter,
     NativePluginDescriptor, NativePluginImportCommand, OfficialCliNativePluginAdapter,
     parse_official_plugin_import_commands,
+};
+pub use official_mcp::{
+    COLLABORATION_PLUGIN_ID, OfficialProductMcpGate, WORKFLOW_CREATOR_PLUGIN_ID,
 };
 pub use package::{
     AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,

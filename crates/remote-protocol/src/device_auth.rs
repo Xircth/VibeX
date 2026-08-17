@@ -63,8 +63,84 @@ macro_rules! device_uuid_id {
 device_uuid_id!(PairingId);
 device_uuid_id!(DeviceId);
 
-#[derive(Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+/// Pairing-time device class. Presets only expand scopes; authorization still
+/// checks each scope independently.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum DevicePermissionPreset {
+    Workstation,
+    Companion,
+}
+
+impl DevicePermissionPreset {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Workstation => "workstation",
+            Self::Companion => "companion",
+        }
+    }
+
+    /// Scopes granted to a Workstation Device. Host administration stays off this list.
+    pub const fn workstation_scopes() -> &'static [&'static str] {
+        &[
+            "conversation.read",
+            "conversation.write",
+            "conversation.attach",
+            "conversation.permission",
+            "conversation.question",
+            "conversation.cancel",
+            "conversation.steer",
+            "application.call",
+            "plugin.read",
+            "plugin.write",
+            "plugin.surface",
+            "artifact.read",
+            "artifact.preview",
+            "automation.read",
+            "automation.write",
+            "delegation.read",
+            "delegation.cancel",
+            "workflow.read",
+            "workflow.write",
+            "workflow.run",
+            "workflow.approve",
+            "notification.summary",
+            "offline.read",
+        ]
+    }
+
+    /// Scopes granted to a Companion Device.
+    pub const fn companion_scopes() -> &'static [&'static str] {
+        &[
+            "conversation.read",
+            "conversation.write",
+            "conversation.attach",
+            "conversation.permission",
+            "conversation.question",
+            "conversation.cancel",
+            "conversation.steer",
+            "artifact.read",
+            "workflow.read",
+            "automation.read",
+            "delegation.read",
+            "notification.summary",
+            "offline.read",
+        ]
+    }
+
+    pub const fn scopes(self) -> &'static [&'static str] {
+        match self {
+            Self::Workstation => Self::workstation_scopes(),
+            Self::Companion => Self::companion_scopes(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]
 pub struct CreatePairingRequest {
+    #[serde(default)]
+    pub preset: Option<DevicePermissionPreset>,
+    #[serde(default)]
     pub requested_scopes: Vec<String>,
 }
 

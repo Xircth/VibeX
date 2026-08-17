@@ -54,8 +54,11 @@ export interface RemoteEvent {
   payload: JsonValue;
 }
 
+export type DevicePermissionPreset = "workstation" | "companion";
+
 export interface CreatePairingRequest {
-  requested_scopes: string[];
+  preset?: DevicePermissionPreset;
+  requested_scopes?: string[];
 }
 
 export interface PairingChallenge {

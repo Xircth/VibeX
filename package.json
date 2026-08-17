@@ -27,6 +27,8 @@
     "remote-protocol-schema": "node scripts/remote-protocol-schema.js",
     "remote-protocol-schema:check": "node scripts/remote-protocol-schema.js --check",
     "server:package-smoke": "pnpm run frontend:build && node scripts/smoke-vibex-server-package.js",
+    "host-family:package": "node scripts/package-host-family.js",
+    "test:host-family-package": "node --test scripts/package-host-family.test.js",
     "prepare-db": "node scripts/prepare-db.js",
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "tauri:dev": "pnpm run tauri:dev:desktop",

@@ -24,6 +24,7 @@ use delegation::{
     DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup, ParentSessionLookup,
     SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry, outcome_from_turn,
 };
+use plugins::OfficialProductMcpGate;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::{
@@ -43,6 +44,7 @@ impl HeadlessDelegationRuntime {
         runtime: Arc<AgentRuntime>,
         pool: SqlitePool,
         conversation_context: ConversationContext,
+        official_mcp: Arc<OfficialProductMcpGate>,
     ) -> Self {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
@@ -64,6 +66,7 @@ impl HeadlessDelegationRuntime {
         runtime.install_delegation_injector(Arc::new(HeadlessDelegationInjector {
             tokens: tokens.clone(),
             socket_path: socket_path.clone(),
+            official_mcp: official_mcp.clone(),
         }));
         let listener = Arc::new(DelegationListener::new_with_features(
             broker.clone(),
@@ -524,10 +527,16 @@ impl DelegationMetaWriter for NoopMetaWriter {
 struct HeadlessDelegationInjector {
     tokens: Arc<TokenRegistry>,
     socket_path: PathBuf,
+    official_mcp: Arc<OfficialProductMcpGate>,
 }
 
 impl DelegationInjector for HeadlessDelegationInjector {
     fn companion(&self, context: CompanionInjectionContext<'_>) -> CompanionInjection {
+        if !self.official_mcp.allow_vibex_mcp() {
+            return CompanionInjection::Unsupported {
+                code: "official_product_mcp_disabled",
+            };
+        }
         if !context.capabilities.accepts_session_mcp_servers {
             return CompanionInjection::Unsupported {
                 code: "delegation_parent_unsupported",
@@ -690,4 +699,47 @@ fn preview(text: &str) -> String {
         end -= 1;
     }
     format!("{}…", &text[..end])
+}
+
+#[cfg(test)]
+mod official_mcp_tests {
+    use std::path::Path;
+
+    use agents::{CompanionCapabilities, CompanionInjection, CompanionInjectionContext};
+    use plugins::{COLLABORATION_PLUGIN_ID, OfficialProductMcpGate, PluginActivation};
+
+    use super::*;
+
+    #[test]
+    fn headless_companion_stays_off_until_collaboration_is_enabled() {
+        let gate = Arc::new(OfficialProductMcpGate::default());
+        let injector = HeadlessDelegationInjector {
+            tokens: Arc::new(TokenRegistry::new()),
+            socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
+            official_mcp: gate.clone(),
+        };
+        let agent_id = AgentId::parse("vendor.capable-agent").unwrap();
+        let context = CompanionInjectionContext {
+            parent_connection_id: "parent-1",
+            parent_conversation_id: Uuid::new_v4(),
+            agent_id: &agent_id,
+            working_root: Path::new("/workspace"),
+            capabilities: CompanionCapabilities {
+                accepts_session_mcp_servers: true,
+            },
+        };
+
+        assert_eq!(
+            injector.companion(context),
+            CompanionInjection::Unsupported {
+                code: "official_product_mcp_disabled"
+            }
+        );
+
+        gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Enabled);
+        assert!(matches!(
+            injector.companion(context),
+            CompanionInjection::Injected(_)
+        ));
+    }
 }

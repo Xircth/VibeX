@@ -15,8 +15,8 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures::StreamExt;
 use remote_protocol::{
-    CreatePairingRequest, DeviceCredential, ErrorCode, ErrorEnvelope, PairingChallenge,
-    RedeemPairingRequest, ServerCapabilities, SubscriptionServerMessage,
+    CreatePairingRequest, DeviceCredential, DevicePermissionPreset, ErrorCode, ErrorEnvelope,
+    PairingChallenge, RedeemPairingRequest, ServerCapabilities, SubscriptionServerMessage,
 };
 use server::{
     AuthClock, PreviewProxyRegistry, ServerConfig, ServerRuntime, ServerToken, SqliteServerAuth,
@@ -95,6 +95,7 @@ async fn expired_pairing_returns_a_stable_reason() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&CreatePairingRequest {
+                        preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
                     })
                     .expect("pairing request"),
@@ -144,6 +145,7 @@ async fn revoking_a_device_invalidates_http_and_an_existing_websocket() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&CreatePairingRequest {
+                        preset: None,
                         requested_scopes: vec![
                             "conversation.read".to_owned(),
                             "conversation.attach".to_owned(),
@@ -294,6 +296,7 @@ async fn pairing_token_can_be_redeemed_exactly_once() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&CreatePairingRequest {
+                        preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
                     })
                     .expect("pairing request"),
@@ -380,6 +383,7 @@ async fn concurrent_pairing_redemption_has_one_winner() {
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&CreatePairingRequest {
+                        preset: None,
                         requested_scopes: vec!["conversation.read".to_owned()],
                     })
                     .expect("pairing request"),
@@ -422,4 +426,40 @@ async fn concurrent_pairing_redemption_has_one_winner() {
         .await
         .expect("audit count");
     assert_eq!(audit_events, 2, "pairing creation and one redemption");
+}
+
+#[tokio::test]
+async fn companion_preset_expands_to_the_companion_scope_set() {
+    let app = test_app().await;
+    let create = app
+        .oneshot(
+            Request::post("/api/v1/auth/pairings")
+                .header(
+                    "authorization",
+                    "Bearer pairing-admin-token-with-at-least-32-bytes",
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&CreatePairingRequest {
+                        preset: Some(DevicePermissionPreset::Companion),
+                        requested_scopes: Vec::new(),
+                    })
+                    .expect("pairing request"),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("create pairing response");
+    assert_eq!(create.status(), StatusCode::CREATED);
+    let challenge: PairingChallenge = json_body(create).await;
+    let expected = DevicePermissionPreset::Companion
+        .scopes()
+        .iter()
+        .map(|scope| (*scope).to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    let actual = challenge
+        .requested_scopes
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(actual, expected);
 }

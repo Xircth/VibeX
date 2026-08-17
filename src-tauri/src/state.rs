@@ -357,10 +357,18 @@ impl AppState {
                 row_projectors: conversation_row_projectors.clone(),
             }),
         };
+        plugin_control_plane
+            .sync_official_product_mcp_gate()
+            .await
+            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
         // Build the delegation broker over the same ConversationContext used by
         // desktop commands, so companion send/wait cannot grow a second runtime.
-        let delegation =
-            crate::delegation::build_delegation(agent_runtime.clone(), pool, conversation_context);
+        let delegation = crate::delegation::build_delegation(
+            agent_runtime.clone(),
+            pool,
+            conversation_context,
+            plugin_control_plane.official_product_mcp_gate(),
+        );
         Ok(Self {
             app_handle,
             deployment,

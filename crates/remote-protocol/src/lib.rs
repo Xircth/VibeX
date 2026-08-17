@@ -12,8 +12,8 @@ mod subscription;
 pub use capabilities::{CapabilityId, ServerCapabilities};
 pub use command::{CommandRequest, CommandResponse};
 pub use device_auth::{
-    CreatePairingRequest, DeviceCredential, DeviceId, PairingChallenge, PairingId,
-    RedeemPairingRequest, RevokeDeviceResponse,
+    CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset, PairingChallenge,
+    PairingId, RedeemPairingRequest, RevokeDeviceResponse,
 };
 pub use error::{ErrorCode, ErrorEnvelope};
 pub use ids::{ConversationId, OperationId, SubscriptionId};

@@ -9,37 +9,15 @@ use application::Principal;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use remote_protocol::{
-    CreatePairingRequest, DeviceCredential, DeviceId, PairingChallenge, PairingId,
-    RedeemPairingRequest, RevokeDeviceResponse,
+    CreatePairingRequest, DeviceCredential, DeviceId, DevicePermissionPreset, PairingChallenge,
+    PairingId, RedeemPairingRequest, RevokeDeviceResponse,
 };
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 const PAIRING_TTL_SECONDS: i64 = 5 * 60;
-const DEVICE_SCOPES: &[&str] = &[
-    "conversation.read",
-    "conversation.write",
-    "conversation.attach",
-    "conversation.permission",
-    "conversation.question",
-    "conversation.cancel",
-    "conversation.steer",
-    "plugin.read",
-    "plugin.surface",
-    "artifact.read",
-    "artifact.preview",
-    "automation.read",
-    "automation.write",
-    "delegation.read",
-    "delegation.cancel",
-    "workflow.read",
-    "workflow.write",
-    "workflow.run",
-    "workflow.approve",
-    "notification.summary",
-    "offline.read",
-];
+const DEVICE_SCOPES: &[&str] = DevicePermissionPreset::workstation_scopes();
 
 pub(crate) const ADMIN_SCOPES: &[&str] = &[
     "conversation.read",
@@ -447,7 +425,7 @@ impl ServerAuth for SqliteServerAuth {
         if !creator.allows("device.pair") {
             return Err(AuthStoreError::Forbidden);
         }
-        let scopes = normalize_device_scopes(&creator.scopes, request.requested_scopes)?;
+        let scopes = resolve_pairing_scopes(&creator.scopes, request)?;
         let pairing_id = PairingId::new();
         let pairing_token = format!(
             "vbx_pair_{}{}",
@@ -635,6 +613,32 @@ impl ServerAuth for SqliteServerAuth {
             revoked: true,
         })
     }
+}
+
+fn resolve_pairing_scopes(
+    creator_scopes: &BTreeSet<String>,
+    request: CreatePairingRequest,
+) -> Result<Vec<String>, AuthStoreError> {
+    let requested = match request.preset {
+        Some(preset) if request.requested_scopes.is_empty() => preset
+            .scopes()
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect(),
+        Some(preset) => {
+            let allowed = preset.scopes().iter().copied().collect::<BTreeSet<_>>();
+            if request
+                .requested_scopes
+                .iter()
+                .any(|scope| !allowed.contains(scope.as_str()))
+            {
+                return Err(AuthStoreError::InvalidScope);
+            }
+            request.requested_scopes
+        }
+        None => request.requested_scopes,
+    };
+    normalize_device_scopes(creator_scopes, requested)
 }
 
 fn normalize_device_scopes(

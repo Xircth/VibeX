@@ -6,11 +6,22 @@ services, and Automation Engine used by desktop VibeX. It does not load Tauri.
 
 ## Distribution status
 
-The repository currently provides the source build and package-smoke path below.
-Official container images, Compose deployment, signed standalone Server binaries,
-and verified installers are the accepted P1 distribution target; they are not yet
-available release artifacts. The complete scope and release gates are defined in the
-[remote productization P0/P1 plan](../plans/2026-08-09-remote-productization-p0-p1.md).
+P0 ships a Host family directory: `vibex-server`, sibling `vibex-mcp`, production
+`web/`, and `plugins/bundled/`. Assemble it with:
+
+```bash
+node scripts/package-host-family.js \
+  --server target/release/vibex-server \
+  --mcp target/release/vibex-mcp \
+  --web frontend/dist \
+  --plugins assets/plugins \
+  --output dist/host-family
+```
+
+Apple Developer ID and Windows Authenticode are not required for this family.
+Publish SHA-256 checksums; attach a minisign `.sig` only when the updater key is
+present. Docker/Compose remains P2. See
+[ADR-0054](../adr/0054-host-family-distribution-and-client-surfaces.md).
 
 ## P1 distribution contract
 

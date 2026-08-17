@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "items": [
+    {
+      "path": "contents/skills/vibex-collaboration/SKILL.md",
+      "kind": "skill",
+      "title": "多智能体协同"
+    }
+  ]
+}

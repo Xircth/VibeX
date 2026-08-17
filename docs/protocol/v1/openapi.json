@@ -649,15 +649,32 @@
       "CreatePairingRequest": {
         "type": "object",
         "properties": {
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DevicePermissionPreset"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "requested_scopes": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "default": []
           }
-        },
-        "required": [
-          "requested_scopes"
+        }
+      },
+      "DevicePermissionPreset": {
+        "description": "Pairing-time device class. Presets only expand scopes; authorization still\nchecks each scope independently.",
+        "type": "string",
+        "enum": [
+          "workstation",
+          "companion"
         ]
       },
       "PairingChallenge": {

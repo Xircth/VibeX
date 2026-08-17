@@ -1,0 +1,92 @@
+name: Host Family Release
+
+# Builds the unsigned Host family directory. Apple Developer ID and Windows
+# Authenticode are intentionally not required.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+  RUST_TOOLCHAIN: nightly-2025-12-04
+  SQLX_OFFLINE: "true"
+
+jobs:
+  package:
+    name: Package ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - name: macos-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and pnpm
+        uses: ./.github/actions/setup-node
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm run frontend:build
+
+      - name: Build Host binaries
+        run: cargo build --release --target ${{ matrix.target }} -p server -p vibex-mcp --bin vibex-server --bin vibex-mcp
+
+      - name: Package Host family
+        shell: bash
+        run: |
+          ext=""
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            ext=".exe"
+          fi
+          node scripts/package-host-family.js \
+            --server "target/${{ matrix.target }}/release/vibex-server${ext}" \
+            --mcp "target/${{ matrix.target }}/release/vibex-mcp${ext}" \
+            --web frontend/dist \
+            --plugins assets/plugins \
+            --output "dist/host-family/${{ matrix.name }}"
+          tar -C dist/host-family -czf "dist/vibex-host-family-${{ matrix.name }}.tar.gz" "${{ matrix.name }}"
+
+      - name: Upload Host family
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibex-host-family-${{ matrix.name }}
+          path: dist/vibex-host-family-${{ matrix.name }}.tar.gz
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/vibex-host-family-${{ matrix.name }}.tar.gz
+          fail_on_unmatched_files: true

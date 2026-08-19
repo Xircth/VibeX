@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { ConversationError } from 'shared/types';
 import { TurnErrorCard } from './TurnErrorCard';
 
@@ -17,21 +23,24 @@ describe('TurnErrorCard', () => {
     expect(screen.queryByRole('button', { name: /重新加载/ })).toBeNull();
   });
 
-  it('renders an expired-session error with a reload action', () => {
-    const onReload = vi.fn();
+  it('renders an expired-session error with a rebind action', async () => {
+    const onRebind = vi.fn();
     render(
       <TurnErrorCard
         error={err({ code: 'resource_not_found', message: '' })}
-        onReload={onReload}
+        onReload={vi.fn()}
+        onRebind={onRebind}
       />
     );
 
     expect(screen.getByText('代理会话已过期')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /重新加载会话/ }));
-    expect(onReload).toHaveBeenCalledTimes(1);
+    const rebindButton = screen.getByRole('button', { name: /重新绑定会话/ });
+    fireEvent.click(rebindButton);
+    expect(onRebind).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(rebindButton).not.toBeDisabled());
   });
 
-  it('explains an idle-timeout (agent stopped responding) with reload', () => {
+  it('explains an idle-timeout (agent stopped responding) with reload', async () => {
     const onReload = vi.fn();
     render(
       <TurnErrorCard
@@ -41,8 +50,10 @@ describe('TurnErrorCard', () => {
     );
 
     expect(screen.getByText('代理无响应')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /重新加载会话/ }));
+    const reloadButton = screen.getByRole('button', { name: /重新加载会话/ });
+    fireEvent.click(reloadButton);
     expect(onReload).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(reloadButton).not.toBeDisabled());
   });
 
   it('explains a closed connection with reload', () => {
@@ -104,5 +115,37 @@ describe('TurnErrorCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '关闭提示' }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts composer recovery actions beside the title and replaces the icon with a badge', () => {
+    render(
+      <TurnErrorCard
+        error={err({ code: 'connection_closed' })}
+        onReload={vi.fn()}
+        onDismiss={vi.fn()}
+        placement="composer"
+      />
+    );
+
+    const title = screen.getByText('连接已断开');
+    const header = title.closest('.composer-status-header');
+
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).getByText('Error')).toHaveClass(
+      'astryx-badge'
+    );
+    expect(
+      within(header as HTMLElement).getByRole('button', {
+        name: /重新加载会话/,
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(header as HTMLElement).getByRole('button', { name: '关闭提示' })
+    ).toBeInTheDocument();
+    expect(
+      title
+        .closest('.composer-status-row')
+        ?.querySelector('.composer-status-icon')
+    ).toBeNull();
   });
 });

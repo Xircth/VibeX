@@ -38,9 +38,31 @@ impl ConversationSubscriptionRegistrar for DurablePollingRegistration {
 }
 
 #[derive(Clone, Copy)]
-struct ActiveSubscription {
-    conversation_id: ConversationId,
-    after_sequence: i64,
+enum ActiveSubscription {
+    Conversation {
+        conversation_id: ConversationId,
+        after_sequence: i64,
+    },
+    WorkflowRun {
+        run_id: uuid::Uuid,
+        after_sequence: i64,
+    },
+}
+
+impl ActiveSubscription {
+    const fn after_sequence(self) -> i64 {
+        match self {
+            Self::Conversation { after_sequence, .. }
+            | Self::WorkflowRun { after_sequence, .. } => after_sequence,
+        }
+    }
+
+    fn advance(&mut self, sequence: i64) {
+        match self {
+            Self::Conversation { after_sequence, .. }
+            | Self::WorkflowRun { after_sequence, .. } => *after_sequence = sequence,
+        }
+    }
 }
 
 pub(crate) async fn ws_handler<R>(
@@ -144,20 +166,37 @@ async fn handle_socket<R>(
                     .map(|(id, subscription)| (*id, *subscription))
                     .collect::<Vec<_>>();
                 for (subscription_id, subscription) in active {
-                    let bootstrap = state
-                        .core
-                        .attach_conversation(
-                            &principal,
-                            subscription_id,
-                            subscription.conversation_id,
-                            subscription.after_sequence,
-                            &DurablePollingRegistration,
-                        )
-                        .await;
+                    let bootstrap = match subscription {
+                        ActiveSubscription::Conversation {
+                            conversation_id,
+                            after_sequence,
+                        } => state
+                            .core
+                            .attach_conversation(
+                                &principal,
+                                subscription_id,
+                                conversation_id,
+                                after_sequence,
+                                &DurablePollingRegistration,
+                            )
+                            .await,
+                        ActiveSubscription::WorkflowRun {
+                            run_id,
+                            after_sequence,
+                        } => state
+                            .core
+                            .attach_workflow_run(
+                                &principal,
+                                subscription_id,
+                                run_id,
+                                after_sequence,
+                            )
+                            .await,
+                    };
                     let Ok(bootstrap) = bootstrap else {
                         continue;
                     };
-                    let mut cursor = subscription.after_sequence;
+                    let mut cursor = subscription.after_sequence();
                     for event in bootstrap.replay {
                         cursor = cursor.max(event.sequence);
                         if send_message(
@@ -174,7 +213,7 @@ async fn handle_socket<R>(
                         }
                     }
                     if let Some(active) = subscriptions.get_mut(&subscription_id) {
-                        active.after_sequence = cursor.max(bootstrap.high_water_mark);
+                        active.advance(cursor.max(bootstrap.high_water_mark));
                     }
                 }
             }
@@ -195,20 +234,43 @@ where
 {
     match message {
         SubscriptionClientMessage::Attach { request } => {
-            let SubscriptionResource::Conversation {
-                conversation_id,
-                after_sequence,
-            } = request.resource;
-            let bootstrap = core
-                .attach_conversation(
-                    principal,
-                    request.subscription_id,
+            let (bootstrap, active) = match request.resource {
+                SubscriptionResource::Conversation {
                     conversation_id,
                     after_sequence,
-                    &DurablePollingRegistration,
-                )
-                .await
-                .map_err(|_| ())?;
+                } => (
+                    core.attach_conversation(
+                        principal,
+                        request.subscription_id,
+                        conversation_id,
+                        after_sequence,
+                        &DurablePollingRegistration,
+                    )
+                    .await
+                    .map_err(|_| ())?,
+                    ActiveSubscription::Conversation {
+                        conversation_id,
+                        after_sequence,
+                    },
+                ),
+                SubscriptionResource::WorkflowRun {
+                    run_id,
+                    after_sequence,
+                } => (
+                    core.attach_workflow_run(
+                        principal,
+                        request.subscription_id,
+                        run_id,
+                        after_sequence,
+                    )
+                    .await
+                    .map_err(|_| ())?,
+                    ActiveSubscription::WorkflowRun {
+                        run_id,
+                        after_sequence,
+                    },
+                ),
+            };
             send_message(
                 sender,
                 SubscriptionServerMessage::Ready {
@@ -216,7 +278,7 @@ where
                 },
             )
             .await?;
-            let mut cursor = after_sequence;
+            let mut cursor = active.after_sequence();
             if let Some(snapshot) = bootstrap.snapshot {
                 cursor = cursor.max(snapshot.through_sequence);
                 send_message(
@@ -247,13 +309,11 @@ where
                 },
             )
             .await?;
-            subscriptions.insert(
-                request.subscription_id,
-                ActiveSubscription {
-                    conversation_id,
-                    after_sequence: cursor.max(bootstrap.high_water_mark),
-                },
-            );
+            subscriptions.insert(request.subscription_id, {
+                let mut active = active;
+                active.advance(cursor.max(bootstrap.high_water_mark));
+                active
+            });
         }
         SubscriptionClientMessage::Detach { subscription_id } => {
             subscriptions.remove(&subscription_id);

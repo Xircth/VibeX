@@ -4,7 +4,12 @@
     {
       "path": "contents/skills/vibex-workflow-creator/SKILL.md",
       "kind": "skill",
-      "title": "工作流开发"
+      "title": "Workflow Creator"
+    },
+    {
+      "path": "contents/mcps/workflow-control.json",
+      "kind": "mcp",
+      "title": "Workflow control MCP"
     }
   ]
 }

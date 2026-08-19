@@ -3,42 +3,47 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { DownloadCloud } from 'lucide-react';
 
-/**
- * Status-bar module (P3-5): surfaces an available app update (P1-6 updater feed).
- * Best-effort — update checks only run in packaged builds. Runtime failures are
- * swallowed so an unavailable release feed leaves the badge hidden.
- * Polls on a long interval to avoid hammering the release feed. Clicking opens the
- * system settings where AppUpdaterSection performs the download/install/relaunch.
- */
-const POLL_MS = 60 * 60 * 1000; // 60 minutes
+import { useUserSystem } from '@/components/ConfigProvider';
+import {
+  checkAppUpdate,
+  readCachedAppUpdate,
+  subscribeAppUpdate,
+} from '@/lib/appUpdate';
 
+/**
+ * Status-bar badge for an available app update. Availability lives in the
+ * shared check cache so this stays in sync with Settings without a second
+ * unsigned GitHub poll.
+ */
 export function UpdateAvailableBadge() {
   const navigate = useNavigate();
   const { t } = useTranslation('statusbar');
-  const [version, setVersion] = useState<string | null>(null);
+  const { config } = useUserSystem();
+  const [version, setVersion] = useState<string | null>(
+    () => readCachedAppUpdate()?.update?.version ?? null
+  );
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     try {
-      // Lazy import so nothing touches the updater plugin at module load.
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const update = await check();
-      setVersion(update?.version ?? null);
-      // check() returns a Tauri Resource (backend rid); we only read the version
-      // here (the actual download happens in AppUpdaterSection), so release it to
-      // avoid leaking one resource-table entry on every poll.
-      await update?.close();
+      const snapshot = await checkAppUpdate({ force });
+      setVersion(snapshot.update?.version ?? null);
     } catch {
       // No updater configured / release feed unavailable / offline — stay silent.
     }
   }, []);
 
-  useEffect(() => {
-    if (import.meta.env.DEV) return;
+  useEffect(
+    () =>
+      subscribeAppUpdate((snapshot) => {
+        setVersion(snapshot.update?.version ?? null);
+      }),
+    []
+  );
 
-    void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [refresh]);
+  useEffect(() => {
+    if (config?.auto_update_enabled === false) return;
+    void refresh(false);
+  }, [config?.auto_update_enabled, refresh]);
 
   if (!version) return null;
 

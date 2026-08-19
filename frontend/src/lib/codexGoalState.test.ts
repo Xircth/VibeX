@@ -26,7 +26,7 @@ describe('deriveCodexGoalState', () => {
     });
   });
 
-  it('marks an active goal completed from Codex output', () => {
+  it('does not infer status from assistant free text', () => {
     expect(
       deriveCodexGoalState([
         { role: 'user', content: '/goal migrate settings UI' },
@@ -34,7 +34,7 @@ describe('deriveCodexGoalState', () => {
       ])
     ).toEqual({
       objective: 'migrate settings UI',
-      status: 'completed',
+      status: 'running',
     });
   });
 
@@ -47,34 +47,15 @@ describe('deriveCodexGoalState', () => {
     ).toBeNull();
   });
 
-  it('captures goal details returned by the Codex goal command', () => {
+  it('marks complete only from an explicit user command', () => {
     expect(
       deriveCodexGoalState([
-        { role: 'user', content: '/goal' },
-        {
-          role: 'assistant',
-          content:
-            'Current goal: migrate settings UI\nStatus: paused\nToken budget: none',
-        },
+        { role: 'user', content: '/goal migrate settings UI' },
+        { role: 'user', content: '/goal complete' },
       ])
     ).toEqual({
       objective: 'migrate settings UI',
-      status: 'paused',
-    });
-  });
-
-  it('captures localized goal details returned by the Codex goal command', () => {
-    expect(
-      deriveCodexGoalState([
-        { role: 'user', content: '/goal' },
-        {
-          role: 'assistant',
-          content: '当前目标：修复命令菜单\n状态：运行中',
-        },
-      ])
-    ).toEqual({
-      objective: '修复命令菜单',
-      status: 'running',
+      status: 'completed',
     });
   });
 });

@@ -151,6 +151,35 @@ export function buildDraftFollowUpScratchUpdate(
   };
 }
 
+export function draftFollowUpContentsEqual(
+  left: Pick<DraftFollowUpData, 'message' | 'images'> | undefined,
+  right: Pick<DraftFollowUpData, 'message' | 'images'> | undefined
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.message !== right.message) return false;
+  if (left.images.length !== right.images.length) return false;
+  return left.images.every((image, index) => image === right.images[index]);
+}
+
+export function hasComposerDraftContent(
+  draft: Pick<DraftFollowUpData, 'message' | 'images'> | undefined
+): boolean {
+  if (!draft) return false;
+  return Boolean(draft.message.trim() || draft.images.length > 0);
+}
+
+export function shouldRaiseDraftConflict({
+  local,
+  server,
+}: {
+  local: Pick<DraftFollowUpData, 'message' | 'images'>;
+  server: Pick<DraftFollowUpData, 'message' | 'images'> | undefined;
+}): boolean {
+  if (!hasComposerDraftContent(local)) return false;
+  return !draftFollowUpContentsEqual(local, server);
+}
+
 export function getExecutorProfileStateKey(
   profile: ExecutorProfileId | null
 ): string | null {

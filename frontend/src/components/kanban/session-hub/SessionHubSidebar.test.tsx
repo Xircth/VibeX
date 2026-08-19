@@ -297,6 +297,7 @@ describe('SessionHubSidebar', () => {
       isCompleted: false,
       isRunning: false,
       isErrored: false,
+      pinnedAt: null,
     };
 
     render(

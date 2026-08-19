@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Workflow Studio</title>
+  </head>
+  <body>
+    <div id="app"></div>
+  <style>:root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:transparent;color:CanvasText}.compatibility{min-height:100vh;display:grid;place-content:center;justify-items:center;gap:10px;padding:32px;text-align:center}.mark{display:grid;width:42px;height:42px;place-items:center;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:12px}h1,p{margin:0}h1{font-size:15px}p{max-width:360px;color:color-mix(in srgb,CanvasText 62%,transparent);font-size:12px;line-height:1.5}
+</style><script type="module">function definePluginApp(mount){return{apiVersion:"1.0",mount}}var app_default=definePluginApp(({bridge:bridge2,root:root2,signal})=>{root2.innerHTML=`
+    <main class="compatibility">
+      <div class="mark" aria-hidden="true">\u2318</div>
+      <h1>Workflow Studio requires a newer VibeX Host</h1>
+      <p>Update VibeX to edit this workflow with the shared native Studio.</p>
+    </main>`;bridge2.ready();signal.addEventListener("abort",()=>{root2.innerHTML=""},{once:true})});var root=document.querySelector("#app")??document.body;var controller=new AbortController;var surface=globalThis.vibexSurface;if(!surface)throw new Error("vibex_app_surface_unavailable");var bootstrap=await surface.ready;var artifact=bootstrap.artifact?Object.freeze({name:bootstrap.artifact.name,readText:()=>surface.request("artifact.readText",null),writeText:(content,expectedRevision)=>surface.request("artifact.writeText",{content,expectedRevision})}):void 0;var bridge=Object.freeze({pluginId:bootstrap.pluginId,generation:bootstrap.generation,artifact,invoke:(handler,input=null)=>surface.request(handler,input),subscribe:(channel,listener)=>{if(channel!=="context")throw new Error("app_subscription_unsupported");const receive=event=>listener(event.detail);addEventListener("vibexsurfacecontext",receive);return()=>removeEventListener("vibexsurfacecontext",receive)},ready:()=>{void surface.request("surface.ready")}});var dispose=await app_default.mount({root,bridge,signal:controller.signal});addEventListener("pagehide",()=>{controller.abort();if(typeof dispose==="function")void dispose()},{once:true});
+</script></body>
+</html>

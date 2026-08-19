@@ -608,12 +608,13 @@ impl ServerApplicationDomains {
             .get_by_id(&self.pool, args.repo_id)
             .await
             .map_err(internal_error)?;
-        serialize(
-            self.deployment
-                .git()
-                .get_all_branches(&repo.path)
-                .map_err(internal_error)?,
-        )
+        let git = self.deployment.git().clone();
+        let repo_path = repo.path.clone();
+        let branches = tokio::task::spawn_blocking(move || git.get_all_branches(&repo_path))
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .map_err(internal_error)?;
+        serialize(branches)
     }
 
     async fn agent_management_bar(&self) -> Result<Value, ApplicationError> {
@@ -1498,7 +1499,9 @@ fn store_error(error: sqlx::Error) -> ApplicationError {
 
 fn capability_catalog_fingerprint(launch_lock: &SessionLaunchLock) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"open-agent-capability-catalog-v1:");
+    // v3 invalidates catalogs captured before effort/permission were merged
+    // from Grok's vendor `_meta` into the standard session-control snapshot.
+    digest.update(b"open-agent-capability-catalog-v3:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(

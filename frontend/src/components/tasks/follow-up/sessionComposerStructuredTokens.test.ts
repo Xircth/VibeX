@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deleteSessionComposerStructuredToken,
   formatSessionComposerCommand,
+  getSessionComposerFileRefs,
   getSessionComposerPluginActionInvocations,
   getSessionComposerStructuredTokenSegments,
   getSessionComposerStructuredTokens,
@@ -72,17 +73,20 @@ describe('session composer structured commands', () => {
   it('shows only the command name for skill-backed slash tokens', () => {
     const raw = formatSessionComposerCommand({
       type: '/',
-      key: 'skill:/Users/mac/.agents/skills/grilling:grill-me',
-      value: '/grill-me',
+      key: 'skill:/Users/mac/.agents/skills/grill-me:grill-me',
+      value: '/skill:/Users/mac/.agents/skills/grill-me:grill-me',
     });
 
     expect(getSessionComposerStructuredTokens(raw)).toEqual([
       expect.objectContaining({
         kind: 'slash',
         label: '/grill-me',
-        value: '/grill-me',
+        value: '/skill:/Users/mac/.agents/skills/grill-me:grill-me',
       }),
     ]);
+    expect(serializeSessionComposerBackendMessage(raw)).toBe(
+      '/skill:/Users/mac/.agents/skills/grill-me:grill-me'
+    );
   });
 
   it('splits composer text into Text and Command segments', () => {
@@ -180,6 +184,19 @@ describe('session composer structured commands', () => {
         value: 'src/App.tsx',
       })} `.length,
     });
+  });
+
+  it('extracts workspace file tokens as resource refs including line ranges', () => {
+    const value = insertFileReferenceToken({
+      value: '',
+      selectionStart: 0,
+      selectionEnd: 0,
+      relativePath: 'src/main.rs:10-20',
+    }).value;
+
+    expect(getSessionComposerFileRefs(value)).toEqual([
+      { path: 'src/main.rs', startLine: 10, endLine: 20 },
+    ]);
   });
 
   it('represents preview elements as command chips and serializes them to full element context', () => {

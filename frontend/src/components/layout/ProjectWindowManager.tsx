@@ -23,7 +23,7 @@ import { desktopApi } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useStopToastSuppression } from '@/stores/useTaskDetailsUiStore';
-import { deliverSessionCompletionNotification } from './sessionCompletionNotification';
+import { deliverDesktopNotification } from './sessionCompletionNotification';
 
 function getSessionStatusLabel(
   session: KanbanProjectSessionRecord,
@@ -53,9 +53,19 @@ type ProjectSessionTarget = {
   sessionId: string;
 };
 
-type ConversationFinishedPayload = ProjectSessionTarget & {
-  turnId: string;
-  kind: 'success' | 'error';
+type SessionAttentionKind =
+  | 'permission'
+  | 'question'
+  | 'notice'
+  | 'warning'
+  | 'error'
+  | 'completed';
+
+type SessionAttentionPayload = ProjectSessionTarget & {
+  turnId?: string | null;
+  kind: SessionAttentionKind;
+  title?: string | null;
+  message?: string | null;
 };
 
 function buildTrackedProjectIds(
@@ -71,6 +81,24 @@ function buildTrackedProjectIds(
       ...(includeAllProjects ? Object.keys(projectsById) : []),
     ])
   ).filter((trackedProjectId) => Boolean(projectsById[trackedProjectId]));
+}
+
+function attentionTitle(
+  payload: SessionAttentionPayload,
+  projectName: string,
+  t: TFunction<['panels', 'common']>
+) {
+  const key =
+    payload.kind === 'permission'
+      ? 'windowManager.sessionPermissionTitle'
+      : payload.kind === 'question'
+        ? 'windowManager.sessionQuestionTitle'
+        : payload.kind === 'warning' || payload.kind === 'notice'
+          ? 'windowManager.sessionNoticeTitle'
+          : payload.kind === 'error'
+            ? 'windowManager.sessionFailedTitle'
+            : 'windowManager.sessionCompletedTitle';
+  return t(key, { project: projectName });
 }
 
 function resolveSummaryDisplayName(summary: SessionSummary, t: TFunction) {
@@ -177,19 +205,19 @@ function ProjectNotificationBridge() {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
-    backendListen<ConversationFinishedPayload>(
-      'desktop-conversation-finished',
+    backendListen<SessionAttentionPayload>(
+      'desktop-session-attention',
       (payload) => {
         void sessionsApi
           .getSummariesByWorkspace(payload.workspaceId)
           .then(async (summaries) => {
             if (cancelled) return;
-            const completedSummary = summaries.find(
+            const sessionSummary = summaries.find(
               (summary) => summary.id === payload.sessionId
             );
-            if (!completedSummary) {
+            if (!sessionSummary) {
               console.error(
-                `Completed session ${payload.sessionId} was not found in workspace ${payload.workspaceId}`
+                `Session ${payload.sessionId} was not found in workspace ${payload.workspaceId}`
               );
               return;
             }
@@ -198,37 +226,44 @@ function ProjectNotificationBridge() {
             const projectName =
               latest.projectsById[payload.projectId]?.name ??
               latest.t('windowManager.projectFallbackName');
-            const title = latest.t('windowManager.sessionCompletedTitle', {
-              project: projectName,
-            });
+            const title = attentionTitle(payload, projectName, latest.t);
             const sessionName = resolveSummaryDisplayName(
-              completedSummary,
+              sessionSummary,
               latest.t
             );
             const workspaceName =
-              completedSummary.workspace_name ?? payload.workspaceId;
-            const description = `${sessionName} · ${workspaceName}`;
+              sessionSummary.workspace_name ?? payload.workspaceId;
+            const description =
+              payload.message?.trim() ||
+              payload.title?.trim() ||
+              `${sessionName} · ${workspaceName}`;
             const windowFocused = await isApplicationCurrentlyFocused();
             if (cancelled) return;
 
             setProjectAlert({
               projectId: payload.projectId,
               workspaceId: payload.workspaceId,
-              sessionId: completedSummary.id,
-              taskId: completedSummary.task_id,
-              kind: payload.kind,
+              sessionId: sessionSummary.id,
+              taskId: sessionSummary.task_id,
+              kind: payload.kind === 'completed' ? 'success' : 'error',
               unread:
                 payload.projectId !== latest.activeProjectId || !windowFocused,
-              createdAt: completedSummary.updated_at,
+              createdAt: sessionSummary.updated_at,
               title,
               description,
             });
 
-            if (latest.consumeStopToastSuppression(payload.workspaceId)) return;
+            if (
+              payload.kind === 'completed' &&
+              latest.consumeStopToastSuppression(payload.workspaceId)
+            ) {
+              return;
+            }
 
-            void deliverSessionCompletionNotification({
-              kind: payload.kind,
+            void deliverDesktopNotification({
               windowFocused,
+              notifyWhen:
+                latest.config?.notifications.notify_when ?? 'unfocused',
               soundEnabled: latest.config?.notifications.sound_enabled ?? false,
               soundFile:
                 latest.config?.notifications.sound_file ??
@@ -239,15 +274,15 @@ function ProjectNotificationBridge() {
                 showDesktopToast({
                   projectId: payload.projectId,
                   workspaceId: payload.workspaceId,
-                  sessionId: completedSummary.id,
+                  sessionId: sessionSummary.id,
                   title,
                   description,
-                  kind: payload.kind,
+                  kind: payload.kind === 'completed' ? 'success' : 'error',
                   durationMs: 15000,
                 }),
             }).catch((error) => {
               console.error(
-                'Failed to deliver session completion notification:',
+                'Failed to deliver session attention notification:',
                 error
               );
             });

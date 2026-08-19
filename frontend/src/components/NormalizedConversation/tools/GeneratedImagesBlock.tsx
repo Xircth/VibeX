@@ -4,7 +4,7 @@ import { ImageIcon, Loader2 } from 'lucide-react';
 import type { JsonValue, NormalizedEntry } from 'shared/types';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
 import { useOpenImagePreview } from '@/hooks/useOpenImagePreview';
-import { renderJson } from '../conversation-entry-utils';
+import { ToolArtifact, ToolProse } from './ToolArtifact';
 import {
   ToolCardShell,
   getToolStatusClassName,
@@ -210,13 +210,7 @@ export function GeneratedImagesBlock({
       expanded
       expandable={false}
     >
-      <div className="space-y-2 font-sans">
-        <div>
-          <div className="conv-tool-details-section-label">
-            {t('generatedImages.status')}
-          </div>
-          <div className="conv-tool-details-content">{statusText}</div>
-        </div>
+      <ToolArtifact badge={statusText} title={prompt || revisedPrompt}>
         {showImage ? (
           <button
             type="button"
@@ -236,43 +230,15 @@ export function GeneratedImagesBlock({
             <Loader2 className="h-4 w-4 animate-spin" />
           </div>
         ) : imagePath ? (
-          <div className="conv-tool-details-content font-mono">{imagePath}</div>
-        ) : null}
-        {prompt ? (
-          <div>
-            <div className="conv-tool-details-section-label">
-              {t('generatedImages.prompt')}
-            </div>
-            <div className="conv-tool-details-content">{prompt}</div>
-          </div>
+          <ToolProse className="font-mono">{imagePath}</ToolProse>
         ) : null}
         {revisedPrompt ? (
-          <div>
-            <div className="conv-tool-details-section-label">
-              {t('generatedImages.revisedPrompt')}
-            </div>
-            <div className="conv-tool-details-content">{revisedPrompt}</div>
-          </div>
+          <ToolProse>{revisedPrompt}</ToolProse>
+        ) : prompt && showImage ? (
+          <ToolProse>{prompt}</ToolProse>
         ) : null}
-        {error ? (
-          <div>
-            <div className="conv-tool-details-section-label">
-              {t('generatedImages.error')}
-            </div>
-            <div className="conv-tool-details-content">{error}</div>
-          </div>
-        ) : null}
-        {action.result ? (
-          <div>
-            <div className="conv-tool-details-section-label">
-              {t('generatedImages.rawResult')}
-            </div>
-            <div className="conv-tool-details-content">
-              {renderJson(action.result.value)}
-            </div>
-          </div>
-        ) : null}
-      </div>
+        {error ? <ToolProse>{error}</ToolProse> : null}
+      </ToolArtifact>
     </ToolCardShell>
   );
 }

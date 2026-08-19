@@ -6,8 +6,9 @@ VibeX 桌面端集成了 `tauri-plugin-updater`：在 **设置 → 系统 → �
 ## 运行机制
 
 - 前端 [AppUpdaterSection](../frontend/src/components/settings/AppUpdaterSection.tsx)
-  调用 `@tauri-apps/plugin-updater` 的 `check()`；若有新版本，`downloadAndInstall()`
-  带进度下载安装，再用 `@tauri-apps/plugin-process` 的 `relaunch()` 重启。
+  通过统一的 `checkAppUpdate()` 查询签名更新源和 GitHub Release：展示当前版本、
+  上次检查时间与更新日志。若签名源有新版本，`installSignedUpdate()` 带进度下载
+  安装，再用 `@tauri-apps/plugin-process` 的 `relaunch()` 重启。
 - 更新源与公钥在 [tauri.conf.json](../src-tauri/tauri.conf.json) 的 `plugins.updater`：
   - `endpoints`：默认指向 `https://github.com/Xircth/VibeX/releases/latest/download/latest.json`。
   - `pubkey`：签名验证公钥。

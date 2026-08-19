@@ -12,13 +12,15 @@ mod workflow;
 
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
-    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn,
+    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, ConversationCatalog,
+    ConversationCatalogAgent, ConversationCatalogProject, ConversationCatalogWorkspace,
     ConversationExecutionPort, ConversationOutputView, ConversationPluginActionInvocation,
     ConversationRepository, ConversationSubscriptionRegistrar, CreateChildConversationRequest,
     CreateConversation, ListConversationInputsRequest, ListConversationRelationsRequest,
-    ListConversations, ReorderConversationInputRequest, RespondConversationPermission,
-    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
-    SteerConversationTurnRequest, SubmitConversationInputRequest, UpdateConversationInputRequest,
+    ListConversations, ListRecentConversations, ReorderConversationInputRequest,
+    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
+    StartConversationTurn, SteerConversationTurnRequest, SubmitConversationInputRequest,
+    UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;
@@ -33,11 +35,15 @@ pub use error::ApplicationError;
 pub use notification::{NotificationProjector, TerminalNotificationEvidence};
 pub use principal::Principal;
 pub use workflow::{
-    CancelWorkflowRequest, CompleteWorkflowStepRequest, DecideWorkflowRequest,
-    PublishWorkflowRequest, ResumeWorkflowRequest, StartWorkflowRequest, ValidateWorkflowRequest,
-    WorkflowAgentDispatcher, WorkflowExecutionPort, WorkflowStoreExecutionPort,
+    AcceptWorkflowCandidateRequest, CancelWorkflowRequest, CompleteWorkflowStepRequest,
+    DebugWorkflowRequest, DecideWorkflowRequest, ForkWorkflowRequest, PauseWorkflowRequest,
+    PauseWorkflowStepRequest, PublishWorkflowRequest, ResumePausedWorkflowRequest,
+    ResumeWorkflowRequest, StartWorkflowRequest, SubmitWorkflowStepInputRequest,
+    ValidateWorkflowRequest, WorkflowAgentDispatcher, WorkflowExecutionPort,
+    WorkflowStoreExecutionPort,
 };
 pub use workflows::{
-    WorkflowDefinition, WorkflowEventRecord, WorkflowReviewDecision, WorkflowRunView,
-    WorkflowStepView, WorkflowValidationView, WorkflowVersionView,
+    CompletionPolicy, DebugRunScope, WorkflowDefinition, WorkflowDefinitionSummary,
+    WorkflowEventRecord, WorkflowReviewDecision, WorkflowRunView, WorkflowStepView,
+    WorkflowValidationView, WorkflowVersionView,
 };

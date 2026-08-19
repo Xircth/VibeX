@@ -163,7 +163,9 @@ describe('ChatChannelSettings', () => {
       'true'
     );
     expect(within(tablist).queryByRole('tab', { name: '其他' })).toBeNull();
-    expect(screen.getByRole('heading', { name: '消息渠道' })).toBeVisible();
+    const heading = screen.getByRole('heading', { name: '消息渠道' });
+    expect(heading).toBeVisible();
+    expect(heading.querySelector('svg')).toBeInTheDocument();
     expect(await screen.findByText('暂无渠道')).toBeVisible();
 
     await user.click(within(tablist).getByRole('tab', { name: '指令' }));

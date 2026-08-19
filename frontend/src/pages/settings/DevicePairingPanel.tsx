@@ -1,22 +1,49 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, Loader2, QrCode, ShieldCheck } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from '@/components/ui/toast';
 import { webServiceApi } from '@/lib/api';
 import type {
   BackendTransport,
   DevicePairingChallenge,
 } from '@/lib/backendTransport';
+import { SettingsSection } from './SettingsUi';
+import {
+  encodePairingInvitation,
+  isLoopbackOrigin,
+  type PairingReachability,
+} from './pairingInvitation';
 
 type PairingPreset = 'companion' | 'workstation';
 
+const EMPTY_HOST_URLS: string[] = [];
+const EMPTY_REACHABILITY: PairingReachability[] = [];
+
 export function DevicePairingPanel({
   transport,
+  hostUrls = EMPTY_HOST_URLS,
+  hostId,
+  reachability = EMPTY_REACHABILITY,
+  autoIssue = false,
+  onEnsureListening,
 }: {
   transport: BackendTransport;
+  hostUrls?: string[];
+  hostId?: string | null;
+  reachability?: PairingReachability[];
+  autoIssue?: boolean;
+  onEnsureListening?: () => Promise<string[]>;
 }) {
   const { t } = useTranslation('settings');
   const [preset, setPreset] = useState<PairingPreset>('companion');
@@ -25,21 +52,39 @@ export function DevicePairingPanel({
   );
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [autoIssued, setAutoIssued] = useState(false);
+  const [startedUrls, setStartedUrls] = useState<string[] | null>(null);
+  const resolvedUrls = startedUrls ?? hostUrls;
+  const resolvedReachability =
+    challenge?.reachability ??
+    (reachability.length > 0
+      ? reachability
+      : resolvedUrls
+          .filter((origin) => !isLoopbackOrigin(origin))
+          .map((origin) => ({ origin, kind: 'lan' })));
+  const invitation = useMemo(() => {
+    if (!challenge) return null;
+    return (
+      challenge.invitation ??
+      encodePairingInvitation({
+        hostId: challenge.host_id ?? hostId,
+        preset: challenge.preset ?? preset,
+        pairingId: challenge.pairing_id,
+        pairingToken: challenge.pairing_token,
+        expiresAt: challenge.expires_at,
+        reachability: resolvedReachability,
+      })
+    );
+  }, [challenge, hostId, preset, resolvedReachability]);
+  const hasReachableOrigin = resolvedReachability.length > 0;
 
   useEffect(() => {
-    if (!challenge) {
+    if (!invitation) {
       setQrDataUrl(null);
       return;
     }
     let active = true;
-    const payload = JSON.stringify({
-      version: 1,
-      pairing_id: challenge.pairing_id,
-      pairing_token: challenge.pairing_token,
-      expires_at: challenge.expires_at,
-      preset,
-    });
-    void QRCode.toDataURL(`vibex-pairing:${payload}`, {
+    void QRCode.toDataURL(invitation, {
       errorCorrectionLevel: 'M',
       margin: 1,
       width: 224,
@@ -49,11 +94,14 @@ export function DevicePairingPanel({
     return () => {
       active = false;
     };
-  }, [challenge, preset]);
+  }, [invitation]);
 
   const createPairing = useCallback(async () => {
     setBusy(true);
     try {
+      if (onEnsureListening) {
+        setStartedUrls(await onEnsureListening());
+      }
       const created = transport.createDevicePairing
         ? await transport.createDevicePairing({ preset })
         : await webServiceApi.createPairing(preset);
@@ -65,59 +113,89 @@ export function DevicePairingPanel({
     } finally {
       setBusy(false);
     }
-  }, [preset, t, transport]);
+  }, [onEnsureListening, preset, t, transport]);
 
-  const copyToken = useCallback(async () => {
-    if (!challenge) return;
-    await navigator.clipboard.writeText(challenge.pairing_token);
+  useEffect(() => {
+    if (!autoIssue || autoIssued || challenge || busy || !hasReachableOrigin) {
+      return;
+    }
+    setAutoIssued(true);
+    void createPairing();
+  }, [
+    autoIssue,
+    autoIssued,
+    busy,
+    challenge,
+    createPairing,
+    hasReachableOrigin,
+  ]);
+
+  const connectionCode =
+    challenge?.connection_code ??
+    (challenge?.pairing_token && challenge.pairing_token.length === 8
+      ? challenge.pairing_token
+      : null);
+
+  const copyConnectionCode = useCallback(async () => {
+    if (!connectionCode) return;
+    await navigator.clipboard.writeText(connectionCode);
     toast.success(t('webService.pairingCopied'));
-  }, [challenge, t]);
+  }, [connectionCode, t]);
 
   return (
-    <div className="settings-surface overflow-hidden">
+    <SettingsSection
+      icon={QrCode}
+      title={t('webService.pairingTitle')}
+      description={t('webService.pairingDescription')}
+    >
       <div className="settings-row">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t('webService.pairingTitle')}
-          </h3>
-          <p className="settings-row__description">
-            {t('webService.pairingDescription')}
-          </p>
-        </div>
+        <Label htmlFor="pairing-preset">
+          {t('webService.pairingPresetLabel')}
+        </Label>
         <div className="flex items-center gap-2">
-          <select
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+          <Select
             value={preset}
-            onChange={(event) =>
-              setPreset(event.target.value as PairingPreset)
-            }
-            aria-label={t('webService.pairingPresetLabel')}
+            onValueChange={(value) => setPreset(value as PairingPreset)}
           >
-            <option value="companion">
-              {t('webService.pairingPresetCompanion')}
-            </option>
-            <option value="workstation">
-              {t('webService.pairingPresetWorkstation')}
-            </option>
-          </select>
+            <SelectTrigger
+              id="pairing-preset"
+              className="h-8 min-w-32 text-sm"
+              aria-label={t('webService.pairingPresetLabel')}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="companion">
+                {t('webService.pairingPresetCompanion')}
+              </SelectItem>
+              <SelectItem value="workstation">
+                {t('webService.pairingPresetWorkstation')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
-            className="h-8 shrink-0 text-xs"
             onClick={() => void createPairing()}
             disabled={busy}
           >
             {busy ? (
-              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <QrCode className="mr-1 h-3.5 w-3.5" />
+              <QrCode className="mr-1.5 h-3.5 w-3.5" />
             )}
             {t('webService.createPairing')}
           </Button>
         </div>
       </div>
 
+      {!hasReachableOrigin ? (
+        <p className="px-4 pb-4 text-sm text-muted-foreground">
+          {t('webService.pairingNeedsReachability')}
+        </p>
+      ) : null}
+
       {challenge ? (
-        <div className="flex flex-wrap items-start gap-4 px-4 py-4">
+        <div className="flex flex-wrap items-start gap-4 px-4 pb-4">
           <div className="rounded-lg bg-white p-2">
             {qrDataUrl ? (
               <img
@@ -136,32 +214,40 @@ export function DevicePairingPanel({
             )}
           </div>
           <div className="min-w-0 flex-1 space-y-3">
-            <div>
-              <p className="text-xs font-medium">
-                {t('webService.pairingCodeLabel')}
+            {connectionCode ? (
+              <div>
+                <p className="text-sm font-medium">
+                  {t('webService.pairingCodeLabel')}
+                </p>
+                <code className="mt-1 block tracking-[0.28em] rounded-md bg-muted px-3 py-2 text-2xl font-semibold">
+                  {connectionCode}
+                </code>
+              </div>
+            ) : null}
+            {resolvedReachability.length > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {resolvedReachability.map((item) => item.origin).join(' · ')}
               </p>
-              <code className="mt-1 block break-all rounded-md bg-muted px-2 py-1.5 text-xs">
-                {challenge.pairing_token}
-              </code>
-            </div>
-            <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            ) : null}
+            <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {t('webService.pairingOneTime', {
                 expiresAt: new Date(challenge.expires_at).toLocaleString(),
               })}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => void copyToken()}
-            >
-              <Copy className="mr-1 h-3.5 w-3.5" />
-              {t('webService.copyPairingCode')}
-            </Button>
+            {connectionCode ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copyConnectionCode()}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                {t('webService.copyPairingCode')}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}
-    </div>
+    </SettingsSection>
   );
 }

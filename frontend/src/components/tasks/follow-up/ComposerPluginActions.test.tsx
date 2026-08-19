@@ -16,7 +16,13 @@ vi.mock('@/lib/api', () => ({
   fileTreeApi: {},
   repoApi: {},
   skillsApi: {
-    listLocal: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue({
+      supported: false,
+      global_supported: false,
+      project_supported: false,
+      locations: [],
+      skills: [],
+    }),
   },
 }));
 

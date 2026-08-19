@@ -1,9 +1,27 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, CreditCard, RefreshCw } from 'lucide-react';
-import type { AgentId, AgentPlanUsage, PlanUsageWindow } from 'shared/types';
+import type {
+  AgentId,
+  AgentManagementView,
+  AgentPlanUsage,
+  PlanUsageWindow,
+} from 'shared/types';
 import { PlanUsageUnavailableReason } from 'shared/types';
-import { agentManagementApi } from '@/features/agent-management/api';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import { toast } from '@/components/ui/toast';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  agentManagementApi,
+  agentManagementErrorMessage,
+  useAgentManagement,
+} from '@/features/agent-management';
 import { cn } from '@/lib/utils';
 import {
   clampPercent,
@@ -14,6 +32,16 @@ import {
 
 // The Claude usage endpoint is rate limited; keep probes to one per 3 minutes.
 const PLAN_USAGE_STALE_TIME_MS = 180_000;
+const SELECTED_AGENT_STORAGE_KEY = 'vibex.plan-usage.selected-agent';
+
+const PLAN_CAPABLE_AGENT_IDS = [
+  'claude_code',
+  'codex',
+  'grok',
+  'cursor',
+] as const;
+
+type PlanCapableAgentId = (typeof PLAN_CAPABLE_AGENT_IDS)[number];
 
 const UNAVAILABLE_REASON_KEYS: Record<PlanUsageUnavailableReason, string> = {
   [PlanUsageUnavailableReason.UNSUPPORTED_AGENT]: 'reasonUnsupported',
@@ -21,6 +49,35 @@ const UNAVAILABLE_REASON_KEYS: Record<PlanUsageUnavailableReason, string> = {
   [PlanUsageUnavailableReason.NOT_LOGGED_IN]: 'reasonNotLoggedIn',
   [PlanUsageUnavailableReason.TOKEN_EXPIRED]: 'reasonTokenExpired',
 };
+
+const PLAN_COPY: Record<PlanCapableAgentId, { title: string; source: string }> =
+  {
+    claude_code: { title: 'claudeTitle', source: 'claudeSource' },
+    codex: { title: 'codexTitle', source: 'codexSource' },
+    grok: { title: 'grokTitle', source: 'grokSource' },
+    cursor: { title: 'cursorTitle', source: 'cursorSource' },
+  };
+
+function isPlanCapableAgentId(agentId: string): agentId is PlanCapableAgentId {
+  return (PLAN_CAPABLE_AGENT_IDS as readonly string[]).includes(agentId);
+}
+
+function readStoredAgentId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredAgentId(agentId: string) {
+  try {
+    window.localStorage.setItem(SELECTED_AGENT_STORAGE_KEY, agentId);
+  } catch {
+    // Ignore quota / private-mode failures; selection still lives in state.
+  }
+}
 
 function usePlanKey() {
   const { t } = useTranslation('tasks');
@@ -134,7 +191,9 @@ function AgentPlanSection({
   title: string;
   sourceNote: string;
 }) {
+  const { t } = useTranslation('settings');
   const pt = usePlanKey();
+  const [managing, setManaging] = useState(false);
   const query = useQuery({
     queryKey: ['agent-plan-usage', agentId],
     queryFn: () => agentManagementApi.planUsage(agentId),
@@ -145,6 +204,19 @@ function AgentPlanSection({
   const result = query.data ?? null;
   const planType =
     result?.type === 'OK' ? formatPlanType(result.usage.planType) : null;
+
+  const manageSubscription = async () => {
+    setManaging(true);
+    try {
+      await agentManagementApi.runAction(agentId, 'subscription');
+    } catch (error) {
+      toast.error(
+        agentManagementErrorMessage(error, t('agents.accountFlowFailed'))
+      );
+    } finally {
+      setManaging(false);
+    }
+  };
 
   return (
     <section className="flex flex-col gap-3">
@@ -160,17 +232,27 @@ function AgentPlanSection({
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{sourceNote}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-          className="flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw
-            className={cn('h-3.5 w-3.5', query.isFetching && 'animate-spin')}
-          />
-          {pt('refresh')}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void manageSubscription()}
+            disabled={managing}
+            className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            {pt('manageSubscription')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw
+              className={cn('h-3.5 w-3.5', query.isFetching && 'animate-spin')}
+            />
+            {pt('refresh')}
+          </button>
+        </div>
       </div>
 
       {query.isLoading ? (
@@ -205,21 +287,114 @@ function AgentPlanSection({
   );
 }
 
-export function PlanUsageDashboard() {
+function PlanUsageAgentBar({
+  agents,
+  selectedAgentId,
+  onSelect,
+}: {
+  agents: AgentManagementView[];
+  selectedAgentId: string | null;
+  onSelect: (agentId: string) => void;
+}) {
   const pt = usePlanKey();
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-      <AgentPlanSection
-        agentId="claude_code"
-        title={pt('claudeTitle')}
-        sourceNote={pt('claudeSource')}
-      />
-      <AgentPlanSection
-        agentId="codex"
-        title={pt('codexTitle')}
-        sourceNote={pt('codexSource')}
-      />
+    <TooltipProvider delayDuration={180}>
+      <nav aria-label={pt('agentBarAria')} className="agent-management-bar">
+        <span aria-hidden="true" className="agent-management-bar-surface" />
+        <div className="agent-management-bar-scroll">
+          {agents.map((agent) => {
+            const selected = selectedAgentId === agent.agent_id;
+            return (
+              <Tooltip key={agent.agent_id}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-current={selected ? 'true' : undefined}
+                    aria-label={agent.display_name}
+                    className={cn(
+                      'agent-management-bar-item',
+                      selected && 'is-selected'
+                    )}
+                    onClick={() => onSelect(agent.agent_id)}
+                  >
+                    <AgentManagementIcon agent={agent} className="h-6 w-6" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{agent.display_name}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+      </nav>
+    </TooltipProvider>
+  );
+}
+
+export function PlanUsageDashboard() {
+  const pt = usePlanKey();
+  const management = useAgentManagement();
+  const enabledPlanAgents = useMemo(
+    () =>
+      management.state.agents.filter(
+        (agent) => agent.enabled && isPlanCapableAgentId(agent.agent_id)
+      ),
+    [management.state.agents]
+  );
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
+    readStoredAgentId
+  );
+
+  useEffect(() => {
+    if (enabledPlanAgents.length === 0) {
+      if (selectedAgentId !== null) setSelectedAgentId(null);
+      return;
+    }
+    const stillVisible = enabledPlanAgents.some(
+      (agent) => agent.agent_id === selectedAgentId
+    );
+    if (stillVisible) return;
+    setSelectedAgentId(enabledPlanAgents[0].agent_id);
+  }, [enabledPlanAgents, selectedAgentId]);
+
+  useEffect(() => {
+    if (selectedAgentId) writeStoredAgentId(selectedAgentId);
+  }, [selectedAgentId]);
+
+  const selectedAgent =
+    enabledPlanAgents.find((agent) => agent.agent_id === selectedAgentId) ??
+    null;
+  const copy =
+    selectedAgent && isPlanCapableAgentId(selectedAgent.agent_id)
+      ? PLAN_COPY[selectedAgent.agent_id]
+      : null;
+
+  return (
+    <div className="plan-usage-page mx-auto flex w-full max-w-4xl flex-col gap-6">
+      {management.loading && enabledPlanAgents.length === 0 ? (
+        <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+          {pt('loading')}
+        </div>
+      ) : enabledPlanAgents.length === 0 ? (
+        <div className="rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+          {pt('emptyEnabled')}
+        </div>
+      ) : (
+        <>
+          <PlanUsageAgentBar
+            agents={enabledPlanAgents}
+            selectedAgentId={selectedAgent?.agent_id ?? null}
+            onSelect={setSelectedAgentId}
+          />
+          {selectedAgent && copy ? (
+            <AgentPlanSection
+              agentId={selectedAgent.agent_id}
+              title={pt(copy.title)}
+              sourceNote={pt(copy.source)}
+            />
+          ) : null}
+        </>
+      )}
       <p className="text-xs text-muted-foreground">{pt('hint')}</p>
     </div>
   );

@@ -25,7 +25,7 @@ fn absent_agent_capabilities_remain_unsupported() {
             image: false,
             audio: false,
             resource: false,
-            resource_link: false,
+            resource_link: true,
         }
     );
     assert!(!snapshot.load_session);
@@ -37,8 +37,10 @@ fn absent_agent_capabilities_remain_unsupported() {
     assert!(!snapshot.additional_directories);
     assert!(!snapshot.terminal);
     assert!(!snapshot.filesystem_requests);
+    assert!(snapshot.mcp_stdio);
     assert!(!snapshot.mcp_http);
     assert!(!snapshot.mcp_sse);
+    assert!(snapshot.accepts_session_mcp_servers());
     assert!(!snapshot.auth_logout);
     assert!(!snapshot.auth_status);
 }
@@ -90,8 +92,10 @@ fn negotiated_capabilities_are_normalized_without_agent_name_rules() {
     assert!(snapshot.additional_directories);
     assert!(snapshot.terminal);
     assert!(snapshot.filesystem_requests);
+    assert!(snapshot.mcp_stdio);
     assert!(snapshot.mcp_http);
     assert!(snapshot.mcp_sse);
+    assert!(snapshot.accepts_session_mcp_servers());
     assert!(snapshot.auth_logout);
     assert!(snapshot.auth_status);
     assert_eq!(

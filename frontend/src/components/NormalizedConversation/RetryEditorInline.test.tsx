@@ -19,24 +19,7 @@ vi.mock('@/components/tasks/follow-up/AgentMention', () => ({
 vi.mock('@/hooks/useAttemptExecution', () => ({
   useAttemptExecution: () => ({
     isAttemptRunning: false,
-    attemptData: {
-      processes: [
-        {
-          id: 'process-1',
-          executor_action: {
-            typ: {
-              type: 'CodingAgentFollowUpRequest',
-              prompt: 'retry',
-              session_id: 'session-1',
-              reset_to_message_id: null,
-              executor_profile_id: { executor: 'codex', variant: null },
-              working_dir: null,
-            },
-            next_action: null,
-          },
-        },
-      ],
-    },
+    attemptData: { processes: [] },
   }),
 }));
 
@@ -57,7 +40,7 @@ describe('RetryEditorInline', () => {
             id: 'workspace-1',
             project_id: 'project-1',
             task_id: 'task-1',
-            session: { id: 'session-1' },
+            session: { id: 'session-1', executor: 'codex' },
           } as never
         }
         executionProcessId="process-1"

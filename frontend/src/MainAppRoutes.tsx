@@ -14,7 +14,8 @@ import { WorkflowInspector } from '@/pages/workflows/WorkflowInspector';
 import {
   AgentSettings,
   AppearanceSettings,
-  AutomationsSettings,
+  AutomationCenter,
+  AutomationEditRoute,
   ChatChannelSettings,
   DeviceSettings,
   EditorSettings,
@@ -28,6 +29,8 @@ import {
   SystemSettings,
   VersionControlSettings,
   WorktreeSettings,
+  TurnAutomationEditorRoute,
+  WorkflowAutomationEditorRoute,
   WebServiceSettings,
 } from '@/pages/settings/';
 
@@ -101,7 +104,23 @@ export function MainAppRoutes() {
           <Route path="version-control" element={<VersionControlSettings />} />
           <Route path="worktrees" element={<WorktreeSettings />} />
           <Route path="chat-channels" element={<ChatChannelSettings />} />
-          <Route path="automations" element={<AutomationsSettings />} />
+          <Route path="automations" element={<AutomationCenter />} />
+          <Route
+            path="automations/new"
+            element={<Navigate to="/settings/automations" replace />}
+          />
+          <Route
+            path="automations/new/turn"
+            element={<TurnAutomationEditorRoute />}
+          />
+          <Route
+            path="automations/new/workflow"
+            element={<WorkflowAutomationEditorRoute />}
+          />
+          <Route
+            path="automations/:automationId/edit"
+            element={<AutomationEditRoute />}
+          />
           <Route path="plugins" element={<Navigate to="/plugins" replace />} />
           <Route path="web-service" element={<WebServiceSettings />} />
           <Route path="devices" element={<DeviceSettings />} />

@@ -165,6 +165,11 @@ export function createConversationApi(transport: BackendTransport) {
     ): Promise<AgentSessionControlsSnapshot> =>
       call('conversation_ensure_session_controls', { conversationId }),
 
+    rebindSession: (
+      conversationId: string
+    ): Promise<AgentSessionControlsSnapshot> =>
+      call('conversation_rebind_session', { conversationId }),
+
     startTurn: (
       request: ConversationStartTurnRequest
     ): Promise<ConversationTurnSnapshot> =>

@@ -6,16 +6,19 @@ use agents::{
     AgentElicitationRequest, AgentElicitationResponse, AgentErrorEvent, AgentEvent,
     AgentEventEnvelope, AgentFileReadRequest, AgentFileWriteRequest, AgentListedSession,
     AgentPermissionId, AgentPermissionOption, AgentPermissionOptionKind, AgentPermissionRequest,
-    AgentPermissionResponse, AgentPlan, AgentPlanUsage, AgentPreparedSessionSnapshot,
-    AgentPromptFinished, AgentPromptId, AgentPromptSnapshot, AgentPromptStatus,
-    AgentSessionConfigChoice, AgentSessionConfigDependency, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage,
-    AgentSessionMode, AgentSessionSnapshot, AgentSessionStatus, AgentTerminalCreateRequest,
-    AgentTerminalEnvVar, AgentTerminalExit, AgentTerminalId, AgentTerminalOutput,
-    AgentTerminalOutputSnapshot, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate,
-    AgentUsage, AuthenticationMethod, AuthenticationObservationState, AuthenticationSource,
-    DelegationResultSummary, ImportedAgentMessage, ImportedAgentMessageMetadata,
-    ImportedAgentMessageRole, ImportedAgentSession, PlanCredits, PlanUsageResult,
+    AgentPermissionResponse, AgentPlan, AgentPlanEntry, AgentPlanUsage,
+    AgentPreparedSessionSnapshot, AgentPromptFinished, AgentPromptId, AgentPromptSnapshot,
+    AgentPromptStatus, AgentSessionConfigChoice, AgentSessionConfigDependency,
+    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
+    AgentSessionId, AgentSessionListPage, AgentSessionMode, AgentSessionSnapshot,
+    AgentSessionStatus, AgentTerminalCreateRequest, AgentTerminalEnvVar, AgentTerminalExit,
+    AgentTerminalId, AgentTerminalOutput, AgentTerminalOutputSnapshot, AgentTerminalSnapshot,
+    AgentToolCall, AgentToolCallUpdate, AgentUsage, AuthenticationMethod,
+    AuthenticationObservationState, AuthenticationSource, DelegationResultSummary,
+    ImportedAgentMessage, ImportedAgentMessageMetadata, ImportedAgentMessageRole,
+    ImportedAgentSession, LocalHistoryDestination, LocalHistoryImportResult,
+    LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
+    LocalHistoryScanSession, LocalHistorySessionStatus, PlanCredits, PlanUsageResult,
     PlanUsageUnavailableReason, PlanUsageWindow, RuntimeSnapshot,
     conversation::{
         AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
@@ -26,17 +29,18 @@ use agents::{
         ConversationDetail, ConversationError, ConversationErrorView, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
         ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
-        ConversationFileLocation, ConversationInputBlock, ConversationInputEvent,
-        ConversationInputPayload, ConversationPermissionRequest, ConversationPermissionResponse,
-        ConversationPermissionView, ConversationPlanEntry, ConversationPluginActionInvocation,
-        ConversationQuestionRequest, ConversationQuestionResponse, ConversationRelationKind,
-        ConversationRelationVisibility, ConversationRowOp, ConversationRowOpBatch,
-        ConversationRowPage, ConversationSessionModes, ConversationSessionNotice,
-        ConversationSteeringEvent, ConversationSummary, ConversationTerminalPatch,
-        ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-        ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData,
-        MessageTurn, PlanEntry, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-        SubAgentToolCall, TimelineRow, TimelineTextStream, TurnBlockedReason, TurnRole, TurnUsage,
+        ConversationFileLocation, ConversationFileRef, ConversationInputBlock,
+        ConversationInputEvent, ConversationInputPayload, ConversationNoticeAction,
+        ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
+        ConversationPlanEntry, ConversationPluginActionInvocation, ConversationQuestionRequest,
+        ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
+        ConversationRowOp, ConversationRowOpBatch, ConversationRowPage, ConversationSessionModes,
+        ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
+        ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+        ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
+        ConversationUsage, ImageData, MessageTurn, PlanEntry, SessionLoadFailureReason,
+        SessionRecoveryStrategy, SessionStats, SubAgentToolCall, TimelineRow, TimelineTextStream,
+        TurnBlockedReason, TurnRole, TurnUsage,
     },
 };
 use api_types::{
@@ -52,14 +56,17 @@ use api_types::{
     AgentModelProviderView, AgentModelProvidersView, AgentNativeConfigFieldKind,
     AgentNativeConfigFieldView, AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest,
     AgentNativeConfigFormat, AgentNativeConfigOptionView, AgentNativeConfigPatchRequest,
-    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
-    AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource, AgentPreflightView,
-    AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
+    AgentNativeConfigSurface, AgentNativeConfigView, AgentOperationEvent, AgentOperationKind,
+    AgentOperationReceipt, AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource,
+    AgentPreflightView, AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
     AgentUpdateCheckView, CodexCustomModelRequest, CodexDeviceCodePollView, CodexDeviceCodeView,
-    CodexModelCatalogConfigRequest, CodexModelCatalogConfigView, OpenCodeCatalogModelView,
-    OpenCodeCatalogProviderView, OpenCodePluginStatus, OpenCodePluginSummaryView,
-    OpenCodePluginView, OpenCodeProviderCatalogSource, OpenCodeProviderCatalogView,
-    OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
+    CodexModelCatalogConfigRequest, CodexModelCatalogConfigView, CommunityAcpPresetView,
+    DshCatalogProviderView, DshExtensionKind, DshPluginSummaryView, DshPluginView,
+    DshProviderDiscoverRequest, DshProviderKind, DshProviderModelView, DshProviderSaveRequest,
+    DshProviderView, DshProvidersView, GrokPluginSummaryView, GrokPluginView,
+    OpenCodeCatalogModelView, OpenCodeCatalogProviderView, OpenCodePluginStatus,
+    OpenCodePluginSummaryView, OpenCodePluginView, OpenCodeProviderCatalogSource,
+    OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
     OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
     PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiCustomProviderView,
     PiRuntimeConfigurationView, PiRuntimeSaveRequest, UserAgentDefinitionRequest,
@@ -73,28 +80,30 @@ use conversations::{
     ConversationSteeringReceipt, ConversationSteeringStatus,
 };
 use db::models::{
-    automation::{Automation, AutomationInput, AutomationRun},
     chat_channel_message_log::ChatChannelMessageLog,
     conversation::DbConversationSummary,
     execution_process::ExecutionProcessRunReason,
-    scratch::DraftFollowUpData,
+    scratch::{CreateScratch, DraftFollowUpData, Scratch, ScratchUpdateOutcome, UpdateScratch},
     session::{CreateSession, Session, SessionStatus},
     task::{CreateTask, Task, TaskRelationships, TaskStatus, TaskWithAttemptStatus, UpdateTask},
     workspace::{Workspace, WorkspaceWithStatus},
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
 use executors::{
-    executors::{SlashCommandDescription, SlashCommandKind},
+    actions::{ExecutorAction, ExecutorActionType},
+    executors::{CodingAgent, SlashCommandDescription, SlashCommandKind},
     logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
 use git::{GitBranch, StashEntry};
 use remote_protocol::{
-    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, RemoteEvent,
-    ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
+    CapabilityId, ConversationId, ErrorCode, ErrorEnvelope, OperationId, ReachabilityOrigin,
+    RemoteEvent, ServerCapabilities, SubscriptionBootstrap, SubscriptionId, SubscriptionRequest,
     SubscriptionResource, SubscriptionSnapshot,
 };
-use services::services::config::{CommitReminderMode, Config, LinkOpenBehavior};
+use services::services::config::{
+    CommitReminderMode, Config, LinkOpenBehavior, NotificationConfig, NotificationWhen,
+};
 use ts_rs::TS;
 use vibex::{
     commands::{
@@ -111,10 +120,12 @@ use vibex::{
     conversation_service::ConversationTurnSnapshot,
 };
 use workflows::{
-    AgentStepSpec, ApprovalStepSpec, ClaimedWorkflowStep, SideEffectClass, WorkflowBinding,
-    WorkflowDefinition, WorkflowEvent, WorkflowEventRecord, WorkflowPolicy, WorkflowReviewDecision,
-    WorkflowRunStatus, WorkflowRunView, WorkflowStep, WorkflowStepSpec, WorkflowStepStatus,
-    WorkflowStepView, WorkflowValidationView, WorkflowVersionView, WorkspaceAccess,
+    AgentStepSpec, ApprovalStepSpec, ClaimedWorkflowStep, CompletionPolicy, DebugRunScope,
+    NotifyStepSpec, SideEffectClass, WorkflowBinding, WorkflowDefinition,
+    WorkflowDefinitionSummary, WorkflowEvent, WorkflowEventRecord, WorkflowPolicy,
+    WorkflowReviewDecision, WorkflowRunStatus, WorkflowRunView, WorkflowStep, WorkflowStepSpec,
+    WorkflowStepStatus, WorkflowStepView, WorkflowValidationView, WorkflowVersionView,
+    WorkspaceAccess,
 };
 
 const HEADER: &str = "// This file was generated by `src-tauri/src/bin/generate_types.rs`.\n\
@@ -293,6 +304,23 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "PluginInput",
             "PluginActivation",
             "UserSystemInfo",
+            "Automation",
+            "AutomationInput",
+            "AutomationRun",
+            "Amp",
+            "Auggie",
+            "AuggieModel",
+            "Autonomy",
+            "CodingAgentFollowUpRequest",
+            "CodingAgentInitialRequest",
+            "Copilot",
+            "CursorAgent",
+            "Droid",
+            "DroidReasoningEffort",
+            "Gemini",
+            "QwenCode",
+            "RepoReviewContext",
+            "ReviewRequest",
         ])
     })
 }
@@ -318,10 +346,19 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<SessionContinuityMode>(&mut decls);
     insert_declaration::<SessionSummary>(&mut decls);
     insert_declaration::<Config>(&mut decls);
+    insert_declaration::<NotificationConfig>(&mut decls);
+    insert_declaration::<NotificationWhen>(&mut decls);
     insert_declaration::<LinkOpenBehavior>(&mut decls);
     insert_declaration::<CommitReminderMode>(&mut decls);
     insert_declaration::<DraftFollowUpData>(&mut decls);
+    insert_declaration::<Scratch>(&mut decls);
+    insert_declaration::<CreateScratch>(&mut decls);
+    insert_declaration::<UpdateScratch>(&mut decls);
+    insert_declaration::<ScratchUpdateOutcome>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
+    insert_declaration::<ExecutorAction>(&mut decls);
+    insert_declaration::<ExecutorActionType>(&mut decls);
+    insert_declaration::<CodingAgent>(&mut decls);
     insert_declaration::<ActionType>(&mut decls);
     insert_declaration::<CommandCategory>(&mut decls);
     // Temporary compatibility enum while live session identity migrates to the
@@ -350,6 +387,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentDiscoveryProgressView>(&mut decls);
     insert_declaration::<AgentManagementView>(&mut decls);
     insert_declaration::<AgentRegistryViewRow>(&mut decls);
+    insert_declaration::<CommunityAcpPresetView>(&mut decls);
     insert_declaration::<AgentRegistryView>(&mut decls);
     insert_declaration::<AgentUpdateCheckView>(&mut decls);
     insert_declaration::<AgentOperationEvent>(&mut decls);
@@ -388,6 +426,18 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<PiCredentialsSaveRequest>(&mut decls);
     insert_declaration::<PiRuntimeSaveRequest>(&mut decls);
     insert_declaration::<PiCommandValidationView>(&mut decls);
+    insert_declaration::<DshProviderKind>(&mut decls);
+    insert_declaration::<DshProviderModelView>(&mut decls);
+    insert_declaration::<DshCatalogProviderView>(&mut decls);
+    insert_declaration::<DshProviderView>(&mut decls);
+    insert_declaration::<DshProvidersView>(&mut decls);
+    insert_declaration::<DshProviderSaveRequest>(&mut decls);
+    insert_declaration::<DshProviderDiscoverRequest>(&mut decls);
+    insert_declaration::<DshExtensionKind>(&mut decls);
+    insert_declaration::<DshPluginView>(&mut decls);
+    insert_declaration::<DshPluginSummaryView>(&mut decls);
+    insert_declaration::<GrokPluginView>(&mut decls);
+    insert_declaration::<GrokPluginSummaryView>(&mut decls);
     insert_declaration::<AgentAuthModeOptionView>(&mut decls);
     insert_declaration::<AgentAuthModeView>(&mut decls);
     insert_declaration::<AgentEnvironmentEntryView>(&mut decls);
@@ -402,6 +452,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<OpenCodePluginSummaryView>(&mut decls);
     insert_declaration::<AgentNativeConfigOptionView>(&mut decls);
     insert_declaration::<AgentNativeConfigFieldKind>(&mut decls);
+    insert_declaration::<AgentNativeConfigSurface>(&mut decls);
     insert_declaration::<AgentNativeConfigFieldView>(&mut decls);
     insert_declaration::<AgentNativeConfigFormat>(&mut decls);
     insert_declaration::<AgentNativeConfigFileView>(&mut decls);
@@ -427,9 +478,6 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<GitBranch>(&mut decls);
     insert_declaration::<StashEntry>(&mut decls);
     insert_declaration::<ConversationSearchHit>(&mut decls);
-    insert_declaration::<Automation>(&mut decls);
-    insert_declaration::<AutomationInput>(&mut decls);
-    insert_declaration::<AutomationRun>(&mut decls);
     insert_declaration::<ArtifactPreviewLeaseDto>(&mut decls);
     insert_declaration::<ExecutionProcessRunReason>(&mut decls);
     insert_declaration::<ChatChannelMessageLog>(&mut decls);
@@ -457,6 +505,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AgentToolCall>(&mut decls);
     insert_declaration::<AgentToolCallUpdate>(&mut decls);
     insert_declaration::<AgentPlan>(&mut decls);
+    insert_declaration::<AgentPlanEntry>(&mut decls);
     insert_declaration::<AgentUsage>(&mut decls);
     insert_declaration::<AgentListedSession>(&mut decls);
     insert_declaration::<AgentSessionListPage>(&mut decls);
@@ -490,6 +539,13 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ImportedAgentMessageMetadata>(&mut decls);
     insert_declaration::<ImportedAgentMessage>(&mut decls);
     insert_declaration::<ImportedAgentSession>(&mut decls);
+    insert_declaration::<LocalHistorySessionStatus>(&mut decls);
+    insert_declaration::<LocalHistoryScanSession>(&mut decls);
+    insert_declaration::<LocalHistoryScanFolder>(&mut decls);
+    insert_declaration::<LocalHistoryDestination>(&mut decls);
+    insert_declaration::<LocalHistoryScanPage>(&mut decls);
+    insert_declaration::<LocalHistoryImportSelection>(&mut decls);
+    insert_declaration::<LocalHistoryImportResult>(&mut decls);
     insert_declaration::<RuntimeSnapshot>(&mut decls);
     insert_declaration::<TurnRole>(&mut decls);
     insert_declaration::<TurnUsage>(&mut decls);
@@ -510,6 +566,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<AcpCapabilitySnapshot>(&mut decls);
     insert_declaration::<ConversationInputBlock>(&mut decls);
     insert_declaration::<ConversationInputPayload>(&mut decls);
+    insert_declaration::<ConversationFileRef>(&mut decls);
     insert_declaration::<ConversationInputEvent>(&mut decls);
     insert_declaration::<ConversationInputStatus>(&mut decls);
     insert_declaration::<ConversationInputView>(&mut decls);
@@ -551,6 +608,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationTerminalView>(&mut decls);
     insert_declaration::<ConversationErrorView>(&mut decls);
     insert_declaration::<ConversationSessionNotice>(&mut decls);
+    insert_declaration::<ConversationNoticeAction>(&mut decls);
     insert_declaration::<ConversationTimelineRow>(&mut decls);
     insert_declaration::<TimelineRow>(&mut decls);
     insert_declaration::<TimelineTextStream>(&mut decls);
@@ -580,22 +638,27 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ErrorCode>(&mut decls);
     insert_declaration::<ErrorEnvelope>(&mut decls);
     insert_declaration::<CapabilityId>(&mut decls);
+    insert_declaration::<ReachabilityOrigin>(&mut decls);
     insert_declaration::<ServerCapabilities>(&mut decls);
     insert_declaration::<WorkflowDefinition>(&mut decls);
     insert_declaration::<WorkflowStep>(&mut decls);
     insert_declaration::<WorkflowStepSpec>(&mut decls);
     insert_declaration::<AgentStepSpec>(&mut decls);
     insert_declaration::<ApprovalStepSpec>(&mut decls);
+    insert_declaration::<NotifyStepSpec>(&mut decls);
+    insert_declaration::<CompletionPolicy>(&mut decls);
     insert_declaration::<WorkflowBinding>(&mut decls);
     insert_declaration::<WorkspaceAccess>(&mut decls);
     insert_declaration::<SideEffectClass>(&mut decls);
     insert_declaration::<WorkflowPolicy>(&mut decls);
     insert_declaration::<WorkflowRunStatus>(&mut decls);
+    insert_declaration::<DebugRunScope>(&mut decls);
     insert_declaration::<WorkflowStepStatus>(&mut decls);
     insert_declaration::<WorkflowEvent>(&mut decls);
     insert_declaration::<WorkflowReviewDecision>(&mut decls);
     insert_declaration::<WorkflowValidationView>(&mut decls);
     insert_declaration::<WorkflowVersionView>(&mut decls);
+    insert_declaration::<WorkflowDefinitionSummary>(&mut decls);
     insert_declaration::<WorkflowRunView>(&mut decls);
     insert_declaration::<WorkflowStepView>(&mut decls);
     insert_declaration::<WorkflowEventRecord>(&mut decls);
@@ -688,6 +751,7 @@ mod tests {
             "AgentManagementIdentity",
             "AgentManagementView",
             "AgentRegistryView",
+            "CommunityAcpPresetView",
             "AgentOperationEvent",
             "AgentManagementErrorView",
         ] {

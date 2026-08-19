@@ -267,6 +267,22 @@ export function kanbanSlotOfZone(
   return KANBAN_SLOTS.find((slot) => arrangement[slot] === zone) ?? 'right';
 }
 
+/**
+ * The session/monitor divider sits on the session edge that faces the
+ * monitor, so swapping those two zones keeps the handle between them.
+ */
+export function kanbanSessionResizeHandleSide(
+  arrangement: KanbanArrangement
+): 'left' | 'right' {
+  const sessionIndex = KANBAN_SLOTS.indexOf(
+    kanbanSlotOfZone(arrangement, 'session')
+  );
+  const monitorIndex = KANBAN_SLOTS.indexOf(
+    kanbanSlotOfZone(arrangement, 'monitor')
+  );
+  return sessionIndex < monitorIndex ? 'right' : 'left';
+}
+
 export function getKanbanArrangement(): KanbanArrangement {
   return kanbanPreference.get();
 }

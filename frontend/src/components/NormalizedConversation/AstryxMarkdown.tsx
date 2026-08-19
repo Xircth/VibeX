@@ -22,9 +22,8 @@ import { parseTagReferenceHref } from '@/lib/tagReferenceMarkers';
 import { prepareConversationMarkdown } from '@/lib/conversation-rendering/streamdownPlugins';
 import {
   isAbsoluteLocalPath,
-  isCleanDirectoryCandidate,
   MarkdownResourceLink,
-  resolveMarkdownWorkspacePathTarget,
+  resolveMarkdownInlineResource,
   trimFilePathCandidate,
 } from './MarkdownResourceLink';
 
@@ -195,19 +194,13 @@ function createMarkdownComponents({
     },
     inlineCode: ({ children }) => {
       const text = flattenNodeText(children).trim();
-      const pathTarget = resolveMarkdownWorkspacePathTarget(
-        undefined,
-        text,
-        workspacePath
-      );
-      const isClickableFile = pathTarget?.nodeType === 'file';
-      const isClickableFolder =
-        pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text);
+      const resource = resolveMarkdownInlineResource(text, workspacePath);
 
-      if (pathTarget && (isClickableFile || isClickableFolder)) {
+      if (resource) {
         return (
           <MarkdownResourceLink
-            pathTarget={pathTarget}
+            href={resource.href}
+            pathTarget={resource.pathTarget}
             workspacePath={workspacePath}
           >
             {text || children}

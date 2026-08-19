@@ -36,18 +36,6 @@ test('loading history view uses the current scroll container instead of the old 
   );
 });
 
-test('conversation history hook keeps the current runtime-and-stream pipeline', () => {
-  const source = readFile(
-    'src/hooks/useConversationHistory/useConversationHistory.ts'
-  );
-
-  assert.match(source, /const MAX_CONVERSATION_RUNTIME_ENTRIES = 20/);
-  assert.match(source, /executionProcessesVisible: executionProcessesRaw/);
-  assert.match(source, /const loadedInitialEntries = useRef\(false\)/);
-  assert.match(source, /queryKey: \['queue-status', sessionId\]/);
-  assert.match(source, /streamJsonPatchEntries/);
-});
-
 test('worktree selector stays controlled while supporting branch-based project workspace switching', () => {
   const source = readFile('src/components/layout/WorktreeSelector.tsx');
 

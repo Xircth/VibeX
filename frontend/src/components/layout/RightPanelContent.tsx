@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, X } from 'lucide-react';
 import { BranchInfoHeader } from '@/components/layout/BranchInfoHeader';
@@ -162,6 +162,7 @@ function CreateSessionOverlay({
 export function RightPanelContent() {
   const { t } = useTranslation(['panels', 'common', 'settings']);
   const navigate = useNavigateWithSearch();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     projectId: routeProjectId,
     workspaceId,
@@ -512,6 +513,26 @@ export function RightPanelContent() {
   const openCreateSessionOverlay = useCallback(() => {
     handleCreateOverlayOpenChange(true);
   }, [handleCreateOverlayOpenChange]);
+
+  useEffect(() => {
+    if (searchParams.get('newSession') !== '1') {
+      return;
+    }
+
+    if (effectiveActiveTab === 'kanban') {
+      useLayoutStore.getState().setKanbanSessionVisible(true);
+    }
+
+    openCreateSessionOverlay();
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete('newSession');
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [
+    effectiveActiveTab,
+    openCreateSessionOverlay,
+    searchParams,
+    setSearchParams,
+  ]);
 
   // Stable props for the conversation view: the view mounts placement slots
   // from a useLayoutEffect keyed on these props — fresh object literals per

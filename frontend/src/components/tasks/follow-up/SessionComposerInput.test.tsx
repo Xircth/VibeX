@@ -108,6 +108,44 @@ describe('SessionComposerInput (Astryx)', () => {
     expect(editor).toBeEmptyDOMElement();
   });
 
+  it('clears the controlled draft and visible editor when submission is accepted', async () => {
+    const user = userEvent.setup();
+
+    function ControlledComposer() {
+      const [value, setValue] = useState('');
+      return (
+        <>
+          <SessionComposerInput
+            value={value}
+            onChange={setValue}
+            onSubmit={() => setValue('')}
+            onAttachImages={vi.fn()}
+          />
+          <output aria-label="Controlled draft">{value}</output>
+        </>
+      );
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ControlledComposer />
+      </QueryClientProvider>
+    );
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, 'send now');
+    await user.keyboard('{Enter}');
+
+    expect(
+      screen.getByRole('status', { name: 'Controlled draft' })
+    ).toBeEmptyDOMElement();
+    expect(editor).toBeEmptyDOMElement();
+  });
+
   it('gives the actual editable surface a two-to-seven-line height range', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -311,6 +349,52 @@ describe('SessionComposerInput (Astryx)', () => {
       agentType: 'codex',
       workspacePath: '/workspace',
     });
+  });
+
+  it('shows only the short skill command after selecting a slash token', async () => {
+    const user = userEvent.setup();
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command: string) => {
+        if (command === 'plugin_action_catalog') return { actions: [] };
+        if (command === 'plugin_control_catalog') {
+          return { plugins: [], runtimes: [] };
+        }
+        if (command === 'list_agent_skills') {
+          return {
+            supported: true,
+            global_supported: true,
+            project_supported: true,
+            locations: [],
+            skills: [
+              {
+                id: 'drawio',
+                scope: 'global',
+                path: '/Users/mac/.codex/skills/drawio/drawio',
+                description: 'Create Drawio diagrams',
+                read_only: true,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected command: ${command}`);
+      }),
+    };
+    renderComposerInput({
+      context: {
+        executorProfile: { executor: 'codex' },
+        transport,
+      },
+    });
+    const editor = getEditor();
+
+    await user.click(editor);
+    await user.type(editor, '/draw');
+    await user.click(await screen.findByRole('option', { name: /drawio/i }));
+
+    const token = editor.querySelector<HTMLElement>('[data-astryx-token]');
+    expect(token).toHaveTextContent('/drawio');
+    expect(token).not.toHaveTextContent('/Users/mac');
   });
 
   it('shows the same project skill catalog in dollar search', async () => {

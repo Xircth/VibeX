@@ -203,6 +203,7 @@ export interface ResolvedPluginFileOpener {
   target: 'preview_provider' | 'app_surface';
   priority: number;
   generation: number;
+  nativeRenderer?: 'workflow.studio' | null;
 }
 
 export interface PluginFilePreviewStart {

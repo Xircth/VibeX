@@ -12,12 +12,12 @@ fn facts() -> LifecycleFacts {
         queued_or_running_operations: 0,
         components: vec![
             LifecycleComponent {
-                component_id: "managed".to_string(),
-                ownership: ComponentOwnership::Managed,
+                component_id: "agent_runtime".to_string(),
+                ownership: ComponentOwnership::External,
                 shared_reference_count: 0,
             },
             LifecycleComponent {
-                component_id: "external".to_string(),
+                component_id: "acp_adapter".to_string(),
                 ownership: ComponentOwnership::External,
                 shared_reference_count: 0,
             },
@@ -60,14 +60,14 @@ fn uninstall_or_remove_is_blocked_by_live_process() {
     let plan = service
         .plan(&mut uninstallable, LifecycleAction::Uninstall)
         .unwrap();
-    assert_eq!(plan.delete_component_ids, ["managed"]);
+    assert_eq!(plan.delete_component_ids, ["agent_runtime", "acp_adapter"]);
     assert!(!plan.remove_membership);
 
     let mut removable = facts();
     let plan = service
         .plan(&mut removable, LifecycleAction::Remove)
         .unwrap();
-    assert_eq!(plan.delete_component_ids, ["managed"]);
+    assert_eq!(plan.delete_component_ids, ["agent_runtime", "acp_adapter"]);
     assert!(plan.remove_membership);
 
     let mut built_in = LifecycleFacts {

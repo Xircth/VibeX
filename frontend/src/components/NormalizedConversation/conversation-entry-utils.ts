@@ -26,9 +26,10 @@ import type {
   BaseDisplayEntry,
   DisplayEntry,
   PatchTypeWithKey,
-} from '@/hooks/useConversationHistory/types';
+} from '@/hooks/conversationEntries';
 import type { ScriptType } from '@/components/dialogs/scripts/ScriptFixerDialog';
 import i18n from '@/i18n';
+import { listDirPath } from './tools/toolDirListing';
 
 /***********************
  * Type definitions     *
@@ -72,6 +73,10 @@ const SUBAGENT_STATUS_TOOL_NAMES = new Set([
   'sendinput',
   'resumeagent',
   'closeagent',
+  'getdelegationstatus',
+  'getcommandorsubagentoutput',
+  'getsubagentoutput',
+  'canceldelegation',
 ]);
 
 /***********************
@@ -723,6 +728,12 @@ export const getToolSummary = (
             : at.description,
       };
     case 'tool':
+      if (at.tool_name === 'list_dir') {
+        return {
+          label: i18n.t('app:entryUtils.listDir'),
+          detail: listDirPath(at.arguments) ?? content.trim(),
+        };
+      }
       if (
         SUBAGENT_STATUS_TOOL_NAMES.has(
           (at.tool_name || entryType.tool_name || '')
@@ -739,11 +750,30 @@ export const getToolSummary = (
               : firstLine,
         };
       }
-      return {
-        label:
-          at.tool_name || entryType.tool_name || i18n.t('app:entryUtils.tool'),
-        detail: '',
-      };
+      {
+        const args = at.arguments;
+        const detail =
+          args && typeof args === 'object' && !Array.isArray(args)
+            ? ([
+                args.target_file,
+                args.file_path,
+                args.path,
+                args.query,
+                args.url,
+                args.description,
+              ].find(
+                (value): value is string =>
+                  typeof value === 'string' && value.trim().length > 0
+              ) ?? '')
+            : '';
+        return {
+          label:
+            at.tool_name ||
+            entryType.tool_name ||
+            i18n.t('app:entryUtils.tool'),
+          detail,
+        };
+      }
     case 'todo_management':
       return {
         label: i18n.t('app:entryUtils.todo'),

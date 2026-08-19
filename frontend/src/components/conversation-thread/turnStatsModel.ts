@@ -1,8 +1,8 @@
 import type {
   DisplayEntry,
   PatchTypeWithKey,
-} from '@/hooks/useConversationHistory/types';
-import { tokenUsageInfoToSnapshot } from '@/hooks/useConversationHistory/conversationTokenUsage';
+} from '@/hooks/conversationEntries';
+import { tokenUsageInfoToSnapshot } from '@/hooks/conversationTokenUsage';
 
 export type TurnStatsData = {
   model?: string | null;

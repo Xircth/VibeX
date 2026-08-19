@@ -1,0 +1,36 @@
+{
+  "listings": [
+    {
+      "publisher": "vibex",
+      "pluginId": "office",
+      "version": "4.0.0",
+      "summary": "Preview and work with Office documents.",
+      "packageDigest": "builtin:office",
+      "archive": "builtin://office"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "workflow-creator",
+      "version": "4.0.0",
+      "summary": "Author and debug VibeX workflows.",
+      "packageDigest": "builtin:workflow-creator",
+      "archive": "builtin://workflow-creator"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "session-enhance",
+      "version": "4.0.0",
+      "summary": "Session questions, feedback, and control.",
+      "packageDigest": "builtin:session-enhance",
+      "archive": "builtin://session-enhance"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "multi-agent",
+      "version": "4.0.0",
+      "summary": "Delegate work across VibeX-managed agents.",
+      "packageDigest": "builtin:multi-agent",
+      "archive": "builtin://multi-agent"
+    }
+  ]
+}

@@ -24,6 +24,8 @@ export function useSessionComposerDraftHydration({
   setSelectedConfigValues,
   cancelDebouncedSave,
   deleteScratch,
+  savedRevision,
+  serverRevision,
 }: {
   scratchId: string | undefined;
   isScratchLoading: boolean;
@@ -36,6 +38,8 @@ export function useSessionComposerDraftHydration({
   setSelectedConfigValues?: Dispatch<SetStateAction<Record<string, string>>>;
   cancelDebouncedSave: () => void;
   deleteScratch: () => Promise<void>;
+  savedRevision?: number | null;
+  serverRevision?: number | null;
 }) {
   const hydratedScratchIdRef = useRef<string | undefined>(undefined);
 
@@ -75,12 +79,16 @@ export function useSessionComposerDraftHydration({
     const cleanup = getAfterSendCleanup({
       attachments: [],
       scratchId,
+      savedRevision,
+      serverRevision,
     });
     setLocalMessage(cleanup.message);
     setAttachedImages((prev) => {
       const imageCleanup = getAfterSendCleanup({
         attachments: prev,
         scratchId,
+        savedRevision,
+        serverRevision,
       });
       imageCleanup.imagesToRevoke.forEach(revokeComposerImagePreviewUrl);
       return imageCleanup.attachments;
@@ -92,7 +100,9 @@ export function useSessionComposerDraftHydration({
   }, [
     cancelDebouncedSave,
     deleteScratch,
+    savedRevision,
     scratchId,
+    serverRevision,
     setAttachedImages,
     setLocalMessage,
   ]);

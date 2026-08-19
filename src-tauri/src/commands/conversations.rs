@@ -4,9 +4,9 @@
 //! rebuilt from `conversation_events` through the DB projector.
 
 use agents::{
-    AgentConnectionId, AgentElicitationId, AgentElicitationResponse, AgentEvent, AgentId,
-    AgentPermissionResponse, AgentSessionConfigOption, AgentSessionConfigOverride,
-    AgentSessionControlsSnapshot, AgentSessionId, ImportedAgentMessageRole, ImportedAgentSession,
+    AgentConnectionId, AgentElicitationId, AgentElicitationResponse, AgentEvent,
+    AgentSessionConfigOption, AgentSessionControlsSnapshot, AgentSessionId,
+    ImportedAgentMessageRole, ImportedAgentSession,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationEvent,
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
@@ -14,10 +14,6 @@ use agents::{
         ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
         ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
     },
-};
-use automation::{
-    AgentSelectionIntent, ComposerCanonicalInput, IsolationSpec, PluginActionRef, TurnLaunchSpec,
-    TurnLaunchSpecInput, WorkspaceTarget,
 };
 use conversations::{
     CONVERSATION_PROJECTION_VERSION, ConversationEventAppender, ConversationProjector,
@@ -31,10 +27,7 @@ use db::models::{
     conversation_event::{AppendConversationEvent, ConversationEventRecord},
     conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
     session::SessionStatus,
-    workspace::Workspace,
 };
-use executors::profile::ExecutorProfileId;
-use plugins::PromptBlock;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use ts_rs::TS;
@@ -45,9 +38,7 @@ use crate::{
         ConversationExportResult, ConversationForkResult, ConversationImportResult,
         export_conversation_bundle, import_conversation_bundle,
     },
-    conversation_service::{
-        ConversationSessionService, ConversationStartTurnInput, ConversationTurnSnapshot,
-    },
+    conversation_service::ConversationSessionService,
     error::AppError,
     state::AppState,
 };
@@ -90,6 +81,10 @@ pub struct ConversationActiveBinding {
     pub acp_session_id: Option<String>,
     pub status: String,
     pub capabilities: AcpCapabilitySnapshot,
+    /// True when this binding was created while the multi-agent plugin was on,
+    /// so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
+    #[serde(default)]
+    pub delegation_mcp_delivered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -102,37 +97,6 @@ pub struct ConversationCurrentTurn {
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_preview: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationStartTurnRequest {
-    pub agent_id: AgentId,
-    pub workspace_id: String,
-    pub conversation_id: String,
-    #[serde(default)]
-    pub executor_profile_id: Option<ExecutorProfileId>,
-    pub text: String,
-    #[serde(default)]
-    pub display_text: Option<String>,
-    #[serde(default)]
-    pub images: Vec<String>,
-    /// Composer-selected session mode (from the agent's advertised modes).
-    #[serde(default)]
-    pub mode_override: Option<String>,
-    /// Composer-selected config option overrides (advertised select options).
-    #[serde(default)]
-    pub config_overrides: Vec<AgentSessionConfigOverride>,
-    /// Structured PluginActions selected in the Composer for this turn.
-    #[serde(default)]
-    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationPluginActionInvocation {
-    pub plugin_id: String,
-    pub action_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,14 +120,6 @@ pub struct ConversationTimelinePageRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConversationPermissionResponseRequest {
-    pub conversation_id: String,
-    pub permission_id: String,
-    pub response: AgentPermissionResponse,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ConversationQuestionResponseRequest {
     pub conversation_id: String,
     pub question_id: String,
@@ -183,14 +139,6 @@ pub struct ConversationSetSessionConfigOptionRequest {
     pub conversation_id: String,
     pub key: String,
     pub value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationCancelTurnRequest {
-    pub conversation_id: String,
-    #[serde(default)]
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,7 +267,11 @@ pub async fn conversation_detail(
     session_id: String,
 ) -> Result<Option<DbConversationDetail>, AppError> {
     let id = Uuid::parse_str(&session_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid session id: {error}")))?;
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .interrupt_orphaned_turn(id)
+        .await
+        .map_err(AppError::from)?;
     conversation_detail_core(&state.deployment.db().pool, id).await
 }
 
@@ -337,32 +289,16 @@ pub async fn conversation_ensure_session_controls(
 }
 
 #[tauri::command]
-pub async fn conversation_list(
+pub async fn conversation_rebind_session(
     state: tauri::State<'_, AppState>,
-    workspace_id: String,
-) -> Result<Vec<DbConversationSummary>, remote_protocol::ErrorEnvelope> {
-    use application::{
-        ApplicationCore, ListConversations, Principal, SqliteConversationRepository,
-    };
-    use remote_protocol::{ErrorCode, ErrorEnvelope, OperationId};
-
-    let workspace_id = Uuid::parse_str(&workspace_id).map_err(|error| {
-        ErrorEnvelope::new(
-            ErrorCode::BadRequest,
-            format!("invalid workspace id: {error}"),
-            false,
-            OperationId::new(),
-        )
-    })?;
-    let core = ApplicationCore::new(SqliteConversationRepository::new(
-        state.deployment.db().pool.clone(),
-    ));
-    core.list_conversations(
-        &Principal::local_desktop(),
-        ListConversations { workspace_id },
-    )
-    .await
-    .map_err(application::ApplicationError::into_envelope)
+    conversation_id: String,
+) -> Result<AgentSessionControlsSnapshot, AppError> {
+    let id = Uuid::parse_str(&conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .rebind_session(id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Closed application command adapter. Only names present in
@@ -400,7 +336,7 @@ pub async fn conversation_attach(
 ) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
     use application::{
         ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
-        SqliteConversationRepository,
+        SqliteConversationRepository, WorkflowStoreExecutionPort,
     };
     use remote_protocol::SubscriptionResource;
 
@@ -419,21 +355,40 @@ pub async fn conversation_attach(
         }
     }
 
-    let SubscriptionResource::Conversation {
-        conversation_id,
-        after_sequence,
-    } = request.resource;
-    let core = ApplicationCore::new(SqliteConversationRepository::new(
-        state.deployment.db().pool.clone(),
-    ));
-    core.attach_conversation(
-        &Principal::local_desktop(),
-        request.subscription_id,
-        conversation_id,
-        after_sequence,
-        &TauriConversationSubscriptions,
-    )
-    .await
+    let core = ApplicationCore::with_workflows(
+        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
+        std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
+            state.deployment.db().pool.clone(),
+            state.conversation_context(),
+        )),
+    );
+    match request.resource {
+        SubscriptionResource::Conversation {
+            conversation_id,
+            after_sequence,
+        } => {
+            core.attach_conversation(
+                &Principal::local_desktop(),
+                request.subscription_id,
+                conversation_id,
+                after_sequence,
+                &TauriConversationSubscriptions,
+            )
+            .await
+        }
+        SubscriptionResource::WorkflowRun {
+            run_id,
+            after_sequence,
+        } => {
+            core.attach_workflow_run(
+                &Principal::local_desktop(),
+                request.subscription_id,
+                run_id,
+                after_sequence,
+            )
+            .await
+        }
+    }
     .map_err(application::ApplicationError::into_envelope)
 }
 
@@ -542,122 +497,6 @@ pub async fn conversation_timeline_page(
     .await
 }
 
-#[tauri::command]
-pub async fn conversation_start_turn(
-    _app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    request: ConversationStartTurnRequest,
-) -> Result<ConversationTurnSnapshot, AppError> {
-    let display_text = request
-        .display_text
-        .clone()
-        .unwrap_or_else(|| request.text.clone());
-    let workspace_id = Uuid::parse_str(&request.workspace_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid workspace id: {error}")))?;
-    let conversation_id = Uuid::parse_str(&request.conversation_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    let pool = state.deployment.db().pool.clone();
-    let workspace = Workspace::find_by_id(&pool, workspace_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("workspace {workspace_id} not found")))?;
-    let mut plugin_actions = Vec::with_capacity(request.plugin_actions.len());
-    for invocation in &request.plugin_actions {
-        let action = state
-            .plugin_control_plane
-            .resolve_action(&invocation.plugin_id, &invocation.action_id)
-            .await
-            .map_err(|error| AppError::BadRequest(error.to_string()))?;
-        let plugin = state
-            .plugin_control_plane
-            .plugin(&invocation.plugin_id)
-            .await
-            .map_err(|error| AppError::BadRequest(error.to_string()))?
-            .ok_or_else(|| AppError::NotFound(invocation.plugin_id.clone()))?;
-        plugin_actions.push(PluginActionRef {
-            plugin_id: plugin.id.clone(),
-            action,
-        });
-    }
-    let effective_text = if !request.text.trim().is_empty() || !plugin_actions.is_empty() {
-        let launch = TurnLaunchSpec::from_composer(ComposerCanonicalInput(TurnLaunchSpecInput {
-            prompt_blocks: vec![PromptBlock::Text {
-                text: request.text.clone(),
-            }],
-            display_text: display_text.clone(),
-            agent: AgentSelectionIntent {
-                agent_id: request.agent_id.clone(),
-                executor_profile_id: request.executor_profile_id.clone(),
-            },
-            mode_id: request.mode_override.clone(),
-            config_values: request.config_overrides.clone(),
-            plugin_actions,
-            skills: Vec::new(),
-            workspace: WorkspaceTarget {
-                project_id: workspace.project_id,
-                root_folder: workspace
-                    .container_ref
-                    .clone()
-                    .unwrap_or_else(|| workspace.id.to_string()),
-                branch: Some(workspace.branch),
-                isolation: IsolationSpec::SharedInRoot,
-            },
-            label_snapshot: None,
-        }))
-        .map_err(|error| AppError::BadRequest(format!("{}: {error}", error.code())))?;
-        launch
-            .prompt_blocks
-            .iter()
-            .chain(
-                launch
-                    .plugin_actions
-                    .iter()
-                    .flat_map(|reference| reference.action.prompt_blocks.iter()),
-            )
-            .map(|block| match block {
-                PromptBlock::Text { text } => text.as_str(),
-            })
-            .filter(|text| !text.trim().is_empty())
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        request.text.clone()
-    };
-    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let service = ConversationSessionService::new(state.conversation_context());
-    let result = service
-        .start_turn_with_origin(
-            ConversationStartTurnInput {
-                agent_id: request.agent_id,
-                workspace_id,
-                conversation_id,
-                executor_profile_id: request.executor_profile_id,
-                text: effective_text,
-                display_text: Some(display_text),
-                images: request.images,
-                mode_override: request.mode_override,
-                config_overrides: request.config_overrides,
-                plugin_actions: request
-                    .plugin_actions
-                    .into_iter()
-                    .map(
-                        |invocation| agents::conversation::ConversationPluginActionInvocation {
-                            plugin_id: invocation.plugin_id,
-                            action_id: invocation.action_id,
-                        },
-                    )
-                    .collect(),
-                queued_input_claim: None,
-            },
-            conversations::commit_reminder::LOCAL_USER_ORIGIN,
-        )
-        .await;
-
-    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
-
-    let (turn, _prompt) = result?;
-    Ok(turn)
-}
-
 async fn conversation_last_sequence(
     pool: &SqlitePool,
     conversation_id: Uuid,
@@ -696,23 +535,6 @@ async fn notify_conversation_events_after(
             }
         }
     }
-}
-
-#[tauri::command]
-pub async fn conversation_respond_permission(
-    _app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    request: ConversationPermissionResponseRequest,
-) -> Result<(), AppError> {
-    let conversation_id = Uuid::parse_str(&request.conversation_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    let pool = state.deployment.db().pool.clone();
-    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let result = ConversationSessionService::new(state.conversation_context())
-        .respond_permission(conversation_id, request.permission_id, request.response)
-        .await;
-    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
-    result.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -837,23 +659,6 @@ pub async fn conversation_set_session_config_option(
         .set_session_config_option(conversation_id, request.key, request.value)
         .await
         .map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn conversation_cancel_turn(
-    _app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    request: ConversationCancelTurnRequest,
-) -> Result<(), AppError> {
-    let conversation_id = Uuid::parse_str(&request.conversation_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    let pool = state.deployment.db().pool.clone();
-    let previous_last_sequence = conversation_last_sequence(&pool, conversation_id).await?;
-    let result = ConversationSessionService::new(state.conversation_context())
-        .cancel_turn(conversation_id, request.reason)
-        .await;
-    notify_conversation_events_after(&pool, conversation_id, previous_last_sequence).await;
-    result.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1004,6 +809,20 @@ pub async fn conversation_fork(
     let summary = DbConversationSummary::find_by_id(pool, source_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
+    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await? {
+        if let Some(active_turn_id) = conversation.active_turn_id
+            && let Some(active_turn) =
+                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+            && matches!(
+                active_turn.status.as_str(),
+                "pending" | "queued" | "running" | "blocked"
+            )
+        {
+            return Err(AppError::Conflict(
+                "Cannot fork a conversation while a turn is in flight".to_string(),
+            ));
+        }
+    }
 
     // Full non-destructive copy with fresh ids via the tested export→import path.
     let exported = export_conversation_bundle(pool, source_id, None).await?;
@@ -1193,6 +1012,7 @@ async fn active_binding_for_conversation(
         acp_session_id: binding.acp_session_id,
         status: binding.status,
         capabilities,
+        delegation_mcp_delivered: plugins::binding_has_delegation_mcp(&binding.mcp_servers_json),
     }))
 }
 

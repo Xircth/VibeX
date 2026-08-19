@@ -29,7 +29,6 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 import {
   SettingsActionBar,
-  SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
 import { DevicePairingPanel } from './DevicePairingPanel';
@@ -62,7 +61,6 @@ export function WebServiceSettings({
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
   const [tokenRevealed, setTokenRevealed] = useState(false);
-  const [addressQr, setAddressQr] = useState<string | null>(null);
 
   const dirty = useMemo(() => !sameConfig(config, draft), [config, draft]);
 
@@ -75,7 +73,14 @@ export function WebServiceSettings({
       ]);
       setConfig(savedConfig);
       setDraft(savedConfig);
-      setStatus(currentStatus);
+      const lanMissing =
+        currentStatus.running &&
+        savedConfig.allow_lan &&
+        !(currentStatus.addresses ?? []).some(
+          (address) =>
+            !address.includes('127.0.0.1') && !address.includes('localhost')
+        );
+      setStatus(lanMissing ? await webServiceApi.start() : currentStatus);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -122,6 +127,7 @@ export function WebServiceSettings({
       setConfig(saved);
       setDraft(saved);
       setProbe(null);
+      setStatus(await webServiceApi.getStatus());
       toast.success(t('webService.configSaved'));
     } catch (error) {
       toast.error(
@@ -147,27 +153,6 @@ export function WebServiceSettings({
     return () => window.clearTimeout(timer);
   }, [dirty, saveConfig]);
 
-  useEffect(() => {
-    const address = status?.address;
-    if (!address) {
-      setAddressQr(null);
-      return;
-    }
-    let active = true;
-    void import('qrcode').then(({ default: QRCode }) =>
-      QRCode.toDataURL(address, {
-        errorCorrectionLevel: 'M',
-        margin: 1,
-        width: 180,
-      }).then((dataUrl) => {
-        if (active) setAddressQr(dataUrl);
-      })
-    );
-    return () => {
-      active = false;
-    };
-  }, [status?.address]);
-
   const startServer = useCallback(async () => {
     if (dirty) {
       await saveConfig();
@@ -175,16 +160,30 @@ export function WebServiceSettings({
 
     setStatusBusy(true);
     try {
-      setStatus(await webServiceApi.start());
+      const next = await webServiceApi.start();
+      setStatus(next);
       toast.success(t('webService.started'));
+      return next;
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('webService.startFailed')
       );
+      return null;
     } finally {
       setStatusBusy(false);
     }
   }, [dirty, saveConfig, t]);
+
+  const ensureListening = useCallback(async () => {
+    const current = status?.running ? status : await startServer();
+    if (!current) {
+      throw new Error(t('webService.startFailed'));
+    }
+    if (current.addresses && current.addresses.length > 0) {
+      return current.addresses;
+    }
+    return current.address ? [current.address] : [];
+  }, [startServer, status, t]);
 
   const stopServer = useCallback(async () => {
     setStatusBusy(true);
@@ -256,13 +255,21 @@ export function WebServiceSettings({
 
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('webService.title')}
-        description={t('webService.description')}
-      />
-
       <div className="settings-sections">
-        <DevicePairingPanel transport={transport} />
+        <DevicePairingPanel
+          transport={transport}
+          hostId={status?.host_id}
+          hostUrls={
+            status?.addresses && status.addresses.length > 0
+              ? status.addresses
+              : status?.address
+                ? [status.address]
+                : []
+          }
+          reachability={status?.reachability ?? []}
+          autoIssue={Boolean(status?.running)}
+          onEnsureListening={ensureListening}
+        />
 
         <SettingsSection
           icon={Globe}
@@ -314,7 +321,10 @@ export function WebServiceSettings({
                     size="sm"
                     className="h-8 w-8 p-0"
                     onClick={() =>
-                      void copyText(status.address!, t('webService.copyAddress'))
+                      void copyText(
+                        status.address!,
+                        t('webService.copyAddress')
+                      )
                     }
                     aria-label={t('webService.copyAddress')}
                   >
@@ -412,21 +422,6 @@ export function WebServiceSettings({
                   ? t('webService.available')
                   : probe.message,
               })}
-            </div>
-          ) : null}
-
-          {status?.running && addressQr ? (
-            <div className="flex items-center gap-3 px-4 pb-4">
-              <img
-                src={addressQr}
-                width={96}
-                height={96}
-                alt={t('webService.addressQr')}
-                className="rounded-md bg-white p-1"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('webService.addressQrHint')}
-              </p>
             </div>
           ) : null}
 

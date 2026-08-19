@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,9 +17,21 @@ const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
   info: vi.fn(),
+  warning: vi.fn(),
+}));
+
+const webviewMock = vi.hoisted(() => ({
+  handler: null as ((event: unknown) => void) | null,
+  onDragDropEvent: vi.fn(),
+  unlisten: vi.fn(),
 }));
 
 vi.mock('@/components/ui/toast', () => ({ toast: toastMock }));
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: webviewMock.onDragDropEvent,
+  }),
+}));
 
 const plugin = {
   id: 'office',
@@ -37,6 +50,19 @@ const plugin = {
   warnings: [],
   permissions: [],
   enableSupported: true,
+};
+
+const drawioPlugin = {
+  ...plugin,
+  id: 'drawio',
+  packageDigest: 'drawio-digest',
+  name: 'Drawio',
+  version: '1.0.0',
+  description: 'Preview and edit Drawio diagrams.',
+  enabled: false,
+  builtin: false,
+  sourceKind: 'archive',
+  sourcePath: '/Users/mac/Projects/vibex-drawio/dist/drawio-1.0.0.vxp',
 };
 
 const detail = {
@@ -100,7 +126,14 @@ function renderRoute(
 }
 
 describe('product plugin experience', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    webviewMock.handler = null;
+    webviewMock.onDragDropEvent.mockImplementation(async (handler) => {
+      webviewMock.handler = handler;
+      return webviewMock.unlisten;
+    });
+  });
 
   it('shows a structured plugin list loading state', async () => {
     let resolveCatalog: ((value: unknown) => void) | undefined;
@@ -205,6 +238,213 @@ describe('product plugin experience', () => {
     expect(
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toHaveClass('primary-control');
+  });
+
+  it('refreshes the catalog immediately after adding a packaged plugin', async () => {
+    vi.mocked(open).mockResolvedValue(drawioPlugin.sourcePath);
+    let catalogRequests = 0;
+    let resolveInitialCatalog: ((value: unknown) => void) | undefined;
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        catalogRequests += 1;
+        if (catalogRequests === 1) {
+          return new Promise((resolve) => {
+            resolveInitialCatalog = resolve;
+          });
+        }
+        return {
+          plugins: [plugin, drawioPlugin],
+          runtimes: [],
+        };
+      }
+      if (command === 'plugin_dev_connection') {
+        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
+      }
+      if (command === 'plugin_control_preview_import') {
+        return { plugin: drawioPlugin, conflict: null };
+      }
+      if (command === 'plugin_control_import') return drawioPlugin;
+      if (command === 'plugin_control_set_enabled') {
+        return { ...drawioPlugin, enabled: true };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /添加插件|add plugin/i })
+    );
+
+    expect(await screen.findByText('Drawio')).toBeVisible();
+    expect(catalogRequests).toBeGreaterThanOrEqual(2);
+    await act(async () => {
+      resolveInitialCatalog?.({ plugins: [plugin], runtimes: [] });
+    });
+    expect(screen.getByText('Drawio')).toBeVisible();
+  });
+
+  it('replaces a same-id package after explicit confirmation and binds its capabilities to all agents', async () => {
+    const installed = {
+      ...drawioPlugin,
+      id: 'vibex.workflow-creator',
+      name: 'VibeX Workflow Creator',
+      version: '1.0.0',
+      sourceKind: 'builtin',
+      sourcePath: '/app/builtin/vibex.workflow-creator',
+      enabled: true,
+    };
+    const incoming = {
+      ...installed,
+      version: '1.0.1',
+      sourceKind: 'snapshot',
+      sourcePath: '/Users/me/vibex.workflow-creator-1.0.1.vxp',
+      skills: [{ id: 'vibex-workflow-creator', path: 'contents/skills' }],
+      mcpCount: 1,
+      mcpServers: ['vibex-workflow-mcp'],
+    };
+    vi.mocked(open).mockResolvedValue(incoming.sourcePath);
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [incoming], runtimes: [] };
+      }
+      if (command === 'plugin_dev_connection') {
+        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
+      }
+      if (command === 'plugin_control_preview_import') {
+        return {
+          plugin: incoming,
+          conflict: {
+            pluginId: incoming.id,
+            installedSource: installed.sourcePath,
+            incomingSource: incoming.sourcePath,
+            installedEnabled: true,
+          },
+        };
+      }
+      if (command === 'plugin_control_import') return incoming;
+      if (command === 'plugin_control_set_enabled') {
+        return { ...incoming, enabled: true };
+      }
+      if (
+        command === 'plugin_control_configure_agents' ||
+        command === 'plugin_control_configure_mcp'
+      ) {
+        return {};
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /添加插件|add plugin/i })
+    );
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_control_preview_import', {
+        path: incoming.sourcePath,
+        developerLink: false,
+        packageKind: 'vibex',
+      })
+    );
+    expect(
+      await screen.findByText(
+        /存在相同插件 ID|A plugin with the same ID exists/i
+      )
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: /覆盖安装|replace plugin/i })
+    );
+
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_control_import', {
+        path: incoming.sourcePath,
+        developerLink: false,
+        conflictDecision: 'replace',
+        packageKind: 'vibex',
+        permissionIds: [],
+      })
+    );
+    expect(call).toHaveBeenCalledWith('plugin_control_configure_agents', {
+      pluginId: incoming.id,
+      allAgents: true,
+      agents: [],
+    });
+    expect(call).toHaveBeenCalledWith('plugin_control_configure_mcp', {
+      pluginId: incoming.id,
+      allAgents: true,
+      agents: [],
+    });
+  });
+
+  it('installs a vxp dropped onto the plugin page', async () => {
+    let catalogRequests = 0;
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        catalogRequests += 1;
+        return {
+          plugins: catalogRequests === 1 ? [plugin] : [plugin, drawioPlugin],
+          runtimes: [],
+        };
+      }
+      if (command === 'plugin_dev_connection') {
+        return { endpoint: 'http://127.0.0.1:4555', token: 'secret' };
+      }
+      if (command === 'plugin_control_preview_import') {
+        return { plugin: drawioPlugin, conflict: null };
+      }
+      if (command === 'plugin_control_import') return drawioPlugin;
+      if (command === 'plugin_control_set_enabled') {
+        return { ...drawioPlugin, enabled: true };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins', call, [
+      'plugin.read',
+      'plugin.write',
+      'desktop.tauri',
+    ]);
+
+    await waitFor(() => expect(webviewMock.handler).not.toBeNull());
+    act(() => {
+      webviewMock.handler?.({
+        payload: {
+          type: 'enter',
+          paths: [drawioPlugin.sourcePath],
+          position: { x: 100, y: 100 },
+        },
+      });
+    });
+    expect(
+      screen.getByRole('status', {
+        name: /松开以安装|drop to install/i,
+      })
+    ).toBeVisible();
+
+    act(() => {
+      webviewMock.handler?.({
+        payload: {
+          type: 'drop',
+          paths: [drawioPlugin.sourcePath],
+          position: { x: 100, y: 100 },
+        },
+      });
+    });
+
+    expect(await screen.findByText('Drawio')).toBeVisible();
+    expect(call).toHaveBeenCalledWith('plugin_control_import', {
+      path: drawioPlugin.sourcePath,
+      developerLink: false,
+      conflictDecision: 'reject',
+      packageKind: 'vibex',
+      permissionIds: [],
+    });
   });
 
   it('enables a trusted product plugin without a permission gate', async () => {

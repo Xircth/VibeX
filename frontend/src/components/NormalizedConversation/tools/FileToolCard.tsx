@@ -5,13 +5,17 @@ import type { NormalizedEntry } from 'shared/types';
 import { Button } from '@/components/ui/button';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
+import type { FileOpenLocation } from '@/components/file-tree/file-tree-types';
 import { deriveRelativeFilePath } from '@/utils/filePaths';
 import { useExpandable } from '@/stores/useExpandableStore';
 import { getToolSummary } from '../conversation-entry-utils';
+import { ToolArtifact, ToolCodeSnippet } from './ToolArtifact';
+import { ToolCallTarget } from './ToolCallTarget';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
+  useToolCallResultDetail,
 } from './ToolCardShell';
 
 export function resolveToolFilePath(
@@ -29,6 +33,18 @@ export function resolveToolFilePath(
   const base = containerRef.replace(/[\\/]+$/, '');
   const normalized = usesWindows ? path.replaceAll('/', '\\') : path;
   return `${base}${separator}${normalized}`;
+}
+
+export function fileReadLocation(
+  lineStart?: number | null,
+  lineEnd?: number | null
+): FileOpenLocation | null {
+  if (lineStart == null) return null;
+  return {
+    line: lineStart,
+    column: 1,
+    ...(lineEnd != null ? { endLine: lineEnd } : {}),
+  };
 }
 
 export function FileToolCard({
@@ -55,6 +71,7 @@ export function FileToolCard({
   );
   const effectiveExpanded = forceExpanded || expanded;
   const { openFilePreview } = usePanelActionsContext();
+  const isResultDetail = useToolCallResultDetail();
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const path = (actionType?.path || entry.content).trim();
   const summary = getToolSummary(toolEntry, entry.content.trim());
@@ -79,8 +96,17 @@ export function FileToolCard({
     openFilePreview(resolvedPath, {
       displayPath: title,
       title,
+      location: fileReadLocation(actionType?.line_start, actionType?.line_end),
     });
-  }, [canOpenPreview, containerRef, displayPath, openFilePreview, path]);
+  }, [
+    actionType?.line_end,
+    actionType?.line_start,
+    canOpenPreview,
+    containerRef,
+    displayPath,
+    openFilePreview,
+    path,
+  ]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -130,8 +156,14 @@ export function FileToolCard({
     <ToolCardShell
       icon={<Eye className="h-3 w-3" />}
       label={summary.label}
-      detail={displayPath}
-      actions={actions}
+      detail={
+        <ToolCallTarget
+          text={displayPath}
+          path={path}
+          onClick={canOpenPreview ? handleOpenPreview : undefined}
+        />
+      }
+      actions={isResultDetail ? undefined : actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
       status={toolEntry.status}
@@ -139,21 +171,24 @@ export function FileToolCard({
       expandable
       onToggle={toggle}
     >
-      <div className="conv-tool-file-meta">
-        <button
-          type="button"
-          className="conv-tool-file-path"
-          aria-label={displayPath}
-          onClick={handleOpenPreview}
-          disabled={!canOpenPreview}
-        >
-          {displayPath}
-        </button>
-        {lineRange ? <span>{lineRange}</span> : null}
-      </div>
-      {actionType.content ? (
-        <pre className="conv-tool-read-content">{actionType.content}</pre>
-      ) : null}
+      <ToolArtifact
+        badge={isResultDetail ? t('toolArtifact.view') : undefined}
+        title={isResultDetail ? undefined : displayPath}
+        titleLabel={displayPath}
+        onTitleClick={
+          !isResultDetail && canOpenPreview ? handleOpenPreview : undefined
+        }
+        meta={lineRange}
+        actions={isResultDetail ? actions : undefined}
+      >
+        {actionType.content ? (
+          <ToolCodeSnippet
+            path={path}
+            content={actionType.content}
+            startLine={actionType.line_start ?? 1}
+          />
+        ) : null}
+      </ToolArtifact>
     </ToolCardShell>
   );
 }

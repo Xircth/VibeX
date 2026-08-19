@@ -74,7 +74,7 @@ describe('SettingsLayout capability gating', () => {
       screen.getByRole('button', { name: /devices|设备/i })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: /web service|Web 服务/i })
+      screen.queryByRole('button', { name: /remote connection|远程连接/i })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /^agents?$|^Agent$/i })

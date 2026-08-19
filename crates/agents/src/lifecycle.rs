@@ -49,6 +49,19 @@ pub struct LifecyclePlan {
     pub remove_membership: bool,
 }
 
+fn is_shared_toolchain(component_id: &str) -> bool {
+    matches!(
+        component_id,
+        "node"
+            | "npm"
+            | "uv"
+            | "python"
+            | "base_runtime_node"
+            | "base_runtime_npm"
+            | "base_runtime_uv"
+    )
+}
+
 pub struct LifecycleService;
 
 impl LifecycleService {
@@ -71,11 +84,7 @@ impl LifecycleService {
         let delete_component_ids = facts
             .components
             .iter()
-            .filter(|component| match component.ownership {
-                ComponentOwnership::Managed => true,
-                ComponentOwnership::External => false,
-                ComponentOwnership::Shared => component.shared_reference_count == 0,
-            })
+            .filter(|component| !is_shared_toolchain(&component.component_id))
             .map(|component| component.component_id.clone())
             .collect();
         Ok(LifecyclePlan {

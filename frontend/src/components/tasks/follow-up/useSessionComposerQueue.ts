@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ConversationInputPayload, ExecutorProfileId } from 'shared/types';
-import type { SessionComposerPluginActionInvocation } from './sessionComposerStructuredTokens';
+import type {
+  AgentSessionConfigOverride,
+  ConversationInputPayload,
+  ExecutorProfileId,
+} from 'shared/types';
+import {
+  getSessionComposerFileRefs,
+  type SessionComposerPluginActionInvocation,
+} from './sessionComposerStructuredTokens';
 import {
   getQueueIndicatorState,
   getQueueStatusQueryKey,
@@ -10,6 +17,7 @@ import {
   type QueueStatus,
 } from './sessionComposerQueue';
 import { conversationApi } from '@/features/conversation/conversationApi';
+import { listenToConversationEvents } from '@/features/conversation/events';
 
 const EMPTY_QUEUE_STATUS: QueueStatus = { status: 'empty', messages: [] };
 
@@ -18,14 +26,20 @@ export function useSessionComposerQueue({
   workspaceId,
   isAttemptRunning,
   processCount = 0,
+  modeOverride = null,
+  configOverrides = [],
 }: {
   sessionId: string | undefined;
   workspaceId?: string | null;
   isAttemptRunning: boolean;
   processCount?: number;
+  modeOverride?: string | null;
+  configOverrides?: AgentSessionConfigOverride[];
 }) {
   const queryClient = useQueryClient();
   const editingInputRef = useRef<QueuedMessage | null>(null);
+  const [editingInput, setEditingInput] = useState<QueuedMessage | null>(null);
+  const operationIdRef = useRef<string | null>(null);
   const queryKey = getQueueStatusQueryKey(sessionId);
   const { data: queueStatus = EMPTY_QUEUE_STATUS, refetch } =
     useQuery<QueueStatus>({
@@ -58,6 +72,28 @@ export function useSessionComposerQueue({
     if (sessionId) void refetch();
   }, [processCount, refetch, sessionId]);
 
+  useEffect(() => {
+    if (!sessionId) return;
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    listenToConversationEvents((batch) => {
+      if (!active || batch.conversation_id !== sessionId) return;
+      void refetch();
+    })
+      .then((unsubscribe) => {
+        if (!active) {
+          unsubscribe();
+          return;
+        }
+        unlisten = unsubscribe;
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [refetch, sessionId]);
+
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey });
   }, [queryClient, queryKey]);
@@ -87,6 +123,9 @@ export function useSessionComposerQueue({
         displayText: message,
         images,
         pluginActions,
+        modeOverride,
+        configOverrides,
+        fileRefs: getSessionComposerFileRefs(agentMessage ?? message),
       };
       const editing = editingInputRef.current;
       if (editing?.session_id === sessionId && editing.status === 'queued') {
@@ -97,9 +136,18 @@ export function useSessionComposerQueue({
           payload,
         });
         editingInputRef.current = null;
+        setEditingInput(null);
+        operationIdRef.current = null;
         return updated;
       }
-      return (await conversationApi.submitInput(sessionId, payload)).input;
+      operationIdRef.current ??= crypto.randomUUID();
+      const submitted = await conversationApi.submitInput(
+        sessionId,
+        payload,
+        operationIdRef.current
+      );
+      operationIdRef.current = null;
+      return submitted.input;
     },
     onSuccess: refresh,
   });
@@ -162,7 +210,9 @@ export function useSessionComposerQueue({
   );
 
   const beginEditQueue = useCallback((message: QueuedMessage) => {
-    if (message.status === 'queued') editingInputRef.current = message;
+    if (message.status !== 'queued') return;
+    editingInputRef.current = message;
+    setEditingInput(message);
   }, []);
 
   const moveQueue = useCallback(
@@ -194,6 +244,7 @@ export function useSessionComposerQueue({
     queueMessage,
     cancelQueue,
     beginEditQueue,
+    editingInput,
     moveQueue,
     isQueueLoading:
       queueMutation.isPending ||

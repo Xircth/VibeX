@@ -58,19 +58,23 @@ test("generates a six-platform updater manifest without asset collisions", () =>
       writeArtifact(artifactsDir, `${relativePath}.sig`, `${signature}\n`);
     }
 
+    const notesPath = path.join(temporaryRoot, "notes.md");
+    fs.writeFileSync(notesPath, "## English\n\nReal notes\n\n## 中文\n\n说明\n");
+
     const manifestPath = generateUpdaterManifest({
       artifactsDir,
       outputDir,
       repository: "Xircth/VibeX",
       releaseTag: "v0.1.1",
       version: "0.1.1",
+      notesFile: notesPath,
       pubDate: "2026-07-28T00:00:00.000Z",
     });
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 
     assert.deepEqual(manifest, {
       version: "0.1.1",
-      notes: "Desktop installers for v0.1.1.",
+      notes: "## English\n\nReal notes\n\n## 中文\n\n说明",
       pub_date: "2026-07-28T00:00:00.000Z",
       platforms: {
         "windows-x86_64": {

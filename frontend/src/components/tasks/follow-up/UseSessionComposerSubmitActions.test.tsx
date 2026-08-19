@@ -12,12 +12,12 @@ function renderSubmitActions({
   effectiveExecutorProfile = profile,
   isAttemptRunning = false,
   isQueued = false,
+  isEditingQueued = false,
 }: Partial<Parameters<typeof useSessionComposerSubmitActions>[0]> = {}) {
   const clearStopping = vi.fn();
   const cancelDebouncedSave = vi.fn();
   const saveToScratch = vi.fn().mockResolvedValue(undefined);
   const queueMessage = vi.fn().mockResolvedValue(undefined);
-  const onSendFollowUp = vi.fn();
   const onSubmitFollowUp = vi.fn();
   const onAfterQueueCleanup = vi.fn();
 
@@ -30,12 +30,12 @@ function renderSubmitActions({
       effectiveExecutorProfile,
       isAttemptRunning,
       isQueued,
+      isEditingQueued,
       clearStopping,
       cancelDebouncedSave,
       saveToScratch,
       queueMessage,
       onAfterQueueCleanup,
-      onSendFollowUp,
       onSubmitFollowUp,
     })
   );
@@ -47,7 +47,6 @@ function renderSubmitActions({
     saveToScratch,
     queueMessage,
     onAfterQueueCleanup,
-    onSendFollowUp,
     onSubmitFollowUp,
   };
 }
@@ -107,61 +106,67 @@ describe('useSessionComposerSubmitActions', () => {
     expect(onAfterQueueCleanup).not.toHaveBeenCalled();
   });
 
-  it('sends immediately from the submit shortcut when no attempt is running', () => {
-    const { result, onSendFollowUp, queueMessage } = renderSubmitActions({
-      isAttemptRunning: false,
-    });
-    const event = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
-
-    act(() => {
-      result.current.handleSubmitShortcut(event);
-    });
-
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(onSendFollowUp).toHaveBeenCalledOnce();
-    expect(queueMessage).not.toHaveBeenCalled();
-  });
-
-  it('forwards the Astryx submitted text instead of treating it as a keyboard event', () => {
-    const { result, onSubmitFollowUp } = renderSubmitActions({
-      localMessage: 'stale draft',
+  it('sends the current Composer frame when no attempt is running', () => {
+    const { result, onSubmitFollowUp, queueMessage } = renderSubmitActions({
       isAttemptRunning: false,
     });
 
     act(() => {
-      result.current.handleSubmitShortcut('current composer text');
+      result.current.handleComposerSubmit('current composer text');
     });
 
     expect(onSubmitFollowUp).toHaveBeenCalledWith('current composer text');
+    expect(queueMessage).not.toHaveBeenCalled();
   });
 
-  it('queues from the submit shortcut while an attempt is running and no queued message exists', async () => {
-    const { result, onSendFollowUp, queueMessage } = renderSubmitActions({
+  it('queues the current Composer frame while an attempt is running', async () => {
+    const { result, onSubmitFollowUp, queueMessage } = renderSubmitActions({
       isAttemptRunning: true,
       isQueued: false,
     });
-    const event = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
 
     act(() => {
-      result.current.handleSubmitShortcut(event);
+      result.current.handleComposerSubmit('current composer text');
     });
 
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(onSendFollowUp).not.toHaveBeenCalled();
+    expect(onSubmitFollowUp).not.toHaveBeenCalled();
     await waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
   });
 
-  it('does not duplicate queued work from the submit shortcut', () => {
-    const { result, onSendFollowUp, queueMessage } = renderSubmitActions({
+  it('queues another durable input while a turn is running even if a queue already exists', async () => {
+    const { result, onSubmitFollowUp, queueMessage } = renderSubmitActions({
       isAttemptRunning: true,
       isQueued: true,
     });
 
     act(() => {
-      result.current.handleSubmitShortcut();
+      result.current.handleComposerSubmit('current composer text');
     });
 
-    expect(onSendFollowUp).not.toHaveBeenCalled();
-    expect(queueMessage).not.toHaveBeenCalled();
+    expect(onSubmitFollowUp).not.toHaveBeenCalled();
+    await waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+  });
+
+  it('updates the queued item being edited after the current turn ends', async () => {
+    const { result, onSubmitFollowUp, queueMessage } = renderSubmitActions({
+      isAttemptRunning: false,
+      isQueued: false,
+      isEditingQueued: true,
+    });
+
+    act(() => {
+      result.current.handleComposerSubmit('edited queued text');
+    });
+
+    expect(onSubmitFollowUp).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(queueMessage).toHaveBeenCalledWith(
+        'conflicts\n\nreview\n\nedited queued text',
+        profile,
+        ['vibe://image'],
+        [],
+        'conflicts\n\nreview\n\nedited queued text'
+      )
+    );
   });
 });

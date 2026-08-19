@@ -828,6 +828,7 @@ mod tests {
             mode_override: None,
             config_overrides: Vec::new(),
             plugin_actions: Vec::new(),
+            file_refs: Vec::new(),
         }
     }
 
@@ -1571,6 +1572,14 @@ mod tests {
         .await
         .expect("count release events");
         assert_eq!(release_events, 1);
+        assert!(
+            control
+                .claim_next(conversation_id, Duration::seconds(30))
+                .await
+                .expect("claim after recover")
+                .is_some(),
+            "released claims must be claimable again without waiting for process restart"
+        );
     }
 
     #[tokio::test]

@@ -108,7 +108,6 @@ describe('AgentDetail', () => {
           checkingUpdate={false}
           updateCheck={null}
           onSetEnabled={vi.fn()}
-          onMove={vi.fn()}
           onPreflight={vi.fn()}
           onInstall={vi.fn()}
           onRepair={vi.fn()}
@@ -207,7 +206,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -221,6 +219,8 @@ describe('AgentDetail', () => {
       />
     );
 
+    expect(screen.queryByRole('button', { name: '向前移动' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '向后移动' })).toBeNull();
     expect(
       screen.getByRole('listitem', { name: '运行入口 检查结果' })
     ).toBeInTheDocument();
@@ -267,7 +267,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={onPreflight}
         onInstall={vi.fn()}
         onRepair={onRepair}
@@ -329,7 +328,7 @@ describe('AgentDetail', () => {
       })
     );
     expect(within(nodeResult).getByText('来源')).toBeInTheDocument();
-    expect(within(nodeResult).getByText('系统环境')).toBeInTheDocument();
+    expect(within(nodeResult).getByText('本机环境')).toBeInTheDocument();
     expect(
       within(nodeResult).getByText('当前版本不满足 >=22。')
     ).toBeInTheDocument();
@@ -355,7 +354,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -399,7 +397,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -435,7 +432,7 @@ describe('AgentDetail', () => {
           message: '正在安装本地 Runtime 与 ACP',
           logs: [
             '正在解析已锁定的安装方案',
-            '$ npm install --prefix <managed> @openai/codex@1.0.0',
+            '$ npm install -g @openai/codex@1.0.0',
           ],
         }}
         preflight={null}
@@ -443,7 +440,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -484,7 +480,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onInstallVersion={onInstallVersion}
@@ -533,7 +528,6 @@ describe('AgentDetail', () => {
           checkingUpdate={false}
           updateCheck={null}
           onSetEnabled={vi.fn()}
-          onMove={vi.fn()}
           onPreflight={vi.fn()}
           onInstall={vi.fn()}
           onRepair={vi.fn()}
@@ -596,7 +590,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -659,7 +652,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -694,7 +686,6 @@ describe('AgentDetail', () => {
           fresh: true,
         }}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -747,7 +738,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}
@@ -797,7 +787,6 @@ describe('AgentDetail', () => {
         checkingUpdate={false}
         updateCheck={null}
         onSetEnabled={vi.fn()}
-        onMove={vi.fn()}
         onPreflight={vi.fn()}
         onInstall={vi.fn()}
         onRepair={vi.fn()}

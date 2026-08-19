@@ -2,6 +2,12 @@ export { SettingsLayout } from './SettingsLayout';
 export { AgentSettings } from './AgentSettings';
 export { AppearanceSettings } from './AppearanceSettings';
 export { AutomationsSettings } from './AutomationsSettings';
+export { AutomationCenter } from './AutomationCenter';
+export {
+  AutomationEditRoute,
+  TurnAutomationEditorRoute,
+  WorkflowAutomationEditorRoute,
+} from './AutomationEditorRoutes';
 export { ChatChannelSettings } from './ChatChannelSettings';
 export { DeviceSettings } from './DeviceSettings';
 export { EditorSettings } from './EditorSettings';

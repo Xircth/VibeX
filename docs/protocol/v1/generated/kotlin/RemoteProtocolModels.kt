@@ -152,9 +152,16 @@ data class ServerCapabilities(
     val protocol_version: String,
     val minimum_client_version: String,
     val capabilities: List<CapabilityId>,
+    val host_id: String? = null,
+    val reachability: List<ReachabilityOrigin> = emptyList(),
 )
 
 typealias CapabilityId = String
+
+data class ReachabilityOrigin(
+    val origin: String,
+    val kind: String,
+)
 
 data class CommandRequest(
     val operation_id: String,
@@ -212,12 +219,12 @@ data class RemoteEvent(
     ).encode()
 }
 
-enum class DevicePermissionPreset { WORKSTATION, COMPANION }
-
 data class CreatePairingRequest(
-    val preset: DevicePermissionPreset?,
-    val requested_scopes: List<String>,
+    val preset: JsonValue? = null,
+    val requested_scopes: List<String> = emptyList(),
 )
+
+enum class DevicePermissionPreset { WORKSTATION, COMPANION }
 
 data class PairingChallenge(
     val pairing_id: String,

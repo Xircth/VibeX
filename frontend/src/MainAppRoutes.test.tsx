@@ -60,8 +60,12 @@ vi.mock('@/pages/settings/', async () => {
       React.createElement('div', { 'data-testid': 'settings-agents' }),
     AppearanceSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-appearance' }),
-    AutomationsSettings: () =>
+    AutomationCenter: () =>
       React.createElement('div', { 'data-testid': 'settings-automations' }),
+    AutomationEditRoute: () => React.createElement('div'),
+    AutomationTypeChooser: () => React.createElement('div'),
+    TurnAutomationEditorRoute: () => React.createElement('div'),
+    WorkflowAutomationEditorRoute: () => React.createElement('div'),
     ChatChannelSettings: () =>
       React.createElement('div', { 'data-testid': 'settings-chat-channels' }),
     DeviceSettings: () =>

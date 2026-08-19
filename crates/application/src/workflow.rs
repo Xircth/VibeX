@@ -1,15 +1,13 @@
-use agents::{
-    AgentId, ConversationInputPayload,
-    conversation::{ContentBlock, ConversationTimelineRow, TurnRole},
-};
+use agents::{AgentId, ConversationInputPayload};
 use async_trait::async_trait;
 use chrono::Duration;
 use conversations::{
-    ConversationContext, ConversationProjector, CreateWorkflowConversation,
-    SubmitConversationInput, create_workflow_conversation,
+    ConversationContext, CreateWorkflowConversation, SubmitConversationInput,
+    create_workflow_conversation,
 };
 use db::models::{
     conversation::{ConversationRecord, CreateConversationRecord},
+    conversation_input::ConversationInputRecord,
     conversation_side_effects::ConversationFileChangeRecord,
     conversation_turn::ConversationTurnRecord,
     task::{CreateTask, Task, TaskStatus},
@@ -18,8 +16,10 @@ use db::models::{
 };
 use uuid::Uuid;
 use workflows::{
-    CompleteWorkflowStep, DecideApproval, PublishWorkflow, ReviewWorkflow, StartWorkflow,
-    WorkflowCore, WorkflowDefinition, WorkflowEventRecord, WorkflowPolicy, WorkflowReviewDecision,
+    AcceptWorkflowStepCandidate, CompleteWorkflowStep, CompletionPolicy, DebugRunScope,
+    DecideApproval, ForkWorkflowRun, PauseWorkflowRun, PublishWorkflow, ResumePausedWorkflowRun,
+    ReviewWorkflow, StageWorkflowStepCandidate, StartWorkflow, WorkflowCore, WorkflowDefinition,
+    WorkflowDefinitionSummary, WorkflowEventRecord, WorkflowPolicy, WorkflowReviewDecision,
     WorkflowRunView, WorkflowStepSpec, WorkflowStepView, WorkflowStore, WorkflowValidationView,
     WorkflowVersionView, WorkspaceAccess,
 };
@@ -33,6 +33,7 @@ use crate::{
 pub struct PublishWorkflowRequest {
     pub definition_id: Option<Uuid>,
     pub definition: WorkflowDefinition,
+    pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -48,6 +49,22 @@ pub struct StartWorkflowRequest {
     pub workspace_id: Uuid,
     pub input: serde_json::Value,
     pub policy_override: Option<WorkflowPolicy>,
+    pub debug_step_id: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugWorkflowRequest {
+    pub definition_id: Option<Uuid>,
+    pub definition: WorkflowDefinition,
+    pub source_path: Option<String>,
+    pub workspace_id: Option<Uuid>,
+    pub input: serde_json::Value,
+    pub policy_override: Option<WorkflowPolicy>,
+    pub step_id: String,
+    pub parent_run_id: Option<Uuid>,
+    #[serde(default)]
+    pub scope: DebugRunScope,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -80,6 +97,51 @@ pub struct ResumeWorkflowRequest {
     pub decision: WorkflowReviewDecision,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseWorkflowRequest {
+    pub run_id: Uuid,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumePausedWorkflowRequest {
+    pub run_id: Uuid,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptWorkflowCandidateRequest {
+    pub run_id: Uuid,
+    pub step_id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseWorkflowStepRequest {
+    pub run_id: Uuid,
+    pub step_id: String,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitWorkflowStepInputRequest {
+    pub run_id: Uuid,
+    pub step_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkWorkflowRequest {
+    pub parent_run_id: Uuid,
+    pub definition_version_id: Uuid,
+    pub step_id: String,
+    pub scope: DebugRunScope,
+}
+
 #[async_trait]
 pub trait WorkflowExecutionPort: Send + Sync {
     async fn validate(
@@ -103,8 +165,27 @@ pub trait WorkflowExecutionPort: Send + Sync {
         operation_id: Uuid,
         request: StartWorkflowRequest,
     ) -> Result<WorkflowRunView, ApplicationError>;
+    async fn debug(
+        &self,
+        _principal: &Principal,
+        _operation_id: Uuid,
+        _request: DebugWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow debug Runs are not configured",
+        ))
+    }
     async fn show(&self, run_id: Uuid) -> Result<WorkflowRunView, ApplicationError>;
     async fn version(&self, version_id: Uuid) -> Result<WorkflowVersionView, ApplicationError>;
+    async fn definitions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError>;
+    async fn versions(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, ApplicationError>;
     async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError>;
     async fn events(
         &self,
@@ -133,6 +214,63 @@ pub trait WorkflowExecutionPort: Send + Sync {
         operation_id: Uuid,
         request: ResumeWorkflowRequest,
     ) -> Result<WorkflowRunView, ApplicationError>;
+    async fn pause_run(
+        &self,
+        _principal: &Principal,
+        _operation_id: Uuid,
+        _request: PauseWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow pause is not configured",
+        ))
+    }
+    async fn resume_paused_run(
+        &self,
+        _principal: &Principal,
+        _operation_id: Uuid,
+        _request: ResumePausedWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow pause is not configured",
+        ))
+    }
+    async fn accept_candidate(
+        &self,
+        _principal: &Principal,
+        _operation_id: Uuid,
+        _request: AcceptWorkflowCandidateRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow candidate acceptance is not configured",
+        ))
+    }
+    async fn pause_step(
+        &self,
+        _request: PauseWorkflowStepRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow step interaction is not configured",
+        ))
+    }
+    async fn submit_step_input(
+        &self,
+        _operation_id: Uuid,
+        _request: SubmitWorkflowStepInputRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow step interaction is not configured",
+        ))
+    }
+    async fn fork_from_step(
+        &self,
+        _principal: &Principal,
+        _operation_id: Uuid,
+        _request: ForkWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workflow debug Runs are not configured",
+        ))
+    }
 }
 
 pub struct WorkflowStoreExecutionPort {
@@ -149,16 +287,6 @@ pub struct WorkflowAgentDispatcher {
     conversations: std::sync::Arc<ConversationSessionExecutionPort>,
     context: ConversationContext,
     next_retention_at: std::sync::Arc<std::sync::Mutex<std::time::Instant>>,
-}
-
-struct RepairRequest<'a> {
-    step_run_id: Uuid,
-    run_id: Uuid,
-    step_id: &'a str,
-    conversation_id: Uuid,
-    workspace_id: Uuid,
-    agent: &'a workflows::AgentStepSpec,
-    validation_error: &'a str,
 }
 
 impl WorkflowAgentDispatcher {
@@ -273,7 +401,13 @@ impl WorkflowAgentDispatcher {
             )
             .await
             .map_err(map_error)?;
-        let prompt = render_agent_prompt(&agent.prompt, &resolved_input.values)?;
+        let prompt = render_agent_prompt(
+            &agent.prompt,
+            &resolved_input.values,
+            agent.output_schema.as_ref(),
+            agent.output_description.as_deref(),
+            agent.output_language.as_deref(),
+        )?;
         // The StepRun id is a stable child identity. A crash after child
         // creation but before StepStarted can safely retry this preflight
         // without creating a second child Conversation.
@@ -322,13 +456,21 @@ impl WorkflowAgentDispatcher {
                 payload: ConversationInputPayload {
                     agent_id,
                     workspace_id: step_workspace_id,
-                    executor_profile_id: None,
+                    executor_profile_id: agent.executor_profile_id.clone(),
                     text: prompt,
                     display_text: None,
                     images: Vec::new(),
-                    mode_override: None,
-                    config_overrides: Vec::new(),
+                    mode_override: agent.mode_override.clone(),
+                    config_overrides: agent
+                        .config_overrides
+                        .iter()
+                        .map(|(key, value)| agents::AgentSessionConfigOverride {
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .collect(),
                     plugin_actions: Vec::new(),
+                    file_refs: Vec::new(),
                 },
                 principal: serde_json::json!({
                     "id": "workflow-dispatcher",
@@ -457,17 +599,28 @@ impl WorkflowAgentDispatcher {
     }
 
     async fn reconcile_terminal_steps(&self) -> Result<bool, ApplicationError> {
-        let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, Uuid, Option<Uuid>)>(
-            "SELECT id, run_id, step_id, conversation_id, turn_id, workspace_id
+        let rows = sqlx::query_as::<_, (Uuid, Uuid, String, Uuid, Uuid, Option<Uuid>, bool)>(
+            "SELECT id, run_id, step_id, conversation_id, turn_id, workspace_id,
+                    user_intervened
              FROM workflow_step_runs
-             WHERE status = 'running' AND conversation_id IS NOT NULL AND turn_id IS NOT NULL
+             WHERE status = 'running' AND awaiting_input = 0
+               AND conversation_id IS NOT NULL AND turn_id IS NOT NULL
              ORDER BY updated_at LIMIT 32",
         )
         .fetch_all(&self.context.deployment.db().pool)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let mut changed = false;
-        for (step_run_id, run_id, step_id, conversation_id, turn_id, step_workspace_id) in rows {
+        for (
+            _step_run_id,
+            run_id,
+            step_id,
+            conversation_id,
+            turn_id,
+            _step_workspace_id,
+            user_intervened,
+        ) in rows
+        {
             let Some(turn) =
                 ConversationTurnRecord::find_by_id(&self.context.deployment.db().pool, turn_id)
                     .await
@@ -493,61 +646,45 @@ impl WorkflowAgentDispatcher {
                         .find(|step| step.id == step_id)
                         .ok_or_else(|| ApplicationError::internal("workflow step is missing"))?;
                     let output = match &step.spec {
-                        WorkflowStepSpec::Agent(agent) if agent.output_schema.is_some() => {
-                            match extract_structured_output(
+                        WorkflowStepSpec::Agent(_) => Some(serde_json::Value::String(
+                            extract_last_assistant_text(
                                 &self.context.deployment.db().pool,
                                 conversation_id,
+                                turn_id,
                             )
-                            .await
-                            {
-                                Ok(output) => Some(output),
-                                Err(error)
-                                    if agent.allow_one_repair
-                                        && self
-                                            .request_repair(RepairRequest {
-                                                step_run_id,
-                                                run_id,
-                                                step_id: &step_id,
-                                                conversation_id,
-                                                workspace_id: step_workspace_id.ok_or_else(|| {
-                                                    ApplicationError::internal(
-                                                        "running workflow step has no workspace evidence",
-                                                    )
-                                                })?,
-                                                agent,
-                                                validation_error: &error.to_string(),
-                                            })
-                                            .await? =>
-                                {
-                                    changed = true;
-                                    continue;
-                                }
-                                Err(error) => {
-                                    self.store
-                                        .fail_step(
-                                            run_id,
-                                            &step_id,
-                                            "invalid_structured_output",
-                                            &error.to_string(),
-                                        )
-                                        .await
-                                        .map_err(map_error)?;
-                                    changed = true;
-                                    continue;
-                                }
-                            }
-                        }
-                        _ => None,
+                            .await?,
+                        )),
+                        WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => None,
                     };
-                    match self
-                        .core
-                        .complete_step(CompleteWorkflowStep {
-                            run_id,
-                            step_id: step_id.clone(),
-                            output,
-                        })
-                        .await
-                    {
+                    let completion = match &step.spec {
+                        WorkflowStepSpec::Agent(agent)
+                            if agent.completion_policy == CompletionPolicy::Manual
+                                || user_intervened =>
+                        {
+                            self.core
+                                .stage_step_candidate(StageWorkflowStepCandidate {
+                                    run_id,
+                                    step_id: step_id.clone(),
+                                    output,
+                                })
+                                .await
+                        }
+                        WorkflowStepSpec::Agent(_) => {
+                            self.core
+                                .complete_step(CompleteWorkflowStep {
+                                    run_id,
+                                    step_id: step_id.clone(),
+                                    output,
+                                })
+                                .await
+                        }
+                        WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => {
+                            Err(workflows::WorkflowError::Conflict(
+                                "dispatcher cannot complete approval or notify steps".to_string(),
+                            ))
+                        }
+                    };
+                    match completion {
                         Ok(_) => {}
                         Err(error) => {
                             self.store
@@ -644,82 +781,6 @@ impl WorkflowAgentDispatcher {
             .await
             .map_err(map_error)?;
         Ok(())
-    }
-
-    async fn request_repair(&self, request: RepairRequest<'_>) -> Result<bool, ApplicationError> {
-        if !self
-            .store
-            .begin_repair(request.run_id, request.step_id)
-            .await
-            .map_err(map_error)?
-        {
-            return Ok(false);
-        }
-        let schema = request
-            .agent
-            .output_schema
-            .as_ref()
-            .ok_or_else(|| ApplicationError::internal("repair requires output schema"))?;
-        let prompt = format!(
-            "Return only one JSON value matching this schema. No Markdown.\nSchema: {}\nPrevious validation error: {}",
-            serde_json::to_string(schema)
-                .map_err(|error| ApplicationError::internal(error.to_string()))?,
-            request.validation_error,
-        );
-        let agent_id = AgentId::parse(&request.agent.agent_id)
-            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
-        match self
-            .conversations
-            .submit_input(SubmitConversationInput {
-                conversation_id: request.conversation_id,
-                operation_id: request.step_run_id,
-                payload: ConversationInputPayload {
-                    agent_id,
-                    workspace_id: request.workspace_id,
-                    executor_profile_id: None,
-                    text: prompt,
-                    display_text: None,
-                    images: Vec::new(),
-                    mode_override: None,
-                    config_overrides: Vec::new(),
-                    plugin_actions: Vec::new(),
-                },
-                principal: serde_json::json!({
-                    "id": "workflow-output-repair",
-                    "workflowRunId": request.run_id,
-                    "workflowStepId": request.step_id,
-                }),
-            })
-            .await
-        {
-            Ok(submission) => {
-                let turn = submission.turn.ok_or_else(|| {
-                    ApplicationError::internal("workflow repair input was not dispatched")
-                })?;
-                self.store
-                    .bind_turn(
-                        request.run_id,
-                        request.step_id,
-                        request.conversation_id,
-                        turn.turn_id,
-                    )
-                    .await
-                    .map_err(map_error)?;
-                Ok(true)
-            }
-            Err(error) => {
-                self.store
-                    .fail_step(
-                        request.run_id,
-                        request.step_id,
-                        "repair_start_failed",
-                        &error.to_string(),
-                    )
-                    .await
-                    .map_err(map_error)?;
-                Ok(true)
-            }
-        }
     }
 }
 
@@ -859,47 +920,113 @@ async fn create_isolated_step_workspace(
 fn render_agent_prompt(
     prompt: &str,
     input: &std::collections::BTreeMap<String, serde_json::Value>,
+    output_schema: Option<&serde_json::Value>,
+    output_description: Option<&str>,
+    output_language: Option<&str>,
 ) -> Result<String, ApplicationError> {
-    if input.is_empty() {
-        return Ok(prompt.to_string());
+    let mut sections = Vec::new();
+    if !input.is_empty() {
+        let bindings = serde_json::to_string_pretty(input)
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        sections.push(format!(
+            "The following values are the accepted final outputs of prerequisite Workflow Steps. Each key is the stable predecessor Step ID. Review the referenced artifacts, evidence, and conclusions, preserve their original meaning, and continue this Turn from that completed work.\n{bindings}"
+        ));
     }
-    let bindings = serde_json::to_string_pretty(input)
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    Ok(format!(
-        "{prompt}\n\nWorkflow input bindings (authoritative JSON):\n{bindings}"
-    ))
+    sections.push(format!("Task for this Turn:\n{}", prompt.trim()));
+    let brief = output_description
+        .map(str::trim)
+        .filter(|description| !description.is_empty());
+    if let Some(description) = brief {
+        sections.push(format!("Return this Turn's final result as: {description}"));
+    } else if let Some(schema) = output_schema {
+        let schema = serde_json::to_string_pretty(schema)
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        sections.push(format!(
+            "Return this Turn's final result as JSON shaped like the following example. Output the JSON itself only: no Markdown code fences, commentary, or surrounding quotes. This is an output convention, not a request to discuss the schema.\n{schema}"
+        ));
+    }
+    if let Some(language) = output_language.filter(|language| !language.trim().is_empty()) {
+        let mut language_line = format!(
+            "Use `{}` for natural-language content in the result.",
+            language.trim()
+        );
+        if brief.is_none() && output_schema.is_some() {
+            language_line.push_str(" Preserve JSON keys required by the example.");
+        }
+        sections.push(language_line);
+    }
+    Ok(sections.join("\n\n"))
 }
 
-async fn extract_structured_output(
+pub(crate) async fn extract_last_assistant_text(
     pool: &sqlx::SqlitePool,
     conversation_id: Uuid,
-) -> Result<serde_json::Value, ApplicationError> {
-    let timeline = ConversationProjector::project(pool, conversation_id)
-        .await
-        .map_err(|error| ApplicationError::internal(error.to_string()))?;
-    let text = timeline
-        .rows
+    turn_id: Uuid,
+) -> Result<String, ApplicationError> {
+    let events = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT sequence, event_kind, normalized_json
+         FROM conversation_events
+         WHERE conversation_id = ? AND turn_id = ?
+         ORDER BY sequence",
+    )
+    .bind(conversation_id)
+    .bind(turn_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| ApplicationError::internal(error.to_string()))?;
+    final_assistant_text(&events)
+        .ok_or_else(|| ApplicationError::bad_request("Agent produced no final text output"))
+}
+
+fn final_assistant_text(events: &[(i64, String, String)]) -> Option<String> {
+    // Codex may emit user-visible progress before tools. A Turn's deliverable is
+    // the assistant text after its last reasoning/tool/plan activity boundary,
+    // not the concatenation of every progress message in the Turn.
+    let boundary = events
         .iter()
-        .rev()
-        .find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. }
-                if turn.role == TurnRole::Assistant =>
-            {
-                let text = turn
-                    .blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<String>();
-                (!text.trim().is_empty()).then_some(text)
-            }
-            _ => None,
+        .filter(|(_, kind, _)| {
+            matches!(
+                kind.as_str(),
+                "assistant_reasoning_delta" | "tool_call_upsert" | "plan_updated"
+            )
         })
-        .ok_or_else(|| ApplicationError::bad_request("Agent produced no structured output"))?;
-    serde_json::from_str(text.trim())
-        .map_err(|error| ApplicationError::bad_request(format!("invalid JSON output: {error}")))
+        .map(|(sequence, _, _)| *sequence)
+        .max()
+        .unwrap_or(i64::MIN);
+    let text = events
+        .iter()
+        .filter(|(sequence, kind, _)| *sequence > boundary && kind == "assistant_text_delta")
+        .filter_map(|(_, _, normalized)| {
+            serde_json::from_str::<serde_json::Value>(normalized)
+                .ok()?
+                .get("text")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .collect::<String>();
+    (!text.trim().is_empty()).then(|| text.trim().to_owned())
+}
+
+async fn wait_for_dispatched_input_turn(
+    pool: &sqlx::SqlitePool,
+    input_id: Uuid,
+) -> Result<Uuid, ApplicationError> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let input = ConversationInputRecord::find_by_id(pool, input_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .ok_or_else(|| ApplicationError::internal("workflow step input disappeared"))?;
+        if let Some(turn_id) = input.turn_id {
+            return Ok(turn_id);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(ApplicationError::internal(
+                "workflow step input did not dispatch within five seconds",
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
 }
 
 impl WorkflowStoreExecutionPort {
@@ -917,6 +1044,125 @@ impl WorkflowStoreExecutionPort {
         let mut port = Self::new(pool);
         port.conversation_context = Some(context);
         port
+    }
+
+    async fn submit_step_follow_up(
+        &self,
+        operation_id: Uuid,
+        request: &SubmitWorkflowStepInputRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        if request.text.trim().is_empty() {
+            return Err(ApplicationError::bad_request(
+                "workflow step input cannot be empty",
+            ));
+        }
+        let context = self.conversation_context.as_ref().ok_or_else(|| {
+            ApplicationError::capability_unavailable(
+                "workflow step Conversations are not configured",
+            )
+        })?;
+        let run = self.store.run(request.run_id).await.map_err(map_error)?;
+        let definition = self
+            .store
+            .version(run.definition_version_id)
+            .await
+            .map_err(map_error)?
+            .definition()
+            .map_err(map_error)?;
+        let definition_step = definition
+            .steps
+            .iter()
+            .find(|step| step.id == request.step_id)
+            .ok_or_else(|| ApplicationError::not_found("workflow step not found"))?;
+        let WorkflowStepSpec::Agent(agent) = &definition_step.spec else {
+            return Err(ApplicationError::bad_request(
+                "approval steps do not have Agent Conversations",
+            ));
+        };
+        let step = self
+            .store
+            .steps(request.run_id)
+            .await
+            .map_err(map_error)?
+            .into_iter()
+            .filter(|step| step.step_id == request.step_id)
+            .max_by_key(|step| step.attempt)
+            .ok_or_else(|| ApplicationError::not_found("workflow step run not found"))?;
+        if !step.awaiting_input {
+            return Err(ApplicationError::bad_request(
+                "workflow step is not awaiting input",
+            ));
+        }
+        let conversation_id = step
+            .conversation_id
+            .ok_or_else(|| ApplicationError::internal("workflow step has no child Conversation"))?;
+        let workspace_id = step.workspace_id.unwrap_or(run.workspace_id);
+        let agent_id = AgentId::parse(&agent.agent_id)
+            .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
+        let resolved_input_json = step
+            .resolved_input_json
+            .as_deref()
+            .ok_or_else(|| ApplicationError::internal("workflow step has no resolved input"))?;
+        let resolved_input: std::collections::BTreeMap<String, serde_json::Value> =
+            serde_json::from_str(resolved_input_json).map_err(|error| {
+                ApplicationError::internal(format!(
+                    "workflow step resolved input is invalid: {error}"
+                ))
+            })?;
+        let recovery_context = render_agent_prompt(
+            &agent.prompt,
+            &resolved_input,
+            agent.output_schema.as_ref(),
+            agent.output_description.as_deref(),
+            agent.output_language.as_deref(),
+        )?;
+        let follow_up_prompt = format!(
+            "{recovery_context}\n\nAdditional user guidance for this continuing Turn:\n{}",
+            request.text.trim()
+        );
+        let submission = ConversationSessionExecutionPort::new(context.clone())
+            .submit_input(SubmitConversationInput {
+                conversation_id,
+                operation_id,
+                payload: ConversationInputPayload {
+                    agent_id,
+                    workspace_id,
+                    executor_profile_id: agent.executor_profile_id.clone(),
+                    text: follow_up_prompt,
+                    display_text: None,
+                    images: Vec::new(),
+                    mode_override: agent.mode_override.clone(),
+                    config_overrides: agent
+                        .config_overrides
+                        .iter()
+                        .map(|(key, value)| agents::AgentSessionConfigOverride {
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .collect(),
+                    plugin_actions: Vec::new(),
+                    file_refs: Vec::new(),
+                },
+                principal: serde_json::json!({
+                    "id": "workflow-step-interaction",
+                    "workflowRunId": request.run_id,
+                    "workflowStepId": request.step_id,
+                }),
+            })
+            .await?;
+        let turn_id = if let Some(turn) = submission.turn {
+            turn.turn_id
+        } else {
+            wait_for_dispatched_input_turn(&self.pool, submission.input.id).await?
+        };
+        self.store
+            .bind_turn(request.run_id, &request.step_id, conversation_id, turn_id)
+            .await
+            .map_err(map_error)?;
+        self.store
+            .set_step_awaiting_input(request.run_id, &request.step_id, false, None, Some(turn_id))
+            .await
+            .map_err(map_error)
     }
 
     pub async fn reconcile_interrupted(&self) -> Result<usize, ApplicationError> {
@@ -996,6 +1242,7 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
             .publish(PublishWorkflow {
                 definition_id: request.definition_id,
                 definition: request.definition,
+                source_path: request.source_path,
                 operation_id,
                 principal: principal_json(principal),
             })
@@ -1016,11 +1263,64 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
                 workspace_id: request.workspace_id,
                 input: request.input,
                 policy_override: request.policy_override,
+                debug_step_id: request.debug_step_id,
                 operation_id,
                 principal: principal_json(principal),
             })
             .await
             .map_err(map_error)?;
+        self.ensure_run_shell_and_dispatch(&run).await?;
+        Ok(run)
+    }
+
+    async fn debug(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: DebugWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        let version = self
+            .core
+            .materialize_debug(PublishWorkflow {
+                definition_id: request.definition_id,
+                definition: request.definition,
+                source_path: request.source_path,
+                operation_id,
+                principal: principal_json(principal),
+            })
+            .await
+            .map_err(map_error)?;
+        let run = if let Some(parent_run_id) = request.parent_run_id {
+            self.core
+                .fork_from_step(ForkWorkflowRun {
+                    parent_run_id,
+                    definition_version_id: version.id,
+                    step_id: request.step_id,
+                    scope: request.scope,
+                    operation_id,
+                    principal: principal_json(principal),
+                })
+                .await
+                .map_err(map_error)?
+        } else {
+            let workspace_id = request.workspace_id.ok_or_else(|| {
+                ApplicationError::bad_request(
+                    "workspaceId is required for the first Workflow debug Run",
+                )
+            })?;
+            self.core
+                .start(StartWorkflow {
+                    definition_version_id: version.id,
+                    workspace_id,
+                    input: request.input,
+                    policy_override: request.policy_override,
+                    debug_step_id: Some(request.step_id),
+                    operation_id,
+                    principal: principal_json(principal),
+                })
+                .await
+                .map_err(map_error)?
+        };
         self.ensure_run_shell_and_dispatch(&run).await?;
         Ok(run)
     }
@@ -1031,6 +1331,24 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
 
     async fn version(&self, version_id: Uuid) -> Result<WorkflowVersionView, ApplicationError> {
         self.store.version(version_id).await.map_err(map_error)
+    }
+
+    async fn definitions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError> {
+        self.core.definitions(limit).await.map_err(map_error)
+    }
+
+    async fn versions(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, ApplicationError> {
+        self.core
+            .versions(definition_id, limit)
+            .await
+            .map_err(map_error)
     }
 
     async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError> {
@@ -1120,6 +1438,178 @@ impl WorkflowExecutionPort for WorkflowStoreExecutionPort {
             .await
             .map_err(map_error)
     }
+
+    async fn pause_run(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: PauseWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        let pausing = self
+            .core
+            .request_pause(PauseWorkflowRun {
+                run_id: request.run_id,
+                reason: request.reason.clone(),
+                operation_id,
+                principal: principal_json(principal),
+            })
+            .await
+            .map_err(map_error)?;
+        if pausing.control_state == "paused" {
+            return Ok(pausing);
+        }
+        let steps = self.store.steps(request.run_id).await.map_err(map_error)?;
+        let service = self
+            .conversation_context
+            .as_ref()
+            .map(|context| conversations::ConversationSessionService::new(context.clone()));
+        for step in steps.into_iter().filter(|step| step.status == "running") {
+            if let Some(conversation_id) = step.conversation_id {
+                self.store
+                    .set_step_awaiting_input(
+                        request.run_id,
+                        &step.step_id,
+                        true,
+                        request.reason.as_deref(),
+                        None,
+                    )
+                    .await
+                    .map_err(map_error)?;
+                if let Some(service) = &service {
+                    service
+                        .cancel_turn(conversation_id, Some("Workflow run paused".to_string()))
+                        .await
+                        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+                }
+            }
+        }
+        self.core
+            .mark_paused(request.run_id)
+            .await
+            .map_err(map_error)
+    }
+
+    async fn resume_paused_run(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ResumePausedWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        self.core
+            .resume_paused(ResumePausedWorkflowRun {
+                run_id: request.run_id,
+                operation_id,
+                principal: principal_json(principal),
+            })
+            .await
+            .map_err(map_error)?;
+        let awaiting = self
+            .store
+            .steps(request.run_id)
+            .await
+            .map_err(map_error)?
+            .into_iter()
+            .filter(|step| step.awaiting_input)
+            .collect::<Vec<_>>();
+        for step in awaiting {
+            self.submit_step_follow_up(
+                Uuid::new_v4(),
+                &SubmitWorkflowStepInputRequest {
+                    run_id: request.run_id,
+                    step_id: step.step_id,
+                    text: "Continue this workflow step from the paused state.".to_string(),
+                },
+            )
+            .await?;
+        }
+        self.store.run(request.run_id).await.map_err(map_error)
+    }
+
+    async fn accept_candidate(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: AcceptWorkflowCandidateRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        self.core
+            .accept_step_candidate(AcceptWorkflowStepCandidate {
+                run_id: request.run_id,
+                step_id: request.step_id,
+                operation_id,
+                principal: principal_json(principal),
+            })
+            .await
+            .map_err(map_error)
+    }
+
+    async fn pause_step(
+        &self,
+        request: PauseWorkflowStepRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        let step = self
+            .store
+            .steps(request.run_id)
+            .await
+            .map_err(map_error)?
+            .into_iter()
+            .filter(|step| step.step_id == request.step_id)
+            .max_by_key(|step| step.attempt)
+            .ok_or_else(|| ApplicationError::not_found("workflow step run not found"))?;
+        let conversation_id = step.conversation_id.ok_or_else(|| {
+            ApplicationError::bad_request("workflow step has no active Conversation")
+        })?;
+        // Cancellation shares the Conversation start/stop lock. Do it before
+        // clearing the Workflow Turn binding so a Pause racing the initial Agent
+        // startup cannot be overwritten by the dispatcher's later bind_turn.
+        if let Some(context) = &self.conversation_context {
+            let _ = conversations::ConversationSessionService::new(context.clone())
+                .cancel_turn(
+                    conversation_id,
+                    Some("Workflow step paused for input".to_string()),
+                )
+                .await;
+        }
+        self.store
+            .set_step_awaiting_input(
+                request.run_id,
+                &request.step_id,
+                true,
+                request.reason.as_deref(),
+                None,
+            )
+            .await
+            .map_err(map_error)
+    }
+
+    async fn submit_step_input(
+        &self,
+        operation_id: Uuid,
+        request: SubmitWorkflowStepInputRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        self.submit_step_follow_up(operation_id, &request).await
+    }
+
+    async fn fork_from_step(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ForkWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        let run = self
+            .core
+            .fork_from_step(ForkWorkflowRun {
+                parent_run_id: request.parent_run_id,
+                definition_version_id: request.definition_version_id,
+                step_id: request.step_id,
+                scope: request.scope,
+                operation_id,
+                principal: principal_json(principal),
+            })
+            .await
+            .map_err(map_error)?;
+        self.ensure_run_shell_and_dispatch(&run).await?;
+        Ok(run)
+    }
 }
 
 pub(crate) struct UnavailableWorkflowExecution;
@@ -1153,6 +1643,19 @@ impl WorkflowExecutionPort for UnavailableWorkflowExecution {
         unavailable()
     }
     async fn version(&self, _: Uuid) -> Result<WorkflowVersionView, ApplicationError> {
+        unavailable()
+    }
+    async fn definitions(
+        &self,
+        _: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError> {
+        unavailable()
+    }
+    async fn versions(
+        &self,
+        _: Uuid,
+        _: u32,
+    ) -> Result<Vec<WorkflowVersionView>, ApplicationError> {
         unavailable()
     }
     async fn steps(&self, _: Uuid) -> Result<Vec<WorkflowStepView>, ApplicationError> {
@@ -1213,5 +1716,94 @@ fn map_error(error: workflows::WorkflowError) -> ApplicationError {
         workflows::WorkflowError::NotFound(message) => ApplicationError::not_found(message),
         workflows::WorkflowError::Conflict(message) => ApplicationError::conflict(message),
         other => ApplicationError::internal(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{final_assistant_text, render_agent_prompt};
+
+    #[test]
+    fn agent_prompt_exposes_bound_input_and_the_exact_output_contract() {
+        let input = BTreeMap::from([("brief".to_owned(), serde_json::json!({"id": 7}))]);
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["summary"],
+            "properties": {"summary": {"type": "string"}}
+        });
+
+        let rendered =
+            render_agent_prompt("Synthesize", &input, Some(&schema), None, Some("zh-CN")).unwrap();
+
+        assert!(rendered.contains("accepted final outputs of prerequisite Workflow Steps"));
+        assert!(rendered.contains("stable predecessor Step ID"));
+        assert!(rendered.contains("Output the JSON itself only"));
+        assert!(rendered.contains("\"summary\""));
+        assert!(rendered.contains("`zh-CN`"));
+        assert!(!rendered.contains("```"));
+    }
+
+    #[test]
+    fn agent_prompt_uses_natural_language_description_without_a_schema() {
+        let input = BTreeMap::new();
+        let rendered = render_agent_prompt(
+            "Summarize",
+            &input,
+            None,
+            Some("a one-paragraph brief"),
+            None,
+        )
+        .unwrap();
+
+        assert!(rendered.contains("Return this Turn's final result as: a one-paragraph brief"));
+        assert!(!rendered.contains("JSON"));
+    }
+
+    #[test]
+    fn agent_prompt_prefers_a_brief_description_over_a_leftover_schema() {
+        let input = BTreeMap::new();
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["summary"],
+            "properties": {"summary": {"type": "string"}}
+        });
+        let rendered = render_agent_prompt(
+            "review my code",
+            &input,
+            Some(&schema),
+            Some("用自然语言写一段代码审阅"),
+            Some("zh-CN"),
+        )
+        .unwrap();
+
+        assert!(rendered.contains("Task for this Turn:\nreview my code"));
+        assert!(rendered.contains("Return this Turn's final result as: 用自然语言写一段代码审阅"));
+        assert!(rendered.contains("Use `zh-CN` for natural-language content in the result."));
+        assert!(!rendered.contains("JSON"));
+        assert!(!rendered.contains("Preserve JSON keys"));
+    }
+
+    #[test]
+    fn final_output_excludes_progress_text_before_the_last_activity_boundary() {
+        let event = |sequence, kind: &str, text: &str| {
+            (
+                sequence,
+                kind.to_owned(),
+                serde_json::json!({"kind": kind, "text": text}).to_string(),
+            )
+        };
+        let events = vec![
+            event(1, "assistant_text_delta", "正在检查仓库。"),
+            event(2, "tool_call_upsert", ""),
+            event(3, "assistant_text_delta", "还需要核对测试。"),
+            event(4, "assistant_reasoning_delta", "prepare final"),
+            event(5, "assistant_text_delta", "最终"),
+            event(6, "assistant_text_delta", "结论"),
+            event(7, "usage_updated", ""),
+        ];
+
+        assert_eq!(final_assistant_text(&events).as_deref(), Some("最终结论"));
     }
 }

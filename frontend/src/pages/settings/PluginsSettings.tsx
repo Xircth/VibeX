@@ -78,7 +78,7 @@ import {
 } from '@/lib/api/plugins';
 import { cn } from '@/lib/utils';
 import { useBackendTransport } from '@/lib/transport';
-import { SettingsPageHeader, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
 
 const FORMAT_LABELS: Record<string, string> = {
   vibex: 'VibeX',
@@ -1583,16 +1583,6 @@ export function PluginsSettings({
 
   return (
     <div className="space-y-4">
-      <SettingsPageHeader
-        title={t('plugins.pageTitle')}
-        description={t(
-          ecosystem === 'vibex'
-            ? 'plugins.productDescription'
-            : ecosystem
-              ? 'plugins.nativeDescription'
-              : 'plugins.pageDescription'
-        )}
-      />
       <SettingsSection
         icon={Puzzle}
         title={t('plugins.pageTitle')}

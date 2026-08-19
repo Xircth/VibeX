@@ -10,6 +10,7 @@ import type {
   SearchResult,
   Scratch,
   ScratchType,
+  ScratchUpdateOutcome,
   CreateScratch,
   UpdateScratch,
   CreateTag,
@@ -19,6 +20,42 @@ import type {
 } from 'shared/types';
 
 import { backendCall } from './base';
+import { backendListen } from '@/lib/backendTransport';
+
+export type LogLevel =
+  | 'all'
+  | 'off'
+  | 'error'
+  | 'warn'
+  | 'info'
+  | 'debug'
+  | 'trace';
+
+export type TargetDirective = {
+  target: string;
+  level: LogLevel;
+};
+
+export type LogSettings = {
+  level: LogLevel;
+  targets: TargetDirective[];
+};
+
+export type LogSettingsView = LogSettings & {
+  env_locked: boolean;
+};
+
+export type LogRecord = {
+  seq: number;
+  timestamp_ms: number;
+  level: string;
+  target: string;
+  message: string;
+  fields?: Record<string, string>;
+};
+
+const LOG_APPENDED_EVENT = 'logs://appended';
+const LOG_SETTINGS_CHANGED_EVENT = 'log-settings://changed';
 
 async function fileToBase64(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -212,14 +249,29 @@ export const desktopApi = {
   exitApp: async (): Promise<void> => {
     return backendCall<void>('exit_app');
   },
-  // Application log viewer (P2-8).
-  getAppLogs: async (maxLines?: number): Promise<string[]> => {
-    return backendCall<string[]>('get_app_logs', {
-      maxLines: maxLines ?? null,
+  getLogSettings: async (): Promise<LogSettingsView> => {
+    return backendCall<LogSettingsView>('get_log_settings');
+  },
+  setLogSettings: async (settings: LogSettings): Promise<LogSettings> => {
+    return backendCall<LogSettings>('set_log_settings', { settings });
+  },
+  getRecentLogs: async (limit?: number): Promise<LogRecord[]> => {
+    return backendCall<LogRecord[]>('get_recent_logs', {
+      limit: limit ?? 2000,
     });
   },
   getLogsDir: async (): Promise<string> => {
     return backendCall<string>('get_logs_dir');
+  },
+  subscribeLogAppended: async (
+    handler: (record: LogRecord) => void
+  ): Promise<() => void> => {
+    return backendListen<LogRecord>(LOG_APPENDED_EVENT, handler);
+  },
+  subscribeLogSettingsChanged: async (
+    handler: (settings: LogSettings) => void
+  ): Promise<() => void> => {
+    return backendListen<LogSettings>(LOG_SETTINGS_CHANGED_EVENT, handler);
   },
 };
 
@@ -398,8 +450,8 @@ export const scratchApi = {
     scratchType: ScratchType,
     id: string,
     data: UpdateScratch
-  ): Promise<void> => {
-    await backendCall<void>('update_scratch', {
+  ): Promise<ScratchUpdateOutcome> => {
+    return backendCall<ScratchUpdateOutcome>('update_scratch', {
       scratchType,
       id,
       payload: data,
@@ -477,8 +529,6 @@ export interface AgentSkillContent {
 }
 
 export const skillsApi = {
-  listLocal: (agentType: string): Promise<AgentLocalSkill[]> =>
-    backendCall<AgentLocalSkill[]>('list_local_agent_skills', { agentType }),
   // Per-agent skills CRUD (global / project scope), backed by each agent's
   // own skill directories; writes are scoped to a writable directory.
   list: (

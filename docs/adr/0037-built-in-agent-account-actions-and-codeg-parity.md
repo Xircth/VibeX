@@ -139,7 +139,7 @@ Claude Code、Codex 与 Gemini 支持 VibeX 本地 Model Provider 预设。预�
 Provider 投影变化都会向该 Agent 的存活会话发送 config-stale 事件，明确提示重启后生效；
 Grok/Cursor 鉴权模式以及 OpenCode Provider、启停状态与插件变化同样适用。
 
-十二个 Built-in Agent 均声明默认历史源。OpenCode 与 Hermes 读取官方 SQLite 存储，
+十三个 Built-in Agent 均声明默认历史源。OpenCode 与 Hermes 读取官方 SQLite 存储，
 并把 reasoning、正文和 tool part 保留为独立消息；Kimi Code 与 Grok 解析各自事件流，
 保留工具调用 ID、名称、状态、原始输入输出和可用的模型/Token/费用元数据；Cursor 读取
 会话元数据并对私有二进制 blob 做保守文本恢复；其它 Agent 读取其官方 JSON/JSONL
@@ -154,7 +154,7 @@ ACP `mcpServers` 条目而不新增分配，Pi 因 `pi-acp` 不转发且 Pi 没�
 stdio、HTTP 或 SSE 规范；包含密钥的输入不写入日志。已有的隐藏/退役目标在编辑时保留，
 不能因 UI 不再展示而静默删除。
 
-十二个 Built-in Agent 均提供与其原生目录语义一致的 Skills 管理，支持全局/项目读取、
+十三个 Built-in Agent 均提供与其原生目录语义一致的 Skills 管理，支持全局/项目读取、
 编辑、删除、skills.sh 安装和全局托管；Hermes 仅有全局作用域。共享的物理 Skills 目录
 按规范化目标路径合并后再写入，任一选中 Agent 需要该路径时，未选中的另一适配器不得
 反向删除同一文件。用户定义 Agent 必须显式声明使用共享 `~/.agents/skills`、一个绝对

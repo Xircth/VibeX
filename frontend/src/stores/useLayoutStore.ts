@@ -68,6 +68,15 @@ interface LayoutState {
   /** Whether the workspace editor/terminal area is visible */
   isEditorAreaVisible: boolean;
 
+  /** Whether the Kanban session list is visible */
+  isKanbanListVisible: boolean;
+
+  /** Whether the Kanban session monitor is visible */
+  isKanbanMonitorVisible: boolean;
+
+  /** Whether the Kanban session execution area is visible */
+  isKanbanSessionVisible: boolean;
+
   /** Active tab: workspace or kanban */
   activeTab: WorkspaceTab;
 
@@ -82,9 +91,16 @@ interface LayoutState {
   setRightPanelVisible: (visible: boolean) => void;
   toggleEditorArea: () => void;
   setEditorAreaVisible: (visible: boolean) => void;
+  toggleKanbanList: () => void;
+  setKanbanListVisible: (visible: boolean) => void;
+  toggleKanbanMonitor: () => void;
+  setKanbanMonitorVisible: (visible: boolean) => void;
+  toggleKanbanSession: () => void;
+  setKanbanSessionVisible: (visible: boolean) => void;
   setActiveTab: (tab: WorkspaceTab) => void;
   setProjectActiveTab: (projectKey: string, tab: WorkspaceTab) => void;
   resetLayout: () => void;
+  resetKanbanLayout: () => void;
 }
 
 // Previous default was 620px; 434px is exactly 30% smaller. This is only the
@@ -102,6 +118,9 @@ export interface LayoutSnapshot {
   kanbanSessionWidth: number;
   isRightPanelVisible: boolean;
   isEditorAreaVisible: boolean;
+  isKanbanListVisible: boolean;
+  isKanbanMonitorVisible: boolean;
+  isKanbanSessionVisible: boolean;
   activeTab: WorkspaceTab;
 }
 
@@ -112,6 +131,9 @@ const DEFAULT_LAYOUT_SNAPSHOT: LayoutSnapshot = {
   kanbanSessionWidth: DEFAULT_KANBAN_SESSION_WIDTH,
   isRightPanelVisible: true,
   isEditorAreaVisible: true,
+  isKanbanListVisible: true,
+  isKanbanMonitorVisible: true,
+  isKanbanSessionVisible: true,
   activeTab: 'kanban',
 };
 
@@ -165,6 +187,9 @@ function getCurrentSnapshot(state: LayoutState): LayoutSnapshot {
     kanbanSessionWidth: state.kanbanSessionWidth,
     isRightPanelVisible: state.isRightPanelVisible,
     isEditorAreaVisible: state.isEditorAreaVisible,
+    isKanbanListVisible: state.isKanbanListVisible,
+    isKanbanMonitorVisible: state.isKanbanMonitorVisible,
+    isKanbanSessionVisible: state.isKanbanSessionVisible,
     activeTab: state.activeTab,
   };
 }
@@ -199,6 +224,9 @@ function applySnapshot(nextSnapshot: LayoutSnapshot): Partial<LayoutState> {
     kanbanSessionWidth: nextSnapshot.kanbanSessionWidth,
     isRightPanelVisible: nextSnapshot.isRightPanelVisible,
     isEditorAreaVisible: nextSnapshot.isEditorAreaVisible,
+    isKanbanListVisible: nextSnapshot.isKanbanListVisible,
+    isKanbanMonitorVisible: nextSnapshot.isKanbanMonitorVisible,
+    isKanbanSessionVisible: nextSnapshot.isKanbanSessionVisible,
     activeTab: nextSnapshot.activeTab,
   };
 }
@@ -428,6 +456,87 @@ export const useLayoutStore = create<LayoutState>()(
           },
         })),
 
+      toggleKanbanList: () =>
+        set((state) => {
+          const nextValue = !state.isKanbanListVisible;
+          return {
+            isKanbanListVisible: nextValue,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isKanbanListVisible: nextValue,
+              },
+            },
+          };
+        }),
+
+      setKanbanListVisible: (visible) =>
+        set((state) => ({
+          isKanbanListVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isKanbanListVisible: visible,
+            },
+          },
+        })),
+
+      toggleKanbanMonitor: () =>
+        set((state) => {
+          const nextValue = !state.isKanbanMonitorVisible;
+          return {
+            isKanbanMonitorVisible: nextValue,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isKanbanMonitorVisible: nextValue,
+              },
+            },
+          };
+        }),
+
+      setKanbanMonitorVisible: (visible) =>
+        set((state) => ({
+          isKanbanMonitorVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isKanbanMonitorVisible: visible,
+            },
+          },
+        })),
+
+      toggleKanbanSession: () =>
+        set((state) => {
+          const nextValue = !state.isKanbanSessionVisible;
+          return {
+            isKanbanSessionVisible: nextValue,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: {
+                ...getCurrentSnapshot(state),
+                isKanbanSessionVisible: nextValue,
+              },
+            },
+          };
+        }),
+
+      setKanbanSessionVisible: (visible) =>
+        set((state) => ({
+          isKanbanSessionVisible: visible,
+          projectLayouts: {
+            ...state.projectLayouts,
+            [state.currentProjectKey]: {
+              ...getCurrentSnapshot(state),
+              isKanbanSessionVisible: visible,
+            },
+          },
+        })),
+
       setActiveTab: (tab) =>
         set((state) => ({
           activeTab: tab,
@@ -484,10 +593,30 @@ export const useLayoutStore = create<LayoutState>()(
             },
           };
         }),
+
+      resetKanbanLayout: () =>
+        set((state) => {
+          const nextSnapshot = {
+            ...getCurrentSnapshot(state),
+            isKanbanListVisible: true,
+            isKanbanMonitorVisible: true,
+            isKanbanSessionVisible: true,
+          };
+
+          return {
+            isKanbanListVisible: true,
+            isKanbanMonitorVisible: true,
+            isKanbanSessionVisible: true,
+            projectLayouts: {
+              ...state.projectLayouts,
+              [state.currentProjectKey]: nextSnapshot,
+            },
+          };
+        }),
     }),
     {
       name: 'vibex-ide-layout',
-      version: 26,
+      version: 27,
       migrate: migratePersistedLayoutState,
       partialize: (state) => ({
         currentProjectKey: state.currentProjectKey,

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    UPDATE scratch\n                    SET payload = $1,\n                        revision = revision + 1,\n                        updated_at = datetime('now', 'subsec')\n                    WHERE id = $2 AND scratch_type = $3 AND revision = $4\n                    RETURNING\n                        id              as \"id!: Uuid\",\n                        scratch_type,\n                        payload,\n                        revision        as \"revision!: i64\",\n                        created_at      as \"created_at!: DateTime<Utc>\",\n                        updated_at      as \"updated_at!: DateTime<Utc>\"\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: Uuid",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "scratch_type",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "revision!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!: DateTime<Utc>",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: DateTime<Utc>",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b55eb1b7f3db17dae74fa1ad970af9d5db3cf385008ca4fba72b3d25ab944112"
+}

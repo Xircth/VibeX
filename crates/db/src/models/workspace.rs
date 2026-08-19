@@ -742,49 +742,20 @@ impl Workspace {
         archived: Option<bool>,
         limit: Option<i64>,
     ) -> Result<Vec<WorkspaceWithStatus>, sqlx::Error> {
-        // Fetch all workspaces with status (uses cached SQLx query)
-        let records = sqlx::query_as::<_, WorkspaceStatusRow>(
-            r#"SELECT
-                w.id,
-                w.project_id,
-                w.task_id,
-                w.parent_workspace_id,
-                w.container_ref,
-                w.branch,
-                w.use_worktree,
-                w.agent_working_dir,
-                w.setup_completed_at,
-                w.created_at,
-                w.updated_at,
-                w.archived,
-                w.pinned,
-                w.name,
-
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.status = 'running'
-                      AND ep.run_reason IN ('setupscript','cleanupscript')
-                    LIMIT 1
-                ) THEN 1 ELSE 0 END AS is_running,
-
-                CASE WHEN (
-                    SELECT ep.status
-                    FROM sessions s
-                    JOIN execution_processes ep ON ep.session_id = s.id
-                    WHERE s.workspace_id = w.id
-                      AND ep.run_reason IN ('setupscript','cleanupscript')
-                    ORDER BY ep.created_at DESC
-                    LIMIT 1
-                ) IN ('failed','killed') THEN 1 ELSE 0 END AS is_errored
-
-            FROM workspaces w
+        let mut sql = format!(
+            r#"{}
+            WHERE (?1 IS NULL OR w.archived = ?1)
             ORDER BY w.updated_at DESC"#,
-        )
-        .fetch_all(pool)
-        .await?;
+            Self::WORKSPACE_STATUS_SELECT
+        );
+        if limit.is_some() {
+            sql.push_str(" LIMIT ?2");
+        }
+        let mut query = sqlx::query_as::<_, WorkspaceStatusRow>(&sql).bind(archived);
+        if let Some(lim) = limit {
+            query = query.bind(lim);
+        }
+        let records = query.fetch_all(pool).await?;
 
         let mut workspaces: Vec<WorkspaceWithStatus> = records
             .into_iter()
@@ -809,14 +780,7 @@ impl Workspace {
                 is_running: rec.is_running != 0,
                 is_errored: rec.is_errored != 0,
             })
-            // Apply archived filter if provided
-            .filter(|ws| archived.is_none_or(|a| ws.workspace.archived == a))
             .collect();
-
-        // Apply limit if provided (already sorted by updated_at DESC from query)
-        if let Some(lim) = limit {
-            workspaces.truncate(lim as usize);
-        }
 
         for ws in &mut workspaces {
             if ws.workspace.name.is_none()

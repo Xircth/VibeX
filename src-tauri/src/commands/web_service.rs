@@ -1,41 +1,14 @@
-use std::{
-    collections::{BTreeSet, VecDeque},
-    convert::Infallible,
-    net::SocketAddr,
-    path::PathBuf,
-    sync::LazyLock,
-    time::Duration,
-};
+use std::{collections::BTreeSet, net::SocketAddr, path::PathBuf, sync::LazyLock};
 
-use agents::{AgentPermissionResponse, AgentSessionConfigOverride};
-use axum::{
-    Json, Router,
-    extract::{Path, Query, State as AxumState},
-    http::{HeaderMap, StatusCode},
-    response::{
-        IntoResponse, Response,
-        sse::{Event, KeepAlive, Sse},
-    },
-    routing::{get, post},
-};
+use axum::Router;
 use chrono::Utc;
-use db::models::{
-    conversation::{ConversationRecord, CreateConversationRecord, DbConversationSummary},
-    session::SessionStatus,
-};
-use futures::stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::Manager;
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 use uuid::Uuid;
 
-use crate::{
-    commands::conversations::conversation_events_since_core,
-    conversation_service::{ConversationSessionService, ConversationStartTurnInput},
-    error::AppError,
-    state::AppState,
-};
+use crate::{error::AppError, state::AppState};
 
 const SETTINGS_FILE_NAME: &str = "web-service-settings.json";
 const SETTINGS_SECTION: &str = "web_service";
@@ -49,14 +22,9 @@ struct WebServiceRuntime {
     port: u16,
     address: String,
     addresses: Vec<String>,
+    allow_lan: bool,
     started_at: String,
     handle: JoinHandle<()>,
-}
-
-#[derive(Clone)]
-struct WebServiceRouterState {
-    app: tauri::AppHandle,
-    token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +57,10 @@ pub struct WebServerStatus {
     pub token_configured: bool,
     pub started_at: Option<String>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub host_id: Option<String>,
+    #[serde(default)]
+    pub reachability: Vec<remote_protocol::ReachabilityOrigin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,51 +68,6 @@ pub struct PortProbeResult {
     pub port: u16,
     pub available: bool,
     pub message: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ConversationListQuery {
-    workspace_id: Option<String>,
-    limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CreateConversationRequest {
-    workspace_id: String,
-    agent_id: agents::AgentId,
-    title: Option<String>,
-    initial_prompt: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WebStartTurnRequest {
-    agent_id: agents::AgentId,
-    workspace_id: Option<String>,
-    text: String,
-    #[serde(default)]
-    images: Vec<String>,
-    #[serde(default)]
-    executor_profile_id: Option<executors::profile::ExecutorProfileId>,
-    #[serde(default)]
-    mode_override: Option<String>,
-    #[serde(default)]
-    config_overrides: Vec<AgentSessionConfigOverride>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PermissionResponseRequest {
-    response: AgentPermissionResponse,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CancelTurnRequest {
-    reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct EventsQuery {
-    after_sequence: Option<i64>,
 }
 
 fn legacy_settings_path() -> PathBuf {
@@ -219,385 +146,13 @@ async fn save_config(config: &WebServiceConfig) -> Result<WebServiceConfig, AppE
     Ok(config)
 }
 
-fn router(state: WebServiceRouterState) -> Router {
-    Router::new()
-        .route(
-            "/",
-            get(|| async {
-                Json(json!({
-                    "service": "VibeX Web Service",
-                    "status": "ok",
-                }))
-            }),
-        )
-        .route(
-            "/health",
-            get(|| async {
-                Json(json!({
-                    "ok": true,
-                    "service": "vibex",
-                }))
-            }),
-        )
-        .route("/api/conversations", get(api_list_conversations))
-        .route("/api/conversations", post(api_create_conversation))
-        .route(
-            "/api/conversations/{conversation_id}/events",
-            get(api_conversation_events),
-        )
-        .route(
-            "/api/conversations/{conversation_id}/turns",
-            post(api_start_turn),
-        )
-        .route(
-            "/api/conversations/{conversation_id}/permissions/{permission_id}",
-            post(api_respond_permission),
-        )
-        .route(
-            "/api/conversations/{conversation_id}/cancel",
-            post(api_cancel_turn),
-        )
-        .with_state(state)
-}
-
-fn api_error(status: StatusCode, message: impl Into<String>) -> Response {
-    (
-        status,
-        Json(json!({
-            "ok": false,
-            "error": message.into(),
-        })),
-    )
-        .into_response()
-}
-
-fn app_error(error: AppError) -> Response {
-    match &error {
-        AppError::BadRequest(_) => api_error(StatusCode::BAD_REQUEST, error.to_string()),
-        AppError::NotFound(_) => api_error(StatusCode::NOT_FOUND, error.to_string()),
-        AppError::Conflict(_) => api_error(StatusCode::CONFLICT, error.to_string()),
-        AppError::Internal(_) => api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
-    }
-}
-
-// The Err payload is a full HTTP `Response`; these local helpers return it by value
-// for ergonomics rather than boxing on every call site.
-#[allow(clippy::result_large_err)]
-fn ensure_auth(headers: &HeaderMap, state: &WebServiceRouterState) -> Result<(), Response> {
-    let Some(expected) = state.token.as_deref() else {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            "Web service token is not configured",
-        ));
-    };
-    let bearer = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let explicit = headers
-        .get("x-vibex-token")
-        .and_then(|value| value.to_str().ok());
-    if bearer == Some(expected) || explicit == Some(expected) {
-        Ok(())
-    } else {
-        Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            "Invalid web service token",
-        ))
-    }
-}
-
-#[allow(clippy::result_large_err)]
-fn parse_uuid(value: &str, label: &str) -> Result<Uuid, Response> {
-    Uuid::parse_str(value)
-        .map_err(|error| api_error(StatusCode::BAD_REQUEST, format!("invalid {label}: {error}")))
-}
-
-async fn web_conversation_last_sequence(
-    pool: &sqlx::SqlitePool,
-    conversation_id: Uuid,
-) -> Result<i64, AppError> {
-    sqlx::query_scalar::<_, i64>(
-        r#"SELECT COALESCE(MAX(sequence), 0)
-           FROM conversation_events
-           WHERE conversation_id = ?"#,
-    )
-    .bind(conversation_id)
-    .fetch_one(pool)
-    .await
-    .map_err(Into::into)
-}
-
-async fn notify_events_after(pool: &sqlx::SqlitePool, conversation_id: Uuid, after_sequence: i64) {
-    // Row ops are published at the core append boundary. IM integrations still
-    // consume raw event envelopes after the HTTP request completes.
-    if let Ok(page) =
-        conversation_events_since_core(pool, conversation_id, after_sequence, 50).await
-    {
-        for event in page.events {
-            if let Err(error) =
-                crate::commands::chat_channel::notify_conversation_event(&event).await
-            {
-                tracing::warn!(
-                    conversation_id = %conversation_id,
-                    sequence = event.sequence,
-                    %error,
-                    "Failed to notify chat channel for web service event"
-                );
-            }
-        }
-    }
-}
-
-async fn api_list_conversations(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Query(query): Query<ConversationListQuery>,
-) -> Result<Json<Vec<DbConversationSummary>>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let state = router_state.app.state::<AppState>();
-    let pool = &state.deployment.db().pool;
-    let limit = query.limit.unwrap_or(50).clamp(1, 100);
-    let rows = if let Some(workspace_id) = query.workspace_id {
-        let workspace_id = parse_uuid(&workspace_id, "workspace_id")?;
-        DbConversationSummary::list_for_workspace(pool, workspace_id)
-            .await
-            .map_err(AppError::from)
-            .map_err(app_error)?
-            .into_iter()
-            .take(limit as usize)
-            .collect()
-    } else {
-        sqlx::query_as::<_, DbConversationSummary>(&format!(
-            r#"SELECT id,
-                      workspace_id,
-                      task_id,
-                      name AS title,
-                      title_locked,
-                      status,
-                      agent_type,
-                      model,
-                      external_session_id,
-                      message_count,
-                      pinned_at,
-                      parent_session_id,
-                      parent_tool_use_id,
-                      delegation_call_id,
-                      created_at,
-                      updated_at
-               FROM sessions
-               WHERE deleted_at IS NULL
-               ORDER BY active_turn_id IS NULL, updated_at DESC, created_at DESC
-               LIMIT {limit}"#
-        ))
-        .fetch_all(pool)
-        .await
-        .map_err(AppError::from)
-        .map_err(app_error)?
-    };
-    Ok(Json(rows))
-}
-
-async fn api_create_conversation(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Json(request): Json<CreateConversationRequest>,
-) -> Result<Json<DbConversationSummary>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let state = router_state.app.state::<AppState>();
-    let pool = &state.deployment.db().pool;
-    let workspace_id = parse_uuid(&request.workspace_id, "workspace_id")?;
-    let conversation_id = Uuid::new_v4();
-    ConversationRecord::create(
-        pool,
-        conversation_id,
-        CreateConversationRecord {
-            workspace_id,
-            task_id: None,
-            title: request.title.as_deref(),
-            initial_prompt: request.initial_prompt.as_deref(),
-            status: Some(SessionStatus::Todo),
-            executor: Some("agent"),
-        },
-    )
-    .await
-    .map_err(AppError::from)
-    .map_err(app_error)?;
-    sqlx::query(
-        r#"UPDATE sessions
-           SET agent_type = ?, updated_at = datetime('now', 'subsec')
-           WHERE id = ?"#,
-    )
-    .bind(request.agent_id.as_str())
-    .bind(conversation_id)
-    .execute(pool)
-    .await
-    .map_err(AppError::from)
-    .map_err(app_error)?;
-    let summary = DbConversationSummary::find_by_id(pool, conversation_id)
-        .await
-        .map_err(AppError::from)
-        .map_err(app_error)?
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "conversation was not created"))?;
-    Ok(Json(summary))
-}
-
-async fn api_start_turn(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Path(conversation_id): Path<String>,
-    Json(request): Json<WebStartTurnRequest>,
-) -> Result<Json<Value>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let conversation_id = parse_uuid(&conversation_id, "conversation_id")?;
-    let state = router_state.app.state::<AppState>();
-    let pool = state.deployment.db().pool.clone();
-    let workspace_id = if let Some(workspace_id) = request.workspace_id {
-        parse_uuid(&workspace_id, "workspace_id")?
-    } else {
-        ConversationRecord::find_by_id(&pool, conversation_id)
-            .await
-            .map_err(AppError::from)
-            .map_err(app_error)?
-            .map(|conversation| conversation.workspace_id)
-            .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "conversation not found"))?
-    };
-    let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
-        .await
-        .map_err(app_error)?;
-    let result = ConversationSessionService::new(state.conversation_context())
-        .start_turn(ConversationStartTurnInput {
-            agent_id: request.agent_id,
-            workspace_id,
-            conversation_id,
-            executor_profile_id: request.executor_profile_id,
-            text: request.text,
-            display_text: None,
-            images: request.images,
-            mode_override: request.mode_override,
-            config_overrides: request.config_overrides,
-            plugin_actions: Vec::new(),
-            queued_input_claim: None,
-        })
-        .await;
-    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
-    let (turn, _) = result.map_err(AppError::from).map_err(app_error)?;
-    Ok(Json(json!(turn)))
-}
-
-async fn api_respond_permission(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Path((conversation_id, permission_id)): Path<(String, String)>,
-    Json(request): Json<PermissionResponseRequest>,
-) -> Result<Json<Value>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let conversation_id = parse_uuid(&conversation_id, "conversation_id")?;
-    let state = router_state.app.state::<AppState>();
-    let pool = state.deployment.db().pool.clone();
-    let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
-        .await
-        .map_err(app_error)?;
-    let result = ConversationSessionService::new(state.conversation_context())
-        .respond_permission(conversation_id, permission_id, request.response)
-        .await;
-    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
-    result.map_err(AppError::from).map_err(app_error)?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn api_cancel_turn(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Path(conversation_id): Path<String>,
-    Json(request): Json<CancelTurnRequest>,
-) -> Result<Json<Value>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let conversation_id = parse_uuid(&conversation_id, "conversation_id")?;
-    let state = router_state.app.state::<AppState>();
-    let pool = state.deployment.db().pool.clone();
-    let previous_last_sequence = web_conversation_last_sequence(&pool, conversation_id)
-        .await
-        .map_err(app_error)?;
-    let result = ConversationSessionService::new(state.conversation_context())
-        .cancel_turn(conversation_id, request.reason)
-        .await;
-    notify_events_after(&pool, conversation_id, previous_last_sequence).await;
-    result.map_err(AppError::from).map_err(app_error)?;
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn api_conversation_events(
-    AxumState(router_state): AxumState<WebServiceRouterState>,
-    headers: HeaderMap,
-    Path(conversation_id): Path<String>,
-    Query(query): Query<EventsQuery>,
-) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, Response> {
-    ensure_auth(&headers, &router_state)?;
-    let conversation_id = parse_uuid(&conversation_id, "conversation_id")?;
-    let state = router_state.app.state::<AppState>();
-    let pool = state.deployment.db().pool.clone();
-    let after_sequence = query.after_sequence.unwrap_or(0);
-    let stream = stream::unfold(
-        (after_sequence, VecDeque::<Event>::new()),
-        move |(mut after_sequence, mut pending)| {
-            let pool = pool.clone();
-            async move {
-                if let Some(event) = pending.pop_front() {
-                    return Some((Ok(event), (after_sequence, pending)));
-                }
-
-                match conversation_events_since_core(&pool, conversation_id, after_sequence, 100)
-                    .await
-                {
-                    Ok(page) => {
-                        after_sequence = page.last_sequence;
-                        pending = page
-                            .events
-                            .into_iter()
-                            .filter_map(|event| {
-                                serde_json::to_string(&event)
-                                    .ok()
-                                    .map(|data| Event::default().event("conversation").data(data))
-                            })
-                            .collect();
-                        if let Some(event) = pending.pop_front() {
-                            Some((Ok(event), (after_sequence, pending)))
-                        } else {
-                            tokio::time::sleep(Duration::from_millis(750)).await;
-                            Some((
-                                Ok(Event::default().comment("poll")),
-                                (after_sequence, pending),
-                            ))
-                        }
-                    }
-                    Err(error) => {
-                        let event = Event::default()
-                            .event("error")
-                            .data(json!({ "error": error.to_string() }).to_string());
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        Some((Ok(event), (after_sequence, pending)))
-                    }
-                }
-            }
-        },
-    );
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
-}
-
 fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
     let mut addresses = vec![format!("http://127.0.0.1:{port}")];
     if !allow_lan {
         return addresses;
     }
-    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
-        && socket.connect("1.1.1.1:80").is_ok()
-        && let Ok(std::net::SocketAddr::V4(addr)) = socket.local_addr()
-        && !addr.ip().is_loopback()
-        && !addr.ip().is_unspecified()
-    {
-        let candidate = format!("http://{}:{port}", addr.ip());
+    for ip in lan_ipv4_addrs() {
+        let candidate = format!("http://{ip}:{port}");
         if !addresses.contains(&candidate) {
             addresses.push(candidate);
         }
@@ -605,24 +160,127 @@ fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
     addresses
 }
 
-fn resolve_static_root() -> Option<PathBuf> {
+fn reachability_from_addresses(addresses: &[String]) -> Vec<remote_protocol::ReachabilityOrigin> {
+    addresses
+        .iter()
+        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
+        .map(remote_protocol::ReachabilityOrigin::lan)
+        .collect()
+}
+
+fn lan_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    let mut addrs = BTreeSet::new();
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
+        && socket.connect("1.1.1.1:80").is_ok()
+        && let Ok(std::net::SocketAddr::V4(addr)) = socket.local_addr()
+        && is_advertisable_ipv4(*addr.ip())
+    {
+        addrs.insert(*addr.ip());
+    }
+    addrs.extend(interface_ipv4_addrs());
+    addrs.into_iter().collect()
+}
+
+fn is_advertisable_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    !ip.is_loopback() && !ip.is_unspecified() && !ip.is_link_local() && !ip.is_multicast()
+}
+
+#[cfg(unix)]
+fn interface_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    let mut addrs = Vec::new();
+    let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&mut ifap) } != 0 || ifap.is_null() {
+        return addrs;
+    }
+    let mut cursor = ifap;
+    while !cursor.is_null() {
+        let entry = unsafe { &*cursor };
+        if !entry.ifa_addr.is_null()
+            && unsafe { (*entry.ifa_addr).sa_family as i32 } == libc::AF_INET
+        {
+            let sin = unsafe { &*(entry.ifa_addr as *const libc::sockaddr_in) };
+            let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+            if is_advertisable_ipv4(ip) {
+                addrs.push(ip);
+            }
+        }
+        cursor = entry.ifa_next;
+    }
+    unsafe { libc::freeifaddrs(ifap) };
+    addrs
+}
+
+#[cfg(not(unix))]
+fn interface_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    Vec::new()
+}
+
+fn host_identity_path() -> PathBuf {
+    utils::assets::asset_dir().join("host-identity.json")
+}
+
+async fn load_or_create_host_id() -> Result<String, AppError> {
+    let path = host_identity_path();
+    if let Ok(text) = tokio::fs::read_to_string(&path).await
+        && let Ok(value) = serde_json::from_str::<Value>(&text)
+        && let Some(host_id) = value
+            .get("host_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return Ok(host_id.to_string());
+    }
+    let host_id = Uuid::new_v4().to_string();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|error| {
+            AppError::Internal(format!("Failed to create host identity directory: {error}"))
+        })?;
+    }
+    tokio::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({ "host_id": host_id })).map_err(|error| {
+            AppError::Internal(format!("Failed to encode host identity: {error}"))
+        })?,
+    )
+    .await
+    .map_err(|error| AppError::Internal(format!("Failed to persist host identity: {error}")))?;
+    Ok(host_id)
+}
+
+fn resolve_static_root(app: Option<&tauri::AppHandle>) -> Option<PathBuf> {
     if let Ok(root) = std::env::var("VIBEX_STATIC_ROOT") {
         let path = PathBuf::from(root);
         if path.join("index.html").is_file() {
             return Some(path);
         }
     }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
+    let mut roots = Vec::new();
+    if let Some(app) = app
+        && let Ok(dir) = app.path().resource_dir()
     {
-        for candidate in [dir.join("web"), dir.join("../web")] {
-            if candidate.join("index.html").is_file() {
-                return Some(candidate);
-            }
+        roots.push(dir.join("web"));
+        roots.push(dir.join("../web"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut current = exe.parent().map(PathBuf::from);
+        while let Some(dir) = current {
+            roots.push(dir.join("web"));
+            roots.push(dir.join("frontend/dist"));
+            current = dir.parent().map(PathBuf::from);
         }
     }
-    let dev = PathBuf::from("frontend/dist");
-    dev.join("index.html").is_file().then_some(dev)
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut current = Some(cwd);
+        while let Some(dir) = current {
+            roots.push(dir.join("web"));
+            roots.push(dir.join("frontend/dist"));
+            current = dir.parent().map(PathBuf::from);
+        }
+    }
+    roots
+        .into_iter()
+        .find(|path| path.join("index.html").is_file())
 }
 
 fn issue_host_token() -> server::ServerToken {
@@ -634,6 +292,7 @@ fn issue_host_token() -> server::ServerToken {
 }
 
 async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
+    let host_id = load_or_create_host_id().await.ok();
     let runtime = WEB_SERVICE_RUNTIME.lock().await;
     if let Some(runtime) = runtime.as_ref() {
         return WebServerStatus {
@@ -644,6 +303,8 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
             token_configured: config.token.is_some(),
             started_at: Some(runtime.started_at.clone()),
             message: None,
+            host_id,
+            reachability: reachability_from_addresses(&runtime.addresses),
         };
     }
 
@@ -655,6 +316,8 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
         token_configured: config.token.is_some(),
         started_at: None,
         message: None,
+        host_id,
+        reachability: Vec::new(),
     }
 }
 
@@ -665,9 +328,17 @@ pub async fn get_web_service_config() -> Result<WebServiceConfig, AppError> {
 
 #[tauri::command]
 pub async fn update_web_service_config(
+    app: tauri::AppHandle,
     config: WebServiceConfig,
 ) -> Result<WebServiceConfig, AppError> {
-    save_config(&config).await
+    let previous = load_config().await?;
+    let saved = save_config(&config).await?;
+    let running = WEB_SERVICE_RUNTIME.lock().await.is_some();
+    if running && (previous.allow_lan != saved.allow_lan || previous.port != saved.port) {
+        stop_web_server_with_config(saved.clone()).await;
+        start_web_server(app).await?;
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -694,6 +365,19 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         config.token = Some(issued.expose_once());
         config = save_config(&config).await?;
     }
+    {
+        let runtime = WEB_SERVICE_RUNTIME.lock().await;
+        if let Some(current) = runtime.as_ref()
+            && current.allow_lan == config.allow_lan
+            && current.port == config.port
+        {
+            drop(runtime);
+            return Ok(status_from_runtime(config).await);
+        }
+    }
+    if WEB_SERVICE_RUNTIME.lock().await.is_some() {
+        stop_web_server_with_config(config.clone()).await;
+    }
     let listen = std::net::SocketAddr::from((
         if config.allow_lan {
             std::net::Ipv4Addr::UNSPECIFIED
@@ -702,10 +386,13 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         },
         config.port,
     ));
+    let host_id = load_or_create_host_id().await?;
+    let advertised = advertised_addresses(config.port, config.allow_lan);
     let mut server_config = server::ServerConfig::default()
         .with_listen_addr(listen, config.allow_lan)
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    if let Some(static_root) = resolve_static_root() {
+        .map_err(|error| AppError::BadRequest(error.to_string()))?
+        .with_host_identity(host_id, reachability_from_addresses(&advertised));
+    if let Some(static_root) = resolve_static_root(Some(&app)) {
         server_config = server_config.with_static_root(static_root);
     }
     let core = server::host_application_core(
@@ -778,6 +465,7 @@ async fn start_web_server_with_router(
         port: local_addr.port(),
         address,
         addresses,
+        allow_lan: config.allow_lan,
         started_at,
         handle,
     });
@@ -823,10 +511,13 @@ pub async fn probe_web_service_port(port: u16) -> Result<PortProbeResult, AppErr
 }
 
 #[tauri::command]
-pub async fn generate_web_service_token(app: tauri::AppHandle) -> Result<WebServiceConfig, AppError> {
+pub async fn generate_web_service_token(
+    app: tauri::AppHandle,
+) -> Result<WebServiceConfig, AppError> {
     let mut config = load_config().await?;
     let plaintext = issue_host_token().expose_once();
-    let store = server::SqliteTokenHashStore::new(app.state::<AppState>().deployment.db().pool.clone());
+    let store =
+        server::SqliteTokenHashStore::new(app.state::<AppState>().deployment.db().pool.clone());
     let persisted = server::ServerToken::try_new(plaintext.clone())
         .map_err(|error| AppError::Internal(error.to_string()))?;
     store
@@ -846,13 +537,15 @@ pub struct CreateHostPairingRequest {
 pub async fn create_host_device_pairing(
     app: tauri::AppHandle,
     request: CreateHostPairingRequest,
-) -> Result<remote_protocol::PairingChallenge, AppError> {
+) -> Result<remote_protocol::IssuedPairingInvitation, AppError> {
     let preset = match request.preset.as_deref() {
-        None | Some("") => Some(remote_protocol::DevicePermissionPreset::Companion),
-        Some("companion") => Some(remote_protocol::DevicePermissionPreset::Companion),
-        Some("workstation") => Some(remote_protocol::DevicePermissionPreset::Workstation),
+        None | Some("") => remote_protocol::DevicePermissionPreset::Companion,
+        Some("companion") => remote_protocol::DevicePermissionPreset::Companion,
+        Some("workstation") => remote_protocol::DevicePermissionPreset::Workstation,
         Some(other) => {
-            return Err(AppError::BadRequest(format!("unknown pairing preset: {other}")));
+            return Err(AppError::BadRequest(format!(
+                "unknown pairing preset: {other}"
+            )));
         }
     };
     use server::ServerAuth;
@@ -862,17 +555,41 @@ pub async fn create_host_device_pairing(
         kind: server::CredentialKind::Server,
         subject: "server-owner".to_string(),
         device_id: None,
-        scopes: BTreeSet::from(["device.pair".to_string()]),
+        scopes: remote_protocol::DevicePermissionPreset::Workstation
+            .scopes()
+            .iter()
+            .copied()
+            .chain(["device.pair", "device.revoke"])
+            .map(str::to_string)
+            .collect(),
     };
-    auth.create_pairing(
-        &creator,
-        remote_protocol::CreatePairingRequest {
-            preset,
-            requested_scopes: Vec::new(),
-        },
-    )
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))
+    let challenge = auth
+        .create_pairing(
+            &creator,
+            remote_protocol::CreatePairingRequest {
+                preset: Some(preset),
+                requested_scopes: Vec::new(),
+            },
+        )
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let host_id = load_or_create_host_id().await?;
+    let reachability = {
+        let runtime = WEB_SERVICE_RUNTIME.lock().await;
+        runtime
+            .as_ref()
+            .map(|current| reachability_from_addresses(&current.addresses))
+            .unwrap_or_default()
+    };
+    let payload = remote_protocol::PairingInvitationPayload::from_challenge(
+        host_id,
+        preset,
+        &challenge,
+        reachability,
+    );
+    Ok(remote_protocol::IssuedPairingInvitation::from_payload(
+        challenge, payload,
+    ))
 }
 
 pub async fn ensure_web_service_autostart(app: tauri::AppHandle) -> Result<(), AppError> {
@@ -889,7 +606,34 @@ mod tests {
 
     use axum::Router;
 
-    use super::{WebServiceConfig, start_web_server_with_router, stop_web_server_with_config};
+    use super::{
+        WebServiceConfig, advertised_addresses, reachability_from_addresses,
+        start_web_server_with_router, stop_web_server_with_config,
+    };
+
+    #[test]
+    fn advertised_lan_addresses_exclude_loopback_from_reachability() {
+        let addresses = advertised_addresses(17891, true);
+        let reachability = reachability_from_addresses(&addresses);
+        assert!(
+            addresses
+                .iter()
+                .any(|address| address.contains("127.0.0.1"))
+        );
+        assert!(
+            reachability
+                .iter()
+                .all(|item| !item.origin.contains("127.0.0.1"))
+        );
+    }
+
+    #[test]
+    fn advertised_addresses_without_lan_are_loopback_only() {
+        assert_eq!(
+            advertised_addresses(3080, false),
+            vec!["http://127.0.0.1:3080".to_string()]
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn starting_web_service_returns_the_running_status_without_hanging() {

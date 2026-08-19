@@ -11,7 +11,7 @@ import type { WorkspaceWithSession } from '@/types/attempt';
 import { useAttemptExecution } from '@/hooks/useAttemptExecution';
 import { useBranchStatus } from '@/hooks/useBranchStatus';
 import { useRetryProcess } from '@/hooks/useRetryProcess';
-import { extractProfileFromAction } from '@/utils/executor';
+import type { ExecutorProfileId } from 'shared/types';
 
 export function RetryEditorInline({
   attempt,
@@ -33,13 +33,11 @@ export function RetryEditorInline({
   const [sendError, setSendError] = useState<string | null>(null);
   const sessionId = attempt.session?.id;
 
-  const processProfile = useMemo(() => {
-    const process = attemptData.processes?.find(
-      (p) => p.id === executionProcessId
-    );
-    if (!process?.executor_action) return null;
-    return extractProfileFromAction(process.executor_action);
-  }, [attemptData.processes, executionProcessId]);
+  const processProfile = useMemo<ExecutorProfileId | null>(() => {
+    const executor = attempt.session?.executor;
+    if (!executor) return null;
+    return { executor, variant: null };
+  }, [attempt.session?.executor]);
 
   const retryMutation = useRetryProcess(
     attemptId,

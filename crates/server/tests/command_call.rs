@@ -307,6 +307,57 @@ async fn authenticated_call_uses_the_application_command_registry() {
 }
 
 #[tokio::test]
+async fn authenticated_call_registers_conversation_catalog() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("call-secret-with-at-least-32-bytes"),
+        core,
+    )
+    .router();
+    let operation_id = OperationId::new();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/call/conversation_catalog")
+                .header("authorization", "Bearer call-secret-with-at-least-32-bytes")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "operation_id": operation_id,
+                        "args": {}
+                    })
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: CommandResponse<serde_json::Value> = serde_json::from_slice(
+        &to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body"),
+    )
+    .expect("command response");
+    assert!(body.data.get("projects").is_some());
+    assert!(body.data.get("workspaces").is_some());
+}
+
+#[tokio::test]
 async fn authenticated_call_creates_a_conversation_through_application_core() {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
         .expect("sqlite options")

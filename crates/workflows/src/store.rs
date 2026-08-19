@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, str::FromStr};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    str::FromStr,
+};
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -25,26 +28,6 @@ pub enum WorkflowRunStatus {
     Cancelled,
     Interrupted,
     NeedsReview,
-}
-
-fn evidence_component_is_available(
-    evidence: &serde_json::Value,
-    component: &str,
-    value_key: &str,
-) -> bool {
-    evidence
-        .get(component)
-        .and_then(serde_json::Value::as_object)
-        .is_some_and(|component| {
-            component
-                .get("available")
-                .and_then(serde_json::Value::as_bool)
-                == Some(true)
-                && component
-                    .get(value_key)
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|value| !value.is_empty())
-        })
 }
 
 impl FromStr for WorkflowRunStatus {
@@ -117,6 +100,24 @@ pub enum WorkflowEvent {
         policy: WorkflowPolicy,
         deadline_at: DateTime<Utc>,
     },
+    RunDerived {
+        parent_run_id: Uuid,
+        fork_step_id: String,
+        run_mode: DebugRunScope,
+        reused_step_ids: Vec<String>,
+        excluded_step_ids: Vec<String>,
+    },
+    StepReused {
+        step_id: String,
+        conversation_id: Option<Uuid>,
+        output_json: Option<String>,
+        output_schema_digest: Option<String>,
+        resolved_input_json: Option<String>,
+        resolved_input_digest: Option<String>,
+        execution_evidence_json: Option<String>,
+        workspace_id: Option<Uuid>,
+        completed_at: Option<DateTime<Utc>>,
+    },
     StepReady {
         step_id: String,
         attempt: u32,
@@ -174,11 +175,34 @@ pub enum WorkflowEvent {
         step_id: String,
         attempt: u32,
     },
+    StepInputRequested {
+        step_id: String,
+        attempt: u32,
+        conversation_id: Uuid,
+        reason: Option<String>,
+    },
+    StepInputSubmitted {
+        step_id: String,
+        attempt: u32,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    },
     StepOutputAccepted {
         step_id: String,
         attempt: u32,
         output: serde_json::Value,
         schema_digest: String,
+    },
+    StepCandidateProduced {
+        step_id: String,
+        attempt: u32,
+        output: Option<serde_json::Value>,
+        schema_digest: Option<String>,
+    },
+    StepCandidateAccepted {
+        step_id: String,
+        attempt: u32,
+        principal: serde_json::Value,
     },
     StepRepairRequested {
         step_id: String,
@@ -231,6 +255,14 @@ pub enum WorkflowEvent {
     RunCancelled {
         reason: Option<String>,
     },
+    RunPauseRequested {
+        reason: Option<String>,
+        principal: serde_json::Value,
+    },
+    RunPaused,
+    RunResumed {
+        principal: serde_json::Value,
+    },
     RunNeedsReview {
         reason: String,
     },
@@ -240,6 +272,8 @@ impl WorkflowEvent {
     fn kind(&self) -> &'static str {
         match self {
             Self::RunStarted { .. } => "run_started",
+            Self::RunDerived { .. } => "run_derived",
+            Self::StepReused { .. } => "step_reused",
             Self::StepReady { .. } => "step_ready",
             Self::StepClaimed { .. } => "step_claimed",
             Self::StepClaimReleased { .. } => "step_claim_released",
@@ -250,7 +284,11 @@ impl WorkflowEvent {
             Self::StepWaitingApproval { .. } => "step_waiting_approval",
             Self::StepInteractionWaiting { .. } => "step_interaction_waiting",
             Self::StepInteractionResumed { .. } => "step_interaction_resumed",
+            Self::StepInputRequested { .. } => "step_input_requested",
+            Self::StepInputSubmitted { .. } => "step_input_submitted",
             Self::StepOutputAccepted { .. } => "step_output_accepted",
+            Self::StepCandidateProduced { .. } => "step_candidate_produced",
+            Self::StepCandidateAccepted { .. } => "step_candidate_accepted",
             Self::StepRepairRequested { .. } => "step_repair_requested",
             Self::StepCompleted { .. } => "step_completed",
             Self::StepFailed { .. } => "step_failed",
@@ -263,6 +301,9 @@ impl WorkflowEvent {
             Self::RunCompleted => "run_completed",
             Self::RunFailed { .. } => "run_failed",
             Self::RunCancelled { .. } => "run_cancelled",
+            Self::RunPauseRequested { .. } => "run_pause_requested",
+            Self::RunPaused => "run_paused",
+            Self::RunResumed { .. } => "run_resumed",
             Self::RunNeedsReview { .. } => "run_needs_review",
         }
     }
@@ -277,7 +318,19 @@ pub struct WorkflowVersionView {
     pub version: i64,
     pub digest: String,
     pub normalized_json: String,
+    pub source_path: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct WorkflowDefinitionSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub latest_version_id: Option<Uuid>,
+    pub latest_version: Option<i64>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl WorkflowVersionView {
@@ -294,6 +347,12 @@ pub struct WorkflowRunView {
     pub definition_version_id: Uuid,
     pub workspace_id: Uuid,
     pub status: String,
+    pub control_state: String,
+    pub pause_reason: Option<String>,
+    pub paused_at: Option<DateTime<Utc>>,
+    pub parent_run_id: Option<Uuid>,
+    pub fork_step_id: Option<String>,
+    pub run_mode: String,
     pub input_json: String,
     pub policy_json: String,
     pub deadline_at: DateTime<Utc>,
@@ -322,6 +381,11 @@ pub struct WorkflowStepView {
     pub turn_id: Option<Uuid>,
     pub output_json: Option<String>,
     pub output_schema_digest: Option<String>,
+    pub candidate_output_json: Option<String>,
+    pub candidate_schema_digest: Option<String>,
+    pub awaiting_acceptance: bool,
+    pub awaiting_input: bool,
+    pub execution_mode: String,
     pub resolved_input_json: Option<String>,
     pub resolved_input_digest: Option<String>,
     pub execution_evidence_json: Option<String>,
@@ -379,6 +443,15 @@ pub struct ResolvedWorkflowStepInput {
     pub digest: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum DebugRunScope {
+    #[default]
+    Node,
+    Downstream,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowRetentionCandidate {
     pub run_id: Uuid,
@@ -394,6 +467,18 @@ pub(crate) struct PersistWorkflowRun<'a> {
     pub workspace_id: Uuid,
     pub input: &'a serde_json::Value,
     pub policy: &'a WorkflowPolicy,
+    pub operation_id: Uuid,
+    pub payload_digest: &'a str,
+    pub principal_json: &'a str,
+    pub debug_step_id: Option<&'a str>,
+    pub debug_execution_steps: Option<&'a BTreeSet<String>>,
+}
+
+pub(crate) struct PersistDerivedWorkflowRun<'a> {
+    pub parent: &'a WorkflowRunView,
+    pub fork_step_id: &'a str,
+    pub scope: DebugRunScope,
+    pub execution_modes: &'a BTreeMap<String, &'static str>,
     pub operation_id: Uuid,
     pub payload_digest: &'a str,
     pub principal_json: &'a str,
@@ -413,6 +498,7 @@ impl WorkflowStore {
         definition_id: Option<Uuid>,
         definition: &WorkflowDefinition,
         digest: &str,
+        source_path: Option<&str>,
         operation_id: Uuid,
         principal_json: &str,
     ) -> Result<WorkflowVersionView, WorkflowError> {
@@ -420,7 +506,7 @@ impl WorkflowStore {
         let mut conn = self.begin_immediate().await?;
         let result = async {
             if let Some(existing) = sqlx::query_as::<_, WorkflowVersionView>(
-                "SELECT id, definition_id, version, digest, normalized_json, created_at
+                "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
                  FROM workflow_definition_versions WHERE operation_id = ?",
             )
             .bind(operation_id)
@@ -434,17 +520,43 @@ impl WorkflowStore {
                 }
                 return Ok(existing);
             }
-            let definition_id = definition_id.unwrap_or_else(Uuid::new_v4);
-            if let Some(existing) = sqlx::query_as::<_, WorkflowVersionView>(
-                "SELECT id, definition_id, version, digest, normalized_json, created_at
-                 FROM workflow_definition_versions
-                 WHERE definition_id = ? AND digest = ?",
-            )
-            .bind(definition_id)
-            .bind(digest)
-            .fetch_optional(&mut *conn)
-            .await?
+            let definition_id = match (definition_id, source_path) {
+                (Some(definition_id), _) => definition_id,
+                (None, Some(source_path)) => sqlx::query_scalar::<_, Uuid>(
+                    "SELECT definition_id FROM workflow_definition_versions
+                     WHERE source_path = ? ORDER BY created_at DESC, version DESC LIMIT 1",
+                )
+                .bind(source_path)
+                .fetch_optional(&mut *conn)
+                .await?
+                .unwrap_or_else(Uuid::new_v4),
+                (None, None) => Uuid::new_v4(),
+            };
+            if let Some((existing, publication_kind)) =
+                find_version_by_digest(&mut conn, definition_id, digest).await?
             {
+                if publication_kind == "debug" {
+                    let version: i64 = sqlx::query_scalar(
+                        "SELECT COALESCE(MAX(version), 0) + 1
+                         FROM workflow_definition_versions
+                         WHERE definition_id = ? AND publication_kind = 'published'",
+                    )
+                    .bind(definition_id)
+                    .fetch_one(&mut *conn)
+                    .await?;
+                    return sqlx::query_as::<_, WorkflowVersionView>(
+                        "UPDATE workflow_definition_versions
+                         SET version = ?, publication_kind = 'published'
+                         WHERE id = ?
+                         RETURNING id, definition_id, version, digest, normalized_json,
+                                   source_path, created_at",
+                    )
+                    .bind(version)
+                    .bind(existing.id)
+                    .fetch_one(&mut *conn)
+                    .await
+                    .map_err(WorkflowError::from);
+                }
                 return Ok(existing);
             }
             sqlx::query(
@@ -457,7 +569,8 @@ impl WorkflowStore {
             .await?;
             let version: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(MAX(version), 0) + 1
-                 FROM workflow_definition_versions WHERE definition_id = ?",
+                 FROM workflow_definition_versions
+                 WHERE definition_id = ? AND publication_kind = 'published'",
             )
             .bind(definition_id)
             .fetch_one(&mut *conn)
@@ -466,9 +579,10 @@ impl WorkflowStore {
             sqlx::query_as::<_, WorkflowVersionView>(
                 "INSERT INTO workflow_definition_versions (
                      id, definition_id, version, digest, normalized_json,
-                     operation_id, payload_digest, principal_json
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                 RETURNING id, definition_id, version, digest, normalized_json, created_at",
+                     operation_id, payload_digest, principal_json, source_path,
+                     publication_kind
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')
+                 RETURNING id, definition_id, version, digest, normalized_json, source_path, created_at",
             )
             .bind(id)
             .bind(definition_id)
@@ -478,6 +592,93 @@ impl WorkflowStore {
             .bind(operation_id)
             .bind(digest)
             .bind(principal_json)
+            .bind(source_path)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(WorkflowError::from)
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn materialize_debug(
+        &self,
+        definition_id: Option<Uuid>,
+        definition: &WorkflowDefinition,
+        digest: &str,
+        source_path: Option<&str>,
+        operation_id: Uuid,
+        principal_json: &str,
+    ) -> Result<WorkflowVersionView, WorkflowError> {
+        let normalized_json = serde_json::to_string(definition)?;
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            if let Some(existing) = sqlx::query_as::<_, WorkflowVersionView>(
+                "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
+                 FROM workflow_definition_versions WHERE operation_id = ?",
+            )
+            .bind(operation_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            {
+                if existing.digest != digest {
+                    return Err(WorkflowError::Conflict(
+                        "operation id was already used with another definition".to_string(),
+                    ));
+                }
+                return Ok(existing);
+            }
+            let definition_id = match (definition_id, source_path) {
+                (Some(definition_id), _) => definition_id,
+                (None, Some(source_path)) => sqlx::query_scalar::<_, Uuid>(
+                    "SELECT definition_id FROM workflow_definition_versions
+                     WHERE source_path = ? ORDER BY created_at DESC, version DESC LIMIT 1",
+                )
+                .bind(source_path)
+                .fetch_optional(&mut *conn)
+                .await?
+                .unwrap_or_else(Uuid::new_v4),
+                (None, None) => Uuid::new_v4(),
+            };
+            if let Some((existing, _)) =
+                find_version_by_digest(&mut conn, definition_id, digest).await?
+            {
+                return Ok(existing);
+            }
+            sqlx::query(
+                "INSERT INTO workflow_definitions (id, name) VALUES (?, ?)
+                 ON CONFLICT(id) DO NOTHING",
+            )
+            .bind(definition_id)
+            .bind(&definition.name)
+            .execute(&mut *conn)
+            .await?;
+            let version: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(MIN(version), 0) - 1
+                 FROM workflow_definition_versions
+                 WHERE definition_id = ? AND publication_kind = 'debug'",
+            )
+            .bind(definition_id)
+            .fetch_one(&mut *conn)
+            .await?;
+            let id = Uuid::new_v4();
+            sqlx::query_as::<_, WorkflowVersionView>(
+                "INSERT INTO workflow_definition_versions (
+                     id, definition_id, version, digest, normalized_json,
+                     operation_id, payload_digest, principal_json, source_path,
+                     publication_kind
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'debug')
+                 RETURNING id, definition_id, version, digest, normalized_json, source_path, created_at",
+            )
+            .bind(id)
+            .bind(definition_id)
+            .bind(version)
+            .bind(digest)
+            .bind(normalized_json)
+            .bind(operation_id)
+            .bind(digest)
+            .bind(principal_json)
+            .bind(source_path)
             .fetch_one(&mut *conn)
             .await
             .map_err(WorkflowError::from)
@@ -488,13 +689,82 @@ impl WorkflowStore {
 
     pub async fn version(&self, id: Uuid) -> Result<WorkflowVersionView, WorkflowError> {
         sqlx::query_as::<_, WorkflowVersionView>(
-            "SELECT id, definition_id, version, digest, normalized_json, created_at
+            "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
              FROM workflow_definition_versions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| WorkflowError::NotFound(format!("workflow version {id}")))
+    }
+
+    pub async fn version_by_source_digest(
+        &self,
+        source_path: &str,
+        digest: &str,
+    ) -> Result<WorkflowVersionView, WorkflowError> {
+        sqlx::query_as::<_, WorkflowVersionView>(
+            "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
+             FROM workflow_definition_versions
+             WHERE source_path = ? AND digest = ? AND publication_kind = 'published'
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(source_path)
+        .bind(digest)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            WorkflowError::NotFound(format!(
+                "workflow version for source `{source_path}` and digest `{digest}`"
+            ))
+        })
+    }
+
+    pub async fn definitions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, WorkflowError> {
+        sqlx::query_as::<_, WorkflowDefinitionSummary>(
+            "SELECT definition.id, definition.name,
+                    latest.id AS latest_version_id,
+                    latest.version AS latest_version,
+                    MAX(definition.created_at,
+                        COALESCE(latest.created_at, definition.created_at)) AS updated_at
+             FROM workflow_definitions definition
+             LEFT JOIN workflow_definition_versions latest
+              ON latest.definition_id = definition.id
+             AND latest.publication_kind = 'published'
+              AND latest.version = (
+                  SELECT MAX(version) FROM workflow_definition_versions
+                  WHERE definition_id = definition.id
+                    AND publication_kind = 'published'
+              )
+             WHERE latest.id IS NOT NULL
+             ORDER BY updated_at DESC, definition.id
+             LIMIT ?",
+        )
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(WorkflowError::from)
+    }
+
+    pub async fn versions(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, WorkflowError> {
+        sqlx::query_as::<_, WorkflowVersionView>(
+            "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
+             FROM workflow_definition_versions
+             WHERE definition_id = ? AND publication_kind = 'published'
+             ORDER BY version DESC LIMIT ?",
+        )
+        .bind(definition_id)
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(WorkflowError::from)
     }
 
     pub(crate) async fn start(
@@ -525,8 +795,9 @@ impl WorkflowStore {
             sqlx::query(
                 "INSERT INTO workflow_runs (
                      id, definition_version_id, workspace_id, status, input_json, policy_json,
-                     operation_id, payload_digest, principal_json, deadline_at
-                 ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)",
+                     operation_id, payload_digest, principal_json, deadline_at,
+                     fork_step_id, run_mode
+                 ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(run_id)
             .bind(version.id)
@@ -537,19 +808,39 @@ impl WorkflowStore {
             .bind(request.payload_digest)
             .bind(request.principal_json)
             .bind(deadline_at)
+            .bind(request.debug_step_id)
+            .bind(request.debug_step_id.map_or("standard", |_| "debug_node"))
             .execute(&mut *conn)
             .await?;
             let ordered = deterministic_order(&definition)?;
             for step_id in &ordered {
-                sqlx::query(
-                    "INSERT INTO workflow_step_runs (id, run_id, step_id, attempt, status)
-                     VALUES (?, ?, ?, 1, 'pending')",
-                )
-                .bind(Uuid::new_v4())
-                .bind(run_id)
-                .bind(step_id)
-                .execute(&mut *conn)
-                .await?;
+                let excluded = request
+                    .debug_execution_steps
+                    .is_some_and(|steps| !steps.contains(step_id));
+                if excluded {
+                    sqlx::query(
+                        "INSERT INTO workflow_step_runs (
+                             id, run_id, step_id, attempt, status, completed_at, execution_mode
+                         ) VALUES (?, ?, ?, 1, 'skipped', ?, 'exclude')",
+                    )
+                    .bind(Uuid::new_v4())
+                    .bind(run_id)
+                    .bind(step_id)
+                    .bind(Utc::now())
+                    .execute(&mut *conn)
+                    .await?;
+                } else {
+                    sqlx::query(
+                        "INSERT INTO workflow_step_runs (
+                             id, run_id, step_id, attempt, status, execution_mode
+                         ) VALUES (?, ?, ?, 1, 'pending', 'execute')",
+                    )
+                    .bind(Uuid::new_v4())
+                    .bind(run_id)
+                    .bind(step_id)
+                    .execute(&mut *conn)
+                    .await?;
+                }
             }
             append_event(
                 &mut conn,
@@ -557,14 +848,222 @@ impl WorkflowStore {
                 Some(request.operation_id),
                 &WorkflowEvent::RunStarted {
                     definition_version_id: version.id,
-                    step_ids: ordered,
+                    step_ids: ordered.clone(),
                     input: request.input.clone(),
                     policy: request.policy.clone(),
                     deadline_at,
                 },
             )
             .await?;
+            if request.debug_execution_steps.is_some() {
+                for step_id in &ordered {
+                    if request
+                        .debug_execution_steps
+                        .is_some_and(|steps| !steps.contains(step_id))
+                    {
+                        append_event(
+                            &mut conn,
+                            run_id,
+                            None,
+                            &WorkflowEvent::StepSkipped {
+                                step_id: step_id.clone(),
+                                attempt: 1,
+                            },
+                        )
+                        .await?;
+                    }
+                }
+            }
             enqueue_newly_ready(&mut conn, run_id, &definition).await?;
+            settle_if_complete(&mut conn, run_id).await?;
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub(crate) async fn start_derived(
+        &self,
+        version: &WorkflowVersionView,
+        request: PersistDerivedWorkflowRun<'_>,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let definition = version.definition()?;
+        let input: serde_json::Value = serde_json::from_str(&request.parent.input_json)?;
+        let policy: WorkflowPolicy = serde_json::from_str(&request.parent.policy_json)?;
+        let deadline_at = Utc::now() + Duration::seconds(policy.deadline_seconds as i64);
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            if let Some(existing) = find_run_by_operation(&mut conn, request.operation_id).await? {
+                let existing_digest: String =
+                    sqlx::query_scalar("SELECT payload_digest FROM workflow_runs WHERE id = ?")
+                        .bind(existing.id)
+                        .fetch_one(&mut *conn)
+                        .await?;
+                if existing_digest != request.payload_digest {
+                    return Err(WorkflowError::Conflict(
+                        "operation id was already used with another derived Run".to_string(),
+                    ));
+                }
+                return Ok(existing);
+            }
+            let run_id = Uuid::new_v4();
+            let run_mode = match request.scope {
+                DebugRunScope::Node => "debug_node",
+                DebugRunScope::Downstream => "debug_downstream",
+            };
+            sqlx::query(
+                "INSERT INTO workflow_runs (
+                     id, definition_version_id, workspace_id, status, input_json, policy_json,
+                     operation_id, payload_digest, principal_json, deadline_at,
+                     parent_run_id, fork_step_id, run_mode
+                 ) VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(run_id)
+            .bind(version.id)
+            .bind(request.parent.workspace_id)
+            .bind(&request.parent.input_json)
+            .bind(&request.parent.policy_json)
+            .bind(request.operation_id)
+            .bind(request.payload_digest)
+            .bind(request.principal_json)
+            .bind(deadline_at)
+            .bind(request.parent.id)
+            .bind(request.fork_step_id)
+            .bind(run_mode)
+            .execute(&mut *conn)
+            .await?;
+            let ordered = deterministic_order(&definition)?;
+            append_event(
+                &mut conn,
+                run_id,
+                Some(request.operation_id),
+                &WorkflowEvent::RunStarted {
+                    definition_version_id: version.id,
+                    step_ids: ordered.clone(),
+                    input,
+                    policy: policy.clone(),
+                    deadline_at,
+                },
+            )
+            .await?;
+            let mut reused = Vec::new();
+            let mut excluded = Vec::new();
+            for step_id in &ordered {
+                let mode = request
+                    .execution_modes
+                    .get(step_id)
+                    .copied()
+                    .unwrap_or("exclude");
+                match mode {
+                    "reuse" => {
+                        let parent_step =
+                            find_latest_step(&mut conn, request.parent.id, step_id).await?;
+                        if parent_step.status != "completed" {
+                            return Err(WorkflowError::Conflict(format!(
+                                "step `{step_id}` cannot be reused from {}",
+                                parent_step.status
+                            )));
+                        }
+                        let execution_evidence_json = parent_step
+                            .execution_evidence_json
+                            .as_deref()
+                            .map(|evidence| {
+                                rebase_reused_execution_evidence(evidence, &version.digest)
+                            })
+                            .transpose()?;
+                        sqlx::query(
+                            "INSERT INTO workflow_step_runs (
+                                id, run_id, step_id, attempt, status, conversation_id,
+                                output_json, output_schema_digest, resolved_input_json,
+                                resolved_input_digest, execution_evidence_json, workspace_id,
+                                completed_at, execution_mode
+                             ) VALUES (?, ?, ?, 1, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, 'reuse')",
+                        )
+                        .bind(Uuid::new_v4())
+                        .bind(run_id)
+                        .bind(step_id)
+                        .bind(parent_step.conversation_id)
+                        .bind(&parent_step.output_json)
+                        .bind(&parent_step.output_schema_digest)
+                        .bind(&parent_step.resolved_input_json)
+                        .bind(&parent_step.resolved_input_digest)
+                        .bind(&execution_evidence_json)
+                        .bind(parent_step.workspace_id)
+                        .bind(parent_step.completed_at)
+                        .execute(&mut *conn)
+                        .await?;
+                        append_event(
+                            &mut conn,
+                            run_id,
+                            None,
+                            &WorkflowEvent::StepReused {
+                                step_id: step_id.clone(),
+                                conversation_id: parent_step.conversation_id,
+                                output_json: parent_step.output_json,
+                                output_schema_digest: parent_step.output_schema_digest,
+                                resolved_input_json: parent_step.resolved_input_json,
+                                resolved_input_digest: parent_step.resolved_input_digest,
+                                execution_evidence_json,
+                                workspace_id: parent_step.workspace_id,
+                                completed_at: parent_step.completed_at,
+                            },
+                        )
+                        .await?;
+                        reused.push(step_id.clone());
+                    }
+                    "execute" => {
+                        sqlx::query(
+                            "INSERT INTO workflow_step_runs (
+                                id, run_id, step_id, attempt, status, execution_mode
+                             ) VALUES (?, ?, ?, 1, 'pending', 'execute')",
+                        )
+                        .bind(Uuid::new_v4())
+                        .bind(run_id)
+                        .bind(step_id)
+                        .execute(&mut *conn)
+                        .await?;
+                    }
+                    _ => {
+                        sqlx::query(
+                            "INSERT INTO workflow_step_runs (
+                                id, run_id, step_id, attempt, status, completed_at, execution_mode
+                             ) VALUES (?, ?, ?, 1, 'skipped', ?, 'exclude')",
+                        )
+                        .bind(Uuid::new_v4())
+                        .bind(run_id)
+                        .bind(step_id)
+                        .bind(Utc::now())
+                        .execute(&mut *conn)
+                        .await?;
+                        append_event(
+                            &mut conn,
+                            run_id,
+                            None,
+                            &WorkflowEvent::StepSkipped {
+                                step_id: step_id.clone(),
+                                attempt: 1,
+                            },
+                        )
+                        .await?;
+                        excluded.push(step_id.clone());
+                    }
+                }
+            }
+            append_event(
+                &mut conn,
+                run_id,
+                None,
+                &WorkflowEvent::RunDerived {
+                    parent_run_id: request.parent.id,
+                    fork_step_id: request.fork_step_id.to_string(),
+                    run_mode: request.scope,
+                    reused_step_ids: reused,
+                    excluded_step_ids: excluded,
+                },
+            )
+            .await?;
+            enqueue_newly_ready(&mut conn, run_id, &definition).await?;
+            settle_if_complete(&mut conn, run_id).await?;
             find_run(&mut conn, run_id).await
         }
         .await;
@@ -584,7 +1083,9 @@ impl WorkflowStore {
         limit: u32,
     ) -> Result<Vec<WorkflowRunView>, WorkflowError> {
         sqlx::query_as::<_, WorkflowRunView>(
-            "SELECT id, definition_version_id, workspace_id, status, input_json, policy_json,
+            "SELECT id, definition_version_id, workspace_id, status, control_state,
+                    pause_reason, paused_at, parent_run_id, fork_step_id, run_mode,
+                    input_json, policy_json,
                     deadline_at, agent_calls_started, last_sequence, created_at, updated_at
              FROM workflow_runs
              WHERE status = 'running' AND dispatch_ready = 0
@@ -613,7 +1114,9 @@ impl WorkflowStore {
     pub async fn steps(&self, run_id: Uuid) -> Result<Vec<WorkflowStepView>, WorkflowError> {
         sqlx::query_as::<_, WorkflowStepView>(
             "SELECT id, run_id, step_id, attempt, status, conversation_id, turn_id,
-                    output_json, output_schema_digest, resolved_input_json,
+                    output_json, output_schema_digest, candidate_output_json,
+                    candidate_schema_digest, awaiting_acceptance, awaiting_input, execution_mode,
+                    resolved_input_json,
                     resolved_input_digest, execution_evidence_json,
                     workspace_id, waiting_interaction,
                     repair_count, claim_token, claim_deadline,
@@ -761,6 +1264,27 @@ impl WorkflowStore {
         let run = self.run(run_id).await?;
         let run_input: serde_json::Value = serde_json::from_str(&run.input_json)?;
         let mut values = BTreeMap::new();
+        for dependency in &step.depends_on {
+            let output_json: Option<String> = sqlx::query_scalar(
+                "SELECT output_json FROM workflow_step_runs
+                 WHERE run_id = ? AND step_id = ? AND status = 'completed'
+                   AND output_json IS NOT NULL
+                 ORDER BY attempt DESC LIMIT 1",
+            )
+            .bind(run_id)
+            .bind(dependency)
+            .fetch_optional(&self.pool)
+            .await?;
+            let output_json = output_json.ok_or_else(|| {
+                WorkflowError::Conflict(format!(
+                    "dependency step `{dependency}` has no accepted output"
+                ))
+            })?;
+            values.insert(
+                dependency.clone(),
+                serde_json::from_str::<serde_json::Value>(&output_json)?,
+            );
+        }
         for (name, binding) in &step.input_bindings {
             let (source, pointer) = match binding {
                 WorkflowBinding::RunInput { pointer } => (&run_input, pointer.as_str()),
@@ -825,9 +1349,9 @@ impl WorkflowStore {
                 "workspaceCheckpoint": { "available": false },
                 "workspace": workspace_evidence,
             }),
-            WorkflowStepSpec::Approval(_) => {
+            WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => {
                 return Err(WorkflowError::Conflict(
-                    "approval steps do not have Agent execution evidence".to_string(),
+                    "approval and notify steps do not have Agent execution evidence".to_string(),
                 ));
             }
         };
@@ -974,6 +1498,7 @@ impl WorkflowStore {
                  FROM workflow_ready_steps ready
                  JOIN workflow_runs run ON run.id = ready.run_id
                  WHERE ready.status = 'ready' AND run.status IN ('running', 'waiting')
+                   AND run.control_state = 'active'
                    AND run.deadline_at > ?
                    AND run.dispatch_ready = 1
                  ORDER BY ready.ready_sequence, ready.run_id, ready.step_id
@@ -1011,12 +1536,16 @@ impl WorkflowStore {
                             "workflow step `{step_id}` is missing from its definition"
                         ))
                     })?;
-                let isolated_writer = matches!(
+                let requires_shared_workspace_lease = matches!(
                     &definition_step.spec,
                     WorkflowStepSpec::Agent(agent)
-                        if agent.workspace_access == crate::WorkspaceAccess::WriteIsolated
+                        if matches!(
+                            agent.workspace_access,
+                            crate::WorkspaceAccess::ReadOnlyShared
+                                | crate::WorkspaceAccess::WriteSerialized
+                        )
                 );
-                if !isolated_writer {
+                if requires_shared_workspace_lease {
                     // Session transports do not yet expose a portable,
                     // negotiated read-only filesystem capability. Shared
                     // read-only claims therefore serialize with unknown writers.
@@ -1120,6 +1649,18 @@ impl WorkflowStore {
                     "workflow step claim is stale or no longer owned".to_string(),
                 ));
             }
+            // A ready-row lease only owns preflight. Once execution is running it
+            // must not survive long enough for stale-claim recovery to emit a
+            // misleading release or make the same node reclaimable.
+            sqlx::query(
+                "DELETE FROM workflow_ready_steps
+                 WHERE run_id = ? AND step_id = ? AND claim_token = ?",
+            )
+            .bind(run_id)
+            .bind(step_id)
+            .bind(claim_token)
+            .execute(&mut *conn)
+            .await?;
             sqlx::query(
                 "UPDATE workflow_runs SET agent_calls_started = agent_calls_started + 1,
                         updated_at = datetime('now', 'subsec') WHERE id = ?",
@@ -1186,6 +1727,92 @@ impl WorkflowStore {
                 },
             )
             .await?;
+            find_step(&mut conn, run_id, step_id, step.attempt).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn set_step_awaiting_input(
+        &self,
+        run_id: Uuid,
+        step_id: &str,
+        awaiting: bool,
+        reason: Option<&str>,
+        submitted_turn_id: Option<Uuid>,
+    ) -> Result<WorkflowStepView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            let step = find_latest_step(&mut conn, run_id, step_id).await?;
+            if step.status != "running" {
+                return Err(WorkflowError::Conflict(format!(
+                    "step `{step_id}` cannot change input state from {}",
+                    step.status
+                )));
+            }
+            let conversation_id = step.conversation_id.ok_or_else(|| {
+                WorkflowError::Conflict(format!("step `{step_id}` has no child Conversation"))
+            })?;
+            if step.awaiting_input == awaiting {
+                return Ok(step);
+            }
+            sqlx::query(
+                "UPDATE workflow_step_runs SET awaiting_input = ?,
+                        turn_id = CASE WHEN ? THEN NULL ELSE turn_id END,
+                        user_intervened = CASE WHEN ? THEN user_intervened ELSE 1 END,
+                        waiting_interaction = 0,
+                        updated_at = datetime('now', 'subsec')
+                 WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'running'",
+            )
+            .bind(awaiting)
+            .bind(awaiting)
+            .bind(awaiting)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(step.attempt)
+            .execute(&mut *conn)
+            .await?;
+            if awaiting {
+                append_event(
+                    &mut conn,
+                    run_id,
+                    None,
+                    &WorkflowEvent::StepInputRequested {
+                        step_id: step_id.to_string(),
+                        attempt: step.attempt as u32,
+                        conversation_id,
+                        reason: reason.map(str::to_string),
+                    },
+                )
+                .await?;
+                sqlx::query(
+                    "UPDATE workflow_runs SET status = 'waiting',
+                            updated_at = datetime('now', 'subsec')
+                     WHERE id = ? AND status = 'running'",
+                )
+                .bind(run_id)
+                .execute(&mut *conn)
+                .await?;
+            } else {
+                let turn_id = submitted_turn_id.ok_or_else(|| {
+                    WorkflowError::Validation(
+                        "resuming a step requires the submitted Turn id".to_string(),
+                    )
+                })?;
+                append_event(
+                    &mut conn,
+                    run_id,
+                    None,
+                    &WorkflowEvent::StepInputSubmitted {
+                        step_id: step_id.to_string(),
+                        attempt: step.attempt as u32,
+                        conversation_id,
+                        turn_id,
+                    },
+                )
+                .await?;
+                restore_running_if_not_waiting(&mut conn, run_id).await?;
+            }
             find_step(&mut conn, run_id, step_id, step.attempt).await
         }
         .await;
@@ -1335,6 +1962,11 @@ impl WorkflowStore {
             if step.status == "completed" {
                 return find_run(&mut conn, run_id).await;
             }
+            if step.awaiting_acceptance {
+                return Err(WorkflowError::Conflict(format!(
+                    "step `{step_id}` has a candidate output awaiting acceptance"
+                )));
+            }
             if !matches!(step.status.as_str(), "running" | "waiting_approval") {
                 return Err(WorkflowError::Conflict(format!(
                     "step `{step_id}` cannot complete from {}",
@@ -1404,6 +2036,202 @@ impl WorkflowStore {
             let run = find_run(&mut conn, run_id).await?;
             let version = version_on_connection(&mut conn, run.definition_version_id).await?;
             let definition = version.definition()?;
+            enqueue_newly_ready(&mut conn, run_id, &definition).await?;
+            settle_if_complete(&mut conn, run_id).await?;
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn stage_step_candidate(
+        &self,
+        run_id: Uuid,
+        step_id: &str,
+        output: Option<&serde_json::Value>,
+        schema_digest: Option<&str>,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            let step = find_latest_step(&mut conn, run_id, step_id).await?;
+            if step.status != "running" {
+                return Err(WorkflowError::Conflict(format!(
+                    "step `{step_id}` cannot produce a candidate from {}",
+                    step.status
+                )));
+            }
+            if step.awaiting_acceptance {
+                let same_output = step.candidate_output_json.as_deref()
+                    == output.map(serde_json::to_string).transpose()?.as_deref();
+                let same_schema = step.candidate_schema_digest.as_deref() == schema_digest;
+                if same_output && same_schema {
+                    return find_run(&mut conn, run_id).await;
+                }
+                return Err(WorkflowError::Conflict(format!(
+                    "step `{step_id}` already has another candidate output"
+                )));
+            }
+            sqlx::query(
+                "UPDATE workflow_step_runs
+                 SET candidate_output_json = ?, candidate_schema_digest = ?,
+                     awaiting_acceptance = 1, turn_id = NULL,
+                     updated_at = datetime('now', 'subsec')
+                 WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'running'",
+            )
+            .bind(output.map(serde_json::to_string).transpose()?)
+            .bind(schema_digest)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(step.attempt)
+            .execute(&mut *conn)
+            .await?;
+            append_event(
+                &mut conn,
+                run_id,
+                None,
+                &WorkflowEvent::StepCandidateProduced {
+                    step_id: step_id.to_string(),
+                    attempt: step.attempt as u32,
+                    output: output.cloned(),
+                    schema_digest: schema_digest.map(str::to_string),
+                },
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE workflow_runs SET status = 'waiting',
+                        updated_at = datetime('now', 'subsec')
+                 WHERE id = ? AND status = 'running'",
+            )
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn accept_step_candidate(
+        &self,
+        run_id: Uuid,
+        step_id: &str,
+        operation_id: Uuid,
+        payload_digest: &str,
+        principal_json: &str,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            if let Some((existing_run_id, existing_step_id, existing_digest)) =
+                sqlx::query_as::<_, (Uuid, Option<String>, String)>(
+                    "SELECT run_id, step_id, payload_digest
+                     FROM workflow_run_control_operations WHERE operation_id = ?",
+                )
+                .bind(operation_id)
+                .fetch_optional(&mut *conn)
+                .await?
+            {
+                if existing_run_id != run_id
+                    || existing_step_id.as_deref() != Some(step_id)
+                    || existing_digest != payload_digest
+                {
+                    return Err(WorkflowError::Conflict(
+                        "operation id was already used with another candidate acceptance"
+                            .to_string(),
+                    ));
+                }
+                return find_run(&mut conn, run_id).await;
+            }
+            let step = find_latest_step(&mut conn, run_id, step_id).await?;
+            if step.status != "running" || !step.awaiting_acceptance {
+                return Err(WorkflowError::Conflict(format!(
+                    "step `{step_id}` has no candidate output awaiting acceptance"
+                )));
+            }
+            sqlx::query(
+                "INSERT INTO workflow_run_control_operations (
+                    operation_id, run_id, action, step_id, payload_digest, principal_json
+                 ) VALUES (?, ?, 'accept_candidate', ?, ?, ?)",
+            )
+            .bind(operation_id)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(payload_digest)
+            .bind(principal_json)
+            .execute(&mut *conn)
+            .await?;
+            let output = step
+                .candidate_output_json
+                .as_deref()
+                .map(serde_json::from_str::<serde_json::Value>)
+                .transpose()?;
+            if let Some(output) = &output {
+                sqlx::query(
+                    "UPDATE workflow_step_runs
+                     SET output_json = ?, output_schema_digest = ?
+                     WHERE run_id = ? AND step_id = ? AND attempt = ?",
+                )
+                .bind(serde_json::to_string(output)?)
+                .bind(step.candidate_schema_digest.as_deref())
+                .bind(run_id)
+                .bind(step_id)
+                .bind(step.attempt)
+                .execute(&mut *conn)
+                .await?;
+                if let Some(schema_digest) = step.candidate_schema_digest.as_deref() {
+                    append_event(
+                        &mut conn,
+                        run_id,
+                        None,
+                        &WorkflowEvent::StepOutputAccepted {
+                            step_id: step_id.to_string(),
+                            attempt: step.attempt as u32,
+                            output: output.clone(),
+                            schema_digest: schema_digest.to_string(),
+                        },
+                    )
+                    .await?;
+                }
+            }
+            append_event(
+                &mut conn,
+                run_id,
+                Some(operation_id),
+                &WorkflowEvent::StepCandidateAccepted {
+                    step_id: step_id.to_string(),
+                    attempt: step.attempt as u32,
+                    principal: serde_json::from_str(principal_json)?,
+                },
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE workflow_step_runs
+                 SET status = 'completed', completed_at = ?, claim_token = NULL,
+                     claim_deadline = NULL, waiting_interaction = 0,
+                     awaiting_acceptance = 0,
+                     candidate_output_json = NULL, candidate_schema_digest = NULL,
+                     updated_at = datetime('now', 'subsec')
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
+            .bind(Utc::now())
+            .bind(run_id)
+            .bind(step_id)
+            .bind(step.attempt)
+            .execute(&mut *conn)
+            .await?;
+            append_event(
+                &mut conn,
+                run_id,
+                None,
+                &WorkflowEvent::StepCompleted {
+                    step_id: step_id.to_string(),
+                    attempt: step.attempt as u32,
+                },
+            )
+            .await?;
+            let run = find_run(&mut conn, run_id).await?;
+            let definition = version_on_connection(&mut conn, run.definition_version_id)
+                .await?
+                .definition()?;
             enqueue_newly_ready(&mut conn, run_id, &definition).await?;
             settle_if_complete(&mut conn, run_id).await?;
             find_run(&mut conn, run_id).await
@@ -2027,6 +2855,165 @@ impl WorkflowStore {
         self.finish(conn, result).await
     }
 
+    pub async fn request_pause(
+        &self,
+        run_id: Uuid,
+        operation_id: Uuid,
+        reason: Option<&str>,
+        payload_digest: &str,
+        principal_json: &str,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            if let Some((existing_run_id, existing_digest)) = sqlx::query_as::<_, (Uuid, String)>(
+                "SELECT run_id, payload_digest FROM workflow_run_control_operations
+                     WHERE operation_id = ?",
+            )
+            .bind(operation_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            {
+                if existing_run_id != run_id || existing_digest != payload_digest {
+                    return Err(WorkflowError::Conflict(
+                        "operation id was already used with another pause request".to_string(),
+                    ));
+                }
+                return find_run(&mut conn, run_id).await;
+            }
+            let run = find_run(&mut conn, run_id).await?;
+            if is_terminal_run(&run.status) {
+                return Err(WorkflowError::Conflict(
+                    "terminal workflow runs cannot be paused".to_string(),
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO workflow_run_control_operations (
+                    operation_id, run_id, action, payload_digest, principal_json
+                 ) VALUES (?, ?, 'pause', ?, ?)",
+            )
+            .bind(operation_id)
+            .bind(run_id)
+            .bind(payload_digest)
+            .bind(principal_json)
+            .execute(&mut *conn)
+            .await?;
+            if run.control_state == "active" {
+                sqlx::query(
+                    "UPDATE workflow_runs SET control_state = 'pausing', pause_reason = ?,
+                            updated_at = datetime('now', 'subsec') WHERE id = ?",
+                )
+                .bind(reason)
+                .bind(run_id)
+                .execute(&mut *conn)
+                .await?;
+                append_event(
+                    &mut conn,
+                    run_id,
+                    Some(operation_id),
+                    &WorkflowEvent::RunPauseRequested {
+                        reason: reason.map(str::to_string),
+                        principal: serde_json::from_str(principal_json)?,
+                    },
+                )
+                .await?;
+            }
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn mark_paused(&self, run_id: Uuid) -> Result<WorkflowRunView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            let run = find_run(&mut conn, run_id).await?;
+            if run.control_state == "paused" {
+                return Ok(run);
+            }
+            if run.control_state != "pausing" {
+                return Err(WorkflowError::Conflict(
+                    "workflow run has no pending pause request".to_string(),
+                ));
+            }
+            sqlx::query(
+                "UPDATE workflow_runs SET control_state = 'paused', paused_at = ?,
+                        updated_at = datetime('now', 'subsec') WHERE id = ?",
+            )
+            .bind(Utc::now())
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+            append_event(&mut conn, run_id, None, &WorkflowEvent::RunPaused).await?;
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
+    pub async fn resume_paused_run(
+        &self,
+        run_id: Uuid,
+        operation_id: Uuid,
+        payload_digest: &str,
+        principal_json: &str,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let mut conn = self.begin_immediate().await?;
+        let result = async {
+            if let Some((existing_run_id, existing_digest)) = sqlx::query_as::<_, (Uuid, String)>(
+                "SELECT run_id, payload_digest FROM workflow_run_control_operations
+                     WHERE operation_id = ?",
+            )
+            .bind(operation_id)
+            .fetch_optional(&mut *conn)
+            .await?
+            {
+                if existing_run_id != run_id || existing_digest != payload_digest {
+                    return Err(WorkflowError::Conflict(
+                        "operation id was already used with another resume request".to_string(),
+                    ));
+                }
+                return find_run(&mut conn, run_id).await;
+            }
+            let run = find_run(&mut conn, run_id).await?;
+            if !matches!(run.control_state.as_str(), "pausing" | "paused") {
+                return Err(WorkflowError::Conflict(
+                    "workflow run is not paused".to_string(),
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO workflow_run_control_operations (
+                    operation_id, run_id, action, payload_digest, principal_json
+                 ) VALUES (?, ?, 'resume', ?, ?)",
+            )
+            .bind(operation_id)
+            .bind(run_id)
+            .bind(payload_digest)
+            .bind(principal_json)
+            .execute(&mut *conn)
+            .await?;
+            sqlx::query(
+                "UPDATE workflow_runs SET control_state = 'active', pause_reason = NULL,
+                        paused_at = NULL, updated_at = datetime('now', 'subsec') WHERE id = ?",
+            )
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+            append_event(
+                &mut conn,
+                run_id,
+                Some(operation_id),
+                &WorkflowEvent::RunResumed {
+                    principal: serde_json::from_str(principal_json)?,
+                },
+            )
+            .await?;
+            restore_running_if_not_waiting(&mut conn, run_id).await?;
+            find_run(&mut conn, run_id).await
+        }
+        .await;
+        self.finish(conn, result).await
+    }
+
     pub async fn reconcile_interrupted(&self) -> Result<usize, WorkflowError> {
         let mut conn = self.begin_immediate().await?;
         let result = async {
@@ -2036,6 +3023,7 @@ impl WorkflowStore {
                  FROM workflow_step_runs step
                  JOIN workflow_runs run ON run.id = step.run_id
                  WHERE step.status = 'running' AND run.status IN ('running', 'waiting')
+                   AND run.control_state = 'active' AND step.awaiting_input = 0
                  ORDER BY step.run_id, step.step_id",
             )
             .fetch_all(&mut *conn)
@@ -2095,8 +3083,9 @@ impl WorkflowStore {
 
     /// Fail closed when a completed upstream Step in an active Run no longer
     /// matches the immutable definition/input/workspace identity captured at
-    /// preparation time. Runtime, tool-set, and workspace checkpoint evidence
-    /// must also be explicitly available; unknown evidence is not reusable.
+    /// preparation time. Optional runtime/tool/checkpoint evidence remains
+    /// inspectable but its absence must not invalidate a completed Step after
+    /// an ordinary app restart.
     pub async fn reconcile_completed_evidence(&self) -> Result<usize, WorkflowError> {
         let mut conn = self.begin_immediate().await?;
         let result = async {
@@ -2140,13 +3129,6 @@ impl WorkflowStore {
                             .and_then(serde_json::Value::as_str)
                             .and_then(|value| Uuid::parse_str(value).ok())
                             == workspace_id
-                        && evidence_component_is_available(evidence, "runtimeVersion", "value")
-                        && evidence_component_is_available(evidence, "toolSetDigest", "digest")
-                        && evidence_component_is_available(
-                            evidence,
-                            "workspaceCheckpoint",
-                            "digest",
-                        )
                 });
                 if consistent {
                     continue;
@@ -2285,6 +3267,28 @@ impl WorkflowStore {
     }
 }
 
+async fn find_version_by_digest(
+    connection: &mut SqliteConnection,
+    definition_id: Uuid,
+    digest: &str,
+) -> Result<Option<(WorkflowVersionView, String)>, WorkflowError> {
+    let row = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT id, publication_kind FROM workflow_definition_versions
+         WHERE definition_id = ? AND digest = ?",
+    )
+    .bind(definition_id)
+    .bind(digest)
+    .fetch_optional(&mut *connection)
+    .await?;
+    let Some((id, publication_kind)) = row else {
+        return Ok(None);
+    };
+    Ok(Some((
+        version_on_connection(connection, id).await?,
+        publication_kind,
+    )))
+}
+
 async fn apply_projection_event(
     conn: &mut SqliteConnection,
     record: &WorkflowEventRecord,
@@ -2303,6 +3307,64 @@ async fn apply_projection_event(
                 .execute(&mut *conn)
                 .await?;
             }
+        }
+        WorkflowEvent::RunDerived {
+            reused_step_ids,
+            excluded_step_ids,
+            ..
+        } => {
+            for step_id in reused_step_ids {
+                sqlx::query(
+                    "UPDATE workflow_step_runs SET execution_mode = 'reuse'
+                     WHERE run_id = ? AND step_id = ? AND attempt = 1",
+                )
+                .bind(run_id)
+                .bind(step_id)
+                .execute(&mut *conn)
+                .await?;
+            }
+            for step_id in excluded_step_ids {
+                sqlx::query(
+                    "UPDATE workflow_step_runs SET execution_mode = 'exclude'
+                     WHERE run_id = ? AND step_id = ? AND attempt = 1",
+                )
+                .bind(run_id)
+                .bind(step_id)
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
+        WorkflowEvent::StepReused {
+            step_id,
+            conversation_id,
+            output_json,
+            output_schema_digest,
+            resolved_input_json,
+            resolved_input_digest,
+            execution_evidence_json,
+            workspace_id,
+            completed_at,
+        } => {
+            sqlx::query(
+                "UPDATE workflow_step_runs SET status = 'completed', conversation_id = ?,
+                        output_json = ?, output_schema_digest = ?, resolved_input_json = ?,
+                        resolved_input_digest = ?, execution_evidence_json = ?, workspace_id = ?,
+                        completed_at = ?, execution_mode = 'reuse', updated_at = ?
+                 WHERE run_id = ? AND step_id = ? AND attempt = 1",
+            )
+            .bind(conversation_id)
+            .bind(output_json)
+            .bind(output_schema_digest)
+            .bind(resolved_input_json)
+            .bind(resolved_input_digest)
+            .bind(execution_evidence_json)
+            .bind(workspace_id)
+            .bind(completed_at)
+            .bind(record.created_at)
+            .bind(run_id)
+            .bind(step_id)
+            .execute(&mut *conn)
+            .await?;
         }
         WorkflowEvent::StepReady { step_id, attempt } => {
             sqlx::query(
@@ -2458,6 +3520,15 @@ async fn apply_projection_event(
             .bind(record.created_at)
             .bind(record.created_at)
             .bind(run_id)
+            .bind(&step_id)
+            .bind(i64::from(attempt))
+            .execute(&mut *conn)
+            .await?;
+            sqlx::query(
+                "DELETE FROM workflow_ready_steps
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
+            .bind(run_id)
             .bind(step_id)
             .bind(i64::from(attempt))
             .execute(&mut *conn)
@@ -2536,6 +3607,44 @@ async fn apply_projection_event(
             .await?;
             restore_running_if_not_waiting(conn, run_id).await?;
         }
+        WorkflowEvent::StepInputRequested {
+            step_id, attempt, ..
+        } => {
+            sqlx::query(
+                "UPDATE workflow_step_runs SET awaiting_input = 1, turn_id = NULL,
+                        waiting_interaction = 0, updated_at = ?
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
+            .bind(record.created_at)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(i64::from(attempt))
+            .execute(&mut *conn)
+            .await?;
+            sqlx::query("UPDATE workflow_runs SET status = 'waiting' WHERE id = ?")
+                .bind(run_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+        WorkflowEvent::StepInputSubmitted {
+            step_id,
+            attempt,
+            turn_id,
+            ..
+        } => {
+            sqlx::query(
+                "UPDATE workflow_step_runs SET awaiting_input = 0, turn_id = ?, updated_at = ?
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
+            .bind(turn_id)
+            .bind(record.created_at)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(i64::from(attempt))
+            .execute(&mut *conn)
+            .await?;
+            restore_running_if_not_waiting(conn, run_id).await?;
+        }
         WorkflowEvent::StepOutputAccepted {
             step_id,
             attempt,
@@ -2548,6 +3657,46 @@ async fn apply_projection_event(
             )
             .bind(serde_json::to_string(&output)?)
             .bind(schema_digest)
+            .bind(record.created_at)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(i64::from(attempt))
+            .execute(&mut *conn)
+            .await?;
+        }
+        WorkflowEvent::StepCandidateProduced {
+            step_id,
+            attempt,
+            output,
+            schema_digest,
+        } => {
+            sqlx::query(
+                "UPDATE workflow_step_runs SET candidate_output_json = ?,
+                        candidate_schema_digest = ?, awaiting_acceptance = 1,
+                        turn_id = NULL, updated_at = ?
+                 WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
+            .bind(output.as_ref().map(serde_json::to_string).transpose()?)
+            .bind(schema_digest)
+            .bind(record.created_at)
+            .bind(run_id)
+            .bind(step_id)
+            .bind(i64::from(attempt))
+            .execute(&mut *conn)
+            .await?;
+            sqlx::query("UPDATE workflow_runs SET status = 'waiting' WHERE id = ?")
+                .bind(run_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+        WorkflowEvent::StepCandidateAccepted {
+            step_id, attempt, ..
+        } => {
+            sqlx::query(
+                "UPDATE workflow_step_runs SET awaiting_acceptance = 0,
+                        candidate_output_json = NULL, candidate_schema_digest = NULL,
+                        updated_at = ? WHERE run_id = ? AND step_id = ? AND attempt = ?",
+            )
             .bind(record.created_at)
             .bind(run_id)
             .bind(step_id)
@@ -2639,6 +3788,38 @@ async fn apply_projection_event(
         WorkflowEvent::RunCancelled { .. } => {
             set_rebuilt_run_status(conn, record, "cancelled").await?
         }
+        WorkflowEvent::RunPauseRequested { reason, .. } => {
+            sqlx::query(
+                "UPDATE workflow_runs SET control_state = 'pausing', pause_reason = ?,
+                        updated_at = ? WHERE id = ?",
+            )
+            .bind(reason)
+            .bind(record.created_at)
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+        WorkflowEvent::RunPaused => {
+            sqlx::query(
+                "UPDATE workflow_runs SET control_state = 'paused', paused_at = ?,
+                        updated_at = ? WHERE id = ?",
+            )
+            .bind(record.created_at)
+            .bind(record.created_at)
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+        WorkflowEvent::RunResumed { .. } => {
+            sqlx::query(
+                "UPDATE workflow_runs SET control_state = 'active', pause_reason = NULL,
+                        paused_at = NULL, updated_at = ? WHERE id = ?",
+            )
+            .bind(record.created_at)
+            .bind(run_id)
+            .execute(&mut *conn)
+            .await?;
+        }
         WorkflowEvent::RunNeedsReview { .. } => {
             set_rebuilt_run_status(conn, record, "needs_review").await?
         }
@@ -2681,23 +3862,34 @@ async fn restore_running_if_not_waiting(
     conn: &mut SqliteConnection,
     run_id: Uuid,
 ) -> Result<(), WorkflowError> {
-    let waiting: i64 = sqlx::query_scalar(
+    let needs_review: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM workflow_step_runs
-         WHERE run_id = ? AND (status = 'waiting_approval' OR waiting_interaction = 1)",
+         WHERE run_id = ? AND status = 'needs_review'",
     )
     .bind(run_id)
     .fetch_one(&mut *conn)
     .await?;
-    if waiting == 0 {
-        sqlx::query(
-            "UPDATE workflow_runs SET status = 'running',
-                    updated_at = datetime('now', 'subsec')
-             WHERE id = ? AND status = 'waiting'",
-        )
-        .bind(run_id)
-        .execute(&mut *conn)
-        .await?;
+    if needs_review > 0 {
+        return Ok(());
     }
+    let waiting: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM workflow_step_runs
+         WHERE run_id = ? AND (
+           status = 'waiting_approval' OR waiting_interaction = 1 OR awaiting_input = 1
+         )",
+    )
+    .bind(run_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    let status = if waiting == 0 { "running" } else { "waiting" };
+    sqlx::query(
+        "UPDATE workflow_runs SET status = ?, updated_at = datetime('now', 'subsec')
+         WHERE id = ? AND status IN ('waiting', 'needs_review')",
+    )
+    .bind(status)
+    .bind(run_id)
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 
@@ -2821,98 +4013,133 @@ async fn enqueue_newly_ready(
     run_id: Uuid,
     definition: &WorkflowDefinition,
 ) -> Result<(), WorkflowError> {
-    for step in &definition.steps {
-        let current: String = sqlx::query_scalar(
-            "SELECT status FROM workflow_step_runs
-             WHERE run_id = ? AND step_id = ? ORDER BY attempt DESC LIMIT 1",
-        )
-        .bind(run_id)
-        .bind(&step.id)
-        .fetch_one(&mut *conn)
-        .await?;
-        if current != "pending" {
-            continue;
-        }
-        let mut ready = true;
-        for dependency in &step.depends_on {
-            let status: String = sqlx::query_scalar(
+    let mut completed_notify = false;
+    loop {
+        let mut progressed = false;
+        for step in &definition.steps {
+            let current: String = sqlx::query_scalar(
                 "SELECT status FROM workflow_step_runs
-                 WHERE run_id = ? AND step_id = ? ORDER BY attempt DESC LIMIT 1",
+             WHERE run_id = ? AND step_id = ? ORDER BY attempt DESC LIMIT 1",
             )
             .bind(run_id)
-            .bind(dependency)
+            .bind(&step.id)
             .fetch_one(&mut *conn)
             .await?;
-            if !matches!(status.as_str(), "completed" | "skipped") {
-                ready = false;
-                break;
+            if current != "pending" {
+                continue;
             }
-        }
-        if !ready {
-            continue;
-        }
-        match step.spec {
-            WorkflowStepSpec::Approval(_) => {
-                sqlx::query(
-                    "UPDATE workflow_step_runs SET status = 'waiting_approval',
-                            updated_at = datetime('now', 'subsec')
-                     WHERE run_id = ? AND step_id = ? AND attempt = 1 AND status = 'pending'",
+            let mut ready = true;
+            for dependency in &step.depends_on {
+                let status: String = sqlx::query_scalar(
+                    "SELECT status FROM workflow_step_runs
+                 WHERE run_id = ? AND step_id = ? ORDER BY attempt DESC LIMIT 1",
                 )
                 .bind(run_id)
-                .bind(&step.id)
-                .execute(&mut *conn)
+                .bind(dependency)
+                .fetch_one(&mut *conn)
                 .await?;
-                append_event(
-                    conn,
-                    run_id,
-                    None,
-                    &WorkflowEvent::StepWaitingApproval {
-                        step_id: step.id.clone(),
-                        attempt: 1,
-                    },
-                )
-                .await?;
-                sqlx::query(
-                    "UPDATE workflow_runs SET status = 'waiting',
+                if !matches!(status.as_str(), "completed" | "skipped") {
+                    ready = false;
+                    break;
+                }
+            }
+            if !ready {
+                continue;
+            }
+            match step.spec {
+                WorkflowStepSpec::Approval(_) => {
+                    sqlx::query(
+                        "UPDATE workflow_step_runs SET status = 'waiting_approval',
+                            updated_at = datetime('now', 'subsec')
+                     WHERE run_id = ? AND step_id = ? AND attempt = 1 AND status = 'pending'",
+                    )
+                    .bind(run_id)
+                    .bind(&step.id)
+                    .execute(&mut *conn)
+                    .await?;
+                    append_event(
+                        conn,
+                        run_id,
+                        None,
+                        &WorkflowEvent::StepWaitingApproval {
+                            step_id: step.id.clone(),
+                            attempt: 1,
+                        },
+                    )
+                    .await?;
+                    sqlx::query(
+                        "UPDATE workflow_runs SET status = 'waiting',
                             updated_at = datetime('now', 'subsec')
                      WHERE id = ? AND status = 'running'",
-                )
-                .bind(run_id)
-                .execute(&mut *conn)
-                .await?;
-            }
-            WorkflowStepSpec::Agent(_) => {
-                let event = append_event(
-                    conn,
-                    run_id,
-                    None,
-                    &WorkflowEvent::StepReady {
-                        step_id: step.id.clone(),
-                        attempt: 1,
-                    },
-                )
-                .await?;
-                sqlx::query(
-                    "UPDATE workflow_step_runs SET status = 'ready',
+                    )
+                    .bind(run_id)
+                    .execute(&mut *conn)
+                    .await?;
+                }
+                WorkflowStepSpec::Agent(_) => {
+                    let event = append_event(
+                        conn,
+                        run_id,
+                        None,
+                        &WorkflowEvent::StepReady {
+                            step_id: step.id.clone(),
+                            attempt: 1,
+                        },
+                    )
+                    .await?;
+                    sqlx::query(
+                        "UPDATE workflow_step_runs SET status = 'ready',
                             updated_at = datetime('now', 'subsec')
                      WHERE run_id = ? AND step_id = ? AND attempt = 1 AND status = 'pending'",
-                )
-                .bind(run_id)
-                .bind(&step.id)
-                .execute(&mut *conn)
-                .await?;
-                sqlx::query(
-                    "INSERT INTO workflow_ready_steps (
+                    )
+                    .bind(run_id)
+                    .bind(&step.id)
+                    .execute(&mut *conn)
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO workflow_ready_steps (
                          run_id, step_id, attempt, ready_sequence, status
                      ) VALUES (?, ?, 1, ?, 'ready')",
-                )
-                .bind(run_id)
-                .bind(&step.id)
-                .bind(event.sequence)
-                .execute(&mut *conn)
-                .await?;
+                    )
+                    .bind(run_id)
+                    .bind(&step.id)
+                    .bind(event.sequence)
+                    .execute(&mut *conn)
+                    .await?;
+                }
+                WorkflowStepSpec::Notify(_) => {
+                    sqlx::query(
+                        "UPDATE workflow_step_runs
+                     SET status = 'completed',
+                         completed_at = datetime('now', 'subsec'),
+                         updated_at = datetime('now', 'subsec')
+                     WHERE run_id = ? AND step_id = ? AND attempt = 1 AND status = 'pending'",
+                    )
+                    .bind(run_id)
+                    .bind(&step.id)
+                    .execute(&mut *conn)
+                    .await?;
+                    append_event(
+                        conn,
+                        run_id,
+                        None,
+                        &WorkflowEvent::StepCompleted {
+                            step_id: step.id.clone(),
+                            attempt: 1,
+                        },
+                    )
+                    .await?;
+                    progressed = true;
+                    completed_notify = true;
+                }
             }
         }
+        if !progressed {
+            break;
+        }
+    }
+    if completed_notify {
+        settle_if_complete(conn, run_id).await?;
     }
     Ok(())
 }
@@ -3019,7 +4246,9 @@ async fn find_run(
     run_id: Uuid,
 ) -> Result<WorkflowRunView, WorkflowError> {
     sqlx::query_as::<_, WorkflowRunView>(
-        "SELECT id, definition_version_id, workspace_id, status, input_json, policy_json,
+        "SELECT id, definition_version_id, workspace_id, status, control_state,
+                pause_reason, paused_at, parent_run_id, fork_step_id, run_mode,
+                input_json, policy_json,
                 deadline_at, agent_calls_started, last_sequence, created_at, updated_at
          FROM workflow_runs WHERE id = ?",
     )
@@ -3034,7 +4263,9 @@ async fn find_run_by_operation(
     operation_id: Uuid,
 ) -> Result<Option<WorkflowRunView>, WorkflowError> {
     sqlx::query_as::<_, WorkflowRunView>(
-        "SELECT id, definition_version_id, workspace_id, status, input_json, policy_json,
+        "SELECT id, definition_version_id, workspace_id, status, control_state,
+                pause_reason, paused_at, parent_run_id, fork_step_id, run_mode,
+                input_json, policy_json,
                 deadline_at, agent_calls_started, last_sequence, created_at, updated_at
          FROM workflow_runs WHERE operation_id = ?",
     )
@@ -3052,7 +4283,9 @@ async fn find_step(
 ) -> Result<WorkflowStepView, WorkflowError> {
     sqlx::query_as::<_, WorkflowStepView>(
         "SELECT id, run_id, step_id, attempt, status, conversation_id, turn_id,
-                output_json, output_schema_digest, resolved_input_json,
+                output_json, output_schema_digest, candidate_output_json,
+                candidate_schema_digest, awaiting_acceptance, awaiting_input, execution_mode,
+                resolved_input_json,
                 resolved_input_digest, execution_evidence_json,
                 workspace_id, waiting_interaction,
                 repair_count, claim_token, claim_deadline,
@@ -3074,7 +4307,9 @@ async fn find_latest_step(
 ) -> Result<WorkflowStepView, WorkflowError> {
     sqlx::query_as::<_, WorkflowStepView>(
         "SELECT id, run_id, step_id, attempt, status, conversation_id, turn_id,
-                output_json, output_schema_digest, resolved_input_json,
+                output_json, output_schema_digest, candidate_output_json,
+                candidate_schema_digest, awaiting_acceptance, awaiting_input, execution_mode,
+                resolved_input_json,
                 resolved_input_digest, execution_evidence_json,
                 workspace_id, waiting_interaction,
                 repair_count, claim_token, claim_deadline,
@@ -3097,7 +4332,9 @@ async fn find_step_by_claim(
 ) -> Result<WorkflowStepView, WorkflowError> {
     sqlx::query_as::<_, WorkflowStepView>(
         "SELECT id, run_id, step_id, attempt, status, conversation_id, turn_id,
-                output_json, output_schema_digest, resolved_input_json,
+                output_json, output_schema_digest, candidate_output_json,
+                candidate_schema_digest, awaiting_acceptance, awaiting_input, execution_mode,
+                resolved_input_json,
                 resolved_input_digest, execution_evidence_json,
                 workspace_id, waiting_interaction,
                 repair_count, claim_token, claim_deadline,
@@ -3118,7 +4355,7 @@ async fn version_on_connection(
     id: Uuid,
 ) -> Result<WorkflowVersionView, WorkflowError> {
     sqlx::query_as::<_, WorkflowVersionView>(
-        "SELECT id, definition_id, version, digest, normalized_json, created_at
+        "SELECT id, definition_id, version, digest, normalized_json, source_path, created_at
          FROM workflow_definition_versions WHERE id = ?",
     )
     .bind(id)
@@ -3129,6 +4366,29 @@ async fn version_on_connection(
 
 fn is_terminal_run(status: &str) -> bool {
     matches!(status, "completed" | "failed" | "cancelled" | "interrupted")
+}
+
+fn rebase_reused_execution_evidence(
+    evidence_json: &str,
+    active_definition_digest: &str,
+) -> Result<String, WorkflowError> {
+    let mut evidence = serde_json::from_str::<serde_json::Value>(evidence_json)?;
+    let object = evidence.as_object_mut().ok_or_else(|| {
+        WorkflowError::Projection("workflow execution evidence must be an object".to_string())
+    })?;
+    if let Some(parent_digest) = object
+        .insert(
+            "definitionDigest".to_string(),
+            serde_json::Value::String(active_definition_digest.to_string()),
+        )
+        .and_then(|value| value.as_str().map(str::to_string))
+    {
+        object.insert(
+            "reusedFromDefinitionDigest".to_string(),
+            serde_json::Value::String(parent_digest),
+        );
+    }
+    serde_json::to_string(&evidence).map_err(WorkflowError::from)
 }
 
 fn select_pointer<'a>(

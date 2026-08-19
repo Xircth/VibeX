@@ -57,6 +57,7 @@ const config: AgentNativeConfigView = {
       value: null,
       masked_value: '••••••••',
       revision: 'revision-key',
+      surface: 'authentication',
     },
     {
       id: 'codex_model',
@@ -70,6 +71,7 @@ const config: AgentNativeConfigView = {
       value: 'gpt-5.4',
       masked_value: null,
       revision: 'revision-model',
+      surface: 'configuration',
     },
     {
       id: 'codex_reasoning_effort',
@@ -86,11 +88,52 @@ const config: AgentNativeConfigView = {
       value: 'medium',
       masked_value: null,
       revision: 'revision-effort',
+      surface: 'configuration',
     },
   ],
 };
 
 describe('AgentConfigurationAndDiagnostics', () => {
+  it('keeps authentication fields out of configuration management', () => {
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        fieldSurface="configuration"
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    const heading = screen
+      .getByRole('heading', { name: '配置管理' })
+      .closest('.agent-section-heading');
+    expect(screen.getByRole('region', { name: '配置管理' })).toBeVisible();
+    expect(heading).toHaveTextContent('config.toml');
+    expect(heading).toHaveTextContent('/Users/example/.codex/config.toml');
+    expect(heading).not.toHaveTextContent('auth.json');
+    expect(screen.getByLabelText('推理强度')).toBeVisible();
+    expect(screen.getByLabelText('模型')).toBeVisible();
+    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument();
+    expect(screen.queryByText('auth.json')).not.toBeInTheDocument();
+  });
+
+  it('shows only authentication fields when embedded in auth management', () => {
+    render(
+      <AgentConfigurationAndDiagnostics
+        config={config}
+        fieldSurface="authentication"
+        embedded
+        saving={false}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText('OpenAI API Key')).toBeVisible();
+    expect(screen.queryByLabelText('推理强度')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('模型')).not.toBeInTheDocument();
+    expect(screen.queryByText('高级原生文件编辑器')).not.toBeInTheDocument();
+  });
+
   it('renders official Runtime fields and saves only changed values', async () => {
     const onSave = vi.fn();
     render(
@@ -282,6 +325,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
           value: 'openrouter',
           masked_value: null,
           revision: 'provider-revision',
+          surface: 'configuration',
         },
         {
           id: 'hermes_model',
@@ -295,6 +339,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
           value: null,
           masked_value: null,
           revision: 'model-revision',
+          surface: 'configuration',
         },
         {
           id: 'hermes_openrouter_key',
@@ -308,6 +353,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
           value: null,
           masked_value: null,
           revision: 'openrouter-revision',
+          surface: 'configuration',
         },
         {
           id: 'hermes_anthropic_key',
@@ -321,6 +367,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
           value: null,
           masked_value: null,
           revision: 'anthropic-revision',
+          surface: 'configuration',
         },
       ],
     };
@@ -370,6 +417,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
       value: null,
       masked_value: null,
       revision: `${id}-revision`,
+      surface: 'configuration' as const,
     }));
     render(
       <AgentConfigurationAndDiagnostics
@@ -392,6 +440,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
               value: 'on-request',
               masked_value: null,
               revision: 'policy-revision',
+              surface: 'configuration',
             },
             ...granularFields,
           ],
@@ -444,6 +493,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
               value: 'false',
               masked_value: null,
               revision: 'skills-revision',
+              surface: 'configuration',
             },
             {
               id: 'codex_network_access',
@@ -457,6 +507,7 @@ describe('AgentConfigurationAndDiagnostics', () => {
               value: 'false',
               masked_value: null,
               revision: 'network-revision',
+              surface: 'configuration',
             },
           ],
         }}

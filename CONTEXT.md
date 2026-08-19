@@ -202,7 +202,11 @@ Workflow 领域与 Automation 的关系见
 - **Application Core（应用核心）** — 不依赖 Tauri 或 Axum 的用例门面；desktop command、Web route 与 Remote Desktop adapter 都只能做认证、DTO/错误转换后调用同一公共 seam。
 - **Server owner（服务器所有者）** — 对一个 VibeX Server 数据目录及其配对设备拥有最终管理权的单一主体；P0/P1 不把不同设备解释为不同用户，也不提供团队成员或多租户数据隔离。
 - **VibeX Host（VibeX 主机）** — 当前拥有一个 VibeX 数据目录并对客户端提供 Remote protocol 的运行实例，可以是桌面应用或 Headless Server；同一数据目录同一时刻只能有一个 Host。
-- **Server profile（服务器档案）** — 用户可选择的一个 VibeX Server 身份与连接目标；本机是默认的 Local Profile，远端档案只保存非秘密连接元数据，访问凭据独立受保护。
+- **Host identity（Host 身份）** — 一个数据目录在配对与 capabilities 中出示的稳定身份；客户端用它合并 Server Profile，不以 URL 识别 Host。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
+- **Host console（本机控制台）** — 正在运行 Host 的那台机器上的管理面：监听、Reachability 发布、配对邀请、设备撤销、管理员 token 与升级。它不是 Paired device；远程 Workstation 不复制该面。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
+- **Server profile（服务器档案）** — 客户端上对一个 VibeX Host 的本地身份；由 Host 身份而不是某条 URL 区分。本机控制台是默认的 Local Profile；远端档案保存非秘密元数据与多条 Reachability，访问凭据独立受保护。
+- **Reachability（可达目标）** — 客户端用来找到同一 Host 的一条 origin。一个 Server Profile 可以同时有局域网、FRP、Tailscale 或 Cloudflare 多条；它不是 Paired device，也不改变设备权限。远程 origin 只有通过检查的发布才进入权威名单，检查失败或关闭发布即从名单移除；局域网地址是探测结果，不是发布物。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
+_Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Server-bound window（服务器绑定窗口）** — 只呈现并操作一个 Server Profile 所属资源的应用窗口；Project、Workspace、Conversation、Agent、设置与运行状态不得在同一窗口跨 Server 混用，访问另一档案必须使用另一窗口。
 - **Remote disconnect（远程断开）** — 只结束 Server-bound window 的当前网络连接，不删除 Server Profile、缓存、device credential 或 Paired device 关系；关闭窗口、退出应用和临时断网都属于这一语义。
 - **Forget server（忘记服务器）** — 用户要求客户端删除一个远端 Server Profile、其只读缓存与系统凭据的本地操作；它与 Remote disconnect 不同，并应在可达时先请求撤销本设备。
@@ -210,7 +214,8 @@ Workflow 领域与 Automation 的关系见
 - **Mobile companion（移动伴随端）** — 连接在线 VibeX Host、观察并控制远端工作的薄客户端，不在移动设备上运行 Agent、Git worktree 或 Artifact 工具；没有 Host 在线时只能读取离线缓存。首个交付平台为 Android，iOS 复用同一 Remote protocol 后续交付。
 - **Remote protocol（远程协议）** — `remote-protocol` 的版本化稳定 ID、error envelope、capabilities、typed command 与 durable subscription DTO。v1 Schema/OpenAPI 位于 `docs/protocol/v1/`。
 - **Durable attach（持久订阅附着）** — 以 Conversation sequence 为权威的 ready → snapshot/replay → high-water → live 契约；sequence 去重，未知 event kind 必须可保留或忽略。
-- **Device pairing（设备配对）** — 管理员生成五分钟、只可兑换一次的 pairing secret，以批准 scopes 在一个 Server Profile 与一台设备之间建立长期信任关系；临时 secret 到期不会使已经配对的设备失效。
+- **Pairing invitation（配对邀请）** — 本机控制台出示的短时邀请，携带 Host 身份、设备权限预设、当前全部 Reachability（不含 loopback）以及仅供未配对设备使用的一次性 secret。已持有该 Host 身份凭证的设备只合并 Reachability，不重新兑换；secret 过期后仍可从新出示的邀请收下 origin。长期 device credential 不得出现在邀请或 URL 里。见 [ADR-0059](docs/adr/0059-host-identity-and-pairing-invitation.md)。
+- **Device pairing（设备配对）** — 未配对设备用邀请里的 secret 兑成长期、可撤销的 device credential；secret 到期或再次出示邀请都不会作废已经配对的设备。
 - **Paired device（已配对设备）** — 代表同一 Server owner 的一个客户端身份，持有长期、可撤销的 device credential；断开、应用重启、网络变化或 Server 管理员 token 轮换都不结束配对关系，Device 不是 User。
 - **Device permission preset（设备权限预设）** — 配对时向用户展示并审批的一组稳定用途；预设只组织细粒度 scopes，不直接参与授权判断，也不隐含 Server 管理权。当前配对预设为 Workstation Device 与 Companion Device。
 - **Workstation Device（工作站设备）** — 其它桌面 VibeX 连上 Host 后近乎全接管工作：会话、文件、Git、终端、Workflow、Automation 与已安装插件。不含监听、token、设备管理和 Host 升级。
@@ -241,17 +246,18 @@ Workflow 领域与 Automation 的关系见
 - **OpenCode plugin health（OpenCode 插件健康）** — `opencode.json` 声明与 OpenCode 缓存中实际安装包的对照结果；VibeX 只安装已声明的插件并保护 OpenCode 保留包，不接受任意包名或安装命令。
 - **DeepSeek Harness 鉴权模式** — 仅 `deepseek`（官方 API Key + `https://api.deepseek.com`）与 `custom`（名称、备注、Base URL、API Key）两种；凭据写入 `$DSH_HOME/.credentials.yaml`，自定义端点投影到 `DEEPSEEK_BASE_URL`，密钥不回显。
 - **DeepSeek Harness 会话默认配置** — 默认 Agent preset（standard / code / minimal / cordis）、沙箱权限与推理档位；写入 Agent 环境，作用于后续新建会话。
-- **DeepSeek Harness plugin（DeepSeek Harness 插件）** — 默认 profile（`$DSH_HOME/profiles/default`）中的 DSH bundle；添加与移除通过官方 `dsh plugin` CLI，`@deepseek-ai/dsh-base` 不可移除。
+- **DeepSeek Harness plugin（DeepSeek Harness 插件）** — profile 的 `dsh.profile.bundles` 组合包与 `$DSH_HOME/cordis.patch.yml` 中的包名行；添加与移除走官方 `dsh plugin --profile default`。`$DSH_HOME/skills` 是独立 Skill 子系统，不属于插件列表。
+- **Grok plugin（Grok 插件）** — 官方 `grok plugin` 管理的安装物，发现自 `grok plugin list` 或 `~/.grok/installed-plugins`；添加走 `grok plugin install <source> --trust`，移除走 `grok plugin uninstall`。Skill 目录不是 Grok 插件。
 - **Agent launch preference（Agent 启动偏好）** — Cursor 模型/Run Everything、Grok 权限模式与 OpenClaw Gateway/Session 等不能仅靠子进程环境生效的设置；保存后由受控投影转换成固定 CLI 参数，参数位置和名称由 Built-in Profile 代码决定，用户不能注入参数数组。
 - **Agent-native configuration（Agent 原生配置）** — 由本地 Agent Runtime 自身持有并可在 VibeX 外部修改的持久配置；它是 Agent Runtime 的唯一持久配置权威。VibeX 可以保存可复用的 Model Provider 预设与绑定意图，但只有把预设投影到已适配的原生配置后才会影响 Runtime。
 - **Model Provider preset（模型供应商预设）** — VibeX 为 Claude Code、Codex 与 Gemini 保存的本地可复用连接意图，包括名称、Agent 类型、端点、模型映射和凭据；IPC 只暴露凭据是否存在，不回显密钥。绑定或更新已绑定预设时，后端把字段投影到对应 Agent 原生配置；预设文件本身不是 Runtime 配置权威。
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
-- **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物，并通过带所有权标记的用户级稳定 shim 将本地 Runtime 主命令暴露给终端。
-- **External agent installation（外部 Agent 安装）** — 由用户或系统所有、经 VibeX 校验后接入的本地 Agent runtime；VibeX 可以使用和重新校验它，但不能擅自升级、修改或卸载它。
+- **User-environment agent installation（用户环境 Agent 安装）** — 本地 Runtime 与 ACP 只存在于用户环境（PATH、npm 全局前缀、uv tools、用户 bin）。平台安装也写入该环境，再按 PATH 探测接入；Installation lock 只记录这次观察，不是另一份托管产物。见 [ADR-0060](docs/adr/0060-agent-installs-use-user-environment.md)。
+- **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：VibeX 绑定并校验用户环境中的 CLI，不再维护独立托管树。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
-- **Installation lock（安装锁）** — 一次 Agent 安装实际采用的 Agent Runtime、ACP 适配器与基础运行环境的精确版本和来源记录；它使当前安装可以被验证、复现和安全回退。
+- **Installation lock（安装锁）** — 一次成功探测或用户环境安装后，对 Agent Runtime、ACP 适配器路径、版本与分发方式的观察记录；它使当前绑定可以被验证和回退，但不是独立托管产物。
 - **Verified binary（已验证 Binary）** — 其内容与 VibeX 预先维护的预期 SHA-256 一致的 Binary；只有此类产物可以宣称经过 VibeX 完整性验证。
 - **TOFU binary（首次信任 Binary）** — 官方 Registry 未提供预期校验和时，首次取得并记录内容指纹、此后严格检查该指纹的普通 Registry Binary；它不等同于已验证 Binary。
 - **Installed agent（已安装 Agent）** — 所需本地运行组件已经存在且通过兼容性验证的 Agent；是否已经完成认证不影响其安装状态。
@@ -266,8 +272,8 @@ Workflow 领域与 Automation 的关系见
 - **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 VibeX Agent 集合的 Agent。
 - **Agent activation（Agent 启用状态）** — 用户是否允许某个已添加 Agent 接受后续执行的独立开关；禁用不改变其纳入、安装、认证、配置或历史状态。
 - **Retired agent（退役 Agent）** — 已停止提供新增、安装和新会话能力，但为保持历史可解释性而继续保留稳定身份的旧 Agent。
-- **Uninstall agent（卸载 Agent）** — 删除 VibeX 为 Agent 托管的运行组件，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。
-- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并清除 VibeX 拥有的 Agent 专属设置与产物；它不删除历史会话，也不触碰外部安装。
+- **Uninstall agent（卸载 Agent）** — 按分发方式移除该 Agent 在用户环境中的 CLI 包并清除 Installation lock，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。它不删除 Node、npm、uv、Python 或 Agent 原生配置。
+- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并先走同一套用户环境卸载，再清除 VibeX 拥有的 Agent 专属设置；它不删除历史会话。
 - **Agent bar（Agent 导航带）** — “设置 → Agent”中的统一横向 Agent 选择器；所有已添加 Agent 共用同一列表，不按支持等级或安装状态分区，末位固定为打开 Registry 的添加入口。
 - **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
 - **Registry snapshot（注册表快照）** — VibeX 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。

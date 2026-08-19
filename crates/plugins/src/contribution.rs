@@ -46,6 +46,7 @@ pub struct ResolvedFileOpener {
     pub target: FileOpenerTarget,
     pub priority: i32,
     pub generation: u64,
+    pub native_renderer: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,10 +91,12 @@ impl ContributionRegistry {
 
     pub(crate) fn resolve_file_opener(
         &self,
+        file_name: Option<&str>,
         extension: Option<&str>,
         media_type: Option<&str>,
     ) -> Result<Option<ResolvedFileOpener>, PluginError> {
         let extension = extension.map(|value| value.trim_start_matches('.').to_ascii_lowercase());
+        let file_name = file_name.map(str::to_ascii_lowercase);
         let media_type = media_type.map(str::to_ascii_lowercase);
         let state = self
             .state
@@ -105,6 +108,12 @@ impl ContributionRegistry {
             .filter(|item| item.kind == ContributionKind::FileOpener)
             .filter_map(|item| {
                 let extensions = item.metadata.get("extensions")?.as_array()?;
+                let file_name_suffixes = item
+                    .metadata
+                    .get("fileNameSuffixes")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 let media_types = item.metadata.get("mediaTypes")?.as_array()?;
                 let extension_match = extension.as_ref().is_some_and(|candidate| {
                     extensions.iter().any(|value| {
@@ -120,14 +129,33 @@ impl ContributionRegistry {
                             .is_some_and(|value| value.eq_ignore_ascii_case(candidate))
                     })
                 });
-                if !extension_match && !media_type_match {
+                let suffix_match = file_name.as_ref().is_some_and(|candidate| {
+                    file_name_suffixes.iter().any(|value| {
+                        value
+                            .as_str()
+                            .is_some_and(|suffix| candidate.ends_with(&suffix.to_ascii_lowercase()))
+                    })
+                });
+                if !extension_match && !suffix_match && !media_type_match {
                     return None;
                 }
+                let handler = item.metadata.get("handler")?.as_str()?.to_owned();
+                let native_renderer = state
+                    .items
+                    .iter()
+                    .find(|candidate| {
+                        candidate.plugin_id == item.plugin_id
+                            && candidate.kind == ContributionKind::AppSurface
+                            && candidate.id == handler
+                    })
+                    .and_then(|surface| surface.metadata.get("nativeRenderer"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 Some(ResolvedFileOpener {
                     plugin_id: item.plugin_id.clone(),
                     contribution_id: item.id.clone(),
                     label: item.label.clone(),
-                    handler: item.metadata.get("handler")?.as_str()?.to_owned(),
+                    handler,
                     target: serde_json::from_value(item.metadata.get("target")?.clone()).ok()?,
                     priority: item
                         .metadata
@@ -136,6 +164,7 @@ impl ContributionRegistry {
                         .and_then(|value| i32::try_from(value).ok())
                         .unwrap_or_default(),
                     generation: item.generation,
+                    native_renderer,
                 })
             })
             .collect::<Vec<_>>();
@@ -212,6 +241,7 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                     label: opener.label.clone(),
                     metadata: json!({
                         "extensions": opener.extensions,
+                        "fileNameSuffixes": opener.file_name_suffixes,
                         "mediaTypes": opener.media_types,
                         "priority": opener.priority,
                         "handler": opener.handler,
@@ -255,6 +285,7 @@ fn plugin_templates(plugin: &InstalledPlugin) -> Vec<ContributionTemplate> {
                         "handler": surface.handler,
                         "allowedMethods": surface.allowed_methods,
                         "minHeight": surface.min_height,
+                        "nativeRenderer": surface.native_renderer,
                     }),
                 }),
         )

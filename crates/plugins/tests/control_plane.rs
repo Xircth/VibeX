@@ -312,6 +312,7 @@ async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributi
         id: "preview".to_owned(),
         label: "Document preview".to_owned(),
         extensions: vec!["docx".to_owned()],
+        file_name_suffixes: Vec::new(),
         media_types: vec![
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_owned(),
         ],
@@ -365,6 +366,7 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
         id: "office".to_owned(),
         label: "Office preview".to_owned(),
         extensions: vec!["docx".to_owned()],
+        file_name_suffixes: Vec::new(),
         media_types: Vec::new(),
         priority: 90,
         handler: "office.openPreview".to_owned(),
@@ -398,6 +400,51 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let mut plugin = package(
+        "dev.vibex.workflow",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    plugin.skills.clear();
+    plugin.app.file_openers.push(FileOpenerContribution {
+        id: "workflow".to_owned(),
+        label: "Workflow Studio".to_owned(),
+        extensions: Vec::new(),
+        file_name_suffixes: vec![".vibex-workflow.json".to_owned()],
+        media_types: Vec::new(),
+        priority: 100,
+        handler: "workflow.open".to_owned(),
+        target: FileOpenerTarget::AppSurface,
+    });
+    control_plane
+        .import(plugin, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.workflow", true)
+        .await
+        .unwrap();
+
+    assert!(
+        control_plane
+            .resolve_file_opener(Some("json"), None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let resolved = control_plane
+        .resolve_file_opener_for_file(Some("release.vibex-workflow.json"), Some("json"), None)
+        .await
+        .unwrap()
+        .expect("compound Workflow suffix");
+    assert_eq!(resolved.handler, "workflow.open");
 }
 
 fn runtime(id: &str, version: &str) -> plugins::RuntimeContribution {

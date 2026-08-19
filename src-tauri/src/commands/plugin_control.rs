@@ -77,6 +77,7 @@ pub struct ResolvedFileOpenerDto {
     pub target: String,
     pub priority: i32,
     pub generation: u64,
+    pub native_renderer: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -509,56 +510,64 @@ async fn project_official_product_mcp(gate: &plugins::OfficialProductMcpGate) {
     let binary = crate::delegation::inject::locate_vibex_mcp_binary();
     let command = binary.to_string_lossy().into_owned();
     let url = gate.http_base();
-    if gate.allow_delegation_mcp() {
-        let mut args = vec!["--features".to_string(), "delegation".to_string()];
-        if let Some(url) = &url {
-            args.extend([
-                "--server-url".to_string(),
-                url.clone(),
-                "--product".to_string(),
-                "delegation".to_string(),
-            ]);
-            if let Some(token) = gate.delegation_token() {
-                args.extend(["--server-token".to_string(), token]);
-            }
-        }
+    const DELEGATION_SERVER_ID: &str = "vibex.multi-agent.vibex-delegation-mcp";
+    const SESSION_SERVER_ID: &str = "vibex.session-enhance.vibex-session-mcp";
+
+    if let Some(url) = url.as_ref()
+        && gate.allow_delegation_mcp()
+        && let Some(token) = gate.delegation_token()
+    {
         let _ = services::services::mcp::upsert_local_server(
-            "vibex.multi-agent.vibex-delegation-mcp".to_string(),
+            DELEGATION_SERVER_ID.to_string(),
             serde_json::json!({
                 "type": "stdio",
                 "command": command,
-                "args": args,
+                "args": [
+                    "--features",
+                    "delegation",
+                    "--server-url",
+                    url,
+                    "--product",
+                    "delegation",
+                    "--server-token",
+                    token,
+                ],
             }),
             true,
             Vec::new(),
         )
         .await;
+    } else {
+        let _ = services::services::mcp::uninstall_server(DELEGATION_SERVER_ID.to_string()).await;
     }
-    if gate.allow_session_mcp() {
+
+    if let Some(url) = url.as_ref()
+        && gate.allow_session_mcp()
+        && let Some(token) = gate.session_token()
+    {
         let features = session_feature_arg(gate.session_features());
-        let mut args = vec!["--features".to_string(), features];
-        if let Some(url) = &url {
-            args.extend([
-                "--server-url".to_string(),
-                url.clone(),
-                "--product".to_string(),
-                "session".to_string(),
-            ]);
-            if let Some(token) = gate.session_token() {
-                args.extend(["--server-token".to_string(), token]);
-            }
-        }
         let _ = services::services::mcp::upsert_local_server(
-            "vibex.session-enhance.vibex-session-mcp".to_string(),
+            SESSION_SERVER_ID.to_string(),
             serde_json::json!({
                 "type": "stdio",
                 "command": command,
-                "args": args,
+                "args": [
+                    "--features",
+                    features,
+                    "--server-url",
+                    url,
+                    "--product",
+                    "session",
+                    "--server-token",
+                    token,
+                ],
             }),
             true,
             Vec::new(),
         )
         .await;
+    } else {
+        let _ = services::services::mcp::uninstall_server(SESSION_SERVER_ID.to_string()).await;
     }
 }
 
@@ -748,6 +757,7 @@ pub async fn plugin_resolve_file_opener(
                 .to_owned(),
                 priority: resolved.priority,
                 generation: resolved.generation,
+                native_renderer: resolved.native_renderer,
             })
         })
 }
@@ -1478,7 +1488,165 @@ pub async fn plugin_control_set_enabled(
         plugin
     };
     apply_official_product_runtime(&state).await?;
+    if enabled {
+        configure_plugin_default_projections(&state, &plugin).await?;
+    }
     Ok(plugin_dto(plugin))
+}
+
+async fn configure_plugin_default_projections(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+) -> Result<(), AppError> {
+    let known = agents::skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let installed = state
+        .agent_management_runtime
+        .local_runtimes()
+        .await
+        .keys()
+        .map(|agent| agent.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    let saved_agents = sqlx::query_scalar::<_, String>(
+        "SELECT agent_id FROM plugin_agent_bindings_v4
+         WHERE plugin_id = ? AND desired = 1",
+    )
+    .bind(plugin.id())
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let has_saved_agent_preferences = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM plugin_agent_bindings_v4 WHERE plugin_id = ?",
+    )
+    .bind(plugin.id())
+    .fetch_one(&state.deployment.db().pool)
+    .await?
+        > 0;
+    let desired_agents = if has_saved_agent_preferences {
+        saved_agents.into_iter().collect::<BTreeSet<_>>()
+    } else {
+        known.clone()
+    };
+    let targets = desired_agents
+        .intersection(&installed)
+        .cloned()
+        .collect::<Vec<_>>();
+    let skill_sources = plugin
+        .skills
+        .iter()
+        .map(|skill| (skill.id.clone(), plugin.source.path.join(&skill.path)))
+        .collect::<Vec<_>>();
+    let projections =
+        agents::skills::project_plugin_skills(plugin.id(), &skill_sources, targets, true)
+            .map_err(|error| AppError::Internal(error.to_string()))?
+            .into_iter()
+            .map(|result| PluginSkillProjectionDto {
+                skill_id: result.skill_id,
+                agent_id: result.agent_id,
+                status: match result.status {
+                    agents::skills::PluginSkillProjectionStatus::Projected => "projected",
+                    agents::skills::PluginSkillProjectionStatus::Removed => "removed",
+                    agents::skills::PluginSkillProjectionStatus::Collision => "collision",
+                }
+                .to_owned(),
+                message: result.message,
+            })
+            .collect::<Vec<_>>();
+    persist_agent_bindings(
+        state,
+        plugin.id(),
+        &known,
+        &desired_agents,
+        &installed,
+        &projections,
+    )
+    .await?;
+    let (_, desired_mcp) = desired_plugin_mcp_agents(state, plugin.id()).await?;
+    let all_mcp_agents = desired_mcp == known;
+    for error in configure_plugin_mcp(state, plugin, all_mcp_agents, &desired_mcp).await {
+        tracing::warn!(plugin_id = plugin.id(), %error, "default MCP projection failed");
+    }
+    Ok(())
+}
+
+/// Re-materialize enabled plugin projections after Host startup.
+///
+/// Managed MCP specs contain App-lifetime connection details. Replaying the
+/// saved projection here replaces stale credentials from the prior process
+/// while preserving an explicit per-Agent selection (including select-none).
+pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
+    let plugins = match state.plugin_control_plane.catalog().await {
+        Ok(plugins) => plugins,
+        Err(error) => {
+            tracing::warn!(%error, "enabled plugin projection refresh failed");
+            return;
+        }
+    };
+    for plugin in plugins.iter().filter(|plugin| {
+        plugin.activation == plugins::PluginActivation::Enabled
+            && plugin
+                .mcp
+                .get("mcpServers")
+                .unwrap_or(&plugin.mcp)
+                .as_object()
+                .is_some_and(|servers| {
+                    servers
+                        .values()
+                        .any(|spec| spec.get("managedRuntime").is_some())
+                })
+    }) {
+        let refreshed = async {
+            let (known, desired) = desired_plugin_mcp_agents(state, plugin.id()).await?;
+            let all_agents = desired == known;
+            Ok::<_, AppError>(configure_plugin_mcp(state, plugin, all_agents, &desired).await)
+        }
+        .await;
+        match refreshed {
+            Ok(errors) => {
+                for error in errors {
+                    tracing::warn!(
+                        plugin_id = plugin.id(),
+                        %error,
+                        "managed MCP projection refresh failed"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                plugin_id = plugin.id(),
+                %error,
+                "managed MCP projection refresh failed"
+            ),
+        }
+    }
+}
+
+async fn desired_plugin_mcp_agents(
+    state: &AppState,
+    plugin_id: &str,
+) -> Result<(BTreeSet<String>, BTreeSet<String>), AppError> {
+    let known = agents::skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let saved = sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT agent_id FROM plugin_mcp_bindings_v4
+         WHERE plugin_id = ? AND desired = 1",
+    )
+    .bind(plugin_id)
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let has_saved_preferences = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?",
+    )
+    .bind(plugin_id)
+    .fetch_one(&state.deployment.db().pool)
+    .await?
+        > 0;
+    let desired = if has_saved_preferences {
+        saved.into_iter().collect()
+    } else {
+        known.clone()
+    };
+    Ok((known, desired))
 }
 
 #[tauri::command]
@@ -2450,6 +2618,13 @@ async fn configure_plugin_mcp(
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
         let projected_id = format!("{}.{}", plugin.id(), server_id);
+        let spec = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await {
+            Ok(spec) => spec,
+            Err(error) => {
+                errors.push(format!("{server_id}: {error}"));
+                continue;
+            }
+        };
         let result = services::services::mcp::upsert_local_server(
             projected_id,
             spec,
@@ -2461,13 +2636,24 @@ async fn configure_plugin_mcp(
         if let Some(error) = &error_message {
             errors.push(format!("{server_id}: {error}"));
         }
-        for agent_id in desired {
+        let known_agents = agents::skills::skill_capable_agent_ids()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        for agent_id in &known_agents {
+            let wanted = desired.contains(agent_id);
+            let binding_error_code =
+                (wanted && error_message.is_some()).then_some("mcp_projection_failed");
+            let binding_error_message = if wanted {
+                error_message.as_deref()
+            } else {
+                None
+            };
             if let Err(error) = sqlx::query(
                 "INSERT INTO plugin_mcp_bindings_v4
                      (plugin_id, mcp_id, agent_id, desired, applied, error_code, error_message, updated_at)
-                 VALUES (?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                  ON CONFLICT(plugin_id, mcp_id, agent_id) DO UPDATE SET
-                     desired = 1,
+                     desired = excluded.desired,
                      applied = excluded.applied,
                      error_code = excluded.error_code,
                      error_message = excluded.error_message,
@@ -2476,9 +2662,10 @@ async fn configure_plugin_mcp(
             .bind(plugin.id())
             .bind(&server_id)
             .bind(agent_id)
-            .bind(i64::from(error_message.is_none()))
-            .bind(error_message.as_ref().map(|_| "mcp_projection_failed"))
-            .bind(error_message.as_deref())
+            .bind(i64::from(wanted))
+            .bind(i64::from(wanted && error_message.is_none()))
+            .bind(binding_error_code)
+            .bind(binding_error_message)
             .execute(pool)
             .await
             {
@@ -2487,6 +2674,74 @@ async fn configure_plugin_mcp(
         }
     }
     errors
+}
+
+async fn materialize_plugin_mcp_spec(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+    server_id: &str,
+    spec: serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let Some(managed) = spec
+        .get("managedRuntime")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(spec);
+    };
+    let entrypoint = managed
+        .get("entrypoint")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "managed MCP `{server_id}` requires managedRuntime.entrypoint"
+            ))
+        })?;
+    let relative = Path::new(entrypoint);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` entrypoint must be a package-relative path"
+        )));
+    }
+    let package_root = plugin
+        .source
+        .path
+        .canonicalize()
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let entrypoint = package_root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| AppError::NotFound(error.to_string()))?;
+    if !entrypoint.starts_with(&package_root) || !entrypoint.is_file() {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` entrypoint escapes the installed package"
+        )));
+    }
+    let node = state
+        .plugin_worker_runtime
+        .resolve()
+        .await
+        .map_err(plugin_error)?;
+    let gateway = state
+        .app_handle
+        .try_state::<crate::workflow_mcp_gateway::WorkflowMcpGatewayConnection>()
+        .ok_or_else(|| AppError::Internal("Workflow MCP gateway is unavailable".to_owned()))?;
+    Ok(serde_json::json!({
+        "type": "stdio",
+        "command": node.to_string_lossy(),
+        "args": [entrypoint.to_string_lossy()],
+        "env": {
+            "VIBEX_SERVER_URL": gateway.endpoint.as_str(),
+            "VIBEX_SERVER_TOKEN": gateway.token(),
+            "VIBEX_MCP_PROTOCOL_REVISION": managed
+                .get("protocolRevision")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("2026-07-28")
+        }
+    }))
 }
 
 fn parse_conflict_decision(value: &str) -> Result<plugins::ConflictDecision, AppError> {

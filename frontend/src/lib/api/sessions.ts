@@ -102,6 +102,13 @@ export const sessionsApi = {
     });
   },
 
+  setPinned: async (sessionId: string, pinned: boolean): Promise<Session> => {
+    return backendCall<Session>('set_session_pinned', {
+      sessionId,
+      pinned,
+    });
+  },
+
   delete: async (sessionId: string): Promise<void> => {
     return backendCall<void>('delete_session', { sessionId });
   },

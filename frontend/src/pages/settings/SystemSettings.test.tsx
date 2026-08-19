@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
     editor: { remote_ssh_host: 'old-host', remote_ssh_user: 'old-user' },
   } as Config,
   updateAndSaveConfig: vi.fn(),
-  getMaintenance: vi.fn(),
   getSettingsPath: vi.fn(),
   clearLocalData: vi.fn(),
   getProxy: vi.fn(),
@@ -39,7 +38,6 @@ vi.mock('@/components/ConfigProvider', () => ({
 
 vi.mock('@/lib/api', () => ({
   configApi: {
-    checkAppRelease: mocks.getMaintenance,
     getSettingsPath: mocks.getSettingsPath,
     clearLocalData: mocks.clearLocalData,
   },
@@ -68,7 +66,26 @@ vi.mock('@/components/ui/toast', () => ({
 }));
 
 vi.mock('@/components/settings/AppUpdaterSection', () => ({
-  AppUpdaterSection: () => <div>updater boundary</div>,
+  AppUpdaterSection: ({
+    autoUpdateEnabled,
+    onAutoUpdateChange,
+  }: {
+    autoUpdateEnabled: boolean;
+    onAutoUpdateChange: (enabled: boolean) => void;
+  }) => (
+    <div>
+      <div>updater boundary</div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={autoUpdateEnabled}
+        aria-label="自动检查应用更新"
+        onClick={() => onAutoUpdateChange(!autoUpdateEnabled)}
+      >
+        自动检查应用更新
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('@/features/conversation/ConversationBundle', () => ({
@@ -111,15 +128,6 @@ describe('SystemSettings', () => {
     }
     mocks.updateAndSaveConfig.mockResolvedValue(true);
     mocks.getSettingsPath.mockResolvedValue('/Users/test/.vibex/settings.json');
-    mocks.getMaintenance.mockResolvedValue({
-      current_version: '1.0.0',
-      latest_version: '1.0.0',
-      update_available: false,
-      release_url: null,
-      repository: null,
-      checked: true,
-      error: null,
-    });
     mocks.getProxy.mockResolvedValue({ enabled: false, proxy_url: null });
     mocks.updateProxy.mockImplementation(async (settings) => settings);
     mocks.getRendering.mockResolvedValue({ acceleration_mode: 'auto' });
@@ -139,9 +147,7 @@ describe('SystemSettings', () => {
     const user = userEvent.setup();
     render(<SystemSettings />);
 
-    expect(
-      await screen.findByText('当前版本：1.0.0 / 最新版本：1.0.0')
-    ).toBeVisible();
+    expect(await screen.findByText('updater boundary')).toBeVisible();
 
     const proxySection = screen.getByText('网络代理').closest('section');
     expect(proxySection).not.toBeNull();

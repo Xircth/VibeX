@@ -44,9 +44,7 @@
     "dependency:licenses": "node scripts/check-dependency-licenses.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "concurrently": "^8.2.2",
-    "vite": "^6.3.5"
+    "@tauri-apps/cli": "^2.10.0"
   },
   "engines": {
     "node": ">=18",

@@ -21,6 +21,10 @@ pub enum AttentionItemKind {
     PendingPermission,
     /// Agent is blocked on a question to the user.
     PendingQuestion,
+    /// Session surfaced a notice, warning, or error.
+    SessionNotice,
+    /// Latest turn completed and may still need a look.
+    TurnCompleted,
     /// Latest turn failed; needs a retry or a follow-up.
     TurnFailed,
     /// Latest turn was interrupted by a host crash/restart; never auto-resent.
@@ -34,9 +38,11 @@ impl AttentionItemKind {
         match self {
             Self::PendingPermission => 0,
             Self::PendingQuestion => 1,
-            Self::TurnFailed => 2,
-            Self::TurnInterrupted => 3,
-            Self::InReview => 4,
+            Self::SessionNotice => 2,
+            Self::TurnFailed => 3,
+            Self::TurnInterrupted => 4,
+            Self::TurnCompleted => 5,
+            Self::InReview => 6,
         }
     }
 

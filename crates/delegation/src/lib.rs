@@ -40,7 +40,6 @@ pub use stop_reason::{StopClass, classify_stop_reason, outcome_from_turn};
 pub use token_registry::{TokenEntry, TokenFeature, TokenPermissions, TokenRegistry};
 pub use types::{
     AgentDelegationDefaults, DelegationConfig, DelegationError, DelegationLink, DelegationMatchKey,
-    DelegationOutcome,
-    DelegationPolicySnapshot, DelegationRequest, DelegationScope, DelegationSuccess,
-    DelegationTaskReport, DelegationWorkspaceAccess, TaskStatus, TokenUsage,
+    DelegationOutcome, DelegationPolicySnapshot, DelegationRequest, DelegationScope,
+    DelegationSuccess, DelegationTaskReport, DelegationWorkspaceAccess, TaskStatus, TokenUsage,
 };

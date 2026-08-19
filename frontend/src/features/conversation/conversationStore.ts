@@ -11,7 +11,10 @@ import type {
   TimelineRow,
 } from 'shared/types';
 
-import { getSessionComposerStructuredTokens } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
+import {
+  getSessionComposerStructuredTokens,
+  serializeSessionComposerBackendMessage,
+} from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 
 /**
  * Dumb-container conversation store (消灭双投影).
@@ -38,9 +41,21 @@ export type ConversationTimelineTurn = {
   key: string;
   // 'interrupted' is the terminal phase for a turn orphaned by a host crash
   // (ADR-0001): rendered with a distinct "因重启中断" treatment + one-click resend.
-  phase: 'persisted' | 'optimistic' | 'streaming' | 'settled' | 'interrupted';
+  phase:
+    | 'persisted'
+    | 'optimistic'
+    | 'streaming'
+    | 'settled'
+    | 'failed'
+    | 'cancelled'
+    | 'interrupted';
   turn: MessageTurn;
+  revision: bigint;
 };
+
+export type ConversationTimelineItem =
+  | { kind: 'message'; revision: bigint; item: ConversationTimelineTurn }
+  | { kind: 'side'; revision: bigint; row: TimelineRow };
 
 /** Accumulated streaming text for one row, since its last upsert. */
 export type LiveTextOverlay = {
@@ -268,6 +283,7 @@ function applyRowOpBatch(
   }
 
   const lastSequence = toBigInt(batch.last_sequence);
+  const gap = detectSequenceGap(entry.lastSequence, batch);
   return {
     ...entry,
     rows,
@@ -276,7 +292,7 @@ function applyRowOpBatch(
     optimisticTurns,
     lastSequence:
       lastSequence > entry.lastSequence ? lastSequence : entry.lastSequence,
-    gap: { kind: 'none' },
+    gap,
     sessionModes: batch.session_modes
       ? {
           current: batch.session_modes.current ?? null,
@@ -389,7 +405,7 @@ export function timelineTurnsForEntry(
   entry: ConversationStoreEntry | null
 ): ConversationTimelineTurn[] {
   if (!entry) return [];
-  const persisted = entry.rows.flatMap((row, index) => {
+  const persisted = entry.rows.flatMap((row) => {
     if (row.row.kind !== 'message_turn') return [];
     const overlay = entry.liveText[row.row_id];
     const turn = overlay
@@ -400,21 +416,50 @@ export function timelineTurnsForEntry(
       : row.row.turn;
     return [
       {
-        key: `conversation-${row.row_id}-${index}`,
+        key: `conversation-${row.row_id}`,
         turn,
+        revision: toBigInt(row.revision),
         phase: row.row.phase as ConversationTimelineTurn['phase'],
       },
     ];
   });
-  const optimistic = entry.optimisticTurns.map((turn, index) => ({
-    key: `optimistic-${turn.id}-${index}`,
+  const optimistic = entry.optimisticTurns.map((turn) => ({
+    key: `optimistic-${turn.id}`,
     turn,
+    revision: entry.lastSequence,
     phase: 'optimistic' as const,
   }));
-  return withPendingAssistantTurns(
-    entry,
-    dedupeTurns([...persisted, ...optimistic])
+  return alignStreamingAssistantWithUserPhase(
+    withPendingAssistantTurns(entry, dedupeTurns([...persisted, ...optimistic]))
   );
+}
+
+const TERMINAL_USER_PHASES = new Set<ConversationTimelineTurn['phase']>([
+  'settled',
+  'failed',
+  'cancelled',
+  'interrupted',
+]);
+
+function alignStreamingAssistantWithUserPhase(
+  turns: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  const userPhaseById = new Map(
+    turns
+      .filter((row) => row.turn.role === 'user')
+      .map((row) => [row.turn.id, row.phase])
+  );
+
+  return turns.map((row) => {
+    if (row.turn.role !== 'assistant' || row.phase !== 'streaming') return row;
+    const userId = row.turn.id.endsWith(':assistant')
+      ? `${row.turn.id.slice(0, -':assistant'.length)}:user`
+      : null;
+    if (!userId) return row;
+    const userPhase = userPhaseById.get(userId);
+    if (!userPhase || !TERMINAL_USER_PHASES.has(userPhase)) return row;
+    return { ...row, phase: userPhase };
+  });
 }
 
 /** Side rows (everything that is not a message turn), carrying their stable `row_id`. */
@@ -422,6 +467,45 @@ export function sideRowsForEntry(
   entry: ConversationStoreEntry | null
 ): TimelineRow[] {
   return entry?.rows.filter((row) => row.row.kind !== 'message_turn') ?? [];
+}
+
+const INLINE_SIDE_ROW_KINDS = new Set([
+  'terminal_summary',
+  'delegation',
+  'artifact_revision',
+  'feedback_request',
+  'question_request',
+  'session_notice',
+]);
+
+/** Message turns and inlined side rows, ordered by revision to match the event log. */
+export function timelineItemsForEntry(
+  entry: ConversationStoreEntry | null,
+  shouldInline: (row: TimelineRow) => boolean = defaultInlineSideRow
+): ConversationTimelineItem[] {
+  const messages = timelineTurnsForEntry(entry).map((item) => ({
+    kind: 'message' as const,
+    revision: item.revision,
+    item,
+  }));
+  const sides = sideRowsForEntry(entry)
+    .filter(shouldInline)
+    .map((row) => ({
+      kind: 'side' as const,
+      revision: toBigInt(row.revision),
+      row,
+    }));
+  return [...messages, ...sides].sort((left, right) => {
+    if (left.revision === right.revision) {
+      if (left.kind === right.kind) return 0;
+      return left.kind === 'message' ? -1 : 1;
+    }
+    return left.revision < right.revision ? -1 : 1;
+  });
+}
+
+export function defaultInlineSideRow(row: TimelineRow): boolean {
+  return INLINE_SIDE_ROW_KINDS.has(row.row.kind);
 }
 
 function createEntry(conversationId: string): ConversationStoreEntry {
@@ -464,12 +548,72 @@ function overlayLiveText(
 ): ContentBlock[] {
   const result = [...blocks];
   if (overlay.reasoning) {
-    result.push({ type: 'thinking', text: overlay.reasoning });
+    const last = result[result.length - 1];
+    if (last?.type === 'thinking') {
+      result[result.length - 1] = {
+        type: 'thinking',
+        text: mergeOverlayText(last.text, overlay.reasoning),
+      };
+    } else {
+      result.push({ type: 'thinking', text: overlay.reasoning });
+    }
   }
   if (overlay.text) {
-    result.push({ type: 'text', text: overlay.text });
+    const last = result[result.length - 1];
+    if (last?.type === 'text') {
+      result[result.length - 1] = {
+        type: 'text',
+        text: mergeOverlayText(last.text, overlay.text),
+      };
+    } else {
+      result.push({ type: 'text', text: overlay.text });
+    }
   }
   return result;
+}
+
+/**
+ * Combine persisted text with a live overlay without duplicating a shared
+ * prefix or suffix. A late upsert of "hello" plus an overlay of "he" must
+ * stay "hello", while a true delta of "llo" after "he" still becomes "hello".
+ */
+function mergeOverlayText(existing: string, overlay: string): string {
+  if (!overlay) return existing;
+  if (!existing) return overlay;
+  if (overlay.startsWith(existing)) return overlay;
+  if (existing.startsWith(overlay) || existing.endsWith(overlay)) {
+    return existing;
+  }
+  return existing + overlay;
+}
+
+function detectSequenceGap(
+  lastSequence: bigint,
+  batch: ConversationRowOpBatch
+): ConversationGapState {
+  const incomingLast = toBigInt(batch.last_sequence);
+  if (lastSequence <= 0n || incomingLast <= lastSequence) {
+    return { kind: 'none' };
+  }
+  const revisions = batch.ops.map(opRevision);
+  const minRevision =
+    revisions.length > 0
+      ? revisions.reduce((lowest, revision) =>
+          revision < lowest ? revision : lowest
+        )
+      : incomingLast;
+  if (minRevision > lastSequence + 1n) {
+    return {
+      kind: 'gap',
+      expectedSequence: lastSequence + 1n,
+      receivedSequence: minRevision,
+    };
+  }
+  return { kind: 'none' };
+}
+
+function opRevision(op: ConversationRowOp): bigint {
+  return op.op === 'upsert' ? toBigInt(op.row.revision) : toBigInt(op.revision);
 }
 
 function turnIdOfRowId(rowId: string): string | null {
@@ -481,16 +625,15 @@ function reconcileOptimisticTurns(
   optimisticTurns: MessageTurn[],
   timeline: ConversationTimeline
 ): MessageTurn[] {
-  const persistedText = new Set(
-    timeline.rows.flatMap((row) =>
-      row.row.kind === 'message_turn' && row.row.turn.role === 'user'
-        ? [userTurnText(row.row.turn)]
-        : []
-    )
-  );
-  return optimisticTurns.filter(
-    (turn) => !persistedText.has(userTurnText(turn))
-  );
+  let remaining = [...optimisticTurns];
+  for (const row of timeline.rows) {
+    if (row.row.kind !== 'message_turn' || row.row.turn.role !== 'user') {
+      continue;
+    }
+    const reconciled = reconcileOptimisticTurnAgainstUserRow(remaining, row);
+    remaining = reconciled.optimisticTurns;
+  }
+  return remaining;
 }
 
 function reconcileOptimisticTurnsAgainstRows(
@@ -529,17 +672,16 @@ function reconcileOptimisticTurnAgainstUserRow(
     (turn) => userTurnText(turn) === authoritativeText
   );
 
-  // A conversation has at most one in-flight turn. Agent runtimes may echo a
-  // normalized command (for example `/grill-me`) while the optimistic turn
-  // carries the richer serialized token. Pair that sole optimistic turn with
-  // the streaming authoritative user row instead of rendering both.
-  if (
-    optimisticIndex < 0 &&
-    optimisticTurns.length === 1 &&
-    row.row.phase === 'streaming'
-  ) {
-    optimisticIndex = 0;
+  if (optimisticIndex < 0) {
+    const authoritativeBackendText =
+      serializeSessionComposerBackendMessage(authoritativeText).trim();
+    optimisticIndex = optimisticTurns.findIndex(
+      (turn) =>
+        serializeSessionComposerBackendMessage(userTurnText(turn)).trim() ===
+        authoritativeBackendText
+    );
   }
+
   if (optimisticIndex < 0) return { row, optimisticTurns };
 
   const optimisticTurn = optimisticTurns[optimisticIndex];
@@ -617,13 +759,16 @@ function withPendingAssistantTurns(
     if (
       !userTurn ||
       userTurn.phase === 'settled' ||
+      userTurn.phase === 'failed' ||
+      userTurn.phase === 'cancelled' ||
       userTurn.phase === 'interrupted'
     ) {
       continue;
     }
     result.push({
-      key: `pending-${rowId}`,
+      key: `conversation-${rowId}`,
       phase: 'streaming',
+      revision: overlay.revision,
       turn: {
         id: rowId,
         role: 'assistant',
@@ -651,8 +796,9 @@ function withPendingAssistantTurns(
       : `${pendingUser.turn.id}:assistant`;
     if (!assistantIds.has(assistantId)) {
       result.push({
-        key: `pending-${assistantId}`,
+        key: `conversation-${assistantId}`,
         phase: 'streaming',
+        revision: pendingUser.revision,
         turn: {
           id: assistantId,
           role: 'assistant',

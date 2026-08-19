@@ -2,20 +2,20 @@
 export interface VibeXPluginManifest {
     $schema?: string;
     manifestVersion: 4;
-    apiVersion: '1.0';
+    apiVersion: "1.0";
     id: string;
     publisher: string;
     version: string;
     name: string;
     /** Always points to the required root README. Its frontmatter owns `summary`. */
-    readme: 'README.md';
+    readme: "README.md";
     engines: {
         vibex: string;
         pluginSdk: string;
     };
     content: {
-        root: 'contents';
-        index: '.vibex-plugin/content.index.json';
+        root: "contents";
+        index: ".vibex-plugin/content.index.json";
     };
     /** Values live in root config.json; this schema only describes and validates them. */
     config: {
@@ -32,13 +32,13 @@ export interface VibeXPluginManifest {
 }
 export interface WorkerEntrypointManifest {
     path: string;
-    format: 'javascript-esm';
-    protocol: '1.0';
+    format: "javascript-esm";
+    protocol: "1.0";
 }
 export interface AppEntrypointManifest {
     root: string;
     document: string;
-    protocol: '1.0';
+    protocol: "1.0";
 }
 export interface PermissionManifest {
     /** @deprecated Full-trust packages do not require capability consent. */
@@ -48,10 +48,10 @@ export interface PermissionManifest {
     reason: string;
     optional?: boolean;
     /** @deprecated Retained only so v4 packages authored before full trust remain valid. */
-    trustTier?: 'sandboxed_worker' | 'trusted_native';
+    trustTier?: "sandboxed_worker" | "trusted_native";
 }
 export interface DependencyManifest {
-    kind: 'runtime' | 'plugin';
+    kind: "runtime" | "plugin";
     descriptor: string;
     optional?: boolean;
 }
@@ -60,22 +60,34 @@ interface IntegrationBase {
     required?: boolean;
 }
 export interface SkillIntegrationManifest extends IntegrationBase {
-    kind: 'content.skill';
+    kind: "content.skill";
     resource: string;
     targets?: string[];
 }
 export interface McpIntegrationManifest extends IntegrationBase {
-    kind: 'content.mcp';
+    kind: "content.mcp";
     resource: string;
 }
+/** Package-relative MCP process supervised and credentialed by the VibeX Host. */
+export interface ManagedMcpRuntimeResource {
+    managedRuntime: {
+        /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
+        source?: string;
+        entrypoint: string;
+        protocolRevision: "2026-07-28";
+        defaultBinding?: "all-compatible-agents";
+    };
+}
 export interface WorkflowIntegrationManifest extends IntegrationBase {
-    kind: 'workflow.binding';
+    kind: "workflow.binding";
     resource: string;
 }
 export interface FileOpenerIntegrationManifest extends IntegrationBase {
-    kind: 'file.opener';
+    kind: "file.opener";
     label?: string;
     extensions?: string[];
+    /** Exact case-insensitive filename suffixes, including the leading dot. */
+    fileNameSuffixes?: string[];
     mediaTypes?: string[];
     priority?: number;
     /** Runtime-backed URL preview. Exactly one opener target is required. */
@@ -84,7 +96,7 @@ export interface FileOpenerIntegrationManifest extends IntegrationBase {
     editorSurface?: string;
 }
 export interface PreviewIntegrationManifest extends IntegrationBase {
-    kind: 'artifact.preview';
+    kind: "artifact.preview";
     mediaTypes: string[];
     runtime?: string;
     maxConcurrentPreviews?: number;
@@ -96,14 +108,16 @@ export interface PreviewIntegrationManifest extends IntegrationBase {
     };
 }
 export interface AppSurfaceIntegrationManifest extends IntegrationBase {
-    kind: 'app.surface';
+    kind: "app.surface";
     label?: string;
-    slot: 'plugin.detail.panel' | 'artifact.editor';
-    appEntrypoint: 'app';
+    slot: "plugin.detail.panel" | "artifact.editor";
+    appEntrypoint: "app";
     route?: `/${string}`;
     handler: string;
     allowedMethods?: string[];
     minHeight?: number;
+    /** Optional Host-native renderer. The plugin still owns file registration. */
+    nativeRenderer?: "workflow.studio";
 }
 export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest;
 export declare const pluginManifestSchema: {

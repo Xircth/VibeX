@@ -261,8 +261,8 @@ function localizedDiagnosticValue(
   value: string
 ): string {
   if (value === 'none') return t('agents.environmentDiagnosticNone');
-  if (value === 'managed installation lock')
-    return t('agents.environmentDiagnosticManagedLock');
+  if (value === 'managed installation lock' || value === 'user environment')
+    return t('agents.environmentDiagnosticUserEnvironment');
   if (value === 'NOT RESOLVED')
     return t('agents.environmentDiagnosticNotResolved');
   return value;

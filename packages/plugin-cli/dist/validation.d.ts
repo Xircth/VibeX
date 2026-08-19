@@ -1,7 +1,7 @@
-import type { VibeXPluginManifest } from '@vibex/plugin-sdk';
+import type { VibeXPluginManifest } from "@vibex/plugin-sdk";
 export interface Diagnostic {
     code: string;
-    severity: 'error' | 'warning';
+    severity: "error" | "warning";
     message: string;
     path?: string;
 }

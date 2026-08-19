@@ -87,6 +87,7 @@ interface ExecutorFilterOption {
 
 interface SessionHubSidebarProps {
   width: number;
+  fill?: boolean;
   isLoading: boolean;
   sessions: KanbanProjectSessionRecord[];
   archivedSessions: KanbanProjectSessionRecord[];
@@ -468,6 +469,7 @@ function renderSessionList(
 
 export function SessionHubSidebar({
   width,
+  fill = false,
   isLoading,
   sessions,
   archivedSessions,
@@ -589,25 +591,30 @@ export function SessionHubSidebar({
   return (
     <>
       <aside
-        className="session-hub-sidebar flex h-full min-h-0 shrink-0 flex-col"
-        style={{ width: `${width}px` }}
+        className={cn(
+          'session-hub-sidebar flex h-full min-h-0 flex-col',
+          fill ? 'min-w-0 flex-1' : 'shrink-0'
+        )}
+        style={{ width: fill ? '100%' : `${width}px` }}
       >
         <div className="space-y-2.5 px-3 py-2.5">
           <div className="flex items-start justify-between gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="cursor-default text-sm font-semibold text-foreground">
-                  {isArchiveView
-                    ? t('hubSidebar.archiveArea')
-                    : t('hubSidebar.sessionList')}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {visibleCount} / {totalCount}
-              </TooltipContent>
-            </Tooltip>
+            <div className="min-w-0 flex-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="min-w-0 cursor-default truncate text-sm font-semibold text-foreground">
+                    {isArchiveView
+                      ? t('hubSidebar.archiveArea')
+                      : t('hubSidebar.sessionList')}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {visibleCount} / {totalCount}
+                </TooltipContent>
+              </Tooltip>
+            </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <Popover
                 modal={false}
                 open={isCreatePopoverOpen}

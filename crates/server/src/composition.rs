@@ -84,6 +84,9 @@ impl HeadlessServer {
             .await?;
         let (agent_event_sink, agent_events) = runtime_event_channel();
         let agent_runtime = Arc::new(AgentRuntime::new(agent_event_sink));
+        let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
+            SqlitePluginRegistry::new(pool.clone()),
+        )));
         let application_deployment: Arc<dyn Deployment> = deployment.clone();
         let conversation_context = ConversationContext {
             deployment: application_deployment,
@@ -93,7 +96,10 @@ impl HeadlessServer {
             row_projectors: Arc::new(Mutex::new(
                 HashMap::<uuid::Uuid, IncrementalRowProjector>::new(),
             )),
-            host: Arc::new(DefaultConversationHost),
+            host: Arc::new(DefaultConversationHost::with_product_mcp_server_names({
+                let gate = plugin_control_plane.official_product_mcp_gate();
+                std::sync::Arc::new(move || gate.product_mcp_names())
+            })),
             event_publisher: Arc::new(conversations::NoopConversationEventPublisher),
         };
         let agent_event_task =
@@ -113,9 +119,6 @@ impl HeadlessServer {
             .await
             .map_err(|error| ServerBootstrapError::Conversation(error.to_string()))?;
 
-        let plugin_control_plane = Arc::new(PluginControlPlane::new(Arc::new(
-            SqlitePluginRegistry::new(pool.clone()),
-        )));
         let preview_host: Arc<dyn PluginPreviewHost> = Arc::new(
             plugins::ExternalProcessPreviewHost::new(plugin_control_plane.clone()),
         );
@@ -273,7 +276,7 @@ impl HeadlessServer {
             loop {
                 match workflow_dispatcher.tick().await {
                     Ok(true) => continue,
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
                     Err(error) => {
                         tracing::warn!(%error, "workflow dispatcher tick failed");
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;

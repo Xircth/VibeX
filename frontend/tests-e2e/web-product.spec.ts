@@ -33,7 +33,9 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
     0
   );
   await expect(
-    page.getByRole('button', { name: /Web Service|Web 服务/ })
+    page.getByRole('button', {
+      name: /Remote connection|远程连接|Web Service|Web 服务/,
+    })
   ).toHaveCount(0);
 
   await page.getByRole('button', { name: /Plugins|插件/ }).click();
@@ -44,7 +46,9 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
 
   await page.getByRole('button', { name: /Devices|设备/ }).click();
   await page
-    .getByRole('button', { name: /Create device pairing|创建设备配对/ })
+    .getByRole('button', {
+      name: /Generate connection code|生成连接码|Show invitation|出示邀请/,
+    })
     .click();
   await expect(
     page.getByRole('img', { name: /Device pairing QR code|设备配对二维码/ })

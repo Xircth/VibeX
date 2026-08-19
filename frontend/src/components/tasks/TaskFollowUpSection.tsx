@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { AgentKind } from 'shared/types';
 import { useBranchStatus } from '@/hooks';
@@ -10,8 +11,6 @@ import { cn } from '@/lib/utils';
 import { useReview } from '@/contexts/ReviewProvider';
 import { useEntries } from '@/contexts/EntriesContext';
 import { useConversationStatus } from '@/contexts/ConversationStatusContext';
-import { useTodos } from '@/hooks/useTodos';
-import { useKeySubmitFollowUp, Scope } from '@/keyboard';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { useAttemptBranch } from '@/hooks/useAttemptBranch';
@@ -23,7 +22,6 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { useGitStatus } from '@/hooks/git';
 
 import type { Session, Workspace } from 'shared/types';
-import { getLatestProfileFromProcesses } from '@/utils/executor';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -35,6 +33,7 @@ import { MessageQueueIndicator } from './follow-up/MessageQueueIndicator';
 import { ActionBar } from './follow-up/ActionBar';
 import { ConversationStatusDock } from './follow-up/ConversationStatusDock';
 import { AgentQuestionCard } from './follow-up/AgentQuestionCard';
+import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import {
   areConfigValuesEqual,
   sanitizeDependentConfigValues,
@@ -46,6 +45,7 @@ import {
   SessionComposerInput,
 } from './follow-up/SessionComposerInput';
 import { SessionComposerFrame } from './follow-up/SessionComposerFrame';
+import { DraftConflictBanner } from './follow-up/DraftConflictBanner';
 import { AgentMentionProvider } from './follow-up/AgentMention';
 import { LiveFeedbackBar } from './follow-up/LiveFeedbackBar';
 import { getDefaultExecutorProfile } from './follow-up/sessionComposerDraft';
@@ -107,6 +107,7 @@ import {
 } from '@/lib/codexGoalState';
 import { configuredBackendTransport } from '@/lib/backendTransport';
 import { deriveWorkspaceRootPath } from '@/components/panels/workspaceRootPath';
+import { useAgentWorkbench } from '@/features/agents/useAgentWorkbench';
 
 interface TaskFollowUpSectionProps {
   taskId?: string | null;
@@ -142,6 +143,8 @@ export function TaskFollowUpSection({
   onCreateSessionRequested,
   sessionState,
 }: TaskFollowUpSectionProps) {
+  const { t } = useTranslation('app');
+  const { availableCommandsByScope } = useAgentWorkbench();
   const { activeWorktreeId } = useWorktree();
   const { workspaceId: routeWorkspaceId } = useParams<{
     workspaceId?: string;
@@ -160,6 +163,9 @@ export function TaskFollowUpSection({
     isNewSessionMode,
     sessionId: session?.id,
   });
+  const availableCommands = sessionId
+    ? (availableCommandsByScope[sessionId] ?? [])
+    : [];
   const { profiles, config } = useUserSystem();
   const { selectedSessionLabel, compactSessionLabel } =
     getComposerSessionLabels({
@@ -302,20 +308,22 @@ export function TaskFollowUpSection({
     saveToScratch,
     setFollowUpMessage,
     cancelDebouncedSave,
+    draftConflict,
+    keepServerDraft,
+    keepLocalDraft,
+    lastSavedRevision,
+    scratchRevision,
   } = useSessionComposerDraftScratch({
     scratchId: scratchIdValue,
     workspaceId,
     attachedImagePaths,
     executorProfileRef,
+    localMessage,
   });
-  const latestProfileId = useMemo(
-    () => getLatestProfileFromProcesses(processes),
-    [processes]
-  );
   const defaultExecutorProfile = useMemo(() => {
     return getDefaultExecutorProfile({
       scratchExecutorProfile,
-      latestProfileId,
+      latestProfileId: null,
       createdSessionProfiles,
       sessionId: session?.id,
       sessionExecutor: session?.executor as AgentKind | null | undefined,
@@ -324,7 +332,6 @@ export function TaskFollowUpSection({
     });
   }, [
     scratchExecutorProfile,
-    latestProfileId,
     createdSessionProfiles,
     session?.id,
     session?.executor,
@@ -382,6 +389,8 @@ export function TaskFollowUpSection({
     setSelectedConfigValues,
     cancelDebouncedSave,
     deleteScratch,
+    savedRevision: lastSavedRevision,
+    serverRevision: scratchRevision,
   });
 
   const { activeRetryProcessId } = useRetryUi();
@@ -395,6 +404,7 @@ export function TaskFollowUpSection({
     queueMessage,
     cancelQueue,
     beginEditQueue,
+    editingInput,
     moveQueue,
     isQueueLoading,
     isQueued,
@@ -404,6 +414,13 @@ export function TaskFollowUpSection({
     workspaceId,
     isAttemptRunning: isComposerExecutionRunning,
     processCount: processes.length,
+    modeOverride: selectedMode,
+    configOverrides: Object.entries(selectedConfigValues).map(
+      ([key, value]) => ({
+        key,
+        value,
+      })
+    ),
   });
   const handleEditQueuedMessage = useCallback(
     (queuedMessage: QueuedMessage) => {
@@ -414,8 +431,11 @@ export function TaskFollowUpSection({
     [beginEditQueue, setAttachedImages, setLocalMessage]
   );
 
-  const { notices: conversationStatusNotices, question: pendingAgentQuestion } =
-    useConversationStatus();
+  const {
+    notices: conversationStatusNotices,
+    question: pendingAgentQuestion,
+    permissions: pendingPermissions,
+  } = useConversationStatus();
   // Live ACP session state is the sole source for composer controls. A global
   // agent catalog cannot account for workspace/provider/account differences.
   const displaySessionModes = sessionModes;
@@ -514,9 +534,10 @@ export function TaskFollowUpSection({
     await handleAfterSendCleanup();
   }, [handleAfterSendCleanup]);
   const handleBeforeSend = useCallback(() => {
+    cancelDebouncedSave();
     clearStopping();
     setLocalMessage('');
-  }, [clearStopping, setLocalMessage]);
+  }, [cancelDebouncedSave, clearStopping, setLocalMessage]);
   const handleSendFailure = useCallback(
     (failedMessage: string) => {
       setLocalMessage((current) => (current ? current : failedMessage));
@@ -537,16 +558,13 @@ export function TaskFollowUpSection({
     () => buildPromptEnhancementContext(entries),
     [entries]
   );
-  const { todos: legacyTodos } = useTodos(entries);
   const todos = useMemo(
     () =>
-      conversationPlanEntries.length > 0
-        ? conversationPlanEntries.map((entry) => ({
-            ...entry,
-            priority: entry.priority ?? null,
-          }))
-        : legacyTodos,
-    [conversationPlanEntries, legacyTodos]
+      conversationPlanEntries.map((entry) => ({
+        ...entry,
+        priority: entry.priority ?? null,
+      })),
+    [conversationPlanEntries]
   );
   const hasPendingApproval = useMemo(
     () => hasPendingToolApproval(entries),
@@ -713,7 +731,7 @@ export function TaskFollowUpSection({
     hasExecutorProfile: Boolean(effectiveExecutorProfile?.executor),
   });
 
-  const { handleQueueMessage, handleSubmitShortcut } =
+  const { handleQueueMessage, handleComposerSubmit } =
     useSessionComposerSubmitActions({
       localMessage,
       conflictResolutionInstructions,
@@ -722,6 +740,7 @@ export function TaskFollowUpSection({
       effectiveExecutorProfile,
       isAttemptRunning: isComposerExecutionRunning,
       isQueued,
+      isEditingQueued: Boolean(editingInput),
       clearStopping,
       cancelDebouncedSave,
       saveToScratch,
@@ -734,7 +753,6 @@ export function TaskFollowUpSection({
           return cleanup.attachments;
         });
       },
-      onSendFollowUp,
       onSubmitFollowUp,
     });
 
@@ -764,6 +782,12 @@ export function TaskFollowUpSection({
     executorProfile: executorProfileRef.current,
     saveToScratch,
     setAttachedImages,
+    onError: (error) =>
+      setFollowUpError(
+        t('followUpSend.imageUploadFailed', {
+          error,
+        })
+      ),
   });
 
   const { handleRemoveImage } = useSessionComposerImageRemoval({
@@ -782,12 +806,6 @@ export function TaskFollowUpSection({
       applyEnhancedPrompt: handleEditorChange,
       setFollowUpError,
     });
-
-  useKeySubmitFollowUp(handleSubmitShortcut, {
-    scope: Scope.FOLLOW_UP_READY,
-    enableOnFormTags: ['textarea', 'TEXTAREA'],
-    when: canSendFollowUp && isEditable,
-  });
 
   useSessionComposerHotkeys({
     isEditable,
@@ -853,22 +871,53 @@ export function TaskFollowUpSection({
           </div>
         </div>
 
-        <ConversationStatusDock
-          notices={conversationStatusNotices}
-          localError={followUpError}
-          onDismissLocalError={() => setFollowUpError(null)}
-          dismissalScope={session?.id ?? null}
-        />
-
         <SessionComposerFrame
+          status={
+            <ConversationStatusDock
+              notices={conversationStatusNotices}
+              localError={followUpError}
+              onDismissLocalError={() => setFollowUpError(null)}
+              dismissalScope={session?.id ?? null}
+            />
+          }
           overlay={
-            pendingAgentQuestion ? (
-              <AgentQuestionCard
-                key={pendingAgentQuestion.request.question_id}
-                request={pendingAgentQuestion.request}
-                responding={pendingAgentQuestion.responding}
-                onRespond={pendingAgentQuestion.onRespond}
-              />
+            pendingPermissions.length > 0 ||
+            pendingAgentQuestion ||
+            draftConflict ? (
+              <div className="space-y-2">
+                {draftConflict ? (
+                  <DraftConflictBanner
+                    onKeepServer={() => {
+                      const server = keepServerDraft();
+                      if (!server) return;
+                      setLocalMessage(server.message);
+                      setAttachedImages((prev) => {
+                        prev.forEach(revokeComposerImagePreviewUrl);
+                        return server.images.map(imageAttachmentFromPath);
+                      });
+                    }}
+                    onKeepLocal={() => {
+                      void keepLocalDraft();
+                    }}
+                  />
+                ) : null}
+                {pendingPermissions.map((permission) => (
+                  <PermissionRequestCard
+                    key={permission.request.permission_id}
+                    request={permission.request}
+                    responding={permission.responding}
+                    onRespond={permission.onRespond}
+                  />
+                ))}
+                {pendingAgentQuestion ? (
+                  <AgentQuestionCard
+                    key={pendingAgentQuestion.request.question_id}
+                    request={pendingAgentQuestion.request}
+                    responding={pendingAgentQuestion.responding}
+                    onRespond={pendingAgentQuestion.onRespond}
+                  />
+                ) : null}
+              </div>
             ) : null
           }
           drawer={
@@ -918,6 +967,7 @@ export function TaskFollowUpSection({
               value={localMessage}
               onChange={handleEditorChange}
               disabled={!isEditable}
+              availableCommands={availableCommands}
               context={{
                 workspaceId: workspaceIdValue,
                 workspacePath: composerWorkspacePath,
@@ -927,7 +977,7 @@ export function TaskFollowUpSection({
                 sessionId,
                 transport: configuredBackendTransport,
               }}
-              onSubmit={handleSubmitShortcut}
+              onSubmit={handleComposerSubmit}
               onAttachImages={handleAttachImages}
             />
           </AgentMentionProvider>

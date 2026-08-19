@@ -126,3 +126,57 @@ fn leap_day_schedule_searches_beyond_one_year() {
         vec![Utc.with_ymd_and_hms(2028, 2, 29, 0, 0, 0).single().unwrap()]
     );
 }
+
+#[test]
+fn one_shot_schedule_with_year_previews_exactly_once() {
+    let clock = FixedClock(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).single().unwrap());
+    let service = ScheduleService::new(clock);
+    let schedule = ScheduleSpec::Schedule {
+        cron: "30 9 15 12 * 2027".to_string(),
+        timezone: "UTC".to_string(),
+    };
+
+    assert_eq!(
+        service.preview(&schedule, 5).expect("one-shot preview"),
+        vec![
+            Utc.with_ymd_and_hms(2027, 12, 15, 9, 30, 0)
+                .single()
+                .unwrap()
+        ]
+    );
+}
+
+#[test]
+fn one_shot_schedule_with_year_never_fires_after_its_year_passes() {
+    let clock = FixedClock(Utc.with_ymd_and_hms(2028, 1, 1, 0, 0, 0).single().unwrap());
+    let service = ScheduleService::new(clock);
+    let schedule = ScheduleSpec::Schedule {
+        cron: "30 9 15 12 * 2027".to_string(),
+        timezone: "UTC".to_string(),
+    };
+
+    assert!(
+        service
+            .preview(&schedule, 5)
+            .expect("past one-shot")
+            .is_empty()
+    );
+}
+
+#[test]
+fn monthly_repeat_uses_day_of_month_without_a_weekday() {
+    let clock = FixedClock(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).single().unwrap());
+    let service = ScheduleService::new(clock);
+    let schedule = ScheduleSpec::Schedule {
+        cron: "0 8 15 * *".to_string(),
+        timezone: "UTC".to_string(),
+    };
+
+    assert_eq!(
+        service.preview(&schedule, 2).expect("monthly preview"),
+        vec![
+            Utc.with_ymd_and_hms(2026, 1, 15, 8, 0, 0).single().unwrap(),
+            Utc.with_ymd_and_hms(2026, 2, 15, 8, 0, 0).single().unwrap(),
+        ]
+    );
+}

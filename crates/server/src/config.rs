@@ -4,6 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use remote_protocol::ReachabilityOrigin;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ListenPolicyError;
 
@@ -22,6 +24,8 @@ pub struct ServerConfig {
     pub minimum_client_version: String,
     pub allowed_origins: BTreeSet<String>,
     pub static_root: Option<PathBuf>,
+    pub host_id: String,
+    pub reachability: Vec<ReachabilityOrigin>,
 }
 
 impl ServerConfig {
@@ -50,6 +54,16 @@ impl ServerConfig {
         self
     }
 
+    pub fn with_host_identity(
+        mut self,
+        host_id: impl Into<String>,
+        reachability: impl IntoIterator<Item = ReachabilityOrigin>,
+    ) -> Self {
+        self.host_id = host_id.into();
+        self.reachability = reachability.into_iter().collect();
+        self
+    }
+
     pub fn bind_ip(allow_lan: bool) -> Ipv4Addr {
         if allow_lan {
             Ipv4Addr::UNSPECIFIED
@@ -67,14 +81,17 @@ impl Default for ServerConfig {
             minimum_client_version: "0.1.0".to_string(),
             allowed_origins: BTreeSet::new(),
             static_root: None,
+            host_id: String::new(),
+            reachability: Vec::new(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ServerConfig;
     use std::net::Ipv4Addr;
+
+    use super::ServerConfig;
 
     #[test]
     fn lan_opt_in_changes_the_bind_address() {

@@ -12,7 +12,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     AuthenticationPrecedence, BuiltInProfileCatalog, NativeConfigBinding, NativeConfigField,
-    NativeConfigFieldKind, NativeConfigFormat, NativeFileMutation, NativeFileSystem,
+    NativeConfigFieldKind, NativeConfigFormat, NativeConfigSurface, NativeFileMutation,
+    NativeFileSystem,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +29,7 @@ pub struct NativeConfigFieldSnapshot {
     pub value: Option<String>,
     pub masked_value: Option<String>,
     pub revision: String,
+    pub surface: NativeConfigSurface,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -544,6 +546,7 @@ fn field_snapshot(
         value: (!secret).then_some(value).flatten(),
         masked_value: (secret && present).then(|| "••••••••".to_string()),
         revision: field_revision(revision_source),
+        surface: field.surface,
     }
 }
 

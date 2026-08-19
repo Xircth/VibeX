@@ -85,7 +85,9 @@ impl HeadlessDelegationRuntime {
                 gateway_listener,
                 gateway_tokens,
                 gateway_gate,
-                Arc::new(RuntimeConversationLookup { runtime: gateway_runtime }),
+                Arc::new(RuntimeConversationLookup {
+                    runtime: gateway_runtime,
+                }),
             )
             .await;
         });

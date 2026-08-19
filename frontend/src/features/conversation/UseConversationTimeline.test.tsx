@@ -427,6 +427,55 @@ describe('useConversationTimeline', () => {
     ]);
   });
 
+  it('backfills rows when a live batch skips sequences', async () => {
+    detailMock.mockResolvedValue({
+      ...detail(),
+      timeline: {
+        ...detail().timeline,
+        last_sequence: 1n,
+        rows: [userRow('t1', 'q', 1n)],
+      },
+    });
+    eventsSinceMock
+      .mockResolvedValueOnce(rowPage([], 1n))
+      .mockResolvedValueOnce(
+        rowPage([assistantRow('t1', 'hello', 6n)], 6n)
+      );
+
+    const { result } = renderHook(() =>
+      useConversationTimeline(CONVERSATION_ID)
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(listeners).toHaveLength(1));
+
+    act(() => {
+      listeners[0]?.(
+        batch(
+          [
+            {
+              op: 'append_text',
+              row_id: 't1:assistant',
+              revision: 6n,
+              stream: 'text',
+              delta: 'x',
+            },
+          ],
+          6n
+        )
+      );
+      flushFrames();
+    });
+
+    await waitFor(() =>
+      expect(eventsSinceMock).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
+        afterSequence: 1,
+        limit: 500,
+      })
+    );
+  });
+
   it('accumulates streamed text deltas into one assistant bubble', async () => {
     detailMock.mockResolvedValue(detail());
 

@@ -317,6 +317,9 @@ pub(super) async fn save_runtime(
     }
     let env_json = serde_json::to_string(&env)
         .map_err(|error| format!("序列化 Pi Runtime 设置失败：{error}"))?;
+    db::models::agent_setting::AgentSetting::ensure_row(pool, "pi")
+        .await
+        .map_err(|error| format!("保存 Pi Runtime 设置失败：{error}"))?;
     let result = sqlx::query(
         "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_type = 'pi'",
     )

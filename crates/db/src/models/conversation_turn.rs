@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, FromRow, Sqlite, SqliteConnection, SqlitePool};
@@ -142,6 +144,22 @@ impl ConversationTurnRecord {
         .await
     }
 
+    pub async fn latest_for_conversation(
+        pool: &SqlitePool,
+        conversation_id: Uuid,
+    ) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as::<_, Self>(&format!(
+            r#"SELECT {TURN_COLUMNS}
+               FROM conversation_turns
+               WHERE conversation_id = ?
+               ORDER BY ordinal DESC
+               LIMIT 1"#
+        ))
+        .bind(conversation_id)
+        .fetch_optional(pool)
+        .await
+    }
+
     pub async fn list_for_conversation(
         pool: &SqlitePool,
         conversation_id: Uuid,
@@ -169,6 +187,26 @@ impl ConversationTurnRecord {
         ))
         .fetch_all(pool)
         .await
+    }
+
+    /// Conversation ids in a workspace that currently have a non-terminal turn.
+    pub async fn in_flight_conversation_ids_for_workspace(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+    ) -> Result<HashSet<Uuid>, sqlx::Error> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"SELECT DISTINCT t.conversation_id
+               FROM conversation_turns t
+               INNER JOIN sessions s ON s.id = t.conversation_id
+               WHERE s.workspace_id = ?
+                 AND s.deleted_at IS NULL
+                 AND t.status IN ('pending','queued','running','blocked')"#,
+        )
+        .bind(workspace_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     pub async fn mark_queued<'e, E>(executor: E, id: Uuid) -> Result<(), sqlx::Error>
@@ -278,7 +316,8 @@ impl ConversationTurnRecord {
                    usage_json = COALESCE(?, usage_json),
                    completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ?
+                 AND status IN ('pending', 'queued', 'running', 'blocked')"#,
         )
         .bind(stop_reason)
         .bind(model)
@@ -303,7 +342,8 @@ impl ConversationTurnRecord {
                    error_json = ?,
                    completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ?
+                 AND status IN ('pending', 'queued', 'running', 'blocked')"#,
         )
         .bind(error_json)
         .bind(id)
@@ -326,7 +366,8 @@ impl ConversationTurnRecord {
                    error_json = COALESCE(?, error_json),
                    completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ?
+                 AND status IN ('pending', 'queued', 'running', 'blocked')"#,
         )
         .bind(reason_json)
         .bind(id)
@@ -353,7 +394,8 @@ impl ConversationTurnRecord {
                    error_json = COALESCE(?, error_json),
                    completed_at = COALESCE(completed_at, datetime('now', 'subsec')),
                    updated_at = datetime('now', 'subsec')
-               WHERE id = ?"#,
+               WHERE id = ?
+                 AND status IN ('pending', 'queued', 'running', 'blocked')"#,
         )
         .bind(reason_json)
         .bind(id)
@@ -709,5 +751,134 @@ mod tests {
             .expect("turn");
         assert_eq!(first.status, "interrupted");
         assert!(first.completed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn in_flight_conversation_ids_are_scoped_to_the_workspace() {
+        let pool = setup_pool().await;
+        let workspace_id = Uuid::new_v4();
+        let other_workspace_id = Uuid::new_v4();
+        let live_id = Uuid::new_v4();
+        let settled_id = Uuid::new_v4();
+        let other_id = Uuid::new_v4();
+
+        for (conversation_id, workspace) in [
+            (live_id, workspace_id),
+            (settled_id, workspace_id),
+            (other_id, other_workspace_id),
+        ] {
+            ConversationRecord::create(
+                &pool,
+                conversation_id,
+                CreateConversationRecord {
+                    workspace_id: workspace,
+                    task_id: None,
+                    title: None,
+                    initial_prompt: None,
+                    status: None,
+                    executor: None,
+                },
+            )
+            .await
+            .expect("create conversation");
+        }
+
+        ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id: live_id,
+                prompt_id: Some("live"),
+                text_preview: Some("live"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create live turn");
+
+        let settled_turn = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            settled_turn,
+            CreateConversationTurn {
+                conversation_id: settled_id,
+                prompt_id: Some("done"),
+                text_preview: Some("done"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create settled turn");
+        ConversationTurnRecord::mark_completed(&pool, settled_turn, None, None, None)
+            .await
+            .expect("complete settled turn");
+
+        ConversationTurnRecord::create_pending(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationTurn {
+                conversation_id: other_id,
+                prompt_id: Some("other"),
+                text_preview: Some("other"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create other turn");
+
+        let live =
+            ConversationTurnRecord::in_flight_conversation_ids_for_workspace(&pool, workspace_id)
+                .await
+                .expect("list live conversations");
+
+        assert_eq!(live, HashSet::from([live_id]));
+    }
+
+    #[tokio::test]
+    async fn later_terminal_marks_cannot_overwrite_a_settled_turn() {
+        let pool = setup_pool().await;
+        let conversation_id = Uuid::new_v4();
+        ConversationRecord::create(
+            &pool,
+            conversation_id,
+            CreateConversationRecord {
+                workspace_id: Uuid::new_v4(),
+                task_id: None,
+                title: None,
+                initial_prompt: None,
+                status: None,
+                executor: Some("agent"),
+            },
+        )
+        .await
+        .expect("create conversation");
+        let turn_id = Uuid::new_v4();
+        ConversationTurnRecord::create_pending(
+            &pool,
+            turn_id,
+            CreateConversationTurn {
+                conversation_id,
+                prompt_id: Some("prompt-1"),
+                text_preview: Some("hello"),
+                input_blocks_json: "[]",
+            },
+        )
+        .await
+        .expect("create turn");
+        ConversationTurnRecord::mark_running(&pool, turn_id)
+            .await
+            .expect("running");
+        ConversationTurnRecord::mark_cancelled(&pool, turn_id, Some(r#"{"message":"stop"}"#))
+            .await
+            .expect("cancelled");
+        ConversationTurnRecord::mark_completed(&pool, turn_id, Some("cancelled"), None, None)
+            .await
+            .expect("completed is a no-op");
+
+        let found = ConversationTurnRecord::find_by_id(&pool, turn_id)
+            .await
+            .expect("find")
+            .expect("turn");
+        assert_eq!(found.status, "cancelled");
     }
 }

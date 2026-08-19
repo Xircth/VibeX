@@ -1,14 +1,12 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use ts_rs::TS;
 use workspace_utils::{process::group_spawn_no_window, shell::get_shell_command};
 
 use crate::{
-    actions::{Executable, effective_working_dir},
-    approvals::ExecutorApprovalService,
+    actions::effective_working_dir,
     env::ExecutionEnv,
     executors::{ExecutorError, SpawnedChild},
 };
@@ -38,12 +36,10 @@ pub struct ScriptRequest {
     pub working_dir: Option<String>,
 }
 
-#[async_trait]
-impl Executable for ScriptRequest {
-    async fn spawn(
+impl ScriptRequest {
+    pub async fn spawn(
         &self,
         current_dir: &Path,
-        _approvals: Arc<dyn ExecutorApprovalService>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
         let effective_dir = effective_working_dir(current_dir, self.working_dir.as_deref());

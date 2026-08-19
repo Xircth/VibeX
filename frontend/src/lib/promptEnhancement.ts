@@ -1,4 +1,4 @@
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 
 export type PromptEnhancementContextMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';

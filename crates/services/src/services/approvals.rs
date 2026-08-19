@@ -1,5 +1,3 @@
-pub mod executor_approvals;
-
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -261,32 +259,6 @@ impl Approvals {
         map.get(execution_process_id).cloned()
     }
 
-    pub(crate) async fn cancel(&self, id: &str) {
-        if let Some((_, pending_approval)) = self.pending.remove(id) {
-            self.completed.insert(
-                id.to_string(),
-                ApprovalStatus::Denied {
-                    reason: Some("Cancelled".to_string()),
-                },
-            );
-
-            if let Some(store) = self
-                .msg_store_by_id(&pending_approval.execution_process_id)
-                .await
-                && let Some(entry) = pending_approval.entry.with_tool_status(ToolStatus::Denied {
-                    reason: Some("Cancelled".to_string()),
-                })
-            {
-                store.push_patch(ConversationPatch::replace(
-                    pending_approval.entry_index,
-                    entry,
-                ));
-            }
-
-            tracing::debug!("Cancelled approval '{}'", id);
-        }
-    }
-
     /// Check which execution processes have pending approvals.
     /// Returns a set of execution_process_ids that have at least one pending approval.
     pub fn get_pending_execution_process_ids(
@@ -305,18 +277,6 @@ impl Approvals {
                 }
             })
             .collect()
-    }
-}
-
-pub(crate) async fn ensure_task_in_review(pool: &SqlitePool, execution_process_id: Uuid) {
-    if let Ok(ctx) = ExecutionProcess::load_context(pool, execution_process_id).await
-        && ctx.task.status == TaskStatus::InProgress
-        && let Err(e) = Task::update_status(pool, ctx.task.id, TaskStatus::InReview).await
-    {
-        tracing::warn!(
-            "Failed to update task status to InReview for approval request: {}",
-            e
-        );
     }
 }
 

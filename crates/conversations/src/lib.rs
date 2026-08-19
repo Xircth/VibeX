@@ -18,8 +18,9 @@ pub mod service;
 
 pub use export::{render_html, render_markdown};
 pub use host::{
-    DefaultConversationHost, resolve_agent_runtime_launch_settings,
-    resolve_workspace_agent_working_dir, workspace_prompt_blocks,
+    DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
+    resolve_agent_runtime_launch_settings, resolve_workspace_agent_working_dir,
+    workspace_prompt_blocks,
 };
 pub use input::{
     CancelConversationInput, ConversationInputClaim, ConversationInputControl,

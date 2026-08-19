@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-use agents::conversation::{ContentBlock, ConversationTimelineRow, TurnRole};
 use async_trait::async_trait;
 use conversations::{
     CancelConversationInput, ConversationInputSubmission, ConversationInputView,
-    ConversationProjector, ConversationRelationView, ConversationSteerInput,
-    ConversationSteeringReceipt, ConversationTurnSnapshot, CreateForkConversation,
-    ReorderConversationInput, SubmitConversationInput, UpdateConversationInput,
-    create_fork_conversation,
+    ConversationRelationView, ConversationSteerInput, ConversationSteeringReceipt,
+    ConversationTurnSnapshot, CreateForkConversation, ReorderConversationInput,
+    SubmitConversationInput, UpdateConversationInput, create_fork_conversation,
 };
 use db::models::{
     conversation::{ConversationRecord, CreateConversationRecord, DbConversationSummary},
@@ -23,12 +21,14 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
-    ApplicationDomainPort, ApplicationError, CancelWorkflowRequest, CompleteWorkflowStepRequest,
-    DecideWorkflowRequest, DomainCommand, NotificationProjector, Principal, PublishWorkflowRequest,
-    ResumeWorkflowRequest, StartWorkflowRequest, TerminalNotificationEvidence,
-    ValidateWorkflowRequest, WorkflowEventRecord, WorkflowExecutionPort, WorkflowRunView,
-    WorkflowStepView, WorkflowValidationView, WorkflowVersionView, domain::unavailable_domains,
-    workflow::UnavailableWorkflowExecution,
+    AcceptWorkflowCandidateRequest, ApplicationDomainPort, ApplicationError, CancelWorkflowRequest,
+    CompleteWorkflowStepRequest, DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand,
+    ForkWorkflowRequest, NotificationProjector, PauseWorkflowRequest, PauseWorkflowStepRequest,
+    Principal, PublishWorkflowRequest, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
+    StartWorkflowRequest, SubmitWorkflowStepInputRequest, TerminalNotificationEvidence,
+    ValidateWorkflowRequest, WorkflowDefinitionSummary, WorkflowEventRecord, WorkflowExecutionPort,
+    WorkflowRunView, WorkflowStepView, WorkflowValidationView, WorkflowVersionView,
+    domain::unavailable_domains, workflow::UnavailableWorkflowExecution,
 };
 
 const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
@@ -41,10 +41,73 @@ const STEER_CONVERSATION_SCOPE: &str = "conversation.steer";
 const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
 const MAX_OFFLINE_EVENTS: i64 = 10_000;
+const MAX_LIVE_EVENTS: i64 = 500;
+
+#[derive(sqlx::FromRow)]
+struct ProjectCatalogRow {
+    id: Uuid,
+    name: String,
+    path: String,
+}
+
+#[derive(sqlx::FromRow)]
+struct WorkspaceCatalogRow {
+    id: Uuid,
+    project_id: Uuid,
+    name: Option<String>,
+    branch: String,
+}
+
+fn require_workflow_run(principal: &Principal) -> Result<(), ApplicationError> {
+    if principal.allows("workflow.run") {
+        Ok(())
+    } else {
+        Err(ApplicationError::forbidden("principal lacks workflow.run"))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ListConversations {
     pub workspace_id: Uuid,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ListRecentConversations {
+    pub since_days: i64,
+    pub project_id: Option<Uuid>,
+    pub limit: i64,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCatalogProject {
+    pub id: Uuid,
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCatalogWorkspace {
+    pub id: Uuid,
+    pub project_id: Uuid,
+    pub name: String,
+    pub branch: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCatalogAgent {
+    pub id: String,
+    pub ready: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCatalog {
+    pub projects: Vec<ConversationCatalogProject>,
+    pub workspaces: Vec<ConversationCatalogWorkspace>,
+    pub agents: Vec<ConversationCatalogAgent>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -83,6 +146,8 @@ pub struct StartConversationTurn {
     pub config_overrides: Vec<serde_json::Value>,
     #[serde(default)]
     pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+    #[serde(default)]
+    pub operation_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
@@ -319,6 +384,17 @@ pub trait ConversationRepository: Send + Sync {
         workspace_id: Uuid,
     ) -> Result<Vec<DbConversationSummary>, ApplicationError>;
 
+    async fn list_recent(
+        &self,
+        _request: ListRecentConversations,
+    ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
+        Ok(Vec::new())
+    }
+
+    async fn catalog(&self) -> Result<ConversationCatalog, ApplicationError> {
+        Ok(ConversationCatalog::default())
+    }
+
     async fn create(
         &self,
         request: CreateConversation,
@@ -404,6 +480,87 @@ impl ConversationRepository for SqliteConversationRepository {
             .map_err(|error| ApplicationError::internal(error.to_string()))
     }
 
+    async fn list_recent(
+        &self,
+        request: ListRecentConversations,
+    ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
+        DbConversationSummary::list_recent(
+            &self.pool,
+            request.since_days,
+            request.project_id,
+            request.limit,
+        )
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn catalog(&self) -> Result<ConversationCatalog, ApplicationError> {
+        let projects = sqlx::query_as::<_, ProjectCatalogRow>(
+            r#"SELECT p.id AS id,
+                      p.name AS name,
+                      COALESCE(
+                        NULLIF(TRIM(p.default_agent_working_dir), ''),
+                        (
+                          SELECT r.path
+                          FROM project_repos pr
+                          JOIN repos r ON r.id = pr.repo_id
+                          WHERE pr.project_id = p.id
+                          LIMIT 1
+                        ),
+                        ''
+                      ) AS path
+               FROM projects p
+               ORDER BY p.updated_at DESC, p.created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .into_iter()
+        .map(|project| ConversationCatalogProject {
+            id: project.id,
+            name: project.name,
+            path: project.path,
+        })
+        .collect();
+        let workspaces = sqlx::query_as::<_, WorkspaceCatalogRow>(
+            r#"SELECT id, project_id, name, branch
+               FROM workspaces
+               WHERE archived = 0
+               ORDER BY updated_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .into_iter()
+        .map(|row| ConversationCatalogWorkspace {
+            id: row.id,
+            project_id: row.project_id,
+            name: row
+                .name
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| row.branch.clone()),
+            branch: row.branch,
+        })
+        .collect();
+        let agents = sqlx::query_scalar::<_, String>(
+            r#"SELECT DISTINCT agent_id
+               FROM sessions
+               WHERE agent_id IS NOT NULL AND TRIM(agent_id) != '' AND deleted_at IS NULL
+               ORDER BY agent_id"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .into_iter()
+        .map(|id| ConversationCatalogAgent { id, ready: true })
+        .collect();
+        Ok(ConversationCatalog {
+            projects,
+            workspaces,
+            agents,
+        })
+    }
+
     async fn create(
         &self,
         request: CreateConversation,
@@ -475,6 +632,12 @@ impl ConversationRepository for SqliteConversationRepository {
             conversations::ConversationServiceError::Internal(message) => {
                 ApplicationError::internal(message)
             }
+            conversations::ConversationServiceError::AuthenticationRequired(message) => {
+                ApplicationError::bad_request(message)
+            }
+            conversations::ConversationServiceError::SessionUnavailable { message, .. } => {
+                ApplicationError::bad_request(message)
+            }
         })?;
         DbConversationSummary::find_by_id(&self.pool, conversation_id)
             .await
@@ -490,11 +653,9 @@ impl ConversationRepository for SqliteConversationRepository {
         &self,
         conversation_id: Uuid,
     ) -> Result<ConversationOutputView, ApplicationError> {
-        let turn = ConversationTurnRecord::list_for_conversation(&self.pool, conversation_id)
+        let turn = ConversationTurnRecord::latest_for_conversation(&self.pool, conversation_id)
             .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?
-            .into_iter()
-            .last();
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let last_sequence: i64 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(sequence), 0)
              FROM conversation_events WHERE conversation_id = ?",
@@ -503,25 +664,16 @@ impl ConversationRepository for SqliteConversationRepository {
         .fetch_one(&self.pool)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let timeline = ConversationProjector::project(&self.pool, conversation_id)
+        let assistant_text = match turn.as_ref() {
+            Some(turn) => crate::workflow::extract_last_assistant_text(
+                &self.pool,
+                conversation_id,
+                turn.id,
+            )
             .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        let assistant_text = timeline.rows.iter().rev().find_map(|row| match &row.row {
-            ConversationTimelineRow::MessageTurn { turn, .. }
-                if turn.role == TurnRole::Assistant =>
-            {
-                let text = turn
-                    .blocks
-                    .iter()
-                    .filter_map(|block| match block {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<String>();
-                (!text.trim().is_empty()).then_some(text)
-            }
-            _ => None,
-        });
+            .ok(),
+            None => None,
+        };
         Ok(ConversationOutputView {
             conversation_id,
             turn: turn.map(|turn| ConversationTurnSnapshot {
@@ -544,33 +696,38 @@ impl ConversationRepository for SqliteConversationRepository {
         after_sequence: i64,
     ) -> Result<SubscriptionBootstrap, ApplicationError> {
         let conversation_uuid = conversation_id.as_uuid();
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
         let high_water_mark = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(MAX(sequence), 0)
              FROM conversation_events
              WHERE conversation_id = ?",
         )
         .bind(conversation_uuid)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&self.pool)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        if after_sequence >= high_water_mark {
+            return Ok(SubscriptionBootstrap {
+                subscription_id,
+                ready: false,
+                snapshot: None,
+                replay: Vec::new(),
+                high_water_mark,
+            });
+        }
+
+        let page_limit = if after_sequence == 0 {
+            MAX_OFFLINE_EVENTS
+        } else {
+            MAX_LIVE_EVENTS
+        };
         let records = ConversationEventRecord::events_since(
-            &mut *transaction,
+            &self.pool,
             conversation_uuid,
             after_sequence,
-            i64::MAX,
+            page_limit,
         )
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
-        transaction
-            .commit()
-            .await
-            .map_err(|error| ApplicationError::internal(error.to_string()))?;
-
         let events = records
             .into_iter()
             .filter(|record| record.sequence <= high_water_mark)
@@ -581,10 +738,14 @@ impl ConversationRepository for SqliteConversationRepository {
                     .unwrap_or_else(|_| serde_json::json!({ "unparsed": record.normalized_json })),
             })
             .collect::<Vec<_>>();
+        let delivered_through = events
+            .last()
+            .map(|event| event.sequence)
+            .unwrap_or(after_sequence.max(0));
         let (snapshot, replay) = if after_sequence == 0 {
             (
                 Some(SubscriptionSnapshot {
-                    through_sequence: high_water_mark,
+                    through_sequence: delivered_through,
                     payload: serde_json::json!({ "events": events }),
                 }),
                 Vec::new(),
@@ -597,7 +758,7 @@ impl ConversationRepository for SqliteConversationRepository {
             ready: false,
             snapshot,
             replay,
-            high_water_mark,
+            high_water_mark: delivered_through,
         })
     }
 
@@ -872,6 +1033,20 @@ where
         self.workflows.start(principal, operation_id, request).await
     }
 
+    pub async fn debug_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: DebugWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.write") || !principal.allows("workflow.run") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write or workflow.run",
+            ));
+        }
+        self.workflows.debug(principal, operation_id, request).await
+    }
+
     pub async fn show_workflow(
         &self,
         principal: &Principal,
@@ -905,6 +1080,29 @@ where
         self.workflows.version(version_id).await
     }
 
+    pub async fn workflow_definitions(
+        &self,
+        principal: &Principal,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.definitions(limit).await
+    }
+
+    pub async fn workflow_versions(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.versions(definition_id, limit).await
+    }
+
     pub async fn workflow_events(
         &self,
         principal: &Principal,
@@ -916,6 +1114,67 @@ where
             return Err(ApplicationError::forbidden("principal lacks workflow.read"));
         }
         self.workflows.events(run_id, after_sequence, limit).await
+    }
+
+    pub async fn attach_workflow_run(
+        &self,
+        principal: &Principal,
+        subscription_id: SubscriptionId,
+        run_id: Uuid,
+        after_sequence: i64,
+    ) -> Result<SubscriptionBootstrap, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        let run = self.workflows.show(run_id).await?;
+        if after_sequence == 0 {
+            let steps = self.workflows.steps(run_id).await?;
+            return Ok(SubscriptionBootstrap {
+                subscription_id,
+                ready: true,
+                snapshot: Some(SubscriptionSnapshot {
+                    through_sequence: run.last_sequence,
+                    payload: serde_json::json!({"run": run, "steps": steps}),
+                }),
+                replay: Vec::new(),
+                high_water_mark: run.last_sequence,
+            });
+        }
+        if after_sequence >= run.last_sequence {
+            return Ok(SubscriptionBootstrap {
+                subscription_id,
+                ready: true,
+                snapshot: None,
+                replay: Vec::new(),
+                high_water_mark: run.last_sequence,
+            });
+        }
+        let records = self
+            .workflows
+            .events(run_id, after_sequence, MAX_LIVE_EVENTS)
+            .await?;
+        let replay = records
+            .into_iter()
+            .filter(|event| event.sequence <= run.last_sequence)
+            .map(|event| RemoteEvent {
+                sequence: event.sequence,
+                kind: event.event_kind,
+                payload: serde_json::from_str(&event.payload_json)
+                    .unwrap_or_else(|_| serde_json::json!({"unparsed": event.payload_json})),
+            })
+            .collect::<Vec<_>>();
+        let high_water_mark = replay
+            .last()
+            .map(|event| event.sequence)
+            .unwrap_or(after_sequence)
+            .min(run.last_sequence);
+        Ok(SubscriptionBootstrap {
+            subscription_id,
+            ready: true,
+            snapshot: None,
+            replay,
+            high_water_mark,
+        })
     }
 
     pub async fn complete_workflow_step(
@@ -973,6 +1232,75 @@ where
             .await
     }
 
+    pub async fn pause_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: PauseWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .pause_run(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn resume_paused_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ResumePausedWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .resume_paused_run(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn accept_workflow_candidate(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: AcceptWorkflowCandidateRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .accept_candidate(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn pause_workflow_step(
+        &self,
+        principal: &Principal,
+        request: PauseWorkflowStepRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows.pause_step(request).await
+    }
+
+    pub async fn submit_workflow_step_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: SubmitWorkflowStepInputRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .submit_step_input(operation_id, request)
+            .await
+    }
+
+    pub async fn fork_workflow_from_step(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ForkWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .fork_from_step(principal, operation_id, request)
+            .await
+    }
+
     pub async fn list_conversations(
         &self,
         principal: &Principal,
@@ -986,6 +1314,31 @@ where
         self.conversations
             .list_for_workspace(request.workspace_id)
             .await
+    }
+
+    pub async fn list_recent_conversations(
+        &self,
+        principal: &Principal,
+        request: ListRecentConversations,
+    ) -> Result<Vec<DbConversationSummary>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.conversations.list_recent(request).await
+    }
+
+    pub async fn conversation_catalog(
+        &self,
+        principal: &Principal,
+    ) -> Result<ConversationCatalog, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.conversations.catalog().await
     }
 
     pub async fn create_conversation(
@@ -1031,13 +1384,15 @@ where
     pub async fn start_conversation_turn(
         &self,
         principal: &Principal,
-        request: StartConversationTurn,
+        operation_id: Uuid,
+        mut request: StartConversationTurn,
     ) -> Result<ConversationTurnSnapshot, ApplicationError> {
         if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
             return Err(ApplicationError::forbidden(
                 "principal lacks conversation.write",
             ));
         }
+        request.operation_id = Some(operation_id);
         self.execution.start_turn(request).await
     }
 

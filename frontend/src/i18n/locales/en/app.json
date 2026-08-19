@@ -92,6 +92,7 @@
   "followUpSend": {
     "sessionScopedSlashCommandError": "This / command must run in an existing session and cannot be triggered by creating a new session.",
     "startFailed": "Failed to start follow-up execution: {{error}}",
+    "imageUploadFailed": "Could not attach image: {{error}}",
     "unknownError": "Unknown error"
   },
   "workspaceSessions": {
@@ -112,6 +113,7 @@
     "closeBehaviorMinimize": "Minimize",
     "appUpdateAvailable": "VibeX {{version}} is available to update.",
     "openReleasePage": "Open release page",
+    "viewUpdate": "View update",
     "agentRuntimeSetupRequired": "{{agents}} has a missing or incompatible local Agent Runtime or ACP. Open Agent Settings to check, install, or update it.",
     "openAgentSettings": "Open Agent Settings"
   },
@@ -257,6 +259,7 @@
   "entryUtils": {
     "fileRead": "View file",
     "fileEdit": "Edit file",
+    "listDir": "View directory",
     "search": "Search",
     "webFetch": "Web fetch",
     "terminal": "Terminal",

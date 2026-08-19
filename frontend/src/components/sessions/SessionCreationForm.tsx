@@ -19,7 +19,10 @@ import {
 } from '@/components/tasks/follow-up/SessionConfigOptionSelectors';
 import { SessionSettingsSummary } from '@/components/tasks/follow-up/SessionSettingsSummary';
 import { agentsApi } from '@/features/agents/api';
-import { sessionControlsQueryKey } from '@/features/agents/sessionControlsQuery';
+import {
+  loadAgentSessionControlsCatalog,
+  sessionControlsQueryKey,
+} from '@/features/agents/sessionControlsQuery';
 import { useUserSystem } from '@/components/ConfigProvider';
 import RepoBranchSelector from '@/components/tasks/RepoBranchSelector';
 import { WorkspaceSelector } from './WorkspaceSelector';
@@ -144,23 +147,9 @@ export function SessionCreationForm({
     // can seed the exact workspace entry; a new workspace falls back to the
     // verified global catalog without starting a temporary user session.
     queryKey: sessionControlsQueryKey(executor!, controlsWorkspaceId),
-    queryFn: async () => {
-      const cached = await agentsApi.capabilityCatalog(executor!);
-      if (cached) return cached;
-
-      // First run after install/login: build the verified catalog once. The
-      // backend deduplicates concurrent probes and persists the result by the
-      // local runtime/config fingerprint.
-      const refreshed = await agentsApi.refreshCapabilityCatalog(executor!);
-      if (!refreshed) {
-        throw new Error('Agent session controls discovery failed');
-      }
-      const discovered = await agentsApi.capabilityCatalog(executor!);
-      if (!discovered) {
-        throw new Error('Agent session controls catalog is unavailable');
-      }
-      return discovered;
-    },
+    // First run after install/login builds the verified catalog once. Every
+    // creation surface reuses this exact query and cache entry.
+    queryFn: () => loadAgentSessionControlsCatalog(executor!),
     enabled: Boolean(executor),
     // Keep data resident so opening the form is immediate, but periodically
     // re-check the backend fingerprint so install/login/config changes cannot

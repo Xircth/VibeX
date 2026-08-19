@@ -80,6 +80,8 @@ export function SessionHubListItem({
     x: number;
     y: number;
   } | null>(null);
+  const showCardActions =
+    !isEditing && (Boolean(onDeleteSession) || showRenameControls);
 
   useEffect(() => {
     if (!isEditing) {
@@ -172,174 +174,170 @@ export function SessionHubListItem({
           !isDeleteMode && 'pl-2'
         )}
       >
-        <div className="flex w-full min-w-0 items-start gap-2">
-          <div className="min-w-0 w-0 flex-1 overflow-hidden">
-            <div className="flex min-w-0 items-center gap-2">
-              {isEditing ? (
-                <Input
-                  value={draftName}
-                  onChange={(event) => setDraftName(event.target.value)}
-                  onClick={(event) => event.stopPropagation()}
-                  onBlur={() => void submitRename()}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      void submitRename();
-                    }
-                    if (event.key === 'Escape') {
-                      event.preventDefault();
-                      cancelRename();
-                    }
-                  }}
-                  className="h-7 min-w-0 rounded-md border-border/60 bg-[var(--surface-control)] text-xs"
-                  autoFocus
-                  disabled={isSubmitting}
-                />
-              ) : (
-                <div
-                  className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground"
-                  title={session.fullName}
-                >
-                  {session.fullName}
-                </div>
-              )}
+        <div className="flex min-w-0 items-center gap-1.5">
+          {isEditing ? (
+            <Input
+              value={draftName}
+              onChange={(event) => setDraftName(event.target.value)}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={() => void submitRename()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void submitRename();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  cancelRename();
+                }
+              }}
+              className="h-7 min-w-0 flex-1 rounded-md border-border/60 bg-[var(--surface-control)] text-xs"
+              autoFocus
+              disabled={isSubmitting}
+            />
+          ) : (
+            <div
+              className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground"
+              title={session.fullName}
+            >
+              {session.fullName}
             </div>
+          )}
 
-            {!isEditing ? (
-              <div className="mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground">
-                <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
-                  {formatTimeAgo(session.updatedAt)}
-                </span>
-                <span className="shrink-0 text-muted-foreground/50">·</span>
-                <span
-                  className="flex min-w-0 max-w-full items-center gap-1"
-                  title={branchHoverText}
-                >
-                  <GitBranch className="h-3 w-3 shrink-0 opacity-80" />
-                  <span className="min-w-0 truncate">{session.branch}</span>
-                </span>
-                {session.isRunning ? (
-                  <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
-                    {t('hubListItem.running')}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-
-            {previewText ? (
-              <p
-                className="mt-0.5 block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground"
-                title={previewText}
+          {isEditing ? (
+            <>
+              <button
+                type="button"
+                className="composer-control shrink-0 rounded-md p-1 transition-colors"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void submitRename();
+                }}
               >
-                {previewText}
-              </p>
-            ) : null}
-          </div>
+                <Check className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="composer-control shrink-0 rounded-md p-1 transition-colors"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  cancelRename();
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : null}
 
-          {!isKanbanBoardMode || onDeleteSession ? (
-            <div className="flex shrink-0 items-center gap-1">
-              {onDeleteSession && !isEditing ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      className={cn(
-                        'composer-control rounded-md p-1 text-muted-foreground transition-opacity hover:text-foreground',
-                        isHovered ? 'opacity-100' : 'opacity-0'
-                      )}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                      }}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onDeleteSession();
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t('hubListItem.deleteSession')}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
+          {isOpening ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+          ) : null}
 
-              {showRenameControls ? (
-                isEditing ? (
-                  <>
-                    <button
-                      type="button"
-                      className="composer-control rounded-md p-1 transition-colors"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void submitRename();
-                      }}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="composer-control rounded-md p-1 transition-colors"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        cancelRename();
-                      }}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className={cn(
-                      'composer-control rounded-md p-1 transition-opacity',
-                      isHovered ? 'opacity-100' : 'opacity-0'
-                    )}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setDraftName(session.fullName);
-                      setIsEditing(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                )
-              ) : null}
-
-              {isOpening ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              ) : null}
-
-              {!isKanbanBoardMode ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center justify-center text-muted-foreground">
-                      {session.executor ? (
-                        <AgentIcon
-                          agent={
-                            session.executor as ExecutorProfileId['executor']
-                          }
-                          className="h-4 w-4"
-                        />
-                      ) : (
-                        <Bot className="h-4 w-4" />
-                      )}
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {getExecutorDisplayName(session.executor)}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
+          {!isKanbanBoardMode ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex shrink-0 items-center justify-center text-muted-foreground">
+                  {session.executor ? (
+                    <AgentIcon
+                      agent={session.executor as ExecutorProfileId['executor']}
+                      className="h-4 w-4"
+                    />
+                  ) : (
+                    <Bot className="h-4 w-4" />
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {getExecutorDisplayName(session.executor)}
+              </TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
+
+        {!isEditing ? (
+          <div className="mt-0.5 flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] text-muted-foreground">
+            <span className={cn('shrink-0 font-medium', INFO_TEXT_CLASS)}>
+              {formatTimeAgo(session.updatedAt)}
+            </span>
+            <span className="shrink-0 text-muted-foreground/50">·</span>
+            <span
+              className="flex min-w-0 max-w-full items-center gap-1"
+              title={branchHoverText}
+            >
+              <GitBranch className="h-3 w-3 shrink-0 opacity-80" />
+              <span className="min-w-0 truncate">{session.branch}</span>
+            </span>
+            {session.isRunning ? (
+              <span className="session-status-running-pill shrink-0 rounded-full px-1.5 py-0.5 text-[10px]">
+                {t('hubListItem.running')}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {previewText ? (
+          <p
+            className={cn(
+              'mt-0.5 block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground',
+              isHovered && showCardActions && 'pr-12'
+            )}
+            title={previewText}
+          >
+            {previewText}
+          </p>
+        ) : null}
       </div>
+
+      {showCardActions ? (
+        <div
+          className={cn(
+            'absolute bottom-1.5 right-1.5 z-[1] flex items-center gap-0.5 rounded-md bg-[var(--surface-content)] transition-opacity',
+            isHovered ? 'opacity-100' : 'pointer-events-none opacity-0'
+          )}
+        >
+          {onDeleteSession ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t('hubListItem.deleteSession')}
+                  className="composer-control rounded-md p-1 text-muted-foreground hover:text-foreground"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void onDeleteSession();
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t('hubListItem.deleteSession')}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
+          {showRenameControls ? (
+            <button
+              type="button"
+              aria-label={t('hubListItem.renameSession')}
+              className="composer-control rounded-md p-1"
+              onClick={(event) => {
+                event.stopPropagation();
+                setDraftName(session.fullName);
+                setIsEditing(true);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {contextMenu ? (
         <div
           className="tahoe-popover fixed z-50 min-w-40 rounded-md p-1 text-popover-foreground"

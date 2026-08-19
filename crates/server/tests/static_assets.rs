@@ -32,6 +32,46 @@ async fn runtime(root: &std::path::Path) -> ServerRuntime<SqliteConversationRepo
 }
 
 #[tokio::test]
+async fn missing_static_root_serves_a_host_listen_page() {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(
+            SqliteConnectOptions::from_str("sqlite::memory:")
+                .expect("sqlite options")
+                .foreign_keys(false),
+        )
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    let app = ServerRuntime::new(
+        ServerConfig::default(),
+        ServerToken::new("static-test-token-with-at-least-32-bytes"),
+        ApplicationCore::new(SqliteConversationRepository::new(pool)),
+    )
+    .router();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let text = String::from_utf8(body.to_vec()).expect("html");
+    assert!(text.contains("VibeX Host"));
+    assert!(text.contains("配对邀请"));
+}
+
+#[tokio::test]
 async fn production_assets_and_spa_routes_share_the_static_root() {
     let root = TempDir::new().expect("static root");
     std::fs::write(root.path().join("index.html"), "<main>VibeX</main>").expect("index");

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Badge } from '@astryxdesign/core/Badge';
 import { Ban, RefreshCw, ShieldAlert, TriangleAlert, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -18,12 +19,14 @@ import { cn } from '@/lib/utils';
 export function TurnErrorCard({
   error,
   onReload,
+  onRebind,
   onDismiss,
   dismissLabel,
   placement = 'timeline',
 }: {
   error: ConversationError;
   onReload?: () => void | Promise<unknown>;
+  onRebind?: () => void | Promise<unknown>;
   onDismiss?: () => void;
   dismissLabel?: string;
   placement?: 'timeline' | 'composer';
@@ -31,68 +34,100 @@ export function TurnErrorCard({
   const { t } = useTranslation(['conversation', 'common']);
   const [reloading, setReloading] = useState(false);
   const view = describeError(error, t);
+  const showRebind = view.canRebind && onRebind;
+  const showReload = !showRebind && view.canReload && onReload;
 
   const handleReload = () => {
-    if (!onReload) return;
+    const action = showRebind ? onRebind : onReload;
+    if (!action) return;
     setReloading(true);
-    void Promise.resolve(onReload()).finally(() => setReloading(false));
+    void Promise.resolve(action()).finally(() => setReloading(false));
   };
+
+  if (placement === 'composer') {
+    return (
+      <div
+        role={view.tone === 'error' ? 'alert' : 'status'}
+        data-tone={view.tone}
+        className="composer-status-row text-xs text-foreground"
+      >
+        <div className="composer-status-header">
+          <div className="composer-status-heading">
+            <div className="composer-status-title">{view.title}</div>
+            <Badge
+              className="composer-status-badge"
+              variant={view.tone === 'error' ? 'error' : 'neutral'}
+              label={
+                view.tone === 'error'
+                  ? t('statusDock.errorBadge')
+                  : t('statusDock.infoBadge')
+              }
+            />
+          </div>
+          {showRebind || showReload || onDismiss ? (
+            <div className="composer-status-action-slot">
+              {showRebind || showReload ? (
+                <button
+                  type="button"
+                  className="composer-status-action"
+                  disabled={reloading}
+                  onClick={handleReload}
+                >
+                  <RefreshCw
+                    className={cn('h-3.5 w-3.5', reloading && 'animate-spin')}
+                  />
+                  {showRebind
+                    ? t('turnErrorCard.rebindSession')
+                    : t('turnErrorCard.reloadSession')}
+                </button>
+              ) : null}
+              {onDismiss ? (
+                <ComposerDismissButton
+                  label={dismissLabel ?? t('statusDock.dismiss')}
+                  onClick={onDismiss}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {view.detail ? (
+          <ConversationStatusDetails
+            key={view.detail}
+            title={view.title}
+            label={t('statusDock.showDetails')}
+            accessibleLabel={t('statusDock.showDetailsFor', {
+              title: view.title,
+            })}
+            mono={view.tone === 'error'}
+          >
+            <div className="whitespace-pre-wrap break-words">{view.detail}</div>
+          </ConversationStatusDetails>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div
       role={view.tone === 'error' ? 'alert' : 'status'}
       data-tone={view.tone}
       className={cn(
-        placement === 'composer'
-          ? 'composer-status-row text-xs text-foreground'
-          : cn(
-              'conv-entry-item mb-2 rounded-lg border px-3 py-2.5 text-sm',
-              view.tone === 'neutral'
-                ? 'border-border bg-muted/40 text-muted-foreground'
-                : 'border-destructive/40 bg-destructive/10 text-destructive'
-            )
+        'conv-entry-item mb-2 rounded-lg border px-3 py-2.5 text-sm',
+        view.tone === 'neutral'
+          ? 'border-border bg-muted/40 text-muted-foreground'
+          : 'border-destructive/40 bg-destructive/10 text-destructive'
       )}
     >
       <div className="flex items-start gap-2.5">
-        <span
-          className={cn(
-            'shrink-0',
-            placement === 'composer' ? 'composer-status-icon' : 'mt-0.5'
-          )}
-        >
-          {view.icon}
-        </span>
+        <span className="mt-0.5 shrink-0">{view.icon}</span>
         <div className="min-w-0 flex-1">
-          <div
-            className={cn(
-              'font-medium',
-              placement === 'composer' && 'composer-status-title'
-            )}
-          >
-            {view.title}
-          </div>
+          <div className="font-medium">{view.title}</div>
           {view.detail ? (
-            placement === 'composer' ? (
-              <ConversationStatusDetails
-                key={view.detail}
-                title={view.title}
-                label={t('statusDock.showDetails')}
-                accessibleLabel={t('statusDock.showDetailsFor', {
-                  title: view.title,
-                })}
-                mono={view.tone === 'error'}
-              >
-                <div className="whitespace-pre-wrap break-words">
-                  {view.detail}
-                </div>
-              </ConversationStatusDetails>
-            ) : (
-              <div className="mt-0.5 whitespace-pre-wrap break-words leading-5 opacity-90">
-                {view.detail}
-              </div>
-            )
+            <div className="mt-0.5 whitespace-pre-wrap break-words leading-5 opacity-90">
+              {view.detail}
+            </div>
           ) : null}
-          {view.canReload && onReload ? (
+          {showRebind || showReload ? (
             <div className="mt-2">
               <Button
                 type="button"
@@ -107,7 +142,9 @@ export function TurnErrorCard({
                     reloading && 'animate-spin'
                   )}
                 />
-                {t('turnErrorCard.reloadSession')}
+                {showRebind
+                  ? t('turnErrorCard.rebindSession')
+                  : t('turnErrorCard.reloadSession')}
               </Button>
             </div>
           ) : null}
@@ -117,8 +154,7 @@ export function TurnErrorCard({
             type="button"
             className={cn(
               'shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-              placement === 'composer' && 'composer-status-dismiss'
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
             )}
             onClick={onDismiss}
             title={dismissLabel ?? t('statusDock.dismiss')}
@@ -132,6 +168,26 @@ export function TurnErrorCard({
   );
 }
 
+function ComposerDismissButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="composer-status-dismiss"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+}
+
 type ErrorTone = 'neutral' | 'error';
 
 type ErrorView = {
@@ -140,6 +196,7 @@ type ErrorView = {
   tone: ErrorTone;
   icon: React.ReactNode;
   canReload: boolean;
+  canRebind: boolean;
 };
 
 function describeError(error: ConversationError, t: TFunction): ErrorView {
@@ -153,6 +210,7 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         tone: 'neutral',
         icon: <Ban className="h-4 w-4" />,
         canReload: false,
+        canRebind: false,
       };
     case 'resource_not_found':
       return {
@@ -160,7 +218,26 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         detail: message ?? t('turnErrorCard.resourceNotFoundDetail'),
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
-        canReload: true,
+        canReload: false,
+        canRebind: true,
+      };
+    case 'session_resume_unsupported':
+      return {
+        title: t('turnErrorCard.sessionResumeUnsupportedTitle'),
+        detail: message ?? t('turnErrorCard.sessionResumeUnsupportedDetail'),
+        tone: 'error',
+        icon: <TriangleAlert className="h-4 w-4" />,
+        canReload: false,
+        canRebind: true,
+      };
+    case 'session_load_failed':
+      return {
+        title: t('turnErrorCard.sessionLoadFailedTitle'),
+        detail: message,
+        tone: 'error',
+        icon: <TriangleAlert className="h-4 w-4" />,
+        canReload: false,
+        canRebind: true,
       };
     case 'idle_timeout':
       return {
@@ -169,6 +246,7 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
+        canRebind: false,
       };
     case 'connection_closed':
       return {
@@ -177,6 +255,7 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
+        canRebind: false,
       };
     case 'auth_required':
       return {
@@ -185,6 +264,7 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         tone: 'error',
         icon: <ShieldAlert className="h-4 w-4" />,
         canReload: false,
+        canRebind: true,
       };
     default:
       return {
@@ -193,6 +273,7 @@ function describeError(error: ConversationError, t: TFunction): ErrorView {
         tone: 'error',
         icon: <TriangleAlert className="h-4 w-4" />,
         canReload: true,
+        canRebind: false,
       };
   }
 }

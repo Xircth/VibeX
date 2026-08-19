@@ -4,10 +4,8 @@ import type {
   AskForApproval,
   ClaudeCode,
   Codex,
-  ExecutorAction,
   ExecutorConfigs,
   ExecutorProfileId,
-  ExecutionProcess,
   SandboxMode,
 } from 'shared/types';
 
@@ -700,35 +698,4 @@ export function formatClaudePermissionLabel(
   }
 }
 
-export function extractProfileFromAction(
-  action: ExecutorAction | null
-): ExecutorProfileId | null {
-  let current = action;
-  while (current) {
-    if (
-      current.typ.type === 'CodingAgentInitialRequest' ||
-      current.typ.type === 'CodingAgentFollowUpRequest'
-    ) {
-      return current.typ.executor_profile_id;
-    }
-    current = current.next_action;
-  }
-  return null;
-}
 
-/**
- * Get the latest ExecutorProfileId from a list of execution processes.
- * Searches from most recent to oldest.
- */
-export function getLatestProfileFromProcesses(
-  processes: ExecutionProcess[] | undefined
-): ExecutorProfileId | null {
-  if (!processes?.length) return null;
-  return (
-    processes
-      .slice()
-      .reverse()
-      .map((p) => extractProfileFromAction(p.executor_action ?? null))
-      .find((pid) => pid !== null) ?? null
-  );
-}

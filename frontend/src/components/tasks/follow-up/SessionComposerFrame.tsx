@@ -1,12 +1,14 @@
 import type { FocusEventHandler, ReactNode } from 'react';
 
 export function SessionComposerFrame({
+  status,
   drawer,
   overlay,
   onFocus,
   onBlur,
   children,
 }: {
+  status?: ReactNode;
   drawer?: ReactNode;
   overlay?: ReactNode;
   onFocus?: FocusEventHandler<HTMLDivElement>;
@@ -14,7 +16,12 @@ export function SessionComposerFrame({
   children: ReactNode;
 }) {
   return (
-    <div className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0">
+    <div
+      className="agent-question-composer-stack relative z-10 mx-3 mb-3 mt-2 shrink-0"
+      data-testid="session-composer-stack"
+      data-has-overlay={overlay ? 'true' : undefined}
+    >
+      {status}
       {overlay}
       {drawer}
       <div

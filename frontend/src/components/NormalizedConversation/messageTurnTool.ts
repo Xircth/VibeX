@@ -56,6 +56,19 @@ function parseInput(use: ToolUseBlock): unknown {
  * Tool outputs arrive as the agent's rawOutput serialized to JSON — surface the
  * human-readable text (stdout/stderr/output) instead of an escaped JSON blob.
  */
+const OUTPUT_TEXT_KEYS = [
+  'stdout',
+  'stderr',
+  'output',
+  'text',
+  'FileContent',
+  'file_content',
+  'fileContent',
+  'content',
+  'result',
+  'value',
+];
+
 function extractOutputParts(value: unknown, depth = 0): string[] {
   if (depth > 5 || value == null) return [];
   if (typeof value === 'string') return value.length > 0 ? [value] : [];
@@ -65,13 +78,11 @@ function extractOutputParts(value: unknown, depth = 0): string[] {
   if (typeof value !== 'object') return [];
 
   const record = value as Record<string, unknown>;
-  const direct = ['stdout', 'stderr', 'output', 'text']
-    .map((key) => record[key])
-    .filter(
-      (part): part is string => typeof part === 'string' && part.length > 0
-    );
-  if (direct.length > 0) return direct;
-  return extractOutputParts(record.content, depth + 1);
+  for (const key of OUTPUT_TEXT_KEYS) {
+    const parts = extractOutputParts(record[key], depth + 1);
+    if (parts.length > 0) return parts;
+  }
+  return [];
 }
 
 function extractOutputText(preview: string | null): string | null {
@@ -91,6 +102,84 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+const FILE_PATH_KEYS = [
+  'file_path',
+  'target_file',
+  'targetFile',
+  'path',
+  'filename',
+  'file',
+  'abs_path',
+  'filepath',
+  'filePath',
+];
+
+const LINE_NUMBER_PREFIX = /^(?: {0,3}(\d+)(?:→|[|:]\s?|\t))/;
+
+function firstPath(obj: Record<string, unknown>): string | null {
+  const path = firstString(obj, ...FILE_PATH_KEYS);
+  if (path) return path;
+  const uri = firstString(obj, 'uri');
+  if (uri?.startsWith('file://')) {
+    return decodeURIComponent(uri.slice('file://'.length));
+  }
+  return null;
+}
+
+function firstUrl(obj: Record<string, unknown>): string | null {
+  const url = firstString(obj, 'url', 'href');
+  if (url) return url;
+  const uri = firstString(obj, 'uri');
+  return uri && /^https?:\/\//i.test(uri) ? uri : null;
+}
+
+function nestedRecord(
+  obj: Record<string, unknown>,
+  key: string
+): Record<string, unknown> {
+  return asRecord(obj[key]);
+}
+
+function firstStringDeep(
+  obj: Record<string, unknown>,
+  ...keys: string[]
+): string | null {
+  return (
+    firstString(obj, ...keys) ??
+    firstString(nestedRecord(obj, 'action'), ...keys) ??
+    firstString(nestedRecord(obj, 'input'), ...keys)
+  );
+}
+
+/** Turn `12→code` / `12: code` dumps into the raw snippet plus its first file line. */
+export function stripNumberedFileLines(content: string): {
+  content: string;
+  startLine?: number;
+} {
+  const lines = content.split(/\r?\n/);
+  if (lines.length === 0) return { content };
+
+  const parsed = lines.map((line) => {
+    const match = line.match(LINE_NUMBER_PREFIX);
+    return match
+      ? { line: Number(match[1]), text: line.slice(match[0].length) }
+      : null;
+  });
+  const numbered = parsed.filter(
+    (item): item is { line: number; text: string } => item != null
+  );
+  if (numbered.length === 0 || numbered.length < lines.length * 0.7) {
+    return { content };
+  }
+
+  return {
+    content: parsed
+      .map((item, index) => (item ? item.text : lines[index]))
+      .join('\n'),
+    startLine: numbered[0].line,
+  };
 }
 
 function firstString(
@@ -145,7 +234,10 @@ function readRange(obj: Record<string, unknown>): {
     'line_count',
     'lineCount'
   );
-  const lineStart = explicitStart ?? (offset != null ? offset + 1 : null);
+  // Agent Read tools treat offset as the first file line (1-based). A 0
+  // offset still means the start of the file.
+  const lineStart =
+    explicitStart ?? (offset != null ? Math.max(offset, 1) : null);
   const lineEnd =
     explicitEnd ??
     (lineStart != null && limit != null && limit > 0
@@ -238,6 +330,15 @@ const SEARCH_NAMES = new Set([
   'rg',
   'filesearch',
   'codesearch',
+  'websearch',
+]);
+
+const LIST_DIR_NAMES = new Set([
+  'listdir',
+  'listdirectory',
+  'listfolder',
+  'readdir',
+  'lsdir',
 ]);
 
 const WEB_NAMES = new Set([
@@ -315,14 +416,7 @@ function editChanges(
     }
   }
 
-  const path = firstString(
-    obj,
-    'file_path',
-    'path',
-    'filename',
-    'file',
-    'abs_path'
-  );
+  const path = firstPath(obj);
   if (!path) return null;
 
   // 2) A ready-made unified diff/patch field — render it directly.
@@ -460,16 +554,25 @@ function toolActionType(
   const name = canonicalName(toolName);
 
   const command = firstCommand(obj);
-  const path = firstString(
-    obj,
-    'file_path',
-    'path',
-    'filename',
-    'file',
-    'abs_path'
-  );
-  const query = firstString(obj, 'pattern', 'query', 'q', 'glob', 'regex');
-  const url = firstString(obj, 'url', 'uri', 'href');
+  const path = firstPath(obj);
+  const dirPath =
+    firstStringDeep(obj, 'target_directory', 'directory', 'dir') ??
+    (LIST_DIR_NAMES.has(name) ? path : null);
+  const parsedOutput = (() => {
+    if (!output) return null;
+    try {
+      return JSON.parse(output);
+    } catch {
+      return null;
+    }
+  })();
+  const outputRecord = asRecord(parsedOutput);
+  const query =
+    firstStringDeep(obj, 'pattern', 'query', 'q', 'glob', 'regex') ??
+    (outputRecord
+      ? firstStringDeep(outputRecord, 'pattern', 'query', 'q')
+      : null);
+  const url = firstUrl(obj);
 
   // Command — by ACP kind first (agents' titles are free-form prose, so the
   // declared kind is the reliable signal), then by name, by a `command` field,
@@ -483,6 +586,24 @@ function toolActionType(
     return {
       ...commandResult(status, output),
       command: command ?? toolName.trim(),
+    };
+  }
+
+  if (LIST_DIR_NAMES.has(name)) {
+    return {
+      action: 'tool',
+      tool_name: 'list_dir',
+      arguments: {
+        path: dirPath ?? path ?? '',
+        ...(asRecord(parsed) ?? {}),
+      } as JsonValue,
+      result:
+        output != null
+          ? {
+              type: { type: 'json' },
+              value: (parsedOutput ?? output) as JsonValue,
+            }
+          : null,
     };
   }
 
@@ -504,12 +625,15 @@ function toolActionType(
     return { action: 'web_fetch', url: url ?? '' };
   }
 
+  const isReadTool = kind === 'read' || READ_NAMES.has(name);
+
   // File edit / apply_patch — render an inline diff card (early style).
   if (
-    kind === 'edit' ||
-    EDIT_NAMES.has(name) ||
-    looksLikeEdit(obj) ||
-    patchPayload(parsed, rawInput)
+    !isReadTool &&
+    (kind === 'edit' ||
+      EDIT_NAMES.has(name) ||
+      looksLikeEdit(obj) ||
+      patchPayload(parsed, rawInput))
   ) {
     const edit = editChanges(obj, parsed, rawInput);
     if (edit)
@@ -517,16 +641,45 @@ function toolActionType(
   }
 
   // Plain file read — by kind, by name, or a lone path with no edit payload.
-  if (
-    (kind === 'read' || READ_NAMES.has(name) || path) &&
-    !looksLikeEdit(obj) &&
-    path
-  ) {
+  if ((isReadTool || path) && !looksLikeEdit(obj) && path) {
+    const stripped = output != null ? stripNumberedFileLines(output) : null;
+    const range = readRange(obj);
+    const lineStart = stripped?.startLine ?? range.line_start;
+    const snippetLines = stripped?.content
+      ? stripped.content.split(/\r?\n/).length
+      : 0;
+    const lineEnd =
+      stripped?.startLine != null && snippetLines > 0
+        ? stripped.startLine + snippetLines - 1
+        : range.line_end;
+
     return {
       action: 'file_read',
       path,
-      ...readRange(obj),
-      ...(output != null ? { content: output } : {}),
+      ...(lineStart != null ? { line_start: lineStart } : {}),
+      ...(lineEnd != null ? { line_end: lineEnd } : {}),
+      ...(stripped?.content != null ? { content: stripped.content } : {}),
+    };
+  }
+
+  const subagentType = firstString(
+    obj,
+    'subagent_type',
+    'agent_type',
+    'subagentType'
+  );
+  if (
+    subagentType ||
+    name === 'spawnsubagent' ||
+    name === 'spawnagent' ||
+    name === 'subagentlaunch'
+  ) {
+    return {
+      action: 'task_create',
+      description: firstString(obj, 'description', 'title', 'name') ?? toolName,
+      subagent_type: subagentType,
+      result:
+        output != null ? { type: { type: 'markdown' }, value: output } : null,
     };
   }
 
@@ -546,7 +699,7 @@ function displayToolName(
 ): string {
   if (!OPAQUE_TOOL_ID.test(toolName.trim())) return toolName;
   if (looksLikeEdit(obj)) {
-    const path = firstString(obj, 'file_path', 'path', 'filename');
+    const path = firstPath(obj);
     return path
       ? i18n.t('app:turnTool.editFile', { path })
       : i18n.t('app:turnTool.editFileGeneric');
@@ -593,7 +746,7 @@ export function toolBlockToNormalizedEntry(
           : actionType.action === 'web_fetch'
             ? actionType.url
             : actionType.action === 'tool'
-              ? actionType.tool_name
+              ? ''
               : use.tool_name;
 
   return {

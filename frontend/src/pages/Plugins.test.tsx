@@ -29,7 +29,9 @@ function renderPage(environment: BackendTransport['environment']) {
 describe('PluginsPage', () => {
   it('renders the product catalog without a duplicate module toolbar', async () => {
     renderPage('desktop');
-    expect(screen.getByRole('heading', { name: '插件' })).toBeVisible();
+    const heading = screen.getByRole('heading', { name: '插件' });
+    expect(heading).toBeVisible();
+    expect(heading.querySelector('svg')).toBeInTheDocument();
     expect(await screen.findByText('没有匹配的插件')).toBeVisible();
     expect(
       screen.queryByRole('button', { name: '返回 Agent 设置' })

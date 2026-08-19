@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, LocalResult, NaiveDateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -122,17 +122,23 @@ struct CronSchedule {
     days_of_week: Vec<u32>,
     dom_restricted: bool,
     dow_restricted: bool,
+    years: Vec<u32>,
 }
 
 impl CronSchedule {
     fn parse(expression: &str) -> Result<Self, ScheduleError> {
         let fields = expression.split_whitespace().collect::<Vec<_>>();
-        if fields.len() != 5 {
+        if !(5..=6).contains(&fields.len()) {
             return Err(ScheduleError::InvalidCron(format!(
-                "expected 5 fields, got {}",
+                "expected 5 or 6 fields, got {}",
                 fields.len()
             )));
         }
+        let years = if fields.len() == 6 {
+            parse_field(fields[5], 1970, 2199)?
+        } else {
+            Vec::new()
+        };
         Ok(Self {
             minutes: parse_field(fields[0], 0, 59)?,
             hours: parse_field(fields[1], 0, 23)?,
@@ -141,10 +147,14 @@ impl CronSchedule {
             days_of_week: parse_day_of_week(fields[4])?,
             dom_restricted: fields[2] != "*",
             dow_restricted: fields[4] != "*",
+            years,
         })
     }
 
     fn matches(&self, candidate: NaiveDateTime) -> bool {
+        if !self.years.is_empty() && !self.years.contains(&(candidate.year() as u32)) {
+            return false;
+        }
         if !self.minutes.contains(&candidate.minute())
             || !self.hours.contains(&candidate.hour())
             || !self.months.contains(&candidate.month())
@@ -170,11 +180,28 @@ impl CronSchedule {
             .with_second(0)?
             .with_nanosecond(0)?
             .checked_add_signed(chrono::Duration::minutes(1))?;
+        let min_year = self.years.iter().min().copied();
+        let max_year = self.years.iter().max().copied();
+        // Fast-forward to the first restricted year so one-shot schedules do not
+        // scan every minute of the years between now and the target year.
+        if let Some(min_year) = min_year {
+            if (candidate.year() as u32) > max_year.unwrap_or(min_year) {
+                return None;
+            }
+            if (candidate.year() as u32) < min_year {
+                candidate = NaiveDate::from_ymd_opt(min_year as i32, 1, 1)?.and_hms_opt(0, 0, 0)?;
+            }
+        }
         for _ in 0..(GREGORIAN_SEARCH_YEARS * MINUTES_PER_LEAP_YEAR) {
             if self.matches(candidate) {
                 return Some(candidate);
             }
             candidate = candidate.checked_add_signed(chrono::Duration::minutes(1))?;
+            if let Some(max_year) = max_year
+                && (candidate.year() as u32) > max_year
+            {
+                return None;
+            }
         }
         None
     }

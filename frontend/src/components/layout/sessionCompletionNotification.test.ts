@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SoundFile } from 'shared/types';
 
-import { deliverSessionCompletionNotification } from './sessionCompletionNotification';
+import { deliverDesktopNotification } from './sessionCompletionNotification';
 
-describe('deliverSessionCompletionNotification', () => {
-  it('suppresses both completion channels while the main window is focused', async () => {
+describe('deliverDesktopNotification', () => {
+  it('suppresses both channels while focused and set to unfocused-only', async () => {
     const playSound = vi.fn().mockResolvedValue(undefined);
     const showPush = vi.fn().mockResolvedValue(undefined);
 
-    await deliverSessionCompletionNotification({
-      kind: 'success',
+    await deliverDesktopNotification({
       windowFocused: true,
+      notifyWhen: 'unfocused',
       soundEnabled: true,
       soundFile: SoundFile.PHONE_VIBRATION,
       pushEnabled: true,
@@ -22,13 +22,31 @@ describe('deliverSessionCompletionNotification', () => {
     expect(showPush).not.toHaveBeenCalled();
   });
 
-  it('delivers each enabled channel independently while the app is unfocused', async () => {
+  it('delivers while focused when set to always', async () => {
     const playSound = vi.fn().mockResolvedValue(undefined);
     const showPush = vi.fn().mockResolvedValue(undefined);
 
-    await deliverSessionCompletionNotification({
-      kind: 'success',
+    await deliverDesktopNotification({
+      windowFocused: true,
+      notifyWhen: 'always',
+      soundEnabled: true,
+      soundFile: SoundFile.PHONE_VIBRATION,
+      pushEnabled: true,
+      playSound,
+      showPush,
+    });
+
+    expect(playSound).toHaveBeenCalledWith(SoundFile.PHONE_VIBRATION);
+    expect(showPush).toHaveBeenCalledOnce();
+  });
+
+  it('delivers each enabled channel independently while unfocused', async () => {
+    const playSound = vi.fn().mockResolvedValue(undefined);
+    const showPush = vi.fn().mockResolvedValue(undefined);
+
+    await deliverDesktopNotification({
       windowFocused: false,
+      notifyWhen: 'unfocused',
       soundEnabled: true,
       soundFile: SoundFile.PHONE_VIBRATION,
       pushEnabled: true,

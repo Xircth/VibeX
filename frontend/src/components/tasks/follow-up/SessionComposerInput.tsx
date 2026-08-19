@@ -1263,7 +1263,7 @@ export function SessionComposerInput({
           maxRows={7}
           placeholder=""
           label={t('composer.inputLabel')}
-          hasHistory={false}
+          hasHistory
           pasteAsToken={false}
           triggers={triggers}
           handleRef={composerHandleRef}

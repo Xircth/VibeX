@@ -92,6 +92,7 @@
   "followUpSend": {
     "sessionScopedSlashCommandError": "该 / 命令需要在已有会话中执行，不能创建新会话触发。",
     "startFailed": "启动后续执行失败：{{error}}",
+    "imageUploadFailed": "无法附加图片：{{error}}",
     "unknownError": "未知错误"
   },
   "workspaceSessions": {
@@ -112,6 +113,7 @@
     "closeBehaviorMinimize": "最小化",
     "appUpdateAvailable": "VibeX {{version}} 可更新。",
     "openReleasePage": "打开发布页",
+    "viewUpdate": "查看更新",
     "agentRuntimeSetupRequired": "{{agents}} 的本机 Agent Runtime 或 ACP 缺失或不兼容。请在 Agent 设置中预检查并安装或更新。",
     "openAgentSettings": "前往 Agent 设置"
   },
@@ -257,9 +259,10 @@
   "entryUtils": {
     "fileRead": "查看文件",
     "fileEdit": "编辑文件",
+    "listDir": "查看目录",
     "search": "搜索",
     "webFetch": "网页抓取",
-    "terminal": "Terminal",
+    "terminal": "终端",
     "generatingAgent": "正在生成智能体",
     "tool": "工具",
     "subagent": "子代理",

@@ -1,4 +1,27 @@
 {
+  "codexGoal": {
+    "label": "Goal",
+    "statusLabel": "Status",
+    "currentLabel": "Current goal",
+    "status": {
+      "running": "Running",
+      "paused": "Paused",
+      "completed": "Completed"
+    }
+  },
+  "find": {
+    "placeholder": "Find in conversation",
+    "matches": "{{current}} of {{total}}",
+    "none": "No matches",
+    "previous": "Previous match",
+    "next": "Next match",
+    "close": "Close find"
+  },
+  "draftConflict": {
+    "title": "Draft conflict",
+    "keepServer": "Keep server",
+    "keepLocal": "Keep mine"
+  },
   "children": {
     "title": "Child conversations ({{count}})",
     "active": "{{count}} active",
@@ -28,8 +51,9 @@
     "copy": "Copy"
   },
   "thinking": {
-    "statusThinking": "Thinking",
-    "statusCompleted": "Completed"
+    "label": "Thinking",
+    "expand": "Show thinking",
+    "collapse": "Hide thinking"
   },
   "displayEntry": {
     "userDeniedTool": "User denied {{tool}}",
@@ -78,9 +102,13 @@
   },
   "turnErrorCard": {
     "reloadSession": "Reload session",
+    "rebindSession": "Rebind session",
     "cancelledTitle": "Cancelled",
     "resourceNotFoundTitle": "Agent session expired",
-    "resourceNotFoundDetail": "This session no longer exists on the agent side. Reloading will re-establish the session on the next message.",
+    "resourceNotFoundDetail": "This session no longer exists on the agent side. Visible history remains, but the agent’s hidden context is gone. Confirm a rebind to continue.",
+    "sessionResumeUnsupportedTitle": "Session resume unsupported",
+    "sessionResumeUnsupportedDetail": "This agent cannot restore the previous session. Confirm a rebind to cold-start. Hidden agent context will not be preserved.",
+    "sessionLoadFailedTitle": "Could not load agent session",
     "idleTimeoutTitle": "Agent not responding",
     "idleTimeoutDetail": "The agent returned nothing for a long time, so this turn was ended automatically. Common causes: the network/agent can't reach the model, or the agent needs to re-authenticate.",
     "connectionClosedTitle": "Connection closed",
@@ -101,8 +129,12 @@
   "delegationCard": {
     "delegatedTo": "Delegated to {{agent}}",
     "subAgentDelegation": "Sub-agent delegation",
+    "task": "Task",
+    "result": "Result",
     "openChildSession": "Open child session",
-    "duration": "Took {{duration}}",
+    "durationMs": "{{count}} ms",
+    "durationSeconds": "{{count}}s",
+    "durationMinutes": "{{count}} min",
     "running": "Running",
     "cancel": "Cancel delegation",
     "canceling": "Canceling…",
@@ -130,6 +162,10 @@
       "tool": "Tool"
     },
     "reject": "Reject",
+    "allow": "Allow",
+    "allowOnce": "Allow once",
+    "allowSession": "Allow for this session",
+    "allowAlways": "Always allow all",
     "allowActions": "Permission approval options",
     "expandAllow": "Show approval options",
     "options": "Options",
@@ -144,6 +180,7 @@
   "messageTurnView": {
     "streamingOutput": "AI is responding...",
     "streamingThinking": "AI is thinking...",
+    "streamingStatus": "AI is working",
     "copied": "Copied",
     "copyMessage": "Copy message",
     "edit": "Edit and resend",
@@ -182,12 +219,19 @@
     "dismiss": "Dismiss notice",
     "dismissLocalError": "Dismiss local error",
     "localErrorTitle": "Action failed",
+    "errorBadge": "Error",
+    "warningBadge": "Warning",
+    "infoBadge": "Notice",
     "showDetails": "Show details",
     "showDetailsFor": "Show details: {{title}}",
     "newerEventTitle": "This conversation includes a record from a newer version",
     "newerEventDescription": "This version cannot display one record yet. The rest of the conversation is unaffected. Update VibeX to view it.",
     "unreadableEventTitle": "Some conversation history cannot be displayed",
-    "unreadableEventDescription": "VibeX cannot read one historical record. The rest of the conversation is unaffected."
+    "unreadableEventDescription": "VibeX cannot read one historical record. The rest of the conversation is unaffected.",
+    "updateAgent": "Update",
+    "updating": "Updating",
+    "updateStarted": "Update started",
+    "updateFailed": "Update failed"
   },
   "liveFeedback": {
     "placeholder": "Steer this turn",
@@ -198,12 +242,33 @@
     "checkItems": "Check Items",
     "result": "Result"
   },
+  "preview": {
+    "switchToFileView": "Switch to file view",
+    "switchToDiffView": "Switch to diff view"
+  },
   "fileTool": {
     "openPreview": "Open preview",
     "copied": "Copied",
     "copyPath": "Copy path",
     "path": "Path",
     "tool": "Tool"
+  },
+  "toolArtifact": {
+    "view": "View",
+    "edit": "Edit",
+    "write": "Write",
+    "delete": "Delete",
+    "rename": "Rename",
+    "search": "Search",
+    "fetch": "Fetch",
+    "denied": "Denied",
+    "timedOut": "Timed out",
+    "exitCode": "exit {{code}}",
+    "matches_one": "{{count}} match",
+    "matches_other": "{{count}} matches",
+    "openInPreview": "Open in preview",
+    "loadingDiff": "Loading diff…",
+    "noHeadDiff": "No differences against HEAD"
   },
   "viewedImages": {
     "summary_one": "Viewed {{count}} image",
@@ -223,9 +288,15 @@
   },
   "planCard": {
     "label": "Plan",
-    "updating": "Updating",
-    "itemsSummary": "{{count}} items - {{content}}",
-    "planUpdated": "Plan updated"
+    "completedCount": "{{completed}} of {{total}} completed",
+    "waitingConfirmation": "Waiting for confirmation",
+    "expand": "Expand plan",
+    "collapse": "Collapse plan",
+    "status": {
+      "completed": "Completed",
+      "in_progress": "In progress",
+      "pending": "Pending"
+    }
   },
   "searchTool": {
     "openLink": "Open link",
@@ -247,6 +318,22 @@
     "result": "Result",
     "arguments": "Arguments",
     "content": "Content"
+  },
+  "subagentCard": {
+    "prompt": "Prompt",
+    "result": "Result",
+    "running": "Running",
+    "background": "Running in background",
+    "runningInBackground": "Running in background",
+    "completed": "Completed",
+    "failed": "Failed",
+    "tools": "{{count}} tool calls",
+    "turns": "{{count}} turns",
+    "durationMs": "{{count}} ms",
+    "durationSeconds": "{{count}}s",
+    "durationMinutes": "{{count}} min",
+    "context": "{{pct}}% context",
+    "tokens": "{{count}} tokens"
   },
   "turnStats": {
     "copyReply": "Copy reply",

@@ -36,6 +36,7 @@ fn app_err_to_service(error: crate::error::AppError) -> ConversationServiceError
 /// `AppState` and the command layer.
 pub struct AppConversationHost {
     pub deployment: Arc<dyn deployment::Deployment>,
+    pub official_mcp: Arc<plugins::OfficialProductMcpGate>,
 }
 
 /// Desktop projection publisher injected at the conversation-core commit boundary.
@@ -69,7 +70,11 @@ impl conversations::ConversationHost for AppConversationHost {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String> {
-        conversations::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+        Some(conversations::resolve_absolute_workspace_agent_working_dir(
+            workspace,
+            container_ref,
+            repos,
+        ))
     }
 
     fn resolve_additional_directories(
@@ -92,8 +97,9 @@ impl conversations::ConversationHost for AppConversationHost {
         working_dir: &str,
         text: String,
         images: &[String],
+        file_refs: &[agents::ConversationFileRef],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        conversations::workspace_prompt_blocks(working_dir, text, images).await
+        conversations::workspace_prompt_blocks(working_dir, text, images, file_refs).await
     }
 
     async fn launch_settings(
@@ -104,5 +110,9 @@ impl conversations::ConversationHost for AppConversationHost {
         crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(pool, agent_id)
             .await
             .map_err(app_err_to_service)
+    }
+
+    fn product_mcp_server_names(&self) -> Vec<String> {
+        self.official_mcp.product_mcp_names()
     }
 }

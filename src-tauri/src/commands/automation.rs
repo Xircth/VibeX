@@ -12,18 +12,21 @@ use application::{
 use async_trait::async_trait;
 use automation::{
     AgentRuntimeVersionEvidence, AutomationDraft, AutomationDraftInput, AutomationEngine,
-    AutomationRetentionService, AutomationRunner, AutomationTarget, ClaimedRun,
+    AutomationRetentionService, AutomationRunner, AutomationSpec, AutomationTarget, ClaimedRun,
     ComponentVersionEvidence, ConnectionLaunch, FileOwnerLock, IsolationSpec,
-    PluginActionCatalogPort, PreparedWorkspace, ResolvedVersionEvidence, RetentionError,
-    RetentionPolicy, RunError, RunExecutionRequest, RunStatus, ScheduleService, ScheduleSpec,
-    StartupReconciler, SystemClock, ToolLockVersionEvidence, TurnLaunchSpec, TurnLauncherPort,
+    PORTABLE_AUTOMATION_SPEC_VERSION, PluginActionCatalogPort, PortableAutomationTarget,
+    PortableTurnLaunchSpec, PortableWorkflowLaunchSpec, PortableWorkspaceRef, PreparedWorkspace,
+    ResolvedVersionEvidence, RetentionError, RetentionPolicy, RunError, RunExecutionRequest,
+    RunStatus, ScheduleService, ScheduleSpec, StartupReconciler, SystemClock,
+    ToolLockVersionEvidence, TurnLaunchSpec, TurnLaunchSpecInput, TurnLauncherPort,
     WorkflowAutomationDraft, WorkspaceError, WorkspacePreparationRequest, WorkspacePreparerPort,
-    WorkspaceRetentionPort,
+    WorkspaceRetentionPort, WorkspaceTarget,
 };
 use chrono::{DateTime, Utc};
 use db::models::{
     automation_v2::{AutomationRecord, AutomationRunRecord, SqliteAutomationStore},
     conversation_turn::ConversationTurnRecord,
+    project::Project,
     project_repo::ProjectRepo,
     session::{CreateSession, Session},
     workspace::Workspace,
@@ -32,6 +35,7 @@ use plugins::PromptBlock;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
+use workflows::WorkflowStore;
 
 use crate::{
     commands::sessions::{
@@ -207,6 +211,191 @@ pub async fn automation_update(
 }
 
 #[tauri::command]
+pub async fn automation_update_workflow(
+    state: tauri::State<'_, AppState>,
+    id: Uuid,
+    input: WorkflowAutomationDraft,
+) -> Result<AutomationView, AppError> {
+    record_to_dto(
+        store(state.inner())
+            .update_workflow(id, input, Utc::now())
+            .await?,
+    )
+}
+
+async fn portable_workspace(
+    state: &AppState,
+    workspace: &WorkspaceTarget,
+) -> Result<PortableWorkspaceRef, AppError> {
+    let project = Project::find_by_id(&state.deployment.db().pool, workspace.project_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Automation project not found".to_string()))?;
+    let root_folder_name = std::path::Path::new(&workspace.root_folder)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| AppError::Conflict("Automation workspace root is not portable".to_string()))?
+        .to_string();
+    Ok(PortableWorkspaceRef {
+        project_name: project.name,
+        root_folder_name,
+        branch: workspace.branch.clone(),
+        isolation: workspace.isolation.clone(),
+    })
+}
+
+async fn resolve_portable_workspace(
+    state: &AppState,
+    reference: &PortableWorkspaceRef,
+) -> Result<WorkspaceTarget, AppError> {
+    let projects = Project::find_all(&state.deployment.db().pool).await?;
+    let matches = projects
+        .into_iter()
+        .filter(|project| project.name == reference.project_name)
+        .collect::<Vec<_>>();
+    let [project] = matches.as_slice() else {
+        return Err(AppError::Conflict(format!(
+            "Project `{}` is missing or ambiguous",
+            reference.project_name
+        )));
+    };
+    let repos =
+        ProjectRepo::find_repos_for_project(&state.deployment.db().pool, project.id).await?;
+    let roots = repos
+        .into_iter()
+        .filter(|repo| {
+            repo.name == reference.root_folder_name
+                || std::path::Path::new(&repo.path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    == Some(reference.root_folder_name.as_str())
+        })
+        .collect::<Vec<_>>();
+    let [repo] = roots.as_slice() else {
+        return Err(AppError::Conflict(format!(
+            "Workspace root `{}` is missing or ambiguous in project `{}`",
+            reference.root_folder_name, reference.project_name
+        )));
+    };
+    Ok(WorkspaceTarget {
+        project_id: project.id,
+        root_folder: repo.path.to_string_lossy().into_owned(),
+        branch: reference.branch.clone(),
+        isolation: reference.isolation.clone(),
+    })
+}
+
+#[tauri::command]
+pub async fn automation_export_spec(
+    state: tauri::State<'_, AppState>,
+    id: Uuid,
+) -> Result<String, AppError> {
+    let record = store(state.inner())
+        .find(id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Automation not found".to_string()))?;
+    let target = match record.target {
+        AutomationTarget::Turn(spec) => PortableAutomationTarget::Turn(PortableTurnLaunchSpec {
+            prompt_blocks: spec.prompt_blocks,
+            display_text: spec.display_text,
+            agent: spec.agent,
+            mode_id: spec.mode_id,
+            config_values: spec.config_values,
+            plugin_actions: spec.plugin_actions,
+            skills: spec.skills,
+            workspace: portable_workspace(state.inner(), &spec.workspace).await?,
+            label_snapshot: spec.label_snapshot,
+        }),
+        AutomationTarget::Workflow(spec) => {
+            let version = WorkflowStore::new(state.deployment.db().pool.clone())
+                .version(spec.definition_version_id)
+                .await
+                .map_err(|error| AppError::Internal(error.to_string()))?;
+            let source_path = version.source_path.ok_or_else(|| {
+                AppError::Conflict(
+                    "Workflow version has no portable source identity; publish it from Studio first"
+                        .to_string(),
+                )
+            })?;
+            PortableAutomationTarget::Workflow(PortableWorkflowLaunchSpec {
+                source_path,
+                version_digest: version.digest,
+                input: spec.input,
+                policy_override: spec.policy_override,
+                workspace: portable_workspace(state.inner(), &spec.workspace).await?,
+            })
+        }
+    };
+    let spec = AutomationSpec {
+        format_version: PORTABLE_AUTOMATION_SPEC_VERSION,
+        name: record.name,
+        trigger: record.trigger,
+        target,
+    };
+    spec.validate()
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    serde_json::to_string_pretty(&spec).map_err(AppError::from)
+}
+
+#[tauri::command]
+pub async fn automation_import_spec(
+    state: tauri::State<'_, AppState>,
+    json: String,
+) -> Result<AutomationView, AppError> {
+    let spec: AutomationSpec = serde_json::from_str(&json)
+        .map_err(|error| AppError::BadRequest(format!("Invalid Automation JSON: {error}")))?;
+    spec.validate()
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    let record = match spec.target {
+        PortableAutomationTarget::Turn(launch) => {
+            let workspace = resolve_portable_workspace(state.inner(), &launch.workspace).await?;
+            let draft = AutomationDraft {
+                name: spec.name,
+                enabled: false,
+                trigger: spec.trigger,
+                launch: AutomationDraftInput(TurnLaunchSpecInput {
+                    prompt_blocks: launch.prompt_blocks,
+                    display_text: launch.display_text,
+                    agent: launch.agent,
+                    mode_id: launch.mode_id,
+                    config_values: launch.config_values,
+                    plugin_actions: launch.plugin_actions,
+                    skills: launch.skills,
+                    workspace,
+                    label_snapshot: launch.label_snapshot,
+                }),
+            };
+            store(state.inner()).create(draft, Utc::now()).await?
+        }
+        PortableAutomationTarget::Workflow(launch) => {
+            let workspace = resolve_portable_workspace(state.inner(), &launch.workspace).await?;
+            let version = WorkflowStore::new(state.deployment.db().pool.clone())
+                .version_by_source_digest(&launch.source_path, &launch.version_digest)
+                .await
+                .map_err(|error| AppError::Conflict(error.to_string()))?;
+            store(state.inner())
+                .create_workflow(
+                    WorkflowAutomationDraft {
+                        name: spec.name,
+                        enabled: false,
+                        trigger: spec.trigger,
+                        launch: automation::WorkflowLaunchSpec {
+                            spec_version: automation::WORKFLOW_AUTOMATION_SPEC_VERSION,
+                            definition_version_id: version.id,
+                            input: launch.input,
+                            policy_override: launch.policy_override,
+                            workspace,
+                        },
+                    },
+                    Utc::now(),
+                )
+                .await?
+        }
+    };
+    record_to_dto(record)
+}
+
+#[tauri::command]
 pub async fn automation_set_enabled(
     state: tauri::State<'_, AppState>,
     id: Uuid,
@@ -287,6 +476,7 @@ pub async fn automation_run_now(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     id: Uuid,
+    debug_step_id: Option<String>,
 ) -> Result<AutomationRunView, AppError> {
     let data_dir_key = app
         .path()
@@ -315,6 +505,7 @@ pub async fn automation_run_now(
                 scheduled_for: run.started_at,
                 next_run_at: None,
             },
+            debug_step_id,
         ));
     }
     Ok(dto)
@@ -399,7 +590,7 @@ pub fn start_automation_engine(app: AppHandle) {
         match recovery.reconcile().await {
             Ok(report) => {
                 for run in report.catch_up_runs {
-                    execute_run(app.clone(), run).await;
+                    execute_run(app.clone(), run, None).await;
                 }
             }
             Err(error) => tracing::warn!("automation startup reconciliation failed: {error}"),
@@ -407,28 +598,32 @@ pub fn start_automation_engine(app: AppHandle) {
         let service = engine.with_claim_store(automation_store, SystemClock);
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut next_retention = std::time::Instant::now();
         loop {
             interval.tick().await;
             if let Err(error) = reconcile_running_turns(&app).await {
                 tracing::warn!("automation terminal reconciliation failed: {error}");
             }
-            let retention = AutomationRetentionService::new(
-                {
-                    let state = app.state::<AppState>();
-                    store(state.inner())
-                },
-                TauriRetentionWorkspaces { app: app.clone() },
-                RetentionPolicy::default(),
-            );
-            if let Err(error) = retention.enforce(Utc::now()).await {
-                tracing::warn!("automation retention failed: {error}");
+            if std::time::Instant::now() >= next_retention {
+                let retention = AutomationRetentionService::new(
+                    {
+                        let state = app.state::<AppState>();
+                        store(state.inner())
+                    },
+                    TauriRetentionWorkspaces { app: app.clone() },
+                    RetentionPolicy::default(),
+                );
+                if let Err(error) = retention.enforce(Utc::now()).await {
+                    tracing::warn!("automation retention failed: {error}");
+                }
+                next_retention = std::time::Instant::now() + Duration::from_secs(60 * 60);
             }
             match service.tick().await {
                 Ok(claimed) => {
                     for run in claimed {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            execute_run(app, run).await;
+                            execute_run(app, run, None).await;
                         });
                     }
                 }
@@ -599,7 +794,7 @@ async fn cleanup_cancelled_workspace(
     Ok(())
 }
 
-async fn execute_run(app: AppHandle, claimed: ClaimedRun) {
+async fn execute_run(app: AppHandle, claimed: ClaimedRun, debug_step_id: Option<String>) {
     let automation_store = {
         let state = app.state::<AppState>();
         store(state.inner())
@@ -650,6 +845,7 @@ async fn execute_run(app: AppHandle, claimed: ClaimedRun) {
                 claimed.run_id,
                 claimed.automation_id,
                 spec,
+                debug_step_id,
             )
             .await
             {
@@ -668,6 +864,7 @@ async fn execute_workflow_automation(
     automation_run_id: Uuid,
     automation_id: Uuid,
     spec: automation::WorkflowLaunchSpec,
+    debug_step_id: Option<String>,
 ) -> Result<(), String> {
     use automation::RunStorePort;
 
@@ -719,6 +916,7 @@ async fn execute_workflow_automation(
                 workspace_id: workspace.workspace_id,
                 input: spec.input,
                 policy_override,
+                debug_step_id,
             },
         )
         .await
@@ -788,12 +986,15 @@ impl WorkspacePreparerPort for TauriWorkspacePreparer {
                     .iter()
                     .map(|repo| ProjectSessionRepoInput {
                         repo_id: repo.id,
+                        // Empty string means "use the repository's actual
+                        // branch"; the backend resolves it instead of assuming
+                        // a hard-coded "main" that may not exist.
                         target_branch: request
                             .target
                             .branch
                             .clone()
                             .or_else(|| repo.default_target_branch.clone())
-                            .unwrap_or_else(|| "main".to_string()),
+                            .unwrap_or_default(),
                     })
                     .collect::<Vec<_>>();
                 let branch = format!(
@@ -1137,7 +1338,9 @@ impl TurnLauncherPort for TauriTurnLauncher {
                             action_id: invocation.action.id.as_str().to_owned(),
                         })
                         .collect(),
+                    file_refs: Vec::new(),
                     queued_input_claim: None,
+                    operation_id: None,
                 },
                 conversations::commit_reminder::AUTOMATION_ORIGIN,
             )

@@ -251,7 +251,9 @@ pub async fn get_file_tree(
     root_path: String,
     depth: Option<u32>,
 ) -> Result<Vec<FileTreeEntry>, AppError> {
-    get_file_tree_entries(&root_path, depth)
+    tokio::task::spawn_blocking(move || get_file_tree_entries(&root_path, depth))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]
@@ -286,6 +288,142 @@ pub async fn read_binary_asset(path: String) -> Result<BinaryAssetResponse, AppE
 #[tauri::command]
 pub async fn save_file_content(path: String, content: String) -> Result<(), AppError> {
     save_file_content_at_path(&path, &content)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowSourceDocument {
+    pub path: String,
+    pub content: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowSourceWriteResult {
+    pub revision: String,
+}
+
+fn workflow_source_revision(content: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{:x}", Sha256::digest(content))
+}
+
+fn expand_workflow_source_home(path: &str, home: &std::path::Path) -> std::path::PathBuf {
+    path.strip_prefix("~/")
+        .map_or_else(|| path.into(), |relative| home.join(relative))
+}
+
+fn workflow_source_path(path: &str) -> Result<std::path::PathBuf, AppError> {
+    let expanded = if path.starts_with("~/") {
+        let home = dirs::home_dir().ok_or_else(|| {
+            AppError::Internal("Unable to resolve the user home directory".to_string())
+        })?;
+        let expanded = expand_workflow_source_home(path, &home);
+        if path.starts_with("~/.vibex/workflows/")
+            && let Some(parent) = expanded.parent()
+        {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                AppError::Internal(format!("Failed to create Workflow directory: {error}"))
+            })?;
+        }
+        expanded
+    } else {
+        path.into()
+    };
+    let path = sanitize_file_path(&expanded.to_string_lossy())?;
+    if !path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".vibex-workflow.json"))
+    {
+        return Err(AppError::BadRequest(
+            "Workflow source must end with .vibex-workflow.json".to_string(),
+        ));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn workflow_source_read(path: String) -> Result<WorkflowSourceDocument, AppError> {
+    let path = workflow_source_path(&path)?;
+    let bytes = std::fs::read(&path)
+        .map_err(|error| AppError::NotFound(format!("{}: {error}", path.display())))?;
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err(AppError::BadRequest(
+            "Workflow source exceeds 4 MiB".to_string(),
+        ));
+    }
+    let content = String::from_utf8(bytes.clone())
+        .map_err(|_| AppError::BadRequest("Workflow source must be UTF-8 JSON".to_string()))?;
+    Ok(WorkflowSourceDocument {
+        path: path.to_string_lossy().into_owned(),
+        content,
+        revision: workflow_source_revision(&bytes),
+    })
+}
+
+#[tauri::command]
+pub async fn workflow_source_write(
+    path: String,
+    content: String,
+    expected_revision: Option<String>,
+) -> Result<WorkflowSourceWriteResult, AppError> {
+    use std::io::Write;
+
+    if content.len() > 4 * 1024 * 1024 {
+        return Err(AppError::BadRequest(
+            "Workflow source exceeds 4 MiB".to_string(),
+        ));
+    }
+    serde_json::from_str::<workflows::WorkflowDefinition>(&content)
+        .map_err(|error| AppError::BadRequest(format!("Invalid Workflow JSON: {error}")))
+        .and_then(|definition| {
+            workflows::validate_definition(&definition)
+                .map_err(|error| AppError::BadRequest(error.to_string()))
+        })?;
+    let path = workflow_source_path(&path)?;
+    let parent = path.parent().ok_or_else(|| {
+        AppError::BadRequest("Workflow source has no parent directory".to_string())
+    })?;
+    if !parent.is_dir() {
+        return Err(AppError::NotFound(format!(
+            "Parent directory does not exist: {}",
+            parent.display()
+        )));
+    }
+    match (std::fs::read(&path), expected_revision.as_deref()) {
+        (Ok(current), Some(expected)) if workflow_source_revision(&current) != expected => {
+            return Err(AppError::Conflict(
+                "Workflow source changed outside this editor; reload before saving".to_string(),
+            ));
+        }
+        (Ok(_), None) => {
+            return Err(AppError::Conflict(
+                "Existing Workflow source requires expectedRevision".to_string(),
+            ));
+        }
+        (Err(error), Some(_)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(AppError::Conflict(
+                "Workflow source was deleted outside this editor".to_string(),
+            ));
+        }
+        (Err(error), None) if error.kind() == std::io::ErrorKind::NotFound => {}
+        (Err(error), _) => return Err(AppError::Internal(error.to_string())),
+        _ => {}
+    }
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    temporary
+        .write_all(content.as_bytes())
+        .and_then(|_| temporary.flush())
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    temporary
+        .persist(&path)
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(WorkflowSourceWriteResult {
+        revision: workflow_source_revision(content.as_bytes()),
+    })
 }
 
 #[tauri::command]
@@ -386,9 +524,9 @@ mod tests {
     };
 
     use super::{
-        copy_item_path, create_directory_at_path, delete_file_or_directory, move_item_path,
-        read_file_content_at_path, read_utf8_text_file, sanitize_file_path,
-        save_file_content_at_path,
+        copy_item_path, create_directory_at_path, delete_file_or_directory,
+        expand_workflow_source_home, move_item_path, read_file_content_at_path,
+        read_utf8_text_file, sanitize_file_path, save_file_content_at_path,
     };
     use crate::error::AppError;
 
@@ -412,6 +550,20 @@ mod tests {
         let path = temp_dir_path(prefix);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn workflow_source_home_path_expands_without_changing_relative_paths() {
+        let home = Path::new("/users/tester");
+
+        assert_eq!(
+            expand_workflow_source_home("~/.vibex/workflows/demo.vibex-workflow.json", home),
+            home.join(".vibex/workflows/demo.vibex-workflow.json")
+        );
+        assert_eq!(
+            expand_workflow_source_home("flows/demo.vibex-workflow.json", home),
+            PathBuf::from("flows/demo.vibex-workflow.json")
+        );
     }
 
     fn path_string(path: &Path) -> String {

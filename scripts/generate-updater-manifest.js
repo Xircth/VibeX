@@ -118,12 +118,28 @@ function releaseAssetUrl(repository, releaseTag, assetName) {
   );
 }
 
+function readNotesOption({ notes, notesFile, releaseTag }) {
+  if (typeof notesFile === "string" && notesFile.length > 0) {
+    const contents = fs.readFileSync(notesFile, "utf8").trim();
+    if (contents.length === 0) {
+      throw new Error(`Updater notes file is empty: ${notesFile}`);
+    }
+    return contents;
+  }
+  if (typeof notes === "string" && notes.trim().length > 0) {
+    return notes.trim();
+  }
+  return `Desktop installers for ${releaseTag}.`;
+}
+
 function generateUpdaterManifest({
   artifactsDir,
   outputDir,
   repository,
   releaseTag,
   version,
+  notes,
+  notesFile,
   pubDate = new Date().toISOString(),
 }) {
   for (const [name, value] of Object.entries({
@@ -164,7 +180,7 @@ function generateUpdaterManifest({
 
   const manifest = {
     version,
-    notes: `Desktop installers for ${releaseTag}.`,
+    notes: readNotesOption({ notes, notesFile, releaseTag }),
     pub_date: pubDate,
     platforms,
   };
@@ -193,6 +209,8 @@ if (require.main === module) {
       repository: readOption("--repository"),
       releaseTag: readOption("--release-tag"),
       version: readOption("--version"),
+      notes: readOption("--notes"),
+      notesFile: readOption("--notes-file"),
     });
     console.log(`Generated updater manifest: ${manifestPath}`);
   } catch (error) {

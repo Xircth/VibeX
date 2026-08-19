@@ -152,6 +152,18 @@ export const agentsApi = {
       },
     }),
 
+  scanLocalHistory: (
+    agentId: string
+  ): Promise<import('shared/types').LocalHistoryScanPage> =>
+    backendCall('agent_scan_local_history', { agentId }),
+
+  importLocalHistoryBatch: (
+    selections: import('shared/types').LocalHistoryImportSelection[]
+  ): Promise<import('shared/types').LocalHistoryImportResult> =>
+    backendCall('agent_import_local_history_batch', {
+      request: { selections },
+    }),
+
   connectionSnapshot: (
     request: AgentConnectionRequest
   ): Promise<AgentConnectionSnapshot> =>

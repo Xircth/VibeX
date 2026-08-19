@@ -6,15 +6,16 @@ use std::{
 use agents::{
     BuiltInProfileCatalog, ComponentProbeState, LaunchComponentEvidence, LaunchGate,
     ManagementFacts, ManagementOperationState, RegistryCacheFreshness, RegistryDistributions,
-    RequiredComponentProbe, UserAgentDefinition, UserAgentInstallTarget, current_platform,
-    reduce_management_snapshot,
+    RequiredComponentProbe, UserAgentDefinition, UserAgentInstallTarget,
+    bundled_community_acp_presets, current_platform, reduce_management_snapshot,
 };
 use anyhow::Result;
 use api_types::{
     AgentAuthenticationStatus, AgentId, AgentLifecycleState, AgentManagementView,
     AgentOperationKind, AgentRegistryView, AgentRegistryViewRow, AgentSettingsFeature, AgentSource,
-    UserAgentDefinitionRequest, UserAgentDefinitionView, UserAgentDistributionKind,
-    UserAgentDistributionView, UserAgentEnvironmentVariableView, UserAgentIntegrityKind,
+    CommunityAcpPresetView, UserAgentDefinitionRequest, UserAgentDefinitionView,
+    UserAgentDistributionKind, UserAgentDistributionView, UserAgentEnvironmentVariableView,
+    UserAgentIntegrityKind,
 };
 use db::models::agent_management::{
     AgentMembershipRepository, NewAgentMembership, RegistrySnapshotRepository,
@@ -203,9 +204,9 @@ impl AgentManagementApplicationService {
                 .remove(membership.agent_id.as_str())
                 .unwrap_or_default();
             // The management list is a persisted read model and must not run
-            // filesystem integrity checks on the UI request path. Explicit
-            // probes update installation.lifecycle; session launch always
-            // performs the authoritative SHA-256 gate again.
+            // filesystem probes on the UI request path. Explicit checks update
+            // installation.lifecycle; session launch only requires the bound
+            // user-environment program to still exist.
             let components_verified = !component_rows.is_empty()
                 && installation.is_some_and(|row| row.lifecycle != "needs_repair");
             let required_components = component_rows
@@ -292,9 +293,9 @@ impl AgentManagementApplicationService {
         Ok(views)
     }
 
-    /// Revalidate installed component bytes outside latency-sensitive snapshot
-    /// reads. A failed check can only demote the installation; successful
-    /// recovery still requires the normal repair/preflight flow.
+    /// Revalidate leftover non-user-environment component bytes outside
+    /// latency-sensitive snapshot reads. Current user-environment installs are
+    /// `external` and skipped; a failed check can only demote the installation.
     pub async fn refresh_component_integrity(&self) -> Result<()> {
         let rows = sqlx::query_as::<_, ComponentProjection>(
             r#"SELECT installation.agent_id, component.component_kind,
@@ -398,6 +399,34 @@ impl AgentManagementApplicationService {
         });
         let (installed, uninstalled): (Vec<_>, Vec<_>) =
             rows.into_iter().partition(|row| row.installed);
+        let presets = bundled_community_acp_presets()
+            .iter()
+            .filter_map(|preset| {
+                let agent_id = AgentId::parse(preset.agent_id).ok()?;
+                let membership = memberships
+                    .iter()
+                    .find(|membership| membership.agent_id == agent_id);
+                Some(CommunityAcpPresetView {
+                    preset_id: preset.preset_id.to_string(),
+                    agent_id: agent_id.clone(),
+                    display_name: preset.display_name.to_string(),
+                    description: preset.description.to_string(),
+                    authors: preset
+                        .authors
+                        .iter()
+                        .map(|author| (*author).to_string())
+                        .collect(),
+                    repository: Some(preset.repository.to_string()),
+                    version: preset.version.to_string(),
+                    distribution_kind: preset.distribution_kind,
+                    distribution_json: preset.distribution_json.to_string(),
+                    icon_light: Some(preset.icon_light.to_string()),
+                    icon_dark: Some(preset.icon_dark.to_string()),
+                    built_in: membership.is_some_and(|membership| membership.built_in),
+                    added: added_ids.contains(&agent_id),
+                })
+            })
+            .collect();
         Ok(AgentRegistryView {
             current_platform: current_platform(),
             snapshot_id: snapshot.as_ref().map(|snapshot| snapshot.id.to_string()),
@@ -408,6 +437,7 @@ impl AgentManagementApplicationService {
             refresh_error,
             installed,
             uninstalled,
+            presets,
         })
     }
 

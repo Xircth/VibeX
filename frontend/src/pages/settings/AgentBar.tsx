@@ -1,5 +1,22 @@
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AgentManagementView } from 'shared/types';
 
@@ -11,9 +28,8 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { AgentManagementIcon } from './AgentManagementIcon';
-
-const DRAG_THRESHOLD_PX = 4;
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
+import { moveAgentInOrder, nudgeAgentInOrder } from './agentBarOrder';
 
 type AgentBarProps = {
   agents: AgentManagementView[];
@@ -21,6 +37,7 @@ type AgentBarProps = {
   registryOpen: boolean;
   onSelect: (agentId: string) => void;
   onOpenRegistry: () => void;
+  onReorder: (agentIds: string[]) => void;
 };
 
 export function AgentBar({
@@ -29,70 +46,98 @@ export function AgentBar({
   registryOpen,
   onSelect,
   onOpenRegistry,
+  onReorder,
 }: AgentBarProps) {
   const { t } = useTranslation('settings');
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startScrollLeft: number;
-    moved: boolean;
-  } | null>(null);
-  const suppressClickRef = useRef(false);
-  const [dragging, setDragging] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+  const agentById = useMemo(
+    () => new Map(agents.map((agent) => [agent.agent_id, agent])),
+    [agents]
+  );
+  const incomingOrderKey = agents.map((agent) => agent.agent_id).join('|');
+  const [order, setOrder] = useState(() =>
+    agents.map((agent) => agent.agent_id)
+  );
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const orderRef = useRef(order);
+  const originRef = useRef<string[] | null>(null);
+  orderRef.current = order;
 
-  const handlePointerDown = useCallback((event: React.PointerEvent) => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startScrollLeft: scroller.scrollLeft,
-      moved: false,
-    };
-    setDragging(true);
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  // Listen on window instead of using setPointerCapture: capturing the
-  // pointer on the scroll container retargets the browser's click event to
-  // the container, which would swallow every agent-button click.
   useEffect(() => {
-    if (!dragging) return;
-    const handlePointerMove = (event: PointerEvent) => {
-      const scroller = scrollRef.current;
-      const drag = dragRef.current;
-      if (!scroller || !drag || event.pointerId !== drag.pointerId) return;
-      const delta = event.clientX - drag.startX;
-      if (Math.abs(delta) > DRAG_THRESHOLD_PX) drag.moved = true;
-      scroller.scrollLeft = drag.startScrollLeft - delta;
-    };
-    const endDrag = (event: PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag || event.pointerId !== drag.pointerId) return;
-      suppressClickRef.current = drag.moved;
-      dragRef.current = null;
-      setDragging(false);
-      document.body.style.userSelect = '';
-    };
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', endDrag);
-    window.addEventListener('pointercancel', endDrag);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', endDrag);
-      window.removeEventListener('pointercancel', endDrag);
-      document.body.style.userSelect = '';
-    };
-  }, [dragging]);
+    if (originRef.current) return;
+    setOrder(incomingOrderKey ? incomingOrderKey.split('|') : []);
+  }, [incomingOrderKey]);
 
-  const handleClickCapture = useCallback((event: React.MouseEvent) => {
-    if (suppressClickRef.current) {
-      event.preventDefault();
-      event.stopPropagation();
-      suppressClickRef.current = false;
-    }
+  const persistOrder = useCallback(
+    (next: string[] | null) => {
+      if (!next) return;
+      setOrder(next);
+      onReorder(next);
+    },
+    [onReorder]
+  );
+
+  const handleDragStart = useCallback(({ active }: DragStartEvent) => {
+    originRef.current = orderRef.current;
+    setActiveId(String(active.id));
   }, []);
+
+  const handleDragOver = useCallback(({ active, over }: DragOverEvent) => {
+    if (!over) return;
+    setOrder(
+      (current) =>
+        moveAgentInOrder(current, String(active.id), String(over.id)) ?? current
+    );
+  }, []);
+
+  const finishDrag = useCallback(
+    (next: string[] | null) => {
+      const origin = originRef.current;
+      originRef.current = null;
+      setActiveId(null);
+      if (!next) {
+        if (origin) setOrder(origin);
+        return;
+      }
+      setOrder(next);
+      if (origin && next.join('|') !== origin.join('|')) {
+        onReorder(next);
+      }
+    },
+    [onReorder]
+  );
+
+  const handleDragEnd = useCallback(
+    ({ active, over }: DragEndEvent) => {
+      if (!over) {
+        finishDrag(null);
+        return;
+      }
+      finishDrag(
+        moveAgentInOrder(
+          orderRef.current,
+          String(active.id),
+          String(over.id)
+        ) ?? orderRef.current
+      );
+    },
+    [finishDrag]
+  );
+
+  const handleDragCancel = useCallback(() => {
+    finishDrag(null);
+  }, [finishDrag]);
+
+  const handleNudge = useCallback(
+    (agentId: string, direction: -1 | 1) => {
+      persistOrder(nudgeAgentInOrder(order, agentId, direction));
+    },
+    [order, persistOrder]
+  );
+
+  const activeAgent = activeId ? (agentById.get(activeId) ?? null) : null;
 
   return (
     <TooltipProvider delayDuration={180}>
@@ -101,51 +146,50 @@ export function AgentBar({
         className="agent-management-bar"
       >
         <span aria-hidden="true" className="agent-management-bar-surface" />
-        <div
-          ref={scrollRef}
-          className={cn(
-            'agent-management-bar-scroll',
-            dragging && 'is-dragging'
-          )}
-          onPointerDown={handlePointerDown}
-          onClickCapture={handleClickCapture}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
         >
-          {agents.map((agent) => {
-            const selected =
-              !registryOpen && selectedAgentId === agent.agent_id;
-            const status = t(
-              `agents.lifecycleStatus.${agent.enabled ? agent.lifecycle : 'disabled'}`
-            );
-            const statusDescriptionId = `agent-status-${agent.agent_id}`;
-            return (
-              <Tooltip key={agent.agent_id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-current={selected ? 'true' : undefined}
-                    aria-label={agent.display_name}
-                    aria-describedby={statusDescriptionId}
-                    className={cn(
-                      'agent-management-bar-item',
-                      selected && 'is-selected',
-                      !agent.enabled && 'is-disabled'
-                    )}
-                    onClick={() => onSelect(agent.agent_id)}
-                  >
-                    <AgentManagementIcon agent={agent} className="h-6 w-6" />
-                    <StatusMark agent={agent} />
-                    <span id={statusDescriptionId} className="sr-only">
-                      {status}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {agent.display_name} · {status}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+          <SortableContext
+            items={order}
+            strategy={horizontalListSortingStrategy}
+          >
+            <div className="agent-management-bar-scroll">
+              {order.map((agentId) => {
+                const agent = agentById.get(agentId);
+                if (!agent) return null;
+                return (
+                  <AgentBarItem
+                    key={agent.agent_id}
+                    agent={agent}
+                    selected={
+                      !registryOpen && selectedAgentId === agent.agent_id
+                    }
+                    onSelect={onSelect}
+                    onNudge={handleNudge}
+                  />
+                );
+              })}
+            </div>
+          </SortableContext>
+          <DragOverlay>
+            {activeAgent ? (
+              <div className="settings-page">
+                <AgentBarMark
+                  agent={activeAgent}
+                  selected={
+                    !registryOpen && selectedAgentId === activeAgent.agent_id
+                  }
+                  overlay
+                />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -165,6 +209,115 @@ export function AgentBar({
         </Tooltip>
       </nav>
     </TooltipProvider>
+  );
+}
+
+function AgentBarItem({
+  agent,
+  selected,
+  onSelect,
+  onNudge,
+}: {
+  agent: AgentManagementView;
+  selected: boolean;
+  onSelect: (agentId: string) => void;
+  onNudge: (agentId: string, direction: -1 | 1) => void;
+}) {
+  const { t } = useTranslation('settings');
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: agent.agent_id,
+    animateLayoutChanges: () => false,
+  });
+  const { onKeyDown: dragKeyDown, ...dragListeners } = listeners ?? {};
+  const status = t(
+    `agents.lifecycleStatus.${agent.enabled ? agent.lifecycle : 'disabled'}`
+  );
+  const statusDescriptionId = `agent-status-${agent.agent_id}`;
+
+  return (
+    <Tooltip open={isDragging ? false : undefined}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          ref={setNodeRef}
+          {...attributes}
+          {...dragListeners}
+          aria-current={selected ? 'true' : undefined}
+          aria-label={agent.display_name}
+          aria-describedby={statusDescriptionId}
+          className={cn(
+            'agent-management-bar-item',
+            selected && 'is-selected',
+            !agent.enabled && 'is-disabled',
+            isDragging && 'is-placeholder'
+          )}
+          style={{
+            transform: CSS.Transform.toString(transform),
+            transition,
+          }}
+          onClick={() => onSelect(agent.agent_id)}
+          onKeyDown={(event) => {
+            dragKeyDown?.(event);
+            if (!event.altKey) return;
+            if (event.key === 'ArrowLeft') {
+              event.preventDefault();
+              onNudge(agent.agent_id, -1);
+            }
+            if (event.key === 'ArrowRight') {
+              event.preventDefault();
+              onNudge(agent.agent_id, 1);
+            }
+          }}
+        >
+          <AgentBarArtwork agent={agent} />
+          <span id={statusDescriptionId} className="sr-only">
+            {status}. {t('agents.reorderHint')}
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {agent.display_name} · {status}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function AgentBarMark({
+  agent,
+  selected,
+  overlay = false,
+}: {
+  agent: AgentManagementView;
+  selected: boolean;
+  overlay?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'agent-management-bar-item',
+        selected && 'is-selected',
+        !agent.enabled && 'is-disabled',
+        overlay && 'is-dragging'
+      )}
+    >
+      <AgentBarArtwork agent={agent} />
+    </div>
+  );
+}
+
+function AgentBarArtwork({ agent }: { agent: AgentManagementView }) {
+  return (
+    <>
+      <AgentManagementIcon agent={agent} className="h-6 w-6" />
+      <StatusMark agent={agent} />
+    </>
   );
 }
 

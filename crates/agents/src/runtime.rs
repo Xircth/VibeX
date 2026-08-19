@@ -44,6 +44,16 @@ impl RuntimeEventSink for UnboundedRuntimeEventSink {
 
 /// A lossless, non-blocking event path for the single Conversation persistence
 /// consumer. Live observers continue to use the bounded broadcast channel.
+const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
+
+fn env_with_conversation_id(
+    mut env: HashMap<String, String>,
+    session_id: AgentSessionId,
+) -> HashMap<String, String> {
+    env.insert(CONVERSATION_ID_ENV.to_string(), session_id.to_string());
+    env
+}
+
 pub fn runtime_event_channel() -> (
     Arc<dyn RuntimeEventSink>,
     mpsc::UnboundedReceiver<AgentEventEnvelope>,
@@ -473,14 +483,17 @@ impl AgentRuntime {
         match ready_rx.await {
             Ok(Ok(())) => {}
             other => {
-                let message = match other {
-                    Ok(Err(error)) => error.to_string(),
-                    _ => "agent connection failed before it became ready".to_string(),
+                let error = match other {
+                    Ok(Err(error)) => error,
+                    _ => AgentError::Runtime(
+                        "agent connection failed before it became ready".to_string(),
+                    ),
                 };
+                let message = error.to_string();
                 let mut state = self.state.write().await;
                 if let Some(connection) = state.connections.get_mut(&snapshot.id) {
                     connection.snapshot.status = AgentConnectionStatus::Failed;
-                    connection.snapshot.status_message = Some(message.clone());
+                    connection.snapshot.status_message = Some(message);
                     connection.snapshot.updated_at = Utc::now();
                     let failed = connection.snapshot.clone();
                     self.emit_locked(
@@ -493,7 +506,7 @@ impl AgentRuntime {
                 }
                 drop(state);
                 let _ = self.connection_manager.disconnect(snapshot.id).await;
-                return Err(AgentError::Runtime(message));
+                return Err(error);
             }
         }
 
@@ -665,7 +678,7 @@ impl AgentRuntime {
                     working_dir: input.working_dir,
                     additional_directories: input.additional_directories,
                     auto_approve_mode: input.auto_approve_mode,
-                    env: input.env,
+                    env: env_with_conversation_id(input.env, input.session_id),
                 })
                 .await?
                 .id
@@ -989,10 +1002,11 @@ impl AgentRuntime {
             .await
     }
 
-    /// Immediately switch the live session's ACP mode (`session/set_mode`).
-    /// Resolves the connection from the session like [`Self::fork_session`];
-    /// errors when the session has no live connection or a turn is in flight —
-    /// callers then keep the choice as a next-turn override.
+    /// Immediately switch the live session's mode. Mode is a Config Option
+    /// category; the connection adapter chooses `session/set_mode` or
+    /// `session/set_config_option`. Errors when the session has no live
+    /// connection or a turn is in flight — callers then keep the choice as a
+    /// next-turn override.
     pub async fn set_session_mode(
         &self,
         session_id: AgentSessionId,

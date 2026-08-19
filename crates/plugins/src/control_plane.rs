@@ -1405,7 +1405,19 @@ impl PluginControlPlane {
         self.contributions
             .publish(self.registry.active_contributions().await?)?;
         self.contributions
-            .resolve_file_opener(extension, media_type)
+            .resolve_file_opener(None, extension, media_type)
+    }
+
+    pub async fn resolve_file_opener_for_file(
+        &self,
+        file_name: Option<&str>,
+        extension: Option<&str>,
+        media_type: Option<&str>,
+    ) -> Result<Option<ResolvedFileOpener>, PluginError> {
+        self.contributions
+            .publish(self.registry.active_contributions().await?)?;
+        self.contributions
+            .resolve_file_opener(file_name, extension, media_type)
     }
 
     pub async fn set_enabled(

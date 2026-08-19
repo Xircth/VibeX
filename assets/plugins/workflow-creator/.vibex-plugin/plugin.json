@@ -13,7 +13,30 @@
     "index": ".vibex-plugin/content.index.json"
   },
   "config": {
-    "schema": { "type": "object", "properties": {}, "additionalProperties": false }
+    "schema": {
+      "type": "object",
+      "properties": {
+        "defaultCompletionPolicy": {
+          "title": "Default Agent Step completion",
+          "type": "string",
+          "enum": ["automatic", "manual"],
+          "default": "manual"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "entrypoints": {
+    "worker": {
+      "path": "dist/worker.mjs",
+      "format": "javascript-esm",
+      "protocol": "1.0"
+    },
+    "app": {
+      "root": "dist/app",
+      "document": "index.html",
+      "protocol": "1.0"
+    }
   },
   "integrations": [
     {
@@ -21,6 +44,30 @@
       "kind": "content.skill",
       "resource": "contents/skills/vibex-workflow-creator",
       "targets": ["codex", "claude-code", "acp"]
+    },
+    {
+      "id": "vibex-workflow-mcp",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/workflow-control.json"
+    },
+    {
+      "id": "workflow-source-opener",
+      "kind": "file.opener",
+      "label": "Workflow Studio",
+      "fileNameSuffixes": [".vibex-workflow.json"],
+      "priority": 200,
+      "editorSurface": "workflow-studio"
+    },
+    {
+      "id": "workflow-studio",
+      "kind": "app.surface",
+      "label": "Workflow Studio",
+      "slot": "artifact.editor",
+      "appEntrypoint": "app",
+      "handler": "surface.createSession",
+      "allowedMethods": [],
+      "minHeight": 560,
+      "nativeRenderer": "workflow.studio"
     }
   ],
   "interface": { "icon": "assets/icon.svg" }

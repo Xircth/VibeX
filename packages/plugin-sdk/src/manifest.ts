@@ -2,17 +2,17 @@
 export interface VibeXPluginManifest {
   $schema?: string;
   manifestVersion: 4;
-  apiVersion: '1.0';
+  apiVersion: "1.0";
   id: string;
   publisher: string;
   version: string;
   name: string;
   /** Always points to the required root README. Its frontmatter owns `summary`. */
-  readme: 'README.md';
+  readme: "README.md";
   engines: { vibex: string; pluginSdk: string };
   content: {
-    root: 'contents';
-    index: '.vibex-plugin/content.index.json';
+    root: "contents";
+    index: ".vibex-plugin/content.index.json";
   };
   /** Values live in root config.json; this schema only describes and validates them. */
   config: { schema: Record<string, unknown> };
@@ -28,14 +28,14 @@ export interface VibeXPluginManifest {
 
 export interface WorkerEntrypointManifest {
   path: string;
-  format: 'javascript-esm';
-  protocol: '1.0';
+  format: "javascript-esm";
+  protocol: "1.0";
 }
 
 export interface AppEntrypointManifest {
   root: string;
   document: string;
-  protocol: '1.0';
+  protocol: "1.0";
 }
 
 export interface PermissionManifest {
@@ -46,11 +46,11 @@ export interface PermissionManifest {
   reason: string;
   optional?: boolean;
   /** @deprecated Retained only so v4 packages authored before full trust remain valid. */
-  trustTier?: 'sandboxed_worker' | 'trusted_native';
+  trustTier?: "sandboxed_worker" | "trusted_native";
 }
 
 export interface DependencyManifest {
-  kind: 'runtime' | 'plugin';
+  kind: "runtime" | "plugin";
   descriptor: string;
   optional?: boolean;
 }
@@ -61,25 +61,38 @@ interface IntegrationBase {
 }
 
 export interface SkillIntegrationManifest extends IntegrationBase {
-  kind: 'content.skill';
+  kind: "content.skill";
   resource: string;
   targets?: string[];
 }
 
 export interface McpIntegrationManifest extends IntegrationBase {
-  kind: 'content.mcp';
+  kind: "content.mcp";
   resource: string;
 }
 
+/** Package-relative MCP process supervised and credentialed by the VibeX Host. */
+export interface ManagedMcpRuntimeResource {
+  managedRuntime: {
+    /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
+    source?: string;
+    entrypoint: string;
+    protocolRevision: "2026-07-28";
+    defaultBinding?: "all-compatible-agents";
+  };
+}
+
 export interface WorkflowIntegrationManifest extends IntegrationBase {
-  kind: 'workflow.binding';
+  kind: "workflow.binding";
   resource: string;
 }
 
 export interface FileOpenerIntegrationManifest extends IntegrationBase {
-  kind: 'file.opener';
+  kind: "file.opener";
   label?: string;
   extensions?: string[];
+  /** Exact case-insensitive filename suffixes, including the leading dot. */
+  fileNameSuffixes?: string[];
   mediaTypes?: string[];
   priority?: number;
   /** Runtime-backed URL preview. Exactly one opener target is required. */
@@ -89,7 +102,7 @@ export interface FileOpenerIntegrationManifest extends IntegrationBase {
 }
 
 export interface PreviewIntegrationManifest extends IntegrationBase {
-  kind: 'artifact.preview';
+  kind: "artifact.preview";
   mediaTypes: string[];
   runtime?: string;
   maxConcurrentPreviews?: number;
@@ -102,14 +115,16 @@ export interface PreviewIntegrationManifest extends IntegrationBase {
 }
 
 export interface AppSurfaceIntegrationManifest extends IntegrationBase {
-  kind: 'app.surface';
+  kind: "app.surface";
   label?: string;
-  slot: 'plugin.detail.panel' | 'artifact.editor';
-  appEntrypoint: 'app';
+  slot: "plugin.detail.panel" | "artifact.editor";
+  appEntrypoint: "app";
   route?: `/${string}`;
   handler: string;
   allowedMethods?: string[];
   minHeight?: number;
+  /** Optional Host-native renderer. The plugin still owns file registration. */
+  nativeRenderer?: "workflow.studio";
 }
 
 export type IntegrationManifest =
@@ -121,149 +136,149 @@ export type IntegrationManifest =
   | AppSurfaceIntegrationManifest;
 
 const relativePath = {
-  type: 'string',
+  type: "string",
   minLength: 1,
-  pattern: '^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$',
+  pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
 } as const;
 
 const id = {
-  type: 'string',
-  pattern: '^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$',
+  type: "string",
+  pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$",
 } as const;
 
 export const pluginManifestSchema = {
-  $schema: 'https://json-schema.org/draft/2020-12/schema',
-  $id: 'https://schemas.vibex.dev/plugin/v4/plugin.schema.json',
-  type: 'object',
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json",
+  type: "object",
   additionalProperties: false,
   required: [
-    'manifestVersion',
-    'apiVersion',
-    'id',
-    'publisher',
-    'version',
-    'name',
-    'readme',
-    'engines',
-    'content',
-    'config',
-    'integrations',
+    "manifestVersion",
+    "apiVersion",
+    "id",
+    "publisher",
+    "version",
+    "name",
+    "readme",
+    "engines",
+    "content",
+    "config",
+    "integrations",
   ],
   properties: {
-    $schema: { type: 'string' },
+    $schema: { type: "string" },
     manifestVersion: { const: 4 },
-    apiVersion: { const: '1.0' },
-    id: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{1,62}$' },
-    publisher: { type: 'string', pattern: '^[a-z0-9][a-z0-9._-]{0,62}$' },
+    apiVersion: { const: "1.0" },
+    id: { type: "string", pattern: "^[a-z0-9][a-z0-9._-]{1,62}$" },
+    publisher: { type: "string", pattern: "^[a-z0-9][a-z0-9._-]{0,62}$" },
     version: {
-      type: 'string',
+      type: "string",
       pattern:
-        '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:[-+][0-9A-Za-z.-]+)?$',
+        "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:[-+][0-9A-Za-z.-]+)?$",
     },
-    name: { type: 'string', minLength: 1 },
-    readme: { const: 'README.md' },
+    name: { type: "string", minLength: 1 },
+    readme: { const: "README.md" },
     engines: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['vibex', 'pluginSdk'],
+      required: ["vibex", "pluginSdk"],
       properties: {
-        vibex: { type: 'string', minLength: 1 },
-        pluginSdk: { type: 'string', minLength: 1 },
+        vibex: { type: "string", minLength: 1 },
+        pluginSdk: { type: "string", minLength: 1 },
       },
     },
     content: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['root', 'index'],
+      required: ["root", "index"],
       properties: {
-        root: { const: 'contents' },
-        index: { const: '.vibex-plugin/content.index.json' },
+        root: { const: "contents" },
+        index: { const: ".vibex-plugin/content.index.json" },
       },
     },
     config: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['schema'],
-      properties: { schema: { type: 'object' } },
+      required: ["schema"],
+      properties: { schema: { type: "object" } },
     },
     dependencies: {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'object',
+        type: "object",
         additionalProperties: false,
-        required: ['kind', 'descriptor'],
+        required: ["kind", "descriptor"],
         properties: {
-          kind: { enum: ['runtime', 'plugin'] },
+          kind: { enum: ["runtime", "plugin"] },
           descriptor: relativePath,
-          optional: { type: 'boolean' },
+          optional: { type: "boolean" },
         },
       },
     },
     entrypoints: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
       properties: {
         worker: {
-          type: 'object',
+          type: "object",
           additionalProperties: false,
-          required: ['path', 'format', 'protocol'],
+          required: ["path", "format", "protocol"],
           properties: {
             path: relativePath,
-            format: { const: 'javascript-esm' },
-            protocol: { const: '1.0' },
+            format: { const: "javascript-esm" },
+            protocol: { const: "1.0" },
           },
         },
         app: {
-          type: 'object',
+          type: "object",
           additionalProperties: false,
-          required: ['root', 'document', 'protocol'],
+          required: ["root", "document", "protocol"],
           properties: {
             root: relativePath,
             document: relativePath,
-            protocol: { const: '1.0' },
+            protocol: { const: "1.0" },
           },
         },
       },
     },
     permissions: {
-      type: 'array',
+      type: "array",
       items: {
-        type: 'object',
+        type: "object",
         additionalProperties: false,
-        required: ['id', 'capability', 'scope', 'reason'],
+        required: ["id", "capability", "scope", "reason"],
         properties: {
           id,
-          capability: { enum: ['runtime.execute', 'artifact.preview'] },
-          scope: { type: 'object' },
-          reason: { type: 'string', minLength: 1 },
-          optional: { type: 'boolean' },
-          trustTier: { enum: ['sandboxed_worker', 'trusted_native'] },
+          capability: { enum: ["runtime.execute", "artifact.preview"] },
+          scope: { type: "object" },
+          reason: { type: "string", minLength: 1 },
+          optional: { type: "boolean" },
+          trustTier: { enum: ["sandboxed_worker", "trusted_native"] },
         },
       },
     },
     integrations: {
-      type: 'array',
+      type: "array",
       minItems: 1,
       items: {
-        type: 'object',
-        required: ['id', 'kind'],
+        type: "object",
+        required: ["id", "kind"],
         properties: {
           id,
           kind: {
             enum: [
-              'content.skill',
-              'content.mcp',
-              'workflow.binding',
-              'file.opener',
-              'artifact.preview',
-              'app.surface',
+              "content.skill",
+              "content.mcp",
+              "workflow.binding",
+              "file.opener",
+              "artifact.preview",
+              "app.surface",
             ],
           },
           resource: relativePath,
-          required: { type: 'boolean' },
+          required: { type: "boolean" },
         },
       },
     },
-    interface: { type: 'object' },
+    interface: { type: "object" },
   },
 } as const;

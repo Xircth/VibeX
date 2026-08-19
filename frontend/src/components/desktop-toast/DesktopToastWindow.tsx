@@ -16,6 +16,7 @@ import { sessionsApi } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { conversationApi } from '@/features/conversation/conversationApi';
 import { agentTypeFromExecutor } from '@/features/agents/sendAgentRuntimeTurn';
+import '@/components/ui/toast.css';
 
 type DesktopToastKind = 'success' | 'error';
 
@@ -202,13 +203,16 @@ export function DesktopToastWindow() {
   }, [scheduleRemoval]);
 
   useEffect(() => {
+    const root = document.getElementById('root');
     document.documentElement.style.background = 'transparent';
     document.body.style.background = 'transparent';
     document.body.style.margin = '0';
+    if (root) root.style.background = 'transparent';
     return () => {
       document.documentElement.style.background = '';
       document.body.style.background = '';
       document.body.style.margin = '';
+      if (root) root.style.background = '';
     };
   }, []);
 

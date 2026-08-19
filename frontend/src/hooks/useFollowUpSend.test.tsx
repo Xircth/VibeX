@@ -67,9 +67,8 @@ describe('useFollowUpSend', () => {
 
     const { result } = renderFollowUpSend();
 
-    // Simulate a single Enter reaching the callback twice (global hotkey hook +
-    // editor onSubmit). The first invocation is awaiting `sessionsApi.create`;
-    // the synchronous re-entrancy guard must make the second invocation a no-op.
+    // The first invocation is awaiting `sessionsApi.create`; a re-entrant
+    // callback at the same acceptance boundary must be a no-op.
     await act(async () => {
       void result.current.onSendFollowUp();
       void result.current.onSendFollowUp();
@@ -203,6 +202,44 @@ describe('useFollowUpSend', () => {
     );
   });
 
+  it('sends a skill token by full path while preserving its structured display text', async () => {
+    sendTurnMock.mockResolvedValue({});
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const tokenizedMessage = `${formatSessionComposerCommand({
+      type: '/',
+      key: 'skill:/Users/mac/.codex/skills/drawio/drawio:drawio',
+      value: '/skill:/Users/mac/.codex/skills/drawio/drawio:drawio',
+    })} draw the architecture`;
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: tokenizedMessage,
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: '/skill:/Users/mac/.codex/skills/drawio/drawio:drawio draw the architecture',
+        displayText: tokenizedMessage,
+      })
+    );
+  });
+
   it('restores the accepted draft when the runtime rejects the turn', async () => {
     sendTurnMock.mockRejectedValue(new Error('runtime unavailable'));
     const onBeforeSend = vi.fn();
@@ -266,6 +303,43 @@ describe('useFollowUpSend', () => {
     expect(sendTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({ text: message })
     );
+  });
+
+  it('reuses the same operation id when the first submit times out', async () => {
+    sendTurnMock
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({});
+    const queryClient = new QueryClient();
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () =>
+        useFollowUpSend({
+          sessionId: 'conversation-1',
+          workspaceId: 'ws-1',
+          message: 'retry this send',
+          executorProfileId: { executor: 'codex' as const } as never,
+          conflictMarkdown: null,
+          reviewMarkdown: '',
+          clearComments: vi.fn(),
+          onAfterSendCleanup: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+    await act(async () => {
+      await result.current.onSendFollowUp();
+    });
+
+    expect(sendTurnMock).toHaveBeenCalledTimes(2);
+    const firstOperationId = sendTurnMock.mock.calls[0]?.[0]?.operationId;
+    const secondOperationId = sendTurnMock.mock.calls[1]?.[0]?.operationId;
+    expect(firstOperationId).toEqual(expect.any(String));
+    expect(secondOperationId).toBe(firstOperationId);
   });
 
   it('sends PluginAction identity with its editable prompt text', async () => {

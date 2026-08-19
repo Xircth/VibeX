@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use db::models::project::{SearchMatchType, SearchResult};
 use ignore::WalkBuilder;
@@ -42,6 +42,19 @@ impl FileSearchService {
             return Err(format!("Path not found: {}", repo_path.display()));
         }
 
+        let repo_path = repo_path.to_path_buf();
+        let query = query.to_string();
+        tokio::task::spawn_blocking(move || search_repo_blocking(&repo_path, &query, mode))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+}
+
+fn search_repo_blocking(
+    repo_path: &Path,
+    query: &str,
+    mode: SearchMode,
+) -> Result<Vec<SearchResult>, String> {
         let query_lower = query.to_lowercase();
         let walker = match mode {
             SearchMode::Settings => WalkBuilder::new(repo_path)
@@ -114,7 +127,6 @@ impl FileSearchService {
         });
         results.truncate(10);
         Ok(results)
-    }
 }
 
 #[cfg(test)]

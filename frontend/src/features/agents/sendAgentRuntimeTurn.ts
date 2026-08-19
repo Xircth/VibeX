@@ -20,6 +20,8 @@ export type AgentRuntimeTurnInput = {
   configOverrides?: AgentSessionConfigOverride[];
   /** Structured plugin actions selected in the composer for this turn. */
   pluginActions?: ConversationPluginActionInvocation[];
+  fileRefs?: ConversationInputPayload['fileRefs'];
+  operationId?: string;
 };
 
 /**
@@ -41,6 +43,8 @@ export async function sendAgentRuntimeTurn({
   modeOverride,
   configOverrides,
   pluginActions,
+  fileRefs,
+  operationId,
 }: AgentRuntimeTurnInput): Promise<ConversationInputSubmission> {
   const payload: ConversationInputPayload = {
     agentId: agentTypeFromExecutor(executorProfileId.executor),
@@ -53,6 +57,7 @@ export async function sendAgentRuntimeTurn({
     modeOverride: modeOverride ?? null,
     configOverrides: configOverrides ?? [],
     pluginActions: pluginActions ?? [],
+    fileRefs: fileRefs ?? [],
   };
-  return conversationApi.submitInput(sessionId, payload);
+  return conversationApi.submitInput(sessionId, payload, operationId);
 }

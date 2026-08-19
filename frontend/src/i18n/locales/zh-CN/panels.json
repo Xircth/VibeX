@@ -104,6 +104,10 @@
   "toolbar": {
     "hideEditorAndTerminal": "隐藏编辑区和终端区",
     "showEditorAndTerminal": "显示编辑区和终端区",
+    "toggleSessionList": "显示/隐藏会话列表",
+    "toggleSessionMonitor": "显示/隐藏会话监控区",
+    "toggleSessionExecution": "显示/隐藏会话执行区",
+    "resetKanbanLayout": "重置 Kanban 布局",
     "homeOrRecentProjects": "返回首页或打开最近项目",
     "backToHome": "回到首页",
     "recentProjects": "最近项目",
@@ -158,7 +162,17 @@
   "workspaceSessionList": {
     "title": "会话列表",
     "loading": "正在加载会话…",
-    "empty": "暂无会话"
+    "empty": "暂无会话",
+    "statusRunning": "进行中",
+    "statusTodo": "待办",
+    "statusInProgress": "进行中",
+    "statusInReview": "待复核",
+    "statusDone": "已完成",
+    "pin": "置顶",
+    "unpin": "取消置顶",
+    "archive": "归档",
+    "pinFailed": "无法置顶会话",
+    "archiveFailed": "无法归档会话"
   },
   "worktreeSelector": {
     "currentProjectBranch": "当前项目目录分支",
@@ -229,7 +243,10 @@
     "sessionFallbackName": "会话",
     "projectFallbackName": "项目",
     "sessionFailedTitle": "{{project}}：会话执行失败",
-    "sessionCompletedTitle": "{{project}}：会话已完成"
+    "sessionCompletedTitle": "{{project}}：会话已完成",
+    "sessionPermissionTitle": "{{project}}：需要权限批准",
+    "sessionQuestionTitle": "{{project}}：等待你的回答",
+    "sessionNoticeTitle": "{{project}}：会话提示"
   },
   "panelRegistry": {
     "fileExplorer": "文件管理器",

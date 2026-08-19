@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, beforeEach } from 'vitest';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import type { PlanEntry } from 'shared/types';
 import {
   clearEntriesRuntimeForTests,

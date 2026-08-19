@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import type {
   AgentSessionConfigOption,
   PlanEntry,

@@ -42,6 +42,25 @@ function StyledUserMessage({
 }
 
 describe('UserMessageMarkdown', () => {
+  it('renders a legacy path-backed skill token with its short command label', () => {
+    render(
+      <UserMessageMarkdown
+        value={formatSessionComposerCommand({
+          type: '/',
+          key: 'skill:/Users/mac/.codex/skills/drawio/drawio',
+          value: '/drawio',
+        })}
+      />
+    );
+
+    const tokenChip = screen
+      .getByText('/drawio')
+      .closest('[data-testid="session-composer-token-chip"]');
+
+    expect(tokenChip).toBeInTheDocument();
+    expect(tokenChip).not.toHaveTextContent('/Users/mac');
+  });
+
   it('renders the automatic commit instruction as a structured token', () => {
     render(<UserMessageMarkdown value="#commit_changes" />);
 
@@ -91,6 +110,19 @@ describe('UserMessageMarkdown', () => {
     expect(getComputedStyle(item as Element).paddingInlineStart).toBe('0px');
     expect(getComputedStyle(item as Element).gap).toBe('0.125rem');
     expect(getComputedStyle(marker as Element).width).toBe('0.5rem');
+  });
+
+  it('keeps user-message ordered-list numbers on one line', () => {
+    render(<StyledUserMessage value={'1. first\n2. second'} />);
+
+    const ordered = screen
+      .getAllByRole('list')
+      .find((list) => list.tagName === 'OL');
+    const marker = ordered?.querySelector(':scope > li > span:first-child');
+    const style = getComputedStyle(marker as Element);
+
+    expect(style.whiteSpace).toBe('nowrap');
+    expect(style.minWidth).toBe('1.5em');
   });
 
   it('renders file and website links with the shared inline resource style', () => {

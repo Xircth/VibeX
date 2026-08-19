@@ -113,6 +113,8 @@ where
             server_version: config.server_version.clone(),
             protocol_version: remote_protocol::PROTOCOL_VERSION.to_string(),
             minimum_client_version: config.minimum_client_version.clone(),
+            host_id: config.host_id.clone(),
+            reachability: config.reachability.clone(),
             capabilities: vec![
                 CapabilityId::new("conversation.read"),
                 CapabilityId::new("conversation.write"),
@@ -206,12 +208,31 @@ where
     }
 }
 
+fn host_listen_page(path: &str) -> Response {
+    let path = path.trim_start_matches('/');
+    if path == "api" || path.starts_with("api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !path.is_empty() && path != "index.html" {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    const HTML: &str = "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>VibeX Host</title><body><h1>VibeX Host</h1><p>远程协议已在运行。请在本机控制台出示配对邀请，不要扫描这个地址。</p></body></html>";
+    (
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        )],
+        HTML,
+    )
+        .into_response()
+}
+
 async fn static_asset<R>(
     State(state): State<Arc<ServerState<R>>>,
     OriginalUri(uri): OriginalUri,
 ) -> Response {
     let Some(root) = state.config.static_root.as_ref() else {
-        return StatusCode::NOT_FOUND.into_response();
+        return host_listen_page(uri.path());
     };
     let path = uri.path().trim_start_matches('/');
     if path == "api" || path.starts_with("api/") {

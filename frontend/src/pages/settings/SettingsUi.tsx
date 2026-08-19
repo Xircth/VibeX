@@ -9,20 +9,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 /** Static pointer used when motion is reduced: the refraction stays put. */
 const STATIC_GLASS_POINTER = { x: 0, y: 0 };
 
-interface SettingsPageHeaderProps {
-  title: string;
-  description?: string;
-}
-
-/**
- * Page-level title/description header. Intentionally renders nothing: each
- * settings page is reached via the sidebar item that already names it, so the
- * in-page heading was redundant. Kept as a no-op so call sites stay valid.
- */
-export function SettingsPageHeader(_props: SettingsPageHeaderProps) {
-  return null;
-}
-
 interface SettingsSectionProps {
   icon: ComponentType<{ className?: string }>;
   title: string;

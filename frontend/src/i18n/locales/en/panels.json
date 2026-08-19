@@ -104,6 +104,10 @@
   "toolbar": {
     "hideEditorAndTerminal": "Hide editor and terminal areas",
     "showEditorAndTerminal": "Show editor and terminal areas",
+    "toggleSessionList": "Toggle session list",
+    "toggleSessionMonitor": "Toggle session monitor",
+    "toggleSessionExecution": "Toggle session execution",
+    "resetKanbanLayout": "Reset Kanban layout",
     "homeOrRecentProjects": "Go home or open a recent project",
     "backToHome": "Back to home",
     "recentProjects": "Recent projects",
@@ -158,7 +162,17 @@
   "workspaceSessionList": {
     "title": "Sessions",
     "loading": "Loading sessions…",
-    "empty": "No sessions yet"
+    "empty": "No sessions yet",
+    "statusRunning": "Running",
+    "statusTodo": "To do",
+    "statusInProgress": "In progress",
+    "statusInReview": "In review",
+    "statusDone": "Done",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "archive": "Archive",
+    "pinFailed": "Could not pin the session",
+    "archiveFailed": "Could not archive the session"
   },
   "worktreeSelector": {
     "currentProjectBranch": "Current project directory branch",
@@ -229,7 +243,10 @@
     "sessionFallbackName": "Session",
     "projectFallbackName": "Project",
     "sessionFailedTitle": "{{project}}: Session execution failed",
-    "sessionCompletedTitle": "{{project}}: Session completed"
+    "sessionCompletedTitle": "{{project}}: Session completed",
+    "sessionPermissionTitle": "{{project}}: Permission needed",
+    "sessionQuestionTitle": "{{project}}: Awaiting your answer",
+    "sessionNoticeTitle": "{{project}}: Session notice"
   },
   "panelRegistry": {
     "fileExplorer": "File Explorer",

@@ -63,6 +63,9 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
 url = "2"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # Reuse existing workspace crates
 browser-cef = { path = "../crates/browser-cef", features = ["cef-host"] }
 browser-runtime = { path = "../crates/browser-runtime" }
@@ -90,7 +93,6 @@ utils = { path = "../crates/utils" }
 deployment = { path = "../crates/deployment" }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
-# Note: review crate is binary-only (no lib target), cannot be used as dependency
 
 [target.'cfg(target_os = "macos")'.dependencies]
 xattr = "1.6.1"

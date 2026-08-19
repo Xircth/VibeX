@@ -135,13 +135,14 @@ describe('conversation tool cards', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Terminal/ }));
+    fireEvent.click(screen.getByRole('button', { name: /终端/ }));
 
-    expect(screen.getAllByText('命令')).toHaveLength(1);
-    expect(screen.getByText('Terminal')).toBeInTheDocument();
-    expect(screen.getAllByText('pnpm test')).toHaveLength(2);
-    expect(screen.getByText('输出')).toBeInTheDocument();
+    expect(screen.getByText('终端')).toBeInTheDocument();
+    expect(screen.getAllByText('pnpm test').length).toBeGreaterThan(0);
+    expect(screen.getByText('exit 0')).toBeInTheDocument();
     expect(screen.getByText('all green')).toBeInTheDocument();
+    expect(screen.queryByText('命令')).not.toBeInTheDocument();
+    expect(screen.queryByText('输出')).not.toBeInTheDocument();
   });
 
   it('renders only rich detail when hosted by an Astryx aggregate row', () => {
@@ -167,9 +168,12 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.queryByText('Terminal')).not.toBeInTheDocument();
-    expect(screen.getByText('命令')).toBeInTheDocument();
-    expect(screen.getByText('输出')).toBeInTheDocument();
+    expect(screen.queryByText('终端')).not.toBeInTheDocument();
+    expect(screen.getByText('pnpm test')).toBeInTheDocument();
+    expect(screen.getByText('exit 0')).toBeInTheDocument();
     expect(screen.getByText('all green')).toBeInTheDocument();
+    expect(screen.queryByText('命令')).not.toBeInTheDocument();
+    expect(screen.queryByText('输出')).not.toBeInTheDocument();
   });
 
   it('omits the repeated terminal name inside an expanded terminal group', () => {
@@ -264,10 +268,10 @@ describe('conversation tool cards', () => {
       />
     );
 
-    expect(screen.getByText('输出')).toBeInTheDocument();
     expect(
       screen.getByText('installed https://example.com/package')
     ).toBeInTheDocument();
+    expect(screen.queryByText('输出')).not.toBeInTheDocument();
   });
 
   it('opens file reads in the preview panel with a resolved workspace path', () => {
@@ -290,6 +294,7 @@ describe('conversation tool cards', () => {
       {
         displayPath: 'src/App.tsx',
         title: 'src/App.tsx',
+        location: null,
       }
     );
   });
@@ -314,14 +319,51 @@ describe('conversation tool cards', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'src/App.tsx' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'src/App.tsx' })[0]);
 
     expect(panelMocks.openFilePreview).toHaveBeenCalledWith(
       '/workspace/project/src/App.tsx',
-      { displayPath: 'src/App.tsx', title: 'src/App.tsx' }
+      {
+        displayPath: 'src/App.tsx',
+        title: 'src/App.tsx',
+        location: { line: 81, column: 1, endLine: 120 },
+      }
     );
     expect(screen.getByText('第 81–120 行')).toBeInTheDocument();
+    expect(screen.getByText('81')).toBeInTheDocument();
     expect(screen.getByText(/export function App/)).toBeInTheDocument();
+  });
+
+  it('shows only the file name on the tool row and still opens the full path', () => {
+    render(
+      <FileToolCard
+        entry={toolEntry({
+          toolName: 'Read',
+          content: '/Users/mac/Projects/foo/live_host.mjs',
+          actionType: {
+            action: 'file_read',
+            path: '/Users/mac/Projects/foo/live_host.mjs',
+          },
+        })}
+        expansionKey="file-name-only"
+        containerRef="/workspace/project"
+      />
+    );
+
+    expect(screen.getByText('live_host.mjs')).toBeInTheDocument();
+    expect(
+      screen.queryByText('/Users/mac/Projects/foo/live_host.mjs')
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: '/Users/mac/Projects/foo/live_host.mjs',
+      })
+    );
+    expect(panelMocks.openFilePreview).toHaveBeenCalledWith(
+      '/Users/mac/Projects/foo/live_host.mjs',
+      expect.objectContaining({ location: null })
+    );
   });
 
   it('opens and copies web fetch targets without expanding the card', async () => {
@@ -359,6 +401,35 @@ describe('conversation tool cards', () => {
     expect(screen.queryByText('URL')).not.toBeInTheDocument();
   });
 
+  it('lists directory entries instead of raw list_dir arguments', () => {
+    render(
+      <ToolCallCard
+        entry={toolEntry({
+          toolName: 'list_dir',
+          content: '/Users/mac/Projects/VibeX/frontend',
+          actionType: {
+            action: 'tool',
+            tool_name: 'list_dir',
+            arguments: { path: '/Users/mac/Projects/VibeX/frontend' },
+            result: {
+              type: { type: 'json' },
+              value: 'src/\npackage.json\nREADME.md',
+            },
+          },
+        })}
+        expansionKey="list-dir"
+      />
+    );
+
+    expect(screen.getByText('查看目录')).toBeInTheDocument();
+    expect(screen.getByText('frontend')).toBeInTheDocument();
+    expect(screen.queryByText(/target_directory/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /查看目录/ }));
+    expect(screen.getByText('src')).toBeInTheDocument();
+    expect(screen.getByText('package.json')).toBeInTheDocument();
+    expect(screen.getByText('README.md')).toBeInTheDocument();
+  });
+
   it('keeps search parameters and the result summary inspectable', () => {
     const use: ToolUseBlock = {
       type: 'tool_use',
@@ -388,18 +459,56 @@ describe('conversation tool cards', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /搜索/ }));
 
-    expect(screen.getByText('参数')).toBeInTheDocument();
-    expect(
-      screen.getByText(/"path": "crates\/conversations"/)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/"maxResults": 20/)).toBeInTheDocument();
-    expect(screen.getByText('结果')).toBeInTheDocument();
+    expect(screen.queryByText('参数')).not.toBeInTheDocument();
+    expect(screen.queryByText('maxResults')).not.toBeInTheDocument();
     expect(screen.getByRole('list', { name: '搜索结果' })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(
       screen.getByText('crates/conversations/src/service.rs')
     ).toBeInTheDocument();
     expect(screen.getByText('cancel_session()')).toBeInTheDocument();
+  });
+
+  it('shows the search query and a URL list instead of the raw payload', () => {
+    const payload = {
+      action: {
+        type: 'search',
+        query: 'site:github.com vibex workflow creator plugin',
+        sources: [
+          { type: 'url', url: '' },
+          {
+            type: 'url',
+            url: 'https://github.com/jfmaes/awesome-ai-workflow',
+          },
+        ],
+      },
+      status: 'completed',
+    };
+    render(
+      <SearchToolCard
+        entry={toolEntry({
+          toolName: '搜索',
+          actionType: {
+            action: 'search',
+            query: 'site:github.com vibex workflow creator plugin',
+            result: {
+              type: { type: 'json' },
+              value: payload,
+            },
+          },
+        })}
+        expansionKey="web-search-payload"
+        forceExpanded
+      />
+    );
+
+    expect(
+      screen.getByText('site:github.com vibex workflow creator plugin')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('https://github.com/jfmaes/awesome-ai-workflow')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/"status": "completed"/)).not.toBeInTheDocument();
   });
 
   it('keeps generic tool arguments and result inspectable', () => {
@@ -422,12 +531,9 @@ describe('conversation tool cards', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /github_search/ }));
-
-    expect(screen.getByText('参数')).toBeInTheDocument();
-    expect(screen.getByText(/"query": "streamdown"/)).toBeInTheDocument();
-    expect(screen.getByText('结果')).toBeInTheDocument();
-    expect(screen.getByText(/"total": 3/)).toBeInTheDocument();
+    expect(screen.getByText('streamdown')).toBeInTheDocument();
+    expect(screen.queryByText('参数')).not.toBeInTheDocument();
+    expect(screen.queryByText(/"total": 3/)).not.toBeInTheDocument();
   });
 
   it('routes web fetch entries through the lookup card path', () => {
@@ -481,9 +587,30 @@ describe('conversation tool cards', () => {
       />
     );
 
-    expect(container.querySelector('.conv-tool-card-pending')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="conversation-plan-card"]')
+    ).toBeTruthy();
     expect(screen.getByText('Ship rendering')).toBeInTheDocument();
-    expect(screen.getAllByText('high')).toHaveLength(2);
+    expect(screen.getByText('1 / 2 已完成')).toBeInTheDocument();
+  });
+
+  it('keeps a pending plan approval expanded with a confirmation banner', () => {
+    render(
+      <ToolCallCard
+        entry={toolEntry({
+          toolName: 'plan',
+          status: { status: 'pending_approval' },
+          actionType: {
+            action: 'plan_presentation',
+            plan: '1. [in_progress] Review the proposed plan',
+          },
+        })}
+        expansionKey="plan-approval"
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('等待确认');
+    expect(screen.getByText('Review the proposed plan')).toBeInTheDocument();
   });
 
   it('renders file edits as an inline unified diff preview', () => {
@@ -507,7 +634,7 @@ describe('conversation tool cards', () => {
       />
     );
 
-    expect(screen.getByText('Edit')).toBeInTheDocument();
+    expect(screen.getByText('修改')).toBeInTheDocument();
     expect(screen.getByText('src/App.tsx')).toBeInTheDocument();
     expect(screen.getByText('+1')).toBeInTheDocument();
     expect(screen.getByText('-1')).toBeInTheDocument();
@@ -522,6 +649,26 @@ describe('conversation tool cards', () => {
         title: 'src/App.tsx',
       }
     );
+  });
+
+  it('shows a file edit snippet immediately inside an aggregate row', () => {
+    const { container } = render(
+      <ToolCallResultDetail>
+        <UnifiedDiffPreview
+          path="frontend/src/styles/legacy/index.css"
+          change={{
+            action: 'edit',
+            unified_diff: '+  display: flex;',
+            has_line_numbers: true,
+          }}
+          expansionKey="aggregate-diff"
+        />
+      </ToolCallResultDetail>
+    );
+
+    expect(screen.queryByText('修改')).not.toBeInTheDocument();
+    expect(container.querySelector('.conv-tool-artifact-body')).toBeTruthy();
+    expect(screen.getByText(/\+\s+display: flex;/)).toBeInTheDocument();
   });
 
   it('routes question tool results to a question card', () => {
@@ -547,7 +694,7 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.getAllByText('Deploy now?')[0]).toBeInTheDocument();
-    expect(screen.getByText(/"answer": "yes"/)).toBeInTheDocument();
+    expect(screen.getAllByText('yes').length).toBeGreaterThan(0);
   });
 
   it('routes feedback check results to a feedback card', () => {
@@ -570,7 +717,7 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.getAllByText('No blocking issues')[0]).toBeInTheDocument();
-    expect(screen.getByText(/"check": "visual polish"/)).toBeInTheDocument();
+    expect(screen.getByText('visual polish')).toBeInTheDocument();
   });
 
   it('routes goal tool calls to a goal card', () => {
@@ -620,7 +767,9 @@ describe('conversation tool cards', () => {
     );
 
     expect(screen.getByText('完成')).toBeInTheDocument();
-    expect(screen.getByText('修订提示词')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('Compact dashboard preview').length
+    ).toBeGreaterThan(0);
     expect(
       screen.getByRole('img', { name: 'Compact dashboard preview' })
     ).toHaveAttribute('src', 'data:image/png;base64,abc123');

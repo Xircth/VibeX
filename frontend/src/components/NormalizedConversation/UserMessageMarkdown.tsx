@@ -10,9 +10,8 @@ import {
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
 import { SessionComposerTokenChip } from '@/components/tasks/follow-up/SessionComposerStructuredText';
 import {
-  isCleanDirectoryCandidate,
   MarkdownResourceLink,
-  resolveMarkdownWorkspacePathTarget,
+  resolveMarkdownInlineResource,
 } from './MarkdownResourceLink';
 
 const TOKEN_PLACEHOLDER_PATTERN = /\uE100TOKEN(\d+)\uE100/g;
@@ -256,19 +255,13 @@ export const UserMessageMarkdown = memo(function UserMessageMarkdown({
       code: UserCodeBlock,
       inlineCode: ({ children }) => {
         const text = String(children).trim();
-        const pathTarget = resolveMarkdownWorkspacePathTarget(
-          undefined,
-          text,
-          workspacePath
-        );
-        const isClickableFile = pathTarget?.nodeType === 'file';
-        const isClickableFolder =
-          pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text);
+        const resource = resolveMarkdownInlineResource(text, workspacePath);
 
-        if (pathTarget && (isClickableFile || isClickableFolder)) {
+        if (resource) {
           return (
             <MarkdownResourceLink
-              pathTarget={pathTarget}
+              href={resource.href}
+              pathTarget={resource.pathTarget}
               workspacePath={workspacePath}
             >
               {text || children}

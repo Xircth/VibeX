@@ -67,8 +67,19 @@ fn build_prompt_enhancement_instruction() -> &'static str {
     DEFAULT_PROMPT_ENHANCE_INSTRUCTION
 }
 
-/// The selected model is intentionally optional. Model availability belongs to
-/// OpenCode's verified capability catalog, not to a static application default.
+/// Agent chosen for prompt enhancement only. Empty means the user has not
+/// picked one yet.
+pub fn selected_prompt_enhancement_agent(config: &Config) -> Option<&str> {
+    let trimmed = config.prompt_enhancement_agent_id.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Legacy model field. Kept so older settings still deserialize; new runs
+/// apply the Agent session config instead.
 pub fn selected_prompt_enhancement_model(config: &Config) -> Option<&str> {
     let trimmed = config.prompt_enhancement_model.trim();
     if trimmed.is_empty() {

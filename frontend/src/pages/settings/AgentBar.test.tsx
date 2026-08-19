@@ -53,33 +53,33 @@ function installAgentBarStyles() {
 }
 
 describe('AgentBar', () => {
-  it('drag-scrolls the strip and suppresses the click after a drag', () => {
-    const onSelect = vi.fn();
+  it('nudges an icon with Alt+Arrow and persists the new order', () => {
+    const onReorder = vi.fn();
     render(
       <AgentBar
-        agents={Array.from({ length: 12 }, (_, index) =>
-          agent(`agent-${index}`, `Agent ${index}`, index)
-        )}
-        selectedAgentId="agent-0"
+        agents={[
+          agent('claude_code', 'Claude Code', 0),
+          agent('codex', 'Codex', 1),
+          agent('pi', 'Pi', 2),
+        ]}
+        selectedAgentId="claude_code"
         registryOpen={false}
-        onSelect={onSelect}
+        onSelect={vi.fn()}
         onOpenRegistry={vi.fn()}
+        onReorder={onReorder}
       />
     );
 
-    const scroller = document.querySelector(
-      '.agent-management-bar-scroll'
-    ) as HTMLElement;
-    fireEvent.pointerDown(scroller, { pointerId: 1, clientX: 20 });
-    fireEvent.pointerMove(scroller, { pointerId: 1, clientX: 80 });
-    fireEvent.pointerUp(scroller, { pointerId: 1 });
-    expect(scroller.scrollLeft).toBe(-60);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Agent 1' }));
-    expect(onSelect).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Agent 2' }));
-    expect(onSelect).toHaveBeenCalledWith('agent-2');
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Codex' }), {
+      key: 'ArrowLeft',
+      altKey: true,
+    });
+    expect(onReorder).toHaveBeenCalledWith(['codex', 'claude_code', 'pi']);
+    expect(
+      screen
+        .getAllByRole('button')
+        .map((control) => control.getAttribute('aria-label'))
+    ).toEqual(['Codex', 'Claude Code', 'Pi', '添加 Agent']);
   });
 
   it('navigates on a plain pointer click (no drag) on an agent icon', () => {
@@ -94,6 +94,7 @@ describe('AgentBar', () => {
         registryOpen={false}
         onSelect={onSelect}
         onOpenRegistry={vi.fn()}
+        onReorder={vi.fn()}
       />
     );
 
@@ -119,6 +120,7 @@ describe('AgentBar', () => {
         registryOpen={false}
         onSelect={onSelect}
         onOpenRegistry={vi.fn()}
+        onReorder={vi.fn()}
       />
     );
 
@@ -182,6 +184,7 @@ describe('AgentBar', () => {
           registryOpen={false}
           onSelect={vi.fn()}
           onOpenRegistry={vi.fn()}
+          onReorder={vi.fn()}
         />
       </div>
     );

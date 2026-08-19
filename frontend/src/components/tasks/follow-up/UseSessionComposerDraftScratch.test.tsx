@@ -18,19 +18,20 @@ vi.mock('@/hooks/useScratch', () => ({
 const profile = { executor: 'codex' as const };
 const now = '2026-05-25T00:00:00.000Z';
 
-function draftScratch(): Scratch {
+function draftScratch(revision = 1, message = 'stored draft'): Scratch {
   return {
     id: 'scratch-1',
     payload: {
       type: 'DRAFT_FOLLOW_UP',
       data: {
-        message: 'stored draft',
+        message,
         images: ['.vibe-images/stored.png'],
         executor_config: profile,
         queued: false,
         config_overrides: {},
       },
     },
+    revision,
     created_at: now,
     updated_at: now,
   };
@@ -47,12 +48,24 @@ function mockScratch(scratch: Scratch | null = null) {
   });
 }
 
+const draftArgs = {
+  scratchId: 'session-1',
+  workspaceId: 'workspace-1' as string | null,
+  attachedImagePaths: ['.vibe-images/current.png'],
+  executorProfile: profile,
+  localMessage: '',
+};
+
 describe('useSessionComposerDraftScratch', () => {
   beforeEach(() => {
     vi.useRealTimers();
     useScratchMock.mockReset();
     updateScratchMock.mockReset();
     deleteScratchMock.mockReset();
+    updateScratchMock.mockResolvedValue({
+      kind: 'saved',
+      scratch: draftScratch(2, 'hello'),
+    });
     mockScratch();
   });
 
@@ -60,12 +73,7 @@ describe('useSessionComposerDraftScratch', () => {
     mockScratch(draftScratch());
 
     const { result } = renderHook(() =>
-      useSessionComposerDraftScratch({
-        scratchId: 'session-1',
-        workspaceId: 'workspace-1',
-        attachedImagePaths: ['.vibe-images/current.png'],
-        executorProfile: profile,
-      })
+      useSessionComposerDraftScratch(draftArgs)
     );
 
     expect(useScratchMock).toHaveBeenCalledWith(
@@ -93,10 +101,9 @@ describe('useSessionComposerDraftScratch', () => {
         attachedImagePaths: string[];
       }) =>
         useSessionComposerDraftScratch({
-          scratchId: 'session-1',
+          ...draftArgs,
           workspaceId,
           attachedImagePaths,
-          executorProfile: profile,
         }),
       {
         initialProps: {
@@ -122,10 +129,8 @@ describe('useSessionComposerDraftScratch', () => {
     const { result, rerender } = renderHook(
       ({ attachedImagePaths }: { attachedImagePaths: string[] }) =>
         useSessionComposerDraftScratch({
-          scratchId: 'session-1',
-          workspaceId: 'workspace-1',
+          ...draftArgs,
           attachedImagePaths,
-          executorProfile: profile,
         }),
       { initialProps: { attachedImagePaths: ['.vibe-images/old.png'] } }
     );
@@ -136,18 +141,22 @@ describe('useSessionComposerDraftScratch', () => {
       await result.current.saveToScratch('hello', profile);
     });
 
-    expect(updateScratchMock).toHaveBeenCalledWith({
-      payload: {
-        type: 'DRAFT_FOLLOW_UP',
-        data: {
-          message: 'hello',
-          images: ['.vibe-images/new.png'],
-          executor_config: profile,
-          queued: false,
-          config_overrides: {},
+    expect(updateScratchMock).toHaveBeenCalledWith(
+      {
+        payload: {
+          type: 'DRAFT_FOLLOW_UP',
+          data: {
+            message: 'hello',
+            images: ['.vibe-images/new.png'],
+            executor_config: profile,
+            queued: false,
+            config_overrides: {},
+          },
         },
+        expected_revision: 0,
       },
-    });
+      { overwriteOnConflict: false }
+    );
   });
 
   it('debounces message saves with the latest executor profile', async () => {
@@ -156,32 +165,204 @@ describe('useSessionComposerDraftScratch', () => {
     const { result, rerender } = renderHook(
       ({ executorProfile }: { executorProfile: typeof profile }) =>
         useSessionComposerDraftScratch({
-          scratchId: 'session-1',
-          workspaceId: 'workspace-1',
-          attachedImagePaths: ['.vibe-images/current.png'],
+          ...draftArgs,
           executorProfile,
         }),
       { initialProps: { executorProfile: profile } }
     );
 
     rerender({ executorProfile: planProfile });
-    act(() => {
+    await act(async () => {
       result.current.setFollowUpMessage('debounced');
-      vi.advanceTimersByTime(500);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
-    expect(updateScratchMock).toHaveBeenCalledWith({
+    expect(updateScratchMock).toHaveBeenCalledWith(
+      {
+        payload: {
+          type: 'DRAFT_FOLLOW_UP',
+          data: {
+            message: 'debounced',
+            images: ['.vibe-images/current.png'],
+            executor_config: planProfile,
+            queued: false,
+            config_overrides: {},
+          },
+        },
+        expected_revision: 0,
+      },
+      { overwriteOnConflict: false }
+    );
+  });
+
+  it('persists the next composer draft even when a queued scratch flag is leftover', async () => {
+    mockScratch({
+      ...draftScratch(),
       payload: {
         type: 'DRAFT_FOLLOW_UP',
         data: {
-          message: 'debounced',
-          images: ['.vibe-images/current.png'],
-          executor_config: planProfile,
-          queued: false,
+          message: 'stored draft',
+          images: ['.vibe-images/stored.png'],
+          executor_config: profile,
+          queued: true,
           config_overrides: {},
         },
       },
     });
+
+    const { result } = renderHook(() =>
+      useSessionComposerDraftScratch(draftArgs)
+    );
+
+    await act(async () => {
+      await result.current.saveToScratch('next message', profile);
+    });
+
+    expect(updateScratchMock).toHaveBeenCalledWith(
+      {
+        payload: {
+          type: 'DRAFT_FOLLOW_UP',
+          data: {
+            message: 'next message',
+            images: ['.vibe-images/current.png'],
+            executor_config: profile,
+            queued: false,
+            config_overrides: {},
+          },
+        },
+        expected_revision: 1,
+      },
+      { overwriteOnConflict: false }
+    );
+  });
+
+  it('does not treat a lagging scratch stream as a remote conflict', async () => {
+    mockScratch(draftScratch(1, 'hello'));
+    const { result, rerender } = renderHook(
+      ({ localMessage }: { localMessage: string }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths: [],
+          localMessage,
+        }),
+      { initialProps: { localMessage: 'hello' } }
+    );
+
+    await act(async () => {
+      await result.current.saveToScratch('hello', profile, []);
+    });
+    expect(result.current.draftConflict).toBeNull();
+
+    rerender({ localMessage: '' });
+    expect(result.current.draftConflict).toBeNull();
+  });
+
+  it('does not raise a conflict after send leaves an empty composer', async () => {
+    mockScratch(draftScratch(1, 'hello'));
+    const { result, rerender } = renderHook(
+      ({ localMessage }: { localMessage: string }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths: [],
+          localMessage,
+        }),
+      { initialProps: { localMessage: 'hello' } }
+    );
+
+    act(() => {
+      result.current.cancelDebouncedSave();
+    });
+    rerender({ localMessage: '' });
+
+    mockScratch(draftScratch(2, 'hello'));
+    rerender({ localMessage: '' });
+
+    expect(result.current.draftConflict).toBeNull();
+  });
+
+  it('ignores in-flight saves after the user keeps the server draft', async () => {
+    let resolveSave: ((value: unknown) => void) | undefined;
+    updateScratchMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve;
+      })
+    );
+    mockScratch(draftScratch(1, 'mine'));
+
+    const { result, rerender } = renderHook(
+      ({
+        localMessage,
+        attachedImagePaths,
+      }: {
+        localMessage: string;
+        attachedImagePaths: string[];
+      }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths,
+          localMessage,
+        }),
+      {
+        initialProps: {
+          localMessage: 'mine',
+          attachedImagePaths: ['.vibe-images/current.png'],
+        },
+      }
+    );
+
+    let savePromise: Promise<void> = Promise.resolve();
+    act(() => {
+      savePromise = result.current.saveToScratch('mine', profile);
+    });
+
+    const server = draftScratch(3, 'server draft');
+    mockScratch(server);
+    rerender({
+      localMessage: 'mine',
+      attachedImagePaths: ['.vibe-images/current.png'],
+    });
+    expect(result.current.draftConflict).toEqual(server);
+
+    let applied: { message: string } | null = null;
+    act(() => {
+      applied = result.current.keepServerDraft();
+    });
+    expect(applied?.message).toBe('server draft');
+    expect(result.current.draftConflict).toBeNull();
+
+    await act(async () => {
+      resolveSave?.({ kind: 'conflict', server });
+      await savePromise;
+    });
+    expect(result.current.draftConflict).toBeNull();
+  });
+
+  it('keeps both drafts when the server reports a revision conflict', async () => {
+    const server = draftScratch(3, 'server draft');
+    updateScratchMock.mockResolvedValue({
+      kind: 'conflict',
+      server,
+    });
+
+    const { result } = renderHook(() =>
+      useSessionComposerDraftScratch({
+        ...draftArgs,
+        localMessage: 'mine',
+      })
+    );
+
+    await act(async () => {
+      await result.current.saveToScratch('mine', profile);
+    });
+
+    expect(result.current.draftConflict).toEqual(server);
+
+    let applied: { message: string } | null = null;
+    act(() => {
+      applied = result.current.keepServerDraft();
+    });
+    expect(applied).toEqual(server.payload.data);
+    expect(result.current.draftConflict).toBeNull();
   });
 
   it('swallows failed scratch writes after logging', async () => {
@@ -190,10 +371,8 @@ describe('useSessionComposerDraftScratch', () => {
 
     const { result } = renderHook(() =>
       useSessionComposerDraftScratch({
-        scratchId: 'session-1',
-        workspaceId: 'workspace-1',
+        ...draftArgs,
         attachedImagePaths: [],
-        executorProfile: profile,
       })
     );
 

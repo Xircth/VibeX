@@ -36,28 +36,34 @@ describe('sendAgentRuntimeTurn', () => {
           actionId: 'create-presentation',
         },
       ],
+      operationId: 'op-stable-1',
     });
 
-    expect(submitInputMock).toHaveBeenCalledWith('session-1', {
-      agentId: 'codex',
-      workspaceId: 'workspace-1',
-      executorProfileId: {
-        executor: 'codex' as const,
-        variant: null,
-        model: 'gpt-5.4',
-      },
-      text: 'backend text',
-      displayText: 'visible text',
-      images: ['.vibe-images/screen.png'],
-      modeOverride: 'plan',
-      configOverrides: [],
-      pluginActions: [
-        {
-          pluginId: 'vibex.office',
-          actionId: 'create-presentation',
+    expect(submitInputMock).toHaveBeenCalledWith(
+      'session-1',
+      {
+        agentId: 'codex',
+        workspaceId: 'workspace-1',
+        executorProfileId: {
+          executor: 'codex' as const,
+          variant: null,
+          model: 'gpt-5.4',
         },
-      ],
-    });
+        text: 'backend text',
+        displayText: 'visible text',
+        images: ['.vibe-images/screen.png'],
+        modeOverride: 'plan',
+        configOverrides: [],
+        pluginActions: [
+          {
+            pluginId: 'vibex.office',
+            actionId: 'create-presentation',
+          },
+        ],
+        fileRefs: [],
+      },
+      'op-stable-1'
+    );
   });
 
   it('defaults mode/config overrides to null/empty when unset', async () => {
@@ -86,7 +92,9 @@ describe('sendAgentRuntimeTurn', () => {
         modeOverride: null,
         configOverrides: [],
         pluginActions: [],
-      })
+        fileRefs: [],
+      }),
+      undefined
     );
   });
 });

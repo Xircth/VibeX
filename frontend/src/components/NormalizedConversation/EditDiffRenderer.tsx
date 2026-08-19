@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DiffView, DiffModeEnum, parseInstance } from '@git-diff-view/react';
-import { ChevronRight, Edit } from 'lucide-react';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import { parseDiffStats } from '@/utils/diffStatsParser';
-/* diff-style-overrides.css and edit-diff-overrides.css imported by parent FileChangeRenderer */
-import { cn } from '@/lib/utils';
+import { useExpandable } from '@/stores/useExpandableStore';
+import '@/styles/diff-style-overrides.css';
+import '@/styles/edit-diff-overrides.css';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
+import { ToolArtifact } from './tools/ToolArtifact';
+import { useToolCallResultDetail } from './tools/ToolCardShell';
 
 type Props = {
   path: string;
@@ -48,8 +51,6 @@ function processUnifiedDiff(unifiedDiff: string, hasLineNumbers: boolean) {
   };
 }
 
-import { useExpandable } from '@/stores/useExpandableStore';
-
 /** Build absolute path for file preview from a potentially relative path */
 function resolveFilePath(
   filePath: string,
@@ -76,10 +77,12 @@ function EditDiffRenderer({
   forceExpanded = false,
   containerRef,
 }: Props) {
+  const { t } = useTranslation('conversation');
   const { config } = useUserSystem();
   const { openFilePreview } = usePanelActionsContext();
+  const isResultDetail = useToolCallResultDetail();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
-  const effectiveExpanded = forceExpanded || expanded;
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
 
   const theme = getActualTheme(config?.theme);
   const { hunks, hideLineNumbers, additions, deletions, isValidDiff } = useMemo(
@@ -87,7 +90,6 @@ function EditDiffRenderer({
     [unifiedDiff, hasLineNumbers]
   );
 
-  const hideLineNumbersClass = hideLineNumbers ? ' edit-diff-hide-nums' : '';
   const hasDiff = unifiedDiff.trim().length > 0;
 
   const diffData = useMemo(() => {
@@ -99,62 +101,43 @@ function EditDiffRenderer({
     };
   }, [hunks, path]);
 
-  return (
-    <div>
-      <div
-        className={cn(
-          'conv-file-card conv-tool-card',
-          statusAppearance === 'denied' && 'border-red-400/40',
-          statusAppearance === 'timed_out' && 'border-amber-400/40'
-        )}
-        onClick={() => setExpanded()}
-      >
-        <ChevronRight
-          className={cn(
-            'h-3 w-3 conv-file-chevron',
-            effectiveExpanded && 'is-expanded'
-          )}
-        />
-        <Edit className="h-3 w-3 conv-file-icon" />
-        <span className="conv-tool-label shrink-0">Edit</span>
-        <button
-          type="button"
-          className="conv-file-name border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-          aria-label={`Open ${path}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            openFilePreview(
-              resolveFilePath(path, containerRef),
-              hasDiff
-                ? {
-                    mode: 'diff',
-                    diffViewMode: 'inline',
-                    displayPath: path,
-                    title: path,
-                  }
-                : { displayPath: path, title: path }
-            );
-          }}
-        >
-          {path}
-        </button>
-        {hasDiff ? (
-          <>
-            <span className="conv-file-stat-add">+{additions}</span>
-            <span className="conv-file-stat-del">-{deletions}</span>
-          </>
-        ) : null}
-      </div>
+  const badge =
+    statusAppearance === 'denied'
+      ? t('toolArtifact.denied')
+      : statusAppearance === 'timed_out'
+        ? t('toolArtifact.timedOut')
+        : t('toolArtifact.edit');
 
-      {effectiveExpanded && hasDiff && (
-        <div
-          className={cn(
-            'mt-1 overflow-hidden rounded-b-lg border border-t-0',
-            'border-[var(--conv-border-subtle)]',
-            hideLineNumbersClass
-          )}
-        >
-          {isValidDiff ? (
+  return (
+    <ToolArtifact
+      badge={isResultDetail ? undefined : badge}
+      title={isResultDetail ? undefined : path}
+      titleLabel={path}
+      onTitleClick={
+        isResultDetail
+          ? undefined
+          : () =>
+              openFilePreview(
+                resolveFilePath(path, containerRef),
+                hasDiff
+                  ? {
+                      mode: 'diff',
+                      diffViewMode: 'inline',
+                      displayPath: path,
+                      title: path,
+                    }
+                  : { displayPath: path, title: path }
+              )
+      }
+      additions={isResultDetail || !hasDiff ? undefined : additions}
+      deletions={isResultDetail || !hasDiff ? undefined : deletions}
+      expandable={!isResultDetail && hasDiff}
+      expanded={effectiveExpanded}
+      onToggle={() => setExpanded()}
+    >
+      {hasDiff ? (
+        isValidDiff ? (
+          <div className={hideLineNumbers ? 'edit-diff-hide-nums' : undefined}>
             <DiffView
               data={diffData}
               diffViewWrap={false}
@@ -163,17 +146,12 @@ function EditDiffRenderer({
               diffViewMode={DiffModeEnum.Unified}
               diffViewFontSize={12}
             />
-          ) : (
-            <pre
-              className="px-4 pb-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap"
-              style={{ color: 'var(--conv-text-secondary)' }}
-            >
-              {unifiedDiff}
-            </pre>
-          )}
-        </div>
-      )}
-    </div>
+          </div>
+        ) : (
+          <pre className="conv-tool-diff-fallback">{unifiedDiff}</pre>
+        )
+      ) : null}
+    </ToolArtifact>
   );
 }
 

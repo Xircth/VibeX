@@ -1,10 +1,12 @@
-import { Info, RotateCcw, TriangleAlert, X } from 'lucide-react';
+import { Badge } from '@astryxdesign/core/Badge';
+import { RefreshCw, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ConversationStatusNotice } from '@/contexts/ConversationStatusContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
+import { SessionNoticeActions } from './SessionNoticeActions';
 
 type ConversationStatusDockProps = {
   notices: ConversationStatusNotice[];
@@ -28,16 +30,17 @@ export function ConversationStatusDock({
 
   return (
     <div
-      className="conversation-status-dock mx-3 mt-2 shrink-0"
+      className="conversation-status-dock"
       data-testid="conversation-status-dock"
       aria-live="polite"
     >
-      <div className="composer-status-surface overflow-hidden rounded-lg">
+      <div className="composer-status-surface rounded-lg">
         {localError ? (
           <StatusSurface
             tone="error"
             role="alert"
-            icon={<TriangleAlert />}
+            title={t('statusDock.localErrorTitle')}
+            badgeLabel={t('statusDock.errorBadge')}
             action={
               onDismissLocalError ? (
                 <DismissButton
@@ -47,22 +50,17 @@ export function ConversationStatusDock({
               ) : null
             }
           >
-            <div className="min-w-0">
-              <p className="composer-status-title text-foreground">
-                {t('statusDock.localErrorTitle')}
-              </p>
-              <ConversationStatusDetails
-                key={localError}
-                title={t('statusDock.localErrorTitle')}
-                label={t('statusDock.showDetails')}
-                accessibleLabel={t('statusDock.showDetailsFor', {
-                  title: t('statusDock.localErrorTitle'),
-                })}
-                mono
-              >
-                <p className="whitespace-pre-wrap break-words">{localError}</p>
-              </ConversationStatusDetails>
-            </div>
+            <ConversationStatusDetails
+              key={localError}
+              title={t('statusDock.localErrorTitle')}
+              label={t('statusDock.showDetails')}
+              accessibleLabel={t('statusDock.showDetailsFor', {
+                title: t('statusDock.localErrorTitle'),
+              })}
+              mono
+            >
+              <p className="whitespace-pre-wrap break-words">{localError}</p>
+            </ConversationStatusDetails>
           </StatusSurface>
         ) : null}
 
@@ -73,6 +71,7 @@ export function ConversationStatusDock({
                 key={notice.id}
                 error={notice.error}
                 onReload={notice.onReload}
+                onRebind={notice.onRebind}
                 onDismiss={() => dismissNotice(notice)}
                 dismissLabel={`${t('statusDock.dismiss')} ${notice.id}`}
                 placement="composer"
@@ -87,7 +86,8 @@ export function ConversationStatusDock({
                 key={notice.id}
                 tone="warning"
                 role="status"
-                icon={<RotateCcw />}
+                title={title}
+                badgeLabel={t('statusDock.warningBadge')}
                 action={
                   <div className="flex items-center gap-1">
                     {notice.onResend ? (
@@ -109,21 +109,16 @@ export function ConversationStatusDock({
                   </div>
                 }
               >
-                <div className="min-w-0">
-                  <p className="composer-status-title text-foreground">
-                    {title}
+                <ConversationStatusDetails
+                  key={t('messageTurnView.interruptedDescription')}
+                  title={title}
+                  label={t('statusDock.showDetails')}
+                  accessibleLabel={t('statusDock.showDetailsFor', { title })}
+                >
+                  <p className="break-words">
+                    {t('messageTurnView.interruptedDescription')}
                   </p>
-                  <ConversationStatusDetails
-                    key={t('messageTurnView.interruptedDescription')}
-                    title={title}
-                    label={t('statusDock.showDetails')}
-                    accessibleLabel={t('statusDock.showDetailsFor', { title })}
-                  >
-                    <p className="break-words">
-                      {t('messageTurnView.interruptedDescription')}
-                    </p>
-                  </ConversationStatusDetails>
-                </div>
+                </ConversationStatusDetails>
               </StatusSurface>
             );
           }
@@ -140,34 +135,45 @@ export function ConversationStatusDock({
               key={notice.id}
               tone={tone}
               role={tone === 'error' ? 'alert' : 'status'}
-              icon={tone === 'info' ? <Info /> : <TriangleAlert />}
+              title={copy.title}
+              badgeLabel={t(`statusDock.${tone}Badge`)}
               action={
-                <DismissButton
-                  label={t('statusDock.dismiss')}
-                  onClick={() => dismissNotice(notice)}
-                />
+                <div className="flex items-center gap-1">
+                  {notice.notice.action ? (
+                    <SessionNoticeActions action={notice.notice.action} />
+                  ) : null}
+                  {notice.onRebind ? (
+                    <button
+                      type="button"
+                      className="composer-status-action"
+                      onClick={() => void notice.onRebind?.()}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t('turnErrorCard.rebindSession')}
+                    </button>
+                  ) : null}
+                  <DismissButton
+                    label={t('statusDock.dismiss')}
+                    onClick={() => dismissNotice(notice)}
+                  />
+                </div>
               }
             >
-              <div className="min-w-0">
-                <p className="composer-status-title text-foreground">
-                  {copy.title}
-                </p>
-                {copy.message ? (
-                  <ConversationStatusDetails
-                    key={copy.message}
-                    title={copy.title}
-                    label={t('statusDock.showDetails')}
-                    accessibleLabel={t('statusDock.showDetailsFor', {
-                      title: copy.title,
-                    })}
-                    mono={tone !== 'info'}
-                  >
-                    <p className="whitespace-pre-wrap break-words">
-                      {copy.message}
-                    </p>
-                  </ConversationStatusDetails>
-                ) : null}
-              </div>
+              {copy.message ? (
+                <ConversationStatusDetails
+                  key={copy.message}
+                  title={copy.title}
+                  label={t('statusDock.showDetails')}
+                  accessibleLabel={t('statusDock.showDetailsFor', {
+                    title: copy.title,
+                  })}
+                  mono={tone !== 'info'}
+                >
+                  <p className="whitespace-pre-wrap break-words">
+                    {copy.message}
+                  </p>
+                </ConversationStatusDetails>
+              ) : null}
             </StatusSurface>
           );
         })}
@@ -199,27 +205,34 @@ function DismissButton({
 function StatusSurface({
   tone,
   role,
-  icon,
+  title,
+  badgeLabel,
   action,
   children,
 }: {
   tone: 'error' | 'warning' | 'info';
   role: 'alert' | 'status';
-  icon: React.ReactNode;
+  title: string;
+  badgeLabel: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className="composer-status-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 text-xs"
-      data-tone={tone}
-      role={role}
-    >
-      <span className="composer-status-icon shrink-0">{icon}</span>
+    <div className="composer-status-row text-xs" data-tone={tone} role={role}>
+      <div className="composer-status-header">
+        <div className="composer-status-heading">
+          <p className="composer-status-title text-foreground">{title}</p>
+          <Badge
+            className="composer-status-badge"
+            variant={tone}
+            label={badgeLabel}
+          />
+        </div>
+        {action ? (
+          <div className="composer-status-action-slot">{action}</div>
+        ) : null}
+      </div>
       {children}
-      {action ? (
-        <div className="composer-status-action-slot self-start">{action}</div>
-      ) : null}
     </div>
   );
 }

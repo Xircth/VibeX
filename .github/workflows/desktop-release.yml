@@ -412,12 +412,18 @@ jobs:
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
+          NOTES_FILE="docs/release/${RELEASE_TAG#v}.md"
+          NOTES_ARGS=()
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          fi
           node scripts/generate-updater-manifest.js \
             --artifacts-dir updater-artifacts \
             --output-dir updater-release \
             --repository "$RELEASE_REPOSITORY" \
             --release-tag "$RELEASE_TAG" \
-            --version "$VERSION"
+            --version "$VERSION" \
+            "${NOTES_ARGS[@]}"
 
       - name: Upload updater manifest and signed bundles
         uses: softprops/action-gh-release@v2

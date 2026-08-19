@@ -7,6 +7,7 @@ pub use v8::{
     ThemeMode, UiLanguage,
 };
 
+pub use super::v2::NotificationWhen;
 use crate::services::config::versions::v8;
 
 fn default_git_branch_prefix() -> String {
@@ -42,6 +43,10 @@ fn default_files_changed_default_collapsed() -> bool {
 }
 
 fn default_ai_message_default_collapsed() -> bool {
+    true
+}
+
+fn default_hide_model_thinking() -> bool {
     true
 }
 
@@ -100,6 +105,12 @@ pub struct Config {
     pub prompt_enhancement_enabled: bool,
     #[serde(default = "default_prompt_enhancement_model")]
     pub prompt_enhancement_model: String,
+    #[serde(default)]
+    pub prompt_enhancement_agent_id: String,
+    #[serde(default)]
+    pub prompt_enhancement_mode: Option<String>,
+    #[serde(default)]
+    pub prompt_enhancement_session_config: std::collections::BTreeMap<String, String>,
     #[serde(default = "default_prompt_enhancement_prompt")]
     pub prompt_enhancement_prompt: Option<String>,
     #[serde(default)]
@@ -108,6 +119,9 @@ pub struct Config {
     pub files_changed_default_collapsed: bool,
     #[serde(default = "default_ai_message_default_collapsed")]
     pub ai_message_default_collapsed: bool,
+    /// Hide model thinking / reasoning blocks in conversation transcripts.
+    #[serde(default = "default_hide_model_thinking")]
+    pub hide_model_thinking: bool,
     /// Opt-in entry for connecting a newly created VibeX conversation to an
     /// existing Agent-managed ACP session in the selected workspace.
     #[serde(default)]
@@ -150,10 +164,14 @@ impl Config {
             send_message_shortcut: old_config.send_message_shortcut,
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
             prompt_enhancement_model: default_prompt_enhancement_model(),
+            prompt_enhancement_agent_id: String::new(),
+            prompt_enhancement_mode: None,
+            prompt_enhancement_session_config: std::collections::BTreeMap::new(),
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
+            hide_model_thinking: default_hide_model_thinking(),
             previous_session_continuation_enabled: false,
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
@@ -212,10 +230,14 @@ impl Default for Config {
             send_message_shortcut: SendMessageShortcut::default(),
             prompt_enhancement_enabled: default_prompt_enhancement_enabled(),
             prompt_enhancement_model: default_prompt_enhancement_model(),
+            prompt_enhancement_agent_id: String::new(),
+            prompt_enhancement_mode: None,
+            prompt_enhancement_session_config: std::collections::BTreeMap::new(),
             prompt_enhancement_prompt: default_prompt_enhancement_prompt(),
             default_terminal_shell: None,
             files_changed_default_collapsed: default_files_changed_default_collapsed(),
             ai_message_default_collapsed: default_ai_message_default_collapsed(),
+            hide_model_thinking: default_hide_model_thinking(),
             previous_session_continuation_enabled: false,
             auto_update_enabled: default_auto_update_enabled(),
             crash_reports_enabled: false,
@@ -234,6 +256,32 @@ mod tests {
 
         assert_eq!(config.commit_reminder_mode, CommitReminderMode::Smart);
         assert_eq!(config.commit_reminder_line_threshold, 10_000);
+    }
+
+    #[test]
+    fn older_v9_configs_receive_prompt_enhancement_agent_and_notify_when() {
+        let mut saved = serde_json::to_value(Config::default()).expect("serialize config");
+        let saved = saved.as_object_mut().expect("config object");
+        saved.remove("prompt_enhancement_agent_id");
+        saved.remove("prompt_enhancement_mode");
+        saved.remove("prompt_enhancement_session_config");
+        if let Some(notifications) = saved
+            .get_mut("notifications")
+            .and_then(|value| value.as_object_mut())
+        {
+            notifications.remove("notify_when");
+        }
+
+        let loaded: Config =
+            serde_json::from_value(serde_json::Value::Object(saved.clone())).expect("load config");
+
+        assert!(loaded.prompt_enhancement_agent_id.is_empty());
+        assert!(loaded.prompt_enhancement_mode.is_none());
+        assert!(loaded.prompt_enhancement_session_config.is_empty());
+        assert_eq!(
+            loaded.notifications.notify_when,
+            super::NotificationWhen::Unfocused
+        );
     }
 
     #[test]
@@ -256,6 +304,7 @@ mod tests {
 
         assert!(config.files_changed_default_collapsed);
         assert!(config.ai_message_default_collapsed);
+        assert!(config.hide_model_thinking);
     }
 
     #[test]
@@ -264,11 +313,13 @@ mod tests {
         let saved_object = saved.as_object_mut().expect("config object");
         saved_object.remove("files_changed_default_collapsed");
         saved_object.remove("ai_message_default_collapsed");
+        saved_object.remove("hide_model_thinking");
 
         let loaded: Config = serde_json::from_value(saved).expect("load older v9 config");
 
         assert!(loaded.files_changed_default_collapsed);
         assert!(loaded.ai_message_default_collapsed);
+        assert!(loaded.hide_model_thinking);
     }
 
     #[test]

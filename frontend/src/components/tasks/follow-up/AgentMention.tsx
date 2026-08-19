@@ -119,11 +119,9 @@ export function AgentMentionProvider({
           return;
         }
         const binding = detail.active_binding;
-        const injected =
-          isRecord(binding) &&
-          isRecord(binding.capabilities) &&
-          binding.capabilities.mcp_servers === true;
-        setCapability(injected ? 'supported' : 'unsupported');
+        const delivered =
+          isRecord(binding) && binding.delegation_mcp_delivered === true;
+        setCapability(delivered ? 'supported' : 'unsupported');
       })
       .catch(() => {
         if (active) setCapability('unsupported');

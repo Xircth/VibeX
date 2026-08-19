@@ -62,6 +62,7 @@ pub type UiLanguage = versions::v9::UiLanguage;
 pub type SendMessageShortcut = versions::v9::SendMessageShortcut;
 pub type LinkOpenBehavior = versions::v9::LinkOpenBehavior;
 pub type CommitReminderMode = versions::v9::CommitReminderMode;
+pub type NotificationWhen = versions::v9::NotificationWhen;
 
 /// Will always return config, trying old schemas or eventually returning default
 pub async fn load_config_from_file(config_path: &Path) -> Config {

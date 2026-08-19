@@ -1,8 +1,7 @@
 //! ACP-native prompt enhancement.
 //!
-//! Runs a one-shot prompt through the shared [`AgentRuntime`] using the first
-//! enabled Agent whose verified capability catalog advertises the configured
-//! model. The transport-agnostic pieces stay in
+//! Runs a one-shot prompt through the shared [`AgentRuntime`] using the Agent
+//! and session config chosen in Settings. The transport-agnostic pieces stay in
 //! `services::services::prompt_enhancement`.
 
 use std::time::Duration;
@@ -14,9 +13,10 @@ use agents::{
     runtime::AgentRuntime,
     state::{AgentPromptStatus, AgentSessionSnapshot},
 };
+use api_types::AgentId;
 use services::services::prompt_enhancement::{
     PROMPT_ENHANCE_TIMEOUT_SECS, PromptEnhancementRequest, PromptEnhancementResponse,
-    build_prompt_enhancement_payload, extract_enhanced_prompt, selected_prompt_enhancement_model,
+    build_prompt_enhancement_payload, extract_enhanced_prompt, selected_prompt_enhancement_agent,
     validate_prompt_enhancement_request,
 };
 use tokio::sync::broadcast::{self, error::RecvError};
@@ -35,31 +35,31 @@ pub async fn enhance_prompt(
     validate_prompt_enhancement_request(&config, &payload)?;
 
     let prompt_text = build_prompt_enhancement_payload(&config, &payload)?;
-    let catalog_models = crate::commands::agents::prompt_enhancement_capability_catalog_models(
+    let agent_id = validated_prompt_enhancement_agent(
+        selected_prompt_enhancement_agent(&config),
         &state.deployment.db().pool,
     )
     .await?;
-    let model = validated_prompt_enhancement_model(
-        selected_prompt_enhancement_model(&config),
-        &catalog_models,
-    )?;
     let runtime = &state.agent_runtime;
-    let (agent_id, model_option_key) =
-        crate::commands::agents::prompt_enhancement_selection_for_model(
-            &state.deployment.db().pool,
-            &model,
-        )
-        .await?
-        .ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "No enabled Agent currently advertises the configured model `{model}`."
-            ))
-        })?;
     let launch = crate::commands::agents::agent_runtime_launch_settings_for_session_from_pool(
         &state.deployment.db().pool,
         &agent_id,
     )
     .await?;
+    let config_overrides = config
+        .prompt_enhancement_session_config
+        .iter()
+        .map(|(key, value)| AgentSessionConfigOverride {
+            key: key.clone(),
+            value: value.clone(),
+        })
+        .collect();
+    let model = config
+        .prompt_enhancement_session_config
+        .iter()
+        .find(|(key, _)| key.contains("model"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| agent_id.to_string());
 
     // Subscribe before dispatching so no chunk can slip past the receiver.
     let events = runtime.subscribe_events();
@@ -88,8 +88,8 @@ pub async fn enhance_prompt(
         events,
         &session,
         prompt_text,
-        &model_option_key,
-        &model,
+        config.prompt_enhancement_mode.clone(),
+        config_overrides,
     )
     .await;
 
@@ -103,31 +103,40 @@ pub async fn enhance_prompt(
     })
 }
 
-/// Prompt enhancement cannot invent a default model: that would bypass the
-/// runtime/config fingerprint used by normal sessions. A saved selection is
-/// valid only when it appears in a current verified Agent catalog.
-fn validated_prompt_enhancement_model(
-    configured_model: Option<&str>,
-    catalog_models: &[String],
-) -> Result<String, AppError> {
-    let Some(model) = configured_model else {
+async fn validated_prompt_enhancement_agent(
+    configured_agent: Option<&str>,
+    pool: &sqlx::SqlitePool,
+) -> Result<AgentId, AppError> {
+    let Some(raw_agent_id) = configured_agent else {
         return Err(AppError::BadRequest(
-            "Choose an Agent model in Settings → General before using prompt enhancement."
-                .to_string(),
+            "Choose an Agent in Settings → General before using prompt enhancement.".to_string(),
         ));
     };
-    if catalog_models.is_empty() {
-        return Err(AppError::BadRequest(
-            "A verified Agent model catalog is not available yet. Open Settings → General, wait for it to load, then choose a model."
-                .to_string(),
-        ));
-    }
-    if !catalog_models.iter().any(|available| available == model) {
+    let agent_id = AgentId::parse(raw_agent_id).map_err(|_| {
+        AppError::BadRequest(format!(
+            "The saved prompt-enhancement Agent `{raw_agent_id}` is not valid. Choose an Agent in Settings → General."
+        ))
+    })?;
+    let enabled = sqlx::query_scalar::<_, i64>(
+        r#"SELECT COUNT(*)
+           FROM agent_membership membership
+           JOIN agent_installation installation
+             ON installation.agent_id = membership.agent_id
+           WHERE membership.agent_id = ?
+             AND membership.enabled = 1
+             AND membership.retired = 0
+             AND installation.current_lock_id IS NOT NULL"#,
+    )
+    .bind(agent_id.as_str())
+    .fetch_one(pool)
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?;
+    if enabled == 0 {
         return Err(AppError::BadRequest(format!(
-            "The saved Agent model `{model}` is not available from the current verified catalog. Choose a model in Settings → General."
+            "The saved prompt-enhancement Agent `{agent_id}` is not enabled. Choose an enabled Agent in Settings → General."
         )));
     }
-    Ok(model.to_string())
+    Ok(agent_id)
 }
 
 async fn run_enhancement_turn(
@@ -135,22 +144,16 @@ async fn run_enhancement_turn(
     events: broadcast::Receiver<AgentEventEnvelope>,
     session: &AgentSessionSnapshot,
     prompt_text: String,
-    model_option_key: &str,
-    model: &str,
+    mode_override: Option<String>,
+    config_overrides: Vec<AgentSessionConfigOverride>,
 ) -> Result<String, AppError> {
     let prompt = runtime
         .send_prompt(SendAgentPromptInput {
             connection_id: session.connection_id,
             session_id: session.id,
             blocks: vec![AgentContentBlock::Text { text: prompt_text }],
-            mode_override: None,
-            // This value was checked against the same matching catalog the
-            // settings and session selectors use. ACP remains the final
-            // authority if the runtime changes after this local read.
-            config_overrides: vec![AgentSessionConfigOverride {
-                key: model_option_key.to_string(),
-                value: model.to_string(),
-            }],
+            mode_override,
+            config_overrides,
         })
         .await
         .map_err(|error| AppError::Internal(format!("Failed to run enhancement Agent: {error}")))?;
@@ -236,34 +239,23 @@ async fn collect_enhanced_prompt(
 mod tests {
     use super::*;
 
-    #[test]
-    fn prompt_enhancement_requires_a_catalog_backed_model() {
+    #[tokio::test]
+    async fn prompt_enhancement_requires_a_configured_agent() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("memory sqlite");
+        let error = validated_prompt_enhancement_agent(None, &pool)
+            .await
+            .expect_err("missing agent");
         assert!(matches!(
-            validated_prompt_enhancement_model(None, &["openai/gpt-5.6-sol".to_string()]),
-            Err(AppError::BadRequest(message)) if message.contains("Settings → General")
-        ));
-        assert!(matches!(
-            validated_prompt_enhancement_model(Some("openai/gpt-5.6-sol"), &[]),
-            Err(AppError::BadRequest(message)) if message.contains("catalog is not available")
-        ));
-        assert!(matches!(
-            validated_prompt_enhancement_model(
-                Some("opencode/minimax-m2.5-free"),
-                &["openai/gpt-5.6-sol".to_string()],
-            ),
-            Err(AppError::BadRequest(message)) if message.contains("not available")
+            error,
+            AppError::BadRequest(message) if message.contains("Settings → General")
         ));
     }
 
     #[test]
-    fn prompt_enhancement_uses_the_exact_catalog_choice() {
-        assert_eq!(
-            validated_prompt_enhancement_model(
-                Some("openai/gpt-5.6-sol"),
-                &["openai/gpt-5.6-sol".to_string()],
-            )
-            .unwrap(),
-            "openai/gpt-5.6-sol"
-        );
+    fn prompt_enhancement_rejects_an_invalid_agent_id() {
+        // Parse happens before the DB lookup.
+        assert!(api_types::AgentId::parse("NOT VALID").is_err());
     }
 }

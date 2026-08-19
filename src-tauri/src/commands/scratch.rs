@@ -1,4 +1,6 @@
-use db::models::scratch::{CreateScratch, Scratch, ScratchType, UpdateScratch};
+use db::models::scratch::{
+    CreateScratch, Scratch, ScratchType, ScratchUpdateOutcome, UpdateScratch,
+};
 use uuid::Uuid;
 
 use crate::{error::AppError, state::AppState};
@@ -37,10 +39,9 @@ pub async fn update_scratch(
     scratch_type: ScratchType,
     id: Uuid,
     payload: UpdateScratch,
-) -> Result<(), AppError> {
+) -> Result<ScratchUpdateOutcome, AppError> {
     payload.payload.validate_type(scratch_type)?;
-    Scratch::update(&state.deployment.db().pool, id, &scratch_type, &payload).await?;
-    Ok(())
+    Ok(Scratch::update(&state.deployment.db().pool, id, &scratch_type, &payload).await?)
 }
 
 #[tauri::command]

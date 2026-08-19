@@ -74,6 +74,53 @@ impl DbConversationSummary {
         .await
     }
 
+    /// Recently updated conversations, optionally limited to one project.
+    ///
+    /// `updated_at` is stored as TEXT in mixed RFC3339 / SQLite datetime shapes.
+    /// Normalize the first 19 characters before comparing so a 3-day window
+    /// does not silently drop rows whose timestamps contain `T` or a timezone.
+    pub async fn list_recent(
+        pool: &SqlitePool,
+        since_days: i64,
+        project_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let cutoff = (Utc::now() - chrono::Duration::days(since_days.max(1)))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let limit = limit.clamp(1, 500);
+        let recency = "datetime(replace(substr(updated_at, 1, 19), 'T', ' ')) >= datetime(?)";
+        if let Some(project_id) = project_id {
+            sqlx::query_as::<_, Self>(&format!(
+                r#"SELECT {SUMMARY_COLUMNS}
+                   FROM sessions
+                   WHERE deleted_at IS NULL
+                     AND {recency}
+                     AND workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)
+                   ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
+                   LIMIT ?"#
+            ))
+            .bind(cutoff)
+            .bind(project_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        } else {
+            sqlx::query_as::<_, Self>(&format!(
+                r#"SELECT {SUMMARY_COLUMNS}
+                   FROM sessions
+                   WHERE deleted_at IS NULL
+                     AND {recency}
+                   ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
+                   LIMIT ?"#
+            ))
+            .bind(cutoff)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+    }
+
     /// A single non-deleted conversation by id.
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(
@@ -556,6 +603,50 @@ impl ConversationAgentBindingRecord {
         .bind(status)
         .bind(id)
         .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_negotiated_capabilities<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        load_supported: bool,
+        resume_supported: bool,
+        close_supported: bool,
+        terminal_supported: bool,
+        additional_directories_supported: bool,
+        prompt_capabilities_json: &str,
+        session_capabilities_json: &str,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
+        sqlx::query(
+            r#"UPDATE conversation_agent_bindings
+               SET load_supported = ?,
+                   resume_supported = ?,
+                   close_supported = ?,
+                   terminal_supported = ?,
+                   additional_directories_supported = ?,
+                   prompt_capabilities_json = ?,
+                   session_capabilities_json = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = (
+                   SELECT id FROM conversation_agent_bindings
+                   WHERE conversation_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT 1
+               )"#,
+        )
+        .bind(load_supported)
+        .bind(resume_supported)
+        .bind(close_supported)
+        .bind(terminal_supported)
+        .bind(additional_directories_supported)
+        .bind(prompt_capabilities_json)
+        .bind(session_capabilities_json)
+        .bind(conversation_id)
+        .execute(executor)
         .await?;
         Ok(())
     }

@@ -310,6 +310,15 @@
             "items": {
               "$ref": "#/components/schemas/CapabilityId"
             }
+          },
+          "host_id": {
+            "type": "string"
+          },
+          "reachability": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReachabilityOrigin"
+            }
           }
         },
         "required": [
@@ -322,6 +331,22 @@
       "CapabilityId": {
         "description": "Open capability identifier. Unknown values are intentionally preserved so\nolder clients can safely negotiate with newer servers.",
         "type": "string"
+      },
+      "ReachabilityOrigin": {
+        "description": "One reachable origin for a Host, never a Host identity by itself.",
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "kind"
+        ]
       },
       "CommandRequest": {
         "description": "Versioned application-command request shared by HTTP and local adapters.",
@@ -474,6 +499,28 @@
             "required": [
               "resource",
               "conversation_id",
+              "after_sequence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "run_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "after_sequence": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "resource": {
+                "type": "string",
+                "const": "workflow_run"
+              }
+            },
+            "required": [
+              "resource",
+              "run_id",
               "after_sequence"
             ]
           }

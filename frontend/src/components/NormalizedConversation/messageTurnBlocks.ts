@@ -23,7 +23,9 @@ export type TurnRenderItem =
       revisedPrompt: string | null;
     }
   | { kind: 'plan'; entries: PlanEntry[] }
-  | { kind: 'tool'; use: ToolUseBlock | null; result: ToolResultBlock | null };
+  | { kind: 'tool'; use: ToolUseBlock | null; result: ToolResultBlock | null }
+  | { kind: 'resource'; uri: string; title: string | null }
+  | { kind: 'protocol'; label: string };
 
 type ToolRenderItem = Extract<TurnRenderItem, { kind: 'tool' }>;
 
@@ -82,6 +84,24 @@ export function planTurnBlocks(blocks: ContentBlock[]): TurnRenderItem[] {
           items[planItemIndex] = { kind: 'plan', entries: block.entries };
         }
         break;
+      case 'resource':
+        items.push({
+          kind: 'resource',
+          uri: block.uri,
+          title: block.title ?? null,
+        });
+        break;
+      case 'protocol': {
+        const label =
+          block.content &&
+          typeof block.content === 'object' &&
+          'type' in block.content &&
+          typeof block.content.type === 'string'
+            ? block.content.type
+            : 'protocol';
+        items.push({ kind: 'protocol', label });
+        break;
+      }
       case 'tool_use': {
         const result = block.tool_use_id
           ? (resultByToolId.get(block.tool_use_id) ?? null)

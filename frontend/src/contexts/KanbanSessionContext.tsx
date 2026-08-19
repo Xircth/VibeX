@@ -68,8 +68,8 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     data: activeWorkspaceWithSession,
     isLoading: isActiveWorkspaceLoading,
   } = useTaskAttemptWithSession(activeWorktreeId ?? undefined);
-  const isRightPanelVisible = useLayoutStore(
-    (state) => state.isRightPanelVisible
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
   );
 
   const [panelView, setPanelView] =
@@ -183,7 +183,7 @@ export function KanbanSessionProvider({ children }: { children: ReactNode }) {
     layoutState.rightSession,
   ]);
 
-  const canUseRightPanelForSessions = isRightPanelVisible;
+  const canUseRightPanelForSessions = isKanbanSessionVisible;
   const isLayoutHydrated = hydratedProjectKey === projectKey;
 
   const goToBoard = useCallback(() => {

@@ -1,17 +1,33 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { ArrowLeft, ChevronRight, Loader2, Puzzle, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ChevronRight,
+  Loader2,
+  Puzzle,
+  Search,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/toast';
 import {
   createPluginControlApi,
   type PluginControlItem,
   type PluginDevConnection,
+  type PluginImportPreview,
   type PluginProductDetail,
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
@@ -20,6 +36,7 @@ import {
   PluginCatalogLoading,
   PluginDetailLoading,
   PluginDevelopmentDialog,
+  PluginDropOverlay,
 } from './PluginCatalogControls';
 import { PluginConfigForm } from './PluginConfigForm';
 import { PluginContentBrowser } from './PluginContentBrowser';
@@ -80,20 +97,29 @@ function useProductPlugins() {
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
   const [plugins, setPlugins] = useState<PluginControlItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const refreshSequence = useRef(0);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const catalog = await api.catalog();
-      setPlugins(catalog.plugins.filter(isProductPlugin));
-    } catch (error) {
-      toast.error(t('plugins.productCatalogFailed'), {
-        description: errorMessage(error),
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [api, t]);
+  const refresh = useCallback(
+    async (showLoading = true) => {
+      const sequence = ++refreshSequence.current;
+      if (showLoading) setLoading(true);
+      try {
+        const catalog = await api.catalog();
+        if (sequence === refreshSequence.current) {
+          setPlugins(catalog.plugins.filter(isProductPlugin));
+        }
+      } catch (error) {
+        if (sequence === refreshSequence.current) {
+          toast.error(t('plugins.productCatalogFailed'), {
+            description: errorMessage(error),
+          });
+        }
+      } finally {
+        if (sequence === refreshSequence.current) setLoading(false);
+      }
+    },
+    [api, t]
+  );
 
   useEffect(() => {
     void refresh();
@@ -111,17 +137,38 @@ function replacePlugin(
   );
 }
 
+function upsertPlugin(
+  plugins: PluginControlItem[],
+  replacement: PluginControlItem
+) {
+  return plugins.some((plugin) => plugin.id === replacement.id)
+    ? replacePlugin(plugins, replacement)
+    : [...plugins, replacement];
+}
+
+function isVxpPackagePath(path: string) {
+  return path.toLocaleLowerCase().endsWith('.vxp');
+}
+
 export function PluginCatalogPage() {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const { supports } = useBackendCapabilities();
   const { api, plugins, setPlugins, loading, refresh } = useProductPlugins();
+  const canInstall = supports('plugin.write') && supports('desktop.tauri');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const importingRef = useRef(false);
   const [devConnection, setDevConnection] =
     useState<PluginDevConnection | null>(null);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [devConnectionCopied, setDevConnectionCopied] = useState(false);
+  const [replacement, setReplacement] = useState<{
+    path: string;
+    preview: PluginImportPreview;
+  } | null>(null);
 
   useEffect(() => {
     if (!supports('desktop.tauri')) return;
@@ -146,8 +193,13 @@ export function PluginCatalogPage() {
       setBusyId(plugin.id);
       try {
         const updated = await api.setEnabled(plugin.id, enabled);
-        if (enabled && plugin.skills.length > 0 && supports('desktop.tauri')) {
-          await api.configureAgents(plugin.id, true, []);
+        if (enabled && supports('desktop.tauri')) {
+          if (plugin.skills.length > 0) {
+            await api.configureAgents(plugin.id, true, []);
+          }
+          if ((plugin.mcpCount ?? plugin.mcpServers?.length ?? 0) > 0) {
+            await api.configureMcp(plugin.id, true, []);
+          }
         }
         setPlugins((current) => replacePlugin(current, updated));
         toast.success(
@@ -177,6 +229,62 @@ export function PluginCatalogPage() {
     [applyEnabled]
   );
 
+  const installPlugin = useCallback(
+    async (path: string) => {
+      if (importingRef.current) return;
+      importingRef.current = true;
+      setImporting(true);
+      try {
+        const preview = await api.previewImport(path, false, 'vibex');
+        if (preview.conflict) {
+          setReplacement({ path, preview });
+          return;
+        }
+        const imported = await api.import(path, false, 'reject', 'vibex');
+        setPlugins((current) => upsertPlugin(current, imported));
+        await applyEnabled(imported, true);
+        await refresh(false);
+      } catch (error) {
+        toast.error(t('plugins.productImportFailed'), {
+          description: errorMessage(error),
+        });
+      } finally {
+        importingRef.current = false;
+        setImporting(false);
+      }
+    },
+    [api, applyEnabled, refresh, setPlugins, t]
+  );
+
+  const replacePluginPackage = useCallback(async () => {
+    if (!replacement || importingRef.current) return;
+    importingRef.current = true;
+    setImporting(true);
+    try {
+      const permissionIds = (replacement.preview.plugin.permissionDelta ?? [])
+        .filter((permission) => !permission.optional)
+        .map((permission) => permission.id);
+      const imported = await api.import(
+        replacement.path,
+        false,
+        'replace',
+        'vibex',
+        permissionIds
+      );
+      setReplacement(null);
+      setPlugins((current) => upsertPlugin(current, imported));
+      await applyEnabled(imported, true);
+      await refresh(false);
+    } catch (error) {
+      toast.error(t('plugins.productImportFailed'), {
+        description: errorMessage(error),
+      });
+    } finally {
+      importingRef.current = false;
+      setImporting(false);
+    }
+  }, [api, applyEnabled, refresh, replacement, setPlugins, t]);
+
   const addPlugin = useCallback(async () => {
     try {
       const selected = await open({
@@ -185,24 +293,60 @@ export function PluginCatalogPage() {
         filters: [{ name: 'VibeX Plugin', extensions: ['vxp', 'zip'] }],
       });
       if (!selected || Array.isArray(selected)) return;
-      const preview = await api.previewImport(selected, false, 'vibex');
-      if (preview.conflict) {
-        toast.warning(
-          t('plugins.productAlreadyInstalled', {
-            name: preview.plugin.name,
-          })
-        );
-        return;
-      }
-      const imported = await api.import(selected, false, 'reject', 'vibex');
-      setPlugins((current) => [...current, imported]);
-      await applyEnabled(imported, true);
+      await installPlugin(selected);
     } catch (error) {
       toast.error(t('plugins.productImportFailed'), {
         description: errorMessage(error),
       });
     }
-  }, [api, applyEnabled, setPlugins, t]);
+  }, [installPlugin, t]);
+
+  useEffect(() => {
+    if (!canInstall) {
+      setDropActive(false);
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          const payload = event.payload;
+          if (payload.type === 'enter') {
+            setDropActive(
+              payload.paths.length === 1 &&
+                isVxpPackagePath(payload.paths[0] ?? '')
+            );
+            return;
+          }
+          if (payload.type === 'leave') {
+            setDropActive(false);
+            return;
+          }
+          if (payload.type !== 'drop') return;
+
+          setDropActive(false);
+          const path = payload.paths[0];
+          if (payload.paths.length !== 1 || !path || !isVxpPackagePath(path)) {
+            toast.error(t('plugins.productDropInvalid'));
+            return;
+          }
+          void installPlugin(path);
+        })
+      )
+      .then((stopListening) => {
+        if (disposed) stopListening();
+        else unlisten = stopListening;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [canInstall, installPlugin, t]);
 
   const copyDevConnection = useCallback(async () => {
     if (!devConnection) return;
@@ -226,12 +370,16 @@ export function PluginCatalogPage() {
     <main className="product-plugins-page">
       <header className="product-plugins-header">
         <div className="product-plugins-heading">
-          <h1>{t('plugins.productTitle')}</h1>
+          <h1>
+            <Puzzle aria-hidden="true" />
+            <span>{t('plugins.productTitle')}</span>
+          </h1>
           <p>{t('plugins.productSubtitle')}</p>
         </div>
         <PluginCatalogActions
           canDevelop={supports('desktop.tauri')}
-          canAdd={supports('plugin.write') && supports('desktop.tauri')}
+          canAdd={canInstall}
+          adding={importing}
           devReady={Boolean(devConnection)}
           onOpenDevelopment={() => setDevToolsOpen(true)}
           onAdd={() => void addPlugin()}
@@ -256,9 +404,10 @@ export function PluginCatalogPage() {
 
       <section
         className="product-plugin-list settings-surface"
-        aria-busy={loading}
+        aria-busy={loading || importing}
         aria-label={t('plugins.catalogAria')}
       >
+        <PluginDropOverlay active={dropActive} installing={importing} />
         {loading ? <PluginCatalogLoading /> : null}
         {!loading
           ? visible.map((plugin) => (
@@ -336,6 +485,53 @@ export function PluginCatalogPage() {
         onOpenChange={setDevToolsOpen}
         onCopy={() => void copyDevConnection()}
       />
+
+      <Dialog
+        open={Boolean(replacement)}
+        onOpenChange={(open) => !open && setReplacement(null)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {t('plugins.importTitle', {
+                name: replacement?.preview.plugin.name ?? '',
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('plugins.sameIdConflictDescription')}
+            </DialogDescription>
+          </DialogHeader>
+          {replacement?.preview.conflict ? (
+            <div className="plugin-import-conflict" role="alert">
+              <AlertTriangle aria-hidden="true" />
+              <div>
+                <strong>{t('plugins.sameIdConflict')}</strong>
+                <p>
+                  {replacement.preview.plugin.id} · v
+                  {replacement.preview.plugin.version}
+                </p>
+                <code>{replacement.preview.conflict.installedSource}</code>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReplacement(null)}
+              disabled={importing}
+            >
+              {t('plugins.keepInstalled')}
+            </Button>
+            <Button
+              onClick={() => void replacePluginPackage()}
+              disabled={importing}
+            >
+              {importing ? <Loader2 className="animate-spin" /> : null}
+              {t('plugins.replaceInstall')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

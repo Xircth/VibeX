@@ -228,7 +228,10 @@ function createStructuredToken({
   raw: string;
 }): SessionComposerStructuredToken {
   if (type === '/') {
-    const commandName = key.split(':').at(-1) || key;
+    const displayCommandName = value
+      .trim()
+      .match(/^\/(?!skill:)([^\s/]+)/u)?.[1];
+    const commandName = displayCommandName || key.split(':').at(-1) || key;
     return {
       kind: 'slash',
       type,
@@ -640,6 +643,47 @@ export type SessionComposerPluginActionInvocation = {
   pluginId: string;
   actionId: string;
 };
+
+export type SessionComposerFileRef = {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+};
+
+export function getSessionComposerFileRefs(
+  value: string
+): SessionComposerFileRef[] {
+  const seen = new Set<string>();
+  const refs: SessionComposerFileRef[] = [];
+
+  for (const segment of getSessionComposerStructuredTokenSegments(value)) {
+    if (segment.kind !== 'token' || segment.token.kind !== 'file') continue;
+    const parsed = parseComposerFileRef(segment.token.value);
+    if (!parsed || seen.has(parsed.path)) continue;
+    seen.add(parsed.path);
+    refs.push(parsed);
+  }
+
+  return refs;
+}
+
+function parseComposerFileRef(value: string): SessionComposerFileRef | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const range = trimmed.match(/^(.*):(\d+)(?:-(\d+))?$/);
+  if (!range) {
+    return { path: trimmed };
+  }
+  const path = range[1]?.trim();
+  if (!path) return null;
+  const startLine = Number(range[2]);
+  const endLine = range[3] ? Number(range[3]) : undefined;
+  return {
+    path,
+    startLine: Number.isFinite(startLine) ? startLine : undefined,
+    endLine: Number.isFinite(endLine) ? endLine : undefined,
+  };
+}
 
 export function getSessionComposerPluginActionInvocations(
   value: string

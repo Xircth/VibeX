@@ -4,9 +4,10 @@ use api_types::{AgentId, AgentSource};
 use sqlx::{FromRow, SqlitePool};
 
 use super::{AgentManagementRepositoryError, source_key};
+use crate::models::agent_setting::AgentSetting;
 
 const MIGRATION_KEY: &str = "legacy-agent-settings-v1";
-const BUILT_INS: [&str; 12] = [
+const BUILT_INS: [&str; 13] = [
     "claude_code",
     "codex",
     "gemini",
@@ -19,6 +20,7 @@ const BUILT_INS: [&str; 12] = [
     "pi",
     "grok",
     "cursor",
+    "deepseek_harness",
 ];
 
 #[derive(Debug, FromRow)]
@@ -131,6 +133,7 @@ async fn ensure_current_built_ins(
             .execute(&mut **transaction)
             .await?;
         }
+        AgentSetting::ensure_row(&mut **transaction, agent_id).await?;
     }
     Ok(())
 }

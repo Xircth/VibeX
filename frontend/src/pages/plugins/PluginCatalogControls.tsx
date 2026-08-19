@@ -1,6 +1,8 @@
 import {
   Check,
   Copy,
+  Loader2,
+  PackageOpen,
   PackagePlus,
   TerminalSquare,
 } from 'lucide-react';
@@ -21,12 +23,14 @@ import type { PluginDevConnection } from '@/lib/api/plugins';
 export function PluginCatalogActions({
   canDevelop,
   canAdd,
+  adding,
   devReady,
   onOpenDevelopment,
   onAdd,
 }: {
   canDevelop: boolean;
   canAdd: boolean;
+  adding: boolean;
   devReady: boolean;
   onOpenDevelopment: () => void;
   onAdd: () => void;
@@ -47,11 +51,45 @@ export function PluginCatalogActions({
         </Button>
       ) : null}
       {canAdd ? (
-        <Button type="button" onClick={onAdd}>
-          <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
+        <Button type="button" disabled={adding} onClick={onAdd}>
+          {adding ? (
+            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <PackagePlus aria-hidden="true" className="h-3.5 w-3.5" />
+          )}
           {t('plugins.addPlugin')}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+export function PluginDropOverlay({
+  active,
+  installing,
+}: {
+  active: boolean;
+  installing: boolean;
+}) {
+  const { t } = useTranslation('settings');
+  if (!active && !installing) return null;
+
+  const label = t(
+    installing ? 'plugins.installingPlugin' : 'plugins.dropToInstall'
+  );
+
+  return (
+    <div
+      className="product-plugin-drop-overlay"
+      role="status"
+      aria-label={label}
+    >
+      {installing ? (
+        <Loader2 aria-hidden="true" className="animate-spin" />
+      ) : (
+        <PackageOpen aria-hidden="true" />
+      )}
+      <strong>{label}</strong>
     </div>
   );
 }

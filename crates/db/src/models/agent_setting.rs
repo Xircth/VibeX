@@ -62,6 +62,23 @@ impl AgentSetting {
         .await
     }
 
+    /// Ensure a settings row exists so environment, auth, and runtime
+    /// identity can persist. Built-in membership used to be seeded without
+    /// this row, which made later agents fail every env write.
+    pub async fn ensure_row<'e, E>(executor: E, agent_type: &str) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
+        sqlx::query(
+            r#"INSERT OR IGNORE INTO agent_setting (agent_type)
+               VALUES (?)"#,
+        )
+        .bind(agent_type)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
     /// Find an agent setting by agent_type.
     pub async fn find_by_type(
         pool: &SqlitePool,
@@ -385,6 +402,32 @@ mod tests {
         assert_eq!(cleared.persisted_runtime_identity(), None);
         assert!(cleared.runtime_cli_path.is_none());
         assert!(cleared.runtime_acp_revision.is_none());
+    }
+
+    #[tokio::test]
+    async fn ensure_row_creates_a_missing_settings_row_once() {
+        let pool = setup_pool().await;
+        assert!(
+            AgentSetting::find_by_type(&pool, "deepseek_harness")
+                .await
+                .expect("lookup")
+                .is_none()
+        );
+
+        AgentSetting::ensure_row(&pool, "deepseek_harness")
+            .await
+            .expect("create missing row");
+        AgentSetting::ensure_row(&pool, "deepseek_harness")
+            .await
+            .expect("idempotent ensure");
+
+        let created = AgentSetting::find_by_type(&pool, "deepseek_harness")
+            .await
+            .expect("lookup")
+            .expect("created row");
+        assert_eq!(created.agent_type, "deepseek_harness");
+        assert!(created.enabled);
+        assert!(created.env_json.is_none());
     }
 
     #[tokio::test]

@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
 use agents::conversation::{
-    ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationErrorView,
-    ConversationEvent, ConversationPermissionView, ConversationRowOp, ConversationSessionNotice,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelineRow, MessageTurn,
-    PlanEntry, SessionLoadFailureReason, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
+    ContentBlock, ConversationDelegationResult, ConversationDelegationView, ConversationError,
+    ConversationErrorView, ConversationEvent, ConversationPermissionView, ConversationRowOp,
+    ConversationSessionNotice, ConversationTerminalView, ConversationTimeline,
+    ConversationTimelineRow, MessageTurn, PlanEntry, SessionLoadFailureReason,
+    SessionRecoveryStrategy, TimelineRow, TimelineTextStream, TurnRole, TurnUsage,
 };
 use db::models::{
+    conversation::ConversationAgentBindingRecord,
     conversation_event::{
         AppendConversationEvent, CURRENT_EVENT_VERSION, ConversationEventRecord,
         find_conversation_event_by_idempotency, insert_conversation_event,
@@ -26,12 +28,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v6 rebuilds snapshots so terminal turns gain their derived completion time
-// and duration. This keeps context-compaction metrics consistent between live
-// rows, cold loads, and explicit projection rebuilds.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 6;
+// v14 hides protocol-ack and expected companion-capability diagnostics.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 14;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
+const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
+const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
 
@@ -506,6 +508,26 @@ impl ConversationStateApplier {
                     .await?;
                 }
             }
+            ConversationEvent::AgentBindingReady { capabilities, .. } => {
+                let prompt_json = serde_json::to_string(&capabilities.prompt).unwrap_or_else(|_| {
+                    r#"{"text":true,"image":false,"audio":false,"resource":false,"resource_link":true}"#
+                        .to_string()
+                });
+                let session_json =
+                    serde_json::to_string(&capabilities).unwrap_or_else(|_| "{}".to_string());
+                ConversationAgentBindingRecord::update_negotiated_capabilities(
+                    &mut *conn,
+                    record.conversation_id,
+                    capabilities.load_session,
+                    capabilities.resume_session,
+                    capabilities.close_session,
+                    capabilities.terminal,
+                    capabilities.additional_directories,
+                    &prompt_json,
+                    &session_json,
+                )
+                .await?;
+            }
             ConversationEvent::FileChangeSummaryUpdated { summary } => {
                 if let Some(turn_id) = record.turn_id {
                     for file in summary.files {
@@ -582,14 +604,18 @@ impl ConversationProjector {
         conversation_id: Uuid,
         after_sequence: i64,
     ) -> Result<(Vec<TimelineRow>, i64), sqlx::Error> {
-        let timeline = Self::project(pool, conversation_id).await?;
-        let last_sequence = timeline.last_sequence;
-        let rows = timeline
-            .rows
-            .into_iter()
-            .filter(|row| row.revision > after_sequence)
-            .collect();
-        Ok((rows, last_sequence))
+        let mut fold = Self::load_fold_from_snapshot(pool, conversation_id).await?;
+        let tail = ConversationEventRecord::events_since(
+            pool,
+            conversation_id,
+            fold.last_sequence,
+            i64::MAX,
+        )
+        .await?;
+        for record in &tail {
+            fold.apply(record)?;
+        }
+        Ok((fold.changed_rows_since(after_sequence), fold.last_sequence))
     }
 
     /// Load the snapshot fold for a conversation, or an empty fold when there is no
@@ -943,6 +969,7 @@ impl ProjectionFold {
                                 .into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     }
                 } else {
                     ConversationSessionNotice {
@@ -951,6 +978,7 @@ impl ProjectionFold {
                             "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     }
                 };
                 let row = side_row(
@@ -968,7 +996,7 @@ impl ProjectionFold {
         // re-broadcast its whole text every frame (the O(n²) this batch kills).
         if let ConversationEvent::AssistantTextDelta { ref text, .. }
         | ConversationEvent::AssistantReasoningDelta { ref text, .. } = event
-            && let Some(turn_id) = record.turn_id
+            && let Some(turn_id) = self.resolved_turn_id(record)
         {
             let stream = if matches!(event, ConversationEvent::AssistantReasoningDelta { .. }) {
                 TimelineTextStream::Reasoning
@@ -998,7 +1026,7 @@ impl ProjectionFold {
         // sequence. Over-bumping on a side-row event is harmless — the frontend upsert
         // is idempotent by revision. A brand-new turn gets its revision from
         // `ensure_turn` below (it does not exist here yet).
-        if let Some(turn_id) = record.turn_id
+        if let Some(turn_id) = self.resolved_turn_id(record)
             && let Some(turn) = self.turns.get_mut(&turn_id)
         {
             turn.revision = record.sequence;
@@ -1045,11 +1073,22 @@ impl ProjectionFold {
                         .timestamp = record.created_at;
                 }
             }
+            ConversationEvent::AssistantContentAppended { block, .. } => {
+                if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
+                    ensure_turn(turns, turn_order, turn_id, record);
+                    turns
+                        .get_mut(&turn_id)
+                        .expect("turn exists")
+                        .assistant
+                        .blocks
+                        .push(block);
+                }
+            }
             ConversationEvent::PlanUpdated { entries } => {
-                if let Some(turn_id) = record.turn_id {
+                if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    turn.assistant.blocks.push(ContentBlock::Plan {
+                    let plan = ContentBlock::Plan {
                         entries: entries
                             .into_iter()
                             .map(|entry| PlanEntry {
@@ -1058,11 +1097,21 @@ impl ProjectionFold {
                                 priority: entry.priority,
                             })
                             .collect(),
-                    });
+                    };
+                    if let Some(existing) = turn
+                        .assistant
+                        .blocks
+                        .iter_mut()
+                        .find(|block| matches!(block, ContentBlock::Plan { .. }))
+                    {
+                        *existing = plan;
+                    } else {
+                        turn.assistant.blocks.push(plan);
+                    }
                 }
             }
             ConversationEvent::ToolCallUpsert { tool_call } => {
-                if let Some(turn_id) = record.turn_id {
+                if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     let call_id = tool_call.tool_call_id.clone();
@@ -1079,15 +1128,15 @@ impl ProjectionFold {
                                     tool_name,
                                     kind,
                                     input_preview,
+                                    meta,
                                     images,
-                                    ..
                                 } if *id == call_id => {
-                                    Some((tool_name, kind, input_preview, images))
+                                    Some((tool_name, kind, input_preview, meta, images))
                                 }
                                 _ => None,
                             });
                     match existing_use {
-                        Some((tool_name, kind, input_preview, images)) => {
+                        Some((tool_name, kind, input_preview, meta, images)) => {
                             if let Some(title) = tool_call.title {
                                 *tool_name = title;
                             }
@@ -1096,6 +1145,9 @@ impl ProjectionFold {
                             }
                             if let Some(raw) = tool_call.raw_input {
                                 *input_preview = Some(raw.to_string());
+                            }
+                            if tool_call.metadata.is_some() {
+                                *meta = tool_call.metadata.clone();
                             }
                             if !tool_call.images.is_empty() {
                                 *images = tool_call.images.clone();
@@ -1165,7 +1217,7 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::UsageUpdated { usage } => {
-                if let Some(turn_id) = record.turn_id {
+                if let Some(turn_id) = record.turn_id.or_else(|| turn_order.last().copied()) {
                     ensure_turn(turns, turn_order, turn_id, record);
                     let turn = turns.get_mut(&turn_id).expect("turn exists");
                     turn.assistant.usage = Some(TurnUsage {
@@ -1173,6 +1225,7 @@ impl ProjectionFold {
                         output_tokens: usage.output_tokens,
                         cache_creation_input_tokens: usage.cache_creation_input_tokens,
                         cache_read_input_tokens: usage.cache_read_input_tokens,
+                        context_used: usage.context_used,
                         context_window_max: usage.context_window_max,
                         cost_amount: usage.cost_amount,
                         cost_currency: usage.cost_currency.clone(),
@@ -1182,20 +1235,11 @@ impl ProjectionFold {
             // ACP session metadata is preserved in the durable event log. It is
             // intentionally not folded into VibeX conversation identity/title.
             ConversationEvent::AgentSessionInfoUpdated { .. } => {}
-            ConversationEvent::TurnCompleted { .. } | ConversationEvent::TurnCancelled { .. } => {
-                if let Some(turn_id) = record.turn_id {
-                    ensure_turn(turns, turn_order, turn_id, record);
-                    let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    turn.phase = "settled".into();
-                    turn.assistant.completed_at = Some(record.created_at);
-                    turn.assistant.duration_ms = Some(
-                        record
-                            .created_at
-                            .signed_duration_since(turn.assistant.timestamp)
-                            .num_milliseconds()
-                            .max(0) as u64,
-                    );
-                }
+            ConversationEvent::TurnCompleted { .. } => {
+                settle_turn(turns, turn_order, record, "settled");
+            }
+            ConversationEvent::TurnCancelled { .. } => {
+                settle_turn(turns, turn_order, record, "cancelled");
             }
             ConversationEvent::TurnInterrupted { .. } => {
                 // Mark the turn's phase so the timeline renders the "因重启中断" state
@@ -1290,18 +1334,28 @@ impl ProjectionFold {
                 }
             }
             ConversationEvent::TerminalUpdated { terminal } => {
-                side_rows.push(side_row(
-                    record.sequence,
-                    ConversationTimelineRow::TerminalSummary {
-                        terminal: ConversationTerminalView {
-                            terminal_id: terminal.terminal_id,
-                            command: terminal.command,
-                            status: terminal.status,
-                            output_summary: terminal.output_summary,
-                            output_truncated: terminal.output_truncated,
-                        },
-                    },
-                ));
+                let view = ConversationTerminalView {
+                    terminal_id: terminal.terminal_id.clone(),
+                    command: terminal.command,
+                    status: terminal.status,
+                    output_summary: terminal.output_summary,
+                    output_truncated: terminal.output_truncated,
+                };
+                if let Some(existing) = side_rows.iter_mut().find(|entry| {
+                    matches!(
+                        &entry.row,
+                        ConversationTimelineRow::TerminalSummary { terminal: current }
+                            if current.terminal_id == view.terminal_id
+                    )
+                }) {
+                    existing.revision = record.sequence;
+                    existing.row = ConversationTimelineRow::TerminalSummary { terminal: view };
+                } else {
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::TerminalSummary { terminal: view },
+                    ));
+                }
             }
             ConversationEvent::DelegationStarted { delegation } => {
                 side_rows.push(side_row(
@@ -1384,19 +1438,7 @@ impl ProjectionFold {
                 ));
             }
             ConversationEvent::TurnFailed { error } => {
-                if let Some(turn_id) = record.turn_id {
-                    ensure_turn(turns, turn_order, turn_id, record);
-                    let turn = turns.get_mut(&turn_id).expect("turn exists");
-                    turn.phase = "settled".into();
-                    turn.assistant.completed_at = Some(record.created_at);
-                    turn.assistant.duration_ms = Some(
-                        record
-                            .created_at
-                            .signed_duration_since(turn.assistant.timestamp)
-                            .num_milliseconds()
-                            .max(0) as u64,
-                    );
-                }
+                settle_turn(turns, turn_order, record, "failed");
                 side_rows.push(side_row(
                     record.sequence,
                     ConversationTimelineRow::TurnError {
@@ -1413,25 +1455,37 @@ impl ProjectionFold {
                 let notice = match reason {
                     SessionLoadFailureReason::ResourceNotFound => ConversationSessionNotice {
                         title: "代理会话已过期".into(),
-                        message: Some("代理侧已不存在该会话，将在下一条消息时重新建立。".into()),
+                        message: Some(
+                            "代理侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。"
+                                .into(),
+                        ),
                         severity: "warning".into(),
+                        ..Default::default()
                     },
                     SessionLoadFailureReason::AuthenticationRequired { message } => {
                         ConversationSessionNotice {
                             title: "需要重新认证".into(),
                             message: Some(message),
                             severity: "error".into(),
+                            ..Default::default()
                         }
                     }
                     SessionLoadFailureReason::Unsupported => ConversationSessionNotice {
                         title: "代理不支持会话恢复".into(),
-                        message: Some("已自动新建会话继续。".into()),
-                        severity: "info".into(),
+                        message: Some(
+                            "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。"
+                                .into(),
+                        ),
+                        severity: "warning".into(),
+                        ..Default::default()
                     },
                     SessionLoadFailureReason::Other { message } => ConversationSessionNotice {
                         title: "加载代理会话失败".into(),
-                        message: Some(message),
+                        message: Some(format!(
+                            "{message} 确认重新绑定后将冷启动，不会保留 Agent 侧上下文。"
+                        )),
                         severity: "warning".into(),
+                        ..Default::default()
                     },
                 };
                 side_rows.retain(|row| row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
@@ -1441,18 +1495,46 @@ impl ProjectionFold {
                     row: ConversationTimelineRow::SessionNotice { notice },
                 });
             }
-            ConversationEvent::AgentBindingReady { .. } => {
-                if let Some(index) = side_rows
-                    .iter()
-                    .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
-                {
-                    side_rows.remove(index);
+            ConversationEvent::AgentBindingReady { .. } => {}
+            ConversationEvent::AgentBindingRecovered { strategy } => match strategy {
+                SessionRecoveryStrategy::Loaded | SessionRecoveryStrategy::Resumed => {
+                    if let Some(index) = side_rows
+                        .iter()
+                        .position(|row| row.row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID)
+                    {
+                        side_rows.remove(index);
+                        deleted_rows.push(ConversationRowOp::Delete {
+                            row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
+                            revision: record.sequence,
+                        });
+                    }
+                }
+                SessionRecoveryStrategy::Rebound | SessionRecoveryStrategy::CreatedNewSession => {
+                    side_rows.retain(|row| {
+                        row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+                            && row.row_id != AGENT_BINDING_REBIND_NOTICE_ROW_ID
+                    });
                     deleted_rows.push(ConversationRowOp::Delete {
                         row_id: AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID.into(),
                         revision: record.sequence,
                     });
+                    side_rows.push(TimelineRow {
+                        row_id: AGENT_BINDING_REBIND_NOTICE_ROW_ID.into(),
+                        revision: record.sequence,
+                        row: ConversationTimelineRow::SessionNotice {
+                            notice: ConversationSessionNotice {
+                                title: "Agent 会话已重新绑定".into(),
+                                message: Some(
+                                    "可见历史仍在，但 Agent 隐藏上下文已丢失。后续消息从新的冷启动会话继续。"
+                                        .into(),
+                                ),
+                                severity: "warning".into(),
+                                ..Default::default()
+                            },
+                        },
+                    });
                 }
-            }
+            },
             ConversationEvent::AgentBindingRecoveryFailed { reason } => {
                 side_rows.push(side_row(
                     record.sequence,
@@ -1461,6 +1543,7 @@ impl ProjectionFold {
                             title: "Agent session recovery failed".into(),
                             message: Some(reason),
                             severity: "error".into(),
+                            ..Default::default()
                         },
                     },
                 ));
@@ -1474,6 +1557,54 @@ impl ProjectionFold {
                                 title: "Agent configuration changed".into(),
                                 message: reason,
                                 severity: "info".into(),
+                                ..Default::default()
+                            },
+                        },
+                    ));
+                }
+            }
+            ConversationEvent::RawDiagnosticRecorded { label, payload } => {
+                if let Some(notice) = diagnostic_session_notice(&label, payload.as_ref()) {
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::SessionNotice { notice },
+                    ));
+                }
+            }
+            ConversationEvent::AnnouncementsUpdated { notices, .. } => {
+                let stale: Vec<String> = side_rows
+                    .iter()
+                    .filter(|row| row.row_id.starts_with(ANNOUNCEMENT_ROW_PREFIX))
+                    .map(|row| row.row_id.clone())
+                    .collect();
+                side_rows.retain(|row| !row.row_id.starts_with(ANNOUNCEMENT_ROW_PREFIX));
+                for row_id in stale {
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id,
+                        revision: record.sequence,
+                    });
+                }
+                for notice in notices {
+                    side_rows.push(TimelineRow {
+                        row_id: announcement_row_id(&notice, record.sequence),
+                        revision: record.sequence,
+                        row: ConversationTimelineRow::SessionNotice { notice },
+                    });
+                }
+            }
+            ConversationEvent::TurnBlocked { reason } => {
+                if let agents::conversation::TurnBlockedReason::Authentication { message } = reason
+                {
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::TurnError {
+                            error: ConversationErrorView {
+                                turn_id: record.turn_id,
+                                error: ConversationError {
+                                    message,
+                                    code: Some("auth_required".into()),
+                                    raw: None,
+                                },
                             },
                         },
                     ));
@@ -1486,7 +1617,7 @@ impl ProjectionFold {
         // emit an `Upsert` for each — the message row(s) of the touched turn and any
         // created/modified side row. (Streaming text already returned early above.)
         let mut ops = deleted_rows;
-        if let Some(turn_id) = record.turn_id
+        if let Some(turn_id) = self.resolved_turn_id(record)
             && let Some(turn) = self.turns.get(&turn_id)
             && turn.revision == record.sequence
         {
@@ -1554,6 +1685,33 @@ impl ProjectionFold {
             rows,
         }
     }
+
+    fn changed_rows_since(&self, after_sequence: i64) -> Vec<TimelineRow> {
+        let mut rows = Vec::new();
+        for turn_id in &self.turn_order {
+            let Some(turn) = self.turns.get(turn_id) else {
+                continue;
+            };
+            if turn.revision <= after_sequence {
+                continue;
+            }
+            rows.push(message_row(turn, TurnRole::User));
+            if !turn.assistant.blocks.is_empty() {
+                rows.push(message_row(turn, TurnRole::Assistant));
+            }
+        }
+        rows.extend(
+            self.side_rows
+                .iter()
+                .filter(|row| row.revision > after_sequence)
+                .cloned(),
+        );
+        rows
+    }
+
+    fn resolved_turn_id(&self, record: &ConversationEventRecord) -> Option<Uuid> {
+        record.turn_id.or_else(|| self.turn_order.last().copied())
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1610,6 +1768,28 @@ fn ensure_turn(
     );
 }
 
+fn settle_turn(
+    turns: &mut BTreeMap<Uuid, ProjectedTurn>,
+    turn_order: &mut Vec<Uuid>,
+    record: &ConversationEventRecord,
+    phase: &str,
+) {
+    let Some(turn_id) = record.turn_id else {
+        return;
+    };
+    ensure_turn(turns, turn_order, turn_id, record);
+    let turn = turns.get_mut(&turn_id).expect("turn exists");
+    turn.phase = phase.into();
+    turn.assistant.completed_at = Some(record.created_at);
+    turn.assistant.duration_ms = Some(
+        record
+            .created_at
+            .signed_duration_since(turn.assistant.timestamp)
+            .num_milliseconds()
+            .max(0) as u64,
+    );
+}
+
 /// Stable per-row id for the incremental row-op protocol (消灭双投影). Message rows
 /// reuse the `${turn}:user` / `${turn}:assistant` convention (the frontend
 /// pending-bubble logic depends on it); rows with a natural id use it; append-only
@@ -1641,8 +1821,18 @@ fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
             Some(turn_id) => format!("err:{turn_id}:{sequence}"),
             None => format!("err:{sequence}"),
         },
-        ConversationTimelineRow::SessionNotice { .. } => format!("notice:{sequence}"),
+        ConversationTimelineRow::SessionNotice { notice } => announcement_row_id(notice, sequence),
     }
+}
+
+fn announcement_row_id(notice: &ConversationSessionNotice, sequence: i64) -> String {
+    notice
+        .announcement_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!("{ANNOUNCEMENT_ROW_PREFIX}{id}"))
+        .unwrap_or_else(|| format!("notice:{sequence}"))
 }
 
 /// Wrap a freshly-produced side row with its row_id + revision (= the producing
@@ -1716,6 +1906,39 @@ enum ParsedEvent {
 /// The single parse entry for a stored event. Never fails: an unparseable payload
 /// degrades to [`ParsedEvent::Unknown`] rather than propagating a decode error, so
 /// one forward-incompatible event can't take down the whole conversation timeline.
+fn diagnostic_session_notice(
+    label: &str,
+    payload: Option<&serde_json::Value>,
+) -> Option<ConversationSessionNotice> {
+    let kind = payload
+        .and_then(|value| value.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(label);
+    match kind {
+        "session_config_override_skipped" => Some(ConversationSessionNotice {
+            title: "会话配置未应用".into(),
+            message: payload.and_then(skipped_override_message),
+            severity: "warning".into(),
+            ..Default::default()
+        }),
+        "user_message_acknowledged" | "companion_capability" | "ext_notification" => None,
+        _ => Some(ConversationSessionNotice {
+            title: "未识别的会话更新".into(),
+            message: Some(label.to_string()),
+            severity: "info".into(),
+            ..Default::default()
+        }),
+    }
+}
+
+fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
+    let reason = payload.get("reason").and_then(serde_json::Value::as_str)?;
+    let requested = payload
+        .get("requested")
+        .and_then(serde_json::Value::as_str)?;
+    Some(format!("{reason}: {requested}"))
+}
+
 fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEvent {
     match serde_json::from_str::<ConversationEvent>(&record.normalized_json) {
         Ok(event) => ParsedEvent::Known(event),
@@ -1778,13 +2001,16 @@ mod tests {
             ConversationArtifactReference, ConversationDelegation, ConversationDelegationResult,
             ConversationError, ConversationFeedbackRequest, ConversationFeedbackResponse,
             ConversationFileChange, ConversationFileChangeSummary, ConversationInputBlock,
-            ConversationPermissionRequest, ConversationPermissionResponse,
+            ConversationPermissionRequest, ConversationPermissionResponse, ConversationPlanEntry,
             ConversationQuestionRequest, ConversationQuestionResponse, ConversationTerminalPatch,
-            ConversationToolCallPatch, ConversationUsage,
+            ConversationToolCallPatch, ConversationUsage, SessionRecoveryStrategy,
         },
     };
     use db::models::{
-        conversation::{ConversationRecord, CreateConversationRecord},
+        conversation::{
+            ConversationAgentBindingRecord, ConversationRecord, CreateConversationAgentBinding,
+            CreateConversationRecord,
+        },
         conversation_turn::{ConversationTurnRecord, CreateConversationTurn},
         session::Session,
     };
@@ -1866,8 +2092,31 @@ mod tests {
         (conversation_id, turn.id)
     }
 
+    fn diagnostic_record(
+        conversation_id: Uuid,
+        sequence: i64,
+        event: &ConversationEvent,
+    ) -> ConversationEventRecord {
+        ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: None,
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence,
+            source: "acp".into(),
+            event_kind: "raw_diagnostic_recorded".into(),
+            event_version: CURRENT_EVENT_VERSION,
+            normalized_json: serde_json::to_string(event).expect("diagnostic json"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
     #[tokio::test]
-    async fn successful_cold_start_clears_the_recoverable_load_failure_notice() {
+    async fn successful_load_clears_the_recoverable_load_failure_notice() {
         let pool = setup_pool().await;
         let (conversation_id, _) = seed_turn(&pool).await;
 
@@ -1911,9 +2160,29 @@ mod tests {
             None,
         )
         .await;
-        let ops = realtime_projector
+        let ready_ops = realtime_projector
             .apply(&binding_ready)
             .expect("project successful binding in realtime");
+        assert!(ready_ops.iter().all(|op| !matches!(
+            op,
+            ConversationRowOp::Delete { row_id, .. }
+                if row_id == AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID
+        )));
+
+        let recovered = append_event(
+            &pool,
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentBindingRecovered {
+                strategy: SessionRecoveryStrategy::Loaded,
+            },
+            None,
+        )
+        .await;
+        let ops = realtime_projector
+            .apply(&recovered)
+            .expect("project successful load recovery");
         assert!(ops.iter().any(|op| matches!(
             op,
             ConversationRowOp::Delete { row_id, .. }
@@ -1922,13 +2191,94 @@ mod tests {
 
         let recovered_timeline = ConversationProjector::project(&pool, conversation_id)
             .await
-            .expect("project successful cold start");
+            .expect("project successful load");
         assert!(
             recovered_timeline
                 .rows
                 .iter()
                 .all(|row| !matches!(row.row, ConversationTimelineRow::SessionNotice { .. }))
         );
+    }
+
+    #[tokio::test]
+    async fn negotiated_handshake_snapshot_updates_binding_columns() {
+        let pool = setup_pool().await;
+        let (conversation_id, _) = seed_turn(&pool).await;
+        let agent_id = AgentId::parse("codex").unwrap();
+        ConversationAgentBindingRecord::create(
+            &pool,
+            Uuid::new_v4(),
+            CreateConversationAgentBinding {
+                conversation_id,
+                agent_id: &agent_id,
+                working_dir: "/tmp/work",
+                acp_session_id: None,
+                acp_protocol_version: None,
+                runtime_version: None,
+                acp_version: None,
+                load_supported: false,
+                resume_supported: false,
+                close_supported: false,
+                terminal_supported: false,
+                additional_directories_supported: false,
+                prompt_capabilities_json:
+                    r#"{"text":true,"image":false,"audio":false,"resource":false,"resource_link":true}"#,
+                session_capabilities_json: "{}",
+                client_capabilities_json: "{}",
+                mcp_servers_json: "[]",
+                modes_json: "[]",
+                config_options_json: "[]",
+                current_mode: None,
+                status: "connecting",
+            },
+        )
+        .await
+        .expect("create conservative binding");
+
+        let mut capabilities = AcpCapabilitySnapshot::default();
+        capabilities.load_session = false;
+        capabilities.resume_session = true;
+        capabilities.close_session = false;
+        capabilities.terminal = true;
+        capabilities.additional_directories = true;
+        capabilities.prompt.text = true;
+        capabilities.prompt.image = false;
+        capabilities.prompt.resource_link = true;
+        capabilities.mcp_stdio = true;
+
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AgentBindingReady {
+                acp_session_id: "acp-session-1".into(),
+                capabilities,
+            },
+            None,
+        )
+        .await;
+
+        let binding =
+            ConversationAgentBindingRecord::latest_for_conversation(&pool, conversation_id)
+                .await
+                .expect("latest binding")
+                .expect("binding exists");
+        assert!(!binding.load_supported);
+        assert!(binding.resume_supported);
+        assert!(!binding.close_supported);
+        assert!(binding.terminal_supported);
+        assert!(binding.additional_directories_supported);
+        let prompt: serde_json::Value =
+            serde_json::from_str(&binding.prompt_capabilities_json).expect("prompt json");
+        assert_eq!(prompt["text"], true);
+        assert_eq!(prompt["image"], false);
+        assert_eq!(prompt["resource_link"], true);
+        let session: AcpCapabilitySnapshot =
+            serde_json::from_str(&binding.session_capabilities_json).expect("session json");
+        assert!(session.mcp_stdio);
+        assert!(!session.load_session);
+        assert!(session.resume_session);
     }
 
     async fn append_event(
@@ -2267,6 +2617,159 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unrecognized_ext_notifications_are_not_timeline_notices() {
+        let conversation_id = Uuid::new_v4();
+        let ext = ConversationEvent::RawDiagnosticRecorded {
+            label: "ext_notification".into(),
+            payload: Some(serde_json::json!({
+                "kind": "ext_notification",
+                "method": "x.ai/announcements/update",
+            })),
+        };
+        let skipped = ConversationEvent::RawDiagnosticRecorded {
+            label: "session_config_override_skipped".into(),
+            payload: Some(serde_json::json!({
+                "kind": "session_config_override_skipped",
+                "reason": "config_choice_not_found",
+                "requested": "model=missing",
+            })),
+        };
+        let user_ack = ConversationEvent::RawDiagnosticRecorded {
+            label: "user_message_acknowledged".into(),
+            payload: Some(serde_json::json!({
+                "kind": "user_message_acknowledged",
+                "preview": "hello",
+            })),
+        };
+        let companion = ConversationEvent::RawDiagnosticRecorded {
+            label: "companion_capability".into(),
+            payload: Some(serde_json::json!({
+                "kind": "companion_capability",
+                "code": "official_product_mcp_disabled",
+            })),
+        };
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &ext),
+                diagnostic_record(conversation_id, 2, &skipped),
+                diagnostic_record(conversation_id, 3, &user_ack),
+                diagnostic_record(conversation_id, 4, &companion),
+            ],
+        )
+        .expect("diagnostics should fold");
+
+        let notices: Vec<&ConversationSessionNotice> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            notices.len(),
+            1,
+            "protocol and capability noise must stay hidden"
+        );
+        assert_eq!(notices[0].title, "会话配置未应用");
+        assert!(notices.iter().all(|notice| {
+            notice.title != "未识别的会话更新"
+                && notice.title != "用户消息已确认"
+                && notice.title != "未识别的代理通知"
+        }));
+    }
+
+    #[test]
+    fn announcement_updates_replace_previous_banners() {
+        let conversation_id = Uuid::new_v4();
+        let first = ConversationEvent::AnnouncementsUpdated {
+            generation: 1,
+            notices: vec![ConversationSessionNotice {
+                title: "Grok CLI".into(),
+                message: Some("A new version is available.".into()),
+                severity: "info".into(),
+                announcement_id: Some("cli-update".into()),
+                action: Some(
+                    agents::conversation::ConversationNoticeAction::UpdateAgent {
+                        agent_id: AgentId::parse("grok").expect("grok"),
+                        fallback_url: Some("https://x.ai/cli/install".into()),
+                    },
+                ),
+            }],
+        };
+        let cleared = ConversationEvent::AnnouncementsUpdated {
+            generation: 2,
+            notices: Vec::new(),
+        };
+        let first_timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[ConversationEventRecord {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                sequence: 1,
+                source: "acp".into(),
+                event_kind: "announcements_updated".into(),
+                event_version: CURRENT_EVENT_VERSION,
+                normalized_json: serde_json::to_string(&first).expect("first json"),
+                raw_json: None,
+                idempotency_key: None,
+                created_at: chrono::Utc::now(),
+            }],
+        )
+        .expect("first announcements");
+        assert_eq!(first_timeline.rows.len(), 1);
+        assert_eq!(
+            first_timeline.rows[0].row_id,
+            "notice:announcement:cli-update"
+        );
+
+        let cleared_timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    sequence: 1,
+                    source: "acp".into(),
+                    event_kind: "announcements_updated".into(),
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json: serde_json::to_string(&first).expect("first json"),
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: chrono::Utc::now(),
+                },
+                ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    sequence: 2,
+                    source: "acp".into(),
+                    event_kind: "announcements_updated".into(),
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json: serde_json::to_string(&cleared).expect("cleared json"),
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: chrono::Utc::now(),
+                },
+            ],
+        )
+        .expect("cleared announcements");
+        assert!(cleared_timeline.rows.is_empty());
+    }
+
     #[tokio::test]
     async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
         let pool = setup_pool().await;
@@ -2306,6 +2809,7 @@ mod tests {
                     title: "cached stale notice".into(),
                     message: None,
                     severity: "warning".into(),
+                    ..Default::default()
                 },
             },
         ));
@@ -2476,18 +2980,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn failed_and_cancelled_turns_settle_the_projected_message_rows() {
-        for terminal_event in [
-            ConversationEvent::TurnFailed {
-                error: ConversationError {
-                    message: "agent failed".into(),
-                    code: Some("fixture_failure".into()),
-                    raw: None,
+    async fn failed_and_cancelled_turns_keep_distinct_projected_phases() {
+        for (terminal_event, expected_phase) in [
+            (
+                ConversationEvent::TurnFailed {
+                    error: ConversationError {
+                        message: "agent failed".into(),
+                        code: Some("fixture_failure".into()),
+                        raw: None,
+                    },
                 },
-            },
-            ConversationEvent::TurnCancelled {
-                reason: Some("user stopped the turn".into()),
-            },
+                "failed",
+            ),
+            (
+                ConversationEvent::TurnCancelled {
+                    reason: Some("user stopped the turn".into()),
+                },
+                "cancelled",
+            ),
         ] {
             let pool = setup_pool().await;
             let (conversation_id, turn_id) = seed_turn(&pool).await;
@@ -2538,7 +3048,7 @@ mod tests {
                 }
                 _ => None,
             });
-            assert_eq!(user_phase, Some("settled"));
+            assert_eq!(user_phase, Some(expected_phase));
             let assistant_metrics = timeline.rows.iter().find_map(|row| match &row.row {
                 ConversationTimelineRow::MessageTurn { turn, .. }
                     if turn.role == TurnRole::Assistant =>
@@ -2644,7 +3154,7 @@ mod tests {
         assert_eq!(assistant.revision, failed.sequence);
         match &assistant.row {
             ConversationTimelineRow::MessageTurn { turn, phase } => {
-                assert_eq!(phase, "settled");
+                assert_eq!(phase, "failed");
                 assert!(
                     turn.blocks
                         .iter()
@@ -3069,6 +3579,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn conversation_tool_projection_replaces_metadata_on_update() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "spawn-1".into(),
+                    title: Some("spawn_subagent".into()),
+                    kind: Some("other".into()),
+                    status: Some("running".into()),
+                    raw_input: Some(serde_json::json!({
+                        "subagent_type": "explore",
+                        "description": "Audit stream"
+                    })),
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: None,
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::ToolCallUpsert {
+                tool_call: ConversationToolCallPatch {
+                    tool_call_id: "spawn-1".into(),
+                    title: None,
+                    kind: None,
+                    status: None,
+                    raw_input: None,
+                    raw_output: None,
+                    raw_output_append: None,
+                    content: None,
+                    locations: None,
+                    metadata: Some(serde_json::json!({
+                        "subagent": {
+                            "status": "running",
+                            "progress": { "toolCallCount": 125, "contextUsagePct": 32 }
+                        }
+                    })),
+                    images: Vec::new(),
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("project");
+        let meta = timeline.rows.iter().find_map(|row| match &row.row {
+            ConversationTimelineRow::MessageTurn { turn, .. }
+                if turn.role == TurnRole::Assistant =>
+            {
+                turn.blocks.iter().find_map(|block| match block {
+                    ContentBlock::ToolUse { meta, .. } => meta.clone(),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
+        assert_eq!(
+            meta.and_then(|value| value["subagent"]["progress"]["toolCallCount"].as_u64()),
+            Some(125)
+        );
+    }
+
+    #[tokio::test]
     async fn timeline_preserves_images_viewed_by_a_tool_call() {
         let pool = setup_pool().await;
         let (conversation_id, turn_id) = seed_turn(&pool).await;
@@ -3370,6 +3960,7 @@ mod tests {
             "runtime",
             ConversationEvent::RawDiagnosticRecorded {
                 label: "stream recovered".into(),
+                payload: None,
             },
             None,
         )
@@ -3413,7 +4004,7 @@ mod tests {
             delegation.result,
             Some(ConversationDelegationResult::Ok { .. })
         ));
-        assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 1);
+        assert_eq!(kinds.iter().filter(|kind| **kind == "notice").count(), 2);
     }
 
     #[tokio::test]
@@ -3695,7 +4286,8 @@ mod tests {
                     output_tokens: 2,
                     cache_creation_input_tokens: 0,
                     cache_read_input_tokens: 0,
-                    context_window_max: None,
+                    context_used: Some(120),
+                    context_window_max: Some(200_000),
                     cost_amount: None,
                     cost_currency: None,
                 },
@@ -4185,5 +4777,190 @@ mod tests {
             .await
             .expect("project after");
         assert_eq!(after.last_sequence, 3);
+    }
+
+    #[tokio::test]
+    async fn usage_occupancy_and_plan_status_replace_the_turn_block() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "do work".into(),
+                }],
+                plugin_actions: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::PlanUpdated {
+                entries: vec![ConversationPlanEntry {
+                    id: "plan-0".into(),
+                    content: "Write tests".into(),
+                    status: "pending".into(),
+                    priority: Some("high".into()),
+                }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::PlanUpdated {
+                entries: vec![ConversationPlanEntry {
+                    id: "plan-0".into(),
+                    content: "Write tests".into(),
+                    status: "completed".into(),
+                    priority: Some("high".into()),
+                }],
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "acp",
+            ConversationEvent::UsageUpdated {
+                usage: ConversationUsage {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    context_used: Some(12_000),
+                    context_window_max: Some(200_000),
+                    cost_amount: None,
+                    cost_currency: None,
+                },
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let assistant = timeline
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(turn)
+                }
+                _ => None,
+            })
+            .expect("assistant turn");
+
+        let plan_blocks = assistant
+            .blocks
+            .iter()
+            .filter(|block| matches!(block, ContentBlock::Plan { .. }))
+            .count();
+        assert_eq!(plan_blocks, 1, "plan updates replace the existing block");
+        match assistant.blocks.iter().find_map(|block| match block {
+            ContentBlock::Plan { entries } => Some(entries.as_slice()),
+            _ => None,
+        }) {
+            Some([entry]) => {
+                assert_eq!(entry.content, "Write tests");
+                assert_eq!(entry.status, "completed");
+                assert_eq!(entry.priority.as_deref(), Some("high"));
+            }
+            other => panic!("expected one completed plan entry, got {other:?}"),
+        }
+
+        let usage = assistant.usage.as_ref().expect("usage");
+        assert_eq!(usage.context_used, Some(12_000));
+        assert_eq!(usage.context_window_max, Some(200_000));
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn turn_less_late_updates_attach_to_the_latest_turn() {
+        let pool = setup_pool().await;
+        let (conversation_id, turn_id) = seed_turn(&pool).await;
+        append_event(
+            &pool,
+            conversation_id,
+            Some(turn_id),
+            "user",
+            ConversationEvent::UserTurnCreated {
+                blocks: vec![ConversationInputBlock::Text {
+                    text: "late".into(),
+                }],
+                plugin_actions: Vec::new(),
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AssistantTextDelta {
+                text: "visible".into(),
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+        append_event(
+            &pool,
+            conversation_id,
+            None,
+            "acp",
+            ConversationEvent::AssistantContentAppended {
+                block: ContentBlock::Resource {
+                    uri: "file:///tmp/a.md".into(),
+                    title: Some("a.md".into()),
+                },
+                message_id: None,
+            },
+            None,
+        )
+        .await;
+
+        let timeline = ConversationProjector::project(&pool, conversation_id)
+            .await
+            .expect("timeline");
+        let assistant = timeline
+            .rows
+            .iter()
+            .find_map(|row| match &row.row {
+                ConversationTimelineRow::MessageTurn { turn, .. }
+                    if turn.role == TurnRole::Assistant =>
+                {
+                    Some(turn)
+                }
+                _ => None,
+            })
+            .expect("assistant row");
+        assert!(
+            assistant
+                .blocks
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Text { text } if text == "visible"))
+        );
+        assert!(assistant.blocks.iter().any(|block| matches!(
+            block,
+            ContentBlock::Resource { uri, .. } if uri == "file:///tmp/a.md"
+        )));
     }
 }

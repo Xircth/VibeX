@@ -413,6 +413,7 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
     let snapshot = core
         .start_conversation_turn(
             &Principal::local_desktop(),
+            Uuid::new_v4(),
             StartConversationTurn {
                 agent_id: "codex".to_string(),
                 workspace_id,
@@ -423,6 +424,7 @@ async fn start_turn_is_launched_through_the_injected_execution_port() {
                 mode_override: None,
                 config_overrides: Vec::new(),
                 plugin_actions: Vec::new(),
+                operation_id: None,
             },
         )
         .await

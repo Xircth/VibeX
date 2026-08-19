@@ -1,73 +1,23 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy, ExternalLink, Globe, Search } from 'lucide-react';
-import type { NormalizedEntry, ToolResult } from 'shared/types';
+import type { NormalizedEntry } from 'shared/types';
 import { Button } from '@/components/ui/button';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
 import { useOpenLink } from '@/hooks/useOpenLink';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { getToolSummary, renderJson } from '../conversation-entry-utils';
-import { ToolResultView } from './ToolResultView';
+import { deriveRelativeFilePath } from '@/utils/filePaths';
+import { getToolSummary } from '../conversation-entry-utils';
+import { ToolArtifact, ToolSearchHits } from './ToolArtifact';
+import { fileReadLocation, resolveToolFilePath } from './FileToolCard';
+import { parseSearchQuery, parseToolHitItems } from './toolHitItems';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
+  useToolCallResultDetail,
 } from './ToolCardShell';
-
-type SearchResultItem = {
-  path: string | null;
-  line: string | null;
-  text: string;
-};
-
-function stringSearchResults(value: string): SearchResultItem[] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const match = line.match(/^(.*):(\d+):\s?(.*)$/);
-      return match
-        ? { path: match[1], line: match[2], text: match[3] }
-        : { path: null, line: null, text: line };
-    });
-}
-
-function searchResultItems(
-  result: ToolResult | null | undefined
-): SearchResultItem[] {
-  if (!result || typeof result !== 'object' || !('value' in result)) return [];
-  const value = (result as { value: unknown }).value;
-  if (typeof value === 'string') return stringSearchResults(value);
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((item) => {
-    if (typeof item === 'string') return stringSearchResults(item);
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-    const record = item as Record<string, unknown>;
-    const path = [record.path, record.file, record.file_path].find(
-      (field): field is string => typeof field === 'string'
-    );
-    const line = [record.line, record.line_number].find(
-      (field) => typeof field === 'string' || typeof field === 'number'
-    );
-    const text = [
-      record.text,
-      record.content,
-      record.match,
-      record.preview,
-    ].find((field): field is string => typeof field === 'string');
-    return text || path
-      ? [
-          {
-            path: path ?? null,
-            line: line != null ? String(line) : null,
-            text: text ?? '',
-          },
-        ]
-      : [];
-  });
-}
 
 export function SearchToolCard({
   entry,
@@ -92,16 +42,26 @@ export function SearchToolCard({
   );
   const effectiveExpanded = forceExpanded || expanded;
   const isWebFetch = actionType?.action === 'web_fetch';
-  const detail =
+  const searchQuery =
     actionType?.action === 'search'
-      ? actionType.query.trim()
-      : (actionType?.url || entry.content).trim();
+      ? actionType.query.trim() ||
+        parseSearchQuery(actionType.arguments) ||
+        parseSearchQuery(actionType.result?.value) ||
+        ''
+      : '';
+  const detail = isWebFetch
+    ? (actionType?.url || entry.content).trim()
+    : searchQuery;
   const summary = getToolSummary(toolEntry, entry.content.trim());
   const canOpenLink = isWebFetch && /^https?:\/\//i.test(detail);
+  const isResultDetail = useToolCallResultDetail();
   const [copied, triggerCopied] = useTemporaryFlag(1500);
   const openLink = useOpenLink();
+  const panelActions = useOptionalPanelActionsContext();
   const resultItems =
-    actionType?.action === 'search' ? searchResultItems(actionType.result) : [];
+    actionType?.action === 'search'
+      ? parseToolHitItems(actionType.result?.value ?? actionType.result)
+      : [];
 
   const handleCopy = useCallback(async () => {
     try {
@@ -175,7 +135,7 @@ export function SearchToolCard({
       }
       label={summary.label}
       detail={detail}
-      actions={actions}
+      actions={isResultDetail ? undefined : actions}
       statusClassName={getToolStatusClassName(toolEntry.status)}
       statusDotClassName={getToolStatusDotClassName(toolEntry.status)}
       status={toolEntry.status}
@@ -183,51 +143,32 @@ export function SearchToolCard({
       expandable
       onToggle={toggle}
     >
-      <div className="conv-tool-details-section-label">
-        {isWebFetch ? 'URL' : t('searchTool.query')}
-      </div>
-      <div className="conv-tool-details-content">{detail}</div>
-      {actionType.action === 'search' && actionType.arguments ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('genericTool.arguments')}
-          </div>
-          <div className="conv-tool-details-content">
-            {renderJson(actionType.arguments)}
-          </div>
-        </>
-      ) : null}
-      {actionType.action === 'search' && actionType.result ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('genericTool.result')}
-          </div>
-          <div className="conv-tool-details-content">
-            {resultItems.length > 0 ? (
-              <ul
-                className="conv-tool-search-results"
-                aria-label={t('messageTurnView.searchResults')}
-              >
-                {resultItems.map((item, index) => (
-                  <li
-                    key={`${item.path ?? 'result'}-${item.line ?? index}-${index}`}
-                  >
-                    {item.path ? (
-                      <span className="conv-tool-search-result-path">
-                        <span>{item.path}</span>
-                        {item.line ? <span>:{item.line}</span> : null}
-                      </span>
-                    ) : null}
-                    {item.text ? <span>{item.text}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <ToolResultView result={actionType.result} />
-            )}
-          </div>
-        </>
-      ) : null}
+      {isWebFetch ? (
+        <ToolArtifact
+          badge={t('toolArtifact.fetch')}
+          title={detail}
+          titleLabel={detail}
+          onTitleClick={canOpenLink ? handleOpenLink : undefined}
+          actions={isResultDetail ? actions : undefined}
+        />
+      ) : (
+        <ToolSearchHits
+          items={resultItems}
+          onOpenUrl={openLink}
+          onOpenPath={(path, line) => {
+            const resolved = resolveToolFilePath(path);
+            const title = deriveRelativeFilePath(resolved) ?? path;
+            panelActions?.openFilePreview(resolved, {
+              displayPath: title,
+              title,
+              location: fileReadLocation(line, line),
+            });
+          }}
+          onOpenDirectory={(path) => {
+            panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+          }}
+        />
+      )}
     </ToolCardShell>
   );
 }

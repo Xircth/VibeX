@@ -1,8 +1,8 @@
 //! Legacy package/version parsing helpers.
 //!
-//! Installation state is owned by the management installation lock and
-//! read-only probe. PATH entries, login markers and global package directories
-//! are deliberately not accepted as installation truth.
+//! Installation truth is the user environment: PATH, npm global prefix, uv
+//! tools and the user bin. The Installation lock records the last successful
+//! observation of those paths; it is not a second, VibeX-owned install.
 
 use std::path::{Path, PathBuf};
 

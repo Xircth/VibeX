@@ -107,7 +107,6 @@ pub async fn show_desktop_toast(
 ) -> Result<(), String> {
     let window = ensure_desktop_toast_window(&app)?;
     position_desktop_toast_window(&app, &window)?;
-    window.show().map_err(|error| error.to_string())?;
 
     let mut runtime = state.desktop_toast_state.lock().await;
     if runtime.ready {
@@ -117,6 +116,7 @@ pub async fn show_desktop_toast(
     } else {
         runtime.pending.push(payload);
     }
+    window.show().map_err(|error| error.to_string())?;
     Ok(())
 }
 

@@ -31,8 +31,8 @@ export const SESSION_LIST_ACTION_BUTTON_CLASS =
   'session-hub-action-button h-7 w-7 p-0 shadow-none';
 export const SESSION_LIST_ACTION_ICON_CLASS = 'h-[11px] w-[11px]';
 export const SESSION_LIST_WIDTH_STORAGE_KEY = 'vibex-kanban-session-list-width';
-export const DEFAULT_SESSION_LIST_WIDTH = 320;
-export const MIN_SESSION_LIST_WIDTH = 280;
+export const DEFAULT_SESSION_LIST_WIDTH = 280;
+export const MIN_SESSION_LIST_WIDTH = 220;
 export const MAX_SESSION_LIST_WIDTH = 560;
 export type ActiveSessionStatus = Exclude<SessionStatus, 'archived'>;
 export const ARCHIVED_SESSION_STATUS: SessionStatus = 'archived';

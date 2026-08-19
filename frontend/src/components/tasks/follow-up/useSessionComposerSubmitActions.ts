@@ -14,12 +14,12 @@ export function useSessionComposerSubmitActions({
   effectiveExecutorProfile,
   isAttemptRunning,
   isQueued,
+  isEditingQueued = false,
   clearStopping,
   cancelDebouncedSave,
   saveToScratch,
   queueMessage,
   onAfterQueueCleanup,
-  onSendFollowUp,
   onSubmitFollowUp,
 }: {
   localMessage: string;
@@ -29,6 +29,7 @@ export function useSessionComposerSubmitActions({
   effectiveExecutorProfile: ExecutorProfileId | null;
   isAttemptRunning: boolean;
   isQueued: boolean;
+  isEditingQueued?: boolean;
   clearStopping: () => void;
   cancelDebouncedSave: () => void;
   saveToScratch: (
@@ -43,7 +44,6 @@ export function useSessionComposerSubmitActions({
     agentMessage?: string
   ) => Promise<void> | void;
   onAfterQueueCleanup: () => void | Promise<void>;
-  onSendFollowUp: () => void;
   onSubmitFollowUp: (message: string) => void;
 }) {
   const handleQueueMessage = useCallback(
@@ -84,34 +84,25 @@ export function useSessionComposerSubmitActions({
     ]
   );
 
-  const handleSubmitShortcut = useCallback(
-    (eventOrMessage?: KeyboardEvent | string) => {
-      const submittedMessage =
-        typeof eventOrMessage === 'string' ? eventOrMessage : undefined;
-      if (eventOrMessage && typeof eventOrMessage !== 'string') {
-        eventOrMessage.preventDefault();
-      }
+  const handleComposerSubmit = useCallback(
+    (submittedMessage: string) => {
       const action = getSubmitShortcutAction({ isAttemptRunning, isQueued });
-      if (action === 'queue') {
+      if (isEditingQueued || action === 'queue') {
         void handleQueueMessage(submittedMessage);
         return;
       }
       if (action === 'send') {
-        if (submittedMessage !== undefined) {
-          onSubmitFollowUp(submittedMessage);
-        } else {
-          onSendFollowUp();
-        }
+        onSubmitFollowUp(submittedMessage);
       }
     },
     [
       handleQueueMessage,
       isAttemptRunning,
+      isEditingQueued,
       isQueued,
-      onSendFollowUp,
       onSubmitFollowUp,
     ]
   );
 
-  return { handleQueueMessage, handleSubmitShortcut };
+  return { handleQueueMessage, handleComposerSubmit };
 }

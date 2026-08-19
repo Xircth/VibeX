@@ -1,5 +1,7 @@
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, AtomicU8, Ordering},
+};
 
 use crate::PluginActivation;
 
@@ -9,6 +11,17 @@ pub const COLLABORATION_PLUGIN_ID: &str = "vibex.collaboration";
 
 /// Builtin product that owns `vibex-delegation-mcp`.
 pub const MULTI_AGENT_PLUGIN_ID: &str = "vibex.multi-agent";
+
+/// Host-injected / native-projected MCP identity for multi-agent delegation.
+pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
+
+/// Host-injected / native-projected MCP identity for session enhancement.
+pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
+
+/// Inherited by a parent Agent process so a native-file MCP can bind the
+/// conversation that launched it. Session/new injection still passes the same
+/// value as `--conversation-id`.
+pub const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
 
 /// Builtin product that owns `vibex-session-mcp`.
 pub const SESSION_ENHANCE_PLUGIN_ID: &str = "vibex.session-enhance";
@@ -113,6 +126,17 @@ impl OfficialProductMcpGate {
         }
     }
 
+    pub fn product_mcp_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if self.allow_delegation_mcp() {
+            names.push(DELEGATION_MCP_NAME.to_string());
+        }
+        if self.allow_session_mcp() {
+            names.push(SESSION_MCP_NAME.to_string());
+        }
+        names
+    }
+
     pub fn reset(&self) {
         self.multi_agent.store(false, Ordering::SeqCst);
         self.session_enhance.store(false, Ordering::SeqCst);
@@ -122,6 +146,12 @@ impl OfficialProductMcpGate {
         *self.session_token.lock().unwrap() = None;
         *self.http_base.lock().unwrap() = None;
     }
+}
+
+pub fn binding_has_delegation_mcp(mcp_servers_json: &str) -> bool {
+    serde_json::from_str::<Vec<String>>(mcp_servers_json)
+        .ok()
+        .is_some_and(|names| names.iter().any(|name| name == DELEGATION_MCP_NAME))
 }
 
 fn ensure_token(slot: &Mutex<Option<String>>) -> String {
@@ -167,5 +197,17 @@ mod tests {
         assert_eq!(gate.session_features(), 0);
         gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
         assert_eq!(gate.session_features(), SESSION_FEAT_ASK);
+    }
+
+    #[test]
+    fn product_mcp_names_follow_the_enabled_plugins() {
+        let gate = OfficialProductMcpGate::default();
+        assert!(gate.product_mcp_names().is_empty());
+        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Enabled);
+        assert_eq!(gate.product_mcp_names(), [DELEGATION_MCP_NAME]);
+        assert!(binding_has_delegation_mcp(
+            &serde_json::to_string(&gate.product_mcp_names()).unwrap()
+        ));
+        assert!(!binding_has_delegation_mcp("[]"));
     }
 }

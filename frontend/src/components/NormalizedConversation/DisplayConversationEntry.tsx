@@ -15,7 +15,7 @@ import PendingApprovalEntry from './PendingApprovalEntry';
 import { cn } from '@/lib/utils';
 import { useRetryUi } from '@/contexts/RetryUiContext';
 import { useTaskStopping } from '@/stores/useTaskDetailsUiStore';
-import { getContextCompactStatusKind } from '@/lib/contextCompact';
+
 
 // Re-exported from extracted modules
 export { getAggregatableAction } from './conversation-entry-utils';
@@ -39,7 +39,6 @@ import {
 } from './conversation-entry-utils';
 import {
   CompactNoticeEntry,
-  ContextCompactStatusEntry,
   PlainNoticeEntry,
 } from './MessageCard';
 import { ThinkingEntry } from './ThinkingEntry';
@@ -219,7 +218,7 @@ function DisplayConversationEntry({
                 expansionKey={`edit:${expansionKey}:${idx}`}
                 defaultExpanded={defaultExpanded}
                 statusAppearance={statusAppearance}
-                forceExpanded={isPendingApproval}
+                forceExpanded={isPendingApproval || toolDetailOnly}
                 containerRef={taskAttempt?.container_ref}
               />
             ))}
@@ -339,23 +338,6 @@ function DisplayConversationEntry({
   }
 
   if (isSystem || isError) {
-    const contextCompactStatus = getContextCompactStatusKind(contentText);
-    if (contextCompactStatus) {
-      return (
-        <div
-          className={cn(
-            'conv-entry-item px-4 py-2',
-            greyed && 'opacity-50 pointer-events-none'
-          )}
-        >
-          <ContextCompactStatusEntry
-            content={contentText}
-            status={contextCompactStatus}
-          />
-        </div>
-      );
-    }
-
     const compactNoticeText = getCompactMetaNoticeText(entryType, contentText);
     const verboseErrorText = getCompactVerboseErrorText(contentText);
 

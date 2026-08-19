@@ -2,12 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   Download,
-  ExternalLink,
   FileJson2,
   Gauge,
   Loader2,
   Network,
-  PackageCheck,
   RefreshCw,
   Save,
   Trash2,
@@ -34,7 +32,6 @@ import {
   type BackupPreview,
   type SystemProxySettings,
   type SystemRenderingSettings,
-  type AppReleaseStatus,
 } from '@/lib/api';
 import { useWindowProjectsStore } from '@/stores/useWindowProjectsStore';
 import { ConversationBundlePanel } from '@/features/conversation/ConversationBundle';
@@ -128,9 +125,6 @@ export function SystemSettings() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isClearingLocalData, setIsClearingLocalData] = useState(false);
-  const [maintenanceStatus, setMaintenanceStatus] =
-    useState<AppReleaseStatus | null>(null);
-  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [proxySettings, setProxySettings] = useState<SystemProxySettings>(
     DEFAULT_PROXY_SETTINGS
   );
@@ -168,26 +162,6 @@ export function SystemSettings() {
 
     setDraft(structuredClone(config as SystemSettingsConfig));
   }, [config, dirty]);
-
-  const refreshMaintenanceStatus = useCallback(async () => {
-    setMaintenanceLoading(true);
-    try {
-      const status = await configApi.checkAppRelease();
-      setMaintenanceStatus(status);
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('system.maintenanceCheckFailed')
-      );
-    } finally {
-      setMaintenanceLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    void refreshMaintenanceStatus();
-  }, [refreshMaintenanceStatus]);
 
   const refreshSystemSettings = useCallback(async () => {
     setProxyLoading(true);
@@ -552,104 +526,12 @@ export function SystemSettings() {
           </div>
         </SettingsSection>
 
-        <AppUpdaterSection />
-        <SettingsSection
-          icon={PackageCheck}
-          title={t('system.localEnvTitle')}
-          description={t('system.localEnvDescription')}
-        >
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label
-                  htmlFor="auto-update-enabled"
-                  className="cursor-pointer text-xs"
-                >
-                  {t('system.autoCheckUpdate')}
-                </Label>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {t('system.autoCheckUpdateDesc')}
-                </p>
-              </div>
-              <Switch
-                id="auto-update-enabled"
-                className="settings-switch"
-                checked={draft.auto_update_enabled ?? true}
-                onCheckedChange={(checked: boolean) =>
-                  updateDraft({ auto_update_enabled: checked })
-                }
-              />
-            </div>
-
-            <div className="rounded-lg border bg-card p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">
-                    {t('system.appVersion')}
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    {t('system.currentVersion', {
-                      version:
-                        maintenanceStatus?.current_version ??
-                        t('system.checking'),
-                    })}
-                    {maintenanceStatus?.latest_version
-                      ? t('system.latestVersionSuffix', {
-                          version: maintenanceStatus.latest_version,
-                        })
-                      : ''}
-                  </div>
-                  {maintenanceStatus?.update_available ? (
-                    <div className="settings-status-warning mt-1 text-[11px] font-medium">
-                      {t('system.updateAvailable')}
-                    </div>
-                  ) : maintenanceStatus?.checked ? (
-                    <div className="settings-status-success mt-1 text-[11px]">
-                      {t('system.appUpToDate')}
-                    </div>
-                  ) : maintenanceStatus?.error ? (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {maintenanceStatus.error}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  {maintenanceStatus?.release_url ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() =>
-                        window.open(
-                          maintenanceStatus.release_url!,
-                          '_blank',
-                          'noopener,noreferrer'
-                        )
-                      }
-                    >
-                      <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                      Release
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => void refreshMaintenanceStatus()}
-                    disabled={maintenanceLoading}
-                  >
-                    <RefreshCw
-                      className={`mr-1 h-3.5 w-3.5 ${
-                        maintenanceLoading ? 'animate-spin' : ''
-                      }`}
-                    />
-                    {t('system.check')}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </SettingsSection>
+        <AppUpdaterSection
+          autoUpdateEnabled={draft.auto_update_enabled ?? true}
+          onAutoUpdateChange={(checked) =>
+            updateDraft({ auto_update_enabled: checked })
+          }
+        />
 
         <SettingsSection
           icon={Network}

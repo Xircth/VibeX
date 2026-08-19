@@ -48,7 +48,6 @@ import {
 } from '@/lib/layoutArrangement';
 import {
   SettingsActionBar,
-  SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
 import {
@@ -156,11 +155,6 @@ export function AppearanceSettings() {
 
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('appearance.title')}
-        description={t('appearance.description')}
-      />
-
       <div className="settings-sections">
         <SettingsSection
           icon={Sun}

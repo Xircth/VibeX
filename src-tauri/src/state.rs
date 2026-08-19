@@ -352,6 +352,7 @@ impl AppState {
             row_projectors: conversation_row_projectors.clone(),
             host: Arc::new(crate::conversation_service::AppConversationHost {
                 deployment: deployment.clone(),
+                official_mcp: plugin_control_plane.official_product_mcp_gate(),
             }),
             event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
                 app_handle: app_handle.clone(),
@@ -422,6 +423,7 @@ impl AppState {
             row_projectors: self.conversation_row_projectors.clone(),
             host: Arc::new(crate::conversation_service::AppConversationHost {
                 deployment: self.deployment.clone(),
+                official_mcp: self.plugin_control_plane.official_product_mcp_gate(),
             }),
             event_publisher: Arc::new(crate::conversation_service::AppConversationEventPublisher {
                 app_handle: self.app_handle.clone(),

@@ -8,7 +8,6 @@ import { useClickedElements } from '@/contexts/ClickedElementsProvider';
 import { ReviewProvider } from '@/contexts/ReviewProvider';
 import { GitOperationsProvider } from '@/contexts/GitOperationsContext';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { NewCard } from '@/components/ui/new-card';
 import { KanbanSessionConversationView } from '@/components/kanban/KanbanSessionConversationView';
 
 const LazyKanbanBoard = lazy(() =>
@@ -48,7 +47,7 @@ function ProjectWorkspaceSessionRoute({
     <GitOperationsProvider attemptId={attempt.id}>
       <ReviewProvider attemptId={attempt.id}>
         <div className="flex h-full flex-col">
-          <NewCard
+          <div
             className="flex h-full min-h-0 flex-col border-0"
             style={{ backgroundColor: 'hsl(var(--_background))' }}
           >
@@ -60,7 +59,7 @@ function ProjectWorkspaceSessionRoute({
               imagePreviewPresentation="workspace-tab"
               className="h-full"
             />
-          </NewCard>
+          </div>
         </div>
       </ReviewProvider>
     </GitOperationsProvider>

@@ -24,7 +24,8 @@ import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
-import { configApi, settingsWindowApi } from '@/lib/api';
+import { settingsWindowApi } from '@/lib/api';
+import { checkAppUpdate } from '@/lib/appUpdate';
 import { backendListen } from '@/lib/backendTransport';
 import { getStartupPromptStep } from '@/appStartupPrompt';
 import { getAppRouteMode } from '@/appRouteMode';
@@ -279,29 +280,20 @@ function MainAppContent() {
 
     const runMaintenance = async () => {
       try {
-        const status = await configApi.checkAppRelease();
-        if (cancelled) return;
+        const snapshot = await checkAppUpdate();
+        if (cancelled || !snapshot.update) return;
 
-        if (status.update_available) {
-          toast.warning(
-            t('shell.appUpdateAvailable', {
-              version: status.latest_version,
-            }),
-            {
-              action: status.release_url
-                ? {
-                    label: t('shell.openReleasePage'),
-                    onClick: () =>
-                      window.open(
-                        status.release_url!,
-                        '_blank',
-                        'noopener,noreferrer'
-                      ),
-                  }
-                : undefined,
-            }
-          );
-        }
+        toast.warning(
+          t('shell.appUpdateAvailable', {
+            version: snapshot.update.version,
+          }),
+          {
+            action: {
+              label: t('shell.viewUpdate'),
+              onClick: () => navigate('/settings/system'),
+            },
+          }
+        );
       } catch (error) {
         if (!cancelled) {
           console.warn('System maintenance check failed:', error);
@@ -313,7 +305,7 @@ function MainAppContent() {
     return () => {
       cancelled = true;
     };
-  }, [config, isDesktop, t]);
+  }, [config, isDesktop, navigate, t]);
 
   return (
     <ThemeProvider initialTheme={config?.theme || ThemeMode.SYSTEM}>

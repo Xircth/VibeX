@@ -6,7 +6,6 @@ use std::{
 };
 
 use api_types::AgentId;
-use convert_case::{Case, Casing};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use thiserror::Error;
 use ts_rs::TS;
@@ -22,11 +21,25 @@ use crate::{
 pub fn canonical_variant_key<S: AsRef<str>>(raw: S) -> String {
     let key = raw.as_ref();
     if key.eq_ignore_ascii_case("DEFAULT") {
-        "DEFAULT".to_string()
-    } else {
-        // Convert to SCREAMING_SNAKE_CASE by first going to snake_case then uppercase
-        key.to_case(Case::Snake).to_case(Case::ScreamingSnake)
+        return "DEFAULT".to_string();
     }
+    let mut out = String::with_capacity(key.len());
+    let mut break_before_upper = false;
+    for c in key.chars() {
+        if matches!(c, '-' | ' ' | '.') {
+            if !out.ends_with('_') {
+                out.push('_');
+            }
+            break_before_upper = false;
+            continue;
+        }
+        if c.is_ascii_uppercase() && break_before_upper {
+            out.push('_');
+        }
+        out.extend(c.to_uppercase());
+        break_before_upper = c.is_ascii_lowercase() || c.is_ascii_digit();
+    }
+    out
 }
 
 #[derive(Error, Debug)]
@@ -546,6 +559,13 @@ pub fn to_default_variant(id: &ExecutorProfileId) -> ExecutorProfileId {
 mod tests {
     use super::*;
     use crate::executors::AgentKind;
+
+    #[test]
+    fn canonical_variant_key_normalizes_separators_and_camel_case() {
+        assert_eq!(canonical_variant_key("DEFAULT"), "DEFAULT");
+        assert_eq!(canonical_variant_key("gpt-5-5"), "GPT_5_5");
+        assert_eq!(canonical_variant_key("gpt5High"), "GPT5_HIGH");
+    }
 
     #[test]
     fn default_profiles_include_frontier_codex_variants() {

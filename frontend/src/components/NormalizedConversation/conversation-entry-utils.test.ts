@@ -14,7 +14,7 @@ import {
   splitLeadingImpeccablePreflightNotice,
   splitLeadingTransportNotice,
 } from './conversation-entry-utils';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 
 describe('conversation meta notices', () => {
   it('hides hook initialization config entries', () => {

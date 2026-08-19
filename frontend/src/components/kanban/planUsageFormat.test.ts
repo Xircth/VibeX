@@ -72,6 +72,18 @@ describe('describeWindowLabel', () => {
     });
   });
 
+  it('maps grok and cursor window ids', () => {
+    expect(describeWindowLabel(window({ id: 'monthly' }))).toEqual({
+      key: 'windowMonthly',
+    });
+    expect(describeWindowLabel(window({ id: 'cursor_models' }))).toEqual({
+      key: 'windowCursorModels',
+    });
+    expect(describeWindowLabel(window({ id: 'other_models' }))).toEqual({
+      key: 'windowOtherModels',
+    });
+  });
+
   it('derives duration labels for codex windows from minutes', () => {
     expect(
       describeWindowLabel(window({ id: 'primary', windowMinutes: 300 }))

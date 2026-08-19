@@ -7,9 +7,9 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedEntryType } from 'shared/types';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import { LiveTurnStats } from './LiveTurnStats';
-import { TurnStats } from './TurnStats';
+import { formatCompletionTime, TurnStats } from './TurnStats';
 import { buildTurnStatsByAssistantKey } from './turnStatsModel';
 
 function normalizedEntry(
@@ -67,11 +67,19 @@ describe('TurnStats', () => {
     expect(screen.getByText('模型')).toBeInTheDocument();
     expect(screen.getByText('gpt-5-codex')).toBeInTheDocument();
     expect(screen.getByText('12,345 / 100,000')).toBeInTheDocument();
+    expect(screen.queryByText('Token')).not.toBeInTheDocument();
+    expect(screen.queryByText('耗时')).not.toBeInTheDocument();
     expect(screen.queryByText('缓存读')).not.toBeInTheDocument();
     expect(screen.queryByText('缓存写')).not.toBeInTheDocument();
     expect(screen.queryByText('300')).not.toBeInTheDocument();
     expect(screen.queryByText('45')).not.toBeInTheDocument();
     expect(screen.getByText('1m 5s')).toBeInTheDocument();
+    expect(screen.queryByText('完成')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '耗时 1m 5s' }));
+    expect(
+      screen.getByText(formatCompletionTime('2026-03-22T12:34:00.000Z') ?? '')
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '复制回复' }));
     await waitFor(() =>

@@ -151,11 +151,21 @@ impl From<v1::GitHubConfig> for GitHubConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationWhen {
+    #[default]
+    Unfocused,
+    Always,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct NotificationConfig {
     pub sound_enabled: bool,
     pub push_enabled: bool,
     pub sound_file: SoundFile,
+    #[serde(default)]
+    pub notify_when: NotificationWhen,
 }
 
 impl From<v1::Config> for NotificationConfig {
@@ -164,6 +174,7 @@ impl From<v1::Config> for NotificationConfig {
             sound_enabled: old.sound_alerts,
             push_enabled: old.push_notifications,
             sound_file: SoundFile::from(old.sound_file), // Now SCREAMING_SNAKE_CASE
+            notify_when: NotificationWhen::default(),
         }
     }
 }
@@ -174,6 +185,7 @@ impl Default for NotificationConfig {
             sound_enabled: true,
             push_enabled: true,
             sound_file: SoundFile::PhoneVibration,
+            notify_when: NotificationWhen::default(),
         }
     }
 }

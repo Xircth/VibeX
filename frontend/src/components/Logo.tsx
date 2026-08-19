@@ -4,14 +4,15 @@ import { APP_NAME } from '@/lib/branding';
 
 interface LogoProps {
   showText?: boolean;
-  size?: 'default' | 'window' | 'hero';
+  size?: 'default' | 'window' | 'hero' | 'toolbar';
   className?: string;
 }
 
 const logoSizeClass: Record<NonNullable<LogoProps['size']>, string> = {
   default: 'h-6 w-6',
   window: 'h-9 w-9',
-  hero: 'h-[81px] w-[81px]',
+  hero: 'h-[60.75px] w-[60.75px]',
+  toolbar: 'h-[27px] w-[27px]',
 };
 
 export function Logo({

@@ -3,8 +3,8 @@ import type {
   BaseDisplayEntry,
   DisplayEntry,
   PatchTypeWithKey,
-} from '@/hooks/useConversationHistory/types';
-import { isCollapsedAssistantMessagesGroup } from '@/hooks/useConversationHistory/types';
+} from '@/hooks/conversationEntries';
+import { isCollapsedAssistantMessagesGroup } from '@/hooks/conversationEntries';
 import { parseDiffStats } from '@/utils/diffStatsParser';
 
 export type ConversationMessageNavEntry = {

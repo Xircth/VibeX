@@ -27,6 +27,7 @@ function selectField(
     value,
     masked_value: null,
     revision: `${id}-revision`,
+    surface: 'configuration',
   };
 }
 
@@ -47,6 +48,7 @@ function booleanField(
     value,
     masked_value: null,
     revision: `${id}-revision`,
+    surface: 'configuration',
   };
 }
 

@@ -28,6 +28,12 @@ import type {
   OpenCodeProviderConnectRequest,
   OpenCodeProviderCatalogView,
   OpenCodeProviderConnectionsView,
+  DshPluginSummaryView,
+  GrokPluginSummaryView,
+  DshProviderDiscoverRequest,
+  DshProviderModelView,
+  DshProviderSaveRequest,
+  DshProvidersView,
   OpenCodePluginSummaryView,
   PiCommandValidationView,
   PiConfigurationView,
@@ -230,6 +236,37 @@ export const agentManagementApi = {
     enabled: boolean
   ): Promise<OpenCodeProviderConnectionsView> =>
     backendCall('opencode_provider_set_enabled', { providerId, enabled }),
+
+  dshProviders: (): Promise<DshProvidersView> => backendCall('dsh_providers'),
+
+  saveDshProvider: (
+    request: DshProviderSaveRequest
+  ): Promise<DshProvidersView> => backendCall('dsh_provider_save', { request }),
+
+  deleteDshProvider: (providerId: string): Promise<DshProvidersView> =>
+    backendCall('dsh_provider_delete', { providerId }),
+
+  discoverDshModels: (
+    request: DshProviderDiscoverRequest
+  ): Promise<DshProviderModelView[]> =>
+    backendCall('dsh_provider_discover_models', { request }),
+
+  dshPlugins: (): Promise<DshPluginSummaryView> => backendCall('dsh_plugins'),
+
+  addDshPlugin: (spec: string): Promise<DshPluginSummaryView> =>
+    backendCall('dsh_plugin_add', { spec }),
+
+  removeDshPlugin: (name: string): Promise<DshPluginSummaryView> =>
+    backendCall('dsh_plugin_remove', { name }),
+
+  grokPlugins: (): Promise<GrokPluginSummaryView> =>
+    backendCall('grok_plugins'),
+
+  addGrokPlugin: (spec: string): Promise<GrokPluginSummaryView> =>
+    backendCall('grok_plugin_add', { spec }),
+
+  removeGrokPlugin: (name: string): Promise<GrokPluginSummaryView> =>
+    backendCall('grok_plugin_remove', { name }),
 
   repair: (agentId: AgentId): Promise<AgentOperationReceipt> =>
     backendCall('agent_management_repair', { agentId }),

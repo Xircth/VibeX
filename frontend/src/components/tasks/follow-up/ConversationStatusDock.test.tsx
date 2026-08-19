@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationStatusDock } from './ConversationStatusDock';
 
@@ -46,6 +52,27 @@ describe('ConversationStatusDock', () => {
     expect(dock).toHaveTextContent('连接已断开');
     expect(dock).toHaveTextContent('因重启中断');
     expect(dock).toHaveTextContent('代理不支持会话恢复');
+    expect(
+      Array.from(dock.querySelectorAll('.astryx-badge')).map(
+        (badge) => badge.textContent
+      )
+    ).toEqual(['Error', 'Warning', 'Notice']);
+    expect(dock.querySelector('.composer-status-icon')).toBeNull();
+
+    const interruptedHeader = screen
+      .getByText('因重启中断')
+      .closest('.composer-status-header');
+    expect(interruptedHeader).not.toBeNull();
+    expect(
+      within(interruptedHeader as HTMLElement).getByRole('button', {
+        name: '重发',
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(interruptedHeader as HTMLElement).getByRole('button', {
+        name: '关闭提示 interrupted-turn-2',
+      })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '重发' }));
     const reloadButton = screen.getByRole('button', {

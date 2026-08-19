@@ -4,19 +4,24 @@ use remote_protocol::{CommandResponse, ErrorCode, ErrorEnvelope, OperationId};
 use serde::Deserialize;
 
 use crate::{
-    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, CancelWorkflowRequest,
-    CompleteWorkflowStepRequest, ConversationRepository, CreateChildConversationRequest,
-    CreateConversation, DecideWorkflowRequest, DomainCommand, ListConversationInputsRequest,
-    ListConversationRelationsRequest, ListConversations, Principal, PublishWorkflowRequest,
-    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
-    ResumeWorkflowRequest, StartConversationTurn, StartWorkflowRequest,
-    SteerConversationTurnRequest, SubmitConversationInputRequest, UpdateConversationInputRequest,
+    AcceptWorkflowCandidateRequest, ApplicationCore, CancelConversationInputRequest,
+    CancelConversationTurn, CancelWorkflowRequest, CompleteWorkflowStepRequest,
+    ConversationRepository, CreateChildConversationRequest, CreateConversation,
+    DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand, ForkWorkflowRequest,
+    ListConversationInputsRequest, ListConversationRelationsRequest, ListConversations,
+    ListRecentConversations, PauseWorkflowRequest, PauseWorkflowStepRequest, Principal,
+    PublishWorkflowRequest, ReorderConversationInputRequest, RespondConversationPermission,
+    RespondConversationQuestion, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
+    StartConversationTurn, StartWorkflowRequest, SteerConversationTurnRequest,
+    SubmitConversationInputRequest, SubmitWorkflowStepInputRequest, UpdateConversationInputRequest,
     ValidateWorkflowRequest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegisteredCommand {
     ConversationList,
+    ConversationListRecent,
+    ConversationCatalog,
     ConversationCreate,
     ConversationChildCreate,
     ConversationOutput,
@@ -34,14 +39,23 @@ pub enum RegisteredCommand {
     WorkflowPublish,
     WorkflowValidate,
     WorkflowStart,
+    WorkflowDebug,
     WorkflowShow,
     WorkflowVersion,
+    WorkflowList,
+    WorkflowVersions,
     WorkflowSteps,
     WorkflowEvents,
     WorkflowCompleteStep,
     WorkflowDecide,
     WorkflowCancel,
     WorkflowResume,
+    WorkflowPause,
+    WorkflowResumeRun,
+    WorkflowAcceptCandidate,
+    WorkflowPauseStep,
+    WorkflowStepInput,
+    WorkflowFork,
     Domain(DomainCommand),
 }
 
@@ -49,6 +63,8 @@ impl RegisteredCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ConversationList => "conversation_list",
+            Self::ConversationListRecent => "conversation_list_recent",
+            Self::ConversationCatalog => "conversation_catalog",
             Self::ConversationCreate => "conversation_create",
             Self::ConversationChildCreate => "conversation_child_create",
             Self::ConversationOutput => "conversation_output",
@@ -66,14 +82,23 @@ impl RegisteredCommand {
             Self::WorkflowPublish => "workflow_publish",
             Self::WorkflowValidate => "workflow_validate",
             Self::WorkflowStart => "workflow_start",
+            Self::WorkflowDebug => "workflow_debug",
             Self::WorkflowShow => "workflow_show",
             Self::WorkflowVersion => "workflow_version",
+            Self::WorkflowList => "workflow_list",
+            Self::WorkflowVersions => "workflow_versions",
             Self::WorkflowSteps => "workflow_steps",
             Self::WorkflowEvents => "workflow_events",
             Self::WorkflowCompleteStep => "workflow_complete_step",
             Self::WorkflowDecide => "workflow_decide",
             Self::WorkflowCancel => "workflow_cancel",
             Self::WorkflowResume => "workflow_resume",
+            Self::WorkflowPause => "workflow_pause",
+            Self::WorkflowResumeRun => "workflow_resume_run",
+            Self::WorkflowAcceptCandidate => "workflow_accept_candidate",
+            Self::WorkflowPauseStep => "workflow_pause_step",
+            Self::WorkflowStepInput => "workflow_step_input",
+            Self::WorkflowFork => "workflow_fork",
             Self::Domain(command) => command.as_str(),
         }
     }
@@ -85,6 +110,8 @@ impl FromStr for RegisteredCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "conversation_list" => Ok(Self::ConversationList),
+            "conversation_list_recent" => Ok(Self::ConversationListRecent),
+            "conversation_catalog" => Ok(Self::ConversationCatalog),
             "conversation_create" => Ok(Self::ConversationCreate),
             "conversation_child_create" => Ok(Self::ConversationChildCreate),
             "conversation_output" => Ok(Self::ConversationOutput),
@@ -102,14 +129,23 @@ impl FromStr for RegisteredCommand {
             "workflow_publish" => Ok(Self::WorkflowPublish),
             "workflow_validate" => Ok(Self::WorkflowValidate),
             "workflow_start" => Ok(Self::WorkflowStart),
+            "workflow_debug" => Ok(Self::WorkflowDebug),
             "workflow_show" => Ok(Self::WorkflowShow),
             "workflow_version" => Ok(Self::WorkflowVersion),
+            "workflow_list" => Ok(Self::WorkflowList),
+            "workflow_versions" => Ok(Self::WorkflowVersions),
             "workflow_steps" => Ok(Self::WorkflowSteps),
             "workflow_events" => Ok(Self::WorkflowEvents),
             "workflow_complete_step" => Ok(Self::WorkflowCompleteStep),
             "workflow_decide" => Ok(Self::WorkflowDecide),
             "workflow_cancel" => Ok(Self::WorkflowCancel),
             "workflow_resume" => Ok(Self::WorkflowResume),
+            "workflow_pause" => Ok(Self::WorkflowPause),
+            "workflow_resume_run" => Ok(Self::WorkflowResumeRun),
+            "workflow_accept_candidate" => Ok(Self::WorkflowAcceptCandidate),
+            "workflow_pause_step" => Ok(Self::WorkflowPauseStep),
+            "workflow_step_input" => Ok(Self::WorkflowStepInput),
+            "workflow_fork" => Ok(Self::WorkflowFork),
             _ => DomainCommand::from_str(value).map(Self::Domain),
         }
     }
@@ -119,6 +155,17 @@ impl FromStr for RegisteredCommand {
 #[serde(rename_all = "camelCase")]
 struct ConversationListArgs {
     workspace_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationListRecentArgs {
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    since_days: Option<i64>,
+    #[serde(default)]
+    project_id: Option<uuid::Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +256,10 @@ struct WorkflowStartArgs {
     request: StartWorkflowRequest,
 }
 #[derive(Deserialize)]
+struct WorkflowDebugArgs {
+    request: DebugWorkflowRequest,
+}
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkflowRunArgs {
     run_id: uuid::Uuid,
@@ -217,6 +268,19 @@ struct WorkflowRunArgs {
 #[serde(rename_all = "camelCase")]
 struct WorkflowVersionArgs {
     version_id: uuid::Uuid,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowListArgs {
+    #[serde(default = "default_workflow_list_limit")]
+    limit: u32,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowVersionsArgs {
+    definition_id: uuid::Uuid,
+    #[serde(default = "default_workflow_list_limit")]
+    limit: u32,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,9 +307,37 @@ struct WorkflowCancelArgs {
 struct WorkflowResumeArgs {
     request: ResumeWorkflowRequest,
 }
+#[derive(Deserialize)]
+struct WorkflowPauseArgs {
+    request: PauseWorkflowRequest,
+}
+#[derive(Deserialize)]
+struct WorkflowResumeRunArgs {
+    request: ResumePausedWorkflowRequest,
+}
+#[derive(Deserialize)]
+struct WorkflowAcceptCandidateArgs {
+    request: AcceptWorkflowCandidateRequest,
+}
+#[derive(Deserialize)]
+struct WorkflowPauseStepArgs {
+    request: PauseWorkflowStepRequest,
+}
+#[derive(Deserialize)]
+struct WorkflowStepInputArgs {
+    request: SubmitWorkflowStepInputRequest,
+}
+#[derive(Deserialize)]
+struct WorkflowForkArgs {
+    request: ForkWorkflowRequest,
+}
 
 const fn default_event_limit() -> i64 {
     200
+}
+
+const fn default_workflow_list_limit() -> u32 {
+    100
 }
 
 pub struct CommandRegistry<R> {
@@ -310,6 +402,58 @@ where
                             workspace_id: args.workspace_id,
                         },
                     )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationListRecent => {
+                let args = serde_json::from_value::<ConversationListRecentArgs>(args).unwrap_or(
+                    ConversationListRecentArgs {
+                        limit: None,
+                        since_days: None,
+                        project_id: None,
+                    },
+                );
+                let result = self
+                    .core
+                    .list_recent_conversations(
+                        principal,
+                        ListRecentConversations {
+                            since_days: args.since_days.unwrap_or(3),
+                            project_id: args.project_id,
+                            limit: args.limit.unwrap_or(100),
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationCatalog => {
+                let result = self
+                    .core
+                    .conversation_catalog(principal)
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();
@@ -391,7 +535,7 @@ where
                     })?;
                 let result = self
                     .core
-                    .start_conversation_turn(principal, args.request)
+                    .start_conversation_turn(principal, operation_id.as_uuid(), args.request)
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();
@@ -619,6 +763,15 @@ where
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?
             }
+            RegisteredCommand::WorkflowDebug => {
+                let args = parse_args::<WorkflowDebugArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .debug_workflow(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
             RegisteredCommand::WorkflowShow => {
                 let args = parse_args::<WorkflowRunArgs>(command, operation_id, args)?;
                 let result = self
@@ -633,6 +786,24 @@ where
                 let result = self
                     .core
                     .workflow_version(principal, args.version_id)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowList => {
+                let args = parse_args::<WorkflowListArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .workflow_definitions(principal, args.limit)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowVersions => {
+                let args = parse_args::<WorkflowVersionsArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .workflow_versions(principal, args.definition_id, args.limit)
                     .await
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?
@@ -687,6 +858,60 @@ where
                 let result = self
                     .core
                     .resume_workflow(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowPause => {
+                let args = parse_args::<WorkflowPauseArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .pause_workflow(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowResumeRun => {
+                let args = parse_args::<WorkflowResumeRunArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .resume_paused_workflow(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowAcceptCandidate => {
+                let args = parse_args::<WorkflowAcceptCandidateArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .accept_workflow_candidate(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowPauseStep => {
+                let args = parse_args::<WorkflowPauseStepArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .pause_workflow_step(principal, args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowStepInput => {
+                let args = parse_args::<WorkflowStepInputArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .submit_workflow_step_input(principal, operation_id.as_uuid(), args.request)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serialize_result(command, operation_id, result)?
+            }
+            RegisteredCommand::WorkflowFork => {
+                let args = parse_args::<WorkflowForkArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .fork_workflow_from_step(principal, operation_id.as_uuid(), args.request)
                     .await
                     .map_err(|error| with_operation_id(error, operation_id))?;
                 serialize_result(command, operation_id, result)?

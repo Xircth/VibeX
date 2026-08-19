@@ -393,6 +393,22 @@ mod tests {
     }
 
     #[test]
+    fn managed_worktree_agent_cwd_joins_the_repo_folder_to_the_container() {
+        let mut workspace = sample_workspace(true);
+        workspace.agent_working_dir = Some("VibeX".to_string());
+        let repo = sample_repo("VibeX", None);
+
+        assert_eq!(
+            resolve_workspace_default_open_path(
+                &workspace,
+                "/Users/mac/.vibex-workspaces/workflow-debug",
+                std::slice::from_ref(&repo),
+            ),
+            PathBuf::from("/Users/mac/.vibex-workspaces/workflow-debug/VibeX")
+        );
+    }
+
+    #[test]
     fn additional_directories_use_only_roots_linked_to_current_workspace() {
         let workspace = sample_workspace(true);
         let repos = vec![sample_repo("app", None), sample_repo("shared", None)];

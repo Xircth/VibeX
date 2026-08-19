@@ -16,7 +16,9 @@ use services::services::workspace_manager::WorkspaceManager;
 use uuid::Uuid;
 
 use crate::{
-    error::AppError, state::AppState, workspace_paths::resolve_workspace_agent_working_dir,
+    error::AppError,
+    state::AppState,
+    workspace_paths::{resolve_workspace_agent_working_dir, resolve_workspace_default_open_path},
 };
 
 // --- Query / Input types ---
@@ -474,8 +476,9 @@ pub async fn create_task_and_start(
             .ensure_container_exists(&workspace)
             .await?;
         let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-        let working_dir = resolve_workspace_agent_working_dir(&workspace, &container_ref, &repos)
-            .unwrap_or_else(|| container_ref.clone());
+        let working_dir = resolve_workspace_default_open_path(&workspace, &container_ref, &repos)
+            .to_string_lossy()
+            .into_owned();
         let additional_directories =
             crate::workspace_paths::resolve_workspace_additional_directories(
                 &workspace,

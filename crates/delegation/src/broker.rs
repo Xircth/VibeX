@@ -235,11 +235,16 @@ fn evict_completed(inner: &mut PendingInner, cap_bytes: u64) {
 }
 
 fn completed_task_bytes(task: &CompletedTask) -> u64 {
-    task.text.as_ref().map(|text| text.len() as u64).unwrap_or(0)
+    task.text
+        .as_ref()
+        .map(|text| text.len() as u64)
+        .unwrap_or(0)
 }
 
 fn drop_completed_for_parent(inner: &mut PendingInner, parent_connection_id: &str) {
-    inner.completed.retain(|_, task| task.parent_connection_id != parent_connection_id);
+    inner
+        .completed
+        .retain(|_, task| task.parent_connection_id != parent_connection_id);
     inner
         .completed_order
         .retain(|id| inner.completed.contains_key(id));
@@ -2433,10 +2438,7 @@ mod tests {
         }
         assert!(!inner.completed.contains_key("task-0"));
         assert!(inner.completed.contains_key("task-2"));
-        assert_eq!(
-            inner.completed["task-2"].text.as_deref(),
-            Some("xxxxxxxx")
-        );
+        assert_eq!(inner.completed["task-2"].text.as_deref(), Some("xxxxxxxx"));
     }
 
     #[test]

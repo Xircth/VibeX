@@ -49,6 +49,12 @@ export function describeWindowLabel(
       return { key: 'windowSevenDaySonnet' };
     case 'extra_usage':
       return { key: 'windowExtraUsage' };
+    case 'cursor_models':
+      return { key: 'windowCursorModels' };
+    case 'other_models':
+      return { key: 'windowOtherModels' };
+    case 'monthly':
+      return { key: 'windowMonthly' };
     default: {
       const minutes = window.windowMinutes;
       if (typeof minutes === 'number' && minutes > 0) {
@@ -77,6 +83,9 @@ export function formatPlanType(
     team: 'Team',
     enterprise: 'Enterprise',
     free: 'Free',
+    ultra: 'Ultra',
+    'pro plus': 'Pro Plus',
+    pro_plus: 'Pro Plus',
   };
   return known[value.toLowerCase()] ?? value;
 }

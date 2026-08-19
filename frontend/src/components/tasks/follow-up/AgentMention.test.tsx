@@ -64,7 +64,7 @@ function codexTransport(): BackendTransport {
       if (command === 'conversation_detail') {
         return {
           active_binding: {
-            capabilities: { mcp_servers: true },
+            delegation_mcp_delivered: true,
           },
         };
       }
@@ -105,7 +105,7 @@ describe('AgentMention', () => {
         if (command === 'conversation_detail') {
           return {
             active_binding: {
-              capabilities: { mcp_servers: true },
+              delegation_mcp_delivered: true,
             },
           };
         }
@@ -190,5 +190,75 @@ describe('AgentMention', () => {
         screen.getByLabelText('Serialized composer value').textContent
       ).toBe('')
     );
+  });
+
+  it('does not offer mentions when the collaboration plugin is off', async () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command) => {
+        if (command === 'agent_management_bar') {
+          return [
+            {
+              agent_id: 'codex',
+              display_name: 'Codex',
+              enabled: true,
+              lifecycle: 'ready',
+              active_operation: null,
+            },
+          ];
+        }
+        if (command === 'conversation_detail') {
+          return { active_binding: { delegation_mcp_delivered: true } };
+        }
+        if (command === 'plugin_control_catalog') {
+          return {
+            plugins: [{ id: 'vibex.multi-agent', enabled: false }],
+            runtimes: [],
+          };
+        }
+        return null;
+      }),
+    };
+    const user = userEvent.setup();
+    render(<ComposerHarness transport={transport} />);
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '&Co');
+    expect(screen.queryByRole('option', { name: /Codex/ })).toBeNull();
+  });
+
+  it('does not offer mentions until this conversation has been delivered', async () => {
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call: vi.fn(async (command) => {
+        if (command === 'agent_management_bar') {
+          return [
+            {
+              agent_id: 'codex',
+              display_name: 'Codex',
+              enabled: true,
+              lifecycle: 'ready',
+              active_operation: null,
+            },
+          ];
+        }
+        if (command === 'conversation_detail') {
+          return { active_binding: { delegation_mcp_delivered: false } };
+        }
+        if (command === 'plugin_control_catalog') {
+          return {
+            plugins: [{ id: 'vibex.multi-agent', enabled: true }],
+            runtimes: [],
+          };
+        }
+        return null;
+      }),
+    };
+    const user = userEvent.setup();
+    render(<ComposerHarness transport={transport} />);
+    const editor = getEditor();
+    await user.click(editor);
+    await user.type(editor, '&Co');
+    expect(screen.queryByRole('option', { name: /Codex/ })).toBeNull();
   });
 });

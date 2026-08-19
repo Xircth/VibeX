@@ -25,6 +25,7 @@ mod remote_desktop;
 mod settings_watcher;
 mod state;
 mod tray;
+mod workflow_mcp_gateway;
 mod workspace_paths;
 use state::AppState;
 
@@ -301,6 +302,27 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
 
         let state = tauri::async_runtime::block_on(AppState::new(app.handle().clone()))
             .expect("Failed to initialize app state");
+        let workflow_mcp_ready = match tauri::async_runtime::block_on(
+            workflow_mcp_gateway::start(&state),
+        ) {
+            Ok(connection) => {
+                tracing::info!(
+                    endpoint = %connection.endpoint,
+                    "Workflow Plugin MCP gateway is ready"
+                );
+                app.manage(connection);
+                true
+            }
+            Err(error) => {
+                tracing::error!(%error, "Workflow Plugin MCP gateway failed to start");
+                false
+            }
+        };
+        if workflow_mcp_ready {
+            tauri::async_runtime::block_on(
+                commands::plugin_control::refresh_enabled_plugin_projections(&state),
+            );
+        }
         let preview_proxy = tauri::async_runtime::block_on(
             plugin_dev_server::DesktopPreviewProxy::start(),
         )
@@ -354,7 +376,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             loop {
                 match workflow_dispatcher.tick().await {
                     Ok(true) => continue,
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
                     Err(error) => {
                         tracing::warn!(%error, "workflow dispatcher tick failed");
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -362,6 +384,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
                 }
             }
         });
+        logging::attach_emitter(app.handle().clone());
         events::start_event_forwarding(&app.handle().clone(), &state);
         events::start_agent_event_forwarding(&app.handle().clone(), &state);
         events::start_agent_terminal_forwarding(&app.handle().clone(), &state);
@@ -617,25 +640,24 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::sessions::create_session,
         commands::sessions::create_project_root_session,
         commands::sessions::ensure_project_workspace,
+        commands::sessions::create_workflow_debug_workspace,
         commands::sessions::create_project_session,
         commands::sessions::rename_session,
         commands::sessions::update_session_status,
+        commands::sessions::set_session_pinned,
         commands::sessions::delete_session,
         commands::sessions::reset_session_process,
         commands::conversations::conversation_detail,
         commands::conversations::conversation_ensure_session_controls,
-        commands::conversations::conversation_list,
+        commands::conversations::conversation_rebind_session,
         commands::conversations::application_call,
         commands::conversations::conversation_attach,
-        commands::conversations::conversation_start_turn,
         commands::conversations::conversation_events_since,
         commands::conversations::conversation_timeline_page,
-        commands::conversations::conversation_respond_permission,
         commands::conversations::conversation_respond_question,
         commands::conversations::conversation_submit_feedback,
         commands::conversations::conversation_set_session_mode,
         commands::conversations::conversation_set_session_config_option,
-        commands::conversations::conversation_cancel_turn,
         commands::conversations::conversation_truncate_to_turn,
         commands::conversations::conversation_checkpoint_file_changes_preview,
         commands::conversations::conversation_close,
@@ -650,6 +672,9 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::automation::automation_create,
         commands::automation::automation_create_workflow,
         commands::automation::automation_update,
+        commands::automation::automation_update_workflow,
+        commands::automation::automation_export_spec,
+        commands::automation::automation_import_spec,
         commands::automation::automation_set_enabled,
         commands::automation::automation_delete,
         commands::automation::automation_run_now,
@@ -659,6 +684,8 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::automation::automation_runs,
         commands::automation::automation_unseen_failures,
         commands::automation::automation_mark_seen,
+        commands::file_tree::workflow_source_read,
+        commands::file_tree::workflow_source_write,
         commands::remote_desktop::remote_desktop_connect,
         commands::remote_desktop::remote_desktop_disconnect,
         commands::remote_desktop::remote_desktop_call,
@@ -686,8 +713,10 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::filesystem::list_directory,
         commands::filesystem::list_git_repos,
         commands::filesystem::reveal_in_file_manager,
-        // Log viewer commands (P2-8)
-        commands::logs::get_app_logs,
+        // Log viewer commands
+        commands::logs::get_log_settings,
+        commands::logs::set_log_settings,
+        commands::logs::get_recent_logs,
         commands::logs::get_logs_dir,
         // Tray badge (P2-5)
         tray::update_tray_badge,
@@ -791,6 +820,16 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::agent_management::pi_credentials_save,
         commands::agent_management::pi_runtime_save,
         commands::agent_management::pi_command_validate,
+        commands::agent_management::dsh_providers,
+        commands::agent_management::dsh_provider_save,
+        commands::agent_management::dsh_provider_delete,
+        commands::agent_management::dsh_provider_discover_models,
+        commands::agent_management::dsh_plugins,
+        commands::agent_management::dsh_plugin_add,
+        commands::agent_management::dsh_plugin_remove,
+        commands::agent_management::grok_plugins,
+        commands::agent_management::grok_plugin_add,
+        commands::agent_management::grok_plugin_remove,
         commands::agent_management::agent_auth_mode,
         commands::agent_management::agent_auth_mode_set,
         commands::agent_management::opencode_plugin_list,
@@ -885,6 +924,8 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::agents::agent_runtime_snapshot,
         commands::agents::agent_list_local_history,
         commands::agents::agent_import_local_history,
+        commands::local_history::agent_scan_local_history,
+        commands::local_history::agent_import_local_history_batch,
         commands::agents::agent_list_remote_sessions,
         commands::agents::agent_delete_remote_session,
         commands::agents::agent_import_remote_session,
@@ -958,7 +999,6 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         app_surface::plugin_surface_revoke,
         plugin_dev_server::plugin_dev_connection,
         // Skills commands
-        commands::skills::list_local_agent_skills,
         commands::agent_skills::list_agent_skills,
         commands::agent_skills::read_agent_skill,
         commands::agent_skills::save_agent_skill,

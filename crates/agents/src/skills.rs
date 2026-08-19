@@ -82,7 +82,8 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
         | AgentKind::KimiCode
         | AgentKind::Pi
         | AgentKind::Grok
-        | AgentKind::Cursor => AgentSkillsSurface {
+        | AgentKind::Cursor
+        | AgentKind::DeepseekHarness => AgentSkillsSurface {
             agent_type,
             strategy: AgentSkillsStrategy::Directory,
             global_supported: true,
@@ -104,7 +105,7 @@ pub fn skills_surface(agent_type: AgentKind) -> AgentSkillsSurface {
 }
 
 /// Every agent VibeX manages. Order is used for stable scan/display output.
-const ALL_AGENTS: [AgentKind; 12] = [
+const ALL_AGENTS: [AgentKind; 13] = [
     AgentKind::ClaudeCode,
     AgentKind::Codex,
     AgentKind::Gemini,
@@ -117,6 +118,7 @@ const ALL_AGENTS: [AgentKind; 12] = [
     AgentKind::Pi,
     AgentKind::Grok,
     AgentKind::Cursor,
+    AgentKind::DeepseekHarness,
 ];
 
 pub fn skill_capable_agent_ids() -> Vec<String> {
@@ -341,6 +343,16 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             directories
         })
         .collect(),
+        AgentKind::DeepseekHarness => {
+            configured_dir("DSH_HOME", home.as_ref().map(|home| home.join(".dsh")))
+                .into_iter()
+                .map(|dir| (dir.join("skills"), false))
+                .chain(
+                    home.iter()
+                        .map(|home| (home.join(".agents").join("skills"), false)),
+                )
+                .collect()
+        }
         // In-process mock agent: no skill directories.
         AgentKind::QaMock => Vec::new(),
     };
@@ -371,6 +383,7 @@ fn skill_dirs(agent: AgentKind, workspace: Option<&Path>) -> Vec<SkillDir> {
             AgentKind::Pi => &[".pi/skills", ".agents/skills"],
             AgentKind::Grok => &[".grok/skills"],
             AgentKind::Cursor => &[".cursor/skills", ".agents/skills"],
+            AgentKind::DeepseekHarness => &[".dsh/skills", ".agents/skills"],
             AgentKind::QaMock => &[],
         };
         for relative in relatives {
@@ -951,6 +964,10 @@ fn agent_primary_skill_dir(agent: AgentKind) -> Option<PathBuf> {
         AgentKind::Cursor => {
             configured_dir("CURSOR_CONFIG_DIR", home.map(|home| home.join(".cursor")))
                 .map(|home| home.join("skills"))
+        }
+        AgentKind::DeepseekHarness => {
+            configured_dir("DSH_HOME", home.map(|home| home.join(".dsh")))
+                .map(|dir| dir.join("skills"))
         }
         AgentKind::QaMock => None,
     }

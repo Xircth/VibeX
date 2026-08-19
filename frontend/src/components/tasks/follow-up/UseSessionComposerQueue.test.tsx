@@ -12,9 +12,13 @@ const api = vi.hoisted(() => ({
   cancelInput: vi.fn(),
   reorderInput: vi.fn(),
 }));
+const listenToConversationEventsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/features/conversation/conversationApi', () => ({
   conversationApi: api,
+}));
+vi.mock('@/features/conversation/events', () => ({
+  listenToConversationEvents: listenToConversationEventsMock,
 }));
 
 const profile = { executor: 'codex' as const };
@@ -68,6 +72,7 @@ function client() {
 describe('useSessionComposerQueue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listenToConversationEventsMock.mockResolvedValue(() => {});
     api.listInputs.mockResolvedValue([]);
     api.submitInput.mockImplementation(async () => input());
     api.updateInput.mockImplementation(async () => ({
@@ -112,6 +117,8 @@ describe('useSessionComposerQueue', () => {
           sessionId: 'session-1',
           workspaceId: 'workspace-1',
           isAttemptRunning: true,
+          modeOverride: 'plan',
+          configOverrides: [{ key: 'model', value: 'gpt-5.4' }],
         }),
       { wrapper: wrapperFor(client()) }
     );
@@ -126,15 +133,50 @@ describe('useSessionComposerQueue', () => {
       );
     });
 
-    expect(api.submitInput).toHaveBeenCalledWith('session-1', {
-      agentId: 'codex',
-      workspaceId: 'workspace-1',
-      executorProfileId: profile,
-      text: 'agent text',
-      displayText: 'visible',
-      images: ['vibe://image'],
-      pluginActions: [],
+    expect(api.submitInput).toHaveBeenCalledWith(
+      'session-1',
+      {
+        agentId: 'codex',
+        workspaceId: 'workspace-1',
+        executorProfileId: profile,
+        text: 'agent text',
+        displayText: 'visible',
+        images: ['vibe://image'],
+        pluginActions: [],
+        modeOverride: 'plan',
+        configOverrides: [{ key: 'model', value: 'gpt-5.4' }],
+        fileRefs: [],
+      },
+      expect.any(String)
+    );
+  });
+
+  it('reuses the same operation id when queue persist times out', async () => {
+    api.submitInput
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce(input());
+    const { result } = renderHook(
+      () =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning: true,
+        }),
+      { wrapper: wrapperFor(client()) }
+    );
+
+    await act(async () => {
+      await result.current.queueMessage('visible', profile).catch(() => {});
     });
+    await act(async () => {
+      await result.current.queueMessage('visible', profile);
+    });
+
+    expect(api.submitInput).toHaveBeenCalledTimes(2);
+    expect(api.submitInput.mock.calls[0]?.[2]).toEqual(expect.any(String));
+    expect(api.submitInput.mock.calls[1]?.[2]).toBe(
+      api.submitInput.mock.calls[0]?.[2]
+    );
   });
 
   it('cancels and reorders the selected durable input with its revision', async () => {
@@ -202,5 +244,32 @@ describe('useSessionComposerQueue', () => {
       }),
     });
     expect(api.submitInput).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the queue when conversation events arrive for the same session', async () => {
+    let onBatch: ((batch: { conversation_id: string }) => void) | undefined;
+    listenToConversationEventsMock.mockImplementation(async (handler) => {
+      onBatch = handler;
+      return () => {};
+    });
+    api.listInputs
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([input('input-2', 2048n)]);
+    const { result } = renderHook(
+      () =>
+        useSessionComposerQueue({
+          sessionId: 'session-1',
+          workspaceId: 'workspace-1',
+          isAttemptRunning: false,
+        }),
+      { wrapper: wrapperFor(client()) }
+    );
+
+    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(0));
+    await act(async () => {
+      onBatch?.({ conversation_id: 'session-1' });
+    });
+    await waitFor(() => expect(result.current.queuedMessages).toHaveLength(1));
+    expect(result.current.queuedMessages[0]?.id).toBe('input-2');
   });
 });

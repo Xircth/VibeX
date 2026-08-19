@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import {
@@ -49,7 +49,7 @@ import {
 } from '@/lib/api/automations';
 import { type BackendTransport } from '@/lib/backendTransport';
 import { useBackendTransport } from '@/lib/transport';
-import { SettingsPageHeader, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
 
 type ProjectOption = {
   id: string;
@@ -149,9 +149,19 @@ function isAgentOption(value: unknown): value is AgentOption {
 export function AutomationsSettings({
   transport: transportOverride,
   pollIntervalMs = 1_000,
+  editorOnly = false,
+  automationId = null,
+  templateId = null,
+  onSaved,
+  onCancel,
 }: {
   transport?: BackendTransport;
   pollIntervalMs?: number;
+  editorOnly?: boolean;
+  automationId?: string | null;
+  templateId?: string | null;
+  onSaved?: (automation: AutomationView) => void;
+  onCancel?: () => void;
 }) {
   const contextTransport = useBackendTransport();
   const transport = transportOverride ?? contextTransport;
@@ -182,6 +192,7 @@ export function AutomationsSettings({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewRuns, setPreviewRuns] = useState<string[]>([]);
   const [engineActive, setEngineActive] = useState(true);
+  const editorInitialized = useRef(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -411,19 +422,20 @@ export function AutomationsSettings({
     return () => window.clearTimeout(timer);
   }, [loadRuns, pollIntervalMs, runsByAutomation]);
 
-  const startNew = () => {
+  const startNew = useCallback(() => {
     const projectId = projects[0]?.id ?? '';
     const agentId = agents[0]?.agent_id ?? 'codex';
     setEditingId(null);
     setDraft(emptyDraft(projectId, agentId));
-  };
+  }, [agents, projects]);
 
-  const closeDraft = () => {
+  const closeDraft = (notify = true) => {
     setDraft(null);
     setEditingId(null);
     setBranchConfigs([]);
     setPreviewRuns([]);
     setPreviewError(null);
+    if (editorOnly && notify) onCancel?.();
   };
 
   const selectedBranch = branchConfigs[0] ?? null;
@@ -521,7 +533,8 @@ export function AutomationsSettings({
       toast.success(
         t(editingId ? 'automations.updated' : 'automations.created')
       );
-      closeDraft();
+      closeDraft(false);
+      onSaved?.(saved);
     } catch (error) {
       toast.error(
         t('automations.saveFailed', {
@@ -542,56 +555,60 @@ export function AutomationsSettings({
     setDraft((current) => (current ? { ...current, branch } : current));
   };
 
-  const startEdit = (automation: AutomationView) => {
-    if (!automation.launch) {
-      toast.error(t('automations.workflowEditUnavailable'));
-      return;
-    }
-    setEditingId(automation.id);
-    setDraft({
-      name: automation.name,
-      enabled: automation.enabled,
-      prompt: automation.launch.displayText,
-      triggerKind:
-        automation.trigger.kind === 'schedule' ? 'schedule' : 'manual',
-      scheduleTime:
-        automation.trigger.kind === 'schedule'
-          ? cronToDailyTime(automation.trigger.cron)
-          : '03:00',
-      timezone:
-        automation.trigger.kind === 'schedule'
-          ? automation.trigger.timezone
-          : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      modeId: automation.launch.modeId,
-      configValues: Object.fromEntries(
-        automation.launch.configValues.map(({ key, value }) => [key, value])
-      ),
-      pluginAction: automation.launch.pluginActions[0]
-        ? {
-            pluginId: automation.launch.pluginActions[0].pluginId,
-            actionId: automation.launch.pluginActions[0].action.id,
-            label: automation.launch.pluginActions[0].action.label,
-            requiredSkills: [
-              ...automation.launch.pluginActions[0].action.requiredSkills,
-            ],
-            requiredTools: [
-              ...automation.launch.pluginActions[0].action.requiredTools,
-            ],
-            promptBlocks:
-              automation.launch.pluginActions[0].action.promptBlocks.map(
-                (block) => ({ ...block })
-              ),
-            artifactIntent:
-              automation.launch.pluginActions[0].action.artifactIntent ?? null,
-          }
-        : null,
-      projectId: automation.launch.workspace.projectId,
-      branch: automation.launch.workspace.branch,
-      agentId: automation.launch.agent.agentId,
-      executorProfileId: automation.launch.agent.executorProfileId,
-      isolation: automation.launch.workspace.isolation,
-    });
-  };
+  const startEdit = useCallback(
+    (automation: AutomationView) => {
+      if (!automation.launch) {
+        toast.error(t('automations.workflowEditUnavailable'));
+        return;
+      }
+      setEditingId(automation.id);
+      setDraft({
+        name: automation.name,
+        enabled: automation.enabled,
+        prompt: automation.launch.displayText,
+        triggerKind:
+          automation.trigger.kind === 'schedule' ? 'schedule' : 'manual',
+        scheduleTime:
+          automation.trigger.kind === 'schedule'
+            ? cronToDailyTime(automation.trigger.cron)
+            : '03:00',
+        timezone:
+          automation.trigger.kind === 'schedule'
+            ? automation.trigger.timezone
+            : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        modeId: automation.launch.modeId,
+        configValues: Object.fromEntries(
+          automation.launch.configValues.map(({ key, value }) => [key, value])
+        ),
+        pluginAction: automation.launch.pluginActions[0]
+          ? {
+              pluginId: automation.launch.pluginActions[0].pluginId,
+              actionId: automation.launch.pluginActions[0].action.id,
+              label: automation.launch.pluginActions[0].action.label,
+              requiredSkills: [
+                ...automation.launch.pluginActions[0].action.requiredSkills,
+              ],
+              requiredTools: [
+                ...automation.launch.pluginActions[0].action.requiredTools,
+              ],
+              promptBlocks:
+                automation.launch.pluginActions[0].action.promptBlocks.map(
+                  (block) => ({ ...block })
+                ),
+              artifactIntent:
+                automation.launch.pluginActions[0].action.artifactIntent ??
+                null,
+            }
+          : null,
+        projectId: automation.launch.workspace.projectId,
+        branch: automation.launch.workspace.branch,
+        agentId: automation.launch.agent.agentId,
+        executorProfileId: automation.launch.agent.executorProfileId,
+        isolation: automation.launch.workspace.isolation,
+      });
+    },
+    [t]
+  );
 
   const previewSchedule = async () => {
     if (!draft || draft.triggerKind !== 'schedule') return;
@@ -678,61 +695,88 @@ export function AutomationsSettings({
     }
   };
 
-  const startTemplate = (template: AutomationTemplateView) => {
-    const projectId = projects[0]?.id ?? '';
-    const fallbackAgentId = agents[0]?.agent_id ?? 'codex';
-    const templateLaunch = template.draft.launch;
-    const templateAction = templateLaunch.pluginActions[0];
-    setEditingId(null);
-    setDraft({
-      ...emptyDraft(projectId, fallbackAgentId),
-      name: template.draft.name,
-      enabled: template.draft.enabled,
-      prompt: templateLaunch.displayText,
-      triggerKind:
-        template.draft.trigger.kind === 'schedule' ? 'schedule' : 'manual',
-      scheduleTime:
-        template.draft.trigger.kind === 'schedule'
-          ? cronToDailyTime(template.draft.trigger.cron)
-          : '03:00',
-      timezone:
-        template.draft.trigger.kind === 'schedule'
-          ? template.draft.trigger.timezone
-          : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      agentId: templateLaunch.agent.agentId || fallbackAgentId,
-      executorProfileId: templateLaunch.agent.executorProfileId ?? {
-        executor: templateLaunch.agent.agentId || fallbackAgentId,
-        variant: null,
-      },
-      modeId: templateLaunch.modeId,
-      configValues: Object.fromEntries(
-        templateLaunch.configValues.map(({ key, value }) => [key, value])
-      ),
-      pluginAction: templateAction
-        ? {
-            pluginId: templateAction.pluginId,
-            actionId: templateAction.action.id,
-            ...templateAction.action,
-          }
-        : null,
-      isolation: templateLaunch.workspace.isolation,
-      branch: templateLaunch.workspace.branch,
-    });
-  };
+  const startTemplate = useCallback(
+    (template: AutomationTemplateView) => {
+      const projectId = projects[0]?.id ?? '';
+      const fallbackAgentId = agents[0]?.agent_id ?? 'codex';
+      const templateLaunch = template.draft.launch;
+      const templateAction = templateLaunch.pluginActions[0];
+      setEditingId(null);
+      setDraft({
+        ...emptyDraft(projectId, fallbackAgentId),
+        name: template.draft.name,
+        enabled: template.draft.enabled,
+        prompt: templateLaunch.displayText,
+        triggerKind:
+          template.draft.trigger.kind === 'schedule' ? 'schedule' : 'manual',
+        scheduleTime:
+          template.draft.trigger.kind === 'schedule'
+            ? cronToDailyTime(template.draft.trigger.cron)
+            : '03:00',
+        timezone:
+          template.draft.trigger.kind === 'schedule'
+            ? template.draft.trigger.timezone
+            : Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        agentId: templateLaunch.agent.agentId || fallbackAgentId,
+        executorProfileId: templateLaunch.agent.executorProfileId ?? {
+          executor: templateLaunch.agent.agentId || fallbackAgentId,
+          variant: null,
+        },
+        modeId: templateLaunch.modeId,
+        configValues: Object.fromEntries(
+          templateLaunch.configValues.map(({ key, value }) => [key, value])
+        ),
+        pluginAction: templateAction
+          ? {
+              pluginId: templateAction.pluginId,
+              actionId: templateAction.action.id,
+              ...templateAction.action,
+            }
+          : null,
+        isolation: templateLaunch.workspace.isolation,
+        branch: templateLaunch.workspace.branch,
+      });
+    },
+    [agents, projects]
+  );
+
+  useEffect(() => {
+    if (!editorOnly || loading || editorInitialized.current) return;
+    editorInitialized.current = true;
+    if (automationId) {
+      const automation = automations.find((item) => item.id === automationId);
+      if (automation) startEdit(automation);
+      else setLoadError(`Automation ${automationId} was not found`);
+      return;
+    }
+    if (templateId) {
+      const template = templates.find((item) => item.id === templateId);
+      if (template) startTemplate(template);
+      else setLoadError(`Automation template ${templateId} was not found`);
+      return;
+    }
+    startNew();
+  }, [
+    automationId,
+    automations,
+    editorOnly,
+    loading,
+    startEdit,
+    startNew,
+    startTemplate,
+    templateId,
+    templates,
+  ]);
 
   return (
     <div className="settings-sections">
-      <SettingsPageHeader
-        title={t('automations.pageTitle')}
-        description={t('automations.pageDescription')}
-      />
       <SettingsSection
         icon={CalendarClock}
         title={t('automations.pageTitle')}
         description={t('automations.sectionDescription')}
         descriptionClassName="text-foreground"
         action={
-          draft ? null : (
+          draft || editorOnly ? null : (
             <Button
               size="sm"
               variant="outline"
@@ -780,25 +824,29 @@ export function AutomationsSettings({
         ) : (
           <div
             className={
-              draft
-                ? 'grid min-h-[360px] lg:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.5fr)]'
-                : 'min-h-32'
+              editorOnly
+                ? 'min-h-[360px]'
+                : draft
+                  ? 'grid min-h-[360px] lg:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.5fr)]'
+                  : 'min-h-32'
             }
           >
-            <AutomationList
-              automations={automations}
-              editingId={editingId}
-              onEdit={startEdit}
-              onToggle={toggle}
-              onRemove={remove}
-              onRun={runNow}
-              onShowHistory={showHistory}
-              onCancelRun={cancelRun}
-              runsByAutomation={runsByAutomation}
-              historyOpenId={historyOpenId}
-              mutable={engineActive}
-              t={t}
-            />
+            {!editorOnly ? (
+              <AutomationList
+                automations={automations}
+                editingId={editingId}
+                onEdit={startEdit}
+                onToggle={toggle}
+                onRemove={remove}
+                onRun={runNow}
+                onShowHistory={showHistory}
+                onCancelRun={cancelRun}
+                runsByAutomation={runsByAutomation}
+                historyOpenId={historyOpenId}
+                mutable={engineActive}
+                t={t}
+              />
+            ) : null}
             {draft ? (
               <form
                 className="space-y-4 border-t border-border/70 p-4 lg:border-l lg:border-t-0"
@@ -1127,7 +1175,7 @@ export function AutomationsSettings({
                     <Button
                       type="button"
                       variant="ghost"
-                      onClick={closeDraft}
+                      onClick={() => closeDraft()}
                       disabled={saving}
                     >
                       {t('common:cancel')}
@@ -1154,7 +1202,7 @@ export function AutomationsSettings({
           {t('automations.runFailed', { error: runError })}
         </div>
       ) : null}
-      {templates.length > 0 && !draft ? (
+      {templates.length > 0 && !draft && !editorOnly ? (
         <SettingsSection
           icon={LayoutTemplate}
           title={t('automations.templatesTitle')}

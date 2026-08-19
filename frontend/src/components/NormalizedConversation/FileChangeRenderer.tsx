@@ -1,13 +1,6 @@
 import { type FileChange } from 'shared/types';
+import { useTranslation } from 'react-i18next';
 import { useUserSystem } from '@/components/ConfigProvider';
-import {
-  Trash2,
-  FilePlus2,
-  ArrowRight,
-  FileX,
-  FileClock,
-  ChevronRight,
-} from 'lucide-react';
 import { getHighLightLanguageFromPath } from '@/utils/extToLanguage';
 import { getActualTheme } from '@/utils/theme';
 import { useFileAtHead } from '@/hooks/useFileContent';
@@ -15,9 +8,10 @@ import EditDiffRenderer from './EditDiffRenderer';
 import FileContentView from './FileContentView';
 import '@/styles/diff-style-overrides.css';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { cn } from '@/lib/utils';
 import { usePanelActionsContext } from '@/contexts/PanelActionsContext';
 import { getFilePreviewKind } from '@/utils/filePreviewKind';
+import { ToolArtifact } from './tools/ToolArtifact';
+import { useToolCallResultDetail } from './tools/ToolCardShell';
 
 type Props = {
   path: string;
@@ -76,10 +70,12 @@ const FileChangeRenderer = ({
   forceExpanded = false,
   containerRef,
 }: Props) => {
+  const { t } = useTranslation('conversation');
   const { config } = useUserSystem();
   const { openFilePreview } = usePanelActionsContext();
+  const isResultDetail = useToolCallResultDetail();
   const [expanded, setExpanded] = useExpandable(expansionKey, defaultExpanded);
-  const effectiveExpanded = forceExpanded || expanded;
+  const effectiveExpanded = forceExpanded || isResultDetail || expanded;
 
   const theme = getActualTheme(config?.theme);
   const resolvedPath = resolveFilePath(path, containerRef);
@@ -92,25 +88,17 @@ const FileChangeRenderer = ({
     error: headError,
   } = useFileAtHead(shouldRenderInlineTextDiff ? resolvedPath : null);
 
-  const statusIcon =
-    statusAppearance === 'denied' ? (
-      <FileX className="h-3 w-3" />
-    ) : statusAppearance === 'timed_out' ? (
-      <FileClock className="h-3 w-3" />
-    ) : null;
-
-  if (statusIcon) {
+  if (statusAppearance === 'denied' || statusAppearance === 'timed_out') {
     return (
-      <div
-        className={cn(
-          'conv-file-card conv-tool-card',
-          statusAppearance === 'denied' && 'border-red-400/40',
-          statusAppearance === 'timed_out' && 'border-amber-400/40'
-        )}
-      >
-        {statusIcon}
-        <span className="conv-file-name">{path}</span>
-      </div>
+      <ToolArtifact
+        badge={
+          statusAppearance === 'denied'
+            ? t('toolArtifact.denied')
+            : t('toolArtifact.timedOut')
+        }
+        title={path}
+        titleLabel={path}
+      />
     );
   }
 
@@ -130,12 +118,11 @@ const FileChangeRenderer = ({
     );
   }
 
-  // Determine icon and expandability by change type
-  const { titleText, icon, expandable, targetPath } = (() => {
+  const { badge, titleText, expandable, targetPath } = (() => {
     if (isDelete(change)) {
       return {
+        badge: t('toolArtifact.delete'),
         titleText: path,
-        icon: <Trash2 className="h-3 w-3 conv-file-icon" />,
         expandable: false,
         targetPath: path,
       };
@@ -143,8 +130,8 @@ const FileChangeRenderer = ({
 
     if (isRename(change)) {
       return {
+        badge: t('toolArtifact.rename'),
         titleText: `${path} → ${change.new_path}`,
-        icon: <ArrowRight className="h-3 w-3 conv-file-icon" />,
         expandable: false,
         targetPath: change.new_path,
       };
@@ -152,93 +139,68 @@ const FileChangeRenderer = ({
 
     if (isWrite(change)) {
       return {
+        badge: t('toolArtifact.write'),
         titleText: path,
-        icon: <FilePlus2 className="h-3 w-3 conv-file-icon" />,
         expandable: true,
         targetPath: path,
       };
     }
 
-    return { titleText: null, icon: null, expandable: false, targetPath: '' };
+    return {
+      badge: null,
+      titleText: null,
+      expandable: false,
+      targetPath: '',
+    };
   })();
 
-  if (!titleText) return null;
+  if (!titleText || !badge) return null;
 
-  const inlinePreviewMessage =
-    previewKind === 'image'
-      ? 'Image changes are not rendered inline. Open the preview panel to inspect this asset.'
-      : previewKind === 'pdf'
-        ? 'PDF changes are not rendered inline. Open the preview panel to inspect this asset.'
-        : 'Binary changes are not rendered inline. Open the preview panel to inspect this asset.';
+  const inlinePreviewMessage = t('toolArtifact.openInPreview');
 
   return (
-    <div>
-      <div
-        className="conv-file-card conv-tool-card"
-        onClick={expandable ? () => setExpanded() : undefined}
-      >
-        {expandable && (
-          <ChevronRight
-            className={cn(
-              'h-3 w-3 conv-file-chevron',
-              effectiveExpanded && 'is-expanded'
-            )}
+    <ToolArtifact
+      badge={badge}
+      title={titleText}
+      titleLabel={titleText}
+      onTitleClick={() => {
+        const resolvedTargetPath = resolveFilePath(targetPath, containerRef);
+        if (isWrite(change) && previewKind === 'text') {
+          openFilePreview(resolvedTargetPath, {
+            mode: 'diff',
+            diffViewMode: 'inline',
+            modifiedContent: change.content,
+            displayPath: targetPath,
+            title: targetPath,
+          });
+          return;
+        }
+        openFilePreview(resolvedTargetPath, {
+          displayPath: targetPath,
+          title: targetPath,
+        });
+      }}
+      expandable={!isResultDetail && expandable}
+      expanded={effectiveExpanded}
+      onToggle={() => setExpanded()}
+    >
+      {isWrite(change) && effectiveExpanded ? (
+        previewKind !== 'text' ? (
+          <p className="conv-tool-prose">{inlinePreviewMessage}</p>
+        ) : isLoadingHead ? (
+          <p className="conv-tool-prose">{t('toolArtifact.loadingDiff')}</p>
+        ) : (
+          <FileContentView
+            content={change.content}
+            originalContent={headError ? '' : (headContent ?? '')}
+            lang={getHighLightLanguageFromPath(path)}
+            theme={theme}
+            diffMode="unified"
+            emptyMessage={t('toolArtifact.noHeadDiff')}
           />
-        )}
-        {icon}
-        <span
-          className="conv-file-name"
-          onClick={(e) => {
-            e.stopPropagation();
-            const resolvedTargetPath = resolveFilePath(
-              targetPath,
-              containerRef
-            );
-            const displayPath = targetPath;
-            if (isWrite(change) && previewKind === 'text') {
-              openFilePreview(resolvedTargetPath, {
-                mode: 'diff',
-                diffViewMode: 'inline',
-                modifiedContent: change.content,
-                displayPath,
-                title: displayPath,
-              });
-              return;
-            }
-            openFilePreview(resolvedTargetPath, {
-              displayPath,
-              title: displayPath,
-            });
-          }}
-        >
-          {titleText}
-        </span>
-      </div>
-
-      {/* Body */}
-      {isWrite(change) && effectiveExpanded && (
-        <div className="mt-1 overflow-hidden rounded-b-lg border border-t-0 border-[var(--conv-border-subtle)] bg-[var(--conv-surface-card)]">
-          {previewKind !== 'text' ? (
-            <div className="px-4 py-3 text-xs text-muted-foreground">
-              {inlinePreviewMessage}
-            </div>
-          ) : isLoadingHead ? (
-            <div className="px-4 py-3 text-xs text-muted-foreground">
-              Loading diff...
-            </div>
-          ) : (
-            <FileContentView
-              content={change.content}
-              originalContent={headError ? '' : (headContent ?? '')}
-              lang={getHighLightLanguageFromPath(path)}
-              theme={theme}
-              diffMode="unified"
-              emptyMessage="No differences against HEAD."
-            />
-          )}
-        </div>
-      )}
-    </div>
+        )
+      ) : null}
+    </ToolArtifact>
   );
 };
 

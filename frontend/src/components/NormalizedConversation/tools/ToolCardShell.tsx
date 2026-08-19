@@ -10,6 +10,7 @@ import {
 } from '@astryxdesign/core/Chat';
 import type { ToolStatus } from 'shared/types';
 import { cn } from '@/lib/utils';
+import { ToolCallTarget } from './ToolCallTarget';
 
 type ToolCardShellProps = {
   icon?: ReactNode;
@@ -34,6 +35,10 @@ export function ToolCallResultDetail({ children }: { children: ReactNode }) {
       {children}
     </ToolCallResultDetailContext.Provider>
   );
+}
+
+export function useToolCallResultDetail() {
+  return useContext(ToolCallResultDetailContext);
 }
 
 export function getToolStatusClassName(status?: ToolStatus | null): string {
@@ -136,6 +141,12 @@ export function ToolCardShell({
     typeof detail === 'string' || typeof detail === 'number'
       ? String(detail)
       : undefined;
+  const detailNode =
+    stringDetail != null ? (
+      <ToolCallTarget text={stringDetail} />
+    ) : detail ? (
+      detail
+    ) : undefined;
   const effectiveChatStatus =
     chatStatus ??
     (status
@@ -146,13 +157,9 @@ export function ToolCardShell({
     return (
       <div className="vibex-tool-call-result-detail">
         {actions ? (
-          <div className="mb-1 flex items-center justify-end gap-1">
-            {actions}
-          </div>
+          <div className="conv-tool-artifact-actions">{actions}</div>
         ) : null}
-        {children ? (
-          <div className="conv-tool-details text-xs font-mono">{children}</div>
-        ) : null}
+        {children}
       </div>
     );
   }
@@ -187,8 +194,8 @@ export function ToolCardShell({
             calls={[
               {
                 name: label,
-                target: stringDetail,
                 status: effectiveChatStatus,
+                stats: detailNode,
               },
             ]}
           />
@@ -197,9 +204,9 @@ export function ToolCardShell({
           <div className="flex shrink-0 items-center gap-1 pl-1">{actions}</div>
         ) : null}
       </div>
-      {(expanded || !expandable) && (
-        <div className="conv-tool-details text-xs font-mono">{children}</div>
-      )}
+      {(expanded || !expandable) && children ? (
+        <div className="conv-tool-artifact-host">{children}</div>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,6 @@ pub mod agent_capability_catalog;
 pub mod agent_management;
 pub mod agent_setting;
 pub mod attention;
-pub mod automation;
 pub mod automation_v2;
 pub mod chat_channel_message_log;
 pub mod conversation;

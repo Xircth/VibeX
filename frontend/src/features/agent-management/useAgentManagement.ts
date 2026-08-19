@@ -18,9 +18,16 @@ import {
   reduceOperationEvent,
 } from './agentManagementStore';
 
+let retainedSelectedAgentId: string | null = null;
+
 export function useAgentManagement() {
   const { t, i18n } = useTranslation('settings');
-  const [state, setState] = useState(() => createAgentManagementState([]));
+  const [state, setState] = useState(() => {
+    const initial = createAgentManagementState([]);
+    return retainedSelectedAgentId
+      ? { ...initial, selectedAgentId: retainedSelectedAgentId }
+      : initial;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const lastEventSequence = useRef(0);
@@ -28,7 +35,11 @@ export function useAgentManagement() {
   const refresh = useCallback(async () => {
     try {
       const agents = await agentManagementApi.bar();
-      setState((current) => mergeManagementSnapshot(current, agents));
+      setState((current) => {
+        const next = mergeManagementSnapshot(current, agents);
+        retainedSelectedAgentId = next.selectedAgentId;
+        return next;
+      });
       setError(null);
       return agents;
     } catch (nextError) {
@@ -43,7 +54,11 @@ export function useAgentManagement() {
     setLoading(true);
     try {
       const agents = await agentManagementApi.refreshBar();
-      setState((current) => mergeManagementSnapshot(current, agents));
+      setState((current) => {
+        const next = mergeManagementSnapshot(current, agents);
+        retainedSelectedAgentId = next.selectedAgentId;
+        return next;
+      });
       setError(null);
       return agents;
     } catch (nextError) {
@@ -116,6 +131,7 @@ export function useAgentManagement() {
   }, [refresh]);
 
   const select = useCallback((agentId: AgentId | null) => {
+    retainedSelectedAgentId = agentId;
     setState((current) => ({ ...current, selectedAgentId: agentId }));
   }, []);
 

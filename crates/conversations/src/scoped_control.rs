@@ -87,7 +87,8 @@ impl ScopedConversationControl {
                     images: Vec::new(),
                     mode_override: None,
                     config_overrides: Vec::new(),
-                    plugin_actions: Vec::new(),
+                    workflow_refs: Vec::new(),
+                    file_refs: Vec::new(),
                 },
                 principal: serde_json::json!({
                     "kind": "companion",

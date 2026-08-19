@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   AgentRegistryView,
   AgentRegistryViewRow,
+  CommunityAcpPresetView,
   UserAgentDefinitionRequest,
 } from 'shared/types';
 
@@ -127,12 +128,19 @@ export function AgentRegistryViewPanel({
       </div>
 
       {source === 'manual' ? (
-        <UserAgentDefinitionEditor
-          currentPlatform={view?.current_platform ?? 'unknown'}
-          loading={addingAgentId !== null}
-          submitLabel={t('agents.addAndInstall')}
-          onSubmit={onAddUserDefinition}
-        />
+        <div className="space-y-4">
+          <CommunityAcpPresetList
+            addingAgentId={addingAgentId}
+            presets={view?.presets ?? []}
+            onAdd={onAddUserDefinition}
+          />
+          <UserAgentDefinitionEditor
+            currentPlatform={view?.current_platform ?? 'unknown'}
+            loading={addingAgentId !== null}
+            submitLabel={t('agents.addAndInstall')}
+            onSubmit={onAddUserDefinition}
+          />
+        </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -295,5 +303,111 @@ export function AgentRegistryViewPanel({
         </>
       )}
     </section>
+  );
+}
+
+function CommunityAcpPresetList({
+  addingAgentId,
+  presets,
+  onAdd,
+}: {
+  addingAgentId: string | null;
+  presets: CommunityAcpPresetView[];
+  onAdd: (request: UserAgentDefinitionRequest) => void;
+}) {
+  const { t } = useTranslation('settings');
+  if (presets.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium text-foreground">
+        {t('agents.presetAcp')}
+      </h3>
+      <ul className="settings-surface agent-registry-list">
+        {presets.map((preset) => {
+          const busy = addingAgentId === preset.agent_id;
+          const blocked = preset.built_in || preset.added;
+          return (
+            <li className="agent-registry-row" key={preset.preset_id}>
+              <div className="agent-registry-row-icon">
+                <AgentManagementIcon
+                  agent={{
+                    agent_id: preset.agent_id,
+                    icon_light: preset.icon_light,
+                    icon_dark: preset.icon_dark,
+                    icon_svg: null,
+                  }}
+                  className="h-6 w-6"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {preset.display_name}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {preset.version}
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                  {preset.description}
+                </p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {[preset.authors.join('、'), t('agents.communityAcp')]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              </div>
+              {blocked ? (
+                <span
+                  role="status"
+                  aria-label={
+                    preset.built_in
+                      ? t('agents.presetAcpBuiltIn')
+                      : t('agents.presetAcpAdded')
+                  }
+                  className="agent-registry-status settings-status-pill-success"
+                >
+                  {preset.built_in
+                    ? t('agents.presetAcpBuiltIn')
+                    : t('agents.presetAcpAdded')}
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-8 shrink-0"
+                  disabled={busy}
+                  aria-label={t('agents.installAgentAria', {
+                    agent: preset.display_name,
+                  })}
+                  onClick={() =>
+                    onAdd({
+                      agent_id: preset.agent_id,
+                      display_name: preset.display_name,
+                      description: preset.description,
+                      version: preset.version,
+                      distribution_kind: preset.distribution_kind,
+                      distribution_json: preset.distribution_json,
+                      skills_shared_store: true,
+                      skills_directory: null,
+                    })
+                  }
+                >
+                  {busy ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                    />
+                  ) : null}
+                  {t('agents.addAndInstall')}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

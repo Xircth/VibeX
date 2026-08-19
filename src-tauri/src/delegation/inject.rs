@@ -18,7 +18,7 @@ use uuid::Uuid;
 pub(crate) struct VibexDelegationInjector {
     pub tokens: Arc<TokenRegistry>,
     pub socket_path: PathBuf,
-    pub official_mcp: Arc<plugins::OfficialProductMcpGate>,
+    pub official_mcp: Arc<plugins::OfficialMcpRuntime>,
 }
 
 impl DelegationInjector for VibexDelegationInjector {
@@ -47,33 +47,41 @@ impl DelegationInjector for VibexDelegationInjector {
         }
 
         let mut servers = Vec::new();
-        if self.official_mcp.allow_delegation_mcp() {
-            servers.push(self.product_server(
-                context,
-                "vibex-delegation-mcp",
-                "delegation",
-                TokenPermissions {
-                    delegation: true,
-                    ..TokenPermissions::default()
-                },
-            ));
-        }
-        if self.official_mcp.allow_session_mcp() {
-            let bits = self.official_mcp.session_features();
-            let features = session_feature_arg(bits);
-            if !features.is_empty() {
-                servers.push(self.product_server(
+        for binding in self.official_mcp.bindings() {
+            match binding.product.as_str() {
+                "delegation" => servers.push(self.product_server(
                     context,
-                    "vibex-session-mcp",
-                    &features,
+                    "vibex-delegation-mcp",
+                    "delegation",
                     TokenPermissions {
-                        feedback: bits & SESSION_FEAT_FEEDBACK != 0,
-                        ask: bits & SESSION_FEAT_ASK != 0,
-                        session_info: bits & SESSION_FEAT_SESSIONS != 0,
-                        session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
+                        delegation: true,
                         ..TokenPermissions::default()
                     },
-                ));
+                )),
+                "session" => {
+                    let bits = binding.features;
+                    let features = session_feature_arg(bits);
+                    if !features.is_empty() {
+                        servers.push(self.product_server(
+                            context,
+                            "vibex-session-mcp",
+                            &features,
+                            TokenPermissions {
+                                feedback: bits & SESSION_FEAT_FEEDBACK != 0,
+                                ask: bits & SESSION_FEAT_ASK != 0,
+                                session_info: bits & SESSION_FEAT_SESSIONS != 0,
+                                session_control: bits & SESSION_FEAT_SESSION_CONTROL != 0,
+                                ..TokenPermissions::default()
+                            },
+                        ));
+                    }
+                }
+                "workflow" => servers.push(InjectedMcpServer {
+                    name: "vibex-workflow-mcp".to_string(),
+                    command: locate_named_sibling("vibex-workflow-mcp"),
+                    args: Vec::new(),
+                }),
+                _ => {}
             }
         }
 
@@ -83,17 +91,6 @@ impl DelegationInjector for VibexDelegationInjector {
             };
         }
         CompanionInjectionList::Injected(servers)
-    }
-
-    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
-        if !self.official_mcp.allow_workflow_mcp() {
-            return Vec::new();
-        }
-        vec![InjectedMcpServer {
-            name: "vibex-workflow-mcp".to_string(),
-            command: locate_named_sibling("vibex-workflow-mcp"),
-            args: Vec::new(),
-        }]
     }
 
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {
@@ -241,19 +238,22 @@ mod tests {
         AgentId, CompanionCapabilities, CompanionInjectionContext, CompanionInjectionList,
         DelegationInjector,
     };
-    use plugins::{
-        MULTI_AGENT_PLUGIN_ID, OfficialProductMcpGate, PluginActivation, SESSION_ENHANCE_PLUGIN_ID,
-        SESSION_FEAT_ASK,
-    };
+    use plugins::{OfficialMcpBinding, OfficialMcpRuntime, SESSION_FEAT_ALL, SESSION_FEAT_ASK};
 
     use super::*;
 
-    fn gate(ids: &[&str]) -> Arc<OfficialProductMcpGate> {
-        let gate = Arc::new(OfficialProductMcpGate::default());
-        for id in ids {
-            gate.observe(id, PluginActivation::Enabled);
+    fn gate(products: &[(&str, u8)]) -> Arc<OfficialMcpRuntime> {
+        let runtime = Arc::new(OfficialMcpRuntime::default());
+        for (product, features) in products {
+            runtime.publish_binding(OfficialMcpBinding {
+                plugin_id: format!("vibex.{product}"),
+                binary_id: "vibex-mcp".into(),
+                product: (*product).into(),
+                features: *features,
+                token: "test".into(),
+            });
         }
-        gate
+        runtime
     }
 
     fn context<'a>(agent: &'a AgentId, accepts: bool) -> CompanionInjectionContext<'a> {
@@ -274,7 +274,10 @@ mod tests {
         let injector = VibexDelegationInjector {
             tokens,
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            official_mcp: gate(&[MULTI_AGENT_PLUGIN_ID, SESSION_ENHANCE_PLUGIN_ID]),
+            official_mcp: gate(&[
+                ("delegation", SESSION_FEAT_ALL),
+                ("session", SESSION_FEAT_ALL),
+            ]),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         let CompanionInjectionList::Injected(servers) =
@@ -295,8 +298,7 @@ mod tests {
     #[test]
     fn session_plugin_can_inject_without_delegation() {
         let tokens = Arc::new(TokenRegistry::new());
-        let official_mcp = gate(&[SESSION_ENHANCE_PLUGIN_ID]);
-        official_mcp.set_session_features(SESSION_FEAT_ASK);
+        let official_mcp = gate(&[("session", SESSION_FEAT_ASK)]);
         let injector = VibexDelegationInjector {
             tokens,
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
@@ -323,7 +325,7 @@ mod tests {
         let injector = VibexDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            official_mcp: Arc::new(OfficialProductMcpGate::default()),
+            official_mcp: Arc::new(OfficialMcpRuntime::default()),
         };
         let agent = AgentId::parse("vendor.capable-agent").unwrap();
         assert_eq!(
@@ -339,7 +341,7 @@ mod tests {
         let injector = VibexDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
-            official_mcp: gate(&[MULTI_AGENT_PLUGIN_ID]),
+            official_mcp: gate(&[("delegation", SESSION_FEAT_ALL)]),
         };
         let agent = AgentId::parse("claude_code").unwrap();
         assert_eq!(

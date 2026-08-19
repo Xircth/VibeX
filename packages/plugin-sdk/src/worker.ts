@@ -24,6 +24,19 @@ export interface PluginWorkerEnvironment {
   };
 }
 
+export function normalizePluginContext(
+  context: Partial<PluginContext> &
+    Pick<PluginContext, "pluginId" | "pluginVersion" | "generation">
+): PluginContext {
+  return {
+    pluginId: context.pluginId,
+    pluginVersion: context.pluginVersion,
+    generation: context.generation,
+    packageClass: context.packageClass ?? "full-trust",
+    grantedCapabilities: context.grantedCapabilities ?? ["*"],
+  };
+}
+
 export type PluginHandler = (
   input: JsonValue,
   environment: PluginWorkerEnvironment

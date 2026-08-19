@@ -4,6 +4,7 @@ import {
   localSkillsToDollarCommands,
   localSkillsToSlashCommands,
   mergeComposerSlashCommands,
+  pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
 } from './commandSources';
 
@@ -158,6 +159,35 @@ describe('composer command sources', () => {
         sourceKind: 'plugin',
         sourceId: 'dev.vibex.review/review',
         prompt: 'Review this.',
+      },
+    ]);
+  });
+
+  it('maps composer.slash contributions to plugin slash candidates', () => {
+    expect(
+      pluginComposerSlashContributions([
+        {
+          pluginId: 'vibex.office',
+          id: 'create-slides',
+          kind: 'composer_slash',
+          label: 'Create slides',
+          generation: 1,
+          metadata: {
+            command: '/slides',
+            description: 'Start a presentation',
+            prompt: 'Create a presentation',
+          },
+        },
+      ])
+    ).toEqual([
+      {
+        name: 'slides',
+        displayLabel: 'Create slides',
+        description: 'Start a presentation',
+        kind: 'COMMAND',
+        sourceKind: 'plugin',
+        sourceId: 'vibex.office/create-slides',
+        prompt: 'Create a presentation',
       },
     ]);
   });

@@ -30,6 +30,7 @@ export interface KanbanProjectSessionRecord {
   isCompleted: boolean;
   isRunning: boolean;
   isErrored: boolean;
+  pinnedAt: string | null;
 }
 
 function truncateSessionName(name: string, length = 7) {
@@ -228,6 +229,7 @@ export function useKanbanProjectSessions(projectId: string | undefined) {
             isCompleted: summary.status === 'done',
             isRunning: summary.is_running,
             isErrored,
+            pinnedAt: summary.pinned_at ?? null,
           };
         });
       })

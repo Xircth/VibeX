@@ -9,7 +9,16 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ts_rs::TS;
 
+mod scan;
 mod sqlite;
+
+pub use scan::{
+    HistoryPathDestination, LocalHistoryDestination, LocalHistoryImportResult,
+    LocalHistoryImportSelection, LocalHistoryScanFolder, LocalHistoryScanPage,
+    LocalHistoryScanSession, LocalHistorySessionStatus, build_local_history_scan_page,
+    history_folder_name, history_paths_overlap, match_history_destination, merge_history_sources,
+    normalize_history_path, scan_configured_history,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -181,6 +190,13 @@ pub fn default_history_sources(agent_type: AgentKind) -> Vec<AgentHistorySource>
             })
             .collect(),
         AgentKind::Cursor => env_or_home_sources(agent_type, "CURSOR_CONFIG_DIR", ".cursor"),
+        AgentKind::DeepseekHarness => env_or_home_sources(agent_type, "DSH_HOME", ".dsh")
+            .into_iter()
+            .map(|source| AgentHistorySource {
+                path: source.path.join("sessions"),
+                ..source
+            })
+            .collect(),
         // In-process mock agent: no on-disk history to import.
         AgentKind::QaMock => Vec::new(),
     }
@@ -193,43 +209,48 @@ pub fn configured_history_sources(
     agent_type: AgentKind,
     configured_env: &HashMap<String, String>,
 ) -> Vec<AgentHistorySource> {
-    let configured =
-        match agent_type {
-            AgentKind::ClaudeCode => configured_root(configured_env, "CLAUDE_CONFIG_DIR")
-                .map(|path| path.join("projects")),
-            AgentKind::Codex => {
-                configured_root(configured_env, "CODEX_HOME").map(|path| path.join("sessions"))
-            }
-            AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
-                .map(|path| path.join("opencode").join("opencode.db")),
-            AgentKind::Gemini => None,
-            AgentKind::Openclaw => {
-                configured_root(configured_env, "OPENCLAW_HOME").map(|path| path.join("agents"))
-            }
-            AgentKind::Cline => {
-                configured_root(configured_env, "CLINE_DIR").map(|path| path.join("tasks"))
-            }
-            AgentKind::Hermes => {
-                configured_root(configured_env, "HERMES_HOME").map(|path| path.join("state.db"))
-            }
-            AgentKind::Codebuddy => configured_root(configured_env, "CODEBUDDY_CONFIG_DIR")
-                .map(|path| path.join("projects")),
-            AgentKind::KimiCode => {
-                configured_root(configured_env, "KIMI_CODE_HOME").map(|path| path.join("sessions"))
-            }
-            AgentKind::Pi => configured_root(configured_env, "PI_CODING_AGENT_SESSION_DIR")
-                .or_else(|| {
-                    configured_root(configured_env, "PI_CODING_AGENT_DIR")
-                        .map(|path| path.join("sessions"))
-                }),
-            AgentKind::Grok => {
-                configured_root(configured_env, "GROK_HOME").map(|path| path.join("sessions"))
-            }
-            AgentKind::Cursor => configured_root(configured_env, "CURSOR_CONFIG_DIR"),
-            AgentKind::QaMock => None,
+    let configured = match agent_type {
+        AgentKind::ClaudeCode => {
+            configured_root(configured_env, "CLAUDE_CONFIG_DIR").map(|path| path.join("projects"))
         }
-        .into_iter()
-        .collect::<Vec<_>>();
+        AgentKind::Codex => {
+            configured_root(configured_env, "CODEX_HOME").map(|path| path.join("sessions"))
+        }
+        AgentKind::Opencode => configured_root(configured_env, "XDG_DATA_HOME")
+            .map(|path| path.join("opencode").join("opencode.db")),
+        AgentKind::Gemini => None,
+        AgentKind::Openclaw => {
+            configured_root(configured_env, "OPENCLAW_HOME").map(|path| path.join("agents"))
+        }
+        AgentKind::Cline => {
+            configured_root(configured_env, "CLINE_DIR").map(|path| path.join("tasks"))
+        }
+        AgentKind::Hermes => {
+            configured_root(configured_env, "HERMES_HOME").map(|path| path.join("state.db"))
+        }
+        AgentKind::Codebuddy => configured_root(configured_env, "CODEBUDDY_CONFIG_DIR")
+            .map(|path| path.join("projects")),
+        AgentKind::KimiCode => {
+            configured_root(configured_env, "KIMI_CODE_HOME").map(|path| path.join("sessions"))
+        }
+        AgentKind::Pi => {
+            configured_root(configured_env, "PI_CODING_AGENT_SESSION_DIR").or_else(|| {
+                configured_root(configured_env, "PI_CODING_AGENT_DIR")
+                    .map(|path| path.join("sessions"))
+            })
+        }
+        AgentKind::Grok => {
+            configured_root(configured_env, "GROK_HOME").map(|path| path.join("sessions"))
+        }
+        AgentKind::Cursor => configured_root(configured_env, "CURSOR_CONFIG_DIR"),
+        AgentKind::DeepseekHarness => configured_root(configured_env, "DEEPSEEK_ACP_SESSIONS_ROOT")
+            .or_else(|| {
+                configured_root(configured_env, "DSH_HOME").map(|path| path.join("sessions"))
+            }),
+        AgentKind::QaMock => None,
+    }
+    .into_iter()
+    .collect::<Vec<_>>();
     let configured = if agent_type == AgentKind::Gemini {
         configured_root(configured_env, "GEMINI_CLI_HOME")
             .into_iter()
@@ -1719,6 +1740,7 @@ mod tests {
             AgentKind::Pi,
             AgentKind::Grok,
             AgentKind::Cursor,
+            AgentKind::DeepseekHarness,
         ] {
             assert!(
                 !default_history_sources(agent_type).is_empty(),

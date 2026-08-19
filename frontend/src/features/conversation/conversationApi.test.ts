@@ -42,10 +42,10 @@ describe('conversationApi', () => {
       workspaceId: 'workspace-1',
       conversationId: 'conversation-1',
       text: 'hello',
-      pluginActions: [
+      workflowRefs: [
         {
           pluginId: 'vibex.office',
-          actionId: 'create-presentation',
+          workflowId: 'create-presentation',
         },
       ],
     });
@@ -57,10 +57,10 @@ describe('conversationApi', () => {
         conversationId: 'conversation-1',
         text: 'hello',
         images: [],
-        pluginActions: [
+        workflowRefs: [
           {
             pluginId: 'vibex.office',
-            actionId: 'create-presentation',
+            workflowId: 'create-presentation',
           },
         ],
       },
@@ -80,6 +80,13 @@ describe('conversationApi', () => {
     expect(call).toHaveBeenLastCalledWith('conversation_input_submit', {
       request: { conversationId: 'conversation-1', payload },
     });
+
+    await conversationApi.submitInput('conversation-1', payload, 'op-stable-1');
+    expect(call).toHaveBeenLastCalledWith(
+      'conversation_input_submit',
+      { request: { conversationId: 'conversation-1', payload } },
+      { operationId: 'op-stable-1' }
+    );
 
     call.mockResolvedValueOnce([]);
     await conversationApi.listInputs('conversation-1');

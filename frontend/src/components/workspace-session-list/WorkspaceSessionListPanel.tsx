@@ -1,21 +1,22 @@
 import { useCallback, useMemo } from 'react';
-import { Loader2 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { SessionHubListItem } from '@/components/kanban/session-hub/SessionHubListItem';
+import { toast } from '@/components/ui/toast';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
 import { useProject } from '@/contexts/ProjectContext';
 import { useWorktree } from '@/contexts/WorktreeContext';
-import { useKanbanProjectSessions } from '@/hooks/useKanbanProjectSessions';
-import { useTaskAttempt } from '@/hooks/useTaskAttempt';
+import {
+  type KanbanProjectSessionRecord,
+  useKanbanProjectSessions,
+} from '@/hooks/useKanbanProjectSessions';
+import { sessionsApi } from '@/lib/api';
+import { getSessionUiErrorMessage } from '@/lib/sessionUiErrors';
 import { useNavigateWithSearch } from '@/hooks/useNavigateWithSearch';
 import { paths } from '@/lib/paths';
-import {
-  WORKSPACE_SESSION_MARKER_CLASSES,
-  workspaceSessionMarkerTone,
-} from './workspaceSessionMarkers';
+import { WorkspaceSessionList } from './WorkspaceSessionList';
 
 function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const { t } = useTranslation(['panels', 'common']);
@@ -25,13 +26,10 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
   const { activeWorktreeId, setActiveWorktree } = useWorktree();
   const { visibleRightSession, replaceRightSession } =
     useKanbanSessionContext();
-  const { data: activeWorkspace } = useTaskAttempt(
-    activeWorktreeId ?? undefined
-  );
+  const queryClient = useQueryClient();
   const { sessions, isLoading } = useKanbanProjectSessions(projectId);
   const activeSessionId =
     routeSessionId ?? visibleRightSession?.sessionId ?? null;
-  const activeBranch = activeWorkspace?.branch ?? null;
   const activeSessions = useMemo(
     () => sessions.filter((session) => session.status !== 'archived'),
     [sessions]
@@ -50,55 +48,65 @@ function WorkspaceSessionListPanel(_props: IDockviewPanelProps) {
     [navigate, projectId, replaceRightSession, setActiveWorktree]
   );
 
+  const refreshWorkspaceSessions = useCallback(
+    (workspaceId: string) =>
+      queryClient.invalidateQueries({
+        queryKey: ['workspaceSessions', workspaceId],
+      }),
+    [queryClient]
+  );
+
+  const pinSession = useCallback(
+    async (session: KanbanProjectSessionRecord, pinned: boolean) => {
+      try {
+        await sessionsApi.setPinned(session.id, pinned);
+        await refreshWorkspaceSessions(session.workspace.id);
+      } catch (error) {
+        toast.error(
+          getSessionUiErrorMessage(error, t('workspaceSessionList.pinFailed'))
+        );
+      }
+    },
+    [refreshWorkspaceSessions, t]
+  );
+
+  const archiveSession = useCallback(
+    async (session: KanbanProjectSessionRecord) => {
+      try {
+        await sessionsApi.updateStatus(session.id, 'archived');
+        await refreshWorkspaceSessions(session.workspace.id);
+      } catch (error) {
+        toast.error(
+          getSessionUiErrorMessage(
+            error,
+            t('workspaceSessionList.archiveFailed')
+          )
+        );
+      }
+    },
+    [refreshWorkspaceSessions, t]
+  );
+
   return (
     <TooltipProvider delayDuration={120}>
       <section
         className="flex h-full min-h-0 flex-col bg-background"
         aria-label={t('workspaceSessionList.title')}
       >
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-2.5">
-          <h2 className="truncate text-sm font-semibold text-foreground">
-            {t('workspaceSessionList.title')}
-          </h2>
-          <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-            {activeSessions.length}
-          </span>
-        </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-          {isLoading ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('workspaceSessionList.loading')}
-            </div>
-          ) : activeSessions.length === 0 ? (
-            <div className="flex h-full items-center justify-center px-5 text-center text-sm text-muted-foreground">
-              {t('workspaceSessionList.empty')}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {activeSessions.map((session) => {
-                const tone = workspaceSessionMarkerTone({
-                  sessionId: session.id,
-                  workspaceId: session.workspace.id,
-                  branch: session.branch,
-                  activeSessionId,
-                  activeWorkspaceId: activeWorktreeId,
-                  activeBranch,
-                });
-                return (
-                  <SessionHubListItem
-                    key={session.id}
-                    session={session}
-                    marker={{ bar: WORKSPACE_SESSION_MARKER_CLASSES[tone] }}
-                    isDeleteMode={false}
-                    isSelected={false}
-                    onClick={() => openSession(session)}
-                    onToggleSelect={() => undefined}
-                  />
-                );
-              })}
-            </div>
-          )}
+          <WorkspaceSessionList
+            sessions={activeSessions}
+            isLoading={isLoading}
+            activeSessionId={activeSessionId}
+            activeWorkspaceId={activeWorktreeId}
+            onSessionClick={openSession}
+            onPinSession={(session, pinned) => {
+              void pinSession(session, pinned);
+            }}
+            onArchiveSession={(session) => {
+              void archiveSession(session);
+            }}
+          />
         </div>
       </section>
     </TooltipProvider>

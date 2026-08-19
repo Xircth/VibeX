@@ -49,7 +49,7 @@ fn write_package_version(root: &std::path::Path, version: &str) {
 fn worker_package(root: &std::path::Path, version: &str) -> PluginPackage {
     std::fs::write(
         root.join("worker.mjs"),
-        r#"import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='activate'?{handlers:['ping']}:m.method==='invoke'?{version:process.cwd()}:null;console.log(JSON.stringify({id:m.id,ok:true,result}));}"#,
+        r#"import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='initialize'?{protocolVersion:'1.1',sdkVersion:'1.0.0',registrations:['ping'],requestedFeatures:[]}:m.method==='activate'?{handlers:['ping']}:m.method==='invoke'?{version:process.cwd()}:null;console.log(JSON.stringify({id:m.id,ok:true,result}));}"#,
     )
     .unwrap();
     write_package_version(root, version);
@@ -84,7 +84,7 @@ fn linked_worker_package(root: &std::path::Path) -> PluginPackage {
           "id":"dev.vibex.drain","publisher":"dev.vibex",
           "name":"Drain","version":"1.0.0",
           "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
-          "entrypoints":{"worker":{"path":"worker.mjs","format":"javascript-esm","protocol":"1.0"}},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
             {"id":"ping","kindVersion":1,"label":"Ping","entrypoints":["action"],"handler":"ping"}
@@ -94,7 +94,7 @@ fn linked_worker_package(root: &std::path::Path) -> PluginPackage {
     .unwrap();
     std::fs::write(
         root.join("worker.mjs"),
-        r#"import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='activate'?{handlers:['ping']}:m.method==='invoke'?{version:process.cwd()}:null;console.log(JSON.stringify({id:m.id,ok:true,result}));}"#,
+        r#"import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='initialize'?{protocolVersion:'1.1',sdkVersion:'1.0.0',registrations:['ping'],requestedFeatures:[]}:m.method==='activate'?{handlers:['ping']}:m.method==='invoke'?{version:process.cwd()}:null;console.log(JSON.stringify({id:m.id,ok:true,result}));}"#,
     )
     .unwrap();
     PluginPackage::inspect(root, PluginSourceKind::DeveloperLink).unwrap()
@@ -598,13 +598,12 @@ async fn package_update_invalidates_digest_scoped_grants_and_retains_rollback() 
         .grant_declared_permissions("dev.vibex.scoped")
         .await
         .unwrap();
-    assert_eq!(
+    assert!(
         control
             .capability_grants("dev.vibex.scoped")
             .await
             .unwrap()
-            .len(),
-        1
+            .is_empty()
     );
 
     write_package_version(root.path(), "2.0.0");

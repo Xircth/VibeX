@@ -1,0 +1,243 @@
+.workflow-studio {
+  height: 100%;
+  min-height: 0;
+}
+
+.workflow-studio-stage,
+.workflow-studio-stage > .react-flow {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.workflow-studio .react-flow__pane {
+  cursor: grab;
+}
+
+.workflow-studio .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.workflow-studio-floating-controls {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-popover);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.workflow-studio-node {
+  min-height: 94px;
+  background: var(--surface-card-strong);
+  box-shadow: 0 1px 2px hsl(220 36% 8% / 0.05);
+}
+
+.workflow-confirmation-node {
+  background: var(--surface-card-strong);
+  color: var(--muted-foreground);
+}
+
+.workflow-confirmation-waiting {
+  border-color: color-mix(in srgb, #d97706 72%, var(--border));
+  color: #b45309;
+  animation: workflow-confirmation-pulse 1.45s ease-in-out infinite;
+}
+
+.workflow-studio-node > button {
+  min-height: 92px;
+  color: inherit;
+  background: transparent;
+}
+
+.workflow-studio-node:hover {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.workflow-node-selected {
+  border-color: hsl(var(--primary));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--primary) 20%, transparent),
+    0 10px 24px hsl(220 36% 8% / 0.08);
+  transform: translateY(-1px);
+}
+
+.workflow-node-running {
+  border-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  animation: workflow-node-pulse 1.8s ease-in-out infinite;
+}
+
+.workflow-node-completed {
+  border-color: color-mix(in srgb, #16a34a 55%, var(--border));
+}
+
+.workflow-node-failed {
+  border-color: color-mix(in srgb, var(--destructive) 70%, var(--border));
+}
+
+.workflow-node-waiting {
+  border-color: color-mix(in srgb, #d97706 65%, var(--border));
+}
+
+.workflow-node-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+
+.workflow-status-dot-running {
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
+}
+
+.workflow-status-dot-completed {
+  background: #16a34a;
+}
+
+.workflow-status-dot-failed {
+  background: hsl(var(--destructive));
+}
+
+.workflow-status-dot-waiting {
+  background: #d97706;
+}
+
+.workflow-status-dot-standby {
+  background: var(--muted-foreground);
+}
+
+.workflow-node-log {
+  border-color: var(--border);
+  background: var(--surface-card-strong);
+  box-shadow: var(--shadow-popover);
+  animation: workflow-panel-reveal 160ms ease-out;
+}
+
+.workflow-flame {
+  display: flex;
+  overflow: hidden;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--muted);
+}
+
+.workflow-flame-span {
+  min-width: 6px;
+  height: 100%;
+}
+
+.workflow-studio-edge.react-flow__edge path {
+  stroke: var(--muted-foreground);
+  stroke-width: 1.75;
+}
+
+.workflow-studio-edge.react-flow__edge.animated path {
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+
+.workflow-inspector-tether path {
+  stroke: hsl(var(--primary) / 0.72);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.workflow-node-inspector {
+  height: min(680px, calc(100% - 76px));
+  border-color: hsl(var(--primary) / 0.32);
+  background: var(--surface-card-strong);
+  box-shadow: var(--shadow-popover);
+  animation: workflow-panel-reveal 160ms ease-out;
+}
+
+.workflow-workspace-panel {
+  background: var(--surface-card-strong);
+  box-shadow: var(--shadow-popover);
+  animation: workflow-panel-reveal 160ms ease-out;
+}
+
+.workflow-edge-completed path {
+  stroke: color-mix(in srgb, #16a34a 70%, var(--muted-foreground));
+}
+
+.workflow-studio .react-flow__minimap.relative,
+.workflow-studio .react-flow__minimap {
+  position: relative;
+  right: auto;
+  bottom: auto;
+}
+
+.workflow-studio .react-flow__controls,
+.workflow-studio .react-flow__minimap {
+  overflow: hidden;
+  border-radius: var(--radius);
+  border-color: var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+@keyframes workflow-node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+}
+
+@keyframes workflow-confirmation-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, #d97706 28%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, #d97706 0%, transparent);
+  }
+}
+
+@keyframes workflow-panel-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-node-running {
+    animation: none;
+  }
+
+  .workflow-confirmation-waiting {
+    animation: none;
+  }
+
+  .workflow-studio-edge.react-flow__edge.animated path {
+    animation: none;
+  }
+
+  .workflow-workspace-panel,
+  .workflow-node-inspector,
+  .workflow-node-log {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .workflow-node-inspector,
+  .workflow-workspace-panel {
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .workflow-node-inspector {
+    height: calc(100% - 76px);
+  }
+}

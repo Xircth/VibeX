@@ -152,6 +152,20 @@ export function createAutomationApi(transport: BackendTransport) {
         input,
       }) as Promise<AutomationView>,
 
+    updateWorkflow: (id: string, input: WorkflowAutomationDraftRequest) =>
+      transport.call('automation_update_workflow', {
+        id,
+        input,
+      }) as Promise<AutomationView>,
+
+    exportSpec: (id: string) =>
+      transport.call('automation_export_spec', { id }) as Promise<string>,
+
+    importSpec: (json: string) =>
+      transport.call('automation_import_spec', {
+        json,
+      }) as Promise<AutomationView>,
+
     setEnabled: (id: string, enabled: boolean) =>
       transport.call('automation_set_enabled', {
         id,
@@ -161,9 +175,10 @@ export function createAutomationApi(transport: BackendTransport) {
     remove: (id: string) =>
       transport.call('automation_delete', { id }) as Promise<void>,
 
-    runNow: (id: string) =>
+    runNow: (id: string, debugStepId?: string) =>
       transport.call('automation_run_now', {
         id,
+        debugStepId,
       }) as Promise<AutomationRunView>,
 
     cancelRun: (runId: string) =>

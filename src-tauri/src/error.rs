@@ -175,6 +175,12 @@ impl From<conversations::ConversationServiceError> for AppError {
             ConversationServiceError::BadRequest(message) => AppError::BadRequest(message),
             ConversationServiceError::Conflict(message) => AppError::Conflict(message),
             ConversationServiceError::Internal(message) => AppError::Internal(message),
+            ConversationServiceError::AuthenticationRequired(message) => {
+                AppError::BadRequest(message)
+            }
+            ConversationServiceError::SessionUnavailable { message, .. } => {
+                AppError::BadRequest(message)
+            }
         }
     }
 }

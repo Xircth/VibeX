@@ -77,15 +77,17 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides,
-                plugin_actions: request
-                    .plugin_actions
+                workflow_refs: request
+                    .workflow_refs
                     .into_iter()
-                    .map(|invocation| agents::ConversationPluginActionInvocation {
+                    .map(|invocation| agents::ConversationWorkflowRef {
                         plugin_id: invocation.plugin_id,
-                        action_id: invocation.action_id,
+                        workflow_id: invocation.workflow_id,
                     })
                     .collect(),
+                file_refs: Vec::new(),
                 queued_input_claim: None,
+                operation_id: request.operation_id,
             })
             .await
             .map(|(turn, _)| turn)
@@ -136,7 +138,18 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
     ) -> Result<ConversationInputSubmission, ApplicationError> {
         let conversation_id = request.conversation_id;
         let submitted = self.inputs.submit(request).await.map_err(map_input_error)?;
-        let dispatched = self.dispatch_next_queued_input(conversation_id).await?;
+        let dispatched = match self.dispatch_next_queued_input(conversation_id).await {
+            Ok(turn) => turn,
+            Err(error) => {
+                tracing::warn!(
+                    %conversation_id,
+                    input_id = %submitted.id,
+                    %error,
+                    "durable conversation input was accepted; dispatch will retry later"
+                );
+                None
+            }
+        };
         let input = self
             .inputs
             .find(conversation_id, submitted.id)
@@ -158,6 +171,9 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         &self,
         conversation_id: uuid::Uuid,
     ) -> Result<Vec<ConversationInputView>, ApplicationError> {
+        if let Err(error) = self.inputs.recover_stale_claims(chrono::Utc::now()).await {
+            tracing::warn!(%conversation_id, %error, "failed to release expired input claims");
+        }
         self.inputs
             .list(conversation_id)
             .await
@@ -178,7 +194,20 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
         &self,
         request: UpdateConversationInput,
     ) -> Result<ConversationInputView, ApplicationError> {
-        self.inputs.update(request).await.map_err(map_input_error)
+        let conversation_id = request.conversation_id;
+        let updated = self.inputs.update(request).await.map_err(map_input_error)?;
+        if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
+            tracing::warn!(
+                %conversation_id,
+                input_id = %updated.id,
+                %error,
+                "updated conversation input remains queued; dispatch will retry later"
+            );
+        }
+        self.inputs
+            .find(conversation_id, updated.id)
+            .await
+            .map_err(map_input_error)
     }
 
     async fn reorder_input(
@@ -202,6 +231,12 @@ fn map_service_error(error: ConversationServiceError) -> ApplicationError {
         ConversationServiceError::BadRequest(message) => ApplicationError::bad_request(message),
         ConversationServiceError::Conflict(message) => ApplicationError::conflict(message),
         ConversationServiceError::Internal(message) => ApplicationError::internal(message),
+        ConversationServiceError::AuthenticationRequired(message) => {
+            ApplicationError::bad_request(message)
+        }
+        ConversationServiceError::SessionUnavailable { message, .. } => {
+            ApplicationError::bad_request(message)
+        }
     }
 }
 

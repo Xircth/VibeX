@@ -18,6 +18,7 @@ import type {
   ConversationOutputView,
   ConversationSteeringReceipt,
   WorkflowDefinition,
+  WorkflowDefinitionSummary,
   WorkflowPolicy,
   WorkflowVersionView,
   WorkflowRunView,
@@ -44,6 +45,10 @@ export type DevicePairingChallenge = {
   pairing_token: string;
   expires_at: string;
   requested_scopes: string[];
+  host_id?: string;
+  invitation?: string;
+  preset?: string;
+  reachability?: Array<{ origin: string; kind: string }>;
 };
 
 export interface ApplicationCommandMap {
@@ -75,7 +80,7 @@ export interface ApplicationCommandMap {
         images: string[];
         modeOverride?: string | null;
         configOverrides?: AgentSessionConfigOverride[];
-        pluginActions?: Array<{ pluginId: string; actionId: string }>;
+        workflowRefs?: Array<{ pluginId: string; workflowId: string }>;
       };
     };
     result: ConversationTurnSnapshot;
@@ -142,6 +147,7 @@ export interface ApplicationCommandMap {
       request: {
         definitionId?: string | null;
         definition: WorkflowDefinition;
+        sourcePath?: string | null;
       };
     };
     result: WorkflowVersionView;
@@ -157,6 +163,23 @@ export interface ApplicationCommandMap {
         workspaceId: string;
         input: unknown;
         policyOverride?: WorkflowPolicy | null;
+        debugStepId?: string | null;
+      };
+    };
+    result: WorkflowRunView;
+  };
+  workflow_debug: {
+    args: {
+      request: {
+        definitionId?: string | null;
+        definition: WorkflowDefinition;
+        sourcePath?: string | null;
+        workspaceId?: string | null;
+        input: unknown;
+        policyOverride?: WorkflowPolicy | null;
+        stepId: string;
+        parentRunId?: string | null;
+        scope?: 'node' | 'downstream';
       };
     };
     result: WorkflowRunView;
@@ -168,6 +191,14 @@ export interface ApplicationCommandMap {
   workflow_version: {
     args: { versionId: string };
     result: WorkflowVersionView;
+  };
+  workflow_list: {
+    args: { limit?: number };
+    result: WorkflowDefinitionSummary[];
+  };
+  workflow_versions: {
+    args: { definitionId: string; limit?: number };
+    result: WorkflowVersionView[];
   };
   workflow_steps: {
     args: { runId: string };
@@ -195,6 +226,39 @@ export interface ApplicationCommandMap {
   };
   workflow_resume: {
     args: { request: { runId: string; decision: WorkflowReviewDecision } };
+    result: WorkflowRunView;
+  };
+  workflow_pause: {
+    args: { request: { runId: string; reason?: string | null } };
+    result: WorkflowRunView;
+  };
+  workflow_resume_run: {
+    args: { request: { runId: string } };
+    result: WorkflowRunView;
+  };
+  workflow_accept_candidate: {
+    args: { request: { runId: string; stepId: string } };
+    result: WorkflowRunView;
+  };
+  workflow_pause_step: {
+    args: {
+      request: { runId: string; stepId: string; reason?: string | null };
+    };
+    result: WorkflowStepView;
+  };
+  workflow_step_input: {
+    args: { request: { runId: string; stepId: string; text: string } };
+    result: WorkflowStepView;
+  };
+  workflow_fork: {
+    args: {
+      request: {
+        parentRunId: string;
+        definitionVersionId: string;
+        stepId: string;
+        scope: 'node' | 'downstream';
+      };
+    };
     result: WorkflowRunView;
   };
   conversation_respond_permission: {

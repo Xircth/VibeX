@@ -26,14 +26,30 @@ import {
   agentManagementErrorMessage as errorMessage,
 } from '@/features/agent-management';
 
+import {
+  clearAgentSettingsDraft,
+  peekAgentSettingsDraft,
+  retainAgentSettingsDraft,
+} from './agentSettingsDraftRetention';
 import { CodexDeviceLogin } from './CodexDeviceLogin';
+
+type AuthDraft = {
+  mode: string;
+  apiKey: string;
+};
+
+function authDraftKey(agentId: AgentId) {
+  return `auth-mode:${agentId}`;
+}
 
 type Props = {
   agentId: AgentId;
   actions?: AgentManagementActionsView | null;
   actionRunning?: string | null;
   busy?: boolean;
-  configuration?: ReactNode;
+  configuration?: ReactNode | ((mode: string) => ReactNode);
+  headingExtra?: ReactNode;
+  hideSave?: boolean;
   modelProvider?: ReactNode;
   nativeCredentialPresent?: (fieldId: string) => boolean;
   onChanged?: () => void | Promise<void>;
@@ -48,6 +64,8 @@ export function AgentAuthModeControl({
   actionRunning = null,
   busy = false,
   configuration,
+  headingExtra,
+  hideSave = false,
   modelProvider,
   nativeCredentialPresent,
   onChanged,
@@ -57,8 +75,9 @@ export function AgentAuthModeControl({
 }: Props) {
   const { t } = useTranslation('settings');
   const [view, setView] = useState<AgentAuthModeView | null>(null);
-  const [mode, setMode] = useState('subscription');
-  const [apiKey, setApiKey] = useState('');
+  const retained = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
+  const [mode, setMode] = useState(retained?.mode ?? 'subscription');
+  const [apiKey, setApiKey] = useState(retained?.apiKey ?? '');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -69,7 +88,9 @@ export function AgentAuthModeControl({
     try {
       const next = await agentManagementApi.authMode(agentId);
       setView(next);
-      setMode(next.mode);
+      const kept = peekAgentSettingsDraft<AuthDraft>(authDraftKey(agentId));
+      setMode(kept?.mode ?? next.mode);
+      if (kept) setApiKey(kept.apiKey);
     } catch (error) {
       const message = errorMessage(error, t('agents.authLoadFailed'));
       setLoadError(message);
@@ -85,6 +106,12 @@ export function AgentAuthModeControl({
     onDirtyChange?.(dirty);
     return () => onDirtyChange?.(false);
   }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    if (!view) return;
+    const key = authDraftKey(agentId);
+    if (dirty) retainAgentSettingsDraft(key, { mode, apiKey });
+    else clearAgentSettingsDraft(key);
+  }, [agentId, apiKey, dirty, mode, view]);
 
   const save = async () => {
     setSaving(true);
@@ -97,6 +124,7 @@ export function AgentAuthModeControl({
       setView(next);
       setMode(next.mode);
       setApiKey('');
+      clearAgentSettingsDraft(authDraftKey(agentId));
       toast.success(t('agents.authSaved'));
       await onChanged?.();
     } catch (error) {
@@ -128,7 +156,9 @@ export function AgentAuthModeControl({
           ? 'Claude Code'
           : agentId === 'gemini'
             ? 'Gemini'
-            : 'Cursor';
+            : agentId === 'deepseek_harness'
+              ? 'DeepSeek Harness'
+              : 'Cursor';
 
   return (
     <section
@@ -136,10 +166,11 @@ export function AgentAuthModeControl({
       className="settings-surface agent-auth-mode-surface"
     >
       <div className="agent-section-heading">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <ShieldCheck aria-hidden="true" className="h-4 w-4" />
           <h3 id={`${agentId}-auth-mode-heading`}>{t('agents.authTitle')}</h3>
         </div>
+        {panel === 'configuration' ? headingExtra : null}
       </div>
 
       {loading && !view ? (
@@ -184,20 +215,24 @@ export function AgentAuthModeControl({
                 }}
               />
             </label>
-            <Button
-              className="h-8 shrink-0"
-              disabled={saving || (requiresCredential && !credentialAvailable)}
-              size="sm"
-              onClick={() => void save()}
-            >
-              {saving ? (
-                <Loader2
-                  aria-hidden="true"
-                  className="h-3.5 w-3.5 animate-spin"
-                />
-              ) : null}
-              {saving ? t('agents.saving') : t('agents.authSave')}
-            </Button>
+            {hideSave ? null : (
+              <Button
+                className="h-8 shrink-0"
+                disabled={
+                  saving || (requiresCredential && !credentialAvailable)
+                }
+                size="sm"
+                onClick={() => void save()}
+              >
+                {saving ? (
+                  <Loader2
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 animate-spin"
+                  />
+                ) : null}
+                {saving ? t('agents.saving') : t('agents.authSave')}
+              </Button>
+            )}
           </div>
 
           {requiresCredential &&
@@ -289,7 +324,9 @@ export function AgentAuthModeControl({
               className="agent-auth-mode-panel agent-auth-mode-panel-config"
               hidden={panel !== 'configuration'}
             >
-              {configuration}
+              {typeof configuration === 'function'
+                ? configuration(mode)
+                : configuration}
             </div>
           ) : null}
 

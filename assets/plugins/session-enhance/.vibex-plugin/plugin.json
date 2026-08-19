@@ -50,6 +50,11 @@
       "kind": "content.skill",
       "resource": "contents/skills/vibex-session-enhance",
       "targets": ["codex", "claude-code", "acp"]
+    },
+    {
+      "id": "vibex-session-mcp",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/session.json"
     }
   ],
   "interface": { "icon": "assets/icon.svg" }

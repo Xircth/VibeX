@@ -7,6 +7,7 @@ import type {
   WorkerRequest,
   WorkerResponse,
 } from './protocol.js';
+import { VIBEX_PLUGIN_API_VERSION, VIBEX_PLUGIN_PROTOCOL_VERSION } from './protocol.js';
 import {
   activatePluginWorker,
   PluginSdkError,
@@ -80,6 +81,25 @@ export async function runStdioPluginWorker(
     }
     try {
       switch (message.method) {
+        case 'initialize': {
+          if (!message.params.protocolRange.includes('1.1')) {
+            throw new PluginSdkError(
+              'protocol_unsupported',
+              'Host protocol range does not include 1.1'
+            );
+          }
+          send({
+            id: message.id,
+            ok: true,
+            result: {
+              protocolVersion: VIBEX_PLUGIN_PROTOCOL_VERSION,
+              sdkVersion: VIBEX_PLUGIN_API_VERSION,
+              registrations: [],
+              requestedFeatures: [],
+            },
+          });
+          break;
+        }
         case 'activate': {
           if (worker) {
             throw new PluginSdkError(
@@ -88,7 +108,13 @@ export async function runStdioPluginWorker(
             );
           }
           worker = await activatePluginWorker(definition, {
-            context: message.params,
+            context: {
+              pluginId: message.params.pluginId,
+              pluginVersion: message.params.pluginVersion,
+              generation: message.params.generation,
+              packageClass: message.params.packageClass ?? 'full-trust',
+              grantedCapabilities: message.params.grantedCapabilities ?? ['*'],
+            },
             host,
             log: createStderrLogger(),
           });

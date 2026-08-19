@@ -7,7 +7,9 @@ import {
 } from 'react';
 import type {
   AgentElicitationResponse,
+  AgentPermissionResponse,
   ConversationError,
+  ConversationPermissionView,
   ConversationQuestionRequest,
   ConversationSessionNotice,
 } from 'shared/types';
@@ -18,6 +20,7 @@ export type ConversationStatusNotice =
       kind: 'turn-error';
       error: ConversationError;
       onReload?: () => void | Promise<unknown>;
+      onRebind?: () => void | Promise<unknown>;
     }
   | {
       id: string;
@@ -28,6 +31,7 @@ export type ConversationStatusNotice =
       id: string;
       kind: 'session-notice';
       notice: ConversationSessionNotice;
+      onRebind?: () => void | Promise<unknown>;
     };
 
 export type PendingConversationQuestion = {
@@ -36,12 +40,20 @@ export type PendingConversationQuestion = {
   onRespond: (questionId: string, response: AgentElicitationResponse) => void;
 };
 
+export type PendingConversationPermission = {
+  request: ConversationPermissionView;
+  responding: boolean;
+  onRespond: (permissionId: string, response: AgentPermissionResponse) => void;
+};
+
 type ConversationStatusContextValue = {
   enabled: boolean;
   notices: ConversationStatusNotice[];
   setNotices: (notices: ConversationStatusNotice[]) => void;
   question: PendingConversationQuestion | null;
   setQuestion: (question: PendingConversationQuestion | null) => void;
+  permissions: PendingConversationPermission[];
+  setPermissions: (permissions: PendingConversationPermission[]) => void;
 };
 
 const ConversationStatusContext =
@@ -58,9 +70,20 @@ export function ConversationStatusProvider({
   const [question, setQuestion] = useState<PendingConversationQuestion | null>(
     null
   );
+  const [permissions, setPermissions] = useState<
+    PendingConversationPermission[]
+  >([]);
   const value = useMemo(
-    () => ({ enabled, notices, setNotices, question, setQuestion }),
-    [enabled, notices, question]
+    () => ({
+      enabled,
+      notices,
+      setNotices,
+      question,
+      setQuestion,
+      permissions,
+      setPermissions,
+    }),
+    [enabled, notices, permissions, question]
   );
 
   return (

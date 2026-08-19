@@ -108,6 +108,11 @@ export {
   skillsMarketApi,
 } from './misc';
 export type {
+  LogLevel,
+  LogRecord,
+  LogSettings,
+  LogSettingsView,
+  TargetDirective,
   FileTreeEntry,
   DirectoryChildrenResponse,
   BinaryAssetResponse,

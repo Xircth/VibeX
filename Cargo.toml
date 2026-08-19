@@ -18,6 +18,7 @@ members = [
     "crates/deployment",
     "crates/review",
     "crates/plugins",
+    "crates/plugin-sdk",
     "crates/tool-runtime",
     "crates/artifacts",
     "crates/automation",

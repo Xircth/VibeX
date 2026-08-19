@@ -390,24 +390,6 @@ async fn doctor(
     if plugin.publisher.as_deref() != Some(publisher.as_str()) {
         return Err(DevError::not_found(&id));
     }
-    let grants = sqlx::query(
-        "SELECT capability, scope_json, trust_tier, revoked_at
-         FROM plugin_grants_v4 WHERE plugin_id = ? ORDER BY permission_id",
-    )
-    .bind(&id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(DevError::database)?
-    .into_iter()
-    .map(|row| {
-        json!({
-            "capability": row.get::<String, _>("capability"),
-            "scope": serde_json::from_str::<Value>(&row.get::<String, _>("scope_json")).unwrap_or(Value::Null),
-            "trustTier": row.get::<String, _>("trust_tier"),
-            "revoked": row.get::<Option<String>, _>("revoked_at").is_some(),
-        })
-    })
-    .collect::<Vec<_>>();
     let runtimes = state
         .plugins
         .runtime_inventory()
@@ -503,11 +485,19 @@ async fn doctor(
             "sourceKind": plugin.source.kind,
         },
         "activation": { "enabled": plugin.activation == plugins::PluginActivation::Enabled, "generation": generation },
-        "grants": grants,
+        "sourceKind": match plugin.source.kind {
+            plugins::PluginSourceKind::DeveloperLink => "linked",
+            plugins::PluginSourceKind::Builtin => "builtin",
+            _ => "installed",
+        },
         "runtimes": runtimes,
         "surfaces": surfaces,
         "agentBindings": bindings,
-        "recentCrashes": [],
+        "mcpRebindingRequired": bindings.iter().any(|binding| {
+            binding.get("desired").and_then(|value| value.as_bool()) == Some(true)
+                && binding.get("applied").and_then(|value| value.as_bool()) != Some(true)
+        }),
+        "recentCrashes": plugins::recent_plugin_crashes(&id),
         "diagnostics": diagnostics,
     })))
 }

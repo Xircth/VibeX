@@ -51,6 +51,9 @@ const GROK_SCRUB_ENV: &[&str] = &["XAI_API_KEY"];
 const CURSOR_MODES: &[&str] = &["subscription", "custom"];
 const CURSOR_CREDENTIAL_MODES: &[&str] = &["custom"];
 const CURSOR_SCRUB_ENV: &[&str] = &["CURSOR_API_KEY", "CURSOR_API_BASE_URL"];
+const DSH_MODES: &[&str] = &["deepseek", "custom"];
+const DSH_CREDENTIAL_MODES: &[&str] = &["deepseek", "custom"];
+const DSH_OFFICIAL_SCRUB_ENV: &[&str] = &["DEEPSEEK_BASE_URL"];
 
 pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePolicy> {
     match agent_id.as_str() {
@@ -86,18 +89,44 @@ pub fn built_in_auth_mode_policy(agent_id: &AgentId) -> Option<BuiltInAuthModePo
             subscription_scrub_env: CURSOR_SCRUB_ENV,
             default_mode: "subscription",
         }),
+        "deepseek_harness" => Some(BuiltInAuthModePolicy {
+            mode_env: "DSH_AUTH_MODE",
+            credential_env: "DEEPSEEK_API_KEY",
+            modes: DSH_MODES,
+            credential_modes: DSH_CREDENTIAL_MODES,
+            subscription_scrub_env: DSH_OFFICIAL_SCRUB_ENV,
+            default_mode: "deepseek",
+        }),
         _ => None,
     }
+}
+
+fn resolved_auth_mode<'a>(
+    agent_id: &AgentId,
+    policy: BuiltInAuthModePolicy,
+    env: &'a HashMap<String, String>,
+) -> &'a str {
+    env.get(policy.mode_env)
+        .map(String::as_str)
+        .filter(|mode| policy.modes.contains(mode))
+        .unwrap_or_else(|| {
+            if agent_id.as_str() == "deepseek_harness"
+                && env
+                    .get("DEEPSEEK_BASE_URL")
+                    .is_some_and(|value| !value.trim().is_empty())
+            {
+                "custom"
+            } else {
+                policy.default_mode
+            }
+        })
 }
 
 pub fn apply_built_in_auth_mode_policy(agent_id: &AgentId, env: &mut HashMap<String, String>) {
     let Some(policy) = built_in_auth_mode_policy(agent_id) else {
         return;
     };
-    let mode = env
-        .get(policy.mode_env)
-        .map(String::as_str)
-        .unwrap_or(policy.default_mode);
+    let mode = resolved_auth_mode(agent_id, policy, env);
     for key in auth_mode_scrubbed_env_keys(agent_id, mode) {
         env.remove(*key);
     }
@@ -113,10 +142,7 @@ pub fn built_in_auth_mode_scrubbed_env_keys(
     let Some(policy) = built_in_auth_mode_policy(agent_id) else {
         return &[];
     };
-    let mode = env
-        .get(policy.mode_env)
-        .map(String::as_str)
-        .unwrap_or(policy.default_mode);
+    let mode = resolved_auth_mode(agent_id, policy, env);
     auth_mode_scrubbed_env_keys(agent_id, mode)
 }
 
@@ -127,6 +153,7 @@ pub fn auth_mode_credential_env(agent_id: &AgentId, mode: &str) -> Option<&'stat
         ("claude_code", "custom") => Some("ANTHROPIC_API_KEY"),
         ("grok", "api_key") => Some("XAI_API_KEY"),
         ("cursor", "custom") => Some("CURSOR_API_KEY"),
+        ("deepseek_harness", "deepseek" | "custom") => Some("DEEPSEEK_API_KEY"),
         _ => None,
     }
 }
@@ -186,6 +213,7 @@ fn auth_mode_scrubbed_env_keys(agent_id: &AgentId, mode: &str) -> &'static [&'st
         ("grok" | "cursor", "subscription") => built_in_auth_mode_policy(agent_id)
             .map(|policy| policy.subscription_scrub_env)
             .unwrap_or_default(),
+        ("deepseek_harness", "deepseek") => DSH_OFFICIAL_SCRUB_ENV,
         _ => &[],
     }
 }

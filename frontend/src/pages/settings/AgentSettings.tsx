@@ -26,7 +26,11 @@ import {
 } from '@/features/agent-management';
 
 import { AgentBar } from './AgentBar';
-import { AgentConfigurationAndDiagnostics } from './AgentConfigurationAndDiagnostics';
+import {
+  AgentConfigPathMeta,
+  AgentConfigurationAndDiagnostics,
+  configFilePathsForSurface,
+} from './AgentConfigurationAndDiagnostics';
 import { AgentDetail } from './AgentDetail';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
 import { AgentEnvironmentEditor } from './AgentEnvironmentEditor';
@@ -35,6 +39,10 @@ import { AgentModelProviderManager } from './AgentModelProviderManager';
 import { AgentRegistryViewPanel } from './AgentRegistryView';
 import { OpenCodeProviderConnections } from './OpenCodeProviderConnections';
 import { OpenCodePluginHealth } from './OpenCodePluginHealth';
+import { DshAuthPanel } from './DshAuthPanel';
+import { DshPluginManager } from './DshPluginManager';
+import { GrokPluginManager } from './GrokPluginManager';
+import { DshSessionDefaults } from './DshSessionDefaults';
 import { PluginsSettings, type PluginEcosystem } from './PluginsSettings';
 import { SettingsSection as CollapsibleSettingsSection } from './SettingsSection';
 import { UserAgentDefinitionPanel } from './UserAgentDefinitionPanel';
@@ -89,6 +97,10 @@ export function AgentSettings() {
     (dirty: boolean) => setDirtySource('configuration', dirty),
     [setDirtySource]
   );
+  const setAuthConfigurationDirty = useCallback(
+    (dirty: boolean) => setDirtySource('auth-configuration', dirty),
+    [setDirtySource]
+  );
   const setAuthModeDirty = useCallback(
     (dirty: boolean) => setDirtySource('auth-mode', dirty),
     [setDirtySource]
@@ -103,6 +115,10 @@ export function AgentSettings() {
   );
   const setOpenCodeProviderDirty = useCallback(
     (dirty: boolean) => setDirtySource('opencode-provider', dirty),
+    [setDirtySource]
+  );
+  const setDshProviderDirty = useCallback(
+    (dirty: boolean) => setDirtySource('dsh-provider', dirty),
     [setDirtySource]
   );
   const setEnvironmentDirty = useCallback(
@@ -401,22 +417,17 @@ export function AgentSettings() {
     [management, selectedAgentId, t]
   );
 
-  const move = useCallback(
-    async (direction: -1 | 1) => {
-      if (!selectedAgentId) return;
-      const order = management.state.agents.map((agent) => agent.agent_id);
-      const index = order.indexOf(selectedAgentId);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= order.length) return;
-      [order[index], order[target]] = [order[target], order[index]];
+  const reorder = useCallback(
+    async (order: string[]) => {
       try {
         await agentManagementApi.reorder(order);
         await management.refresh();
       } catch (error) {
         toast.error(errorMessage(error, t('settings:agents.reorderFailed')));
+        await management.refresh().catch(() => undefined);
       }
     },
-    [management, selectedAgentId, t]
+    [management, t]
   );
 
   const queueRepair = useCallback(async () => {
@@ -739,6 +750,7 @@ export function AgentSettings() {
               if (await confirmDiscardConfig()) setRegistryOpen(true);
             })()
           }
+          onReorder={(order) => void reorder(order)}
         />
         <Button
           size="sm"
@@ -777,7 +789,22 @@ export function AgentSettings() {
               }
               preflight={preflight}
               authentication={
-                config?.settings_features.includes('authentication_mode') ? (
+                selectedAgent.agent_id === 'deepseek_harness' ? (
+                  <DshAuthPanel
+                    onDirtyChange={setDshProviderDirty}
+                    onChanged={async () => {
+                      setConfig(
+                        await agentManagementApi.readConfig(
+                          selectedAgent.agent_id
+                        )
+                      );
+                      await management.refresh();
+                      await runPreflight();
+                    }}
+                  />
+                ) : config?.settings_features.includes(
+                    'authentication_mode'
+                  ) ? (
                   <AgentAuthModeControl
                     actions={actions}
                     actionRunning={actionRunning}
@@ -787,19 +814,34 @@ export function AgentSettings() {
                         selectedAgent.active_operation ||
                         management.state.operations[selectedAgent.agent_id]
                     )}
-                    configuration={
-                      <AgentConfigurationAndDiagnostics
-                        config={config}
+                    headingExtra={
+                      <AgentConfigPathMeta
+                        paths={configFilePathsForSurface(
+                          config,
+                          'authentication'
+                        )}
                         saving={savingConfig}
-                        conflictMessage={configConflict?.message}
-                        embedded
-                        onSave={(request) => void saveConfig(request)}
-                        onSaveFile={(request) => void saveConfigFile(request)}
-                        onReloadConflict={() => void reloadConflict()}
-                        onAdoptExternal={() => setConfigConflict(null)}
-                        onOverwriteConflict={() => void overwriteConflict()}
-                        onDirtyChange={setConfigurationDirty}
                       />
+                    }
+                    configuration={
+                      config.fields.some(
+                        (field) =>
+                          (field.surface ?? 'configuration') ===
+                          'authentication'
+                      ) ? (
+                        <AgentConfigurationAndDiagnostics
+                          config={config}
+                          fieldSurface="authentication"
+                          saving={savingConfig}
+                          conflictMessage={configConflict?.message}
+                          embedded
+                          onSave={(request) => void saveConfig(request)}
+                          onReloadConflict={() => void reloadConflict()}
+                          onAdoptExternal={() => setConfigConflict(null)}
+                          onOverwriteConflict={() => void overwriteConflict()}
+                          onDirtyChange={setAuthConfigurationDirty}
+                        />
+                      ) : undefined
                     }
                     modelProvider={
                       config.settings_features.includes(
@@ -833,7 +875,6 @@ export function AgentSettings() {
               checkingUpdate={checkingUpdate}
               updateCheck={updateCheck}
               onSetEnabled={(enabled) => void setEnabled(enabled)}
-              onMove={(direction) => void move(direction)}
               onPreflight={() => void runPreflight()}
               onInstall={() => void queueInstall()}
               onInstallVersion={(version) => void queueVersionInstall(version)}
@@ -908,9 +949,21 @@ export function AgentSettings() {
                 ) : null}
               </>
             ) : null}
-            {!config?.settings_features.includes('authentication_mode') ? (
+            {selectedAgent.agent_id === 'deepseek_harness' ? (
+              <DshSessionDefaults
+                onDirtyChange={setConfigurationDirty}
+                onChanged={async () => {
+                  await management.refresh();
+                }}
+              />
+            ) : (
               <AgentConfigurationAndDiagnostics
                 config={config}
+                fieldSurface={
+                  config?.settings_features.includes('authentication_mode')
+                    ? 'configuration'
+                    : undefined
+                }
                 saving={savingConfig}
                 conflictMessage={configConflict?.message}
                 onSave={(request) => void saveConfig(request)}
@@ -920,9 +973,29 @@ export function AgentSettings() {
                 onOverwriteConflict={() => void overwriteConflict()}
                 onDirtyChange={setConfigurationDirty}
               />
-            ) : null}
+            )}
           </div>
-          {nativePluginEcosystem ? (
+          {selectedAgent.agent_id === 'deepseek_harness' ? (
+            <CollapsibleSettingsSection
+              id={`${selectedAgent.agent_id}-native-plugins`}
+              title={t('settings:agents.pluginsTab')}
+              icon={Puzzle}
+              expanded={nativePluginsExpanded}
+              onToggle={() => setNativePluginsExpanded((current) => !current)}
+            >
+              <DshPluginManager onChanged={runPreflight} />
+            </CollapsibleSettingsSection>
+          ) : selectedAgent.agent_id === 'grok' ? (
+            <CollapsibleSettingsSection
+              id={`${selectedAgent.agent_id}-native-plugins`}
+              title={t('settings:agents.pluginsTab')}
+              icon={Puzzle}
+              expanded={nativePluginsExpanded}
+              onToggle={() => setNativePluginsExpanded((current) => !current)}
+            >
+              <GrokPluginManager onChanged={runPreflight} />
+            </CollapsibleSettingsSection>
+          ) : nativePluginEcosystem ? (
             <CollapsibleSettingsSection
               id={`${selectedAgent.agent_id}-native-plugins`}
               title={t('settings:agents.pluginsTab')}

@@ -1,5 +1,4 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import type { ExecutorProfileId } from 'shared/types';
 import { imagesApi } from '@/lib/api';
 import type { SessionComposerImage } from './SessionComposerInput';
@@ -7,19 +6,14 @@ import {
   getUploadedImageApplication,
   revokeComposerImagePreviewUrl,
 } from './sessionComposerImages';
-import {
-  getQueueSnapshot,
-  getQueueStatusQueryKey,
-  type QueueStatus,
-} from './sessionComposerQueue';
 
 export function useSessionComposerImageUpload({
   workspaceId,
-  sessionId,
   draftMessage,
   executorProfile,
   saveToScratch,
   setAttachedImages,
+  onError,
 }: {
   workspaceId: string | null | undefined;
   sessionId: string | null | undefined;
@@ -31,9 +25,8 @@ export function useSessionComposerImageUpload({
     images?: string[]
   ) => Promise<void> | void;
   setAttachedImages: Dispatch<SetStateAction<SessionComposerImage[]>>;
+  onError?: (message: string) => void;
 }) {
-  const queryClient = useQueryClient();
-
   const handleAttachImages = useCallback(
     async (files: File[]) => {
       if (!workspaceId) return;
@@ -41,9 +34,6 @@ export function useSessionComposerImageUpload({
       for (const file of files) {
         try {
           const response = await imagesApi.uploadForAttempt(workspaceId, file);
-          const status = queryClient.getQueryData<QueueStatus>(
-            getQueueStatusQueryKey(sessionId ?? undefined)
-          );
           const previewUrl = URL.createObjectURL(file);
 
           setAttachedImages((prev) => {
@@ -57,27 +47,28 @@ export function useSessionComposerImageUpload({
               revokeComposerImagePreviewUrl(nextApplication.imageToRevoke);
             }
 
-            if (!getQueueSnapshot(status).isQueued) {
-              void saveToScratch(
-                nextApplication.scratchMessage,
-                executorProfile,
-                nextApplication.scratchImagePaths
-              );
-            }
+            void saveToScratch(
+              nextApplication.scratchMessage,
+              executorProfile,
+              nextApplication.scratchImagePaths
+            );
 
             return nextApplication.attachments;
           });
         } catch (error) {
-          console.error('Failed to upload image:', error);
+          const message =
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : 'Could not attach image';
+          onError?.(message);
         }
       }
     },
     [
       draftMessage,
       executorProfile,
-      queryClient,
+      onError,
       saveToScratch,
-      sessionId,
       setAttachedImages,
       workspaceId,
     ]

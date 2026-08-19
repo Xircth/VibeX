@@ -15,7 +15,6 @@ pub mod codex;
 pub mod opencode;
 #[cfg(feature = "qa-mode")]
 pub mod qa_mock;
-pub mod utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 pub struct SlashCommandDescription {

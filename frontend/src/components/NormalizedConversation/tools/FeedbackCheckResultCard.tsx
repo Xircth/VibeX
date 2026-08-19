@@ -1,14 +1,14 @@
 import { MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
-import { renderJson } from '../conversation-entry-utils';
-import { ToolResultView } from './ToolResultView';
+import { ToolArtifact, ToolFacts, ToolProse } from './ToolArtifact';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
 import { readString } from './jsonValue';
+import { jsonToFacts } from './toolArtifactModel';
 
 function isFeedbackToolName(toolName: string): boolean {
   return /feedback|review_check|check_feedback/i.test(toolName);
@@ -48,26 +48,20 @@ export function FeedbackCheckResultCard({ entry }: { entry: NormalizedEntry }) {
       expanded
       expandable={false}
     >
-      {action.arguments ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('feedbackCheck.checkItems')}
-          </div>
-          <div className="conv-tool-details-content">
-            {renderJson(action.arguments)}
-          </div>
-        </>
-      ) : null}
-      {action.result ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('feedbackCheck.result')}
-          </div>
-          <div className="conv-tool-details-content">
-            <ToolResultView result={action.result} />
-          </div>
-        </>
-      ) : null}
+      <ToolArtifact title={summary}>
+        <ToolFacts facts={jsonToFacts(action.arguments)} />
+        {action.result?.type.type === 'json' ? (
+          <ToolFacts
+            facts={jsonToFacts(action.result.value, {
+              skipKeys: ['summary', 'message'],
+            })}
+          />
+        ) : action.result ? (
+          <ToolProse>
+            <span>{summary}</span>
+          </ToolProse>
+        ) : null}
+      </ToolArtifact>
     </ToolCardShell>
   );
 }

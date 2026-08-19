@@ -450,7 +450,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "hello".to_string(),
                 }],
-                plugin_actions: Vec::new(),
+                workflow_refs: Vec::new(),
             },
         )
         .await;

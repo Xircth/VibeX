@@ -13,6 +13,8 @@
     "blockingCount": "{{count}} 项阻塞 agent",
     "kindPermission": "等待权限批准",
     "kindQuestion": "等待你的回答",
+    "kindNotice": "会话提示",
+    "kindCompleted": "对话已完成",
     "kindFailed": "回合失败",
     "kindInterrupted": "回合被中断",
     "kindInReview": "等待评审",

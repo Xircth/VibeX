@@ -15,7 +15,7 @@
   word-break: break-word;
   min-width: 0;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.7;
   color: var(--conv-text-primary);
 }
 
@@ -25,8 +25,15 @@
   overflow-wrap: anywhere;
   word-break: break-word;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.7;
   color: var(--conv-text-primary);
+}
+
+.conv-markdown > *,
+.conv-markdown p,
+.conv-markdown li,
+.conv-markdown [role='paragraph'] {
+  line-height: 1.7;
 }
 
 .conv-markdown > * {
@@ -93,7 +100,7 @@
   background: var(--conv-surface-control);
   border: 1px solid var(--conv-border-subtle);
   color: var(--conv-text-primary);
-  padding: 1px 5px;
+  padding: 0.05em 5px;
   border-radius: var(--radius);
   font-size: 0.88em;
 }
@@ -312,19 +319,46 @@
 }
 
 .conv-markdown ul {
-  padding-left: 4.4px;
+  padding-left: 2.2px;
   list-style-type: disc;
 }
 
 .conv-markdown ol {
-  padding-left: 5.6px;
+  padding-left: 8px;
   list-style-type: decimal;
+}
+
+.conv-markdown .astryx-list-item {
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+}
+
+.conv-markdown .astryx-list-item > span:first-child {
+  width: 8px !important;
+}
+
+.conv-markdown
+  [data-list-style='decimal']
+  > .astryx-list-item
+  > span:first-child {
+  width: auto !important;
+  min-width: 1.5em !important;
+  white-space: nowrap;
 }
 
 .conv-markdown li {
   margin-bottom: 4px;
   word-wrap: break-word;
   overflow-wrap: break-word;
+}
+
+.conv-markdown hr {
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+
+.conv-markdown hr + * {
+  margin-top: 16px;
 }
 
 .conv-markdown li p {

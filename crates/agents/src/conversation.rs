@@ -39,9 +39,10 @@ pub enum TurnRole {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
-pub struct ConversationPluginActionInvocation {
+pub struct ConversationWorkflowRef {
     pub plugin_id: String,
-    pub action_id: String,
+    #[serde(rename = "workflowId", alias = "actionId")]
+    pub workflow_id: String,
 }
 
 /// Canonical, protocol-neutral input persisted before any Agent transport call.
@@ -64,8 +65,26 @@ pub struct ConversationInputPayload {
     pub mode_override: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub config_overrides: Vec<AgentSessionConfigOverride>,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        alias = "pluginActions"
+    )]
+    pub workflow_refs: Vec<ConversationWorkflowRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+    pub file_refs: Vec<ConversationFileRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ConversationFileRef {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
 }
 
 /// Input lifecycle facts stored in the Conversation Event Log. The queue table is
@@ -171,6 +190,10 @@ pub struct TurnUsage {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Tokens currently in the Agent context window (ACP `UsageUpdate.used`).
+    /// Occupancy, not an input-token count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<u64>,
     /// Context-window size reported by the agent (ACP usage `size`), when
     /// provided. None for agents/transcripts that don't report a window.
     #[serde(default)]
@@ -290,6 +313,16 @@ pub enum ContentBlock {
     /// dedicated checklist instead of a generic tool card.
     Plan {
         entries: Vec<PlanEntry>,
+    },
+    Resource {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    /// Lossless stand-in for protocol-only content (audio, embedded resource,
+    /// resource-link, or a future ACP block). Not executable.
+    Protocol {
+        content: serde_json::Value,
     },
 }
 
@@ -437,6 +470,9 @@ pub struct AcpCapabilitySnapshot {
     pub terminal: bool,
     pub additional_directories: bool,
     pub filesystem_requests: bool,
+    /// V1 `session/new` stdio MCP servers are the protocol baseline, not an
+    /// Agent-identity exception. HTTP/SSE remain independently advertised.
+    pub mcp_stdio: bool,
     pub mcp_http: bool,
     pub mcp_sse: bool,
     pub auth_logout: bool,
@@ -453,6 +489,12 @@ pub struct AcpCapabilitySnapshot {
     pub config_options: Vec<AgentSessionConfigOption>,
     #[serde(default)]
     pub available_commands: Vec<AgentAvailableCommand>,
+}
+
+impl AcpCapabilitySnapshot {
+    pub fn accepts_session_mcp_servers(&self) -> bool {
+        self.mcp_stdio || self.mcp_http || self.mcp_sse
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -611,6 +653,10 @@ pub struct ConversationUsage {
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
+    /// Tokens currently in the Agent context window (ACP `UsageUpdate.used`).
+    /// This is occupancy, not an input-token count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_used: Option<u64>,
     /// Context-window size reported by the agent (ACP usage `size`), when
     /// provided. None for agents that don't report a window.
     #[serde(default)]
@@ -671,6 +717,7 @@ pub enum SessionRecoveryStrategy {
     Loaded,
     Resumed,
     CreatedNewSession,
+    Rebound,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -791,8 +838,12 @@ pub enum ConversationEvent {
     },
     UserTurnCreated {
         blocks: Vec<ConversationInputBlock>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        plugin_actions: Vec<ConversationPluginActionInvocation>,
+        #[serde(
+            default,
+            skip_serializing_if = "Vec::is_empty",
+            alias = "pluginActions"
+        )]
+        workflow_refs: Vec<ConversationWorkflowRef>,
     },
     UserTurnQueued,
     UserTurnStarted,
@@ -803,6 +854,11 @@ pub enum ConversationEvent {
     },
     AssistantReasoningDelta {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
+    AssistantContentAppended {
+        block: ContentBlock,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message_id: Option<String>,
     },
@@ -911,6 +967,8 @@ pub enum ConversationEvent {
     },
     RawDiagnosticRecorded {
         label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<serde_json::Value>,
     },
 }
 
@@ -1193,6 +1251,7 @@ mod event_sourced_tests {
         assert!(!snapshot.resume_session);
         assert!(!snapshot.close_session);
         assert!(!snapshot.terminal);
+        assert!(!snapshot.mcp_stdio);
         assert!(!snapshot.prompt.text);
     }
 
@@ -1203,9 +1262,9 @@ mod event_sourced_tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "create slides".to_string(),
                 }],
-                plugin_actions: vec![ConversationPluginActionInvocation {
+                workflow_refs: vec![ConversationWorkflowRef {
                     plugin_id: "vibex.office".to_string(),
-                    action_id: "create-presentation".to_string(),
+                    workflow_id: "create-presentation".to_string(),
                 }],
             },
             ConversationEvent::QuestionRequested {
@@ -1291,8 +1350,26 @@ mod event_sourced_tests {
 
         assert!(matches!(
             event,
-            ConversationEvent::UserTurnCreated { plugin_actions, .. }
-                if plugin_actions.is_empty()
+            ConversationEvent::UserTurnCreated { workflow_refs, .. }
+                if workflow_refs.is_empty()
         ));
+    }
+
+    #[test]
+    fn legacy_action_id_deserializes_as_workflow_ref() {
+        let payload: ConversationInputPayload = serde_json::from_value(serde_json::json!({
+            "agentId": "codex",
+            "workspaceId": Uuid::nil(),
+            "text": "hello",
+            "pluginActions": [{
+                "pluginId": "vibex.office",
+                "actionId": "create-presentation"
+            }]
+        }))
+        .expect("legacy pluginActions/actionId remain readable");
+
+        assert_eq!(payload.workflow_refs.len(), 1);
+        assert_eq!(payload.workflow_refs[0].plugin_id, "vibex.office");
+        assert_eq!(payload.workflow_refs[0].workflow_id, "create-presentation");
     }
 }

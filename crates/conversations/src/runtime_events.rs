@@ -334,7 +334,15 @@ impl ConversationAgentEventRecorder {
         event: &AgentEvent,
     ) -> Result<Option<Uuid>, sqlx::Error> {
         let AgentEvent::PromptFinished { finished } = event else {
-            return self.active_turn_id(conversation_id).await;
+            if let Some(turn_id) = self.active_turn_id(conversation_id).await? {
+                return Ok(Some(turn_id));
+            }
+            return Ok(ConversationTurnRecord::latest_for_conversation(
+                &self.pool,
+                conversation_id,
+            )
+            .await?
+            .map(|turn| turn.id));
         };
 
         let prompt_id = finished.prompt_id.to_string();
@@ -523,6 +531,7 @@ fn is_terminal_conversation_event(event: &ConversationEvent) -> bool {
         ConversationEvent::TurnCompleted { .. }
             | ConversationEvent::TurnFailed { .. }
             | ConversationEvent::TurnCancelled { .. }
+            | ConversationEvent::TurnInterrupted { .. }
     )
 }
 
@@ -573,18 +582,8 @@ fn map_agent_event(
             acp_session_id: acp_session_id.clone(),
             capabilities: capabilities.clone(),
         }),
-        AgentEvent::MessageChunk {
-            content: AgentContentBlock::Text { text },
-        } => Some(ConversationEvent::AssistantTextDelta {
-            text: text.clone(),
-            message_id: None,
-        }),
-        AgentEvent::ThoughtChunk {
-            content: AgentContentBlock::Text { text },
-        } => Some(ConversationEvent::AssistantReasoningDelta {
-            text: text.clone(),
-            message_id: None,
-        }),
+        AgentEvent::MessageChunk { content } => map_content_chunk(content, false),
+        AgentEvent::ThoughtChunk { content } => map_content_chunk(content, true),
         AgentEvent::ToolCall { tool_call } => Some(ConversationEvent::ToolCallUpsert {
             tool_call: ConversationToolCallPatch {
                 tool_call_id: tool_call.id.clone(),
@@ -629,20 +628,21 @@ fn map_agent_event(
                 .entries
                 .iter()
                 .enumerate()
-                .map(|(index, content)| ConversationPlanEntry {
+                .map(|(index, entry)| ConversationPlanEntry {
                     id: format!("plan-{index}"),
-                    content: content.clone(),
-                    status: "pending".to_string(),
-                    priority: None,
+                    content: entry.content.clone(),
+                    status: entry.status.clone(),
+                    priority: entry.priority.clone(),
                 })
                 .collect(),
         }),
         AgentEvent::Usage { usage } => Some(ConversationEvent::UsageUpdated {
             usage: ConversationUsage {
-                input_tokens: usage.used,
-                output_tokens: 0,
-                cache_creation_input_tokens: 0,
-                cache_read_input_tokens: 0,
+                input_tokens: usage.input_tokens.unwrap_or(0),
+                output_tokens: usage.output_tokens.unwrap_or(0),
+                cache_creation_input_tokens: usage.cache_write_tokens.unwrap_or(0),
+                cache_read_input_tokens: usage.cache_read_tokens.unwrap_or(0),
+                context_used: Some(usage.used),
                 context_window_max: usage.limit,
                 cost_amount: usage.cost_amount,
                 cost_currency: usage.cost_currency.clone(),
@@ -674,12 +674,12 @@ fn map_agent_event(
                 reason: reason.clone(),
             })
         }
-        AgentEvent::TurnCompleted { stop_reason }
-        | AgentEvent::PromptFinished {
+        AgentEvent::TurnCompleted { stop_reason } => {
+            Some(map_prompt_stop_to_conversation_event(stop_reason.clone()))
+        }
+        AgentEvent::PromptFinished {
             finished: agents::AgentPromptFinished { stop_reason, .. },
-        } => Some(ConversationEvent::TurnCompleted {
-            stop_reason: stop_reason.clone(),
-        }),
+        } => Some(map_prompt_stop_to_conversation_event(stop_reason.clone())),
         AgentEvent::SessionConfigStale { reason } => Some(ConversationEvent::SessionConfigStale {
             stale: true,
             reason: reason.clone(),
@@ -797,25 +797,89 @@ fn map_agent_event(
                 }
             },
         }),
-        AgentEvent::Error { error } => Some(if turn_id.is_some() {
-            ConversationEvent::TurnFailed {
-                error: ConversationError {
-                    message: error.message.clone(),
-                    code: error.code.clone(),
-                    raw: error.raw.clone(),
-                },
-            }
-        } else {
-            ConversationEvent::AgentBindingRecoveryFailed {
-                reason: error.message.clone(),
-            }
+        AgentEvent::Error { error } => Some(
+            if error.code.as_deref() == Some("auth_required") && turn_id.is_some() {
+                ConversationEvent::TurnBlocked {
+                    reason: agents::conversation::TurnBlockedReason::Authentication {
+                        message: error.message.clone(),
+                    },
+                }
+            } else if turn_id.is_some() {
+                ConversationEvent::TurnFailed {
+                    error: ConversationError {
+                        message: error.message.clone(),
+                        code: error.code.clone(),
+                        raw: error.raw.clone(),
+                    },
+                }
+            } else {
+                ConversationEvent::AgentBindingRecoveryFailed {
+                    reason: error.message.clone(),
+                }
+            },
+        ),
+        AgentEvent::RawAcpDiagnostic { raw } => Some(ConversationEvent::RawDiagnosticRecorded {
+            label: diagnostic_label(raw),
+            payload: Some(raw.clone()),
         }),
-        AgentEvent::RawAcpDiagnostic { .. } => None,
-        AgentEvent::MessageChunk { .. } | AgentEvent::ThoughtChunk { .. } => None,
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
         | AgentEvent::ConfigChanged { .. } => None,
+    }
+}
+
+fn map_content_chunk(content: &AgentContentBlock, thought: bool) -> Option<ConversationEvent> {
+    match content {
+        AgentContentBlock::Text { text } if thought => {
+            Some(ConversationEvent::AssistantReasoningDelta {
+                text: text.clone(),
+                message_id: None,
+            })
+        }
+        AgentContentBlock::Text { text } => Some(ConversationEvent::AssistantTextDelta {
+            text: text.clone(),
+            message_id: None,
+        }),
+        AgentContentBlock::Image {
+            data,
+            mime_type,
+            uri,
+        } => Some(ConversationEvent::AssistantContentAppended {
+            block: agents::conversation::ContentBlock::Image {
+                data: data.clone(),
+                mime_type: mime_type.clone(),
+                uri: uri.clone(),
+            },
+            message_id: None,
+        }),
+        AgentContentBlock::Resource { uri, title } => {
+            Some(ConversationEvent::AssistantContentAppended {
+                block: agents::conversation::ContentBlock::Resource {
+                    uri: uri.clone(),
+                    title: title.clone(),
+                },
+                message_id: None,
+            })
+        }
+        AgentContentBlock::Protocol { content } => {
+            Some(ConversationEvent::AssistantContentAppended {
+                block: agents::conversation::ContentBlock::Protocol {
+                    content: content.clone(),
+                },
+                message_id: None,
+            })
+        }
+    }
+}
+
+fn map_prompt_stop_to_conversation_event(stop_reason: Option<String>) -> ConversationEvent {
+    if crate::commit_reminder::is_cancelled_stop_reason(stop_reason.as_deref()) {
+        ConversationEvent::TurnCancelled {
+            reason: stop_reason,
+        }
+    } else {
+        ConversationEvent::TurnCompleted { stop_reason }
     }
 }
 
@@ -835,9 +899,19 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
         | AgentEvent::Usage { .. }
         | AgentEvent::SessionInfoUpdated { .. }
         | AgentEvent::TurnCompleted { .. }
-        | AgentEvent::PromptFinished { .. } => "acp",
+        | AgentEvent::PromptFinished { .. }
+        | AgentEvent::RawAcpDiagnostic { .. } => "acp",
         _ => "runtime",
     }
+}
+
+fn diagnostic_label(raw: &serde_json::Value) -> String {
+    raw.get("kind")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| raw.get("sessionUpdate").and_then(serde_json::Value::as_str))
+        .or_else(|| raw.get("method").and_then(serde_json::Value::as_str))
+        .unwrap_or("acp_unknown_update")
+        .to_string()
 }
 
 fn conversation_event_kind(event: &ConversationEvent) -> String {
@@ -941,6 +1015,7 @@ mod tests {
                 limit: Some(200_000),
                 cost_amount: Some(0.42),
                 cost_currency: Some("USD".to_string()),
+                ..AgentUsage::default()
             },
         });
 
@@ -950,6 +1025,30 @@ mod tests {
             Some(ConversationEvent::UsageUpdated { usage })
                 if usage.cost_amount == Some(0.42)
                     && usage.cost_currency.as_deref() == Some("USD")
+                    && usage.context_used == Some(120)
+                    && usage.input_tokens == 0
+        ));
+    }
+
+    #[test]
+    fn plan_updates_keep_status_and_priority() {
+        let envelope = envelope(AgentEvent::Plan {
+            plan: agents::AgentPlan {
+                entries: vec![agents::AgentPlanEntry {
+                    content: "Write tests".into(),
+                    status: "in_progress".into(),
+                    priority: Some("high".into()),
+                }],
+            },
+        });
+        let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+        assert!(matches!(
+            mapped,
+            Some(ConversationEvent::PlanUpdated { entries })
+                if entries.len() == 1
+                    && entries[0].content == "Write tests"
+                    && entries[0].status == "in_progress"
+                    && entries[0].priority.as_deref() == Some("high")
         ));
     }
 
@@ -961,6 +1060,111 @@ mod tests {
             }),
             "acp"
         );
+    }
+
+    #[test]
+    fn unknown_acp_diagnostics_are_persisted() {
+        let envelope = envelope(AgentEvent::RawAcpDiagnostic {
+            raw: serde_json::json!({
+                "kind": "session_config_override_skipped",
+                "reason": "config_choice_not_found",
+                "requested": "model=missing",
+            }),
+        });
+
+        assert_eq!(conversation_event_source(&envelope.event), "acp");
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::RawDiagnosticRecorded { label, payload })
+                if label == "session_config_override_skipped"
+                    && payload.as_ref().and_then(|value| value["requested"].as_str())
+                        == Some("model=missing")
+        ));
+    }
+
+    #[test]
+    fn cancelled_prompt_finish_is_turn_cancelled_not_completed() {
+        for reason in ["cancelled", "Cancelled", "canceled"] {
+            let envelope = envelope(AgentEvent::PromptFinished {
+                finished: agents::AgentPromptFinished {
+                    prompt_id: agents::AgentPromptId(Uuid::new_v4()),
+                    stop_reason: Some(reason.to_string()),
+                },
+            });
+            let mapped = map_agent_event(&envelope, Some(Uuid::new_v4()));
+            assert!(
+                matches!(
+                    mapped,
+                    Some(ConversationEvent::TurnCancelled { reason: Some(value) })
+                        if value == reason
+                ),
+                "stop reason {reason} must settle as cancelled"
+            );
+        }
+    }
+
+    #[test]
+    fn non_text_message_chunks_are_persisted_as_content_blocks() {
+        let image = envelope(AgentEvent::MessageChunk {
+            content: agents::AgentContentBlock::Image {
+                data: "AAAA".into(),
+                mime_type: "image/png".into(),
+                uri: Some("https://example.com/a.png".into()),
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&image, Some(Uuid::new_v4())),
+            Some(ConversationEvent::AssistantContentAppended {
+                block: agents::conversation::ContentBlock::Image { mime_type, .. },
+                ..
+            }) if mime_type == "image/png"
+        ));
+
+        let resource = envelope(AgentEvent::MessageChunk {
+            content: agents::AgentContentBlock::Resource {
+                uri: "file:///tmp/note.md".into(),
+                title: Some("note".into()),
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&resource, Some(Uuid::new_v4())),
+            Some(ConversationEvent::AssistantContentAppended {
+                block: agents::conversation::ContentBlock::Resource { uri, .. },
+                ..
+            }) if uri == "file:///tmp/note.md"
+        ));
+    }
+
+    #[test]
+    fn auth_required_errors_block_the_turn_instead_of_failing_it() {
+        let envelope = envelope(AgentEvent::Error {
+            error: agents::AgentErrorEvent {
+                message: "please log in".into(),
+                code: Some("auth_required".into()),
+                raw: None,
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::TurnBlocked {
+                reason: agents::conversation::TurnBlockedReason::Authentication { message }
+            }) if message == "please log in"
+        ));
+    }
+
+    #[test]
+    fn completed_prompt_finish_stays_turn_completed() {
+        let envelope = envelope(AgentEvent::PromptFinished {
+            finished: agents::AgentPromptFinished {
+                prompt_id: agents::AgentPromptId(Uuid::new_v4()),
+                stop_reason: Some("EndTurn".to_string()),
+            },
+        });
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::TurnCompleted { stop_reason })
+                if stop_reason.as_deref() == Some("EndTurn")
+        ));
     }
 
     fn envelope(event: AgentEvent) -> AgentEventEnvelope {

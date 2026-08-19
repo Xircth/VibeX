@@ -42,14 +42,23 @@ const APPLICATION_COMMANDS = new Set([
   'workflow_publish',
   'workflow_validate',
   'workflow_start',
+  'workflow_debug',
   'workflow_show',
   'workflow_version',
+  'workflow_list',
+  'workflow_versions',
   'workflow_steps',
   'workflow_events',
   'workflow_complete_step',
   'workflow_decide',
   'workflow_cancel',
   'workflow_resume',
+  'workflow_pause',
+  'workflow_resume_run',
+  'workflow_accept_candidate',
+  'workflow_pause_step',
+  'workflow_step_input',
+  'workflow_fork',
 ]);
 
 function sequenceToWire(sequence: bigint): number {
@@ -150,6 +159,7 @@ export class TauriTransport implements BackendTransport {
   }
 
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {
+    const isWorkflowRun = request.resource === 'workflow_run';
     let dirty = true;
     let wake: (() => void) | undefined;
     const unlisten = await this.listen('conversation-events', () => {
@@ -162,9 +172,18 @@ export class TauriTransport implements BackendTransport {
     try {
       while (true) {
         if (!dirty) {
-          await new Promise<void>((resolve) => {
-            wake = resolve;
-          });
+          if (isWorkflowRun) {
+            await Promise.race([
+              new Promise<void>((resolve) => {
+                wake = resolve;
+              }),
+              new Promise<void>((resolve) => globalThis.setTimeout(resolve, 100)),
+            ]);
+          } else {
+            await new Promise<void>((resolve) => {
+              wake = resolve;
+            });
+          }
         }
         dirty = false;
         const bootstrap = (await this.call('conversation_attach', {
@@ -174,7 +193,7 @@ export class TauriTransport implements BackendTransport {
           },
         })) as WireSubscriptionBootstrap;
         if (!bootstrap.ready) {
-          throw new Error('conversation subscription was not ready');
+          throw new Error('durable subscription was not ready');
         }
         if (bootstrap.snapshot) {
           yield {

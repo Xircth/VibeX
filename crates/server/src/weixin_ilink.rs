@@ -130,8 +130,8 @@ pub fn spawn_weixin_ilink_loop(
 ) {
     tokio::spawn(async move {
         let client = qr_client();
-        let wechat_uin = base64::engine::general_purpose::STANDARD
-            .encode(uuid::Uuid::new_v4().as_bytes());
+        let wechat_uin =
+            base64::engine::general_purpose::STANDARD.encode(uuid::Uuid::new_v4().as_bytes());
         let mut cursor = String::new();
         set_connection_state(&channel_id, "connecting");
         while !shutdown.load(Ordering::Relaxed) {
@@ -140,7 +140,10 @@ pub fn spawn_weixin_ilink_loop(
                 "base_info": { "channel_version": ILINK_CHANNEL_VERSION }
             });
             match client
-                .post(format!("{}/ilink/bot/getupdates", base_url.trim_end_matches('/')))
+                .post(format!(
+                    "{}/ilink/bot/getupdates",
+                    base_url.trim_end_matches('/')
+                ))
                 .header("Content-Type", "application/json")
                 .header("AuthorizationType", "ilink_bot_token")
                 .header("Authorization", format!("Bearer {bot_token}"))
@@ -211,13 +214,13 @@ async fn handle_ilink_message(
         .get("item_list")
         .and_then(Value::as_array)
         .and_then(|items| {
-            items.iter().find_map(|item| {
-                match item.get("type").and_then(Value::as_i64) {
+            items
+                .iter()
+                .find_map(|item| match item.get("type").and_then(Value::as_i64) {
                     Some(1) => item.pointer("/text_item/text").and_then(Value::as_str),
                     Some(3) => item.pointer("/voice_item/text").and_then(Value::as_str),
                     _ => None,
-                }
-            })
+                })
         })
         .unwrap_or("")
         .trim()

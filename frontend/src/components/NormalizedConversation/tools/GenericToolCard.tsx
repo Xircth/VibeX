@@ -1,19 +1,82 @@
 import { Hammer, ListTodo, PlayCircle, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { NormalizedEntry } from 'shared/types';
+import type { JsonValue, NormalizedEntry, ToolResult } from 'shared/types';
 import type { ProcessStartPayload } from '@/types/logs';
 import { useExpandable } from '@/stores/useExpandableStore';
+import { useOptionalPanelActionsContext } from '@/contexts/PanelActionsContext';
+import { useOpenLink } from '@/hooks/useOpenLink';
+import { deriveRelativeFilePath } from '@/utils/filePaths';
+import { getEntryIcon, getToolSummary } from '../conversation-entry-utils';
 import {
-  getEntryIcon,
-  getToolSummary,
-  renderJson,
-} from '../conversation-entry-utils';
+  ToolArtifact,
+  ToolFacts,
+  ToolProse,
+  ToolSearchHits,
+  ToolTodoList,
+} from './ToolArtifact';
 import { ToolResultView } from './ToolResultView';
+import { fileReadLocation, resolveToolFilePath } from './FileToolCard';
+import { collectHttpUrls, parseToolHitItems } from './toolHitItems';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
+
+function GenericToolDetail({
+  arguments: args,
+  result,
+  fallbackText,
+  taskAttemptId,
+  openLink,
+  openPath,
+  openDirectory,
+}: {
+  arguments: JsonValue | null;
+  result: ToolResult | null;
+  fallbackText: string;
+  taskAttemptId?: string;
+  openLink: (url: string) => void;
+  openPath: (path: string, line?: number) => void;
+  openDirectory: (path: string) => void;
+}) {
+  const hits = parseToolHitItems(result?.value ?? result);
+  const urlHits = collectHttpUrls(result?.value ?? args).map((url) => ({
+    path: null,
+    url,
+    line: null,
+    text: url,
+  }));
+  const items = hits.length > 0 ? hits : urlHits;
+  if (items.length > 0) {
+    return (
+      <ToolSearchHits
+        items={items}
+        onOpenUrl={openLink}
+        onOpenPath={openPath}
+        onOpenDirectory={openDirectory}
+      />
+    );
+  }
+
+  if (result?.type.type === 'markdown' && result.value) {
+    return (
+      <ToolProse>
+        <ToolResultView result={result} taskAttemptId={taskAttemptId} />
+      </ToolProse>
+    );
+  }
+
+  if (typeof result?.value === 'string' && result.value.trim()) {
+    return <ToolProse>{result.value}</ToolProse>;
+  }
+
+  if (fallbackText) {
+    return <ToolProse>{fallbackText}</ToolProse>;
+  }
+
+  return null;
+}
 
 function getProcessActionDetail(entry: ProcessStartPayload) {
   const actionType = entry.action?.typ;
@@ -44,6 +107,8 @@ export function GenericToolCard({
   taskAttemptId?: string;
 }) {
   const { t } = useTranslation(['conversation', 'common']);
+  const openLink = useOpenLink();
+  const panelActions = useOptionalPanelActionsContext();
   const isNormalizedEntry = 'entry_type' in entry;
   const toolEntry =
     isNormalizedEntry && entry.entry_type.type === 'tool_use'
@@ -71,34 +136,26 @@ export function GenericToolCard({
         expandable={hasDetails}
         onToggle={toggle}
       >
-        {entry.runReason ? (
-          <>
-            <div className="conv-tool-details-section-label">
-              {t('genericTool.reason')}
-            </div>
-            <div className="conv-tool-details-content">{entry.runReason}</div>
-          </>
-        ) : null}
-        <div className="conv-tool-details-section-label">
-          {t('genericTool.status')}
-        </div>
-        <div className="conv-tool-details-content">{entry.status}</div>
-        {processDetail ? (
-          <>
-            <div className="conv-tool-details-section-label">
-              {t('genericTool.action')}
-            </div>
-            <div className="conv-tool-details-content">{processDetail}</div>
-          </>
-        ) : null}
-        {entry.startedAt ? (
-          <>
-            <div className="conv-tool-details-section-label">
-              {t('genericTool.startedAt')}
-            </div>
-            <div className="conv-tool-details-content">{entry.startedAt}</div>
-          </>
-        ) : null}
+        <ToolArtifact>
+          <ToolFacts
+            facts={[
+              entry.runReason
+                ? { key: t('genericTool.reason'), value: entry.runReason }
+                : null,
+              entry.status
+                ? { key: t('genericTool.status'), value: entry.status }
+                : null,
+              processDetail
+                ? { key: t('genericTool.action'), value: processDetail }
+                : null,
+              entry.startedAt
+                ? { key: t('genericTool.startedAt'), value: entry.startedAt }
+                : null,
+            ].filter((fact): fact is { key: string; value: string } =>
+              Boolean(fact)
+            )}
+          />
+        </ToolArtifact>
       </ToolCardShell>
     );
   }
@@ -128,14 +185,20 @@ export function GenericToolCard({
       : // Raw tool identifiers are developer-facing noise — fall back to the
         // inline text instead of exposing `tool_name`.
         summary.detail || meaningfulInlineText;
+  const genericItems =
+    isGenericTool && actionType.action === 'tool'
+      ? parseToolHitItems(actionType.result?.value ?? actionType.result)
+      : [];
   const hasDetails =
     isTaskCreate ||
     isTodo ||
     isOther ||
     (isGenericTool &&
-      (Boolean(actionType.arguments) ||
-        Boolean(actionType.result) ||
-        meaningfulInlineText.length > 0));
+      (genericItems.length > 0 ||
+        (actionType.action === 'tool' &&
+          (actionType.result?.type.type === 'markdown' ||
+            typeof actionType.result?.value === 'string' ||
+            meaningfulInlineText.length > 0))));
   const icon = isTaskCreate ? (
     <Plus className="h-3 w-3" />
   ) : isTodo ? (
@@ -159,122 +222,53 @@ export function GenericToolCard({
       onToggle={toggle}
     >
       {isTaskCreate ? (
-        <>
-          {actionType.description ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.description')}
-              </div>
-              <div className="conv-tool-details-content">
-                {actionType.description}
-              </div>
-            </>
-          ) : null}
-          {actionType.subagent_type ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.subagent')}
-              </div>
-              <div className="conv-tool-details-content">
-                {actionType.subagent_type}
-              </div>
-            </>
-          ) : null}
+        <ToolArtifact
+          badge={actionType.subagent_type || t('genericTool.subagent')}
+          title={actionType.description}
+        >
           {actionType.result ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.result')}
-              </div>
-              <div className="conv-tool-details-content">
-                <ToolResultView
-                  result={actionType.result}
-                  taskAttemptId={taskAttemptId}
-                />
-              </div>
-            </>
+            <ToolProse>
+              <ToolResultView
+                result={actionType.result}
+                taskAttemptId={taskAttemptId}
+              />
+            </ToolProse>
           ) : null}
-        </>
+        </ToolArtifact>
       ) : null}
 
       {isTodo ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('genericTool.todo')}
-          </div>
-          <div className="conv-tool-details-content font-sans">
-            <div className="space-y-1.5">
-              {actionType.todos.map((todo, index) => (
-                <div
-                  key={`${todo.content}-${index}`}
-                  className="flex items-start gap-2"
-                >
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {todo.status}
-                  </span>
-                  <span className="min-w-0 flex-1 break-words">
-                    {todo.content}
-                  </span>
-                  {todo.priority ? (
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {todo.priority}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
+        <ToolArtifact>
+          <ToolTodoList todos={actionType.todos} />
+        </ToolArtifact>
       ) : null}
 
       {isGenericTool ? (
-        <>
-          {actionType.arguments ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.arguments')}
-              </div>
-              <div className="conv-tool-details-content">
-                {renderJson(actionType.arguments)}
-              </div>
-            </>
-          ) : null}
-          {actionType.result ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.result')}
-              </div>
-              <div className="conv-tool-details-content">
-                <ToolResultView
-                  result={actionType.result}
-                  taskAttemptId={taskAttemptId}
-                />
-              </div>
-            </>
-          ) : null}
-          {!actionType.arguments &&
-          !actionType.result &&
-          meaningfulInlineText ? (
-            <>
-              <div className="conv-tool-details-section-label">
-                {t('genericTool.content')}
-              </div>
-              <div className="conv-tool-details-content">
-                {meaningfulInlineText}
-              </div>
-            </>
-          ) : null}
-        </>
+        <GenericToolDetail
+          arguments={actionType.arguments}
+          result={actionType.result}
+          fallbackText={meaningfulInlineText}
+          taskAttemptId={taskAttemptId}
+          openLink={openLink}
+          openPath={(path, line) => {
+            const resolved = resolveToolFilePath(path);
+            const title = deriveRelativeFilePath(resolved) ?? path;
+            panelActions?.openFilePreview(resolved, {
+              displayPath: title,
+              title,
+              location: fileReadLocation(line, line),
+            });
+          }}
+          openDirectory={(path) => {
+            panelActions?.revealInFileTree(path, { nodeType: 'folder' });
+          }}
+        />
       ) : null}
 
       {isOther ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('genericTool.description')}
-          </div>
-          <div className="conv-tool-details-content">
-            {actionType.description}
-          </div>
-        </>
+        <ToolArtifact>
+          <ToolProse>{actionType.description}</ToolProse>
+        </ToolArtifact>
       ) : null}
     </ToolCardShell>
   );

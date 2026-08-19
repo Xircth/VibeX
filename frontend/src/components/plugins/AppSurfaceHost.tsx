@@ -23,7 +23,7 @@ export interface AppSurfaceDescriptor {
   allowedMethods: string[];
   minHeight?: number;
   initialRoute?: string;
-  slot?: 'plugin.detail.panel' | 'artifact.editor';
+  slot?: 'plugin.detail.panel' | 'artifact.editor' | 'conversation.timeline.card';
   artifactPath?: string;
 }
 

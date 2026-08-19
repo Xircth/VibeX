@@ -1,8 +1,7 @@
 // vite.config.ts
-import { createLogger, defineConfig, Plugin } from 'vite';
+import { createLogger, defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import fs from 'fs';
 import pkg from './package.json';
 
 function createFilteredLogger() {
@@ -30,68 +29,6 @@ function createFilteredLogger() {
   };
 
   return logger;
-}
-
-function executorSchemasPlugin(): Plugin {
-  const VIRTUAL_ID = 'virtual:executor-schemas';
-  const RESOLVED_VIRTUAL_ID = '\0' + VIRTUAL_ID;
-  const schemasDir = path.resolve(__dirname, '../shared/schemas');
-
-  return {
-    name: 'executor-schemas-plugin',
-    resolveId(id) {
-      if (id === VIRTUAL_ID) return RESOLVED_VIRTUAL_ID; // keep it virtual
-      return null;
-    },
-    load(id) {
-      if (id !== RESOLVED_VIRTUAL_ID) return null;
-
-      const files = fs.existsSync(schemasDir)
-        ? fs.readdirSync(schemasDir).filter((f) => f.endsWith('.json'))
-        : [];
-
-      const imports: string[] = [];
-      const entries: string[] = [];
-
-      files.forEach((file, i) => {
-        const varName = `__schema_${i}`;
-        const importPath = `shared/schemas/${file}`; // uses your alias
-        const key = file.replace(/\.json$/, '').toUpperCase(); // claude_code -> CLAUDE_CODE
-        imports.push(`import ${varName} from "${importPath}";`);
-        entries.push(`  "${key}": ${varName}`);
-      });
-
-      // IMPORTANT: pure JS (no TS types), and quote keys.
-      const code = `
-${imports.join('\n')}
-
-export const schemas = {
-${entries.join(',\n')}
-};
-
-export default schemas;
-`;
-      return code;
-    },
-    configureServer(server) {
-      // Watch the schemas directory so new/changed schema files
-      // invalidate the virtual module without a dev-server restart.
-      server.watcher.add(schemasDir);
-      server.watcher.on('all', (event, filePath) => {
-        if (
-          filePath.startsWith(schemasDir) &&
-          filePath.endsWith('.json') &&
-          ['add', 'change', 'unlink'].includes(event)
-        ) {
-          const mod = server.moduleGraph.getModuleById(RESOLVED_VIRTUAL_ID);
-          if (mod) {
-            server.moduleGraph.invalidateModule(mod);
-            server.ws.send({ type: 'full-reload' });
-          }
-        }
-      });
-    },
-  };
 }
 
 function createManualChunks(id: string): string | undefined {
@@ -184,8 +121,7 @@ function createManualChunks(id: string): string | undefined {
   }
 
   if (
-    normalizedId.includes('/node_modules/@git-diff-view/') ||
-    normalizedId.includes('/node_modules/@pierre/diffs/')
+    normalizedId.includes('/node_modules/@git-diff-view/')
   ) {
     return 'vendor-diff';
   }
@@ -240,7 +176,6 @@ export default defineConfig({
         ],
       },
     }),
-    executorSchemasPlugin(),
   ],
   resolve: {
     alias: {

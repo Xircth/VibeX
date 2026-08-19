@@ -262,7 +262,10 @@ impl DelegationConfig {
         self.child_deadline_ms = self.child_deadline_ms.clamp(1_000, 24 * 60 * 60 * 1_000);
         self.max_result_bytes = self.max_result_bytes.clamp(1_024, 1024 * 1024);
         self.agent_defaults.retain(|_, defaults| {
-            defaults.mode_id.as_ref().is_some_and(|mode| !mode.is_empty())
+            defaults
+                .mode_id
+                .as_ref()
+                .is_some_and(|mode| !mode.is_empty())
                 || !defaults.config_values.is_empty()
         });
         self

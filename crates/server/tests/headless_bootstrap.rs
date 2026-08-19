@@ -149,7 +149,7 @@ async fn owner_runs_the_scheduler_instead_of_only_holding_the_lock() {
                     },
                     mode_id: None,
                     config_values: Vec::new(),
-                    plugin_actions: Vec::new(),
+                    workflow_refs: Vec::new(),
                     skills: Vec::new(),
                     workspace: WorkspaceTarget {
                         project_id: Uuid::new_v4(),

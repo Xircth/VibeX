@@ -419,3 +419,35 @@ async fn ensure_worktree_exists_recreates_git_only_worktree_with_invalid_head() 
 
     assert!(worktree_path.join("README.md").exists());
 }
+
+#[tokio::test]
+async fn create_worktree_falls_back_to_head_branch_when_base_branch_is_missing() {
+    use tempfile::TempDir;
+
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("repo");
+    let git_service = GitService::new();
+    // Initialize with the actual default branch named "master" so the
+    // requested "main" base does not exist.
+    std::fs::create_dir_all(&repo_path).unwrap();
+    let repo = git2::Repository::init_opts(
+        &repo_path,
+        git2::RepositoryInitOptions::new().initial_head("master"),
+    )
+    .unwrap();
+    git_service.create_initial_commit(&repo).unwrap();
+    std::fs::write(repo_path.join("README.md"), "master seed\n").unwrap();
+    git_service.commit(&repo_path, "seed").unwrap();
+
+    let worktree_path = td.path().join("wt-fallback");
+    WorktreeManager::create_worktree(&repo_path, "wt-fallback", &worktree_path, "main", true)
+        .await
+        .unwrap();
+
+    assert!(worktree_path.join(".git").is_file());
+    assert!(worktree_path.join("README.md").exists());
+    assert!(WorktreeManager::local_branch_exists(
+        &repo_path,
+        "wt-fallback"
+    ));
+}

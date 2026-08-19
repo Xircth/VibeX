@@ -83,6 +83,18 @@ export async function packPlugin(root: string, output?: string) {
   const target = resolve(
     output ?? join(root, 'dist', `${manifest.id}-${manifest.version}.vxp`)
   );
+  const signature = {
+    algorithm: 'sha256',
+    packageDigest: lock.packageDigest,
+    publisher: process.env.VIBEX_PLUGIN_PUBLISHER ?? 'local',
+    signedAt: new Date(0).toISOString(),
+  };
+  zip.addFile(
+    '.vibex-plugin/signature.json',
+    Buffer.from(`${JSON.stringify(signature, null, 2)}\n`),
+    '',
+    0o100644 << 16
+  );
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, zip.toBuffer());
   return { output: target, lock };

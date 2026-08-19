@@ -100,8 +100,8 @@ describe('validatePlugin product package', () => {
       entrypoints: {
         worker: {
           path: 'runtime/main.mjs',
-          format: 'javascript-esm',
-          protocol: '1.0',
+          runtime: 'node',
+          protocol: '1.1',
         },
         app: { root: 'dist/app', document: 'index.html', protocol: '1.0' },
       },

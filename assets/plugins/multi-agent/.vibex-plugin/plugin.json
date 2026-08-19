@@ -48,6 +48,11 @@
       "kind": "content.skill",
       "resource": "contents/skills/vibex-multi-agent",
       "targets": ["codex", "claude-code", "acp"]
+    },
+    {
+      "id": "vibex-delegation-mcp",
+      "kind": "content.mcp",
+      "resource": "contents/mcps/delegation.json"
     }
   ],
   "interface": { "icon": "assets/icon.svg" }

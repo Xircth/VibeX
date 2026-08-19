@@ -2,20 +2,20 @@
 export interface VibeXPluginManifest {
     $schema?: string;
     manifestVersion: 4;
-    apiVersion: '1.0';
+    apiVersion: "1.0";
     id: string;
     publisher: string;
     version: string;
     name: string;
     /** Always points to the required root README. Its frontmatter owns `summary`. */
-    readme: 'README.md';
+    readme: "README.md";
     engines: {
         vibex: string;
         pluginSdk: string;
     };
     content: {
-        root: 'contents';
-        index: '.vibex-plugin/content.index.json';
+        root: "contents";
+        index: ".vibex-plugin/content.index.json";
     };
     /** Values live in root config.json; this schema only describes and validates them. */
     config: {
@@ -30,15 +30,16 @@ export interface VibeXPluginManifest {
     integrations: IntegrationManifest[];
     interface?: Record<string, unknown>;
 }
+export type WorkerRuntime = "node" | "python" | "native";
 export interface WorkerEntrypointManifest {
     path: string;
-    format: 'javascript-esm';
-    protocol: '1.0';
+    runtime: WorkerRuntime;
+    protocol: "1.1";
 }
 export interface AppEntrypointManifest {
     root: string;
     document: string;
-    protocol: '1.0';
+    protocol: "1.0";
 }
 export interface PermissionManifest {
     /** @deprecated Full-trust packages do not require capability consent. */
@@ -48,10 +49,10 @@ export interface PermissionManifest {
     reason: string;
     optional?: boolean;
     /** @deprecated Retained only so v4 packages authored before full trust remain valid. */
-    trustTier?: 'sandboxed_worker' | 'trusted_native';
+    trustTier?: "sandboxed_worker" | "trusted_native";
 }
 export interface DependencyManifest {
-    kind: 'runtime' | 'plugin';
+    kind: "runtime" | "plugin";
     descriptor: string;
     optional?: boolean;
 }
@@ -60,22 +61,34 @@ interface IntegrationBase {
     required?: boolean;
 }
 export interface SkillIntegrationManifest extends IntegrationBase {
-    kind: 'content.skill';
+    kind: "content.skill";
     resource: string;
     targets?: string[];
 }
 export interface McpIntegrationManifest extends IntegrationBase {
-    kind: 'content.mcp';
+    kind: "content.mcp";
     resource: string;
 }
+/** Package-relative MCP process supervised and credentialed by the VibeX Host. */
+export interface ManagedMcpRuntimeResource {
+    managedRuntime: {
+        /** Authoring source bundled by the Plugin CLI into `entrypoint`. */
+        source?: string;
+        entrypoint: string;
+        protocolRevision: "2026-07-28";
+        defaultBinding?: "all-compatible-agents";
+    };
+}
 export interface WorkflowIntegrationManifest extends IntegrationBase {
-    kind: 'workflow.binding';
+    kind: "workflow.binding";
     resource: string;
 }
 export interface FileOpenerIntegrationManifest extends IntegrationBase {
-    kind: 'file.opener';
+    kind: "file.opener";
     label?: string;
     extensions?: string[];
+    /** Exact case-insensitive filename suffixes, including the leading dot. */
+    fileNameSuffixes?: string[];
     mediaTypes?: string[];
     priority?: number;
     /** Runtime-backed URL preview. Exactly one opener target is required. */
@@ -84,7 +97,7 @@ export interface FileOpenerIntegrationManifest extends IntegrationBase {
     editorSurface?: string;
 }
 export interface PreviewIntegrationManifest extends IntegrationBase {
-    kind: 'artifact.preview';
+    kind: "artifact.preview";
     mediaTypes: string[];
     runtime?: string;
     maxConcurrentPreviews?: number;
@@ -96,16 +109,66 @@ export interface PreviewIntegrationManifest extends IntegrationBase {
     };
 }
 export interface AppSurfaceIntegrationManifest extends IntegrationBase {
-    kind: 'app.surface';
+    kind: "app.surface";
     label?: string;
-    slot: 'plugin.detail.panel' | 'artifact.editor';
-    appEntrypoint: 'app';
+    slot: "plugin.detail.panel" | "artifact.editor" | "conversation.timeline.card";
+    appEntrypoint: "app";
     route?: `/${string}`;
     handler: string;
     allowedMethods?: string[];
     minHeight?: number;
+    nativeRenderer?: string;
 }
-export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest;
+export interface CommandIntegrationManifest extends IntegrationBase {
+    kind: "app.command";
+    title: string;
+    subtitle?: string;
+    shortcut?: string;
+    handler: string;
+}
+export interface ToolbarIntegrationManifest extends IntegrationBase {
+    kind: "app.toolbar";
+    slot: "toolbar.main";
+    title: string;
+    icon?: {
+        kind: "svg";
+        resource: string;
+    };
+    handler: string;
+}
+export interface StatusIntegrationManifest extends IntegrationBase {
+    kind: "app.status";
+    slot: "status.main";
+    text?: string;
+    handler: string;
+    refreshSeconds?: number;
+}
+export interface ComposerSlashIntegrationManifest extends IntegrationBase {
+    kind: "app.composer.slash";
+    title: string;
+    target: string;
+}
+export interface TimelineCardIntegrationManifest extends IntegrationBase {
+    kind: "app.timeline.card";
+    handler: string;
+    minHeight?: number;
+}
+export interface SettingsSectionIntegrationManifest extends IntegrationBase {
+    kind: "app.settings.section";
+    title: string;
+    handler?: string;
+}
+export interface HookIntegrationManifest extends IntegrationBase {
+    kind: "content.hook";
+    resource: string;
+    event: string;
+}
+export interface HostServiceIntegrationManifest extends IntegrationBase {
+    kind: "host.service";
+    handler: string;
+    intervalSeconds?: number;
+}
+export type IntegrationManifest = SkillIntegrationManifest | McpIntegrationManifest | HookIntegrationManifest | WorkflowIntegrationManifest | FileOpenerIntegrationManifest | PreviewIntegrationManifest | AppSurfaceIntegrationManifest | CommandIntegrationManifest | ToolbarIntegrationManifest | StatusIntegrationManifest | ComposerSlashIntegrationManifest | TimelineCardIntegrationManifest | SettingsSectionIntegrationManifest | HostServiceIntegrationManifest;
 export declare const pluginManifestSchema: {
     readonly $schema: "https://json-schema.org/draft/2020-12/schema";
     readonly $id: "https://schemas.vibex.dev/plugin/v4/plugin.schema.json";
@@ -207,18 +270,18 @@ export declare const pluginManifestSchema: {
                 readonly worker: {
                     readonly type: "object";
                     readonly additionalProperties: false;
-                    readonly required: readonly ["path", "format", "protocol"];
+                    readonly required: readonly ["path", "runtime", "protocol"];
                     readonly properties: {
                         readonly path: {
                             readonly type: "string";
                             readonly minLength: 1;
                             readonly pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+$";
                         };
-                        readonly format: {
-                            readonly const: "javascript-esm";
+                        readonly runtime: {
+                            readonly enum: readonly ["node", "python", "native"];
                         };
                         readonly protocol: {
-                            readonly const: "1.0";
+                            readonly const: "1.1";
                         };
                     };
                 };
@@ -286,7 +349,7 @@ export declare const pluginManifestSchema: {
                         readonly pattern: "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$";
                     };
                     readonly kind: {
-                        readonly enum: readonly ["content.skill", "content.mcp", "workflow.binding", "file.opener", "artifact.preview", "app.surface"];
+                        readonly enum: readonly ["content.skill", "content.mcp", "content.hook", "workflow.binding", "file.opener", "artifact.preview", "app.surface", "app.command", "app.toolbar", "app.status", "app.composer.slash", "app.timeline.card", "app.settings.section", "host.service"];
                     };
                     readonly resource: {
                         readonly type: "string";

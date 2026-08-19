@@ -1,0 +1,8 @@
+{
+  "managedRuntime": {
+    "kind": "hostFamilyBinary",
+    "binaryId": "vibex-workflow-mcp",
+    "protocolRevision": "2026-07-28",
+    "defaultBinding": "all-compatible-agents"
+  }
+}

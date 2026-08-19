@@ -95,9 +95,6 @@ test('binary read failures are downgraded from noisy global console errors', () 
   const fileChangeSource = readFrontendFile(
     'src/components/NormalizedConversation/FileChangeRenderer.tsx'
   );
-  const processChangeSource = readFrontendFile(
-    'src/components/NormalizedConversation/ProcessChangeFileRenderer.tsx'
-  );
   const hookSource = readFrontendFile('src/hooks/useFileContent.ts');
   const mainSource = readFrontendFile('src/main.tsx');
   const tauriApiSource = readFrontendFile('src/lib/tauriApi.ts');
@@ -106,12 +103,7 @@ test('binary read failures are downgraded from noisy global console errors', () 
     fileChangeSource,
     /shouldRenderInlineTextDiff =\s*isWrite\(change\) && effectiveExpanded && previewKind === 'text'/
   );
-  assert.match(
-    processChangeSource,
-    /shouldRenderInlineTextDiff =\s*isWrite\(change\) && effectiveExpanded && previewKind === 'text'/
-  );
   assert.match(fileChangeSource, /previewKind !== 'text'/);
-  assert.match(processChangeSource, /previewKind !== 'text'/);
   assert.match(hookSource, /suppressGlobalError: true/);
   assert.match(mainSource, /suppressGlobalError/);
   assert.match(mainSource, /isFileContentQuery/);

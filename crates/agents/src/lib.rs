@@ -9,6 +9,8 @@ pub mod auth_status;
 pub mod capability;
 pub mod cli_exposure;
 mod codex_auth;
+mod community_acp_presets;
+pub mod contribution_capability;
 pub mod conversation;
 pub mod delegation_inject;
 pub mod distribution;
@@ -16,6 +18,7 @@ pub mod elicitation;
 pub mod error;
 pub mod events;
 pub mod filesystem;
+mod grok_subagent;
 pub mod history;
 pub mod ids;
 pub mod install_planner;
@@ -64,6 +67,7 @@ pub use cli_exposure::{
 pub use codex_auth::{
     CODEX_AUTH_MODES, CodexAuthModeProjection, apply_codex_auth_mode, project_codex_auth_mode,
 };
+pub use community_acp_presets::{CommunityAcpPreset, bundled_community_acp_presets};
 pub use conversation::{
     AcpAuthenticationObservationSnapshot, AcpCapabilitySnapshot, AgentExecutionStats,
     AgentPromptCapabilities, ContentBlock, ConversationAgentConnectionStatus,
@@ -71,16 +75,16 @@ pub use conversation::{
     ConversationDelegation, ConversationDelegationResult, ConversationDetail, ConversationError,
     ConversationErrorView, ConversationEvent, ConversationEventEnvelope, ConversationEventsPage,
     ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
-    ConversationFileChangeSummary, ConversationFileLocation, ConversationInputBlock,
-    ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
-    ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
-    ConversationPluginActionInvocation, ConversationQuestionRequest, ConversationQuestionResponse,
+    ConversationFileChangeSummary, ConversationFileLocation, ConversationFileRef,
+    ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
+    ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
+    ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
     ConversationRelationKind, ConversationRelationVisibility, ConversationSessionNotice,
     ConversationSteeringEvent, ConversationSummary, ConversationTerminalPatch,
     ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-    ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ImageData, MessageTurn,
-    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
-    TurnBlockedReason, TurnRole, TurnUsage,
+    ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ConversationWorkflowRef,
+    ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
+    SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, CompanionInjectionList,
@@ -91,17 +95,23 @@ pub use elicitation::{AgentElicitationRequest, AgentElicitationResponse};
 pub use error::{AgentError, AgentResult};
 pub use events::{
     AgentAvailableCommand, AgentContentBlock, AgentErrorEvent, AgentEvent, AgentEventEnvelope,
-    AgentListedSession, AgentPlan, AgentPreparedSessionSnapshot, AgentPromptFinished,
-    AgentSessionConfigChoice, AgentSessionConfigDependency, AgentSessionConfigOption,
-    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionListPage,
-    AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt, AgentTerminalOutput,
-    AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage, DelegationResultSummary,
+    AgentListedSession, AgentPlan, AgentPlanEntry, AgentPreparedSessionSnapshot,
+    AgentPromptFinished, AgentSessionConfigChoice, AgentSessionConfigDependency,
+    AgentSessionConfigOption, AgentSessionConfigOverride, AgentSessionControlsSnapshot,
+    AgentSessionListPage, AgentSessionMode, AgentSteerOutcome, AgentSteerReceipt,
+    AgentTerminalOutput, AgentTerminalSnapshot, AgentToolCall, AgentToolCallUpdate, AgentUsage,
+    DelegationResultSummary,
 };
 pub use filesystem::{AgentFileReadRequest, AgentFileWriteRequest};
 pub use history::{
-    AgentHistoryError, AgentHistorySource, ImportedAgentMessage, ImportedAgentMessageMetadata,
-    ImportedAgentMessageRole, ImportedAgentSession, configured_history_sources,
-    default_history_sources, import_history_source,
+    AgentHistoryError, AgentHistorySource, HistoryPathDestination, ImportedAgentMessage,
+    ImportedAgentMessageMetadata, ImportedAgentMessageRole, ImportedAgentSession,
+    LocalHistoryDestination, LocalHistoryImportResult, LocalHistoryImportSelection,
+    LocalHistoryScanFolder, LocalHistoryScanPage, LocalHistoryScanSession,
+    LocalHistorySessionStatus, build_local_history_scan_page, configured_history_sources,
+    default_history_sources, history_folder_name, history_paths_overlap, import_history_source,
+    match_history_destination, merge_history_sources, normalize_history_path,
+    scan_configured_history,
 };
 pub use ids::{
     AgentConnectionId, AgentElicitationId, AgentPermissionId, AgentPromptId, AgentSessionId,
@@ -114,7 +124,10 @@ pub use install_planner::{
     VersionEvidence, registry_target_for_built_in_update, verify_artifact_bytes,
     verify_version_evidence,
 };
-pub use launch_gate::{LaunchComponentEvidence, LaunchGate, LaunchGateError};
+pub use launch_gate::{
+    LaunchComponentEvidence, LaunchGate, LaunchGateError, launch_program_available,
+    missing_launch_program_error,
+};
 pub use lifecycle::{
     BUSY_LIFECYCLE_MESSAGE, ComponentOwnership, LifecycleAction, LifecycleBlockReason,
     LifecycleComponent, LifecycleFacts, LifecyclePlan, LifecycleService,
@@ -159,10 +172,10 @@ pub use plan_usage::{
 pub use profiles::{
     AccountEvidence, AccountEvidenceKind, AuthenticationPrecedence, BuiltInProfile,
     BuiltInProfileCatalog, NativeConfigBinding, NativeConfigField, NativeConfigFieldKind,
-    NativeConfigFormat, ProfileBinaryArtifact, ProfileBinaryEntry, ProfileComponent,
-    ProfileDependency, ProfileExternalCandidate, ProfileIcon, ProfileInstallSource,
-    ProfileManagementAction, ProfileManagementActionKind, ProfileRegistryBinding, ProfileTopology,
-    RegistryEntryIdentity,
+    NativeConfigFormat, NativeConfigSurface, ProfileBinaryArtifact, ProfileBinaryEntry,
+    ProfileComponent, ProfileDependency, ProfileExternalCandidate, ProfileIcon,
+    ProfileInstallSource, ProfileManagementAction, ProfileManagementActionKind,
+    ProfileRegistryBinding, ProfileTopology, RegistryEntryIdentity,
 };
 pub use registry_client::{
     OfficialRegistryHttpFetcher, RegistryAddTarget, RegistryAgentEntry, RegistryBinaryTarget,

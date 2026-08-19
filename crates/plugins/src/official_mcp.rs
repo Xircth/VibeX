@@ -1,20 +1,16 @@
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Mutex;
+//! Official product MCP bindings published from enabled plugin packages.
+//!
+//! Injection reads this snapshot. Package identity is taken from declared
+//! `hostFamilyBinary` MCP resources, not from a hardcoded plugin-id match.
 
-use crate::PluginActivation;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU8, Ordering},
+};
 
-/// Predecessor id. Still observed so an older install that enabled this
-/// plugin continues to open the multi-agent gate.
-pub const COLLABORATION_PLUGIN_ID: &str = "vibex.collaboration";
+use serde_json::Value;
 
-/// Builtin product that owns `vibex-delegation-mcp`.
-pub const MULTI_AGENT_PLUGIN_ID: &str = "vibex.multi-agent";
-
-/// Builtin product that owns `vibex-session-mcp`.
-pub const SESSION_ENHANCE_PLUGIN_ID: &str = "vibex.session-enhance";
-
-/// Builtin product id that gates injection of `vibex-workflow-mcp`.
-pub const WORKFLOW_CREATOR_PLUGIN_ID: &str = "vibex.workflow-creator";
+use crate::{InstalledPlugin, PluginActivation};
 
 pub const SESSION_FEAT_FEEDBACK: u8 = 1;
 pub const SESSION_FEAT_ASK: u8 = 1 << 1;
@@ -23,34 +19,43 @@ pub const SESSION_FEAT_SESSION_CONTROL: u8 = 1 << 3;
 pub const SESSION_FEAT_ALL: u8 =
     SESSION_FEAT_FEEDBACK | SESSION_FEAT_ASK | SESSION_FEAT_SESSIONS | SESSION_FEAT_SESSION_CONTROL;
 
-/// Process-local switch read by the synchronous companion injector.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfficialMcpBinding {
+    pub plugin_id: String,
+    pub binary_id: String,
+    pub product: String,
+    pub features: u8,
+    pub token: String,
+}
+
 #[derive(Debug, Default)]
-pub struct OfficialProductMcpGate {
-    multi_agent: AtomicBool,
-    session_enhance: AtomicBool,
-    workflow: AtomicBool,
+pub struct OfficialMcpRuntime {
+    bindings: Mutex<Vec<OfficialMcpBinding>>,
     session_features: AtomicU8,
-    delegation_token: Mutex<Option<String>>,
-    session_token: Mutex<Option<String>>,
     http_base: Mutex<Option<String>>,
 }
 
-impl OfficialProductMcpGate {
-    pub fn allow_delegation_mcp(&self) -> bool {
-        self.multi_agent.load(Ordering::SeqCst)
+impl OfficialMcpRuntime {
+    pub fn bindings(&self) -> Vec<OfficialMcpBinding> {
+        self.bindings.lock().unwrap().clone()
     }
 
-    /// Backward-compatible name used by ADR-0055 tests and older callers.
-    pub fn allow_vibex_mcp(&self) -> bool {
-        self.allow_delegation_mcp()
+    pub fn allow_delegation_mcp(&self) -> bool {
+        self.has_product("delegation")
     }
 
     pub fn allow_session_mcp(&self) -> bool {
-        self.session_enhance.load(Ordering::SeqCst)
+        self.has_product("session")
     }
 
     pub fn allow_workflow_mcp(&self) -> bool {
-        self.workflow.load(Ordering::SeqCst)
+        self.bindings().iter().any(|binding| {
+            binding.binary_id == "vibex-workflow-mcp" || binding.product == "workflow"
+        })
+    }
+
+    pub fn set_session_features(&self, bits: u8) {
+        self.session_features.store(bits, Ordering::SeqCst);
     }
 
     pub fn session_features(&self) -> u8 {
@@ -61,24 +66,19 @@ impl OfficialProductMcpGate {
         if bits == 0 { SESSION_FEAT_ALL } else { bits }
     }
 
-    pub fn set_session_features(&self, bits: u8) {
-        self.session_features.store(bits, Ordering::SeqCst);
-    }
-
     pub fn delegation_token(&self) -> Option<String> {
-        self.delegation_token.lock().unwrap().clone()
+        self.token_for_product("delegation")
     }
 
     pub fn session_token(&self) -> Option<String> {
-        self.session_token.lock().unwrap().clone()
+        self.token_for_product("session")
     }
 
-    pub fn ensure_delegation_token(&self) -> String {
-        ensure_token(&self.delegation_token)
-    }
-
-    pub fn ensure_session_token(&self) -> String {
-        ensure_token(&self.session_token)
+    pub fn token_for_product(&self, product: &str) -> Option<String> {
+        self.bindings()
+            .into_iter()
+            .find(|binding| binding.product == product)
+            .map(|binding| binding.token)
     }
 
     pub fn set_http_base(&self, base: Option<String>) {
@@ -89,83 +89,143 @@ impl OfficialProductMcpGate {
         self.http_base.lock().unwrap().clone()
     }
 
-    pub fn observe(&self, plugin_id: &str, activation: PluginActivation) {
-        let enabled = activation == PluginActivation::Enabled;
-        match plugin_id {
-            MULTI_AGENT_PLUGIN_ID | COLLABORATION_PLUGIN_ID => {
-                self.multi_agent.store(enabled, Ordering::SeqCst);
-                if enabled {
-                    let _ = self.ensure_delegation_token();
-                } else {
-                    *self.delegation_token.lock().unwrap() = None;
-                }
+    pub fn reset(&self) {
+        self.bindings.lock().unwrap().clear();
+        self.session_features.store(0, Ordering::SeqCst);
+        *self.http_base.lock().unwrap() = None;
+    }
+
+    pub fn sync_from_plugins(&self, plugins: &[InstalledPlugin]) {
+        let http_base = self.http_base();
+        let mut bindings = Vec::new();
+        let mut session_bits = 0u8;
+        for plugin in plugins {
+            if plugin.activation != PluginActivation::Enabled {
+                continue;
             }
-            SESSION_ENHANCE_PLUGIN_ID => {
-                self.session_enhance.store(enabled, Ordering::SeqCst);
-                if enabled {
-                    let _ = self.ensure_session_token();
-                } else {
-                    *self.session_token.lock().unwrap() = None;
+            if let Some(mut binding) = binding_from_plugin(plugin) {
+                if binding.product == "session" {
+                    session_bits = binding.features;
                 }
+                if binding.token.is_empty() {
+                    binding.token = uuid::Uuid::new_v4().to_string();
+                }
+                bindings.push(binding);
             }
-            WORKFLOW_CREATOR_PLUGIN_ID => self.workflow.store(enabled, Ordering::SeqCst),
-            _ => {}
+        }
+        *self.bindings.lock().unwrap() = bindings;
+        self.session_features.store(session_bits, Ordering::SeqCst);
+        if let Some(base) = http_base {
+            *self.http_base.lock().unwrap() = Some(base);
         }
     }
 
-    pub fn reset(&self) {
-        self.multi_agent.store(false, Ordering::SeqCst);
-        self.session_enhance.store(false, Ordering::SeqCst);
-        self.workflow.store(false, Ordering::SeqCst);
-        self.session_features.store(0, Ordering::SeqCst);
-        *self.delegation_token.lock().unwrap() = None;
-        *self.session_token.lock().unwrap() = None;
-        *self.http_base.lock().unwrap() = None;
+    /// Test helper: publish one binding without a package.
+    pub fn publish_binding(&self, binding: OfficialMcpBinding) {
+        if binding.product == "session" {
+            self.session_features
+                .store(binding.features, Ordering::SeqCst);
+        }
+        self.bindings.lock().unwrap().push(binding);
+    }
+
+    fn has_product(&self, product: &str) -> bool {
+        self.bindings()
+            .iter()
+            .any(|binding| binding.product == product)
     }
 }
 
-fn ensure_token(slot: &Mutex<Option<String>>) -> String {
-    let mut guard = slot.lock().unwrap();
-    if guard.is_none() {
-        *guard = Some(uuid::Uuid::new_v4().to_string());
+fn binding_from_plugin(plugin: &InstalledPlugin) -> Option<OfficialMcpBinding> {
+    let servers = plugin.mcp.get("mcpServers").unwrap_or(&plugin.mcp);
+    let object = servers.as_object()?;
+    for spec in object.values() {
+        let managed = spec.get("managedRuntime")?.as_object()?;
+        if managed.get("kind").and_then(Value::as_str) != Some("hostFamilyBinary") {
+            continue;
+        }
+        let binary_id = managed.get("binaryId")?.as_str()?.to_owned();
+        let declared = managed.get("product").and_then(Value::as_str);
+        let product = match (declared, binary_id.as_str()) {
+            (Some("session" | "delegation" | "workflow"), _) => declared.unwrap().to_owned(),
+            (_, "vibex-workflow-mcp") => "workflow".into(),
+            _ => continue,
+        };
+        return Some(OfficialMcpBinding {
+            plugin_id: plugin.id().to_owned(),
+            binary_id,
+            product: product.clone(),
+            features: if product == "session" {
+                session_features_from_config(&plugin.config)
+            } else {
+                0
+            },
+            token: String::new(),
+        });
     }
-    guard.clone().expect("token just inserted")
+    None
+}
+
+pub fn session_features_from_config(config: &Value) -> u8 {
+    let flag = |name: &str, bit: u8| {
+        if config.get(name).and_then(Value::as_bool) == Some(false) {
+            0
+        } else {
+            bit
+        }
+    };
+    flag("feedback", SESSION_FEAT_FEEDBACK)
+        | flag("question", SESSION_FEAT_ASK)
+        | flag("sessionInfo", SESSION_FEAT_SESSIONS)
+        | flag("sessionControl", SESSION_FEAT_SESSION_CONTROL)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use serde_json::json;
+
     use super::*;
+    use crate::{PluginId, PluginPackage, PluginSourceKind};
 
-    #[test]
-    fn official_mcp_stays_off_until_the_matching_plugin_is_enabled() {
-        let gate = OfficialProductMcpGate::default();
-        assert!(!gate.allow_delegation_mcp());
-        assert!(!gate.allow_session_mcp());
-        assert!(!gate.allow_workflow_mcp());
-
-        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Enabled);
-        assert!(gate.allow_delegation_mcp());
-        assert!(!gate.allow_session_mcp());
-
-        gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Enabled);
-        assert!(gate.allow_delegation_mcp());
-
-        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Disabled);
-        gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Disabled);
-        gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
-        gate.observe(WORKFLOW_CREATOR_PLUGIN_ID, PluginActivation::Enabled);
-        assert!(!gate.allow_delegation_mcp());
-        assert!(gate.allow_session_mcp());
-        assert!(gate.allow_workflow_mcp());
-        assert_eq!(gate.session_features(), SESSION_FEAT_ALL);
+    fn plugin(id: &str, mcp: Value, config: Value) -> InstalledPlugin {
+        let mut package = PluginPackage::for_test(
+            id,
+            id,
+            "1.0.0",
+            PluginSourceKind::Builtin,
+            &PathBuf::from("."),
+        );
+        package.id = PluginId::from_string(id.to_owned());
+        package.mcp = mcp;
+        package.config = config;
+        InstalledPlugin {
+            package,
+            activation: PluginActivation::Enabled,
+            package_digest: "sha256:test".into(),
+        }
     }
 
     #[test]
-    fn session_feature_bits_are_ignored_while_the_plugin_is_off() {
-        let gate = OfficialProductMcpGate::default();
-        gate.set_session_features(SESSION_FEAT_ASK);
-        assert_eq!(gate.session_features(), 0);
-        gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
-        assert_eq!(gate.session_features(), SESSION_FEAT_ASK);
+    fn bindings_come_from_host_family_binary_not_plugin_id_match() {
+        let runtime = OfficialMcpRuntime::default();
+        runtime.sync_from_plugins(&[plugin(
+            "acme.session",
+            json!({
+                "session": {
+                    "managedRuntime": {
+                        "kind": "hostFamilyBinary",
+                        "binaryId": "vibex-mcp",
+                        "product": "session"
+                    }
+                }
+            }),
+            json!({ "feedback": true, "question": false, "sessionInfo": true, "sessionControl": true }),
+        )]);
+        assert!(runtime.allow_session_mcp());
+        assert!(!runtime.allow_delegation_mcp());
+        assert_eq!(runtime.session_features() & SESSION_FEAT_ASK, 0);
+        assert_ne!(runtime.session_features() & SESSION_FEAT_FEEDBACK, 0);
     }
 }

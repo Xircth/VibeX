@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use db::models::{
+    conversation_turn::ConversationTurnRecord,
     execution_process::ExecutionProcess,
     project_repo::ProjectRepo,
     repo::{Repo, RepoError},
@@ -33,6 +34,8 @@ pub struct SessionSummary {
     pub first_prompt: Option<String>,
     pub is_running: bool,
     pub continuity_mode: SessionContinuityMode,
+    #[serde(default)]
+    pub pinned_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -314,15 +317,46 @@ pub(crate) async fn create_worktree_workspace_for_project_session(
     )
     .await?;
 
-    let workspace_repos: Vec<CreateWorkspaceRepo> = repos
-        .iter()
-        .map(|repo| CreateWorkspaceRepo {
-            repo_id: repo.repo_id,
-            target_branch: repo.target_branch.clone(),
-        })
-        .collect();
+    let workspace_repos: Vec<CreateWorkspaceRepo> = {
+        let mut collected = Vec::with_capacity(repos.len());
+        for input in repos {
+            // An empty target_branch means "use the repository's actual
+            // branch"; resolve it from the repo's HEAD instead of assuming a
+            // hard-coded name like "main" that may not exist.
+            let target_branch = if input.target_branch.trim().is_empty() {
+                let repo = Repo::find_by_id(pool, input.repo_id)
+                    .await?
+                    .ok_or(RepoError::NotFound)?;
+                state
+                    .deployment
+                    .git()
+                    .get_current_branch(&repo.path)
+                    .map_err(|error| {
+                        AppError::Internal(format!(
+                            "Could not resolve the default branch of repo {}: {error}",
+                            repo.name
+                        ))
+                    })?
+            } else {
+                input.target_branch.clone()
+            };
+            collected.push(CreateWorkspaceRepo {
+                repo_id: input.repo_id,
+                target_branch,
+            });
+        }
+        collected
+    };
     WorkspaceRepo::create_many(pool, workspace.id, &workspace_repos).await?;
 
+    let workspace = Workspace::find_by_id(pool, workspace.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))?;
+    state
+        .deployment
+        .container()
+        .ensure_container_exists(&workspace)
+        .await?;
     Workspace::find_by_id(pool, workspace.id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace.id)))
@@ -492,6 +526,10 @@ pub async fn get_session_summaries(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Workspace {} not found", workspace_id)))?;
     let sessions = Session::find_by_workspace_id(pool, workspace_id).await?;
+    let pinned_at_by_id = session_pinned_at_by_id(pool, workspace_id).await?;
+    let in_flight_ids =
+        ConversationTurnRecord::in_flight_conversation_ids_for_workspace(pool, workspace_id)
+            .await?;
 
     let mut summaries = Vec::with_capacity(sessions.len());
     let mut fallback_number = 0;
@@ -507,9 +545,7 @@ pub async fn get_session_summaries(
         if needs_fallback_name {
             fallback_number += 1;
         }
-        let is_running =
-            ExecutionProcess::has_running_non_dev_server_processes_for_session(pool, session.id)
-                .await?;
+        let is_running = in_flight_ids.contains(&session.id);
         let continuity_mode = derive_session_continuity_mode(false);
 
         summaries.push(SessionSummary {
@@ -531,10 +567,24 @@ pub async fn get_session_summaries(
             first_prompt,
             is_running,
             continuity_mode,
+            pinned_at: pinned_at_by_id.get(&session.id).copied().flatten(),
         });
     }
 
     Ok(summaries)
+}
+
+async fn session_pinned_at_by_id(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+) -> Result<std::collections::HashMap<Uuid, Option<DateTime<Utc>>>, AppError> {
+    let rows: Vec<(Uuid, Option<DateTime<Utc>>)> =
+        sqlx::query_as(r#"SELECT id, pinned_at FROM sessions WHERE workspace_id = ?"#)
+            .bind(workspace_id)
+            .fetch_all(pool)
+            .await?;
+
+    Ok(rows.into_iter().collect())
 }
 
 /// Get a single session by ID.
@@ -636,6 +686,24 @@ pub async fn ensure_project_workspace(
         .await?;
 
     Ok(workspace)
+}
+
+#[tauri::command]
+pub async fn create_workflow_debug_workspace(
+    state: tauri::State<'_, AppState>,
+    project_id: Uuid,
+    name: String,
+    repos: Vec<ProjectSessionRepoInput>,
+) -> Result<Workspace, AppError> {
+    create_worktree_workspace_for_project_session(
+        state.inner(),
+        project_id,
+        Some(&name),
+        None,
+        &repos,
+        None,
+    )
+    .await
 }
 
 /// Create a project-scoped session, optionally targeting an existing workspace.
@@ -813,6 +881,24 @@ pub async fn update_session_status(
     {
         Task::update_status(pool, task_id, to_task_status(status)).await?;
     }
+
+    Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))
+}
+
+#[tauri::command]
+pub async fn set_session_pinned(
+    state: tauri::State<'_, AppState>,
+    session_id: Uuid,
+    pinned: bool,
+) -> Result<Session, AppError> {
+    let pool = &state.deployment.db().pool;
+    let _session = Session::find_by_id(pool, session_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {} not found", session_id)))?;
+
+    db::models::conversation::DbConversationSummary::set_pinned(pool, session_id, pinned).await?;
 
     Session::find_by_id(pool, session_id)
         .await?

@@ -22,6 +22,23 @@ pub enum AgentError {
     PromptConflict { expected: String, active: String },
     #[error("agent authentication required: {0}")]
     AuthenticationRequired(String),
+    #[error("agent session could not be loaded")]
+    SessionLoadFailed(crate::SessionLoadFailureReason),
     #[error("agent runtime error: {0}")]
     Runtime(String),
+}
+
+impl AgentError {
+    pub fn turn_failure_code(&self) -> Option<&'static str> {
+        match self {
+            Self::AuthenticationRequired(_) => Some("auth_required"),
+            Self::SessionLoadFailed(reason) => Some(match reason {
+                crate::SessionLoadFailureReason::ResourceNotFound => "resource_not_found",
+                crate::SessionLoadFailureReason::AuthenticationRequired { .. } => "auth_required",
+                crate::SessionLoadFailureReason::Unsupported => "session_resume_unsupported",
+                crate::SessionLoadFailureReason::Other { .. } => "session_load_failed",
+            }),
+            _ => None,
+        }
+    }
 }

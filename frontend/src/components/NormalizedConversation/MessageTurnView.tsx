@@ -24,7 +24,11 @@ import { cn } from '@/lib/utils';
 import { useTemporaryFlag } from '@/hooks/useTemporaryFlag';
 import { writeClipboardViaBridge } from '@/vscode/bridge';
 import { useExpandable } from '@/stores/useExpandableStore';
-import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
+import { useOptionalUserSystem } from '@/components/ConfigProvider';
+import {
+  DEFAULT_COLLAPSE_PREFERENCES,
+  resolveHideModelThinking,
+} from '@/lib/conversationCollapsePreferences';
 import { AstryxMarkdown } from './AstryxMarkdown';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { ThinkingEntry } from './ThinkingEntry';
@@ -46,6 +50,12 @@ import {
 import type { ContextCompactStatusKind } from '@/lib/contextCompact';
 import { groupTurnRenderItems } from './messageTurnAggregate';
 import { TurnToolCalls } from './TurnToolCalls';
+import {
+  STREAMING_ACTIVITY_INTERVAL_MS,
+  STREAMING_ACTIVITY_VERBS,
+  nextStreamingActivityVerb,
+  shouldShowAssistantStreamingStatus,
+} from './assistantStreamingActivity';
 
 export interface MessageTurnContext {
   taskAttemptId?: string;
@@ -64,6 +74,8 @@ type MessageTurnPhase =
   | 'optimistic'
   | 'streaming'
   | 'settled'
+  | 'failed'
+  | 'cancelled'
   | 'interrupted';
 
 function OrphanToolResultCard({
@@ -144,7 +156,30 @@ function renderItem(
         />
       );
     case 'plan':
-      return <TimelinePlanCard key={key} entries={item.entries} />;
+      return (
+        <TimelinePlanCard key={key} entries={item.entries} expansionKey={key} />
+      );
+    case 'resource':
+      return (
+        <div
+          key={key}
+          className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <div className="font-medium text-foreground">
+            {item.title ?? item.uri}
+          </div>
+          {item.title ? <div className="mt-1 break-all">{item.uri}</div> : null}
+        </div>
+      );
+    case 'protocol':
+      return (
+        <div
+          key={key}
+          className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+        >
+          {item.label}
+        </div>
+      );
     case 'tool':
       return (
         <OrphanToolResultCard
@@ -156,11 +191,27 @@ function renderItem(
   }
 }
 
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
   const { t } = useTranslation(['conversation', 'common']);
-  const label = hasContent
-    ? t('messageTurnView.streamingOutput')
-    : t('messageTurnView.streamingThinking');
+  const statusLabel = t('messageTurnView.streamingStatus');
+  const [verb, setVerb] = useState(() =>
+    nextStreamingActivityVerb(STREAMING_ACTIVITY_VERBS)
+  );
+
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    const timer = window.setInterval(() => {
+      setVerb((current) =>
+        nextStreamingActivityVerb(STREAMING_ACTIVITY_VERBS, current)
+      );
+    }, STREAMING_ACTIVITY_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <div
       className={cn(
@@ -169,10 +220,10 @@ function AssistantStreamingStatus({ hasContent }: { hasContent: boolean }) {
       )}
       role="status"
       aria-live="polite"
-      aria-label={label}
+      aria-label={statusLabel}
     >
       <span className="conv-spinner" aria-hidden="true" />
-      <span className="conv-shimmer-text">{label}</span>
+      <span className="conv-shimmer-text">{`${verb}…`}</span>
     </div>
   );
 }
@@ -415,6 +466,7 @@ export const MessageTurnView = memo(function MessageTurnView({
   workspacePath,
   showInterruptedNotice = true,
   contextCompact,
+  hasTurnError = false,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -426,8 +478,11 @@ export const MessageTurnView = memo(function MessageTurnView({
   workspacePath?: string | null;
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
+  hasTurnError?: boolean;
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
+  const { config } = useOptionalUserSystem() ?? {};
+  const hideThinking = resolveHideModelThinking(config);
   const [editing, setEditing] = useState(false);
   // Prefer the resolved absolute root (caller may supply the repo path when the
   // workspace has no container_ref) so clickable file paths open a real file.
@@ -559,14 +614,15 @@ export const MessageTurnView = memo(function MessageTurnView({
       );
     });
 
-  const hideThinking =
-    attempt.session?.executor === 'claude_code' ||
-    attempt.session?.executor === 'codex';
   const plannedItems = planTurnBlocks(turn.blocks);
   const items = hideThinking
     ? plannedItems.filter((item) => item.kind !== 'thinking')
     : plannedItems;
-  if (phase === 'streaming' && items.length === 0) {
+  const showStreamingStatus = shouldShowAssistantStreamingStatus({
+    phase,
+    hasTurnError,
+  });
+  if (showStreamingStatus && items.length === 0) {
     return (
       <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
         <AssistantStreamingStatus hasContent={false} />
@@ -605,7 +661,7 @@ export const MessageTurnView = memo(function MessageTurnView({
     <div className="conv-entry-item conv-assistant-msg conv-msg-hover group px-4 py-2 text-sm">
       <div className="conv-assistant-body">
         {body}
-        {phase === 'streaming' ? (
+        {showStreamingStatus ? (
           <AssistantStreamingStatus hasContent={items.length > 0} />
         ) : null}
       </div>

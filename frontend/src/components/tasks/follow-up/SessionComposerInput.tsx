@@ -61,8 +61,10 @@ import {
   localSkillsToDollarCommands,
   localSkillsToSlashCommands,
   mergeComposerSlashCommands,
+  pluginComposerSlashContributions,
   pluginInvocationsToSlashCommands,
 } from '@/lib/conversation-rendering/commandSources';
+import { usePluginHostContributions } from '@/hooks/usePluginHostContributions';
 import { searchTagsAndFiles } from '@/lib/searchTagsAndFiles';
 import { cn } from '@/lib/utils';
 import { useComposerSelectionStore } from '@/stores/useComposerSelectionStore';
@@ -888,6 +890,8 @@ export function SessionComposerInput({
     queryFn: () => pluginControlApi.catalog(),
     staleTime: 5_000,
   });
+  const composerSlashContributions =
+    usePluginHostContributions('composer_slash');
   const { data: agentSkills } = useQuery({
     queryKey: [
       'session-composer-agent-skills',
@@ -924,10 +928,14 @@ export function SessionComposerInput({
         runtimeCommands:
           agentAvailableCommandsToSlashCommands(availableCommands),
         skillCommands: localSkillsToSlashCommands(localSkills),
-        pluginCommands: pluginInvocationsToSlashCommands(pluginControlCatalog),
+        pluginCommands: [
+          ...pluginInvocationsToSlashCommands(pluginControlCatalog),
+          ...pluginComposerSlashContributions(composerSlashContributions),
+        ],
       }),
     [
       availableCommands,
+      composerSlashContributions,
       localSkills,
       pluginControlCatalog,
       slashCommandsQuery.commands,
@@ -1263,7 +1271,7 @@ export function SessionComposerInput({
           maxRows={7}
           placeholder=""
           label={t('composer.inputLabel')}
-          hasHistory={false}
+          hasHistory
           pasteAsToken={false}
           triggers={triggers}
           handleRef={composerHandleRef}

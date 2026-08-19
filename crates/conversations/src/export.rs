@@ -116,6 +116,17 @@ fn render_turn_markdown(out: &mut String, turn: &MessageTurn) {
             ContentBlock::Plan { entries } => {
                 render_plan_markdown(out, entries);
             }
+            ContentBlock::Resource { uri, title } => {
+                let label = title.as_deref().unwrap_or(uri.as_str());
+                out.push_str(&format!("- 📎 **{label}** `{uri}`\n\n"));
+            }
+            ContentBlock::Protocol { content } => {
+                let kind = content
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("protocol");
+                out.push_str(&format!("*(未渲染的内容：{kind})*\n\n"));
+            }
         }
     }
     out.push_str("\n---\n\n");
@@ -240,6 +251,24 @@ fn render_turn_html(out: &mut String, turn: &MessageTurn) {
                     ));
                 }
                 out.push_str("</ul>");
+            }
+            ContentBlock::Resource { uri, title } => {
+                let label = title.as_deref().unwrap_or(uri.as_str());
+                out.push_str(&format!(
+                    "<p>📎 <strong>{}</strong> <code>{}</code></p>",
+                    html_escape(label),
+                    html_escape(uri)
+                ));
+            }
+            ContentBlock::Protocol { content } => {
+                let kind = content
+                    .get("type")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("protocol");
+                out.push_str(&format!(
+                    "<p><em>(未渲染的内容：{})</em></p>",
+                    html_escape(kind)
+                ));
             }
         }
     }

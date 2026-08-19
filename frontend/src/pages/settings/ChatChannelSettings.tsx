@@ -766,7 +766,10 @@ export function ChatChannelSettings() {
     <div className="settings-content">
       <div className="chat-channel-heading">
         <div className="chat-channel-heading__copy">
-          <h2>{t('chatChannels.title')}</h2>
+          <h2>
+            <SendHorizontal aria-hidden="true" />
+            <span>{t('chatChannels.title')}</span>
+          </h2>
           <p>{t('chatChannels.description')}</p>
         </div>
         <div className="chat-channel-heading__actions">

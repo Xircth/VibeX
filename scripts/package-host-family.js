@@ -44,6 +44,7 @@ function copyDirectory(source, destination) {
     const from = path.join(source, entry.name);
     const to = path.join(destination, entry.name);
     if (entry.isDirectory()) {
+      if (['node_modules', 'target', '.git'].includes(entry.name)) continue;
       copyDirectory(from, to);
     } else if (entry.isFile()) {
       fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -78,6 +79,25 @@ function packageHostFamily(options) {
   copyFile(options.server, path.join(output, serverName));
   copyFile(options.mcp, path.join(output, mcpName));
   copyDirectory(options.web, path.join(output, "web"));
+  const repoRoot = path.resolve(path.dirname(options.plugins), "..");
+  const sdkRoot = path.join(repoRoot, "packages");
+  if (fs.existsSync(sdkRoot)) {
+    copyDirectory(path.join(sdkRoot, "plugin-contract"), path.join(output, "sdk", "plugin-contract"));
+    copyDirectory(path.join(sdkRoot, "plugin-sdk"), path.join(output, "sdk", "js", "plugin-sdk"));
+    copyDirectory(path.join(sdkRoot, "plugin-cli"), path.join(output, "sdk", "js", "plugin-cli"));
+  }
+  const pythonSdk = path.join(repoRoot, "sdk", "python");
+  if (fs.existsSync(pythonSdk)) {
+    copyDirectory(pythonSdk, path.join(output, "sdk", "python"));
+  }
+  const rustSdk = path.join(repoRoot, "crates", "plugin-sdk");
+  if (fs.existsSync(rustSdk)) {
+    copyDirectory(rustSdk, path.join(output, "sdk", "rust"));
+  }
+  const officialIndex = path.join(options.plugins, "index", "official.v1.json");
+  if (fs.existsSync(officialIndex)) {
+    copyFile(officialIndex, path.join(output, "plugins", "index", "official.v1.json"));
+  }
 
   const bundled = path.join(output, "plugins", "bundled");
   for (const pluginRoot of bundledPluginRoots(options.plugins)) {

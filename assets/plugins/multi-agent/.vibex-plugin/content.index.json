@@ -5,6 +5,11 @@
       "path": "contents/skills/vibex-multi-agent/SKILL.md",
       "kind": "skill",
       "title": "多智能体协同"
+    },
+    {
+      "path": "contents/mcps/delegation.json",
+      "kind": "mcp",
+      "title": "委托 MCP"
     }
   ]
 }

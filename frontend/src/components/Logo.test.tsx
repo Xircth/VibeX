@@ -35,4 +35,14 @@ describe('Logo', () => {
       expect.stringContaining('app-logo-dark-lite.png')
     );
   });
+
+  it('uses the reduced homepage and workspace sizes', () => {
+    const { rerender } = render(<Logo showText={false} size="hero" />);
+
+    expect(screen.getByRole('img')).toHaveClass('h-[60.75px]', 'w-[60.75px]');
+
+    rerender(<Logo showText={false} size="toolbar" />);
+
+    expect(screen.getByRole('img')).toHaveClass('h-[27px]', 'w-[27px]');
+  });
 });

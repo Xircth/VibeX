@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageTurnView } from './MessageTurnView';
+import { STREAMING_ACTIVITY_VERBS } from './assistantStreamingActivity';
 
 const conversationMessageStyles = readFileSync(
   resolve(process.cwd(), 'src/styles/conversation/conv-messages.css'),
@@ -49,6 +50,14 @@ vi.mock('@/hooks/useOpenImagePreview', () => ({
   useOpenImagePreview: () => openImagePreviewMock,
 }));
 
+const hideThinkingMock = vi.hoisted(() => ({ value: true }));
+
+vi.mock('@/components/ConfigProvider', () => ({
+  useOptionalUserSystem: () => ({
+    config: { hide_model_thinking: hideThinkingMock.value },
+  }),
+}));
+
 vi.mock('./ThinkingEntry', () => ({
   ThinkingEntry: ({ content }: { content: string }) => <div>{content}</div>,
 }));
@@ -60,6 +69,7 @@ vi.mock('./tools/ToolCardShell', () => ({
   ToolCallResultDetail: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  useToolCallResultDetail: () => false,
   getToolChatStatus: (status: { status: string }) =>
     status.status === 'created' ? 'running' : 'complete',
 }));
@@ -74,6 +84,7 @@ vi.mock('./DisplayConversationEntry', () => ({
 
 describe('MessageTurnView', () => {
   beforeEach(() => {
+    hideThinkingMock.value = true;
     markdownMock.mockClear();
     userMarkdownMock.mockClear();
     openFilePreviewMock.mockClear();
@@ -117,7 +128,7 @@ describe('MessageTurnView', () => {
     );
   });
 
-  it('renders a thinking placeholder for an empty streaming assistant turn', () => {
+  it('renders a cycling activity placeholder for an empty streaming assistant turn', () => {
     render(
       <MessageTurnView
         turn={
@@ -134,10 +145,12 @@ describe('MessageTurnView', () => {
       />
     );
 
-    expect(
-      screen.getByRole('status', { name: 'AI 正在思考中...' })
-    ).toBeInTheDocument();
-    expect(screen.getByText('AI 正在思考中...')).toBeInTheDocument();
+    const status = screen.getByRole('status', { name: 'AI 正在处理' });
+    expect(status).toBeInTheDocument();
+    const verb = STREAMING_ACTIVITY_VERBS.find((activity) =>
+      status.textContent?.startsWith(`${activity}…`)
+    );
+    expect(verb).toBeDefined();
   });
 
   it('does not render a thinking placeholder for settled empty assistant turns', () => {
@@ -159,6 +172,46 @@ describe('MessageTurnView', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.queryByText('AI 正在思考中...')).not.toBeInTheDocument();
+  });
+
+  it('hides the streaming placeholder after cancel, failure, interrupt, or a turn error', () => {
+    for (const phase of ['failed', 'cancelled', 'interrupted'] as const) {
+      const { unmount } = render(
+        <MessageTurnView
+          turn={
+            {
+              id: 'turn-1:assistant',
+              role: 'assistant',
+              blocks: [],
+              timestamp: '2026-06-14T00:00:00.000Z',
+            } as never
+          }
+          phase={phase}
+          attempt={{ id: 'attempt-1', container_ref: null } as never}
+          task={null}
+        />
+      );
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      unmount();
+    }
+
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-1:assistant',
+            role: 'assistant',
+            blocks: [],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        phase="streaming"
+        hasTurnError
+        attempt={{ id: 'attempt-1', container_ref: null } as never}
+        task={null}
+      />
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('renders streaming assistant text through the markdown pipeline', () => {
@@ -184,7 +237,7 @@ describe('MessageTurnView', () => {
       container.querySelector('.conv-streaming-markdown')
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('status', { name: 'AI 正在输出...' })
+      screen.getByRole('status', { name: 'AI 正在处理' })
     ).toBeInTheDocument();
     expect(markdownMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ value, isStreaming: true })
@@ -247,7 +300,7 @@ describe('MessageTurnView', () => {
     expect(screen.getByText(/Wall time: 1\.7 seconds/)).toBeInTheDocument();
   });
 
-  it('hides thinking blocks for ClaudeCode assistant turns', () => {
+  it('hides thinking blocks when the hide-thinking setting is on', () => {
     render(
       <MessageTurnView
         turn={
@@ -277,7 +330,40 @@ describe('MessageTurnView', () => {
     expect(screen.getByText('visible answer')).toBeInTheDocument();
   });
 
-  it('hides Codex thinking while preserving the streaming loading status', () => {
+  it('shows thinking blocks when the hide-thinking setting is off', () => {
+    hideThinkingMock.value = false;
+
+    render(
+      <MessageTurnView
+        turn={
+          {
+            id: 'turn-1:assistant',
+            role: 'assistant',
+            blocks: [
+              { type: 'thinking', text: 'private reasoning' },
+              { type: 'text', text: 'visible answer' },
+            ],
+            timestamp: '2026-06-14T00:00:00.000Z',
+          } as never
+        }
+        phase="streaming"
+        attempt={
+          {
+            id: 'attempt-1',
+            container_ref: null,
+            session: { executor: 'claude_code' as const },
+          } as never
+        }
+        task={null}
+        collapseProcess={false}
+      />
+    );
+
+    expect(screen.getByText('private reasoning')).toBeInTheDocument();
+    expect(screen.getByText('visible answer')).toBeInTheDocument();
+  });
+
+  it('hides thinking while preserving the streaming loading status', () => {
     render(
       <MessageTurnView
         turn={
@@ -302,7 +388,7 @@ describe('MessageTurnView', () => {
 
     expect(screen.queryByText('private reasoning')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('status', { name: 'AI 正在思考中...' })
+      screen.getByRole('status', { name: 'AI 正在处理' })
     ).toBeInTheDocument();
   });
 
@@ -484,15 +570,15 @@ describe('MessageTurnView', () => {
 
     fireEvent.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getAllByText('Terminal')).toHaveLength(5);
-    expect(screen.getAllByText('src/0.ts')).not.toHaveLength(0);
+    expect(screen.getAllByText('终端')).toHaveLength(5);
+    expect(screen.getAllByText('0.ts')).not.toHaveLength(0);
     expect(screen.getAllByText('+1')).toHaveLength(2);
     expect(screen.getAllByText('-1')).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole('button', { name: 'src/0.ts' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'src/0.ts' })[0]);
     expect(openFilePreviewMock).toHaveBeenCalledWith(
       '/workspace/project/src/0.ts',
-      { displayPath: 'src/0.ts', title: 'src/0.ts' }
+      { displayPath: 'src/0.ts', title: 'src/0.ts', location: null }
     );
   });
 

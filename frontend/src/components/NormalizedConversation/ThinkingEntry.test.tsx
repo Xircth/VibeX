@@ -13,9 +13,9 @@ describe('ThinkingEntry', () => {
       />
     );
 
+    expect(screen.getByText('思考')).toBeInTheDocument();
     expect(screen.getByText('checking the plan')).toBeInTheDocument();
-    expect(screen.getByText('思考中')).toBeInTheDocument();
-    expect(screen.getByText('1m 5s')).toBeInTheDocument();
+    expect(screen.queryByText('1m 5s')).not.toBeInTheDocument();
 
     rerender(
       <ThinkingEntry
@@ -27,7 +27,9 @@ describe('ThinkingEntry', () => {
     );
 
     expect(screen.queryByText('checking the plan')).not.toBeInTheDocument();
-    expect(screen.getByText('已完成')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '展开思考' })
+    ).toBeInTheDocument();
   });
 
   it('keeps a user-expanded finished thought open across content updates', () => {
@@ -39,7 +41,7 @@ describe('ThinkingEntry', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Thinking' }));
+    fireEvent.click(screen.getByRole('button', { name: '展开思考' }));
     expect(screen.getByText('first finished thought')).toBeInTheDocument();
 
     rerender(

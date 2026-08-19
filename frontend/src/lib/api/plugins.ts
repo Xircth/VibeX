@@ -43,7 +43,7 @@ export interface PluginControlInvocation {
   id: string;
   label: string;
   prompt: string;
-  kind: 'action' | 'command';
+  kind: 'action' | 'command' | 'workflow';
 }
 
 export interface PluginNativeResource {
@@ -66,6 +66,7 @@ export interface PluginActionPromptBlock {
 export interface PluginAction {
   pluginId: string;
   actionId: string;
+  workflowId?: string;
   label: string;
   requiredSkills: string[];
   requiredTools: string[];
@@ -171,9 +172,17 @@ export type PluginContributionKind =
   | 'command'
   | 'runtime'
   | 'mcp'
+  | 'hook'
   | 'file_opener'
   | 'preview_provider'
-  | 'app_surface';
+  | 'app_surface'
+  | 'toolbar'
+  | 'status'
+  | 'composer_slash'
+  | 'timeline_card'
+  | 'settings_section'
+  | 'host_service'
+  | 'workflow_binding';
 
 export interface PluginContributionCatalogItem {
   pluginId: string;
@@ -203,6 +212,7 @@ export interface ResolvedPluginFileOpener {
   target: 'preview_provider' | 'app_surface';
   priority: number;
   generation: number;
+  nativeRenderer?: 'workflow.studio' | 'host.renderer.workflow.studio' | null;
 }
 
 export interface PluginFilePreviewStart {
@@ -316,6 +326,16 @@ export function createPluginControlApi(transport: BackendTransport) {
       transport.call(
         'plugin_contribution_catalog'
       ) as Promise<PluginContributionCatalog>,
+    invokeContribution: (
+      pluginId: string,
+      handler: string,
+      input?: unknown
+    ) =>
+      transport.call('plugin_invoke_contribution', {
+        pluginId,
+        handler,
+        input: input ?? null,
+      }),
     productDetail: (pluginId: string) =>
       transport.call('plugin_product_detail', {
         pluginId,
@@ -398,10 +418,6 @@ export function createPluginControlApi(transport: BackendTransport) {
         pluginId,
         enabled,
       }) as Promise<PluginControlItem>,
-    update: (pluginId: string) =>
-      transport.call('plugin_control_update', {
-        pluginId,
-      }) as Promise<PluginControlItem>,
     rollback: (pluginId: string, permissionIds: string[] = []) =>
       transport.call('plugin_control_rollback', {
         pluginId,
@@ -417,8 +433,6 @@ export function createPluginControlApi(transport: BackendTransport) {
         pluginId,
         runtimeId,
       }) as Promise<PluginRuntimeInventoryItem>,
-    uninstall: (pluginId: string) =>
-      transport.call('plugin_control_uninstall', { pluginId }),
     configureAgents: (pluginId: string, allAgents: boolean, agents: string[]) =>
       transport.call('plugin_control_configure_agents', {
         pluginId,
@@ -431,14 +445,75 @@ export function createPluginControlApi(transport: BackendTransport) {
         allAgents,
         agents,
       }) as Promise<{ mcpErrors: string[] }>,
+    marketplaceIndex: () =>
+      transport.call('plugin_marketplace_index') as Promise<{
+        listings: Array<{
+          publisher: string;
+          pluginId: string;
+          version: string;
+          summary: string;
+          packageDigest: string;
+          archive: string;
+        }>;
+      }>,
+    install: (
+      source:
+        | { artifactId: string }
+        | {
+            marketplace: {
+              publisher: string;
+              id: string;
+              version: string;
+              digest: string;
+            };
+          },
+      conflict?: 'reject' | 'keep' | 'replace'
+    ) =>
+      transport.call('plugin_install', {
+        source,
+        conflict,
+      }) as Promise<PluginControlItem>,
+    update: (pluginId: string, version?: string, digest?: string) =>
+      version || digest
+        ? (transport.call('plugin_update', {
+            pluginId,
+            version: version ?? null,
+            digest: digest ?? null,
+          }) as Promise<PluginControlItem>)
+        : (transport.call('plugin_control_update', {
+            pluginId,
+          }) as Promise<PluginControlItem>),
+    uninstall: (pluginId: string, retainData?: boolean) =>
+      retainData === undefined
+        ? transport.call('plugin_control_uninstall', { pluginId })
+        : transport.call('plugin_uninstall', { pluginId, retainData }),
   };
 }
 
 /** Public action catalog consumed by composer surfaces. */
 export function createPluginApi(transport: BackendTransport) {
   return {
-    catalog: () =>
-      transport.call('plugin_action_catalog') as Promise<PluginActionCatalog>,
+    catalog: async () => {
+      try {
+        const catalog = (await transport.call('plugin_workflow_catalog')) as {
+          workflows?: Array<PluginAction & { workflowId?: string }>;
+        };
+        if (catalog.workflows) {
+          return {
+            actions: catalog.workflows.map((workflow) => ({
+              ...workflow,
+              actionId: workflow.workflowId ?? workflow.actionId,
+            })),
+          };
+        }
+      } catch {
+        // Hosts that have not registered the workflow catalog still expose
+        // the same identities through plugin_action_catalog.
+      }
+      return transport.call(
+        'plugin_action_catalog'
+      ) as Promise<PluginActionCatalog>;
+    },
   };
 }
 

@@ -44,7 +44,7 @@ impl SkillId {
 }
 
 impl ActionId {
-    pub(crate) fn from_string(value: String) -> Self {
+    pub fn from_string(value: String) -> Self {
         Self(value)
     }
 }

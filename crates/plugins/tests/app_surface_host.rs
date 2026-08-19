@@ -46,7 +46,7 @@ fn write_package(root: &std::path::Path) {
           "version":"1.0.0",
           "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{
-            "worker":{"path":"worker.mjs","format":"javascript-esm","protocol":"1.0"},
+            "worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"},
             "app":{"root":"dist/app","document":"index.html","protocol":"1.0"}
           },
           "permissions":[],
@@ -68,7 +68,9 @@ fn write_package(root: &std::path::Path) {
 const handlers = ['surface.createSession', 'hello'];
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   const request = JSON.parse(line);
-  if (request.method === 'activate') {
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: handlers, requestedFeatures: [] } }));
+  } else if (request.method === 'activate') {
     console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers } }));
   } else if (request.method === 'dispose') {
     console.log(JSON.stringify({ id: request.id, ok: true, result: null }));

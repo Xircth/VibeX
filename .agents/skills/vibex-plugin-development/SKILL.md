@@ -46,6 +46,9 @@ vibex-plugin doctor .
 vibex-plugin pack
 ```
 
+The installed product CLI exposes the release packaging path as
+`vibex plugin pack [dir] [--output file.vxp]`.
+
 When developing VibeX itself, build the local SDK and CLI and invoke `node <repo>/packages/plugin-cli/dist/cli.js`. Verify a real linked install and reload against the running Host; harness-only success is insufficient for App mounting, file editing, Runtime processes, or remote behavior.
 
 ## Completion gate

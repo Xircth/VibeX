@@ -1,19 +1,13 @@
 import { activatePluginWorker, PluginSdkError, } from './worker.js';
 export async function createWorkerHarness(definition, options = {}) {
     const hostCalls = [];
-    const host = options.host ??
-        {
-            async call(capability, operation, input = null) {
-                hostCalls.push({ capability, operation, input });
-                return null;
-            },
-        };
+    const host = options.host ?? createMemoryHostClient(hostCalls);
     const worker = await activatePluginWorker(definition, {
         context: {
             pluginId: options.context?.pluginId ?? 'dev.vibex.test',
             pluginVersion: options.context?.pluginVersion ?? '0.0.0-test',
             generation: options.context?.generation ?? 1,
-            trust: 'full',
+            packageClass: options.context?.packageClass ?? 'full-trust',
             grantedCapabilities: options.context?.grantedCapabilities ?? ['*'],
         },
         host,
@@ -150,6 +144,86 @@ export async function createAppHarness(definition, options) {
         async dispose() {
             revoke();
             await cleanup?.();
+        },
+    };
+}
+/**
+ * In-memory Host: implements storage, secrets, log, artifact, and doctor.
+ * Every other catalog operation fails with capability_unimplemented.
+ */
+function createMemoryHostClient(hostCalls) {
+    const settings = {};
+    const kv = new Map();
+    const secrets = new Map();
+    let artifact = {
+        name: "memory.txt",
+        content: "",
+        revision: "sha256:test-0",
+    };
+    return {
+        async call(capability, operation, input = null) {
+            hostCalls.push({ capability, operation, input });
+            const key = `${capability}.${operation}`;
+            switch (key) {
+                case "storage.settings.get":
+                    return { ...settings };
+                case "storage.settings.put":
+                    Object.assign(settings, input?.value ?? input);
+                    return { ...settings };
+                case "storage.kv.get":
+                    return (kv.get(String(input?.key)) ?? null);
+                case "storage.kv.put": {
+                    const rec = input;
+                    if (rec.key)
+                        kv.set(rec.key, rec.value ?? null);
+                    return (rec.value ?? null);
+                }
+                case "storage.kv.delete":
+                    kv.delete(String(input?.key));
+                    return null;
+                case "storage.kv.list":
+                    return [...kv.keys()];
+                case "storage.database.execute":
+                case "storage.database.query":
+                    return { rows: [], changes: 0 };
+                case "secrets.get": {
+                    const name = String(input?.name ?? "");
+                    const value = secrets.get(name);
+                    return (value === undefined ? { present: false } : { present: true, value });
+                }
+                case "secrets.put": {
+                    const rec = input;
+                    if (rec.name)
+                        secrets.set(rec.name, rec.value ?? "");
+                    return { present: true };
+                }
+                case "secrets.delete":
+                    secrets.delete(String(input?.name ?? ""));
+                    return { present: false };
+                case "log.debug":
+                case "log.info":
+                case "log.warn":
+                case "log.error":
+                    return {};
+                case "artifact.readText":
+                    return { ...artifact };
+                case "artifact.writeText": {
+                    const rec = input;
+                    if (rec.expectedRevision && rec.expectedRevision !== artifact.revision) {
+                        throw new PluginSdkError("artifact_revision_conflict", "The artifact changed outside this editor");
+                    }
+                    artifact = {
+                        ...artifact,
+                        content: rec.content ?? "",
+                        revision: `sha256:test-${Date.now()}`,
+                    };
+                    return { revision: artifact.revision };
+                }
+                case "plugin.self.doctor":
+                    return { diagnostics: [], recentCrashes: [] };
+                default:
+                    throw new PluginSdkError("capability_unimplemented", `${key} is not implemented by the in-memory harness`);
+            }
         },
     };
 }

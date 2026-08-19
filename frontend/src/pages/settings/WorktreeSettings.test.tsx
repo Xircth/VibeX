@@ -75,6 +75,8 @@ describe('WorktreeSettings', () => {
     const projectSelect = await screen.findByRole('combobox', {
       name: /项目|project/i,
     });
+    expect(projectSelect.closest('.settings-content')).toBeInTheDocument();
+    expect(projectSelect.closest('.max-w-3xl')).not.toBeInTheDocument();
     expect(projectSelect).toHaveValue('project-1');
     expect(await screen.findByDisplayValue('pnpm install')).toBeInTheDocument();
     expect(screen.getByDisplayValue('pnpm run clean')).toBeInTheDocument();

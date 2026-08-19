@@ -1,13 +1,9 @@
 import { TerminalSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry, ToolStatus } from 'shared/types';
-import RawLogText from '@/components/common/RawLogText';
 import { useExpandable } from '@/stores/useExpandableStore';
-import {
-  getCompactVerboseErrorText,
-  getToolExitStatus,
-  getToolSummary,
-} from '../conversation-entry-utils';
+import { getToolExitStatus, getToolSummary } from '../conversation-entry-utils';
+import { ToolTerminal } from './ToolArtifact';
 import {
   ToolCardShell,
   getToolStatusClassName,
@@ -67,7 +63,7 @@ export function CommandToolCard({
   linkifyUrls?: boolean;
   hideLabel?: boolean;
 }) {
-  const { t } = useTranslation(['conversation', 'common']);
+  const { t } = useTranslation('app');
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : undefined;
   const actionType =
@@ -83,7 +79,6 @@ export function CommandToolCard({
   const summary = getToolSummary(toolEntry, inlineText);
   const command = (actionType?.command || inlineText).trim();
   const output = actionType?.result?.output ?? null;
-  const compactOutput = output ? getCompactVerboseErrorText(output) : null;
   const hasDetails = Boolean(command || output);
   const exitStatus = toolEntry ? getToolExitStatus(toolEntry) : null;
   const statusDotClass = getCommandStatusDotClassName(
@@ -97,7 +92,7 @@ export function CommandToolCard({
   return (
     <ToolCardShell
       icon={<TerminalSquare className="h-3 w-3" />}
-      label={hideLabel ? '' : 'Terminal'}
+      label={hideLabel ? '' : t('entryUtils.terminal')}
       detail={summary.detail || command}
       statusClassName={statusClass}
       statusDotClassName={statusDotClass}
@@ -117,35 +112,12 @@ export function CommandToolCard({
       expandable={hasDetails}
       onToggle={toggle}
     >
-      {command ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('commandTool.commandLabel')}
-          </div>
-          <div className="conv-tool-details-content">{command}</div>
-        </>
-      ) : null}
-      {output ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('commandTool.outputLabel')}
-          </div>
-          {compactOutput ? (
-            <details className="conv-output-details">
-              <summary className="conv-compact-output" title={output}>
-                {compactOutput}
-              </summary>
-              <div className="conv-terminal-output">
-                <RawLogText content={output} linkifyUrls={linkifyUrls} />
-              </div>
-            </details>
-          ) : (
-            <div className="conv-terminal-output">
-              <RawLogText content={output} linkifyUrls={linkifyUrls} />
-            </div>
-          )}
-        </>
-      ) : null}
+      <ToolTerminal
+        command={command}
+        output={output}
+        exitStatus={actionType.result?.exit_status}
+        linkifyUrls={linkifyUrls}
+      />
     </ToolCardShell>
   );
 }

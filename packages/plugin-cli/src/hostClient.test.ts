@@ -14,15 +14,18 @@ import {
 describe("PluginDevHostClient", () => {
   it("uses only explicit Plugin Dev configuration and gives flags precedence", () => {
     expect(
-      resolvePluginDevConnection(
-        ["--host", "http://localhost:4312", "--token", "flag-token"],
-        {
-          VIBEX_PLUGIN_DEV_HOST: "http://127.0.0.1:4313",
-          VIBEX_PLUGIN_DEV_TOKEN: "env-token",
-          VIBEX_AUTH_TOKEN: "main-bearer-must-not-be-read",
-        },
-      ),
-    ).toEqual({ endpoint: "http://localhost:4312", token: "flag-token" });
+      resolvePluginDevConnection(["--host", "http://localhost:4312"], {
+        VIBEX_PLUGIN_DEV_HOST: "http://127.0.0.1:4313",
+        VIBEX_PLUGIN_DEV_GRANT: "host-grant",
+        VIBEX_AUTH_TOKEN: "main-bearer-must-not-be-read",
+      }),
+    ).toEqual({ endpoint: "http://localhost:4312", token: "host-grant" });
+
+    expect(() =>
+      resolvePluginDevConnection(["--host", "http://localhost:4312", "--token", "flag-token"], {
+        VIBEX_PLUGIN_DEV_GRANT: "host-grant",
+      }),
+    ).toThrow("dev_link_host_only");
 
     expect(() =>
       resolvePluginDevConnection([], {

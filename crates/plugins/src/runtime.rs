@@ -95,6 +95,73 @@ impl PluginWorkerRuntimeProvider {
             .map_err(|error| PluginError::runtime_install_failed("vibex-plugin-worker-node", error))
     }
 
+    pub async fn resolve_for_package(
+        &self,
+        package: &crate::PluginPackage,
+    ) -> Result<PathBuf, PluginError> {
+        match package
+            .entrypoints
+            .worker_runtime
+            .as_deref()
+            .unwrap_or("node")
+        {
+            "python" => self.resolve_python().await,
+            "native" => package
+                .entrypoints
+                .worker
+                .as_ref()
+                .map(PathBuf::from)
+                .ok_or_else(|| {
+                    PluginError::runtime_not_ready(
+                        "vibex-plugin-worker-native",
+                        "native Worker entrypoint is missing",
+                    )
+                }),
+            _ => self.resolve().await,
+        }
+    }
+
+    pub async fn resolve_python(&self) -> Result<PathBuf, PluginError> {
+        self.prepare_storage()?;
+        let lock = crate::plugin_worker_cpython_lock().ok_or_else(|| {
+            PluginError::runtime_not_ready(
+                "vibex-plugin-worker-cpython",
+                format!(
+                    "VibeX has no pinned Plugin Worker CPython artifact for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ),
+            )
+        })?;
+        let runtime = RuntimeContribution {
+            id: lock.id.to_owned(),
+            command: lock.entrypoint.to_owned(),
+            version: Some(lock.version.to_owned()),
+            target: lock.target.to_owned(),
+            content_digest: format!("sha256:{}", lock.sha256),
+            probe: vec!["--version".to_owned()],
+            install: RuntimeInstall::Archive {
+                url: lock.url.clone(),
+                sha256: Some(lock.sha256.to_owned()),
+            },
+        };
+        let host = ContentAddressedRuntimeHost::new(self.root.clone(), &runtime)?;
+        let expected = host.artifact_directory().join(lock.entrypoint);
+        if worker_python_is_healthy(&expected).await {
+            return Ok(expected);
+        }
+        let installation = GlobalRuntimeInstaller::new(&host)
+            .install("vibex.host", &runtime)
+            .await?;
+        if !worker_python_is_healthy(&installation.executable_path).await {
+            return Err(PluginError::runtime_not_ready(
+                &runtime.id,
+                "the checksum-verified CPython artifact failed its version probe",
+            ));
+        }
+        Ok(installation.executable_path)
+    }
+
     pub async fn resolve(&self) -> Result<PathBuf, PluginError> {
         self.prepare_storage()?;
         let mut resolved = self.resolved.lock().await;
@@ -191,6 +258,18 @@ fn plugin_worker_node_runtime() -> Option<RuntimeContribution> {
             sha256: Some(archive_sha256.to_owned()),
         },
     })
+}
+
+async fn worker_python_is_healthy(path: &Path) -> bool {
+    if !tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+    {
+        return false;
+    }
+    probe_executable(path, &["--version".to_owned()])
+        .await
+        .is_ok_and(|output| output.contains(crate::PLUGIN_WORKER_CPYTHON_VERSION))
 }
 
 async fn worker_node_is_healthy(path: &Path) -> bool {

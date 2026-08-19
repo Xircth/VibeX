@@ -78,25 +78,4 @@ export function getContextCompactStatusText(
   return contextCompactStatusLabel('success');
 }
 
-export function getContextCompactStatusKind(
-  content: string | null | undefined
-): ContextCompactStatusKind | null {
-  const trimmed = content?.trim();
-  if (!trimmed) {
-    return null;
-  }
 
-  // Match against every supported language so entries produced under a different
-  // UI language are still recognized after the user switches languages.
-  const kinds: ContextCompactStatusKind[] = ['running', 'success', 'failed'];
-  for (const kind of kinds) {
-    if (
-      trimmed === contextCompactStatusLabel(kind, 'zh-CN') ||
-      trimmed === contextCompactStatusLabel(kind, 'en')
-    ) {
-      return kind;
-    }
-  }
-
-  return null;
-}

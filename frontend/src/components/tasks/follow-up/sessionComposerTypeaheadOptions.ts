@@ -195,7 +195,9 @@ export function slashCommandsToTypeaheadOptions(
         value:
           sourceKind === 'plugin'
             ? (composerCommand.prompt ?? `/${command.name}`)
-            : `/${command.name}`,
+            : sourceKind === 'skill'
+              ? `/skill:${sourceId}:${command.name}`
+              : `/${command.name}`,
       }),
     };
   });

@@ -88,7 +88,22 @@ impl HostCapabilityBroker {
 #[async_trait]
 impl crate::CapabilityBroker for HostCapabilityBroker {
     fn supports(&self, capability: &str) -> bool {
-        matches!(capability, "runtime.execute" | "artifact.preview")
+        matches!(
+            capability,
+            "runtime.execute"
+                | "artifact.preview"
+                | "artifact"
+                | "storage"
+                | "secrets"
+                | "files"
+                | "network"
+                | "log"
+                | "events"
+                | "agent"
+                | "conversation"
+                | "app"
+                | "plugin.self"
+        )
     }
 
     async fn call(
@@ -105,9 +120,22 @@ impl crate::CapabilityBroker for HostCapabilityBroker {
                     .await
             }
             "artifact.preview" => self.open_preview(plugin_id, generation, input).await,
+            "artifact" if operation == "readText" || operation == "writeText" => Err(broker_error(
+                "artifact_not_found",
+                "Artifact text is only available on an editor surface session",
+            )),
+            "log" => Ok(json!({})),
+            "plugin.self" if operation == "doctor" => Ok(json!({
+                "pluginId": plugin_id,
+                "generation": generation,
+                "diagnostics": [],
+                "recentCrashes": [],
+            })),
+            "storage" | "secrets" | "files" | "network" | "events" | "agent" | "conversation"
+            | "app" => self.call_plugin_data(plugin_id, generation, capability, operation, input),
             _ => Err(broker_error(
                 "capability_unimplemented",
-                format!("{capability} is not exposed by the Host capability broker"),
+                format!("{capability}.{operation} is not exposed by the Host capability broker"),
             )),
         }
     }
@@ -247,6 +275,122 @@ impl HostCapabilityBroker {
             "capabilityToken": lease.capability_token,
             "expiresAtUnixMs": lease.expires_at_unix_ms,
         }))
+    }
+
+    fn call_plugin_data(
+        &self,
+        plugin_id: &str,
+        _generation: u64,
+        capability: &str,
+        operation: &str,
+        input: Value,
+    ) -> Result<Value, crate::WorkerHostError> {
+        let key = format!("{capability}.{operation}");
+        match key.as_str() {
+            "storage.kv.get" => {
+                let name = input
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| broker_error("kv_key_missing", "key is required"))?;
+                Ok(plugin_kv(plugin_id).get(name).unwrap_or(Value::Null))
+            }
+            "storage.kv.put" => {
+                let name = input
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| broker_error("kv_key_missing", "key is required"))?;
+                let value = input.get("value").cloned().unwrap_or(Value::Null);
+                plugin_kv(plugin_id).insert(name.to_owned(), value.clone());
+                Ok(value)
+            }
+            "storage.kv.delete" => {
+                if let Some(name) = input.get("key").and_then(Value::as_str) {
+                    plugin_kv(plugin_id).remove(name);
+                }
+                Ok(json!({}))
+            }
+            "storage.kv.list" => Ok(Value::Array(
+                plugin_kv(plugin_id)
+                    .keys()
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            )),
+            "storage.settings.get" | "storage.settings.put" => Ok(input),
+            "secrets.get" => Ok(json!({ "present": false })),
+            "secrets.put" | "secrets.delete" => Ok(json!({ "present": false })),
+            "network.fetch" => Err(broker_error(
+                "network_denied",
+                "Use the language runtime for Full Trust network access; Isolated packages require v5 grant",
+            )),
+            "files.read" | "files.write" | "files.stat" | "files.list" => Err(broker_error(
+                "files_root_denied",
+                "File roots are bound to workspace and plugin-data sessions",
+            )),
+            "events.subscribe" => Ok(json!({ "cursor": 0 })),
+            "events.ack" => Ok(json!({})),
+            "agent.invoke" => Err(broker_error(
+                "handler_not_visible",
+                "Cross-plugin handlers are not visible",
+            )),
+            "conversation.read.get" | "conversation.append.enqueueInput" => Err(broker_error(
+                "conversation_scope_denied",
+                "No conversation is bound to this Worker",
+            )),
+            "app.notify.toast" => Ok(json!({})),
+            _ => Err(broker_error(
+                "capability_unimplemented",
+                format!("{key} is not implemented"),
+            )),
+        }
+    }
+}
+
+fn plugin_kv(plugin_id: &str) -> PluginKv {
+    PluginKv {
+        plugin_id: plugin_id.to_owned(),
+    }
+}
+
+struct PluginKv {
+    plugin_id: String,
+}
+
+impl PluginKv {
+    fn store() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Value>> {
+        use std::{
+            collections::HashMap,
+            sync::{Mutex, OnceLock},
+        };
+        static STORE: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+        STORE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap()
+    }
+
+    fn namespaced(&self, key: &str) -> String {
+        format!("{}::{key}", self.plugin_id)
+    }
+
+    fn get(&self, key: &str) -> Option<Value> {
+        Self::store().get(&self.namespaced(key)).cloned()
+    }
+
+    fn insert(&self, key: String, value: Value) {
+        Self::store().insert(self.namespaced(&key), value);
+    }
+
+    fn remove(&self, key: &str) {
+        Self::store().remove(&self.namespaced(key));
+    }
+
+    fn keys(&self) -> Vec<String> {
+        let prefix = format!("{}::", self.plugin_id);
+        Self::store()
+            .keys()
+            .filter_map(|key| key.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
     }
 }
 

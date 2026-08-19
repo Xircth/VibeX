@@ -24,7 +24,11 @@ import {
   ArrowUp,
   AlertTriangle,
   LayoutDashboard,
+  List,
+  Columns2,
+  MessagesSquare,
   Monitor,
+  Puzzle,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -33,6 +37,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Logo } from '@/components/Logo';
+import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useKanbanSessionContext } from '@/contexts/KanbanSessionContext';
@@ -50,6 +55,13 @@ import { useWorkspaceBranchStatus } from '@/hooks/useWorkspaceBranchStatus';
 import { WorktreeSelector } from '@/components/layout/WorktreeSelector';
 import { ProjectRailToggleButton } from '@/components/layout/ProjectRailToggleButton';
 import { useProjectSwitcher } from '@/hooks/useProjectSwitcher';
+import {
+  contributionMetadata,
+  usePluginHostContributions,
+} from '@/hooks/usePluginHostContributions';
+import { createPluginControlApi } from '@/lib/api/plugins';
+import { useBackendTransport } from '@/lib/transport';
+import { MoreHorizontal } from 'lucide-react';
 
 function ToolbarDivider() {
   return (
@@ -58,6 +70,104 @@ function ToolbarDivider() {
       role="separator"
       aria-orientation="vertical"
     />
+  );
+}
+
+export function KanbanLayoutToggles() {
+  const { t } = useTranslation('panels');
+  const isKanbanListVisible = useLayoutStore(
+    (state) => state.isKanbanListVisible
+  );
+  const isKanbanMonitorVisible = useLayoutStore(
+    (state) => state.isKanbanMonitorVisible
+  );
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
+  );
+  const toggleKanbanList = useLayoutStore((state) => state.toggleKanbanList);
+  const toggleKanbanMonitor = useLayoutStore(
+    (state) => state.toggleKanbanMonitor
+  );
+  const toggleKanbanSession = useLayoutStore(
+    (state) => state.toggleKanbanSession
+  );
+  const resetKanbanLayout = useLayoutStore((state) => state.resetKanbanLayout);
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={toggleKanbanList}
+            aria-label={t('toolbar.toggleSessionList')}
+            aria-pressed={isKanbanListVisible}
+          >
+            <List className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleSessionList')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={toggleKanbanMonitor}
+            aria-label={t('toolbar.toggleSessionMonitor')}
+            aria-pressed={isKanbanMonitorVisible}
+          >
+            <Columns2 className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleSessionMonitor')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={toggleKanbanSession}
+            aria-label={t('toolbar.toggleSessionExecution')}
+            aria-pressed={isKanbanSessionVisible}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.toggleSessionExecution')}
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="workspace-toolbar-button h-7 w-7"
+            onClick={resetKanbanLayout}
+            aria-label={t('toolbar.resetKanbanLayout')}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {t('toolbar.resetKanbanLayout')}
+        </TooltipContent>
+      </Tooltip>
+
+      <ToolbarDivider />
+    </div>
   );
 }
 
@@ -346,22 +456,31 @@ export function Toolbar() {
     [projects]
   );
   const isTerminalOpen = isPanelOpen(PANEL_IDS.TERMINAL);
+  const toolbarItems = usePluginHostContributions('toolbar');
+  const transport = useBackendTransport();
+  const pluginApi = useMemo(
+    () => createPluginControlApi(transport),
+    [transport]
+  );
+  const visibleToolbar = toolbarItems.slice(0, 4);
+  const overflowToolbar = toolbarItems.slice(4);
 
   const handleCreateSession = () => {
     if (!projectId) return;
 
-    if (isWorkspaceTab) {
-      const targetWorkspaceId =
-        workspaceId ?? activeWorktreeId ?? rightSession?.workspaceId;
-      if (targetWorkspaceId) {
-        navigate(
-          `${paths.projectWorkspace(projectId, targetWorkspaceId)}?newSession=1`
-        );
-        return;
-      }
+    if (!isWorkspaceTab) {
+      useLayoutStore.getState().setKanbanSessionVisible(true);
     }
 
-    navigate(`${paths.projectSessions(projectId)}?createSession=1`);
+    navigate(
+      resolveCreateSessionHref({
+        projectId,
+        isWorkspaceTab,
+        workspaceId,
+        activeWorktreeId,
+        rightSessionWorkspaceId: rightSession?.workspaceId,
+      })
+    );
   };
 
   const handleOpenInIDE = () => {
@@ -399,110 +518,171 @@ export function Toolbar() {
           </div>
 
           <div className="ml-auto flex items-center shrink-0 gap-0.5">
-            <div
-              className={cn(
-                'flex items-center gap-0.5',
-                !isWorkspaceTab && 'invisible pointer-events-none'
-              )}
-              aria-hidden={!isWorkspaceTab}
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
+            {visibleToolbar.map((item) => {
+              const metadata = contributionMetadata(item);
+              const title = String(metadata.title ?? item.label);
+              const handler =
+                typeof metadata.handler === 'string' ? metadata.handler : item.id;
+              return (
+                <Tooltip key={`${item.pluginId}:${item.id}`}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      aria-label={title}
+                      onClick={() =>
+                        void pluginApi.invokeContribution(item.pluginId, handler)
+                      }
+                    >
+                      <Puzzle className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{title}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+            {overflowToolbar.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="workspace-toolbar-button h-7 w-7"
-                    onClick={toggleFileTree}
-                    aria-label="Toggle file tree"
-                    tabIndex={isWorkspaceTab ? 0 : -1}
+                    aria-label={t('common:more')}
                   >
-                    <FolderTree className="h-3.5 w-3.5" />
+                    <MoreHorizontal className="h-3.5 w-3.5" />
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Toggle File Tree</TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {overflowToolbar.map((item) => {
+                    const metadata = contributionMetadata(item);
+                    const title = String(metadata.title ?? item.label);
+                    const handler =
+                      typeof metadata.handler === 'string'
+                        ? metadata.handler
+                        : item.id;
+                    return (
+                      <DropdownMenuItem
+                        key={`${item.pluginId}:${item.id}`}
+                        onSelect={() =>
+                          void pluginApi.invokeContribution(
+                            item.pluginId,
+                            handler
+                          )
+                        }
+                      >
+                        {title}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            {isWorkspaceTab ? (
+              <div className="flex items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      onClick={toggleFileTree}
+                      aria-label="Toggle file tree"
+                      tabIndex={isWorkspaceTab ? 0 : -1}
+                    >
+                      <FolderTree className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Toggle File Tree
+                  </TooltipContent>
+                </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="workspace-toolbar-button h-7 w-7"
-                    onClick={toggleEditorArea}
-                    aria-label={
-                      isEditorAreaVisible
-                        ? t('toolbar.hideEditorAndTerminal')
-                        : t('toolbar.showEditorAndTerminal')
-                    }
-                    aria-pressed={isEditorAreaVisible}
-                    tabIndex={isWorkspaceTab ? 0 : -1}
-                  >
-                    <Code2 className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {isEditorAreaVisible
-                    ? t('toolbar.hideEditorAndTerminal')
-                    : t('toolbar.showEditorAndTerminal')}
-                </TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      onClick={toggleEditorArea}
+                      aria-label={
+                        isEditorAreaVisible
+                          ? t('toolbar.hideEditorAndTerminal')
+                          : t('toolbar.showEditorAndTerminal')
+                      }
+                      aria-pressed={isEditorAreaVisible}
+                      tabIndex={isWorkspaceTab ? 0 : -1}
+                    >
+                      <Code2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {isEditorAreaVisible
+                      ? t('toolbar.hideEditorAndTerminal')
+                      : t('toolbar.showEditorAndTerminal')}
+                  </TooltipContent>
+                </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="workspace-toolbar-button h-7 w-7"
-                    onClick={openNewTerminal}
-                    aria-label="Toggle terminal"
-                    aria-pressed={isTerminalOpen}
-                    tabIndex={isWorkspaceTab ? 0 : -1}
-                  >
-                    <Terminal className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Toggle Terminal</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      onClick={openNewTerminal}
+                      aria-label="Toggle terminal"
+                      aria-pressed={isTerminalOpen}
+                      tabIndex={isWorkspaceTab ? 0 : -1}
+                    >
+                      <Terminal className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Toggle Terminal</TooltipContent>
+                </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="workspace-toolbar-button h-7 w-7"
-                    aria-pressed={isRightPanelVisible}
-                    onClick={toggleRightPanel}
-                    aria-label="Toggle AI panel"
-                    tabIndex={isWorkspaceTab ? 0 : -1}
-                  >
-                    {isRightPanelVisible ? (
-                      <PanelRight className="h-3.5 w-3.5" />
-                    ) : (
-                      <PanelLeft className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Toggle AI Panel</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      aria-pressed={isRightPanelVisible}
+                      onClick={toggleRightPanel}
+                      aria-label="Toggle AI panel"
+                      tabIndex={isWorkspaceTab ? 0 : -1}
+                    >
+                      {isRightPanelVisible ? (
+                        <PanelRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <PanelLeft className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Toggle AI Panel</TooltipContent>
+                </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="workspace-toolbar-button h-7 w-7"
-                    onClick={resetLayout}
-                    aria-label="Reset layout"
-                    tabIndex={isWorkspaceTab ? 0 : -1}
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Reset Layout</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="workspace-toolbar-button h-7 w-7"
+                      onClick={resetLayout}
+                      aria-label="Reset layout"
+                      tabIndex={isWorkspaceTab ? 0 : -1}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Reset Layout</TooltipContent>
+                </Tooltip>
 
-              <ToolbarDivider />
-            </div>
+                <ToolbarDivider />
+              </div>
+            ) : (
+              <KanbanLayoutToggles />
+            )}
 
             {projectId && (
               <>
@@ -553,7 +733,7 @@ export function Toolbar() {
                   aria-label={t('toolbar.homeOrRecentProjects')}
                   title={t('toolbar.homeOrRecentProjects')}
                 >
-                  <Logo showText={false} size="window" />
+                  <Logo showText={false} size="toolbar" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

@@ -11,7 +11,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { AgentLifecycleState, ExecutorProfileId } from 'shared/types';
 import { AgentIcon } from '@/components/agents/AgentIcon';
-import { useSelectableAgents } from '@/features/agents/useSelectableAgents';
+import {
+  useSelectableAgents,
+  type SelectableAgent,
+} from '@/features/agents/useSelectableAgents';
 import { settingsWindowApi } from '@/lib/api';
 
 interface AgentSelectorProps {
@@ -66,11 +69,21 @@ export function AgentSelector({
       .filter((agent) => agent.enabled)
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
   }, [selectable]);
+  const agentIcons = useMemo(() => {
+    const byId = new Map<string, SelectableAgent>();
+    for (const agent of selectable) {
+      byId.set(agent.agentId, agent);
+    }
+    return byId;
+  }, [selectable]);
   const selectedAgent = selectedExecutorProfile?.executor;
   const selectedAgentLabel =
     agents.find((agent) => agent.agentId === selectedAgent)?.displayName ??
     selectedAgent ??
     'Agent';
+  const selectedAgentIcons = selectedAgent
+    ? agentIcons.get(selectedAgent)
+    : undefined;
 
   if (!profiles) return null;
 
@@ -94,7 +107,13 @@ export function AgentSelector({
               }
             >
               {selectedAgent ? (
-                <AgentIcon agent={selectedAgent} className="h-3.5 w-3.5" />
+                <AgentIcon
+                  agent={selectedAgent}
+                  className="h-3.5 w-3.5"
+                  iconLight={selectedAgentIcons?.iconLight}
+                  iconDark={selectedAgentIcons?.iconDark}
+                  iconSvg={selectedAgentIcons?.iconSvg}
+                />
               ) : (
                 <Bot className="h-3.5 w-3.5" />
               )}
@@ -117,8 +136,9 @@ export function AgentSelector({
               {t('agentSelector.noAgentsAvailable')}
             </div>
           ) : (
-            agents.map(({ agentId, displayName, lifecycle, runnable }) =>
-              runnable ? (
+            agents.map(({ agentId, displayName, lifecycle, runnable }) => {
+              const icons = agentIcons.get(agentId);
+              return runnable ? (
                 <DropdownMenuItem
                   key={agentId}
                   onSelect={() => {
@@ -127,7 +147,13 @@ export function AgentSelector({
                   className={selectedAgent === agentId ? 'bg-accent' : ''}
                 >
                   <span className="flex items-center gap-2">
-                    <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
+                    <AgentIcon
+                      agent={agentId}
+                      className="h-3.5 w-3.5"
+                      iconLight={icons?.iconLight}
+                      iconDark={icons?.iconDark}
+                      iconSvg={icons?.iconSvg}
+                    />
                     {displayName}
                   </span>
                 </DropdownMenuItem>
@@ -139,15 +165,21 @@ export function AgentSelector({
                   title={t(unavailableAgentStatusKey(lifecycle))}
                 >
                   <span className="flex items-center gap-2">
-                    <AgentIcon agent={agentId} className="h-3.5 w-3.5" />
+                    <AgentIcon
+                      agent={agentId}
+                      className="h-3.5 w-3.5"
+                      iconLight={icons?.iconLight}
+                      iconDark={icons?.iconDark}
+                      iconSvg={icons?.iconSvg}
+                    />
                     {displayName}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
                     {t(unavailableAgentStatusKey(lifecycle))}
                   </span>
                 </DropdownMenuItem>
-              )
-            )
+              );
+            })
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem

@@ -245,6 +245,24 @@ pub struct AgentUpdateCheckView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
+pub struct CommunityAcpPresetView {
+    pub preset_id: String,
+    pub agent_id: AgentId,
+    pub display_name: String,
+    pub description: String,
+    pub authors: Vec<String>,
+    pub repository: Option<String>,
+    pub version: String,
+    pub distribution_kind: UserAgentDistributionKind,
+    pub distribution_json: String,
+    pub icon_light: Option<String>,
+    pub icon_dark: Option<String>,
+    pub built_in: bool,
+    pub added: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AgentRegistryView {
     pub current_platform: String,
     pub snapshot_id: Option<String>,
@@ -253,6 +271,8 @@ pub struct AgentRegistryView {
     pub refresh_error: Option<String>,
     pub installed: Vec<AgentRegistryViewRow>,
     pub uninstalled: Vec<AgentRegistryViewRow>,
+    #[serde(default)]
+    pub presets: Vec<CommunityAcpPresetView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -610,6 +630,123 @@ pub struct PiCommandValidationView {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum DshProviderKind {
+    Official,
+    Catalog,
+    Custom,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshProviderModelView {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshCatalogProviderView {
+    pub id: String,
+    pub name: String,
+    pub api_key_env: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshProviderView {
+    pub id: String,
+    pub display_name: String,
+    pub kind: DshProviderKind,
+    pub notes: Option<String>,
+    pub api: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key_env: String,
+    pub credential_present: bool,
+    pub models: Vec<DshProviderModelView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshProvidersView {
+    pub settings_path: String,
+    pub credentials_path: String,
+    pub default_provider: String,
+    pub default_model: String,
+    pub providers: Vec<DshProviderView>,
+    pub catalog: Vec<DshCatalogProviderView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshProviderSaveRequest {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub notes: Option<String>,
+    pub api: Option<String>,
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+    pub models: Vec<DshProviderModelView>,
+    pub set_default: bool,
+    pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshProviderDiscoverRequest {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub provider_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum DshExtensionKind {
+    Plugin,
+    Skill,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshPluginView {
+    pub name: String,
+    pub version: Option<String>,
+    pub reserved: bool,
+    pub source: String,
+    pub kind: DshExtensionKind,
+    pub path: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DshPluginSummaryView {
+    pub profile: String,
+    pub profile_dir: String,
+    pub plugins: Vec<DshPluginView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GrokPluginView {
+    pub name: String,
+    pub version: Option<String>,
+    pub status: String,
+    pub path: Option<String>,
+    pub source: Option<String>,
+    pub marketplace: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GrokPluginSummaryView {
+    pub home: String,
+    pub plugins: Vec<GrokPluginView>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AgentModelProviderSaveRequest {
@@ -688,6 +825,15 @@ pub enum AgentNativeConfigFieldKind {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, rename_all = "snake_case")]
+pub enum AgentNativeConfigSurface {
+    #[default]
+    Configuration,
+    Authentication,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export, rename_all = "snake_case")]
@@ -723,6 +869,8 @@ pub struct AgentNativeConfigFieldView {
     pub value: Option<String>,
     pub masked_value: Option<String>,
     pub revision: String,
+    #[serde(default)]
+    pub surface: AgentNativeConfigSurface,
 }
 
 /// First-class settings surfaces contributed by an Agent profile. The frontend
@@ -738,6 +886,9 @@ pub enum AgentSettingsFeature {
     PiConfiguration,
     OpenCodeProviders,
     OpenCodePlugins,
+    DshProviders,
+    DshPlugins,
+    GrokPlugins,
     NativeMcp,
     NativeSkills,
 }

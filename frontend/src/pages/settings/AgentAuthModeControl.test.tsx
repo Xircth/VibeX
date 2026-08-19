@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { agentManagementApi } from '@/features/agent-management';
 
+import { clearAllAgentSettingsDrafts } from './agentSettingsDraftRetention';
 import { pickAstryxOption } from './agentSettingsTestUtils';
 import { AgentAuthModeControl } from './AgentAuthModeControl';
 
@@ -107,7 +108,10 @@ const geminiOptions = [
 ];
 
 describe('AgentAuthModeControl', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    clearAllAgentSettingsDrafts();
+    vi.restoreAllMocks();
+  });
 
   it('switches Grok to subscription and delegates credential cleanup', async () => {
     vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
@@ -140,6 +144,36 @@ describe('AgentAuthModeControl', () => {
     expect(
       screen.queryByText('订阅账号模式不会向进程传递 XAI_API_KEY。')
     ).not.toBeInTheDocument();
+  });
+
+  it('keeps an unsaved custom endpoint after the panel remounts', async () => {
+    vi.spyOn(agentManagementApi, 'authMode').mockResolvedValue({
+      agent_id: 'grok',
+      mode: 'api_key',
+      credential_env: 'XAI_API_KEY',
+      credential_present: true,
+      modes: ['subscription', 'api_key', 'custom'],
+      options: grokOptions,
+    });
+    const user = userEvent.setup();
+
+    const { unmount } = render(<AgentAuthModeControl agentId="grok" />);
+
+    await pickAstryxOption(
+      user,
+      await screen.findByLabelText('Grok 鉴权模式'),
+      '自定义模型端点'
+    );
+    expect(screen.getByLabelText('Grok 鉴权模式')).toHaveTextContent(
+      '自定义模型端点'
+    );
+
+    unmount();
+    render(<AgentAuthModeControl agentId="grok" />);
+
+    expect(await screen.findByLabelText('Grok 鉴权模式')).toHaveTextContent(
+      '自定义模型端点'
+    );
   });
 
   it('keeps the Codex API key inside the native configuration form', async () => {
@@ -249,6 +283,7 @@ describe('AgentAuthModeControl', () => {
       <AgentAuthModeControl
         actions={claudeActions}
         agentId="claude_code"
+        headingExtra={<div data-testid="auth-file-meta">settings.json</div>}
         configuration={
           <div data-testid="native-configuration">settings.json fields</div>
         }
@@ -270,6 +305,7 @@ describe('AgentAuthModeControl', () => {
     expect(
       screen.queryByText('运行 Claude Code 官方账号登录流程。')
     ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auth-file-meta')).not.toBeInTheDocument();
     expect(screen.getByTestId('native-configuration')).not.toBeVisible();
     expect(screen.getByTestId('model-provider')).not.toBeVisible();
     expect(
@@ -283,6 +319,7 @@ describe('AgentAuthModeControl', () => {
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
+    expect(screen.getByTestId('auth-file-meta')).toBeVisible();
     expect(screen.getByTestId('native-configuration')).toBeVisible();
     expect(screen.getByTestId('model-provider')).not.toBeVisible();
 
@@ -290,6 +327,7 @@ describe('AgentAuthModeControl', () => {
     expect(
       screen.queryByLabelText('ANTHROPIC_API_KEY')
     ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('auth-file-meta')).not.toBeInTheDocument();
     expect(screen.getByTestId('native-configuration')).not.toBeVisible();
     expect(screen.getByTestId('model-provider')).toBeVisible();
   });

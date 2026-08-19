@@ -234,7 +234,9 @@
   [data-list-style='decimal']
   > .astryx-list-item
   > span:first-child {
-  width: 1rem !important;
+  width: auto !important;
+  min-width: 1.5em !important;
+  white-space: nowrap;
 }
 
 .vibex-user-message

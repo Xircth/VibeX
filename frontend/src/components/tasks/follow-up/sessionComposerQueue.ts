@@ -56,7 +56,10 @@ export function inputViewToQueuedMessage(
       agentMessage:
         displayText === input.payload.text ? undefined : input.payload.text,
       images: input.payload.images ?? [],
-      pluginActions: input.payload.pluginActions ?? [],
+      pluginActions: (input.payload.workflowRefs ?? []).map((reference) => ({
+        pluginId: reference.pluginId,
+        actionId: reference.workflowId,
+      })),
     },
   };
 }

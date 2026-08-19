@@ -1,14 +1,14 @@
 import { CircleHelp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
-import { renderJson } from '../conversation-entry-utils';
-import { ToolResultView } from './ToolResultView';
+import { ToolArtifact, ToolChoiceList, ToolProse } from './ToolArtifact';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
 import { readString } from './jsonValue';
+import { stringList } from './toolArtifactModel';
 
 function isQuestionToolName(toolName: string): boolean {
   return /(^|[_-])(ask|question|request_user_input)([_-]|$)/i.test(toolName);
@@ -39,6 +39,13 @@ export function AskQuestionResultCard({
     readString(action.arguments, ['question', 'prompt', 'message']) ||
     entry.content.trim() ||
     action.tool_name;
+  const options = stringList(
+    action.arguments &&
+      typeof action.arguments === 'object' &&
+      !Array.isArray(action.arguments)
+      ? action.arguments.options
+      : null
+  );
   const answer = readString(action.result?.value, [
     'answer',
     'response',
@@ -56,30 +63,10 @@ export function AskQuestionResultCard({
       expanded
       expandable={false}
     >
-      <div className="conv-tool-details-section-label">
-        {t('askQuestion.questionLabel')}
-      </div>
-      <div className="conv-tool-details-content">{question}</div>
-      {action.arguments ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('askQuestion.optionsLabel')}
-          </div>
-          <div className="conv-tool-details-content">
-            {renderJson(action.arguments)}
-          </div>
-        </>
-      ) : null}
-      {action.result ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('askQuestion.answerLabel')}
-          </div>
-          <div className="conv-tool-details-content">
-            <ToolResultView result={action.result} />
-          </div>
-        </>
-      ) : null}
+      <ToolArtifact badge={t('askQuestion.title')} title={question}>
+        <ToolChoiceList items={options} selected={answer} />
+        {answer ? <ToolProse>{answer}</ToolProse> : null}
+      </ToolArtifact>
     </ToolCardShell>
   );
 }

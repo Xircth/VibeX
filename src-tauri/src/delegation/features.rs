@@ -368,7 +368,7 @@ mod tests {
                     blocks: vec![ConversationInputBlock::Text {
                         text: "first".to_string(),
                     }],
-                    plugin_actions: Vec::new(),
+                    workflow_refs: Vec::new(),
                 },
             ),
             (

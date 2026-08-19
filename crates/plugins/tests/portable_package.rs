@@ -351,7 +351,7 @@ fn product_package_can_bind_a_file_opener_to_a_generic_artifact_editor_surface()
           "config":{"schema":{"type":"object","additionalProperties":false}},
           "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
           "entrypoints":{
-            "worker":{"path":"dist/worker.mjs","format":"javascript-esm","protocol":"1.0"},
+            "worker":{"path":"dist/worker.mjs","runtime":"node","protocol":"1.1"},
             "app":{"root":"dist/app","document":"index.html","protocol":"1.0"}
           },
           "integrations":[

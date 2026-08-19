@@ -42,12 +42,12 @@ impl AcpCapabilityNormalizer {
                 .ok()
                 .and_then(|value| value.as_str().map(ToOwned::to_owned)),
             prompt: AgentPromptCapabilities {
-                // Text prompts are required by the ACP baseline.
+                // Text and ResourceLink are required by the ACP baseline.
                 text: true,
                 image: prompt.image,
                 audio: prompt.audio,
                 resource: prompt.embedded_context,
-                resource_link: prompt.embedded_context,
+                resource_link: true,
             },
             load_session: capabilities.load_session,
             resume_session: session.resume.is_some(),
@@ -62,6 +62,9 @@ impl AcpCapabilityNormalizer {
             additional_directories: session.additional_directories.is_some(),
             filesystem_requests: client_capabilities.fs.read_text_file
                 || client_capabilities.fs.write_text_file,
+            // ACP v1 has no optional stdio flag; `mcpServers` on session/new is
+            // the baseline transport. HTTP/SSE stay behind advertised bits.
+            mcp_stdio: true,
             mcp_http: mcp.http,
             mcp_sse: mcp.sse,
             auth_logout: capabilities.auth.logout.is_some(),

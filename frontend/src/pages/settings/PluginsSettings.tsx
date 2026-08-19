@@ -1149,10 +1149,7 @@ export function PluginsSettings({
 
   const copyDevConnection = async () => {
     if (!devConnection) return;
-    const shellEnvironment = [
-      `export VIBEX_PLUGIN_DEV_HOST='${devConnection.endpoint}'`,
-      `export VIBEX_PLUGIN_DEV_TOKEN='${devConnection.token}'`,
-    ].join('\n');
+    const shellEnvironment = `export VIBEX_PLUGIN_DEV_HOST='${devConnection.endpoint}'`;
     await navigator.clipboard.writeText(shellEnvironment);
     setDevConnectionCopied(true);
     window.setTimeout(() => setDevConnectionCopied(false), 1600);

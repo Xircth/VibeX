@@ -140,6 +140,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_builtin_office_adopts_canonical_publisher() {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("sqlite options")
+            .foreign_keys(false);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("memory database");
+        run_migrations(&pool).await.expect("initial migrations");
+
+        sqlx::query(
+            "INSERT INTO plugin_packages_v4
+                (publisher, plugin_id, version, package_digest, source_kind, source_path,
+                 manifest_json, package_json, created_at)
+             VALUES ('legacy.local', 'vibex.office', '2.0.0', 'legacy:office', 'builtin',
+                     '/tmp/office', '{}', '{\"id\":\"vibex.office\"}', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy package");
+        sqlx::query(
+            "INSERT INTO plugin_installations_v4
+                (plugin_id, publisher, current_package_digest, installed_at, updated_at)
+             VALUES ('vibex.office', 'legacy.local', 'legacy:office',
+                     datetime('now'), datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy installation");
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/20260814030000_adopt_builtin_office_publisher.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("publisher adoption");
+
+        let publisher: String = sqlx::query_scalar(
+            "SELECT publisher FROM plugin_installations_v4 WHERE plugin_id = 'vibex.office'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("installation publisher");
+        let package_publisher: String = sqlx::query_scalar(
+            "SELECT json_extract(package_json, '$.publisher')
+             FROM plugin_packages_v4
+             WHERE publisher = 'vibex' AND plugin_id = 'vibex.office'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("package publisher");
+        let legacy_packages: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM plugin_packages_v4
+             WHERE publisher = 'legacy.local' AND plugin_id = 'vibex.office'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy package count");
+
+        assert_eq!(publisher, "vibex");
+        assert_eq!(package_publisher, "vibex");
+        assert_eq!(legacy_packages, 0);
+    }
+
+    #[tokio::test]
     async fn legacy_automation_timezone_is_resolved_exactly_once() {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
             .expect("sqlite options")

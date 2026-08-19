@@ -134,6 +134,12 @@ pub enum NativeConfigFieldKind {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeConfigSurface {
+    Configuration,
+    Authentication,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeConfigField {
     pub field_id: &'static str,
@@ -145,6 +151,7 @@ pub struct NativeConfigField {
     /// Some auth stores use a tagged object. When this field is written,
     /// write this sibling value as well (for example `{ type: "api" }`).
     pub object_discriminator: Option<(&'static str, &'static str)>,
+    pub surface: NativeConfigSurface,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +270,7 @@ impl BuiltInProfileCatalog {
                 pi_profile(),
                 grok_profile(),
                 cursor_profile(),
+                deepseek_harness_profile(),
             ],
         }
     }
@@ -345,6 +353,7 @@ const CODEBUDDY_CANDIDATES: &[ProfileExternalCandidate] = &[external("codebuddy"
 const KIMI_CANDIDATES: &[ProfileExternalCandidate] = &[external("kimi")];
 const GROK_CANDIDATES: &[ProfileExternalCandidate] = &[external("grok")];
 const CURSOR_CANDIDATES: &[ProfileExternalCandidate] = &[external("cursor-agent")];
+const DEEPSEEK_HARNESS_CANDIDATES: &[ProfileExternalCandidate] = &[external("deepseek-acp")];
 
 const fn external(executable: &'static str) -> ProfileExternalCandidate {
     ProfileExternalCandidate {
@@ -568,6 +577,12 @@ const GROK_ACTIONS: &[ProfileManagementAction] = &[
         "grok",
         &["logout"],
     ),
+    url_action(
+        "subscription",
+        "管理订阅",
+        "打开 Grok 套餐与账单页面",
+        "https://grok.com?_s=usage",
+    ),
 ];
 const CURSOR_ACTIONS: &[ProfileManagementAction] = &[
     terminal_action(
@@ -593,6 +608,14 @@ const CURSOR_ACTIONS: &[ProfileManagementAction] = &[
         "https://www.cursor.com/settings",
     ),
 ];
+const DEEPSEEK_HARNESS_ACTIONS: &[ProfileManagementAction] = &[terminal_action(
+    "setup",
+    "配置 API Key",
+    "把 DeepSeek API Key 写入本地凭据",
+    ProfileManagementActionKind::Setup,
+    "deepseek-acp",
+    &["--setup"],
+)];
 
 const fn terminal_action(
     id: &'static str,
@@ -645,18 +668,18 @@ const CLAUDE_PERMISSION_OPTIONS: &[(&str, &str)] = &[
 ];
 const CLAUDE_UPDATE_OPTIONS: &[(&str, &str)] = &[("stable", "稳定版"), ("latest", "最新版")];
 const CLAUDE_SETTINGS_FIELDS: &[NativeConfigField] = &[
-    text_field(
+    authentication(text_field(
         "anthropic_base_url",
         "API URL",
         "Anthropic API 或兼容网关地址",
         &["env", "ANTHROPIC_BASE_URL"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "anthropic_api_key",
         "API Key",
         "写入 Claude Code 的 ANTHROPIC_API_KEY",
         &["env", "ANTHROPIC_API_KEY"],
-    ),
+    )),
     text_field(
         "model",
         "主模型",
@@ -755,12 +778,12 @@ const CLAUDE_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
     format: NativeConfigFormat::Json,
     fields: CLAUDE_SETTINGS_FIELDS,
 }];
-const CODEX_AUTH_FIELDS: &[NativeConfigField] = &[secret_field(
+const CODEX_AUTH_FIELDS: &[NativeConfigField] = &[authentication(secret_field(
     "openai_api_key",
     "OpenAI API Key",
     "写入 Codex 的本地认证文件",
     &["OPENAI_API_KEY"],
-)];
+))];
 const CODEX_REASONING_OPTIONS: &[(&str, &str)] = &[
     ("minimal", "最少"),
     ("low", "低"),
@@ -790,19 +813,19 @@ const CODEX_SANDBOX_OPTIONS: &[(&str, &str)] = &[
 const CODEX_WEB_SEARCH_OPTIONS: &[(&str, &str)] =
     &[("disabled", "关闭"), ("cached", "缓存"), ("live", "实时")];
 const CODEX_CONFIG_FIELDS: &[NativeConfigField] = &[
-    text_field(
+    authentication(text_field(
         "codex_openai_base_url",
         "API URL",
         "Codex 使用的 API 或兼容网关地址",
         &["openai_base_url"],
-    ),
+    )),
     text_field("codex_model", "模型", "Codex 默认模型", &["model"]),
-    text_field(
+    authentication(text_field(
         "codex_model_provider",
         "模型提供商",
         "model_providers 中的提供商标识",
         &["model_provider"],
-    ),
+    )),
     select_field(
         "codex_reasoning_effort",
         "推理强度",
@@ -1163,56 +1186,56 @@ const GEMINI_AUTH_OPTIONS: &[(&str, &str)] = &[
 ];
 const GEMINI_VERTEX_USE_OPTIONS: &[(&str, &str)] = &[("true", "开启"), ("false", "关闭")];
 const GEMINI_FIELDS: &[NativeConfigField] = &[
-    select_field(
+    authentication(select_field(
         "gemini_auth",
         "认证方式",
         "Gemini CLI 使用的认证来源",
         &["security", "auth", "selectedType"],
         GEMINI_AUTH_OPTIONS,
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "gemini_base_url",
         "API URL",
         "Google Gemini 兼容端点",
         &["env", "GOOGLE_GEMINI_BASE_URL"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "gemini_api_key",
         "Gemini API Key",
         "写入 GEMINI_API_KEY",
         &["env", "GEMINI_API_KEY"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "gemini_google_api_key",
         "Vertex API Key",
         "写入 GOOGLE_API_KEY",
         &["env", "GOOGLE_API_KEY"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "gemini_cloud_project",
         "Google Cloud Project",
         "Vertex AI 项目标识",
         &["env", "GOOGLE_CLOUD_PROJECT"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "gemini_cloud_location",
         "Google Cloud Location",
         "Vertex AI 区域，例如 global 或 us-central1",
         &["env", "GOOGLE_CLOUD_LOCATION"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "gemini_application_credentials",
         "Service Account JSON",
         "GOOGLE_APPLICATION_CREDENTIALS 文件路径",
         &["env", "GOOGLE_APPLICATION_CREDENTIALS"],
-    ),
-    select_field(
+    )),
+    authentication(select_field(
         "gemini_use_vertex_ai",
         "使用 Vertex AI",
         "通过 Application Default Credentials 或 Service Account 认证",
         &["env", "GOOGLE_GENAI_USE_VERTEXAI"],
         GEMINI_VERTEX_USE_OPTIONS,
-    ),
+    )),
     text_field(
         "gemini_model",
         "模型",
@@ -1749,25 +1772,25 @@ const GROK_FIELDS: &[NativeConfigField] = &[
         "Grok 默认模型 ID",
         &["models", "default"],
     ),
-    text_field(
+    authentication(text_field(
         "grok_custom_model_id",
         "自定义模型 ID",
         "VibeX 管理的自定义模型标识",
         &["model", "vibex", "model"],
-    ),
-    text_field(
+    )),
+    authentication(text_field(
         "grok_base_url",
         "API URL",
         "自定义模型端点",
         &["model", "vibex", "base_url"],
-    ),
-    secret_field(
+    )),
+    authentication(secret_field(
         "grok_api_key",
         "xAI API Key",
         "自定义模型凭据",
         &["model", "vibex", "api_key"],
-    ),
-    select_field(
+    )),
+    authentication(select_field(
         "grok_api_backend",
         "API 协议",
         "自定义模型使用的请求协议",
@@ -1777,13 +1800,13 @@ const GROK_FIELDS: &[NativeConfigField] = &[
             ("chat_completions", "OpenAI Chat Completions"),
             ("messages", "Anthropic Messages"),
         ],
-    ),
-    number_field(
+    )),
+    authentication(number_field(
         "grok_context_window",
         "上下文长度",
         "自定义模型的 context_window",
         &["model", "vibex", "context_window"],
-    ),
+    )),
     number_field(
         "grok_auto_compact_threshold",
         "自动压缩阈值",
@@ -1842,6 +1865,30 @@ const CURSOR_CONFIG: &[NativeConfigBinding] = &[NativeConfigBinding {
     format: NativeConfigFormat::Json,
     fields: CURSOR_FIELDS,
 }];
+const DEEPSEEK_HARNESS_FIELDS: &[NativeConfigField] = &[authentication(secret_field(
+    "deepseek_harness_api_key",
+    "API Key",
+    "DeepSeek API Key",
+    &["DEEPSEEK_API_KEY"],
+))];
+const DEEPSEEK_HARNESS_CONFIG: &[NativeConfigBinding] = &[
+    NativeConfigBinding {
+        binding_id: "credentials",
+        home_relative_path: ".dsh/.credentials.yaml",
+        directory_override_env: Some("DSH_HOME"),
+        override_relative_path: ".credentials.yaml",
+        format: NativeConfigFormat::Yaml,
+        fields: DEEPSEEK_HARNESS_FIELDS,
+    },
+    NativeConfigBinding {
+        binding_id: "settings",
+        home_relative_path: ".dsh/settings.yaml",
+        directory_override_env: Some("DSH_HOME"),
+        override_relative_path: "settings.yaml",
+        format: NativeConfigFormat::Yaml,
+        fields: &[],
+    },
+];
 
 const fn text_field(
     field_id: &'static str,
@@ -1857,6 +1904,7 @@ const fn text_field(
         kind: NativeConfigFieldKind::Text,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1875,6 +1923,7 @@ const fn tagged_text_field(
         kind: NativeConfigFieldKind::Text,
         options: EMPTY_OPTIONS,
         object_discriminator: Some(object_discriminator),
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1892,6 +1941,7 @@ const fn secret_field(
         kind: NativeConfigFieldKind::Secret,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1910,6 +1960,7 @@ const fn tagged_secret_field(
         kind: NativeConfigFieldKind::Secret,
         options: EMPTY_OPTIONS,
         object_discriminator: Some(object_discriminator),
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1928,6 +1979,7 @@ const fn select_field(
         kind: NativeConfigFieldKind::Select,
         options,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1945,6 +1997,7 @@ const fn boolean_field(
         kind: NativeConfigFieldKind::Boolean,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1962,6 +2015,7 @@ const fn number_field(
         kind: NativeConfigFieldKind::Number,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
 }
 
@@ -1979,7 +2033,13 @@ const fn json_field(
         kind: NativeConfigFieldKind::Json,
         options: EMPTY_OPTIONS,
         object_discriminator: None,
+        surface: NativeConfigSurface::Configuration,
     }
+}
+
+const fn authentication(mut field: NativeConfigField) -> NativeConfigField {
+    field.surface = NativeConfigSurface::Authentication;
+    field
 }
 
 fn npx(
@@ -2023,6 +2083,7 @@ fn native_npx(
 const NATIVE_SKILLS_SETTINGS: &[AgentSettingsFeature] = &[AgentSettingsFeature::NativeSkills];
 const AUTH_MODE_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::GrokPlugins,
     AgentSettingsFeature::NativeMcp,
     AgentSettingsFeature::NativeSkills,
 ];
@@ -2065,6 +2126,11 @@ const CURSOR_SETTINGS: &[AgentSettingsFeature] = &[
     AgentSettingsFeature::AuthenticationMode,
     AgentSettingsFeature::ModelCatalog,
     AgentSettingsFeature::NativeMcp,
+    AgentSettingsFeature::NativeSkills,
+];
+const DEEPSEEK_HARNESS_SETTINGS: &[AgentSettingsFeature] = &[
+    AgentSettingsFeature::AuthenticationMode,
+    AgentSettingsFeature::DshPlugins,
     AgentSettingsFeature::NativeSkills,
 ];
 
@@ -2657,6 +2723,40 @@ fn cursor_profile() -> BuiltInProfile {
         native_config: CURSOR_CONFIG,
         settings_features: CURSOR_SETTINGS,
         authentication_precedence: AuthenticationPrecedence::AccountThenApiKey,
+        authentication_required_by_default: true,
+        account_evidence: None,
+    }
+}
+
+fn deepseek_harness_profile() -> BuiltInProfile {
+    BuiltInProfile {
+        agent_id: AgentId::parse("deepseek_harness").expect("bundled AgentId"),
+        display_name: "DeepSeek Harness",
+        description: "DeepSeek Harness through the community deepseek-acp adapter",
+        icon: ProfileIcon {
+            light: "/agents/deepseek-harness-light.svg",
+            dark: "/agents/deepseek-harness-dark.svg",
+        },
+        registry_binding: Some(ProfileRegistryBinding {
+            registry_id: "deepseek-acp",
+        }),
+        topology: ProfileTopology::NativeAcp,
+        supported_platforms: DESKTOP_PLATFORMS,
+        install_sources: vec![native_npx(
+            "deepseek-acp",
+            "0.3.0",
+            "deepseek-acp",
+            &[],
+            ">=22",
+            "sha512-Mj3vEK/RY6+M0U1CWnAwGJ0A1ylI4lIg0CwmwiPTCl8V84syvug4jM6GzzjhDhhKaxGiJFtAOOCx1eF6yAEAfQ==",
+        )],
+        external_candidates: DEEPSEEK_HARNESS_CANDIDATES,
+        dependencies: NODE_22_DEPENDENCIES,
+        management_actions: DEEPSEEK_HARNESS_ACTIONS,
+        runtime_executable_env: None,
+        native_config: DEEPSEEK_HARNESS_CONFIG,
+        settings_features: DEEPSEEK_HARNESS_SETTINGS,
+        authentication_precedence: AuthenticationPrecedence::SingleSource,
         authentication_required_by_default: true,
         account_evidence: None,
     }

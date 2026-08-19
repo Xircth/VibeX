@@ -1,0 +1,15 @@
+{
+  "managedRuntime": {
+    "kind": "hostFamilyBinary",
+    "binaryId": "vibex-mcp",
+    "product": "session",
+    "protocolRevision": "2026-07-28",
+    "defaultBinding": "all-compatible-agents",
+    "featureMap": {
+      "feedback": "feedback",
+      "question": "ask",
+      "sessionInfo": "sessions",
+      "sessionControl": "session_control"
+    }
+  }
+}

@@ -7,15 +7,16 @@ use std::{
 use agents::{
     AgentAutoApproveMode, AgentConnectionId, AgentContentBlock, AgentElicitationId,
     AgentElicitationResponse, AgentId, AgentKind, AgentPermissionId, AgentPermissionResponse,
-    AgentPromptId, AgentPromptSnapshot, AgentRuntime, AgentSessionConfigOverride,
-    AgentSessionControlsSnapshot, AgentSessionId, CancelAgentPromptInput, EnsureAgentSessionInput,
+    AgentPromptId, AgentPromptSnapshot, AgentPromptStatus, AgentRuntime,
+    AgentSessionConfigOverride, AgentSessionControlsSnapshot, AgentSessionId,
+    CancelAgentPromptInput, ConversationInputPayload, EnsureAgentSessionInput,
     RespondAgentElicitationInput, RespondAgentPermissionInput, ResumeAgentSessionInput,
     SendAgentPromptInput, SessionLaunchLock, SteerAgentPromptInput,
     conversation::{
         AcpCapabilitySnapshot, ConversationAgentConnectionStatus, ConversationError,
         ConversationEvent, ConversationEventEnvelope, ConversationFileChange,
         ConversationFileChangeSummary, ConversationInputBlock, ConversationPermissionResponse,
-        ConversationPluginActionInvocation, ConversationQuestionResponse,
+        ConversationQuestionResponse, ConversationWorkflowRef,
     },
     validate_session_defaults,
 };
@@ -48,7 +49,8 @@ use uuid::Uuid;
 
 use crate::{
     ConversationEventAppender, ConversationInputControl, ConversationInputControlError,
-    ConversationInputStatus, ConversationProjector,
+    ConversationInputStatus, ConversationInputSubmission, ConversationProjector,
+    SubmitConversationInput,
 };
 
 /// Agent launch settings (auto-approve + env), resolved from persisted AgentSetting.
@@ -72,6 +74,10 @@ pub enum ConversationServiceError {
     Conflict(String),
     #[error("Internal error: {0}")]
     Internal(String),
+    #[error("agent authentication required: {0}")]
+    AuthenticationRequired(String),
+    #[error("{code}: {message}")]
+    SessionUnavailable { code: &'static str, message: String },
 }
 
 impl From<sqlx::Error> for ConversationServiceError {
@@ -84,10 +90,59 @@ impl From<agents::AgentError> for ConversationServiceError {
         match e {
             agents::AgentError::SteeringUnsupported => Self::BadRequest(e.to_string()),
             agents::AgentError::PromptConflict { .. } => Self::Conflict(e.to_string()),
+            agents::AgentError::AuthenticationRequired(message) => {
+                Self::AuthenticationRequired(message)
+            }
+            agents::AgentError::SessionLoadFailed(reason) => Self::SessionUnavailable {
+                code: match &reason {
+                    agents::SessionLoadFailureReason::ResourceNotFound => "resource_not_found",
+                    agents::SessionLoadFailureReason::AuthenticationRequired { .. } => {
+                        "auth_required"
+                    }
+                    agents::SessionLoadFailureReason::Unsupported => "session_resume_unsupported",
+                    agents::SessionLoadFailureReason::Other { .. } => "session_load_failed",
+                },
+                message: session_load_failure_message(&reason),
+            },
             agents::AgentError::ConnectionNotFound(_)
             | agents::AgentError::SessionNotFound(_)
             | agents::AgentError::PromptNotFound(_) => Self::NotFound(e.to_string()),
             _ => Self::Internal(e.to_string()),
+        }
+    }
+}
+
+fn session_load_failure_message(reason: &agents::SessionLoadFailureReason) -> String {
+    match reason {
+        agents::SessionLoadFailureReason::ResourceNotFound => {
+            "代理侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。".into()
+        }
+        agents::SessionLoadFailureReason::AuthenticationRequired { message } => message.clone(),
+        agents::SessionLoadFailureReason::Unsupported => {
+            "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。".into()
+        }
+        agents::SessionLoadFailureReason::Other { message } => message.clone(),
+    }
+}
+
+impl ConversationServiceError {
+    fn turn_failure(&self) -> ConversationError {
+        match self {
+            Self::AuthenticationRequired(message) => ConversationError {
+                message: message.clone(),
+                code: Some("auth_required".into()),
+                raw: None,
+            },
+            Self::SessionUnavailable { code, message } => ConversationError {
+                message: message.clone(),
+                code: Some((*code).into()),
+                raw: None,
+            },
+            other => ConversationError {
+                message: other.to_string(),
+                code: None,
+                raw: None,
+            },
         }
     }
 }
@@ -199,6 +254,7 @@ pub async fn create_fork_conversation(
                 input.parent_conversation_id
             ))
         })?;
+    ensure_conversation_has_no_in_flight_turn(pool, &parent).await?;
     let relation = ConversationEvent::ConversationRelationCreated {
         relation_id: Uuid::new_v4(),
         parent_conversation_id: input.parent_conversation_id,
@@ -254,7 +310,111 @@ pub async fn create_fork_conversation(
             return Err(error);
         }
     };
+    drop(conn);
+    copy_conversation_history(pool, input.parent_conversation_id, input.id).await?;
     Ok(input.id)
+}
+
+async fn copy_conversation_history(
+    pool: &SqlitePool,
+    source_id: Uuid,
+    destination_id: Uuid,
+) -> Result<(), ConversationServiceError> {
+    let events = db::models::conversation_event::ConversationEventRecord::events_since(
+        pool,
+        source_id,
+        0,
+        i64::MAX,
+    )
+    .await?;
+    let mut turn_map = HashMap::new();
+    for record in events {
+        let event: ConversationEvent = serde_json::from_str(&record.normalized_json)?;
+        if matches!(
+            event,
+            ConversationEvent::ConversationRelationCreated { .. }
+                | ConversationEvent::ConversationCreated { .. }
+                | ConversationEvent::ConversationInput { .. }
+                | ConversationEvent::ConversationSteering { .. }
+        ) {
+            continue;
+        }
+        let new_turn_id = if let Some(old_turn_id) = record.turn_id {
+            Some(
+                ensure_copied_turn(pool, destination_id, old_turn_id, &event, &mut turn_map)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let normalized_json = serde_json::to_string(&event)?;
+        let event_kind = serde_json::to_value(&event)?
+            .get("kind")
+            .and_then(|kind| kind.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let copy_key = format!(
+            "fork-copy:{destination_id}:{}",
+            record
+                .idempotency_key
+                .clone()
+                .unwrap_or_else(|| record.sequence.to_string())
+        );
+        ConversationEventAppender::append(
+            pool,
+            AppendConversationEvent {
+                id: Uuid::new_v4(),
+                conversation_id: destination_id,
+                turn_id: new_turn_id,
+                binding_id: None,
+                connection_id: record.connection_id.as_deref(),
+                prompt_id: record.prompt_id.as_deref(),
+                source: "import",
+                event_kind: &event_kind,
+                normalized_json: &normalized_json,
+                raw_json: record.raw_json.as_deref(),
+                idempotency_key: Some(&copy_key),
+            },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn ensure_copied_turn(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+    old_turn_id: Uuid,
+    event: &ConversationEvent,
+    turn_map: &mut HashMap<Uuid, Uuid>,
+) -> Result<Uuid, ConversationServiceError> {
+    if let Some(existing) = turn_map.get(&old_turn_id) {
+        return Ok(*existing);
+    }
+    let new_turn_id = Uuid::new_v4();
+    let text_preview = match event {
+        ConversationEvent::UserTurnCreated { blocks, .. } => blocks.iter().find_map(|block| {
+            if let agents::conversation::ConversationInputBlock::Text { text } = block {
+                Some(text.as_str())
+            } else {
+                None
+            }
+        }),
+        _ => None,
+    };
+    ConversationTurnRecord::create_pending(
+        pool,
+        new_turn_id,
+        CreateConversationTurn {
+            conversation_id,
+            prompt_id: None,
+            text_preview,
+            input_blocks_json: "[]",
+        },
+    )
+    .await?;
+    turn_map.insert(old_turn_id, new_turn_id);
+    Ok(new_turn_id)
 }
 
 pub async fn create_workflow_conversation(
@@ -444,6 +604,7 @@ pub trait ConversationHost: Send + Sync {
         working_dir: &str,
         text: String,
         images: &[String],
+        file_refs: &[agents::ConversationFileRef],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError>;
     async fn launch_settings(
         &self,
@@ -536,11 +697,14 @@ pub struct ConversationStartTurnInput {
     /// User-selected config option overrides for this turn (real ACP
     /// `SetSessionConfigOption`), e.g. an advertised select option.
     pub config_overrides: Vec<AgentSessionConfigOverride>,
-    /// Structured PluginAction identities retained in the durable turn event.
-    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
+    /// Structured workflow identities retained in the durable turn event.
+    pub workflow_refs: Vec<ConversationWorkflowRef>,
+    pub file_refs: Vec<agents::ConversationFileRef>,
     /// Present only when this turn was claimed from the durable input queue.
     /// InputDispatched(input -> turn) is persisted before any Agent prompt send.
     pub queued_input_claim: Option<QueuedConversationInputClaim>,
+    /// Optional client operation id so a retried start/submit stays one input.
+    pub operation_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -616,9 +780,61 @@ impl ConversationSessionService {
         input: ConversationStartTurnInput,
         origin: &str,
     ) -> Result<(ConversationTurnSnapshot, AgentPromptSnapshot), ConversationServiceError> {
+        if input.queued_input_claim.is_none() {
+            let conversation_id = input.conversation_id;
+            let submission = self.submit_and_dispatch(input, origin).await?;
+            if let Some(turn) = submission.turn {
+                return Ok((turn, unused_prompt_snapshot(conversation_id)));
+            }
+            return Ok((
+                queued_turn_snapshot(conversation_id),
+                unused_prompt_snapshot(conversation_id),
+            ));
+        }
         let turn_lock = self.turn_lock(input.conversation_id).await;
         let _turn_guard = turn_lock.lock().await;
         self.start_turn_under_lock(input, origin).await
+    }
+
+    /// Persist a durable input, then claim/dispatch if the conversation is idle.
+    /// Persist is the user-visible success boundary (ADR-0044).
+    pub async fn submit_and_dispatch(
+        &self,
+        input: ConversationStartTurnInput,
+        origin: &str,
+    ) -> Result<ConversationInputSubmission, ConversationServiceError> {
+        let conversation_id = input.conversation_id;
+        let inputs = ConversationInputControl::with_publisher(
+            self.ctx.deployment.db().pool.clone(),
+            self.ctx.event_publisher.clone(),
+        );
+        let submitted = inputs
+            .submit(SubmitConversationInput {
+                conversation_id,
+                operation_id: input.operation_id.unwrap_or_else(Uuid::new_v4),
+                payload: start_turn_input_payload(&input)?,
+                principal: serde_json::json!({ "kind": "origin", "origin": origin }),
+            })
+            .await?;
+        let dispatched = match self.dispatch_next_queued_input(conversation_id).await {
+            Ok(turn) => turn,
+            Err(error) => {
+                tracing::warn!(
+                    %conversation_id,
+                    input_id = %submitted.id,
+                    %error,
+                    "durable conversation input was accepted; dispatch will retry later"
+                );
+                None
+            }
+        };
+        let input = inputs.find(conversation_id, submitted.id).await?;
+        let turn = match (dispatched, input.turn_id) {
+            (Some(turn), _) => Some(turn),
+            (None, Some(turn_id)) => self.turn_snapshot(turn_id).await?,
+            (None, None) => None,
+        };
+        Ok(ConversationInputSubmission { input, turn })
     }
 
     async fn start_turn_under_lock(
@@ -641,6 +857,7 @@ impl ConversationSessionService {
                 "Agent prompt must include text or an image".to_string(),
             ));
         }
+        self.interrupt_orphaned_turn(input.conversation_id).await?;
 
         let pool = &self.ctx.deployment.db().pool;
         let workspace = Workspace::find_by_id(pool, input.workspace_id)
@@ -686,7 +903,7 @@ impl ConversationSessionService {
         let agent_blocks = self
             .ctx
             .host
-            .build_prompt_blocks(&working_dir, agent_text, &input.images)
+            .build_prompt_blocks(&working_dir, agent_text, &input.images, &input.file_refs)
             .await?;
         let conversation_blocks =
             conversation_input_blocks_with_display_text(&agent_blocks, &display_text);
@@ -700,7 +917,7 @@ impl ConversationSessionService {
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
         let created_event = ConversationEvent::UserTurnCreated {
             blocks: conversation_blocks,
-            plugin_actions: input.plugin_actions.clone(),
+            workflow_refs: input.workflow_refs.clone(),
         };
 
         let (turn, created) = if let Some(claim) = input.queued_input_claim {
@@ -923,18 +1140,34 @@ impl ConversationSessionService {
                 ))
             }
             Err(error) => {
-                let message = error.to_string();
+                if matches!(error, ConversationServiceError::AuthenticationRequired(_)) {
+                    let blocked = self
+                        .append_event(
+                            input.conversation_id,
+                            Some(turn.id),
+                            "runtime",
+                            ConversationEvent::TurnBlocked {
+                                reason: agents::conversation::TurnBlockedReason::Authentication {
+                                    message: error.to_string(),
+                                },
+                            },
+                            Some(format!("turn:{}:auth_required", turn.id)),
+                        )
+                        .await?;
+                    self.update_runtime_state(input.conversation_id, |state| {
+                        state.event_sequence = blocked.sequence;
+                        state.recovery_status = Some("auth_required".to_string());
+                    })
+                    .await;
+                    return Err(error);
+                }
                 let failed = self
                     .append_event(
                         input.conversation_id,
                         Some(turn.id),
                         "runtime",
                         ConversationEvent::TurnFailed {
-                            error: ConversationError {
-                                message: message.clone(),
-                                code: None,
-                                raw: None,
-                            },
+                            error: error.turn_failure(),
                         },
                         Some(format!("turn:{}:send_failed", turn.id)),
                     )
@@ -988,6 +1221,14 @@ impl ConversationSessionService {
             pool.clone(),
             self.ctx.event_publisher.clone(),
         );
+        let released_claims = inputs.recover_stale_claims(Utc::now()).await?;
+        if released_claims > 0 {
+            tracing::info!(
+                %conversation_id,
+                released_claims,
+                "released expired conversation input claims before dispatch"
+            );
+        }
         let Some(claim) = inputs
             .claim_next(conversation_id, chrono::Duration::seconds(30))
             .await?
@@ -1023,11 +1264,13 @@ impl ConversationSessionService {
                     images: payload.images,
                     mode_override: payload.mode_override,
                     config_overrides: payload.config_overrides,
-                    plugin_actions: payload.plugin_actions,
+                    workflow_refs: payload.workflow_refs,
+                    file_refs: payload.file_refs,
                     queued_input_claim: Some(QueuedConversationInputClaim {
                         input_id,
                         claim_token,
                     }),
+                    operation_id: None,
                 },
                 crate::commit_reminder::LOCAL_USER_ORIGIN,
             )
@@ -1166,7 +1409,7 @@ impl ConversationSessionService {
         let agent_blocks = self
             .ctx
             .host
-            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images)
+            .build_prompt_blocks(&working_dir, input.text.clone(), &input.images, &[])
             .await?;
         let visible_blocks =
             conversation_input_blocks_with_display_text(&agent_blocks, &input.text);
@@ -1432,11 +1675,11 @@ impl ConversationSessionService {
         Ok(())
     }
 
-    /// Immediately switch the conversation's live ACP session mode
-    /// (`session/set_mode`). The resulting `ModeChanged` agent event flows back
-    /// through the normal event pipeline, so no conversation event is appended
-    /// here. Errors when there is no live session or a turn is in flight — the
-    /// frontend then keeps the choice as a next-turn override.
+    /// Immediately switch the conversation's live session mode. Mode is a
+    /// Config Option category; the ACP adapter translates the intent to
+    /// `session/set_mode` or `session/set_config_option`. Errors when there is
+    /// no live session or a turn is in flight — the frontend then keeps the
+    /// choice as a next-turn override.
     pub async fn set_session_mode(
         &self,
         conversation_id: Uuid,
@@ -1473,15 +1716,16 @@ impl ConversationSessionService {
         &self,
         conversation_id: Uuid,
     ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
-        let turn_lock = {
-            let mut locks = self.ctx.turn_locks.lock().await;
-            Arc::clone(
-                locks
-                    .entry(conversation_id)
-                    .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
-            )
-        };
+        let turn_lock = self.turn_lock(conversation_id).await;
         let _turn_guard = turn_lock.lock().await;
+        self.ensure_session_controls_locked(conversation_id).await
+    }
+
+    async fn ensure_session_controls_locked(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        self.interrupt_orphaned_turn(conversation_id).await?;
         let runtime_session_id = AgentSessionId(conversation_id);
 
         if let Ok(controls) = self
@@ -1665,6 +1909,16 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         reason: Option<String>,
     ) -> Result<(), ConversationServiceError> {
+        // Share the exact same per-Conversation critical section as start_turn.
+        // Without this, a Workflow can expose its child Conversation as running,
+        // receive Pause while the first prompt is still being prepared, and then
+        // start a follow-up before the first Turn has committed its active pointer.
+        // The two Agent bindings race and the old connection's close event can fail
+        // the new Turn. Holding this guard makes Pause an acknowledged boundary:
+        // when it returns, any concurrent start has either committed and been
+        // cancelled, or never existed.
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
         let snapshot = self.runtime_snapshot(conversation_id).await;
         let pool = &self.ctx.deployment.db().pool;
         // Runtime coordination is deliberately ephemeral. After a failed session
@@ -1680,6 +1934,9 @@ impl ConversationSessionService {
                 .filter(|turn| is_in_flight_turn_status(&turn.status))
                 .map(|turn| turn.id),
             None => None,
+        };
+        let Some(turn_id) = turn_id else {
+            return Ok(());
         };
         if let (Some(connection_id), Some(prompt_id)) = (
             snapshot
@@ -1712,17 +1969,12 @@ impl ConversationSessionService {
         }
         self.append_event(
             conversation_id,
-            turn_id,
+            Some(turn_id),
             "runtime",
             ConversationEvent::TurnCancelled {
                 reason: reason.clone(),
             },
-            Some(format!(
-                "turn:{}:cancelled",
-                turn_id
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            )),
+            Some(format!("turn:{turn_id}:cancelled")),
         )
         .await?;
         ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
@@ -1733,6 +1985,14 @@ impl ConversationSessionService {
             state.recovery_status = reason;
         })
         .await;
+        drop(_turn_guard);
+        if let Err(error) = self.dispatch_next_queued_input(conversation_id).await {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "failed to dispatch the next durable conversation input after cancel"
+            );
+        }
         Ok(())
     }
 
@@ -1784,7 +2044,161 @@ impl ConversationSessionService {
             state.pending_user_message = None;
         })
         .await;
+        self.invalidate_agent_session(
+            conversation_id,
+            agents::SessionRecoveryStrategy::Rebound,
+            "已从该消息处截断。下次发送将建立新的 Agent 会话，此前 Agent 隐藏上下文不会恢复。",
+        )
+        .await?;
 
+        Ok(())
+    }
+
+    pub async fn rebind_session(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<AgentSessionControlsSnapshot, ConversationServiceError> {
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
+        self.interrupt_orphaned_turn(conversation_id).await?;
+        self.invalidate_agent_session(
+            conversation_id,
+            agents::SessionRecoveryStrategy::Rebound,
+            "已确认重新绑定。可见历史仍在，但 Agent 隐藏上下文已丢失。",
+        )
+        .await?;
+        self.ensure_session_controls_locked(conversation_id).await
+    }
+
+    async fn invalidate_agent_session(
+        &self,
+        conversation_id: Uuid,
+        strategy: agents::SessionRecoveryStrategy,
+        _notice: &str,
+    ) -> Result<(), ConversationServiceError> {
+        let snapshot = self.runtime_snapshot(conversation_id).await;
+        if let Some(connection_id) = snapshot
+            .connection_id
+            .as_deref()
+            .and_then(parse_agent_connection_id)
+            && let Err(error) = self.ctx.agent_runtime.disconnect(connection_id).await
+        {
+            tracing::warn!(
+                %conversation_id,
+                %error,
+                "failed to disconnect Agent connection while invalidating session"
+            );
+        }
+        self.forget_conversation_runtime(conversation_id).await;
+
+        let pool = &self.ctx.deployment.db().pool;
+        let placeholder = format!("vibex-new-session-{conversation_id}");
+        if let Some(binding) =
+            ConversationAgentBindingRecord::latest_for_conversation(pool, conversation_id).await?
+        {
+            ConversationAgentBindingRecord::bind_acp_session(
+                pool,
+                binding.id,
+                &placeholder,
+                None,
+                "rebind_required",
+            )
+            .await?;
+        }
+        sqlx::query(
+            r#"UPDATE sessions
+               SET external_session_id = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = ?"#,
+        )
+        .bind(&placeholder)
+        .bind(conversation_id)
+        .execute(pool)
+        .await?;
+        self.append_event(
+            conversation_id,
+            None,
+            "runtime",
+            ConversationEvent::AgentBindingRecovered { strategy },
+            Some(format!("binding:{conversation_id}:rebound")),
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn interrupt_orphaned_turn(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<bool, ConversationServiceError> {
+        let snapshot = self.runtime_snapshot(conversation_id).await;
+        if snapshot.turn_in_flight
+            && snapshot
+                .connection_id
+                .as_deref()
+                .and_then(parse_agent_connection_id)
+                .is_some()
+        {
+            return Ok(false);
+        }
+
+        let pool = &self.ctx.deployment.db().pool;
+        let Some(conversation) = ConversationRecord::find_by_id(pool, conversation_id).await?
+        else {
+            return Ok(false);
+        };
+        let Some(turn_id) = conversation.active_turn_id else {
+            return Ok(false);
+        };
+        let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await? else {
+            return Ok(false);
+        };
+        if !is_in_flight_turn_status(&turn.status) {
+            return Ok(false);
+        }
+
+        self.interrupt_in_flight_turn(turn.conversation_id, turn.id)
+            .await?;
+        Ok(true)
+    }
+
+    async fn interrupt_in_flight_turn(
+        &self,
+        conversation_id: Uuid,
+        turn_id: Uuid,
+    ) -> Result<(), ConversationServiceError> {
+        let pool = &self.ctx.deployment.db().pool;
+        let permissions = ConversationPermissionRecord::list_for_turn(pool, turn_id).await?;
+        for permission in permissions.into_iter().filter(|p| p.status == "pending") {
+            self.append_event(
+                conversation_id,
+                Some(turn_id),
+                "runtime",
+                ConversationEvent::PermissionResponded {
+                    permission_id: permission.permission_id.clone(),
+                    response: ConversationPermissionResponse {
+                        response: AgentPermissionResponse::Cancelled,
+                        auto: true,
+                    },
+                },
+                Some(format!(
+                    "recovery:permission-cancelled:{}",
+                    permission.permission_id
+                )),
+            )
+            .await?;
+        }
+        self.append_event(
+            conversation_id,
+            Some(turn_id),
+            "runtime",
+            ConversationEvent::TurnInterrupted {
+                reason: Some("会话在生成过程中因应用重启而中断".to_string()),
+            },
+            Some(format!("recovery:turn-interrupted:{turn_id}")),
+        )
+        .await?;
+        ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        self.forget_conversation_runtime(conversation_id).await;
         Ok(())
     }
 
@@ -1793,6 +2207,26 @@ impl ConversationSessionService {
         conversation_id: Uuid,
         reason: Option<String>,
     ) -> Result<(), ConversationServiceError> {
+        let turn_lock = self.turn_lock(conversation_id).await;
+        let _turn_guard = turn_lock.lock().await;
+        let pool = &self.ctx.deployment.db().pool;
+        if let Some(conversation) = ConversationRecord::find_by_id(pool, conversation_id).await?
+            && let Some(turn_id) = conversation.active_turn_id
+            && let Some(turn) = ConversationTurnRecord::find_by_id(pool, turn_id).await?
+            && is_in_flight_turn_status(&turn.status)
+        {
+            self.append_event(
+                conversation_id,
+                Some(turn.id),
+                "runtime",
+                ConversationEvent::TurnCancelled {
+                    reason: reason.clone(),
+                },
+                Some(format!("turn:{}:cancelled", turn.id)),
+            )
+            .await?;
+            ConversationRecord::update_active_turn(pool, conversation_id, None).await?;
+        }
         self.append_event(
             conversation_id,
             None,
@@ -1851,51 +2285,34 @@ impl ConversationSessionService {
             "startup recovery: marking orphaned in-flight turns as interrupted"
         );
 
+        let mut recovered = 0usize;
+        let mut failed = 0usize;
         for turn in &in_flight {
-            // Void any pending permission requests orphaned on this turn — event-sourced
-            // (a Cancelled `PermissionResponded`) so a projection rebuild stays consistent.
-            let permissions = ConversationPermissionRecord::list_for_turn(pool, turn.id).await?;
-            for permission in permissions.into_iter().filter(|p| p.status == "pending") {
-                self.append_event(
-                    turn.conversation_id,
-                    Some(turn.id),
-                    "runtime",
-                    ConversationEvent::PermissionResponded {
-                        permission_id: permission.permission_id.clone(),
-                        response: ConversationPermissionResponse {
-                            response: AgentPermissionResponse::Cancelled,
-                            auto: true,
-                        },
-                    },
-                    Some(format!(
-                        "recovery:permission-cancelled:{}",
-                        permission.permission_id
-                    )),
-                )
-                .await?;
+            match self
+                .interrupt_in_flight_turn(turn.conversation_id, turn.id)
+                .await
+            {
+                Ok(()) => recovered += 1,
+                Err(error) => {
+                    failed += 1;
+                    tracing::error!(
+                        conversation_id = %turn.conversation_id,
+                        turn_id = %turn.id,
+                        %error,
+                        "startup crash-recovery failed for one turn"
+                    );
+                }
             }
-
-            // Advance the turn to Interrupted through the event log (never a bare UPDATE).
-            // The idempotency key makes a second recovery pass a no-op.
-            self.append_event(
-                turn.conversation_id,
-                Some(turn.id),
-                "runtime",
-                ConversationEvent::TurnInterrupted {
-                    reason: Some("会话在生成过程中因应用重启而中断".to_string()),
-                },
-                Some(format!("recovery:turn-interrupted:{}", turn.id)),
-            )
-            .await?;
-
-            // The interrupted turn is terminal, so it is no longer the active turn.
-            ConversationRecord::update_active_turn(pool, turn.conversation_id, None).await?;
-            // Defensive: clear any lingering coordination state for the conversation
-            // (empty at startup, but keeps recovery self-contained).
-            self.forget_conversation_runtime(turn.conversation_id).await;
+        }
+        if failed > 0 {
+            tracing::error!(
+                recovered,
+                failed,
+                "startup crash-recovery left orphaned in-flight turns; they will be interrupted when next opened"
+            );
         }
 
-        Ok(count)
+        Ok(recovered)
     }
 
     /// Resume durable queues after host event persistence is online. Each
@@ -2013,12 +2430,13 @@ impl ConversationSessionService {
                 acp_protocol_version: None,
                 runtime_version: Some(&launch_settings.launch_lock.runtime_version),
                 acp_version: Some(&launch_settings.launch_lock.acp_version),
-                load_supported: true,
-                resume_supported: resume_external_session_id.is_some(),
-                close_supported: true,
-                terminal_supported: true,
+                load_supported: false,
+                resume_supported: false,
+                close_supported: false,
+                terminal_supported: false,
                 additional_directories_supported: false,
-                prompt_capabilities_json: r#"{"text":true,"image":true,"resource":false}"#,
+                prompt_capabilities_json:
+                    r#"{"text":true,"image":false,"audio":false,"resource":false,"resource_link":true}"#,
                 session_capabilities_json: &session_capabilities_json,
                 client_capabilities_json: "{}",
                 mcp_servers_json: "[]",
@@ -2082,19 +2500,26 @@ impl ConversationSessionService {
             "ready",
         )
         .await?;
-        self.append_event(
-            input.conversation_id,
-            Some(turn_id),
-            "runtime",
-            ConversationEvent::AgentBindingReady {
-                acp_session_id: session.acp_session_id.clone(),
-                // The manager's SessionLinked event replaces this conservative
-                // placeholder with the authoritative initialization snapshot.
-                capabilities: AcpCapabilitySnapshot::default(),
-            },
-            Some(format!("binding:{}:ready", binding.id)),
-        )
-        .await?;
+        let negotiated_capabilities = self
+            .ctx
+            .agent_runtime
+            .session_controls_snapshot(session.id)
+            .await
+            .ok()
+            .and_then(|controls| controls.capabilities);
+        if let Some(capabilities) = negotiated_capabilities {
+            self.append_event(
+                input.conversation_id,
+                Some(turn_id),
+                "runtime",
+                ConversationEvent::AgentBindingReady {
+                    acp_session_id: session.acp_session_id.clone(),
+                    capabilities,
+                },
+                Some(format!("binding:{}:ready", binding.id)),
+            )
+            .await?;
+        }
 
         match self
             .ctx
@@ -2809,6 +3234,50 @@ fn checkpoint_file_change_summary(files: &[ConversationFileChange]) -> String {
         deleted,
         renamed
     )
+}
+
+fn start_turn_input_payload(
+    input: &ConversationStartTurnInput,
+) -> Result<ConversationInputPayload, ConversationServiceError> {
+    Ok(ConversationInputPayload {
+        agent_id: input.agent_id.clone(),
+        workspace_id: input.workspace_id,
+        executor_profile_id: input
+            .executor_profile_id
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| ConversationServiceError::BadRequest(error.to_string()))?,
+        text: input.text.clone(),
+        display_text: input.display_text.clone(),
+        images: input.images.clone(),
+        mode_override: input.mode_override.clone(),
+        config_overrides: input.config_overrides.clone(),
+        workflow_refs: input.workflow_refs.clone(),
+        file_refs: input.file_refs.clone(),
+    })
+}
+
+fn queued_turn_snapshot(conversation_id: Uuid) -> ConversationTurnSnapshot {
+    ConversationTurnSnapshot {
+        conversation_id,
+        turn_id: Uuid::nil(),
+        prompt_id: None,
+        status: "queued".to_string(),
+        last_sequence: 0,
+    }
+}
+
+fn unused_prompt_snapshot(conversation_id: Uuid) -> AgentPromptSnapshot {
+    let now = Utc::now();
+    AgentPromptSnapshot {
+        id: AgentPromptId::new(),
+        session_id: AgentSessionId(conversation_id),
+        status: AgentPromptStatus::Queued,
+        text_preview: String::new(),
+        created_at: now,
+        updated_at: now,
+    }
 }
 
 fn conversation_input_blocks_with_display_text(

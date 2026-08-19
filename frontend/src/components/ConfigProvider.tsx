@@ -77,7 +77,10 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
         await syncFrontendPreferences();
         initUiZoom();
         initMonoFont();
-        await i18n.changeLanguage(getUiLanguage());
+        const nextLanguage = getUiLanguage();
+        if (i18n.language !== nextLanguage) {
+          await i18n.changeLanguage(nextLanguage);
+        }
         await Promise.all([
           useEditorSettingsStore.persist.rehydrate(),
           useKeyBindingOverridesStore.persist.rehydrate(),

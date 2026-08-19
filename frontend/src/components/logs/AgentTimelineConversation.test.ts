@@ -17,6 +17,7 @@ function row(
   return {
     key,
     phase,
+    revision: 0n,
     turn: {
       id: `${key}:${role}`,
       role,
@@ -121,6 +122,20 @@ describe('AgentTimelineConversation context compaction projection', () => {
       durationMs: 1840,
       contextTokens: 42300,
     });
+  });
+
+  it('marks failed, cancelled, and interrupted compact turns as failed', () => {
+    const user = row('turn-compact-user', 'user', 'settled');
+    user.turn.id = 'turn-compact:user';
+    user.turn.blocks = [{ type: 'text', text: '/compact' }];
+
+    for (const phase of ['failed', 'cancelled', 'interrupted'] as const) {
+      const assistant = row('turn-compact-assistant', 'assistant', phase);
+      assistant.turn.id = 'turn-compact:assistant';
+      expect(
+        contextCompactPresentationForRow([user, assistant], 1)?.status
+      ).toBe('failed');
+    }
   });
 
   it('does not invent metrics for ordinary assistant turns', () => {

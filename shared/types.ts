@@ -222,16 +222,11 @@ export enum ScratchType {
   UI_PREFERENCES = "UI_PREFERENCES",
 }
 
-export type Scratch = {
-  id: string;
-  payload: ScratchPayload;
-  created_at: string;
-  updated_at: string;
-};
+export type Scratch = { id: string, payload: ScratchPayload, revision: number, created_at: string, updated_at: string, };
 
-export type CreateScratch = { payload: ScratchPayload };
+export type CreateScratch = { payload: ScratchPayload, };
 
-export type UpdateScratch = { payload: ScratchPayload };
+export type UpdateScratch = { payload: ScratchPayload, expected_revision?: number, };
 
 export type Image = {
   id: string;
@@ -755,7 +750,11 @@ export type DirectoryListResponse = {
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_mode: CommitReminderMode, commit_reminder_line_threshold: number, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
+export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_mode: CommitReminderMode, commit_reminder_line_threshold: number, send_message_shortcut: SendMessageShortcut, prompt_enhancement_enabled: boolean, prompt_enhancement_model: string, prompt_enhancement_agent_id: string, prompt_enhancement_mode: string | null, prompt_enhancement_session_config: { [key in string]?: string }, prompt_enhancement_prompt: string | null, default_terminal_shell: string | null, files_changed_default_collapsed: boolean, ai_message_default_collapsed: boolean,
+/**
+ * Hide model thinking / reasoning blocks in conversation transcripts.
+ */
+hide_model_thinking: boolean,
 /**
  * Opt-in entry for connecting a newly created VibeX conversation to an
  * existing Agent-managed ACP session in the selected workspace.
@@ -777,11 +776,7 @@ crash_reports_enabled: boolean,
  */
 link_open_behavior: LinkOpenBehavior, };
 
-export type NotificationConfig = {
-  sound_enabled: boolean;
-  push_enabled: boolean;
-  sound_file: SoundFile;
-};
+export type NotificationConfig = { sound_enabled: boolean, push_enabled: boolean, sound_file: SoundFile, notify_when: NotificationWhen, };
 
 export enum ThemeMode {
   LIGHT = "LIGHT",
@@ -1378,7 +1373,7 @@ export type SessionStatus = "todo" | "inprogress" | "inreview" | "done" | "archi
 
 export type SessionContinuityMode = "new_session" | "resume_in_place";
 
-export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, };
+export type SessionSummary = { id: string, workspace_id: string, task_id: string | null, name: string | null, display_name: string, status: SessionStatus, executor: string | null, workspace_name: string | null, workspace_branch: string, created_at: string, updated_at: string, first_prompt: string | null, is_running: boolean, continuity_mode: SessionContinuityMode, pinned_at: string | null, };
 
 export type SlashCommandKind = "COMMAND" | "SKILL";
 
@@ -1420,7 +1415,7 @@ export type AgentPermissionRequest = { id: AgentPermissionId, session_id: AgentS
 
 export type AgentPermissionResponse = { "kind": "selected", option_id: string, } | { "kind": "cancelled" };
 
-export type AgentPlan = { entries: Array<string>, };
+export type AgentPlan = { entries: Array<AgentPlanEntry>, };
 
 export type AgentPromptFinished = { prompt_id: AgentPromptId, stop_reason?: string | null, };
 
@@ -1459,7 +1454,7 @@ export type AgentToolCallUpdate = { id: string, status?: string | null, content?
  */
 input_preview?: string | null, meta?: JsonValue | null, images?: Array<ImageData>, };
 
-export type AgentUsage = { used: bigint, limit: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
+export type AgentUsage = { used: bigint, limit: bigint | null, input_tokens?: bigint | null, output_tokens?: bigint | null, cache_read_tokens?: bigint | null, cache_write_tokens?: bigint | null, cost_amount?: number | null, cost_currency?: string | null, };
 
 export type ImportedAgentMessage = { role: ImportedAgentMessageRole, content: string, created_at?: string | null, metadata?: ImportedAgentMessageMetadata, };
 
@@ -1509,7 +1504,7 @@ meta?: JsonValue | null,
  * Images returned by the tool call, such as files inspected by an
  * Agent image-viewing tool.
  */
-images?: Array<ImageData>, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, };
+images?: Array<ImageData>, } | { "type": "tool_result", tool_use_id?: string | null, output_preview?: string | null, is_error: boolean, agent_stats?: AgentExecutionStats | null, } | { "type": "plan", entries: Array<PlanEntry>, } | { "type": "resource", uri: string, title?: string | null, } | { "type": "protocol", content: JsonValue, };
 
 export type ConversationDetail = { summary: ConversationSummary, turns: Array<MessageTurn>, session_stats?: SessionStats | null, };
 
@@ -1530,6 +1525,11 @@ export type SubAgentToolCall = { tool_name: string, input_preview?: string | nul
 export type TurnRole = "user" | "assistant" | "system";
 
 export type TurnUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint,
+/**
+ * Tokens currently in the Agent context window (ACP `UsageUpdate.used`).
+ * Occupancy, not an input-token count.
+ */
+context_used?: bigint | null,
 /**
  * Context-window size reported by the agent (ACP usage `size`), when
  * provided. None for agents/transcripts that don't report a window.
@@ -1576,7 +1576,12 @@ export type AcpCapabilitySnapshot = { protocol_version?: string | null, prompt: 
  * Negotiated support for the ACP `_session/steering` extension. This is
  * true only when `InitializeResponse._meta.steering.supported` is true.
  */
-steering: boolean, terminal: boolean, additional_directories: boolean, filesystem_requests: boolean, mcp_http: boolean, mcp_sse: boolean, auth_logout: boolean, auth_status: boolean, authentication?: AcpAuthenticationObservationSnapshot | null, raw_meta?: JsonValue | null, modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, available_commands: Array<AgentAvailableCommand>, };
+steering: boolean, terminal: boolean, additional_directories: boolean, filesystem_requests: boolean,
+/**
+ * V1 `session/new` stdio MCP servers are the protocol baseline, not an
+ * Agent-identity exception. HTTP/SSE remain independently advertised.
+ */
+mcp_stdio: boolean, mcp_http: boolean, mcp_sse: boolean, auth_logout: boolean, auth_status: boolean, authentication?: AcpAuthenticationObservationSnapshot | null, raw_meta?: JsonValue | null, modes: Array<AgentSessionMode>, current_mode?: string | null, config_options: Array<AgentSessionConfigOption>, available_commands: Array<AgentAvailableCommand>, };
 
 export type AgentPromptCapabilities = { text: boolean, image: boolean, audio: boolean, resource: boolean, resource_link: boolean, };
 
@@ -1596,7 +1601,7 @@ export type ConversationError = { message: string, code?: string | null, raw?: J
 
 export type ConversationErrorView = { turn_id: string | null, error: ConversationError, };
 
-export type ConversationEvent = { "kind": "conversation_created", title: string | null, } | { "kind": "conversation_input", event: ConversationInputEvent, } | { "kind": "conversation_steering", event: ConversationSteeringEvent, } | { "kind": "conversation_relation_created", relation_id: string, parent_conversation_id: string, child_conversation_id: string, relation_kind: ConversationRelationKind, visibility: ConversationRelationVisibility, metadata: JsonValue, } | { "kind": "agent_binding_started", agent_id: AgentId, working_dir: string, } | { "kind": "agent_binding_ready", acp_session_id: string, capabilities: AcpCapabilitySnapshot, } | { "kind": "agent_binding_recovered", strategy: SessionRecoveryStrategy, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, plugin_actions?: Array<ConversationPluginActionInvocation>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, };
+export type ConversationEvent = { "kind": "conversation_created", title: string | null, } | { "kind": "conversation_input", event: ConversationInputEvent, } | { "kind": "conversation_steering", event: ConversationSteeringEvent, } | { "kind": "conversation_relation_created", relation_id: string, parent_conversation_id: string, child_conversation_id: string, relation_kind: ConversationRelationKind, visibility: ConversationRelationVisibility, metadata: JsonValue, } | { "kind": "agent_binding_started", agent_id: AgentId, working_dir: string, } | { "kind": "agent_binding_ready", acp_session_id: string, capabilities: AcpCapabilitySnapshot, } | { "kind": "agent_binding_recovered", strategy: SessionRecoveryStrategy, } | { "kind": "agent_binding_recovery_failed", reason: string, } | { "kind": "agent_binding_load_failed", reason: SessionLoadFailureReason, } | { "kind": "agent_connection_status_changed", status: ConversationAgentConnectionStatus, } | { "kind": "user_turn_created", blocks: Array<ConversationInputBlock>, workflow_refs?: Array<ConversationWorkflowRef>, } | { "kind": "user_turn_queued" } | { "kind": "user_turn_started" } | { "kind": "assistant_text_delta", text: string, message_id?: string | null, } | { "kind": "assistant_reasoning_delta", text: string, message_id?: string | null, } | { "kind": "assistant_content_appended", block: ContentBlock, message_id?: string | null, } | { "kind": "plan_updated", entries: Array<ConversationPlanEntry>, } | { "kind": "tool_call_upsert", tool_call: ConversationToolCallPatch, } | { "kind": "permission_requested", request: ConversationPermissionRequest, } | { "kind": "permission_responded", permission_id: string, response: ConversationPermissionResponse, } | { "kind": "question_requested", request: ConversationQuestionRequest, } | { "kind": "question_responded", question_id: string, response: ConversationQuestionResponse, } | { "kind": "feedback_requested", request: ConversationFeedbackRequest, } | { "kind": "feedback_submitted", feedback_id: string, response: ConversationFeedbackResponse, } | { "kind": "terminal_updated", terminal: ConversationTerminalPatch, } | { "kind": "usage_updated", usage: ConversationUsage, } | { "kind": "file_change_summary_updated", summary: ConversationFileChangeSummary, } | { "kind": "artifact_revision_recorded", artifact: ConversationArtifactReference, } | { "kind": "artifact_preview_opened", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_closed", preview: ConversationArtifactPreviewReference, } | { "kind": "artifact_preview_failed", artifact_id: string, provider_id: string, message: string, } | { "kind": "turn_blocked", reason: TurnBlockedReason, } | { "kind": "turn_completed", stop_reason?: string | null, } | { "kind": "turn_failed", error: ConversationError, } | { "kind": "turn_cancelled", reason?: string | null, } | { "kind": "turn_interrupted", reason?: string | null, } | { "kind": "session_mode_updated", current: string | null, modes: Array<AgentSessionMode>, } | { "kind": "session_config_options_updated", options: Array<AgentSessionConfigOption>, } | { "kind": "session_config_stale", stale: boolean, reason?: string | null, } | { "kind": "prompt_capabilities_updated", capabilities: AgentPromptCapabilities, } | { "kind": "available_commands_updated", commands: Array<AgentAvailableCommand>, } | { "kind": "agent_session_info_updated", patch: JsonValue, } | { "kind": "delegation_started", delegation: ConversationDelegation, } | { "kind": "delegation_completed", delegation_id: string, result: ConversationDelegationResult, } | { "kind": "raw_diagnostic_recorded", label: string, payload?: JsonValue | null, };
 
 export type ConversationEventEnvelope = { id: string, conversation_id: string, turn_id?: string | null, sequence: bigint, source: string, event: ConversationEvent, created_at: string, };
 
@@ -1687,6 +1692,11 @@ export type ConversationToolCallPatch = { tool_call_id: string, title?: string |
 
 export type ConversationUsage = { input_tokens: bigint, output_tokens: bigint, cache_creation_input_tokens: bigint, cache_read_input_tokens: bigint,
 /**
+ * Tokens currently in the Agent context window (ACP `UsageUpdate.used`).
+ * This is occupancy, not an input-token count.
+ */
+context_used?: bigint | null,
+/**
  * Context-window size reported by the agent (ACP usage `size`), when
  * provided. None for agents that don't report a window.
  */
@@ -1694,7 +1704,7 @@ context_window_max: bigint | null, cost_amount?: number | null, cost_currency?: 
 
 export type SessionLoadFailureReason = { "kind": "resource_not_found" } | { "kind": "authentication_required", message: string, } | { "kind": "unsupported" } | { "kind": "other", message: string, };
 
-export type SessionRecoveryStrategy = { "kind": "loaded" } | { "kind": "resumed" } | { "kind": "created_new_session" };
+export type SessionRecoveryStrategy = { "kind": "loaded" } | { "kind": "resumed" } | { "kind": "created_new_session" } | { "kind": "rebound" };
 
 export type TurnBlockedReason = { "kind": "permission", permission_id: string, } | { "kind": "question", question_id: string, } | { "kind": "authentication", message: string, } | { "kind": "other", message: string, };
 
@@ -1746,28 +1756,6 @@ export type ConversationSearchHit = { conversation_id: string, workspace_id: str
  */
 snippet: string, };
 
-export type Automation = { id: string, name: string, project_id: string, executor: string | null, prompt: string, plugin_action_json: string | null,
-/**
- * `in_place` | `new_worktree`.
- */
-isolation: string,
-/**
- * `manual` | `cron`.
- */
-trigger_kind: string,
-/**
- * 5-field cron expression, evaluated in local time (present when cron-triggered).
- */
-cron: string | null, enabled: boolean, next_run_at: string | null, created_at: string, updated_at: string, };
-
-export type AutomationInput = { name: string, project_id: string, executor: string | null, prompt: string, plugin_action_json: string | null, isolation: string, trigger_kind: string, cron: string | null, enabled: boolean, };
-
-export type AutomationRun = { id: string, automation_id: string,
-/**
- * `running` | `completed` | `failed` | `interrupted`.
- */
-status: string, conversation_id: string | null, summary: string | null, error: string | null, seen: boolean, started_at: string, finished_at: string | null, };
-
 export type ChatChannelMessageLog = { id: string, channel_id: string,
 /**
  * `outbound` | `inbound`.
@@ -1799,7 +1787,7 @@ blockingCount: number, };
 
 export type AttentionItem = { kind: AttentionItemKind, sessionId: string, workspaceId: string, taskId: string, projectId: string, projectName: string, sessionName: string | null, agentType: string | null, detail: string | null, happenedAtMs: number | null, };
 
-export enum AttentionItemKind { PENDING_PERMISSION = "PENDING_PERMISSION", PENDING_QUESTION = "PENDING_QUESTION", TURN_FAILED = "TURN_FAILED", TURN_INTERRUPTED = "TURN_INTERRUPTED", IN_REVIEW = "IN_REVIEW" }
+export enum AttentionItemKind { PENDING_PERMISSION = "PENDING_PERMISSION", PENDING_QUESTION = "PENDING_QUESTION", SESSION_NOTICE = "SESSION_NOTICE", TURN_COMPLETED = "TURN_COMPLETED", TURN_FAILED = "TURN_FAILED", TURN_INTERRUPTED = "TURN_INTERRUPTED", IN_REVIEW = "IN_REVIEW" }
 
 export type AgentElicitationId = string;
 
@@ -1854,7 +1842,7 @@ export type OfficePluginReadiness = { enabled: boolean, dependency: OfficeCompon
 
 export type OfficePromptBlock = { type: string, text: string, };
 
-export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "qa_mock";
+export type AgentKind = "claude_code" | "codex" | "opencode" | "gemini" | "openclaw" | "cline" | "hermes" | "codebuddy" | "kimi_code" | "pi" | "grok" | "cursor" | "deepseek_harness" | "qa_mock";
 
 export type AgentDiagnosticView = { id: string, agent_id: AgentId, operation_kind: string, severity: string, message: string, redacted_output: string | null, created_at: string, read: boolean, };
 
@@ -1864,7 +1852,7 @@ export type AgentManagementErrorView = { code: AgentManagementErrorCode, message
 
 export type AgentManagementView = { agent_id: AgentId, display_name: string, description: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, source: AgentSource, built_in: boolean, retired: boolean, enabled: boolean, position: number, lifecycle: AgentLifecycleState, authentication: AgentAuthenticationStatus, runtime_version: string | null, acp_version: string | null, local_runtime?: AgentLocalRuntimeView, active_operation: AgentOperationKind | null, rollback_available: boolean, settings_features?: Array<AgentSettingsFeature>, };
 
-export type AgentNativeConfigFieldView = { id: string, label: string, description: string, kind: AgentNativeConfigFieldKind, options: Array<AgentNativeConfigOptionView>, secret: boolean, path: string, present: boolean, value: string | null, masked_value: string | null, revision: string, };
+export type AgentNativeConfigFieldView = { id: string, label: string, description: string, kind: AgentNativeConfigFieldKind, options: Array<AgentNativeConfigOptionView>, secret: boolean, path: string, present: boolean, value: string | null, masked_value: string | null, revision: string, surface: AgentNativeConfigSurface, };
 
 export type AgentNativeConfigPatchRequest = { agent_id: AgentId, base_field_revisions: { [key in string]?: string }, fields: { [key in string]?: string | null }, };
 
@@ -1882,7 +1870,7 @@ export type AgentPreflightItemView = { id: string, label: string, status: string
 
 export type AgentPreflightView = { agent_id: AgentId, checked_at: string, items: Array<AgentPreflightItemView>, };
 
-export type AgentRegistryView = { current_platform: string, snapshot_id: string | null, fetched_at: string | null, fresh: boolean, refresh_error: string | null, installed: Array<AgentRegistryViewRow>, uninstalled: Array<AgentRegistryViewRow>, };
+export type AgentRegistryView = { current_platform: string, snapshot_id: string | null, fetched_at: string | null, fresh: boolean, refresh_error: string | null, installed: Array<AgentRegistryViewRow>, uninstalled: Array<AgentRegistryViewRow>, presets: Array<CommunityAcpPresetView>, };
 
 export type AgentRegistryViewRow = { agent_id: AgentId, registry_id: string | null, display_name: string, description: string, authors: Array<string>, version: string, icon_light: string | null, icon_dark: string | null, icon_svg: string | null, built_in: boolean, added: boolean, installed: boolean, platform_supported: boolean, };
 
@@ -1906,15 +1894,15 @@ export type OperationId = string;
 
 export type RemoteEvent = { sequence: bigint, kind: string, payload: JsonValue, };
 
-export type ServerCapabilities = { server_version: string, protocol_version: string, minimum_client_version: string, capabilities: Array<CapabilityId>, };
+export type ServerCapabilities = { server_version: string, protocol_version: string, minimum_client_version: string, capabilities: Array<CapabilityId>, host_id?: string, reachability?: Array<ReachabilityOrigin>, };
 
 export type SubscriptionBootstrap = { subscription_id: SubscriptionId, ready: boolean, snapshot?: SubscriptionSnapshot | null, replay: Array<RemoteEvent>, high_water_mark: bigint, };
 
 export type SubscriptionId = string;
 
-export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, });
+export type SubscriptionRequest = { subscription_id: SubscriptionId, } & ({ "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, });
 
-export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, };
+export type SubscriptionResource = { "resource": "conversation", conversation_id: ConversationId, after_sequence: bigint, } | { "resource": "workflow_run", run_id: string, after_sequence: bigint, };
 
 export type SubscriptionSnapshot = { through_sequence: bigint, payload: JsonValue, };
 
@@ -1953,8 +1941,6 @@ export type UserAgentDistributionView = { kind: UserAgentDistributionKind, platf
 export type UserAgentEnvironmentVariableView = { name: string, value: string, };
 
 export type UserAgentIntegrityKind = "sha256" | "trust_on_first_use" | "ecosystem_lock";
-
-export type ConversationPluginActionInvocation = { pluginId: string, actionId: string, };
 
 export type AgentManagementActionKind = "login" | "logout" | "setup" | "subscription";
 
@@ -2030,7 +2016,31 @@ export type PiRuntimeSaveRequest = { mode: string, command: string, config_dir: 
 
 export type AgentNativeConfigFileWriteRequest = { agent_id: AgentId, path: string, base_revision: string, content: string, };
 
-export type AgentSettingsFeature = "authentication_mode" | "model_catalog" | "reusable_model_providers" | "codex_model_catalog" | "pi_configuration" | "open_code_providers" | "open_code_plugins" | "native_mcp" | "native_skills";
+export type AgentSettingsFeature = "authentication_mode" | "model_catalog" | "reusable_model_providers" | "codex_model_catalog" | "pi_configuration" | "open_code_providers" | "open_code_plugins" | "dsh_providers" | "dsh_plugins" | "grok_plugins" | "native_mcp" | "native_skills";
+
+export type DshProviderKind = "official" | "catalog" | "custom";
+
+export type DshProviderModelView = { id: string, name: string | null, };
+
+export type DshCatalogProviderView = { id: string, name: string, api_key_env: string, };
+
+export type DshProviderView = { id: string, display_name: string, kind: DshProviderKind, notes: string | null, api: string | null, base_url: string | null, api_key_env: string, credential_present: boolean, models: Array<DshProviderModelView>, };
+
+export type DshProvidersView = { settings_path: string, credentials_path: string, default_provider: string, default_model: string, providers: Array<DshProviderView>, catalog: Array<DshCatalogProviderView>, };
+
+export type DshProviderSaveRequest = { id: string, display_name: string | null, notes: string | null, api: string | null, base_url: string | null, api_key: string | null, models: Array<DshProviderModelView>, set_default: boolean, default_model: string | null, };
+
+export type DshProviderDiscoverRequest = { base_url: string, api_key: string | null, provider_id: string | null, };
+
+export type DshExtensionKind = "plugin" | "skill";
+
+export type DshPluginView = { name: string, version: string | null, reserved: boolean, source: string, kind: DshExtensionKind, path: string | null, summary: string | null, };
+
+export type DshPluginSummaryView = { profile: string, profile_dir: string, plugins: Array<DshPluginView>, };
+
+export type GrokPluginView = { name: string, version: string | null, status: string, path: string | null, source: string | null, marketplace: string | null, };
+
+export type GrokPluginSummaryView = { home: string, plugins: Array<GrokPluginView>, };
 
 export type AgentAuthModeOptionView = { value: string, label_key: string, description_key: string, credential_env: string | null, native_config_field_id: string | null, credential_required: boolean, };
 
@@ -2064,7 +2074,8 @@ export type PlanUsageWindow = {
 /**
  * Stable window identifier the frontend maps to a localized label.
  * Codex: `primary` / `secondary`. Claude: `five_hour` / `seven_day` /
- * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`.
+ * `seven_day_opus` / `seven_day_sonnet` / `extra_usage`. Grok: `monthly`.
+ * Cursor: `cursor_models` / `other_models`.
  */
 id: string, usedPercent: number | null, windowMinutes: number | null, resetsAtMs: number | null, };
 
@@ -2084,7 +2095,7 @@ export type ConversationForkResult = { conversationId: string, importedEventCoun
 
 export type ConversationInputEvent = { "kind": "submitted", input_id: string, operation_id: string, revision: bigint, sort_key: bigint, payload_digest: string, payload: ConversationInputPayload, principal: JsonValue, } | { "kind": "updated", input_id: string, revision: bigint, payload_digest: string, payload: ConversationInputPayload, } | { "kind": "reordered", input_id: string, revision: bigint, sort_key: bigint, } | { "kind": "claimed", input_id: string, claim_token: string, claim_deadline: string, } | { "kind": "claim_released", input_id: string, claim_token: string, } | { "kind": "dispatched", input_id: string, claim_token: string, turn_id: string, } | { "kind": "cancelled", input_id: string, revision: bigint, };
 
-export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, pluginActions?: Array<ConversationPluginActionInvocation>, };
+export type ConversationInputPayload = { agentId: AgentId, workspaceId: string, executorProfileId?: JsonValue | null, text: string, displayText?: string | null, images?: Array<string>, modeOverride?: string | null, configOverrides?: Array<AgentSessionConfigOverride>, workflowRefs?: Array<ConversationWorkflowRef>, fileRefs?: Array<ConversationFileRef>, };
 
 export type ConversationInputStatus = "queued" | "claimed" | "dispatched" | "cancelled";
 
@@ -2100,7 +2111,7 @@ export type ConversationSteeringStatus = "requested" | "accepted" | "rejected" |
 
 export type ConversationRelationView = { id: string, parentConversationId: string, childConversationId: string, kind: ConversationRelationKind, visibility: ConversationRelationVisibility, metadata: JsonValue, child: ConversationChildSummaryView, };
 
-export type AgentStepSpec = { agentId: string, prompt: string, outputSchema: JsonValue | null, workspaceAccess: WorkspaceAccess, sideEffectClass: SideEffectClass, allowOneRepair: boolean, allowSkipOnReview: boolean, };
+export type AgentStepSpec = { agentId: string, prompt: string, executorProfileId: JsonValue | null, modeOverride: string | null, configOverrides: { [key in string]?: string }, outputLanguage: string | null, outputDescription: string | null, outputSchema: JsonValue | null, workspaceAccess: WorkspaceAccess, sideEffectClass: SideEffectClass, allowOneRepair: boolean, allowSkipOnReview: boolean, completionPolicy: CompletionPolicy, };
 
 export type ApprovalStepSpec = { title: string, decisionSchema: JsonValue, approverScope: string, skippable: boolean, };
 
@@ -2112,27 +2123,27 @@ export type WorkflowBinding = { "source": "run_input", pointer: string, } | { "s
 
 export type WorkflowDefinition = { formatVersion: number, name: string, description: string | null, inputSchema: JsonValue | null, steps: Array<WorkflowStep>, policy: WorkflowPolicy, };
 
-export type WorkflowEvent = { "kind": "run_started", definition_version_id: string, step_ids: Array<string>, input: JsonValue, policy: WorkflowPolicy, deadline_at: string, } | { "kind": "step_ready", step_id: string, attempt: number, } | { "kind": "step_claimed", step_id: string, attempt: number, claim_token: string, claim_deadline: string, } | { "kind": "step_claim_released", step_id: string, attempt: number, } | { "kind": "step_prepared", step_id: string, attempt: number, resolved_input: { [key in string]?: JsonValue }, resolved_input_digest: string, execution_evidence: JsonValue, workspace_id?: string | null, } | { "kind": "step_evidence_recorded", step_id: string, attempt: number, evidence_digest: string, execution_evidence?: JsonValue | null, } | { "kind": "step_started", step_id: string, attempt: number, claim_token: string, conversation_id: string | null, turn_id: string | null, } | { "kind": "step_turn_bound", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_waiting_approval", step_id: string, attempt: number, } | { "kind": "step_interaction_waiting", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_interaction_resumed", step_id: string, attempt: number, } | { "kind": "step_output_accepted", step_id: string, attempt: number, output: JsonValue, schema_digest: string, } | { "kind": "step_repair_requested", step_id: string, attempt: number, } | { "kind": "step_completed", step_id: string, attempt: number, } | { "kind": "step_failed", step_id: string, attempt: number, code: string, message: string, } | { "kind": "step_cancelled", step_id: string, attempt: number, } | { "kind": "step_interrupted", step_id: string, attempt: number, } | { "kind": "step_skipped", step_id: string, attempt: number, } | { "kind": "step_needs_review", step_id: string, attempt: number, reason: string, } | { "kind": "review_decided", step_id: string, from_attempt: number, decision: string, principal: JsonValue, } | { "kind": "approval_decided", step_id: string, attempt: number, decision: JsonValue, principal: JsonValue, } | { "kind": "run_completed" } | { "kind": "run_failed", code: string, message: string, } | { "kind": "run_cancelled", reason: string | null, } | { "kind": "run_needs_review", reason: string, };
+export type WorkflowEvent = { "kind": "run_started", definition_version_id: string, step_ids: Array<string>, input: JsonValue, policy: WorkflowPolicy, deadline_at: string, } | { "kind": "run_derived", parent_run_id: string, fork_step_id: string, run_mode: DebugRunScope, reused_step_ids: Array<string>, excluded_step_ids: Array<string>, } | { "kind": "step_reused", step_id: string, conversation_id: string | null, output_json: string | null, output_schema_digest: string | null, resolved_input_json: string | null, resolved_input_digest: string | null, execution_evidence_json: string | null, workspace_id: string | null, completed_at: string | null, } | { "kind": "step_ready", step_id: string, attempt: number, } | { "kind": "step_claimed", step_id: string, attempt: number, claim_token: string, claim_deadline: string, } | { "kind": "step_claim_released", step_id: string, attempt: number, } | { "kind": "step_prepared", step_id: string, attempt: number, resolved_input: { [key in string]?: JsonValue }, resolved_input_digest: string, execution_evidence: JsonValue, workspace_id?: string | null, } | { "kind": "step_evidence_recorded", step_id: string, attempt: number, evidence_digest: string, execution_evidence?: JsonValue | null, } | { "kind": "step_started", step_id: string, attempt: number, claim_token: string, conversation_id: string | null, turn_id: string | null, } | { "kind": "step_turn_bound", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_waiting_approval", step_id: string, attempt: number, } | { "kind": "step_interaction_waiting", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_interaction_resumed", step_id: string, attempt: number, } | { "kind": "step_input_requested", step_id: string, attempt: number, conversation_id: string, reason: string | null, } | { "kind": "step_input_submitted", step_id: string, attempt: number, conversation_id: string, turn_id: string, } | { "kind": "step_output_accepted", step_id: string, attempt: number, output: JsonValue, schema_digest: string, } | { "kind": "step_candidate_produced", step_id: string, attempt: number, output: JsonValue | null, schema_digest: string | null, } | { "kind": "step_candidate_accepted", step_id: string, attempt: number, principal: JsonValue, } | { "kind": "step_repair_requested", step_id: string, attempt: number, } | { "kind": "step_completed", step_id: string, attempt: number, } | { "kind": "step_failed", step_id: string, attempt: number, code: string, message: string, } | { "kind": "step_cancelled", step_id: string, attempt: number, } | { "kind": "step_interrupted", step_id: string, attempt: number, } | { "kind": "step_skipped", step_id: string, attempt: number, } | { "kind": "step_needs_review", step_id: string, attempt: number, reason: string, } | { "kind": "review_decided", step_id: string, from_attempt: number, decision: string, principal: JsonValue, } | { "kind": "approval_decided", step_id: string, attempt: number, decision: JsonValue, principal: JsonValue, } | { "kind": "run_completed" } | { "kind": "run_failed", code: string, message: string, } | { "kind": "run_cancelled", reason: string | null, } | { "kind": "run_pause_requested", reason: string | null, principal: JsonValue, } | { "kind": "run_paused" } | { "kind": "run_resumed", principal: JsonValue, } | { "kind": "run_needs_review", reason: string, };
 
 export type WorkflowEventRecord = { id: string, runId: string, sequence: bigint, eventVersion: bigint, eventKind: string, payloadJson: string, operationId: string | null, createdAt: string, };
 
-export type WorkflowPolicy = { maxConcurrentAgentSteps: number, maxAgentCalls: number, deadlineSeconds: bigint, maxOutputBytes: number, };
+export type WorkflowPolicy = { maxConcurrentAgentSteps: number, maxAgentCalls: number, deadlineSeconds: number, maxOutputBytes: number, };
 
 export type WorkflowRunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted" | "needs_review";
 
-export type WorkflowRunView = { id: string, definitionVersionId: string, workspaceId: string, status: string, inputJson: string, policyJson: string, deadlineAt: string, agentCallsStarted: bigint, lastSequence: bigint, createdAt: string, updatedAt: string, };
+export type WorkflowRunView = { id: string, definitionVersionId: string, workspaceId: string, status: string, controlState: string, pauseReason: string | null, pausedAt: string | null, parentRunId: string | null, forkStepId: string | null, runMode: string, inputJson: string, policyJson: string, deadlineAt: string, agentCallsStarted: bigint, lastSequence: bigint, createdAt: string, updatedAt: string, };
 
-export type WorkflowStep = { id: string, dependsOn: Array<string>, phase: string | null, inputBindings: { [key in string]?: WorkflowBinding }, } & ({ "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec);
+export type WorkflowStep = { id: string, dependsOn: Array<string>, phase: string | null, inputBindings: { [key in string]?: WorkflowBinding }, } & ({ "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec);
 
-export type WorkflowStepSpec = { "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec;
+export type WorkflowStepSpec = { "kind": "agent" } & AgentStepSpec | { "kind": "approval" } & ApprovalStepSpec | { "kind": "notify" } & NotifyStepSpec;
 
 export type WorkflowStepStatus = "pending" | "ready" | "claimed" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | "interrupted" | "needs_review" | "skipped";
 
-export type WorkflowStepView = { id: string, runId: string, stepId: string, attempt: bigint, status: string, conversationId: string | null, turnId: string | null, outputJson: string | null, outputSchemaDigest: string | null, resolvedInputJson: string | null, resolvedInputDigest: string | null, executionEvidenceJson: string | null, workspaceId: string | null, waitingInteraction: boolean, repairCount: bigint, claimToken: string | null, claimDeadline: string | null, startedAt: string | null, completedAt: string | null, updatedAt: string, };
+export type WorkflowStepView = { id: string, runId: string, stepId: string, attempt: bigint, status: string, conversationId: string | null, turnId: string | null, outputJson: string | null, outputSchemaDigest: string | null, candidateOutputJson: string | null, candidateSchemaDigest: string | null, awaitingAcceptance: boolean, awaitingInput: boolean, executionMode: string, resolvedInputJson: string | null, resolvedInputDigest: string | null, executionEvidenceJson: string | null, workspaceId: string | null, waitingInteraction: boolean, repairCount: bigint, claimToken: string | null, claimDeadline: string | null, startedAt: string | null, completedAt: string | null, updatedAt: string, };
 
-export type WorkflowVersionView = { id: string, definitionId: string, version: bigint, digest: string, normalizedJson: string, createdAt: string, };
+export type WorkflowVersionView = { id: string, definitionId: string, version: bigint, digest: string, normalizedJson: string, sourcePath: string | null, createdAt: string, };
 
-export type WorkspaceAccess = "read_only_shared" | "write_serialized" | "write_isolated";
+export type WorkspaceAccess = "native" | "read_only_shared" | "write_serialized" | "write_isolated";
 
 export type ConversationRelationKind = "delegation" | "fork" | "workflow_step";
 
@@ -2145,3 +2156,41 @@ export type ConversationOutputView = { conversationId: string, turn: Conversatio
 export type WorkflowValidationView = { normalized: WorkflowDefinition, digest: string, };
 
 export type ConversationChildSummaryView = { workspaceId: string, title: string | null, status: string, activeTurnStatus: string | null, queuedInputCount: bigint, messageCount: bigint, };
+
+export type CompletionPolicy = "automatic" | "manual";
+
+export type DebugRunScope = "node" | "downstream";
+
+export type WorkflowDefinitionSummary = { id: string, name: string, latestVersionId: string | null, latestVersion: bigint | null, updatedAt: string, };
+
+export type CommunityAcpPresetView = { preset_id: string, agent_id: AgentId, display_name: string, description: string, authors: Array<string>, repository: string | null, version: string, distribution_kind: UserAgentDistributionKind, distribution_json: string, icon_light: string | null, icon_dark: string | null, built_in: boolean, added: boolean, };
+
+export type ConversationFileRef = { path: string, startLine?: number | null, endLine?: number | null, };
+
+export type AgentPlanEntry = { content: string, status: string, priority?: string | null, };
+
+export type ScratchUpdateOutcome = { "kind": "saved", scratch: Scratch, } | { "kind": "conflict", server: Scratch, };
+
+export type AgentNativeConfigSurface = "configuration" | "authentication";
+
+export type LocalHistoryDestination = { project_id: string, project_name: string, workspace_id: string, workspace_name: string | null, };
+
+export type LocalHistoryImportResult = { imported: number, skipped: number, failed: number, conversation_ids: Array<string>, errors: Array<string>, };
+
+export type LocalHistoryImportSelection = { agent_id: AgentId, external_session_id: string, workspace_id: string, };
+
+export type LocalHistoryScanFolder = { path: string, name: string, project_id: string | null, project_name: string | null, workspace_id: string | null, sessions: Array<LocalHistoryScanSession>, };
+
+export type LocalHistoryScanPage = { folders: Array<LocalHistoryScanFolder>, destinations: Array<LocalHistoryDestination>, total_sessions: number, importable_count: number, };
+
+export type LocalHistoryScanSession = { agent_id: AgentId, external_session_id: string, title: string | null, workspace_path: string | null, message_count: number, updated_at: string | null, status: LocalHistorySessionStatus, };
+
+export type LocalHistorySessionStatus = "new" | "imported";
+
+export type NotificationWhen = "unfocused" | "always";
+
+export type NotifyStepSpec = { title: string, };
+
+export type ReachabilityOrigin = { origin: string, kind: string, };
+
+export type ConversationWorkflowRef = { pluginId: string, workflowId: string, };

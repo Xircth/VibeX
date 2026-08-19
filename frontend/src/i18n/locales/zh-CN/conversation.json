@@ -1,4 +1,27 @@
 {
+  "codexGoal": {
+    "label": "目标",
+    "statusLabel": "状态",
+    "currentLabel": "当前目标",
+    "status": {
+      "running": "运行中",
+      "paused": "已暂停",
+      "completed": "已完成"
+    }
+  },
+  "find": {
+    "placeholder": "在会话中查找",
+    "matches": "{{current}} / {{total}}",
+    "none": "无匹配",
+    "previous": "上一处",
+    "next": "下一处",
+    "close": "关闭查找"
+  },
+  "draftConflict": {
+    "title": "草稿冲突",
+    "keepServer": "保留服务器",
+    "keepLocal": "保留本机"
+  },
   "children": {
     "title": "子会话（{{count}}）",
     "active": "{{count}} 个进行中",
@@ -28,8 +51,9 @@
     "copy": "复制"
   },
   "thinking": {
-    "statusThinking": "思考中",
-    "statusCompleted": "已完成"
+    "label": "思考",
+    "expand": "展开思考",
+    "collapse": "收起思考"
   },
   "displayEntry": {
     "userDeniedTool": "用户拒绝了 {{tool}}",
@@ -78,9 +102,13 @@
   },
   "turnErrorCard": {
     "reloadSession": "重新加载会话",
+    "rebindSession": "重新绑定会话",
     "cancelledTitle": "已取消",
     "resourceNotFoundTitle": "代理会话已过期",
-    "resourceNotFoundDetail": "该会话在代理侧已不存在。重新加载会在下一条消息时重新建立会话。",
+    "resourceNotFoundDetail": "该会话在代理侧已不存在。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。",
+    "sessionResumeUnsupportedTitle": "无法恢复原会话",
+    "sessionResumeUnsupportedDetail": "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。",
+    "sessionLoadFailedTitle": "无法加载代理会话",
     "idleTimeoutTitle": "代理无响应",
     "idleTimeoutDetail": "代理长时间未返回任何内容，已自动结束本回合。常见原因：网络/代理无法连接模型，或代理需要重新登录认证。",
     "connectionClosedTitle": "连接已断开",
@@ -130,6 +158,10 @@
       "tool": "工具"
     },
     "reject": "拒绝",
+    "allow": "允许",
+    "allowOnce": "允许一次",
+    "allowSession": "本次会话中允许",
+    "allowAlways": "总是允许全部",
     "allowActions": "权限允许选项",
     "expandAllow": "展开允许选项",
     "options": "选项",
@@ -144,6 +176,7 @@
   "messageTurnView": {
     "streamingOutput": "AI 正在输出...",
     "streamingThinking": "AI 正在思考中...",
+    "streamingStatus": "AI 正在处理",
     "copied": "已复制",
     "copyMessage": "复制消息",
     "edit": "编辑并重发",
@@ -182,6 +215,9 @@
     "dismiss": "关闭提示",
     "dismissLocalError": "关闭本地错误提示",
     "localErrorTitle": "操作失败",
+    "errorBadge": "Error",
+    "warningBadge": "Warning",
+    "infoBadge": "Notice",
     "showDetails": "查看详细信息",
     "showDetailsFor": "查看详细信息：{{title}}",
     "newerEventTitle": "此会话包含较新版本的记录",
@@ -198,12 +234,33 @@
     "checkItems": "检查项",
     "result": "结果"
   },
+  "preview": {
+    "switchToFileView": "切换文件视图",
+    "switchToDiffView": "切换差异视图"
+  },
   "fileTool": {
     "openPreview": "打开预览",
     "copied": "已复制",
     "copyPath": "复制路径",
     "path": "路径",
     "tool": "工具"
+  },
+  "toolArtifact": {
+    "view": "查看",
+    "edit": "修改",
+    "write": "写入",
+    "delete": "删除",
+    "rename": "重命名",
+    "search": "搜索",
+    "fetch": "网页",
+    "denied": "已拒绝",
+    "timedOut": "超时",
+    "exitCode": "exit {{code}}",
+    "matches_one": "{{count}} 处匹配",
+    "matches_other": "{{count}} 处匹配",
+    "openInPreview": "在预览中打开",
+    "loadingDiff": "正在加载差异…",
+    "noHeadDiff": "与 HEAD 没有差异"
   },
   "viewedImages": {
     "summary_one": "已查看 {{count}} 张图像",
@@ -223,9 +280,15 @@
   },
   "planCard": {
     "label": "计划",
-    "updating": "更新中",
-    "itemsSummary": "{{count}} 项 - {{content}}",
-    "planUpdated": "计划已更新"
+    "completedCount": "{{completed}} / {{total}} 已完成",
+    "waitingConfirmation": "等待确认",
+    "expand": "展开计划",
+    "collapse": "收起计划",
+    "status": {
+      "completed": "已完成",
+      "in_progress": "进行中",
+      "pending": "待开始"
+    }
   },
   "searchTool": {
     "openLink": "打开链接",
@@ -247,6 +310,22 @@
     "result": "结果",
     "arguments": "参数",
     "content": "内容"
+  },
+  "subagentCard": {
+    "prompt": "提示词",
+    "result": "结果",
+    "running": "运行中",
+    "background": "后台运行中",
+    "runningInBackground": "后台运行中",
+    "completed": "已完成",
+    "failed": "失败",
+    "tools": "{{count}} 次工具调用",
+    "turns": "{{count}} 轮",
+    "durationMs": "耗时 {{count}} 毫秒",
+    "durationSeconds": "耗时 {{count}} 秒",
+    "durationMinutes": "耗时 {{count}} 分钟",
+    "context": "上下文 {{pct}}%",
+    "tokens": "{{count}} tokens"
   },
   "turnStats": {
     "copyReply": "复制回复",

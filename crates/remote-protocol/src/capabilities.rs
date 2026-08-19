@@ -27,6 +27,10 @@ pub struct ServerCapabilities {
     pub protocol_version: String,
     pub minimum_client_version: String,
     pub capabilities: Vec<CapabilityId>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reachability: Vec<crate::ReachabilityOrigin>,
 }
 
 impl ServerCapabilities {

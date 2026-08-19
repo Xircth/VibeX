@@ -17,22 +17,156 @@ import {
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { SettingsActionBar } from '@/pages/settings/SettingsUi';
-import { AgentSessionDefaultsField } from './AgentSessionDefaultsField';
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function schemaProperties(detail: PluginProductDetail) {
-  const properties = detail.configSchema.properties;
-  if (
-    !properties ||
-    typeof properties !== 'object' ||
-    Array.isArray(properties)
-  ) {
+type JsonSchema = Record<string, unknown>;
+
+function schemaProperties(schema: JsonSchema): Array<[string, JsonSchema]> {
+  const properties = schema.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
     return [];
   }
-  return Object.entries(properties as Record<string, Record<string, unknown>>);
+  return Object.entries(properties as Record<string, JsonSchema>);
+}
+
+function SchemaField({
+  name,
+  schema,
+  value,
+  disabled,
+  onChange,
+}: {
+  name: string;
+  schema: JsonSchema;
+  value: unknown;
+  disabled: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const label = String(schema.title ?? name);
+  const description =
+    typeof schema.description === 'string' ? schema.description : undefined;
+  const copy = (
+    <span className="product-plugin-config-copy">
+      <strong>{label}</strong>
+      {description ? <small>{description}</small> : null}
+    </span>
+  );
+
+  if (Array.isArray(schema.enum)) {
+    return (
+      <div className="product-plugin-config-row">
+        {copy}
+        <Select
+          value={String(value ?? '')}
+          disabled={disabled}
+          onValueChange={onChange}
+        >
+          <SelectTrigger
+            className="product-plugin-config-control"
+            aria-label={label}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {schema.enum.map((item) => (
+              <SelectItem key={String(item)} value={String(item)}>
+                {String(item)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (schema.type === 'boolean') {
+    return (
+      <div className="product-plugin-config-row">
+        {copy}
+        <Switch
+          aria-label={label}
+          checked={Boolean(value)}
+          disabled={disabled}
+          onCheckedChange={onChange}
+        />
+      </div>
+    );
+  }
+
+  if (schema.type === 'object') {
+    const draft =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+    return (
+      <fieldset className="product-plugin-config-block">
+        <legend>{copy}</legend>
+        {schemaProperties(schema).map(([child, childSchema]) => (
+          <SchemaField
+            key={child}
+            name={child}
+            schema={childSchema}
+            value={draft[child]}
+            disabled={disabled}
+            onChange={(next) => onChange({ ...draft, [child]: next })}
+          />
+        ))}
+      </fieldset>
+    );
+  }
+
+  if (schema.type === 'array') {
+    const items = Array.isArray(value) ? value : [];
+    const itemSchema =
+      schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)
+        ? (schema.items as JsonSchema)
+        : { type: 'string' };
+    return (
+      <fieldset className="product-plugin-config-block">
+        <legend>{copy}</legend>
+        {items.map((item, index) => (
+          <div key={`${name}-${index}`} className="product-plugin-config-row">
+            <SchemaField
+              name={`${name}-${index}`}
+              schema={itemSchema}
+              value={item}
+              disabled={disabled}
+              onChange={(next) => {
+                const copyItems = [...items];
+                copyItems[index] = next;
+                onChange(copyItems);
+              }}
+            />
+          </div>
+        ))}
+      </fieldset>
+    );
+  }
+
+  const inputType = schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text';
+  return (
+    <div className="product-plugin-config-row">
+      {copy}
+      <Input
+        aria-label={label}
+        type={inputType}
+        className="product-plugin-config-control"
+        disabled={disabled}
+        value={value == null ? '' : String(value)}
+        onChange={(event) => {
+          if (inputType === 'number') {
+            const parsed = Number(event.target.value);
+            onChange(Number.isFinite(parsed) ? parsed : event.target.value);
+            return;
+          }
+          onChange(event.target.value);
+        }}
+      />
+    </div>
+  );
 }
 
 export function PluginConfigForm({
@@ -69,7 +203,7 @@ export function PluginConfigForm({
     }
   };
 
-  const properties = schemaProperties(detail);
+  const properties = schemaProperties(detail.configSchema);
   if (properties.length === 0) {
     return <p className="product-plugin-muted">{t('plugins.noConfig')}</p>;
   }
@@ -83,122 +217,24 @@ export function PluginConfigForm({
       }}
     >
       <div className="product-plugin-config settings-card">
-        {properties.map(([key, schema]) => {
-          const label = String(schema.title ?? key);
-          const description = schema.description
-            ? String(schema.description)
-            : undefined;
-          const copy = (
-            <span className="product-plugin-config-copy">
-              <strong>{label}</strong>
-              {description ? <small>{description}</small> : null}
-            </span>
-          );
-
-          if (key === 'agentDefaults' || schema['x-widget'] === 'agent-session-defaults') {
-            return (
-              <div key={key} className="product-plugin-config-block">
-                {copy}
-                <AgentSessionDefaultsField
-                  value={draft[key]}
-                  disabled={!supports('plugin.write')}
-                  onChange={(value) =>
-                    setDraft((current) => ({ ...current, [key]: value }))
-                  }
-                />
-              </div>
-            );
-          }
-
-          if (schema.type === 'object') {
-            return null;
-          }
-
-          if (schema.type === 'boolean') {
-            return (
-              <div key={key} className="product-plugin-config-row">
-                {copy}
-                <Switch
-                  aria-label={label}
-                  checked={Boolean(draft[key])}
-                  disabled={!supports('plugin.write')}
-                  onCheckedChange={(value) =>
-                    setDraft((current) => ({ ...current, [key]: value }))
-                  }
-                />
-              </div>
-            );
-          }
-
-          if (Array.isArray(schema.enum)) {
-            return (
-              <div key={key} className="product-plugin-config-row">
-                {copy}
-                <Select
-                  value={String(draft[key] ?? '')}
-                  disabled={!supports('plugin.write')}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({ ...current, [key]: value }))
-                  }
-                >
-                  <SelectTrigger
-                    className="product-plugin-config-control"
-                    aria-label={label}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {schema.enum.map((value) => (
-                      <SelectItem key={String(value)} value={String(value)}>
-                        {String(value)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            );
-          }
-
-          const numeric = schema.type === 'number' || schema.type === 'integer';
-          return (
-            <label key={key} className="product-plugin-config-row">
-              {copy}
-              <Input
-                className="product-plugin-config-control"
-                type={numeric ? 'number' : 'text'}
-                aria-label={label}
-                value={String(draft[key] ?? '')}
-                min={
-                  typeof schema.minimum === 'number'
-                    ? schema.minimum
-                    : undefined
-                }
-                max={
-                  typeof schema.maximum === 'number'
-                    ? schema.maximum
-                    : undefined
-                }
-                step={schema.type === 'integer' ? 1 : undefined}
-                disabled={!supports('plugin.write')}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setDraft((current) => ({
-                    ...current,
-                    [key]: numeric && value !== '' ? Number(value) : value,
-                  }));
-                }}
-              />
-            </label>
-          );
-        })}
+        {properties.map(([key, schema]) => (
+          <SchemaField
+            key={key}
+            name={key}
+            schema={schema}
+            value={draft[key]}
+            disabled={!supports('plugin.write')}
+            onChange={(value) =>
+              setDraft((current) => ({ ...current, [key]: value }))
+            }
+          />
+        ))}
       </div>
       <SettingsActionBar
         dirty={dirty}
         saving={saving}
         disabled={!supports('plugin.write')}
-        message={t('plugins.unsavedConfig')}
-        onDiscard={() => setDraft(detail.config)}
-        onSave={() => void save()}
+        onReset={() => setDraft(detail.config)}
       />
     </form>
   );

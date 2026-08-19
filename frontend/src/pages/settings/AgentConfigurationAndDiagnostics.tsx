@@ -6,6 +6,7 @@ import type {
   AgentNativeConfigFileView,
   AgentNativeConfigFileWriteRequest,
   AgentNativeConfigPatchRequest,
+  AgentNativeConfigSurface,
   AgentNativeConfigView,
 } from 'shared/types';
 
@@ -33,7 +34,57 @@ type Props = {
   onOverwriteConflict?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   embedded?: boolean;
+  fieldSurface?: AgentNativeConfigSurface;
 };
+
+export function configFilePathsForSurface(
+  config: AgentNativeConfigView | null,
+  fieldSurface?: AgentNativeConfigSurface
+): string[] {
+  const paths: string[] = [];
+  for (const field of fieldsForSurface(config, fieldSurface)) {
+    if (field.path && !paths.includes(field.path)) paths.push(field.path);
+  }
+  return paths;
+}
+
+export function AgentConfigPathMeta({
+  paths,
+  saving,
+}: {
+  paths: string[];
+  saving: boolean;
+}) {
+  const { t } = useTranslation('settings');
+  if (paths.length === 0) return null;
+  return (
+    <div className="agent-config-path-meta">
+      {paths.map((path) => (
+        <div className="agent-config-path-item" key={path}>
+          <span>{fileName(path)}</span>
+          <code title={path}>{path}</code>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="agent-config-open-folder h-7"
+            aria-label={t('agents.openConfigFolderAria', {
+              file: fileName(path),
+            })}
+            disabled={saving}
+            onClick={() => {
+              void desktopApi
+                .revealInFileManager(parentDirectory(path))
+                .catch(() => toast.error(t('agents.openConfigFolderFailed')));
+            }}
+          >
+            <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+            {t('agents.openConfigFolder')}
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function AgentConfigurationAndDiagnostics({
   config,
@@ -46,6 +97,7 @@ export function AgentConfigurationAndDiagnostics({
   onOverwriteConflict,
   onDirtyChange,
   embedded = false,
+  fieldSurface,
 }: Props) {
   const { t } = useTranslation('settings');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -62,15 +114,35 @@ export function AgentConfigurationAndDiagnostics({
     setChildDirty({});
   }, [config]);
 
+  const surfaceFields = useMemo(
+    () => fieldsForSurface(config, fieldSurface),
+    [config, fieldSurface]
+  );
   const visibleFields = useMemo(
-    () => filterVisibleFields(config, drafts),
-    [config, drafts]
+    () =>
+      filterVisibleFields(
+        config ? { ...config, fields: surfaceFields } : null,
+        drafts
+      ),
+    [config, drafts, surfaceFields]
   );
   const groups = useMemo(
-    () => groupFieldsByPath(config, visibleFields),
-    [config, visibleFields]
+    () =>
+      groupFieldsByPath(
+        config,
+        visibleFields,
+        fieldSurface !== 'authentication' && fieldSurface !== 'configuration'
+      ),
+    [config, fieldSurface, visibleFields]
   );
-  const changedFields = config?.fields.filter((field) => dirty[field.id]) ?? [];
+  const showRuntimeSurfaces = fieldSurface !== 'authentication';
+  const showFileEditor = fieldSurface !== 'authentication';
+  const changedFields =
+    config?.fields.filter(
+      (field) =>
+        dirty[field.id] &&
+        (!fieldSurface || fieldSurfaceOf(field) === fieldSurface)
+    ) ?? [];
   const canSave = changedFields.some(
     (field) =>
       removed[field.id] || !field.secret || (drafts[field.id] ?? '').length > 0
@@ -162,25 +234,7 @@ export function AgentConfigurationAndDiagnostics({
     setRemoved((current) => ({ ...current, [field.id]: true }));
   };
 
-  const openConfigFolderButton = (path: string) => (
-    <Button
-      size="sm"
-      variant="ghost"
-      className="agent-config-open-folder h-7"
-      aria-label={t('agents.openConfigFolderAria', {
-        file: fileName(path),
-      })}
-      disabled={saving}
-      onClick={() => {
-        void desktopApi
-          .revealInFileManager(parentDirectory(path))
-          .catch(() => toast.error(t('agents.openConfigFolderFailed')));
-      }}
-    >
-      <FolderOpen aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-      {t('agents.openConfigFolder')}
-    </Button>
-  );
+  const headingPaths = groups.map(([path]) => path);
   const actionBar = config?.available ? (
     <SettingsActionBar
       dirty={changedFields.length > 0}
@@ -194,6 +248,7 @@ export function AgentConfigurationAndDiagnostics({
   return (
     <>
       <section
+        aria-labelledby={embedded ? undefined : 'agent-config-heading'}
         aria-label={embedded ? t('agents.configTitle') : undefined}
         className={
           embedded
@@ -203,10 +258,11 @@ export function AgentConfigurationAndDiagnostics({
       >
         {embedded ? null : (
           <div className="agent-section-heading">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <FileKey2 aria-hidden="true" className="h-4 w-4" />
-              <h3>{t('agents.configTitle')}</h3>
+              <h3 id="agent-config-heading">{t('agents.configTitle')}</h3>
             </div>
+            <AgentConfigPathMeta paths={headingPaths} saving={saving} />
           </div>
         )}
 
@@ -255,7 +311,8 @@ export function AgentConfigurationAndDiagnostics({
           </p>
         ) : (
           <>
-            {config.settings_features.includes('model_catalog') ? (
+            {showRuntimeSurfaces &&
+            config.settings_features.includes('model_catalog') ? (
               <AgentModelCatalogControl
                 agentId={config.agent_id}
                 drafts={drafts}
@@ -263,19 +320,23 @@ export function AgentConfigurationAndDiagnostics({
                 onSelect={updateDraft}
               />
             ) : null}
-            {config.settings_features.includes('codex_model_catalog') ? (
+            {showRuntimeSurfaces &&
+            config.settings_features.includes('codex_model_catalog') ? (
               <CodexModelCatalogEditor
                 disabled={saving}
                 onDirtyChange={updateCodexCatalogDirty}
               />
             ) : null}
-            <CodexQuickSettings
-              fields={config.fields}
-              drafts={drafts}
-              disabled={saving}
-              onChange={updateDraft}
-            />
-            {config.settings_features.includes('pi_configuration') ? (
+            {showRuntimeSurfaces ? (
+              <CodexQuickSettings
+                fields={surfaceFields}
+                drafts={drafts}
+                disabled={saving}
+                onChange={updateDraft}
+              />
+            ) : null}
+            {showRuntimeSurfaces &&
+            config.settings_features.includes('pi_configuration') ? (
               <PiConfigurationPanel
                 disabled={saving}
                 onDirtyChange={updatePiConfigurationDirty}
@@ -283,12 +344,11 @@ export function AgentConfigurationAndDiagnostics({
             ) : null}
             <div className="agent-config-groups">
               {groups.map(([path, fields, file]) => (
-                <fieldset className="agent-config-group" key={path}>
-                  <legend>
-                    <span>{fileName(path)}</span>
-                    <code>{path}</code>
-                    {openConfigFolderButton(path)}
-                  </legend>
+                <fieldset
+                  className="agent-config-group"
+                  key={path}
+                  aria-label={fileName(path)}
+                >
                   {fields.length > 0 ? (
                     <div className="agent-config-grid">
                       {fields.map((field) => (
@@ -304,13 +364,15 @@ export function AgentConfigurationAndDiagnostics({
                       ))}
                     </div>
                   ) : null}
-                  <ConfigFileEditor
-                    agentId={config.agent_id}
-                    file={file}
-                    saving={saving}
-                    onSave={onSaveFile}
-                    onDirtyChange={updateRawDirty}
-                  />
+                  {showFileEditor ? (
+                    <ConfigFileEditor
+                      agentId={config.agent_id}
+                      file={file}
+                      saving={saving}
+                      onSave={onSaveFile}
+                      onDirtyChange={updateRawDirty}
+                    />
+                  ) : null}
                 </fieldset>
               ))}
             </div>
@@ -576,14 +638,17 @@ function draftsFromConfig(
 
 function groupFieldsByPath(
   config: AgentNativeConfigView | null,
-  fields: AgentNativeConfigFieldView[]
+  fields: AgentNativeConfigFieldView[],
+  includeFilesWithoutFields: boolean
 ): [
   string,
   AgentNativeConfigFieldView[],
   AgentNativeConfigFileView | undefined,
 ][] {
   const groups = new Map<string, AgentNativeConfigFieldView[]>(
-    (config?.files ?? []).map((file) => [file.path, []])
+    includeFilesWithoutFields
+      ? (config?.files ?? []).map((file) => [file.path, []])
+      : []
   );
   fields.forEach((field) => {
     const group = groups.get(field.path) ?? [];
@@ -655,6 +720,21 @@ const PI_STRUCTURED_CONFIGURATION_FIELDS = new Set([
   'pi_default_model',
   'pi_thinking_level',
 ]);
+
+function fieldSurfaceOf(
+  field: AgentNativeConfigFieldView
+): AgentNativeConfigSurface {
+  return field.surface ?? 'configuration';
+}
+
+function fieldsForSurface(
+  config: AgentNativeConfigView | null,
+  fieldSurface?: AgentNativeConfigSurface
+): AgentNativeConfigFieldView[] {
+  const fields = config?.fields ?? [];
+  if (!fieldSurface) return fields;
+  return fields.filter((field) => fieldSurfaceOf(field) === fieldSurface);
+}
 
 function filterVisibleFields(
   config: AgentNativeConfigView | null,

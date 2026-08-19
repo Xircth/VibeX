@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useBackendTransport } from '@/lib/transport';
 import { createWorkflowApi } from './workflowApi';
+import { workflowProgress } from './workflowProjection';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
 
@@ -56,10 +57,7 @@ export function WorkflowRunCard({ runId }: { runId: string }) {
       </div>
     );
   }
-  const completed = steps.filter((step) =>
-    ['completed', 'skipped'].includes(step.status)
-  ).length;
-  const progress = steps.length ? (completed / steps.length) * 100 : 0;
+  const progress = workflowProgress(steps);
 
   return (
     <Card className="mb-3 overflow-hidden border-border/80 bg-card/90 p-0 shadow-sm">
@@ -73,7 +71,7 @@ export function WorkflowRunCard({ runId }: { runId: string }) {
             <Badge variant="secondary">{t(`status.${run.status}`)}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t('progress', { done: completed, total: steps.length })}
+            {t('progress', { done: progress.done, total: progress.total })}
           </p>
         </div>
         <Link
@@ -84,7 +82,7 @@ export function WorkflowRunCard({ runId }: { runId: string }) {
           <ArrowUpRight className="h-3.5 w-3.5" />
         </Link>
       </div>
-      <Progress value={progress} className="h-1 rounded-none" />
+      <Progress value={progress.percent} className="h-1 rounded-none" />
     </Card>
   );
 }

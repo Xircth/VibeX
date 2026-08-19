@@ -251,7 +251,7 @@ export function WelcomePage() {
             <Logo
               showText={false}
               size="hero"
-              className="-ml-4 translate-y-2"
+              className="-ml-4 translate-y-[3px]"
             />
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">

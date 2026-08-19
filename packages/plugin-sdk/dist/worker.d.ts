@@ -16,6 +16,7 @@ export interface PluginWorkerEnvironment {
         error(message: string, fields?: JsonValue): void;
     };
 }
+export declare function normalizePluginContext(context: Partial<PluginContext> & Pick<PluginContext, "pluginId" | "pluginVersion" | "generation">): PluginContext;
 export type PluginHandler = (input: JsonValue, environment: PluginWorkerEnvironment) => JsonValue | Promise<JsonValue>;
 export interface PluginWorkerRegistrar {
     handle(id: string, handler: PluginHandler): void;

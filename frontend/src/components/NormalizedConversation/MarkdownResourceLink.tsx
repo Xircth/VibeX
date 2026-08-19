@@ -133,6 +133,110 @@ function looksLikeWorkspaceFilePath(value: string): boolean {
   );
 }
 
+const WORKSPACE_ROOT_SEGMENTS = new Set([
+  'src',
+  'lib',
+  'libs',
+  'app',
+  'apps',
+  'bin',
+  'cmd',
+  'pkg',
+  'web',
+  'www',
+  'api',
+  'ui',
+  'frontend',
+  'backend',
+  'server',
+  'client',
+  'crates',
+  'packages',
+  'package',
+  'docs',
+  'doc',
+  'test',
+  'tests',
+  'scripts',
+  'script',
+  'assets',
+  'public',
+  'static',
+  'config',
+  'configs',
+  'tools',
+  'tool',
+  'vendor',
+  'third_party',
+  'third-party',
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'include',
+  'internal',
+  'examples',
+  'example',
+  'fixtures',
+  'migrations',
+  'components',
+  'pages',
+  'hooks',
+  'utils',
+  'types',
+  'shared',
+  'desktop',
+  'mobile',
+  'contents',
+  'plugins',
+  'plugin',
+  'modules',
+  'services',
+  'features',
+  'stores',
+  'models',
+  'views',
+  'routes',
+  'helpers',
+  'constants',
+  'schemas',
+  'resources',
+  'images',
+  'icons',
+  'fonts',
+  'data',
+  'locales',
+  'i18n',
+  'styles',
+]);
+
+const GITHUB_OWNER_PATTERN =
+  /^(?=.{1,39}$)[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9]))*$/;
+const GITHUB_REPO_PATTERN = /^(?=.{1,100}$)[A-Za-z0-9._-]+$/;
+
+function looksLikeGithubRepoShorthand(value: string): boolean {
+  const candidate = trimFilePathCandidate(value).replace(/[\\/]+$/, '');
+  if (!candidate || candidate.includes('\\')) return false;
+  const segments = candidate.split('/');
+  if (segments.length !== 2) return false;
+  const [owner, repo] = segments;
+  if (!owner || !repo || repo === '.' || repo === '..') return false;
+  if (!GITHUB_OWNER_PATTERN.test(owner) || !GITHUB_REPO_PATTERN.test(repo)) {
+    return false;
+  }
+  if (WORKSPACE_ROOT_SEGMENTS.has(owner.toLowerCase())) return false;
+  if (WORKSPACE_ROOT_SEGMENTS.has(repo.toLowerCase())) return false;
+  return true;
+}
+
+export function githubRepoUrlFromShorthand(value: string): string | null {
+  const candidate = trimFilePathCandidate(value).replace(/[\\/]+$/, '');
+  return looksLikeGithubRepoShorthand(candidate)
+    ? `https://github.com/${candidate}`
+    : null;
+}
+
 function looksLikeWorkspaceDirectoryPath(value: string): boolean {
   const candidate = trimFilePathCandidate(value).replace(/[\\/]+$/, '');
   if (!candidate || candidate === '.' || candidate.startsWith('#')) {
@@ -146,8 +250,18 @@ function looksLikeWorkspaceDirectoryPath(value: string): boolean {
   }
   if (candidate.startsWith('/local-projects')) return false;
   if (looksLikeWorkspaceFilePath(candidate)) return false;
+  if (looksLikeGithubRepoShorthand(candidate)) return false;
   if (isAbsoluteLocalPath(candidate)) return true;
   return /[\\/]/.test(candidate);
+}
+
+function isExternalWebHref(href: string | undefined): boolean {
+  if (!href) return false;
+  const url = externalHttpUrl(href);
+  if (!url) return false;
+  if (isSameAppOriginUrl(url)) return false;
+  if (isInternalProjectRouteHref(href)) return false;
+  return true;
 }
 
 export function resolveMarkdownWorkspacePathTarget(
@@ -155,6 +269,8 @@ export function resolveMarkdownWorkspacePathTarget(
   childrenText: string,
   workspacePath?: string | null
 ): WorkspacePathTarget | null {
+  if (isExternalWebHref(href)) return null;
+
   const candidates = [
     childrenText,
     hrefToWorkspacePathCandidate(href, workspacePath) ?? '',
@@ -187,6 +303,24 @@ export function resolveMarkdownWorkspacePathTarget(
 
 export function isCleanDirectoryCandidate(text: string): boolean {
   return !/[\s*?<>|"']/.test(text);
+}
+
+export function resolveMarkdownInlineResource(
+  text: string,
+  workspacePath?: string | null
+): { href?: string; pathTarget?: WorkspacePathTarget } | null {
+  const pathTarget = resolveMarkdownWorkspacePathTarget(
+    undefined,
+    text,
+    workspacePath
+  );
+  if (pathTarget?.nodeType === 'file') return { pathTarget };
+  const githubHref = githubRepoUrlFromShorthand(text);
+  if (githubHref) return { href: githubHref };
+  if (pathTarget?.nodeType === 'folder' && isCleanDirectoryCandidate(text)) {
+    return { pathTarget };
+  }
+  return null;
 }
 
 function externalHttpUrl(href: string | undefined): URL | null {

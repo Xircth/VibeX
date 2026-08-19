@@ -23,12 +23,14 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
-    ApplicationDomainPort, ApplicationError, CancelWorkflowRequest, CompleteWorkflowStepRequest,
-    DecideWorkflowRequest, DomainCommand, NotificationProjector, Principal, PublishWorkflowRequest,
-    ResumeWorkflowRequest, StartWorkflowRequest, TerminalNotificationEvidence,
-    ValidateWorkflowRequest, WorkflowEventRecord, WorkflowExecutionPort, WorkflowRunView,
-    WorkflowStepView, WorkflowValidationView, WorkflowVersionView, domain::unavailable_domains,
-    workflow::UnavailableWorkflowExecution,
+    AcceptWorkflowCandidateRequest, ApplicationDomainPort, ApplicationError, CancelWorkflowRequest,
+    CompleteWorkflowStepRequest, DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand,
+    ForkWorkflowRequest, NotificationProjector, PauseWorkflowRequest, PauseWorkflowStepRequest,
+    Principal, PublishWorkflowRequest, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
+    StartWorkflowRequest, SubmitWorkflowStepInputRequest, TerminalNotificationEvidence,
+    ValidateWorkflowRequest, WorkflowDefinitionSummary, WorkflowEventRecord, WorkflowExecutionPort,
+    WorkflowRunView, WorkflowStepView, WorkflowValidationView, WorkflowVersionView,
+    domain::unavailable_domains, workflow::UnavailableWorkflowExecution,
 };
 
 const READ_CONVERSATIONS_SCOPE: &str = "conversation.read";
@@ -41,6 +43,14 @@ const STEER_CONVERSATION_SCOPE: &str = "conversation.steer";
 const OFFLINE_READ_SCOPE: &str = "offline.read";
 const NOTIFICATION_SUMMARY_SCOPE: &str = "notification.summary";
 const MAX_OFFLINE_EVENTS: i64 = 10_000;
+
+fn require_workflow_run(principal: &Principal) -> Result<(), ApplicationError> {
+    if principal.allows("workflow.run") {
+        Ok(())
+    } else {
+        Err(ApplicationError::forbidden("principal lacks workflow.run"))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ListConversations {
@@ -81,15 +91,10 @@ pub struct StartConversationTurn {
     pub images: Vec<String>,
     pub mode_override: Option<String>,
     pub config_overrides: Vec<serde_json::Value>,
+    #[serde(default, alias = "pluginActions")]
+    pub workflow_refs: Vec<crate::ConversationWorkflowRef>,
     #[serde(default)]
-    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationPluginActionInvocation {
-    pub plugin_id: String,
-    pub action_id: String,
+    pub operation_id: Option<uuid::Uuid>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
@@ -474,6 +479,12 @@ impl ConversationRepository for SqliteConversationRepository {
             }
             conversations::ConversationServiceError::Internal(message) => {
                 ApplicationError::internal(message)
+            }
+            conversations::ConversationServiceError::AuthenticationRequired(message) => {
+                ApplicationError::bad_request(message)
+            }
+            conversations::ConversationServiceError::SessionUnavailable { message, .. } => {
+                ApplicationError::bad_request(message)
             }
         })?;
         DbConversationSummary::find_by_id(&self.pool, conversation_id)
@@ -872,6 +883,20 @@ where
         self.workflows.start(principal, operation_id, request).await
     }
 
+    pub async fn debug_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: DebugWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        if !principal.allows("workflow.write") || !principal.allows("workflow.run") {
+            return Err(ApplicationError::forbidden(
+                "principal lacks workflow.write or workflow.run",
+            ));
+        }
+        self.workflows.debug(principal, operation_id, request).await
+    }
+
     pub async fn show_workflow(
         &self,
         principal: &Principal,
@@ -905,6 +930,29 @@ where
         self.workflows.version(version_id).await
     }
 
+    pub async fn workflow_definitions(
+        &self,
+        principal: &Principal,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.definitions(limit).await
+    }
+
+    pub async fn workflow_versions(
+        &self,
+        principal: &Principal,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        self.workflows.versions(definition_id, limit).await
+    }
+
     pub async fn workflow_events(
         &self,
         principal: &Principal,
@@ -916,6 +964,58 @@ where
             return Err(ApplicationError::forbidden("principal lacks workflow.read"));
         }
         self.workflows.events(run_id, after_sequence, limit).await
+    }
+
+    pub async fn attach_workflow_run(
+        &self,
+        principal: &Principal,
+        subscription_id: SubscriptionId,
+        run_id: Uuid,
+        after_sequence: i64,
+    ) -> Result<SubscriptionBootstrap, ApplicationError> {
+        if !principal.allows("workflow.read") {
+            return Err(ApplicationError::forbidden("principal lacks workflow.read"));
+        }
+        let run = self.workflows.show(run_id).await?;
+        if after_sequence == 0 {
+            let steps = self.workflows.steps(run_id).await?;
+            return Ok(SubscriptionBootstrap {
+                subscription_id,
+                ready: true,
+                snapshot: Some(SubscriptionSnapshot {
+                    through_sequence: run.last_sequence,
+                    payload: serde_json::json!({"run": run, "steps": steps}),
+                }),
+                replay: Vec::new(),
+                high_water_mark: run.last_sequence,
+            });
+        }
+        let records = self
+            .workflows
+            .events(run_id, after_sequence, 10_000)
+            .await?;
+        let replay = records
+            .into_iter()
+            .filter(|event| event.sequence <= run.last_sequence)
+            .map(|event| RemoteEvent {
+                sequence: event.sequence,
+                kind: event.event_kind,
+                payload: serde_json::from_str(&event.payload_json)
+                    .unwrap_or_else(|_| serde_json::json!({"unparsed": event.payload_json})),
+            })
+            .collect::<Vec<_>>();
+        let high_water_mark = replay
+            .last()
+            .map(|event| event.sequence)
+            .unwrap_or(after_sequence)
+            .min(run.last_sequence);
+        Ok(SubscriptionBootstrap {
+            subscription_id,
+            ready: true,
+            snapshot: None,
+            replay,
+            high_water_mark,
+        })
     }
 
     pub async fn complete_workflow_step(
@@ -970,6 +1070,75 @@ where
         }
         self.workflows
             .resume(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn pause_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: PauseWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .pause_run(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn resume_paused_workflow(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ResumePausedWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .resume_paused_run(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn accept_workflow_candidate(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: AcceptWorkflowCandidateRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .accept_candidate(principal, operation_id, request)
+            .await
+    }
+
+    pub async fn pause_workflow_step(
+        &self,
+        principal: &Principal,
+        request: PauseWorkflowStepRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows.pause_step(request).await
+    }
+
+    pub async fn submit_workflow_step_input(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: SubmitWorkflowStepInputRequest,
+    ) -> Result<WorkflowStepView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .submit_step_input(operation_id, request)
+            .await
+    }
+
+    pub async fn fork_workflow_from_step(
+        &self,
+        principal: &Principal,
+        operation_id: Uuid,
+        request: ForkWorkflowRequest,
+    ) -> Result<WorkflowRunView, ApplicationError> {
+        require_workflow_run(principal)?;
+        self.workflows
+            .fork_from_step(principal, operation_id, request)
             .await
     }
 
@@ -1031,13 +1200,15 @@ where
     pub async fn start_conversation_turn(
         &self,
         principal: &Principal,
-        request: StartConversationTurn,
+        operation_id: Uuid,
+        mut request: StartConversationTurn,
     ) -> Result<ConversationTurnSnapshot, ApplicationError> {
         if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
             return Err(ApplicationError::forbidden(
                 "principal lacks conversation.write",
             ));
         }
+        request.operation_id = Some(operation_id);
         self.execution.start_turn(request).await
     }
 

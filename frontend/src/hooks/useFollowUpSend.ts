@@ -13,6 +13,7 @@ import {
   isSessionScopedSlashCommand,
 } from '@/utils/promptMessage';
 import {
+  getSessionComposerFileRefs,
   getSessionComposerPluginActionInvocations,
   serializeSessionComposerBackendMessage,
 } from '@/components/tasks/follow-up/sessionComposerStructuredTokens';
@@ -69,12 +70,11 @@ export function useFollowUpSend({
   const queryClient = useQueryClient();
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
-  // Synchronous re-entrancy guard. The submit shortcut reaches this callback
-  // through both the global keyboard hook and the editor's `onSubmit`, and the
-  // new-session path awaits a `sessionsApi.create` round-trip — without a
-  // synchronous (ref, not state) guard a single Enter can invoke this twice and
-  // start two turns, producing two responses for one user message.
+  // React state does not close the acceptance boundary synchronously. Keep the
+  // boundary in a ref so rapid clicks or re-entrant callbacks cannot create two
+  // durable inputs while session creation or submission is still pending.
   const isSendingRef = useRef(false);
+  const operationIdRef = useRef<string | null>(null);
 
   const sendFollowUp = useCallback(
     async (submittedMessage?: string) => {
@@ -87,6 +87,7 @@ export function useFollowUpSend({
         serializeSessionComposerBackendMessage(acceptedMessage).trim();
       const pluginActions =
         getSessionComposerPluginActionInvocations(acceptedMessage);
+      const fileRefs = getSessionComposerFileRefs(acceptedMessage);
       const { prompt, isSlashCommand } = buildAgentPrompt(backendMessage, [
         conflictMarkdown,
         reviewMarkdown?.trim(),
@@ -99,6 +100,8 @@ export function useFollowUpSend({
       if (!prompt && images.length === 0) return;
 
       isSendingRef.current = true;
+      operationIdRef.current ??= crypto.randomUUID();
+      const operationId = operationIdRef.current;
       let turnAccepted = false;
       try {
         onBeforeSend?.();
@@ -169,9 +172,15 @@ export function useFollowUpSend({
             images,
             modeOverride,
             configOverrides,
-            pluginActions,
+            workflowRefs: pluginActions.map((action) => ({
+              pluginId: action.pluginId,
+              workflowId: action.actionId,
+            })),
+            fileRefs,
+            operationId,
           });
           turnAccepted = true;
+          operationIdRef.current = null;
         } catch (error) {
           publishOptimisticConversationTurn({
             type: 'remove',

@@ -1,11 +1,15 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    WorkflowDefinition, WorkflowPolicy, WorkflowRunView, WorkflowStepSpec, WorkflowStore,
-    WorkflowVersionView, normalize_definition, spec::MAX_WORKFLOW_INPUT_BYTES,
-    store::PersistWorkflowRun, validate_json_value,
+    DebugRunScope, WorkflowDefinition, WorkflowDefinitionSummary, WorkflowPolicy, WorkflowRunView,
+    WorkflowStepSpec, WorkflowStore, WorkflowVersionView, normalize_definition,
+    spec::MAX_WORKFLOW_INPUT_BYTES,
+    store::{PersistDerivedWorkflowRun, PersistWorkflowRun},
+    validate_json_value,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +32,7 @@ pub enum WorkflowError {
 pub struct PublishWorkflow {
     pub definition_id: Option<Uuid>,
     pub definition: WorkflowDefinition,
+    pub source_path: Option<String>,
     pub operation_id: Uuid,
     pub principal: serde_json::Value,
 }
@@ -46,6 +51,7 @@ pub struct StartWorkflow {
     pub workspace_id: Uuid,
     pub input: serde_json::Value,
     pub policy_override: Option<WorkflowPolicy>,
+    pub debug_step_id: Option<String>,
     pub operation_id: Uuid,
     pub principal: serde_json::Value,
 }
@@ -55,6 +61,46 @@ pub struct CompleteWorkflowStep {
     pub run_id: Uuid,
     pub step_id: String,
     pub output: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StageWorkflowStepCandidate {
+    pub run_id: Uuid,
+    pub step_id: String,
+    pub output: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AcceptWorkflowStepCandidate {
+    pub run_id: Uuid,
+    pub step_id: String,
+    pub operation_id: Uuid,
+    pub principal: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct PauseWorkflowRun {
+    pub run_id: Uuid,
+    pub reason: Option<String>,
+    pub operation_id: Uuid,
+    pub principal: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResumePausedWorkflowRun {
+    pub run_id: Uuid,
+    pub operation_id: Uuid,
+    pub principal: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct ForkWorkflowRun {
+    pub parent_run_id: Uuid,
+    pub definition_version_id: Uuid,
+    pub step_id: String,
+    pub scope: DebugRunScope,
+    pub operation_id: Uuid,
+    pub principal: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +139,37 @@ pub struct ReviewWorkflow {
     pub principal: serde_json::Value,
 }
 
+fn debug_execution_steps(
+    definition: &WorkflowDefinition,
+    target_step_id: &str,
+) -> Result<BTreeSet<String>, WorkflowError> {
+    let target = definition
+        .steps
+        .iter()
+        .find(|step| step.id == target_step_id)
+        .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {target_step_id}")))?;
+    if !matches!(target.spec, WorkflowStepSpec::Agent(_)) {
+        return Err(WorkflowError::Conflict(
+            "debug Runs can only start from an Agent step".to_string(),
+        ));
+    }
+
+    let mut execute = BTreeSet::from([target_step_id.to_string()]);
+    let mut pending = target.depends_on.clone();
+    while let Some(step_id) = pending.pop() {
+        if !execute.insert(step_id.clone()) {
+            continue;
+        }
+        let step = definition
+            .steps
+            .iter()
+            .find(|step| step.id == step_id)
+            .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {step_id}")))?;
+        pending.extend(step.depends_on.iter().cloned());
+    }
+    Ok(execute)
+}
+
 #[derive(Clone)]
 pub struct WorkflowCore {
     store: WorkflowStore,
@@ -117,16 +194,56 @@ impl WorkflowCore {
         input: PublishWorkflow,
     ) -> Result<WorkflowVersionView, WorkflowError> {
         let definition = normalize_definition(input.definition)?;
+        if let Some(source_path) = input.source_path.as_deref() {
+            validate_source_path(source_path)?;
+        }
         let digest = digest_json(&definition)?;
         self.store
             .publish(
                 input.definition_id,
                 &definition,
                 &digest,
+                input.source_path.as_deref(),
                 input.operation_id,
                 &serde_json::to_string(&input.principal)?,
             )
             .await
+    }
+
+    pub async fn materialize_debug(
+        &self,
+        input: PublishWorkflow,
+    ) -> Result<WorkflowVersionView, WorkflowError> {
+        let definition = normalize_definition(input.definition)?;
+        if let Some(source_path) = input.source_path.as_deref() {
+            validate_source_path(source_path)?;
+        }
+        let digest = digest_json(&definition)?;
+        self.store
+            .materialize_debug(
+                input.definition_id,
+                &definition,
+                &digest,
+                input.source_path.as_deref(),
+                input.operation_id,
+                &serde_json::to_string(&input.principal)?,
+            )
+            .await
+    }
+
+    pub async fn definitions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<WorkflowDefinitionSummary>, WorkflowError> {
+        self.store.definitions(limit).await
+    }
+
+    pub async fn versions(
+        &self,
+        definition_id: Uuid,
+        limit: u32,
+    ) -> Result<Vec<WorkflowVersionView>, WorkflowError> {
+        self.store.versions(definition_id, limit).await
     }
 
     pub async fn start(&self, input: StartWorkflow) -> Result<WorkflowRunView, WorkflowError> {
@@ -137,15 +254,18 @@ impl WorkflowCore {
                 "workflow input exceeds {MAX_WORKFLOW_INPUT_BYTES} bytes"
             )));
         }
-        if let Some(schema) = &definition.input_schema {
-            validate_json_value(schema, &input.input)?;
-        }
-        let policy = input.policy_override.unwrap_or(definition.policy);
+        let policy = input.policy_override.unwrap_or(definition.policy.clone());
+        let debug_execution_steps = input
+            .debug_step_id
+            .as_deref()
+            .map(|step_id| debug_execution_steps(&definition, step_id))
+            .transpose()?;
         let payload_digest = digest_json(&serde_json::json!({
             "definitionVersionId": input.definition_version_id,
             "workspaceId": input.workspace_id,
             "input": &input.input,
             "policy": &policy,
+            "debugStepId": &input.debug_step_id,
         }))?;
         let principal_json = serde_json::to_string(&input.principal)?;
         self.store
@@ -158,6 +278,8 @@ impl WorkflowCore {
                     operation_id: input.operation_id,
                     payload_digest: &payload_digest,
                     principal_json: &principal_json,
+                    debug_step_id: input.debug_step_id.as_deref(),
+                    debug_execution_steps: debug_execution_steps.as_ref(),
                 },
             )
             .await
@@ -178,17 +300,16 @@ impl WorkflowCore {
             .iter()
             .find(|step| step.id == input.step_id)
             .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {}", input.step_id)))?;
-        let schema = match &step.spec {
-            WorkflowStepSpec::Agent(agent) => agent.output_schema.as_ref(),
-            WorkflowStepSpec::Approval(_) => {
+        let agent = match &step.spec {
+            WorkflowStepSpec::Agent(agent) => agent,
+            WorkflowStepSpec::Approval(_) | WorkflowStepSpec::Notify(_) => {
                 return Err(WorkflowError::Conflict(
-                    "approval steps complete through decide".to_string(),
+                    "only agent steps complete through this path".to_string(),
                 ));
             }
         };
-        let (output, schema_digest) = match (schema, input.output.as_ref()) {
-            (Some(schema), Some(output)) => {
-                validate_json_value(schema, output)?;
+        let (output, schema_digest) = match input.output.as_ref() {
+            Some(output) => {
                 let bytes = serde_json::to_vec(output)?;
                 let policy: WorkflowPolicy = serde_json::from_str(&run.policy_json)?;
                 if bytes.len() > policy.max_output_bytes {
@@ -197,19 +318,15 @@ impl WorkflowCore {
                         policy.max_output_bytes
                     )));
                 }
-                (Some(output), Some(digest_json(schema)?))
+                let digest = agent
+                    .output_schema
+                    .as_ref()
+                    .map(digest_json)
+                    .transpose()?
+                    .unwrap_or_else(|| "raw-text:v1".to_string());
+                (Some(output), Some(digest))
             }
-            (Some(_), None) => {
-                return Err(WorkflowError::Validation(
-                    "step requires structured output".to_string(),
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(WorkflowError::Validation(
-                    "step has no output schema".to_string(),
-                ));
-            }
-            (None, None) => (None, None),
+            None => (None, None),
         };
         self.store
             .complete_step(
@@ -217,6 +334,212 @@ impl WorkflowCore {
                 &input.step_id,
                 output,
                 schema_digest.as_deref(),
+            )
+            .await
+    }
+
+    pub async fn stage_step_candidate(
+        &self,
+        input: StageWorkflowStepCandidate,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let run = self.store.run(input.run_id).await?;
+        let definition = self
+            .store
+            .version(run.definition_version_id)
+            .await?
+            .definition()?;
+        let step = definition
+            .steps
+            .iter()
+            .find(|step| step.id == input.step_id)
+            .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {}", input.step_id)))?;
+        let WorkflowStepSpec::Agent(agent) = &step.spec else {
+            return Err(WorkflowError::Conflict(
+                "only agent steps produce candidate outputs".to_string(),
+            ));
+        };
+        let schema_digest = validate_agent_output(&run, agent, input.output.as_ref())?;
+        self.store
+            .stage_step_candidate(
+                input.run_id,
+                &input.step_id,
+                input.output.as_ref(),
+                schema_digest.as_deref(),
+            )
+            .await
+    }
+
+    pub async fn accept_step_candidate(
+        &self,
+        input: AcceptWorkflowStepCandidate,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let payload_digest = digest_json(&serde_json::json!({
+            "runId": input.run_id,
+            "stepId": &input.step_id,
+            "action": "accept_candidate",
+        }))?;
+        self.store
+            .accept_step_candidate(
+                input.run_id,
+                &input.step_id,
+                input.operation_id,
+                &payload_digest,
+                &serde_json::to_string(&input.principal)?,
+            )
+            .await
+    }
+
+    pub async fn request_pause(
+        &self,
+        input: PauseWorkflowRun,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let payload_digest = digest_json(&serde_json::json!({
+            "runId": input.run_id,
+            "reason": &input.reason,
+            "action": "pause",
+        }))?;
+        self.store
+            .request_pause(
+                input.run_id,
+                input.operation_id,
+                input.reason.as_deref(),
+                &payload_digest,
+                &serde_json::to_string(&input.principal)?,
+            )
+            .await
+    }
+
+    pub async fn mark_paused(&self, run_id: Uuid) -> Result<WorkflowRunView, WorkflowError> {
+        self.store.mark_paused(run_id).await
+    }
+
+    pub async fn resume_paused(
+        &self,
+        input: ResumePausedWorkflowRun,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let payload_digest = digest_json(&serde_json::json!({
+            "runId": input.run_id,
+            "action": "resume",
+        }))?;
+        self.store
+            .resume_paused_run(
+                input.run_id,
+                input.operation_id,
+                &payload_digest,
+                &serde_json::to_string(&input.principal)?,
+            )
+            .await
+    }
+
+    pub async fn fork_from_step(
+        &self,
+        input: ForkWorkflowRun,
+    ) -> Result<WorkflowRunView, WorkflowError> {
+        let parent = self.store.run(input.parent_run_id).await?;
+        let parent_version = self.store.version(parent.definition_version_id).await?;
+        let parent_definition = parent_version.definition()?;
+        let version = self.store.version(input.definition_version_id).await?;
+        let definition = version.definition()?;
+        let target = definition
+            .steps
+            .iter()
+            .find(|step| step.id == input.step_id)
+            .ok_or_else(|| WorkflowError::NotFound(format!("workflow step {}", input.step_id)))?;
+        if !matches!(target.spec, WorkflowStepSpec::Agent(_)) {
+            return Err(WorkflowError::Conflict(
+                "debug Runs can only start from an Agent step".to_string(),
+            ));
+        }
+        let mut execute = BTreeSet::from([input.step_id.clone()]);
+        if input.scope == DebugRunScope::Downstream {
+            loop {
+                let previous = execute.len();
+                for step in &definition.steps {
+                    if step
+                        .depends_on
+                        .iter()
+                        .any(|dependency| execute.contains(dependency))
+                    {
+                        execute.insert(step.id.clone());
+                    }
+                }
+                if execute.len() == previous {
+                    break;
+                }
+            }
+        }
+        let mut required_ancestors = BTreeSet::new();
+        let mut pending = execute
+            .iter()
+            .filter_map(|id| definition.steps.iter().find(|step| &step.id == id))
+            .flat_map(|step| step.depends_on.iter().cloned())
+            .collect::<Vec<_>>();
+        while let Some(step_id) = pending.pop() {
+            if execute.contains(&step_id) || !required_ancestors.insert(step_id.clone()) {
+                continue;
+            }
+            if let Some(step) = definition.steps.iter().find(|step| step.id == step_id) {
+                pending.extend(step.depends_on.iter().cloned());
+            }
+        }
+        let parent_steps = self.store.steps(parent.id).await?;
+        let mut execution_modes = BTreeMap::new();
+        for step in &definition.steps {
+            if execute.contains(&step.id) {
+                execution_modes.insert(step.id.clone(), "execute");
+                continue;
+            }
+            if required_ancestors.contains(&step.id) {
+                let old_step = parent_definition
+                    .steps
+                    .iter()
+                    .find(|old| old.id == step.id)
+                    .ok_or_else(|| {
+                        WorkflowError::Conflict(format!(
+                            "required ancestor `{}` does not exist in the parent definition",
+                            step.id
+                        ))
+                    })?;
+                if old_step != step {
+                    return Err(WorkflowError::Conflict(format!(
+                        "required ancestor `{}` changed and cannot be reused",
+                        step.id
+                    )));
+                }
+                let completed = parent_steps
+                    .iter()
+                    .filter(|run| run.step_id == step.id)
+                    .max_by_key(|run| run.attempt)
+                    .is_some_and(|run| run.status == "completed");
+                if !completed {
+                    return Err(WorkflowError::Conflict(format!(
+                        "required ancestor `{}` has no completed parent result",
+                        step.id
+                    )));
+                }
+                execution_modes.insert(step.id.clone(), "reuse");
+            } else {
+                execution_modes.insert(step.id.clone(), "exclude");
+            }
+        }
+        let payload_digest = digest_json(&serde_json::json!({
+            "parentRunId": input.parent_run_id,
+            "definitionVersionId": input.definition_version_id,
+            "stepId": &input.step_id,
+            "scope": input.scope,
+        }))?;
+        self.store
+            .start_derived(
+                &version,
+                PersistDerivedWorkflowRun {
+                    parent: &parent,
+                    fork_step_id: &input.step_id,
+                    scope: input.scope,
+                    execution_modes: &execution_modes,
+                    operation_id: input.operation_id,
+                    payload_digest: &payload_digest,
+                    principal_json: &serde_json::to_string(&input.principal)?,
+                },
             )
             .await
     }
@@ -323,9 +646,8 @@ impl WorkflowCore {
                         "only agent steps can accept review evidence".to_string(),
                     ));
                 };
-                let schema_digest = match (&agent.output_schema, output) {
-                    (Some(schema), Some(output)) => {
-                        validate_json_value(schema, output)?;
+                let schema_digest = match output {
+                    Some(output) => {
                         let bytes = serde_json::to_vec(output)?;
                         let policy: WorkflowPolicy = serde_json::from_str(&run.policy_json)?;
                         if bytes.len() > policy.max_output_bytes {
@@ -334,19 +656,16 @@ impl WorkflowCore {
                                 policy.max_output_bytes
                             )));
                         }
-                        Some(digest_json(schema)?)
+                        Some(
+                            agent
+                                .output_schema
+                                .as_ref()
+                                .map(digest_json)
+                                .transpose()?
+                                .unwrap_or_else(|| "raw-text:v1".to_string()),
+                        )
                     }
-                    (Some(_), None) => {
-                        return Err(WorkflowError::Validation(
-                            "accepted review evidence requires structured output".to_string(),
-                        ));
-                    }
-                    (None, Some(_)) => {
-                        return Err(WorkflowError::Validation(
-                            "step has no output schema".to_string(),
-                        ));
-                    }
-                    (None, None) => None,
+                    None => None,
                 };
                 self.store
                     .accept_review_step(
@@ -401,6 +720,50 @@ impl WorkflowCore {
     }
 }
 
+fn validate_source_path(source_path: &str) -> Result<(), WorkflowError> {
+    let path = std::path::Path::new(source_path);
+    if source_path.trim().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+        || !source_path.ends_with(".vibex-workflow.json")
+    {
+        return Err(WorkflowError::Validation(
+            "sourcePath must be a relative *.vibex-workflow.json path".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_agent_output(
+    run: &WorkflowRunView,
+    agent: &crate::AgentStepSpec,
+    output: Option<&serde_json::Value>,
+) -> Result<Option<String>, WorkflowError> {
+    match output {
+        Some(output) => {
+            let bytes = serde_json::to_vec(output)?;
+            let policy: WorkflowPolicy = serde_json::from_str(&run.policy_json)?;
+            if bytes.len() > policy.max_output_bytes {
+                return Err(WorkflowError::Validation(format!(
+                    "step output exceeds {} bytes",
+                    policy.max_output_bytes
+                )));
+            }
+            Ok(Some(
+                agent
+                    .output_schema
+                    .as_ref()
+                    .map(digest_json)
+                    .transpose()?
+                    .unwrap_or_else(|| "raw-text:v1".to_string()),
+            ))
+        }
+        None => Ok(None),
+    }
+}
+
 fn digest_json(value: &impl serde::Serialize) -> Result<String, WorkflowError> {
     let bytes = serde_json::to_vec(value)?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
@@ -415,7 +778,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        AgentStepSpec, ApprovalStepSpec, SideEffectClass, WorkflowStep, WorkspaceAccess,
+        AgentStepSpec, ApprovalStepSpec, CompletionPolicy, SideEffectClass, WorkflowStep,
+        WorkspaceAccess,
         store::{WorkflowRunStatus, WorkflowStepStatus},
     };
 
@@ -482,11 +846,17 @@ mod tests {
             spec: WorkflowStepSpec::Agent(AgentStepSpec {
                 agent_id: "codex".to_string(),
                 prompt: format!("run {id}"),
+                executor_profile_id: None,
+                mode_override: None,
+                config_overrides: BTreeMap::new(),
+                output_language: None,
+                output_description: None,
                 output_schema: None,
                 workspace_access: WorkspaceAccess::ReadOnlyShared,
                 side_effect_class: SideEffectClass::ReadOnly,
                 allow_one_repair: false,
                 allow_skip_on_review: false,
+                completion_policy: CompletionPolicy::Automatic,
             }),
         };
         WorkflowDefinition {
@@ -530,6 +900,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition: definition(),
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -541,6 +912,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -551,12 +923,544 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn source_path_is_the_reusable_definition_identity() {
+        let (core, _) = setup().await;
+        let source_path = "flows/repository-review.vibex-workflow.json";
+        let first = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: definition(),
+                source_path: Some(source_path.to_owned()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let mut changed = definition();
+        changed.description = Some("second revision".to_owned());
+        let second = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: changed,
+                source_path: Some(source_path.to_owned()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(second.definition_id, first.definition_id);
+        assert_eq!(second.version, first.version + 1);
+    }
+
+    #[tokio::test]
+    async fn debug_snapshot_stays_out_of_published_history_until_publish() {
+        let (core, _) = setup().await;
+        let source_path = "flows/debug-only.vibex-workflow.json";
+        let debug = core
+            .materialize_debug(PublishWorkflow {
+                definition_id: None,
+                definition: definition(),
+                source_path: Some(source_path.to_owned()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+
+        assert!(debug.version < 0);
+        assert!(core.definitions(100).await.unwrap().is_empty());
+        assert!(
+            core.versions(debug.definition_id, 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let published = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: definition(),
+                source_path: Some(source_path.to_owned()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(published.id, debug.id);
+        assert_eq!(published.version, 1);
+        assert_eq!(core.definitions(100).await.unwrap().len(), 1);
+        let versions = core.versions(debug.definition_id, 100).await.unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].id, published.id);
+    }
+
+    #[tokio::test]
+    async fn manual_agent_output_waits_for_acceptance_before_unlocking_downstream() {
+        let (core, store) = setup().await;
+        let mut workflow = definition();
+        workflow.steps = vec![
+            WorkflowStep {
+                id: "draft".to_string(),
+                depends_on: Vec::new(),
+                phase: None,
+                input_bindings: BTreeMap::new(),
+                spec: WorkflowStepSpec::Agent(AgentStepSpec {
+                    agent_id: "codex".to_string(),
+                    prompt: "draft".to_string(),
+                    executor_profile_id: None,
+                    mode_override: None,
+                    config_overrides: BTreeMap::new(),
+                    output_language: None,
+                    output_description: None,
+                    output_schema: Some(serde_json::json!({
+                        "type": "object",
+                        "required": ["summary"],
+                        "properties": {"summary": {"type": "string"}},
+                        "additionalProperties": false
+                    })),
+                    workspace_access: WorkspaceAccess::ReadOnlyShared,
+                    side_effect_class: SideEffectClass::ReadOnly,
+                    allow_one_repair: false,
+                    allow_skip_on_review: false,
+                    completion_policy: CompletionPolicy::Manual,
+                }),
+            },
+            WorkflowStep {
+                id: "publish".to_string(),
+                depends_on: vec!["draft".to_string()],
+                phase: None,
+                input_bindings: BTreeMap::new(),
+                spec: WorkflowStepSpec::Agent(AgentStepSpec {
+                    agent_id: "codex".to_string(),
+                    prompt: "publish".to_string(),
+                    executor_profile_id: None,
+                    mode_override: None,
+                    config_overrides: BTreeMap::new(),
+                    output_language: None,
+                    output_description: None,
+                    output_schema: None,
+                    workspace_access: WorkspaceAccess::ReadOnlyShared,
+                    side_effect_class: SideEffectClass::ReadOnly,
+                    allow_one_repair: false,
+                    allow_skip_on_review: false,
+                    completion_policy: CompletionPolicy::Automatic,
+                }),
+            },
+        ];
+        let version = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: workflow,
+                source_path: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let run = core
+            .start(StartWorkflow {
+                definition_version_id: version.id,
+                workspace_id: Uuid::new_v4(),
+                input: serde_json::json!({"repo": "vibex"}),
+                policy_override: None,
+                debug_step_id: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        store.enable_dispatch(run.id).await.unwrap();
+        let claim = store
+            .claim_ready(1, chrono::Duration::seconds(30))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claim.step.step_id, "draft");
+        store
+            .mark_started(run.id, "draft", claim.claim_token, None, None)
+            .await
+            .unwrap();
+
+        let waiting = core
+            .stage_step_candidate(StageWorkflowStepCandidate {
+                run_id: run.id,
+                step_id: "draft".to_string(),
+                // The schema is an Agent-facing example, not a runtime gate.
+                // Persist and forward the final Assistant text even when it is
+                // not JSON and does not resemble the example.
+                output: Some(serde_json::Value::String(
+                    "plain-text result that violates the example".to_string(),
+                )),
+            })
+            .await
+            .unwrap();
+        assert_eq!(waiting.status, "waiting");
+        let steps = store.steps(run.id).await.unwrap();
+        assert!(
+            steps
+                .iter()
+                .find(|step| step.step_id == "draft")
+                .unwrap()
+                .awaiting_acceptance
+        );
+        assert_eq!(
+            steps
+                .iter()
+                .find(|step| step.step_id == "publish")
+                .unwrap()
+                .status,
+            "pending"
+        );
+
+        core.accept_step_candidate(AcceptWorkflowStepCandidate {
+            run_id: run.id,
+            step_id: "draft".to_string(),
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+        let steps = store.steps(run.id).await.unwrap();
+        let draft = steps.iter().find(|step| step.step_id == "draft").unwrap();
+        assert_eq!(draft.status, "completed");
+        assert_eq!(
+            draft.output_json.as_deref(),
+            Some("\"plain-text result that violates the example\"")
+        );
+        assert_eq!(
+            steps
+                .iter()
+                .find(|step| step.step_id == "publish")
+                .unwrap()
+                .status,
+            "ready"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_intervened_automatic_step_can_stage_a_candidate_for_confirmation() {
+        let (core, store) = setup().await;
+        let (_, run) = publish_and_start(&core).await;
+        let claim = store
+            .claim_ready(1, chrono::Duration::seconds(30))
+            .await
+            .unwrap()
+            .unwrap();
+        store
+            .mark_started(run.id, &claim.step.step_id, claim.claim_token, None, None)
+            .await
+            .unwrap();
+
+        let waiting = core
+            .stage_step_candidate(StageWorkflowStepCandidate {
+                run_id: run.id,
+                step_id: claim.step.step_id.clone(),
+                output: Some(serde_json::Value::String("reviewed result".to_owned())),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(waiting.status, "waiting");
+        let step = store
+            .steps(run.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|step| step.step_id == claim.step.step_id)
+            .unwrap();
+        assert!(step.awaiting_acceptance);
+        assert_eq!(
+            step.candidate_output_json.as_deref(),
+            Some("\"reviewed result\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn paused_run_stops_claims_and_resumes_without_losing_ready_steps() {
+        let (core, store) = setup().await;
+        let (_, run) = publish_and_start(&core).await;
+
+        let pausing = core
+            .request_pause(PauseWorkflowRun {
+                run_id: run.id,
+                reason: Some("inspect build output".to_string()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(pausing.control_state, "pausing");
+        assert!(
+            store
+                .claim_ready(4, chrono::Duration::seconds(30))
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let paused = core.mark_paused(run.id).await.unwrap();
+        assert_eq!(paused.control_state, "paused");
+        core.resume_paused(ResumePausedWorkflowRun {
+            run_id: run.id,
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+        assert!(
+            store
+                .claim_ready(4, chrono::Duration::seconds(30))
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn initial_node_debug_executes_ancestors_and_excludes_the_rest() {
+        let (core, store) = setup().await;
+        let mut scoped = definition();
+        scoped.steps = vec![
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "a".to_string();
+                step.depends_on.clear();
+                step
+            },
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "b".to_string();
+                step.depends_on = vec!["a".to_string()];
+                step
+            },
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "c".to_string();
+                step.depends_on = vec!["b".to_string()];
+                step
+            },
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "unrelated".to_string();
+                step.depends_on.clear();
+                step
+            },
+        ];
+        let version = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: scoped,
+                source_path: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let run = core
+            .start(StartWorkflow {
+                definition_version_id: version.id,
+                workspace_id: Uuid::new_v4(),
+                input: serde_json::json!({}),
+                policy_override: None,
+                debug_step_id: Some("b".to_string()),
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let steps = store.steps(run.id).await.unwrap();
+        let status = |step_id: &str| {
+            steps
+                .iter()
+                .find(|step| step.step_id == step_id)
+                .unwrap()
+                .status
+                .as_str()
+        };
+        assert_eq!(status("a"), "ready");
+        assert_eq!(status("b"), "pending");
+        assert_eq!(status("c"), "skipped");
+        assert_eq!(status("unrelated"), "skipped");
+        assert_eq!(run.run_mode, "debug_node");
+        assert_eq!(run.fork_step_id.as_deref(), Some("b"));
+        assert!(run.parent_run_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn fork_from_step_reuses_unchanged_ancestors_and_resets_transitive_downstream() {
+        let (core, store) = setup().await;
+        let mut original = definition();
+        original.steps = vec![
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "a".to_string();
+                step.depends_on.clear();
+                step
+            },
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "b".to_string();
+                step.depends_on = vec!["a".to_string()];
+                step
+            },
+            {
+                let mut step = definition().steps.remove(0);
+                step.id = "c".to_string();
+                step.depends_on = vec!["b".to_string()];
+                step
+            },
+        ];
+        let original_version = core
+            .publish(PublishWorkflow {
+                definition_id: None,
+                definition: original.clone(),
+                source_path: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let parent = core
+            .start(StartWorkflow {
+                definition_version_id: original_version.id,
+                workspace_id: Uuid::new_v4(),
+                input: serde_json::json!({"repo": "vibex"}),
+                policy_override: None,
+                debug_step_id: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        store.enable_dispatch(parent.id).await.unwrap();
+        let claim = store
+            .claim_ready(1, chrono::Duration::seconds(30))
+            .await
+            .unwrap()
+            .unwrap();
+        let original_definition = original_version.definition().unwrap();
+        let original_a = original_definition
+            .steps
+            .iter()
+            .find(|step| step.id == "a")
+            .unwrap();
+        let resolved = store
+            .resolve_step_input(parent.id, original_a)
+            .await
+            .unwrap();
+        store
+            .prepare_step(
+                parent.id,
+                original_a,
+                claim.claim_token,
+                &resolved,
+                parent.workspace_id,
+                &serde_json::json!({
+                    "isolated": false,
+                    "workspaceId": parent.workspace_id,
+                    "policy": "write_serialized",
+                }),
+            )
+            .await
+            .unwrap();
+        store
+            .mark_started(parent.id, "a", claim.claim_token, None, None)
+            .await
+            .unwrap();
+        core.complete_step(CompleteWorkflowStep {
+            run_id: parent.id,
+            step_id: "a".to_string(),
+            output: None,
+        })
+        .await
+        .unwrap();
+
+        let mut edited = original;
+        let WorkflowStepSpec::Agent(agent) = &mut edited
+            .steps
+            .iter_mut()
+            .find(|step| step.id == "b")
+            .unwrap()
+            .spec
+        else {
+            unreachable!()
+        };
+        agent.prompt = "improved b".to_string();
+        let edited_version = core
+            .publish(PublishWorkflow {
+                definition_id: Some(original_version.definition_id),
+                definition: edited,
+                source_path: None,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        let derived = core
+            .fork_from_step(ForkWorkflowRun {
+                parent_run_id: parent.id,
+                definition_version_id: edited_version.id,
+                step_id: "b".to_string(),
+                scope: DebugRunScope::Downstream,
+                operation_id: Uuid::new_v4(),
+                principal: serde_json::json!({"id": "owner"}),
+            })
+            .await
+            .unwrap();
+        assert_eq!(derived.parent_run_id, Some(parent.id));
+        assert_eq!(derived.fork_step_id.as_deref(), Some("b"));
+        let steps = store.steps(derived.id).await.unwrap();
+        let a = steps.iter().find(|step| step.step_id == "a").unwrap();
+        let b = steps.iter().find(|step| step.step_id == "b").unwrap();
+        let c = steps.iter().find(|step| step.step_id == "c").unwrap();
+        assert_eq!(
+            (a.status.as_str(), a.execution_mode.as_str()),
+            ("completed", "reuse")
+        );
+        let reused_evidence = serde_json::from_str::<serde_json::Value>(
+            a.execution_evidence_json.as_deref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(reused_evidence["definitionDigest"], edited_version.digest);
+        assert_eq!(
+            reused_evidence["reusedFromDefinitionDigest"],
+            original_version.digest
+        );
+        assert_eq!(store.reconcile_completed_evidence().await.unwrap(), 0);
+        assert_eq!(
+            (b.status.as_str(), b.execution_mode.as_str()),
+            ("ready", "execute")
+        );
+        assert_eq!(
+            (c.status.as_str(), c.execution_mode.as_str()),
+            ("pending", "execute")
+        );
+
+        let reused_before = a.clone();
+        store.rebuild_run_projection(derived.id).await.unwrap();
+        let rebuilt = store.steps(derived.id).await.unwrap();
+        let reused_after = rebuilt.iter().find(|step| step.step_id == "a").unwrap();
+        assert_eq!(reused_after.status, reused_before.status);
+        assert_eq!(reused_after.execution_mode, "reuse");
+        assert_eq!(reused_after.output_json, reused_before.output_json);
+        assert_eq!(
+            reused_after.output_schema_digest,
+            reused_before.output_schema_digest
+        );
+        assert_eq!(reused_after.conversation_id, reused_before.conversation_id);
+        assert_eq!(reused_after.completed_at, reused_before.completed_at);
+    }
+
+    #[tokio::test]
     async fn publish_and_start_are_idempotent_and_payload_bound() {
         let (core, _) = setup().await;
         let publish_operation = Uuid::new_v4();
         let request = PublishWorkflow {
             definition_id: None,
             definition: definition(),
+            source_path: None,
             operation_id: publish_operation,
             principal: serde_json::json!({"id": "owner"}),
         };
@@ -570,6 +1474,7 @@ mod tests {
             workspace_id: Uuid::new_v4(),
             input: serde_json::json!({"repo": "vibex"}),
             policy_override: None,
+            debug_step_id: None,
             operation_id: operation,
             principal: serde_json::json!({"id": "owner"}),
         };
@@ -583,6 +1488,7 @@ mod tests {
                 definition_version_id: first.id,
                 workspace_id,
                 policy_override: None,
+                debug_step_id: None,
                 principal: serde_json::json!({"id": "owner"}),
             })
             .await
@@ -618,6 +1524,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition: approval_definition,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -629,6 +1536,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -660,6 +1568,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "x".repeat(4 * 1024 * 1024)}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -683,6 +1592,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition: isolated,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -694,6 +1604,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -761,7 +1672,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn completed_step_with_unknown_runtime_evidence_requires_review() {
+    async fn completed_step_with_matching_identity_survives_unknown_optional_evidence() {
         let (core, store) = setup().await;
         let (_, run) = publish_and_start(&core).await;
         let claim = store
@@ -805,8 +1716,8 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(store.reconcile_completed_evidence().await.unwrap(), 1);
-        assert_eq!(store.run(run.id).await.unwrap().status, "needs_review");
+        assert_eq!(store.reconcile_completed_evidence().await.unwrap(), 0);
+        assert_eq!(store.run(run.id).await.unwrap().status, "running");
     }
 
     #[tokio::test]
@@ -1021,6 +1932,11 @@ mod tests {
                     spec: WorkflowStepSpec::Agent(AgentStepSpec {
                         agent_id: "codex".to_string(),
                         prompt: "build".to_string(),
+                        executor_profile_id: None,
+                        mode_override: None,
+                        config_overrides: BTreeMap::new(),
+                        output_language: None,
+                        output_description: None,
                         output_schema: Some(serde_json::json!({
                             "type": "object",
                             "required": ["artifact"],
@@ -1030,6 +1946,7 @@ mod tests {
                         side_effect_class: SideEffectClass::MutatingUnknown,
                         allow_one_repair: false,
                         allow_skip_on_review: false,
+                        completion_policy: CompletionPolicy::Automatic,
                     }),
                 },
                 WorkflowStep {
@@ -1040,11 +1957,17 @@ mod tests {
                     spec: WorkflowStepSpec::Agent(AgentStepSpec {
                         agent_id: "codex".to_string(),
                         prompt: "ship".to_string(),
+                        executor_profile_id: None,
+                        mode_override: None,
+                        config_overrides: BTreeMap::new(),
+                        output_language: None,
+                        output_description: None,
                         output_schema: None,
                         workspace_access: WorkspaceAccess::WriteSerialized,
                         side_effect_class: SideEffectClass::MutatingUnknown,
                         allow_one_repair: false,
                         allow_skip_on_review: false,
+                        completion_policy: CompletionPolicy::Automatic,
                     }),
                 },
             ],
@@ -1054,6 +1977,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1065,6 +1989,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1095,6 +2020,10 @@ mod tests {
             .find(|step| step.id == "ship")
             .unwrap();
         let resolved = store.resolve_step_input(run.id, ship).await.unwrap();
+        assert_eq!(
+            resolved.values["build"],
+            serde_json::json!({"artifact": "bundle.zip"})
+        );
         assert_eq!(resolved.values["repo"], "vibex");
         assert_eq!(resolved.values["artifact"], "bundle.zip");
         assert_eq!(resolved.digest.len(), 64);
@@ -1356,6 +2285,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restart_preserves_an_explicitly_paused_agent_step() {
+        let (core, store) = setup().await;
+        let (_, run) = publish_and_start(&core).await;
+        let claimed = store
+            .claim_ready(1, chrono::Duration::seconds(30))
+            .await
+            .unwrap()
+            .unwrap();
+        store
+            .mark_started(
+                run.id,
+                &claimed.step.step_id,
+                claimed.claim_token,
+                Some(Uuid::new_v4()),
+                Some(Uuid::new_v4()),
+            )
+            .await
+            .unwrap();
+        core.request_pause(PauseWorkflowRun {
+            run_id: run.id,
+            reason: Some("user paused the graph".to_string()),
+            operation_id: Uuid::new_v4(),
+            principal: serde_json::json!({"id": "owner"}),
+        })
+        .await
+        .unwrap();
+        store
+            .set_step_awaiting_input(
+                run.id,
+                &claimed.step.step_id,
+                true,
+                Some("user paused the graph"),
+                None,
+            )
+            .await
+            .unwrap();
+        core.mark_paused(run.id).await.unwrap();
+
+        assert_eq!(store.reconcile_interrupted().await.unwrap(), 0);
+        let after = store.run(run.id).await.unwrap();
+        assert_eq!(after.control_state, "paused");
+        assert_eq!(after.typed_status().unwrap(), WorkflowRunStatus::Waiting);
+        let step = store
+            .steps(run.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|step| step.step_id == claimed.step.step_id)
+            .unwrap();
+        assert_eq!(step.status, "running");
+        assert!(step.awaiting_input);
+    }
+
+    #[tokio::test]
+    async fn started_step_consumes_its_ready_lease() {
+        let (core, store) = setup().await;
+        let (_, run) = publish_and_start(&core).await;
+        let claimed = store
+            .claim_ready(1, chrono::Duration::milliseconds(-1))
+            .await
+            .unwrap()
+            .unwrap();
+
+        store
+            .mark_started(
+                run.id,
+                &claimed.step.step_id,
+                claimed.claim_token,
+                Some(Uuid::new_v4()),
+                Some(Uuid::new_v4()),
+            )
+            .await
+            .unwrap();
+
+        let ready_rows = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM workflow_ready_steps
+             WHERE run_id = ? AND step_id = ?",
+        )
+        .bind(run.id)
+        .bind(&claimed.step.step_id)
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+        assert_eq!(ready_rows, 0);
+        assert!(
+            store
+                .claim_ready(1, chrono::Duration::seconds(30))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .events_since(run.id, 0, 100)
+                .await
+                .unwrap()
+                .iter()
+                .all(|event| event.event_kind != "step_claim_released")
+        );
+    }
+
+    #[tokio::test]
     async fn output_repair_is_single_use_and_consumes_the_call_budget() {
         let (core, store) = setup().await;
         let (_, run) = publish_and_start(&core).await;
@@ -1406,6 +2437,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition: definition(),
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1421,6 +2453,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: Some(policy),
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1633,6 +2666,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1644,6 +2678,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1678,6 +2713,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({"repo": "vibex"}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "owner"}),
             })
@@ -1744,11 +2780,17 @@ mod tests {
                 spec: WorkflowStepSpec::Agent(AgentStepSpec {
                     agent_id: "codex".to_string(),
                     prompt: "inspect".to_string(),
+                    executor_profile_id: None,
+                    mode_override: None,
+                    config_overrides: BTreeMap::new(),
+                    output_language: None,
+                    output_description: None,
                     output_schema: None,
                     workspace_access: WorkspaceAccess::ReadOnlyShared,
                     side_effect_class: SideEffectClass::ReadOnly,
                     allow_one_repair: false,
                     allow_skip_on_review: false,
+                    completion_policy: CompletionPolicy::Automatic,
                 }),
             })
             .collect();
@@ -1771,6 +2813,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "capacity"}),
             })
@@ -1782,6 +2825,7 @@ mod tests {
                 workspace_id: Uuid::new_v4(),
                 input: serde_json::json!({}),
                 policy_override: None,
+                debug_step_id: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "capacity"}),
             })
@@ -1821,6 +2865,7 @@ mod tests {
             .publish(PublishWorkflow {
                 definition_id: None,
                 definition: single,
+                source_path: None,
                 operation_id: Uuid::new_v4(),
                 principal: serde_json::json!({"id": "capacity"}),
             })
@@ -1835,6 +2880,7 @@ mod tests {
                     workspace_id: Uuid::new_v4(),
                     input: serde_json::json!({"repo": "vibex"}),
                     policy_override: None,
+                    debug_step_id: None,
                     operation_id: Uuid::new_v4(),
                     principal: serde_json::json!({"id": "capacity"}),
                 })

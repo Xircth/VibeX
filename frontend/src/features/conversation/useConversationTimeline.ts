@@ -14,8 +14,10 @@ import {
   conversationStoreReducer,
   emptyConversationStoreState,
   sideRowsForEntry,
+  timelineItemsForEntry,
   timelineTurnsForEntry,
   type ConversationSessionModesState,
+  type ConversationTimelineItem,
   type ConversationTimelineTurn,
 } from './conversationStore';
 
@@ -28,6 +30,7 @@ const EMPTY_CONFIG_OPTIONS: AgentSessionConfigOption[] = [];
 
 export type UseConversationTimelineResult = {
   timeline: ConversationTimelineTurn[];
+  items: ConversationTimelineItem[];
   sideRows: TimelineRow[];
   loading: boolean;
   error: string | null;
@@ -239,6 +242,32 @@ export function useConversationTimeline(
     ? (state.byConversationId[conversationId] ?? null)
     : null;
 
+  const gap = entry?.gap;
+  useEffect(() => {
+    if (!conversationId || !gap || gap.kind !== 'gap') return;
+    let cancelled = false;
+    const afterSequence = gap.expectedSequence - 1n;
+    void conversationApi
+      .eventsSince({
+        conversationId,
+        afterSequence: Number(afterSequence),
+        limit: 500,
+      })
+      .then((page) => {
+        if (cancelled || page.rows.length === 0) return;
+        dispatch({
+          type: 'upsert_rows',
+          conversationId,
+          rows: page.rows,
+          lastSequence: toBigInt(page.last_sequence),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, gap]);
+
   const sendOptimisticTurn = useCallback(
     (turn: MessageTurn) => {
       if (!conversationId) return;
@@ -311,6 +340,7 @@ export function useConversationTimeline(
   return useMemo(
     () => ({
       timeline: timelineTurnsForEntry(entry),
+      items: timelineItemsForEntry(entry),
       sideRows: sideRowsForEntry(entry),
       loading: entry?.loading ?? false,
       error: entry?.error ?? null,

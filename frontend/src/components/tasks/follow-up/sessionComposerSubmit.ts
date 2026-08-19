@@ -222,9 +222,13 @@ export function buildQueuedFollowUp({
 export function getAfterSendCleanup({
   attachments,
   scratchId,
+  savedRevision,
+  serverRevision,
 }: {
   attachments: SessionComposerImageAttachment[];
   scratchId: string | undefined;
+  savedRevision?: number | null;
+  serverRevision?: number | null;
 }): {
   message: string;
   attachments: SessionComposerImageAttachment[];
@@ -233,12 +237,16 @@ export function getAfterSendCleanup({
   shouldDeleteScratch: boolean;
 } {
   const clearedImages = clearComposerImageAttachments(attachments);
+  const revisionStillMatches =
+    savedRevision == null ||
+    serverRevision == null ||
+    savedRevision === serverRevision;
 
   return {
     message: '',
     attachments: clearedImages.attachments,
     imagesToRevoke: clearedImages.imagesToRevoke,
     hydratedScratchId: scratchId,
-    shouldDeleteScratch: Boolean(scratchId),
+    shouldDeleteScratch: Boolean(scratchId) && revisionStillMatches,
   };
 }

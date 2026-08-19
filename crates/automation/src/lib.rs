@@ -34,8 +34,10 @@ pub use schedule::{
 };
 pub use spec::{
     AUTOMATION_SPEC_VERSION, AgentSelectionIntent, AutomationDraftInput, AutomationError,
-    AutomationTarget, ComposerCanonicalInput, IsolationSpec, PluginActionCatalogPort,
-    PluginActionRef, TurnLaunchSpec, TurnLaunchSpecInput, WORKFLOW_AUTOMATION_SPEC_VERSION,
+    AutomationSpec, AutomationTarget, ComposerCanonicalInput, IsolationSpec,
+    PORTABLE_AUTOMATION_SPEC_VERSION, PluginActionCatalogPort, PluginActionRef,
+    PortableAutomationTarget, PortableTurnLaunchSpec, PortableWorkflowLaunchSpec,
+    PortableWorkspaceRef, TurnLaunchSpec, TurnLaunchSpecInput, WORKFLOW_AUTOMATION_SPEC_VERSION,
     WorkflowLaunchSpec, WorkspaceTarget,
 };
 pub use templates::{

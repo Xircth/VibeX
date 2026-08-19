@@ -1,3 +1,12 @@
+export function normalizePluginContext(context) {
+    return {
+        pluginId: context.pluginId,
+        pluginVersion: context.pluginVersion,
+        generation: context.generation,
+        packageClass: context.packageClass ?? "full-trust",
+        grantedCapabilities: context.grantedCapabilities ?? ["*"],
+    };
+}
 export function definePluginWorker(setup) {
     return { apiVersion: '1.0', setup };
 }

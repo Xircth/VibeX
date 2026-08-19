@@ -576,8 +576,7 @@ describe('PluginsSettings', () => {
     );
 
     expect(writeText).toHaveBeenCalledWith(
-      "export VIBEX_PLUGIN_DEV_HOST='http://127.0.0.1:43100'\n" +
-        "export VIBEX_PLUGIN_DEV_TOKEN='secret-dev-token'"
+      "export VIBEX_PLUGIN_DEV_HOST='http://127.0.0.1:43100'"
     );
     expect(screen.queryByText('secret-dev-token')).not.toBeInTheDocument();
   });

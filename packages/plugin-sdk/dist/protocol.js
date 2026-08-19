@@ -1,1 +1,2 @@
 export const VIBEX_PLUGIN_API_VERSION = "1.0";
+export const VIBEX_PLUGIN_PROTOCOL_VERSION = "1.1";

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "renderers": [
+    {
+      "id": "host.renderer.workflow.studio",
+      "accept": { "fileNameSuffixes": [".vibex-workflow.json"] }
+    }
+  ]
+}

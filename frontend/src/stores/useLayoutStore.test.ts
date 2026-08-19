@@ -24,6 +24,13 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
     });
 
+    it('should have every kanban zone visible by default', () => {
+      const state = useLayoutStore.getState();
+      expect(state.isKanbanListVisible).toBe(true);
+      expect(state.isKanbanMonitorVisible).toBe(true);
+      expect(state.isKanbanSessionVisible).toBe(true);
+    });
+
     it('should have the 30%-smaller default right panel width', () => {
       expect(useLayoutStore.getState().rightPanelWidth).toBe(434);
     });
@@ -85,6 +92,27 @@ describe('useLayoutStore', () => {
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(false);
 
       useLayoutStore.getState().toggleRightPanel();
+      expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
+    });
+  });
+
+  describe('kanban zone visibility', () => {
+    it('toggles each kanban zone independently', () => {
+      const store = useLayoutStore.getState();
+
+      store.toggleKanbanList();
+      store.toggleKanbanMonitor();
+      store.setKanbanSessionVisible(false);
+
+      expect(useLayoutStore.getState().isKanbanListVisible).toBe(false);
+      expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(false);
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(false);
+
+      store.resetKanbanLayout();
+
+      expect(useLayoutStore.getState().isKanbanListVisible).toBe(true);
+      expect(useLayoutStore.getState().isKanbanMonitorVisible).toBe(true);
+      expect(useLayoutStore.getState().isKanbanSessionVisible).toBe(true);
       expect(useLayoutStore.getState().isRightPanelVisible).toBe(true);
     });
   });
@@ -181,6 +209,29 @@ describe('persisted layout migration', () => {
     expect(migrated.projectLayouts['project-b'].rightPanelWidth).toBe(700);
     expect(migrated.serializedLayout).toBe(serializedLayout);
     expect(migrated.rightPanelWidth).toBe(620);
+  });
+
+  it('fills missing kanban zone visibility when upgrading from v26', () => {
+    const migrated = migratePersistedLayoutState(
+      {
+        currentProjectKey: 'project-a',
+        projectLayouts: {
+          'project-a': {
+            serializedLayout,
+            rightPanelWidth: 620,
+          },
+        },
+      },
+      26
+    );
+
+    expect(migrated.projectLayouts['project-a'].isKanbanListVisible).toBe(true);
+    expect(migrated.projectLayouts['project-a'].isKanbanMonitorVisible).toBe(
+      true
+    );
+    expect(migrated.projectLayouts['project-a'].isKanbanSessionVisible).toBe(
+      true
+    );
   });
 
   it('keeps the fixed default limited to new project snapshots', () => {

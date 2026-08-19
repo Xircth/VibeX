@@ -313,3 +313,41 @@ fn assert_has(
         "{agent_id} fixture gate missing {label}; events: {events:?}"
     );
 }
+
+#[tokio::test]
+async fn missing_acp_program_fails_with_actionable_error_not_raw_enoent() {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    // `driver_enabled = true` so `connect` actually spawns the ACP program.
+    let runtime = AgentRuntime::new_with_driver(Arc::new(TestSink { tx }), true);
+
+    let missing = PathBuf::from("/definitely/not/here/vibex-acp");
+    let result = runtime
+        .connect(ConnectAgentInput {
+            agent_id: AgentId::parse("grok").unwrap(),
+            launch_lock: SessionLaunchLock {
+                agent_id: AgentId::parse("grok").unwrap(),
+                absolute_acp_program: missing.clone(),
+                args: vec!["agent".to_string(), "stdio".to_string()],
+                env: BTreeMap::new(),
+                runtime_version: "1.0.4".to_string(),
+                acp_version: "1".to_string(),
+            },
+            workspace_id: Uuid::new_v4(),
+            working_dir: PathBuf::from("fixture-workspace/missing-acp"),
+            additional_directories: Vec::new(),
+            auto_approve_mode: AgentAutoApproveMode::Off,
+            env: HashMap::new(),
+        })
+        .await;
+
+    let error = result.expect_err("spawn of a missing program must fail");
+    let message = error.to_string();
+    assert!(
+        message.contains("missing at") && message.contains("reinstall"),
+        "expected an actionable repair error, got: {message}"
+    );
+    assert!(
+        !message.contains("No such file or directory"),
+        "raw spawn ENOENT must not leak: {message}"
+    );
+}

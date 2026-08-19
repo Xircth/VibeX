@@ -286,9 +286,10 @@ impl PluginAppSurfaceHost {
             .extension()
             .and_then(|value| value.to_str())
             .map(str::to_ascii_lowercase);
+        let file_name = path.file_name().and_then(|value| value.to_str());
         let resolved = self
             .plugins
-            .resolve_file_opener(extension.as_deref(), None)
+            .resolve_file_opener_for_file(file_name, extension.as_deref(), None)
             .await
             .map_err(internal)?
             .ok_or_else(|| not_found("No published plugin file opener matches this artifact"))?;

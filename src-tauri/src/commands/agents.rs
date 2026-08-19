@@ -5,17 +5,16 @@ use std::{
 
 use agents::{
     AgentAutoApproveMode, AgentAvailableCommand, AgentConnectionId, AgentConnectionSnapshot,
-    AgentContentBlock, AgentHistoryError, AgentListedSession, AgentManagementSnapshot,
-    AgentPermissionId, AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId,
-    AgentPromptSnapshot, AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage,
-    AgentSessionSnapshot, AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput,
-    ConnectAgentInput, ImportedAgentSession, LaunchComponentEvidence, LaunchGate,
-    RespondAgentPermissionInput, ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput,
-    SessionAuthenticationEvidence, SessionGate, SessionGateInput, SessionLaunchLock,
-    configured_history_sources, import_history_source, resolve_session_authentication_evidence,
+    AgentContentBlock, AgentListedSession, AgentManagementSnapshot, AgentPermissionId,
+    AgentPermissionResponse, AgentPreparedSessionSnapshot, AgentPromptId, AgentPromptSnapshot,
+    AgentSessionControlsSnapshot, AgentSessionId, AgentSessionListPage, AgentSessionSnapshot,
+    AgentTerminalId, AgentTerminalOutputSnapshot, CancelAgentPromptInput, ConnectAgentInput,
+    LaunchComponentEvidence, LaunchGate, LaunchGateError, RespondAgentPermissionInput,
+    ResumeAgentSessionInput, RuntimeSnapshot, SendAgentPromptInput, SessionAuthenticationEvidence,
+    SessionGate, SessionGateInput, SessionLaunchLock, resolve_session_authentication_evidence,
     terminal::agent_terminal_registry,
 };
-use api_types::{AgentAuthenticationStatus, AgentId, AgentKind, AgentLifecycleState};
+use api_types::{AgentAuthenticationStatus, AgentId, AgentLifecycleState};
 use db::models::{
     agent_capability_catalog::AgentCapabilityCatalogRecord,
     agent_management::{SessionDefaultRecord, SessionDefaultRepository},
@@ -59,6 +58,18 @@ impl From<agents::AgentError> for AppError {
             ),
             agents::AgentError::AuthenticationRequired(message) => {
                 AppError::BadRequest(format!("Agent 需要先完成认证：{message}"))
+            }
+            agents::AgentError::SessionLoadFailed(reason) => {
+                AppError::BadRequest(match reason {
+                    agents::SessionLoadFailureReason::ResourceNotFound => {
+                        "代理侧已不存在该会话。可见历史仍在，但 Agent 隐藏上下文已丢失。确认重新绑定后才能继续。".to_string()
+                    }
+                    agents::SessionLoadFailureReason::AuthenticationRequired { message } => message,
+                    agents::SessionLoadFailureReason::Unsupported => {
+                        "该代理无法恢复原会话。确认重新绑定后将冷启动，不会保留 Agent 侧上下文。".to_string()
+                    }
+                    agents::SessionLoadFailureReason::Other { message } => message,
+                })
             }
             agents::AgentError::InvalidDistribution(message)
             | agents::AgentError::Runtime(message) => AppError::Internal(message),
@@ -261,7 +272,9 @@ async fn open_capability_catalog_fingerprint(
     launch_lock: &SessionLaunchLock,
 ) -> Result<String, AppError> {
     let mut digest = Sha256::new();
-    digest.update(b"open-agent-capability-catalog-v1:");
+    // v3 invalidates catalogs captured before effort/permission were merged
+    // from Grok's vendor `_meta` into the standard session-control snapshot.
+    digest.update(b"open-agent-capability-catalog-v3:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(
@@ -387,21 +400,6 @@ pub(crate) async fn prompt_enhancement_capability_catalog_models(
         }
     }
     Ok(models)
-}
-
-pub(crate) async fn prompt_enhancement_selection_for_model(
-    pool: &sqlx::SqlitePool,
-    model: &str,
-) -> Result<Option<(AgentId, String)>, AppError> {
-    for (agent_id, selections) in prompt_enhancement_catalog_candidates(pool).await? {
-        if let Some((option_key, _)) = selections
-            .into_iter()
-            .find(|(_, candidate)| candidate == model)
-        {
-            return Ok(Some((agent_id, option_key)));
-        }
-    }
-    Ok(None)
 }
 
 fn model_selections_from_capability_catalog(
@@ -697,7 +695,11 @@ pub async fn agent_list_local_history(
     state: tauri::State<'_, AppState>,
     agent_id: AgentId,
 ) -> Result<AgentSessionListPage, AppError> {
-    let sessions = scan_local_history_sessions(&state.deployment.db().pool, &agent_id).await?;
+    let sessions = crate::commands::local_history::scan_local_history_for_agent(
+        &state.deployment.db().pool,
+        &agent_id,
+    )
+    .await?;
     Ok(AgentSessionListPage {
         sessions: sessions
             .into_iter()
@@ -745,16 +747,17 @@ pub async fn agent_import_local_history(
             .ok_or_else(|| AppError::NotFound(format!("Session {} not found", existing.id)));
     }
 
-    let mut imported = scan_local_history_sessions(pool, &request.agent_id)
-        .await?
-        .into_iter()
-        .find(|session| session.external_session_id == request.acp_session_id)
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "Local Agent history session {} was not found",
-                request.acp_session_id
-            ))
-        })?;
+    let mut imported =
+        crate::commands::local_history::scan_local_history_for_agent(pool, &request.agent_id)
+            .await?
+            .into_iter()
+            .find(|session| session.external_session_id == request.acp_session_id)
+            .ok_or_else(|| {
+                AppError::NotFound(format!(
+                    "Local Agent history session {} was not found",
+                    request.acp_session_id
+                ))
+            })?;
     if request
         .title
         .as_deref()
@@ -772,72 +775,6 @@ pub async fn agent_import_local_history(
     Session::find_by_id(pool, conversation_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Session {conversation_id} not found")))
-}
-
-async fn scan_local_history_sessions(
-    pool: &sqlx::SqlitePool,
-    agent_id: &AgentId,
-) -> Result<Vec<ImportedAgentSession>, AppError> {
-    let agent_kind = AgentKind::from_lenient(agent_id.as_str()).ok_or_else(|| {
-        AppError::BadRequest(format!("Agent {} has no local history parser", agent_id))
-    })?;
-    let configured_env = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT env_json FROM agent_setting WHERE agent_type = ?",
-    )
-    .bind(agent_id.as_str())
-    .fetch_optional(pool)
-    .await?
-    .flatten()
-    .and_then(|raw| serde_json::from_str::<HashMap<String, String>>(&raw).ok())
-    .unwrap_or_default();
-    let sources = configured_history_sources(agent_kind, &configured_env);
-    tokio::task::spawn_blocking(move || {
-        let mut by_id = BTreeMap::<String, ImportedAgentSession>::new();
-        let mut first_error = None;
-        for source in sources {
-            match import_history_source(&source) {
-                Ok(sessions) => {
-                    for session in sessions {
-                        let replace =
-                            by_id
-                                .get(&session.external_session_id)
-                                .is_none_or(|existing| {
-                                    session.messages.len() > existing.messages.len()
-                                });
-                        if replace {
-                            by_id.insert(session.external_session_id.clone(), session);
-                        }
-                    }
-                }
-                Err(AgentHistoryError::MissingSource(_)) => {}
-                Err(error) => {
-                    tracing::warn!(%error, "failed to scan a local Agent history source");
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-        if by_id.is_empty()
-            && let Some(error) = first_error
-        {
-            return Err(AppError::Internal(error.to_string()));
-        }
-        let mut sessions = by_id.into_values().collect::<Vec<_>>();
-        sessions.sort_by(|left, right| {
-            let latest = |session: &ImportedAgentSession| {
-                session
-                    .messages
-                    .iter()
-                    .filter_map(|message| message.created_at)
-                    .max()
-            };
-            latest(right)
-                .cmp(&latest(left))
-                .then_with(|| left.external_session_id.cmp(&right.external_session_id))
-        });
-        Ok(sessions)
-    })
-    .await
-    .map_err(|error| AppError::Internal(format!("local history scan failed: {error}")))?
 }
 
 #[tauri::command]
@@ -944,12 +881,13 @@ async fn connect_agent_for_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace_id).await?;
-    let working_dir = crate::workspace_paths::resolve_workspace_agent_working_dir(
+    let working_dir = crate::workspace_paths::resolve_workspace_default_open_path(
         &workspace,
         &container_ref,
         &repos,
     )
-    .unwrap_or_else(|| container_ref.clone());
+    .to_string_lossy()
+    .into_owned();
     let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
         &workspace,
         &container_ref,
@@ -1251,7 +1189,17 @@ async fn agent_runtime_launch_settings_from_pool_with_auth_revalidation(
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()?;
     let verified_launch_lock = if ownership == "external" {
-        Ok(launch_lock)
+        // External installs carry no integrity evidence, but the session must
+        // still fail with an actionable repair request when the adopted binary
+        // has been removed or relocated since adoption.
+        if agents::launch_program_available(&launch_lock.absolute_acp_program) {
+            Ok(launch_lock)
+        } else {
+            Err(LaunchGateError::Missing {
+                component_kind: "acp".to_string(),
+                path: launch_lock.absolute_acp_program.clone(),
+            })
+        }
     } else {
         LaunchGate::verify(launch_lock, &components).await
     };
@@ -1383,12 +1331,13 @@ pub async fn agent_prepare_session(
         .ensure_container_exists(&workspace)
         .await?;
     let repos = WorkspaceRepo::find_repos_for_workspace(pool, workspace.id).await?;
-    let working_dir = crate::workspace_paths::resolve_workspace_agent_working_dir(
+    let working_dir = crate::workspace_paths::resolve_workspace_default_open_path(
         &workspace,
         &container_ref,
         &repos,
     )
-    .unwrap_or_else(|| container_ref.clone());
+    .to_string_lossy()
+    .into_owned();
     let additional_directories = crate::workspace_paths::resolve_workspace_additional_directories(
         &workspace,
         &container_ref,

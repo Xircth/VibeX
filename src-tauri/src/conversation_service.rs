@@ -69,7 +69,11 @@ impl conversations::ConversationHost for AppConversationHost {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String> {
-        conversations::resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+        Some(conversations::resolve_absolute_workspace_agent_working_dir(
+            workspace,
+            container_ref,
+            repos,
+        ))
     }
 
     fn resolve_additional_directories(
@@ -92,8 +96,9 @@ impl conversations::ConversationHost for AppConversationHost {
         working_dir: &str,
         text: String,
         images: &[String],
+        file_refs: &[agents::ConversationFileRef],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        conversations::workspace_prompt_blocks(working_dir, text, images).await
+        conversations::workspace_prompt_blocks(working_dir, text, images, file_refs).await
     }
 
     async fn launch_settings(

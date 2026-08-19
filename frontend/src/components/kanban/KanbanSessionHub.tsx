@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { confirmWorktreeCreation } from '@/lib/confirmWorktreeCreation';
 import { type ExecutorProfileId } from 'shared/types';
@@ -32,7 +32,11 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { sessionsApi, type SessionStatus } from '@/lib/api';
 import type { KanbanZone } from '@/lib/layoutArrangement';
 import { resolveCurrentExecutionPlacement } from '@/lib/kanbanSessionLayout';
-import { paths } from '@/lib/paths';
+import {
+  kanbanListFillsHub,
+  visibleKanbanZones,
+} from '@/lib/kanbanZoneVisibility';
+import { useLayoutStore } from '@/stores/useLayoutStore';
 import { removeSessionsFromWorkspaceCaches } from '@/lib/sessionQueryCache';
 import {
   buildWorkspaceBranchOptions,
@@ -125,7 +129,6 @@ export function KanbanSessionHub({
 }: KanbanSessionHubProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { projectId } = useProject();
   const { data: repos } = useProjectRepos(projectId);
@@ -140,10 +143,19 @@ export function KanbanSessionHub({
     canUseRightPanelForSessions,
     openSessionFromList,
     placeCreatedSession,
-    promoteMonitorSession,
+    activateExecutionSession,
     cancelMonitorSession,
     pruneSessions,
   } = useKanbanSessionContext();
+  const isKanbanListVisible = useLayoutStore(
+    (state) => state.isKanbanListVisible
+  );
+  const isKanbanMonitorVisible = useLayoutStore(
+    (state) => state.isKanbanMonitorVisible
+  );
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
+  );
   const { data: activeAttempt } = useTaskAttemptWithSession(
     activeWorktreeId ?? undefined
   );
@@ -358,32 +370,11 @@ export function KanbanSessionHub({
     }
 
     goToSessionHub();
-    updateCreateWorkspaceValue(defaultWorkspaceValue);
-    updateSelectedExecutorProfile(defaultExecutorProfile);
-    updateCreateSessionName('');
-    setCreateMode(
-      workspaceBranchOptions.length > 0 ? 'existing_workspace' : 'new_workspace'
-    );
-    resetRepoBranchSelection();
-    setDeleteErrorMessage(null);
-    setDeleteSuccessMessage(null);
-    setIsCreatePopoverOpen(true);
-
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('createSession');
+    nextSearchParams.set('newSession', '1');
     setSearchParams(nextSearchParams, { replace: true });
-  }, [
-    defaultExecutorProfile,
-    defaultWorkspaceValue,
-    workspaceBranchOptions.length,
-    goToSessionHub,
-    resetRepoBranchSelection,
-    searchParams,
-    setSearchParams,
-    updateCreateSessionName,
-    updateCreateWorkspaceValue,
-    updateSelectedExecutorProfile,
-  ]);
+  }, [goToSessionHub, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -921,16 +912,8 @@ export function KanbanSessionHub({
   };
 
   const handleOpenInExecutionArea = (session: KanbanProjectSessionRecord) => {
-    if (canUseRightPanelForSessions) {
-      promoteMonitorSession(session.id);
-      return;
-    }
-
-    if (!projectId) {
-      return;
-    }
-
-    navigate(paths.projectSession(projectId, session.workspace.id, session.id));
+    useLayoutStore.getState().setKanbanSessionVisible(true);
+    activateExecutionSession(session.placement);
   };
 
   const handleCancelMonitor = (session: KanbanProjectSessionRecord) => {
@@ -972,9 +955,18 @@ export function KanbanSessionHub({
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  const kanbanVisibility = {
+    list: isKanbanListVisible,
+    monitor: isKanbanMonitorVisible,
+    session: isKanbanSessionVisible,
+  };
+  const sessionInHub = Boolean(sessionSlot) && isKanbanSessionVisible;
+  const listFills = kanbanListFillsHub(kanbanVisibility, sessionInHub);
+
   const sidebarElement = (
     <SessionHubSidebar
       width={sessionListWidth}
+      fill={listFills}
       isLoading={isLoading}
       sessions={activeSessionsWithOptimisticStatus}
       archivedSessions={archivedSessionsWithOptimisticStatus}
@@ -1079,7 +1071,7 @@ export function KanbanSessionHub({
   return (
     <TooltipProvider delayDuration={120}>
       <div className="session-hub-shell flex h-full min-h-0">
-        {zoneOrder.map((zone) => (
+        {visibleKanbanZones(zoneOrder, kanbanVisibility).map((zone) => (
           <Fragment key={zone}>
             {zone === 'list'
               ? sidebarElement

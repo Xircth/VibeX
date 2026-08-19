@@ -2,7 +2,10 @@ import type { SlashCommandDescription } from 'shared/types';
 import type { AgentAvailableCommand } from '@/features/agents/types';
 import type { AgentLocalSkill } from '@/lib/api';
 import type { DollarCommandDescription } from '@/lib/dollarCommands';
-import type { PluginControlCatalog } from '@/lib/api/plugins';
+import type {
+  PluginContributionCatalogItem,
+  PluginControlCatalog,
+} from '@/lib/api/plugins';
 
 export type ComposerSlashCommandSourceKind = 'native' | 'skill' | 'plugin';
 
@@ -70,16 +73,55 @@ export function pluginInvocationsToSlashCommands(
 ): ComposerSlashCommand[] {
   return (catalog?.plugins ?? []).flatMap((plugin) => {
     if (!plugin.enabled) return [];
-    return (plugin.invocations ?? []).map((invocation) => ({
-      name: invocation.id,
-      displayLabel: invocation.label,
-      description: invocation.prompt || plugin.description || undefined,
-      kind: 'COMMAND' as const,
-      sourceKind: 'plugin' as const,
-      sourceId: `${plugin.id}/${invocation.id}`,
-      prompt: invocation.prompt,
-    }));
+    return (plugin.invocations ?? [])
+      .filter(
+        (invocation) =>
+          invocation.kind === 'action' ||
+          invocation.kind === 'command' ||
+          invocation.kind === 'workflow'
+      )
+      .map((invocation) => ({
+        name: invocation.id,
+        displayLabel: invocation.label,
+        description: invocation.prompt || plugin.description || undefined,
+        kind: 'COMMAND' as const,
+        sourceKind: 'plugin' as const,
+        sourceId: `${plugin.id}/${invocation.id}`,
+        prompt: invocation.prompt,
+      }));
   });
+}
+
+export function pluginComposerSlashContributions(
+  items: PluginContributionCatalogItem[]
+): ComposerSlashCommand[] {
+  return items
+    .filter((item) => item.kind === 'composer_slash')
+    .flatMap((item) => {
+      const metadata =
+        item.metadata &&
+        typeof item.metadata === 'object' &&
+        !Array.isArray(item.metadata)
+          ? (item.metadata as Record<string, unknown>)
+          : {};
+      const name = String(metadata.command ?? item.id).replace(/^\/+/, '');
+      if (!name) return [];
+      return [
+        {
+          name,
+          displayLabel: item.label,
+          description:
+            typeof metadata.description === 'string'
+              ? metadata.description
+              : undefined,
+          kind: 'COMMAND' as const,
+          sourceKind: 'plugin' as const,
+          sourceId: `${item.pluginId}/${item.id}`,
+          prompt:
+            typeof metadata.prompt === 'string' ? metadata.prompt : undefined,
+        },
+      ];
+    });
 }
 
 export function localSkillsToDollarCommands(

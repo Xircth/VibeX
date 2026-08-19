@@ -5,7 +5,7 @@ import type {
   ConversationInputSubmission,
   ConversationInputPayload,
 } from 'shared/types';
-import type { ConversationPluginActionInvocation } from '@/features/conversation/conversationApi';
+import type { ConversationWorkflowRef } from '@/features/conversation/conversationApi';
 
 export type AgentRuntimeTurnInput = {
   workspaceId: string;
@@ -18,8 +18,10 @@ export type AgentRuntimeTurnInput = {
   modeOverride?: string | null;
   /** Composer-selected session config overrides for this turn. */
   configOverrides?: AgentSessionConfigOverride[];
-  /** Structured plugin actions selected in the composer for this turn. */
-  pluginActions?: ConversationPluginActionInvocation[];
+  /** Plugin Workflow identities selected in the composer for this turn. */
+  workflowRefs?: ConversationWorkflowRef[];
+  fileRefs?: ConversationInputPayload['fileRefs'];
+  operationId?: string;
 };
 
 /**
@@ -40,7 +42,9 @@ export async function sendAgentRuntimeTurn({
   images,
   modeOverride,
   configOverrides,
-  pluginActions,
+  workflowRefs,
+  fileRefs,
+  operationId,
 }: AgentRuntimeTurnInput): Promise<ConversationInputSubmission> {
   const payload: ConversationInputPayload = {
     agentId: agentTypeFromExecutor(executorProfileId.executor),
@@ -52,7 +56,8 @@ export async function sendAgentRuntimeTurn({
     images,
     modeOverride: modeOverride ?? null,
     configOverrides: configOverrides ?? [],
-    pluginActions: pluginActions ?? [],
+    workflowRefs: workflowRefs ?? [],
+    fileRefs: fileRefs ?? [],
   };
-  return conversationApi.submitInput(sessionId, payload);
+  return conversationApi.submitInput(sessionId, payload, operationId);
 }

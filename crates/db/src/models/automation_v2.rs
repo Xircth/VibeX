@@ -203,6 +203,12 @@ impl SqliteAutomationStore {
         draft: AutomationDraft,
         now: DateTime<Utc>,
     ) -> Result<AutomationRecord, sqlx::Error> {
+        let current = self.find(id).await?.ok_or(sqlx::Error::RowNotFound)?;
+        if !matches!(current.target, AutomationTarget::Turn(_)) {
+            return Err(protocol_error(
+                "automation target kind is immutable; expected turn",
+            ));
+        }
         let launch_spec =
             TurnLaunchSpec::from_automation_draft(draft.launch).map_err(protocol_error)?;
         let next_run_at = if draft.enabled {
@@ -232,6 +238,55 @@ impl SqliteAutomationStore {
         .bind(launch_spec.workspace.project_id)
         .bind(&launch_spec.workspace.root_folder)
         .bind(&launch_spec.workspace.branch)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        self.find(id).await?.ok_or(sqlx::Error::RowNotFound)
+    }
+
+    pub async fn update_workflow(
+        &self,
+        id: Uuid,
+        draft: WorkflowAutomationDraft,
+        now: DateTime<Utc>,
+    ) -> Result<AutomationRecord, sqlx::Error> {
+        let current = self.find(id).await?.ok_or(sqlx::Error::RowNotFound)?;
+        if !matches!(current.target, AutomationTarget::Workflow(_)) {
+            return Err(protocol_error(
+                "automation target kind is immutable; expected workflow",
+            ));
+        }
+        draft.launch.validate().map_err(protocol_error)?;
+        let next_run_at = if draft.enabled {
+            next_run_after(&draft.trigger, now).map_err(protocol_error)?
+        } else {
+            None
+        };
+        let (trigger_kind, cron, timezone) = schedule_columns(&draft.trigger);
+        let launch_json = serde_json::to_string(&draft.launch).map_err(protocol_error)?;
+        let result = sqlx::query(
+            "UPDATE automations
+             SET name=?,enabled=?,spec_version=?,trigger_kind=?,cron=?,timezone=?,
+                 next_run_at=?,workflow_launch_spec_json=?,isolation=?,project_id=?,
+                 root_folder=?,branch=?,legacy_migration_status='ready',updated_at=?
+             WHERE id=? AND target_kind='workflow'",
+        )
+        .bind(draft.name)
+        .bind(draft.enabled)
+        .bind(i64::from(draft.launch.spec_version))
+        .bind(trigger_kind)
+        .bind(cron)
+        .bind(timezone)
+        .bind(next_run_at)
+        .bind(launch_json)
+        .bind(isolation_str(&draft.launch.workspace.isolation))
+        .bind(draft.launch.workspace.project_id)
+        .bind(&draft.launch.workspace.root_folder)
+        .bind(&draft.launch.workspace.branch)
         .bind(now)
         .bind(id)
         .execute(&self.pool)

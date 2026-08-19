@@ -29,7 +29,7 @@ pub mod channels {
     pub const AGENT_EVENTS: &str = "agent-events";
     pub const CONVERSATION_EVENTS: &str = "conversation-events";
     pub const AGENT_TERMINAL_EVENTS: &str = "agent-terminal-events";
-    pub const DESKTOP_CONVERSATION_FINISHED: &str = "desktop-conversation-finished";
+    pub const DESKTOP_SESSION_ATTENTION: &str = "desktop-session-attention";
 }
 
 /// Per-conversation cache of live incremental projectors (消灭双投影). Held on
@@ -106,6 +106,10 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
+    let queue_changed = new_records
+        .iter()
+        .any(|record| record.event_kind == "conversation_input");
+
     if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
         match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
             Ok(projector) => {
@@ -130,7 +134,11 @@ pub async fn emit_conversation_row_ops_after(
         }
     }
 
-    if !(ops.is_empty() && session_modes.is_none() && session_config_options.is_none()) {
+    if !(ops.is_empty()
+        && session_modes.is_none()
+        && session_config_options.is_none()
+        && !queue_changed)
+    {
         let batch = ConversationRowOpBatch {
             conversation_id,
             last_sequence,
@@ -275,19 +283,25 @@ pub fn start_agent_event_forwarding(app: &AppHandle, state: &AppState) {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum ConversationCompletionKind {
-    Success,
+#[serde(rename_all = "snake_case")]
+enum DesktopAttentionKind {
+    Permission,
+    Question,
+    Warning,
+    Error,
+    Completed,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DesktopConversationFinished {
+struct DesktopSessionAttention {
     project_id: Uuid,
     workspace_id: Uuid,
     session_id: Uuid,
-    turn_id: Uuid,
-    kind: ConversationCompletionKind,
+    turn_id: Option<Uuid>,
+    kind: DesktopAttentionKind,
+    title: Option<String>,
+    message: Option<String>,
 }
 
 async fn handle_recorded_conversation_batch(
@@ -304,16 +318,36 @@ async fn handle_recorded_conversation_batch(
                 "Failed to dispatch chat channel conversation event"
             );
         }
+        if let Some((kind, title, message)) = attention_from_event(&event.event)
+            && let Err(error) = emit_desktop_session_attention(
+                pool,
+                app_handle,
+                event.conversation_id,
+                event.turn_id,
+                kind,
+                title,
+                message,
+            )
+            .await
+        {
+            tracing::warn!(
+                conversation_id = %event.conversation_id,
+                %error,
+                "Failed to emit desktop session attention"
+            );
+        }
     }
 
     for completion in batch.completions {
         if is_local_user_turn_origin(&completion.origin)
-            && let Err(error) = emit_desktop_conversation_finished(
+            && let Err(error) = emit_desktop_session_attention(
                 pool,
                 app_handle,
                 completion.conversation_id,
-                completion.turn_id,
-                ConversationCompletionKind::Success,
+                Some(completion.turn_id),
+                DesktopAttentionKind::Completed,
+                None,
+                None,
             )
             .await
         {
@@ -330,12 +364,81 @@ async fn handle_recorded_conversation_batch(
 fn is_local_user_turn_origin(origin: &str) -> bool {
     origin == conversations::commit_reminder::LOCAL_USER_ORIGIN
 }
-async fn emit_desktop_conversation_finished(
+
+fn attention_from_event(
+    event: &ConversationEvent,
+) -> Option<(DesktopAttentionKind, Option<String>, Option<String>)> {
+    match event {
+        ConversationEvent::PermissionRequested { request } => Some((
+            DesktopAttentionKind::Permission,
+            Some(request.request.title.clone()),
+            None,
+        )),
+        ConversationEvent::QuestionRequested { request } => Some((
+            DesktopAttentionKind::Question,
+            Some(request.prompt.clone()),
+            None,
+        )),
+        ConversationEvent::TurnFailed { error } => Some((
+            DesktopAttentionKind::Error,
+            Some(error.message.clone()),
+            None,
+        )),
+        ConversationEvent::TurnBlocked { reason } => match reason {
+            agents::conversation::TurnBlockedReason::Authentication { message }
+            | agents::conversation::TurnBlockedReason::Other { message } => {
+                Some((DesktopAttentionKind::Error, Some(message.clone()), None))
+            }
+            _ => None,
+        },
+        ConversationEvent::AgentBindingRecoveryFailed { reason } => {
+            Some((DesktopAttentionKind::Error, Some(reason.clone()), None))
+        }
+        ConversationEvent::AgentBindingLoadFailed { reason } => match reason {
+            agents::conversation::SessionLoadFailureReason::AuthenticationRequired { message } => {
+                Some((DesktopAttentionKind::Error, Some(message.clone()), None))
+            }
+            agents::conversation::SessionLoadFailureReason::Other { message } => {
+                Some((DesktopAttentionKind::Warning, Some(message.clone()), None))
+            }
+            agents::conversation::SessionLoadFailureReason::ResourceNotFound
+            | agents::conversation::SessionLoadFailureReason::Unsupported => {
+                Some((DesktopAttentionKind::Warning, None, None))
+            }
+        },
+        ConversationEvent::RawDiagnosticRecorded { label, payload } => {
+            diagnostic_attention(label, payload.as_ref())
+        }
+        _ => None,
+    }
+}
+
+fn diagnostic_attention(
+    label: &str,
+    payload: Option<&serde_json::Value>,
+) -> Option<(DesktopAttentionKind, Option<String>, Option<String>)> {
+    let kind = payload
+        .and_then(|value| value.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(label);
+    match kind {
+        "session_config_override_skipped" => Some((
+            DesktopAttentionKind::Warning,
+            Some("会话配置未应用".into()),
+            None,
+        )),
+        _ => None,
+    }
+}
+
+async fn emit_desktop_session_attention(
     pool: &SqlitePool,
     app_handle: &AppHandle,
     conversation_id: Uuid,
-    turn_id: Uuid,
-    kind: ConversationCompletionKind,
+    turn_id: Option<Uuid>,
+    kind: DesktopAttentionKind,
+    title: Option<String>,
+    message: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let conversation = ConversationRecord::find_by_id(pool, conversation_id)
         .await?
@@ -343,16 +446,16 @@ async fn emit_desktop_conversation_finished(
     let workspace = Workspace::find_by_id(pool, conversation.workspace_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Workspace {} not found", conversation.workspace_id))?;
-    app_handle.emit(
-        channels::DESKTOP_CONVERSATION_FINISHED,
-        DesktopConversationFinished {
-            project_id: workspace.project_id,
-            workspace_id: workspace.id,
-            session_id: conversation_id,
-            turn_id,
-            kind,
-        },
-    )?;
+    let payload = DesktopSessionAttention {
+        project_id: workspace.project_id,
+        workspace_id: workspace.id,
+        session_id: conversation_id,
+        turn_id,
+        kind,
+        title,
+        message,
+    };
+    app_handle.emit(channels::DESKTOP_SESSION_ATTENTION, &payload)?;
     Ok(())
 }
 
@@ -503,6 +606,62 @@ mod tests {
                 &ConversationEvent::UserTurnStarted
             ),
             Some("prompt_started")
+        );
+    }
+
+    #[test]
+    fn desktop_attention_fires_for_permission_error_and_warning() {
+        use agents::{
+            AgentPermissionId, AgentPermissionRequest, AgentSessionId,
+            conversation::ConversationPermissionRequest,
+        };
+
+        let permission = ConversationEvent::PermissionRequested {
+            request: ConversationPermissionRequest {
+                permission_id: "p1".into(),
+                request: AgentPermissionRequest {
+                    id: AgentPermissionId::new(),
+                    session_id: AgentSessionId::new(),
+                    title: "Edit file".into(),
+                    details: None,
+                    options: Vec::new(),
+                },
+            },
+        };
+        let (kind, title, _) = super::attention_from_event(&permission).expect("permission");
+        assert_eq!(kind, super::DesktopAttentionKind::Permission);
+        assert_eq!(title.as_deref(), Some("Edit file"));
+
+        let failed = ConversationEvent::TurnFailed {
+            error: agents::conversation::ConversationError {
+                message: "boom".into(),
+                code: None,
+                raw: None,
+            },
+        };
+        assert_eq!(
+            super::attention_from_event(&failed).map(|(kind, _, _)| kind),
+            Some(super::DesktopAttentionKind::Error)
+        );
+
+        let skipped = ConversationEvent::RawDiagnosticRecorded {
+            label: "diagnostic".into(),
+            payload: Some(serde_json::json!({ "kind": "session_config_override_skipped" })),
+        };
+        assert_eq!(
+            super::attention_from_event(&skipped).map(|(kind, _, _)| kind),
+            Some(super::DesktopAttentionKind::Warning)
+        );
+
+        let ack = ConversationEvent::RawDiagnosticRecorded {
+            label: "diagnostic".into(),
+            payload: Some(serde_json::json!({ "kind": "user_message_acknowledged" })),
+        };
+        assert_eq!(super::attention_from_event(&ack), None);
+
+        assert_eq!(
+            super::attention_from_event(&ConversationEvent::TurnCompleted { stop_reason: None }),
+            None
         );
     }
 }

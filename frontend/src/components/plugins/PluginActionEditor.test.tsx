@@ -96,7 +96,7 @@ describe('PluginActionEditor', () => {
     expect(prompt).toHaveValue(
       '澄清受众与目标后，创建新的 PPTX 并验证输出。 面向设计团队。'
     );
-    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith('plugin_action_catalog');
   });
 
   it('keeps the original action editable while a missing tool installs', async () => {
@@ -181,7 +181,7 @@ describe('PluginActionEditor', () => {
       screen.queryByRole('status', { name: 'OfficeCLI 安装进度' })
     ).not.toBeInTheDocument();
     await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true));
-    expect(call).toHaveBeenCalledTimes(3);
+    expect(call).toHaveBeenCalledWith('plugin_action_catalog');
   });
 
   it('keeps the public ready gate closed while a skill or provider is unavailable', async () => {
@@ -371,14 +371,11 @@ describe('PluginActionEditor', () => {
 
   it('shows loading, recoverable failure, and empty catalog states', async () => {
     const user = userEvent.setup();
-    let rejectCatalog: ((error: Error) => void) | undefined;
-    const firstCatalog = new Promise<unknown>((_resolve, reject) => {
-      rejectCatalog = reject;
-    });
     const call = vi
       .fn()
-      .mockImplementationOnce(async () => firstCatalog)
-      .mockResolvedValueOnce({ actions: [] });
+      .mockRejectedValueOnce(new Error('catalog unavailable'))
+      .mockRejectedValueOnce(new Error('catalog unavailable'))
+      .mockResolvedValue({ actions: [] });
     const transport: BackendTransport = {
       environment: 'desktop',
       call,
@@ -395,7 +392,6 @@ describe('PluginActionEditor', () => {
     expect(
       screen.getByRole('status', { name: 'Plugin actions 加载状态' })
     ).toHaveTextContent('正在加载 Office 快捷工作流');
-    rejectCatalog?.(new Error('catalog unavailable'));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'catalog unavailable'
     );

@@ -4,10 +4,13 @@ export function resolvePluginDevConnection(
   args: readonly string[],
   environment: Record<string, string | undefined> = process.env,
 ) {
+  if (option(args, "--token") || environment.VIBEX_PLUGIN_DEV_TOKEN) {
+    throw new Error("dev_link_host_only");
+  }
   const endpoint = option(args, "--host") ?? environment.VIBEX_PLUGIN_DEV_HOST;
-  const token = option(args, "--token") ?? environment.VIBEX_PLUGIN_DEV_TOKEN;
+  const token = environment.VIBEX_PLUGIN_DEV_GRANT;
   if (!endpoint) throw new Error("plugin_dev_host_missing");
-  if (!token) throw new Error("plugin_dev_token_missing");
+  if (!token) throw new Error("dev_link_host_only");
   return { endpoint, token };
 }
 
@@ -41,7 +44,7 @@ export interface PluginDoctorReport {
   plugin: PluginIdentity;
   installation: unknown;
   activation: unknown;
-  grants: unknown[];
+  grants?: unknown[];
   runtimes: unknown[];
   surfaces: unknown[];
   agentBindings: unknown[];
@@ -113,7 +116,6 @@ export class PluginDevHostClient {
       !isObject(report.plugin) ||
       typeof report.plugin.publisher !== "string" ||
       typeof report.plugin.id !== "string" ||
-      !Array.isArray(report.grants) ||
       !Array.isArray(report.runtimes) ||
       !Array.isArray(report.surfaces) ||
       !Array.isArray(report.agentBindings) ||

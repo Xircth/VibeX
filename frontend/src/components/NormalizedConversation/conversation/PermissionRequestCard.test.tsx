@@ -57,6 +57,9 @@ describe('PermissionRequestCard', () => {
       screen.getByText('Run the project test command')
     ).toBeInTheDocument();
     expect(screen.getByText('pnpm test --runInBand')).toBeInTheDocument();
+    expect(
+      document.querySelector('.permission-request-preview')
+    ).not.toBeNull();
   });
 
   it('renders the real file path from the ACP diff detail', () => {
@@ -78,7 +81,7 @@ describe('PermissionRequestCard', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Allow' }));
+    fireEvent.click(screen.getByRole('button', { name: '允许' }));
 
     expect(onRespond).toHaveBeenCalledWith('perm-1', {
       kind: 'selected',
@@ -111,9 +114,17 @@ describe('PermissionRequestCard', () => {
       />
     );
 
-    expect(screen.queryByRole('menuitem', { name: /允许类似命令/ })).toBeNull();
+    expect(
+      screen.queryByRole('menuitem', { name: '本次会话中允许' })
+    ).toBeNull();
     await user.click(screen.getByRole('button', { name: '展开允许选项' }));
-    await user.click(screen.getByRole('menuitem', { name: /允许类似命令/ }));
+    expect(
+      screen.getByRole('menuitem', { name: '允许一次' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: '总是允许全部' })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: '本次会话中允许' }));
 
     expect(onRespond).toHaveBeenCalledWith('perm-1', {
       kind: 'selected',
@@ -163,7 +174,7 @@ describe('PermissionRequestCard', () => {
     );
 
     expect(screen.getByText('已响应')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '允许' })).toBeNull();
   });
 
   it('renders a command preview from rawInput when there is no content block', () => {
@@ -191,6 +202,6 @@ describe('PermissionRequestCard', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: 'Allow' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '允许' })).toBeDisabled();
   });
 });

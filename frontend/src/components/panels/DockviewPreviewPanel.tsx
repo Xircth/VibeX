@@ -8,6 +8,7 @@ import {
   useState,
   type ComponentType,
 } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { IDockviewPanelProps } from 'dockview-react';
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
@@ -152,10 +153,13 @@ function ContentLoadingFallback({ label }: { label: string }) {
 const markdownRenderStateMap = new Map<string, boolean>();
 
 function DockviewPreviewPanel(props: IDockviewPanelProps) {
+  const { t } = useTranslation('conversation');
   const params = (props.params ?? {}) as Partial<PreviewPanelParams>;
   const filePath = params.filePath ?? null;
   const displayPath = params.displayPath ?? null;
-  const mode = params.mode ?? 'editor';
+  const requestedMode = params.mode ?? 'editor';
+  const [viewMode, setViewMode] = useState(requestedMode);
+  const mode = viewMode;
   const diffViewMode = params.diffViewMode ?? 'split';
   const modifiedContentOverride = params.modifiedContent ?? null;
   const originalContentOverride = params.originalContent ?? null;
@@ -165,24 +169,31 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
     [filePath, rootPath]
   );
-  const [pluginOpener, setPluginOpener] =
-    useState<ResolvedPluginFileOpener | null>(null);
-  const [pluginResolutionPending, setPluginResolutionPending] = useState(false);
+  const [pluginResolution, setPluginResolution] = useState<{
+    filePath: string;
+    opener: ResolvedPluginFileOpener | null;
+  } | null>(null);
+  const pluginResolutionPending =
+    Boolean(filePath) && pluginResolution?.filePath !== filePath;
+  const pluginOpener =
+    pluginResolution?.filePath === filePath ? pluginResolution.opener : null;
   useEffect(() => {
     let cancelled = false;
-    setPluginOpener(null);
-    setPluginResolutionPending(Boolean(filePath));
-    if (!filePath) return;
+    if (!filePath) {
+      setPluginResolution(null);
+      return;
+    }
     void pluginControlApi
       .resolveFileOpener(fileExtension(filePath))
       .then((resolved) => {
-        if (!cancelled) setPluginOpener(resolved);
+        if (!cancelled) {
+          setPluginResolution({ filePath, opener: resolved });
+        }
       })
       .catch(() => {
-        if (!cancelled) setPluginOpener(null);
-      })
-      .finally(() => {
-        if (!cancelled) setPluginResolutionPending(false);
+        if (!cancelled) {
+          setPluginResolution({ filePath, opener: null });
+        }
       });
     return () => {
       cancelled = true;
@@ -215,6 +226,7 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   const saveFile = useSaveFile();
   const { resolvedTheme } = useTheme();
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
+  const readRangeDecorationRef = useRef<string[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const resolvedDisplayPath = useMemo(() => {
     if (!filePath) {
@@ -271,6 +283,10 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
   );
 
   useEffect(() => {
+    setViewMode(requestedMode);
+  }, [filePath, requestedMode]);
+
+  useEffect(() => {
     if (filePath) {
       setIsRendered(markdownRenderStateMap.get(filePath) ?? false);
     }
@@ -290,6 +306,44 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       }
     },
     [isDiffMode, isMd]
+  );
+
+  const applyReadRange = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor) => {
+      if (!location) {
+        readRangeDecorationRef.current = editor.deltaDecorations(
+          readRangeDecorationRef.current,
+          []
+        );
+        return;
+      }
+
+      const endLine = location.endLine ?? location.line;
+      editor.setPosition({
+        lineNumber: location.line,
+        column: location.column,
+      });
+      editor.revealLineInCenter(location.line);
+      readRangeDecorationRef.current = editor.deltaDecorations(
+        readRangeDecorationRef.current,
+        [
+          {
+            range: {
+              startLineNumber: location.line,
+              startColumn: 1,
+              endLineNumber: endLine,
+              endColumn: 1,
+            },
+            options: {
+              isWholeLine: true,
+              className: 'preview-read-range',
+              linesDecorationsClassName: 'preview-read-range-gutter',
+            },
+          },
+        ]
+      );
+    },
+    [location]
   );
 
   const handleEditorMount: OnMount = useCallback(
@@ -312,26 +366,17 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       });
 
       if (location) {
-        editor.setPosition({
-          lineNumber: location.line,
-          column: location.column,
-        });
-        editor.revealLineInCenter(location.line);
+        applyReadRange(editor);
         editor.focus();
       }
     },
-    [location, resolvedFilePath, saveFile]
+    [applyReadRange, location, resolvedFilePath, saveFile]
   );
 
   useEffect(() => {
-    if (!location || !editorRef.current) return;
-
-    editorRef.current.setPosition({
-      lineNumber: location.line,
-      column: location.column,
-    });
-    editorRef.current.revealLineInCenter(location.line);
-  }, [filePath, location]);
+    if (!editorRef.current) return;
+    applyReadRange(editorRef.current);
+  }, [applyReadRange, filePath]);
 
   const handleEditorBeforeMount: BeforeMount = useCallback((monaco) => {
     defineAyuMonacoThemes(monaco);
@@ -452,7 +497,24 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
             <span className="hidden text-[10px] text-muted-foreground md:inline">
               {diffSummary}
             </span>
+            <button
+              type="button"
+              className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
+              onClick={() => setViewMode('editor')}
+            >
+              <Code2 className="h-3 w-3" />
+              {t('preview.switchToFileView')}
+            </button>
           </>
+        ) : requestedMode === 'diff' ? (
+          <button
+            type="button"
+            className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
+            onClick={() => setViewMode('diff')}
+          >
+            <GitCompare className="h-3 w-3" />
+            {t('preview.switchToDiffView')}
+          </button>
         ) : isMd && effectivePreviewKind === 'text' ? (
           <button
             className="raised-control flex select-none items-center gap-1 px-1.5 py-0.5 text-[10px]"
@@ -475,7 +537,12 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
       </div>
 
       <div className="min-h-0 flex-1">
-        {isDiffMode ? (
+        {pluginResolutionPending ? (
+          <FilePreviewLoading
+            fileName={resolvedDisplayPath ?? filePath}
+            label={`Opening ${resolvedDisplayPath ?? filePath}`}
+          />
+        ) : isDiffMode ? (
           effectivePreviewKind === 'binary' ? (
             <PreviewPlaceholder
               icon={FileWarning}

@@ -15,7 +15,10 @@ const AGENT_ICON_CALIBRATION_CLASS: Partial<Record<string, string>> = {
   hermes: 'is-hermes',
   codebuddy: 'is-codebuddy',
   grok: 'is-grok',
+  kimi_code: 'is-kimi',
+  kimi: 'is-kimi',
   cursor: 'is-cursor',
+  deepseek_harness: 'is-deepseek',
 };
 
 export function AgentManagementIcon({
@@ -35,19 +38,10 @@ export function AgentManagementIcon({
     agent.agent_id === 'claude_code' ||
     agent.agent_id === 'codex' ||
     agent.agent_id === 'opencode' ||
-    agent.agent_id === 'pi'
+    agent.agent_id === 'pi' ||
+    agent.agent_id === 'deepseek_harness'
   ) {
     return <AgentTypeIcon agentType={agent.agent_id} className={className} />;
-  }
-
-  if (agent.icon_svg) {
-    return (
-      <span
-        aria-hidden="true"
-        className={cn('agent-management-svg-icon', iconClassName)}
-        dangerouslySetInnerHTML={{ __html: agent.icon_svg }}
-      />
-    );
   }
 
   if (agent.icon_light || agent.icon_dark) {
@@ -64,6 +58,16 @@ export function AgentManagementIcon({
           />
         </picture>
       </span>
+    );
+  }
+
+  if (agent.icon_svg) {
+    return (
+      <span
+        aria-hidden="true"
+        className={cn('agent-management-svg-icon', iconClassName)}
+        dangerouslySetInnerHTML={{ __html: agent.icon_svg }}
+      />
     );
   }
 

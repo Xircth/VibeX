@@ -4,7 +4,6 @@ mod artifact_sink;
 mod auth;
 mod automation_runtime;
 mod chat_inbound;
-mod weixin_ilink;
 mod composition;
 mod config;
 mod delegation_runtime;
@@ -15,6 +14,7 @@ mod product_mcp;
 mod runtime;
 mod token_store;
 mod update;
+mod weixin_ilink;
 mod ws;
 
 pub use artifact_sink::ServerArtifactEventSink;
@@ -23,10 +23,7 @@ pub use auth::{
     ServerCredentials, ServerToken, ServerTokenError, SqliteServerAuth, SystemAuthClock,
 };
 pub use automation_runtime::HeadlessAutomationRuntime;
-pub use chat_inbound::{
-    chat_channel_connection_states, post_event_webhooks, start_chat_inbound,
-};
-pub use weixin_ilink::{WeixinQrcodeInfo, WeixinQrcodeStatus, weixin_check_qrcode, weixin_get_qrcode};
+pub use chat_inbound::{chat_channel_connection_states, post_event_webhooks, start_chat_inbound};
 pub use composition::{HeadlessServer, ServerBootstrapConfig, ServerBootstrapError};
 pub use config::{ListenPolicyError, ServerConfig};
 pub use domains::{ServerApplicationDomains, ServerDomainDependencies};
@@ -38,3 +35,6 @@ pub use product_mcp::{ProductMcpSessionLookup, start_product_mcp_gateway};
 pub use runtime::ServerRuntime;
 pub use token_store::{ProvisionedToken, SqliteTokenHashStore};
 pub use update::{HostUpgradeError, HostUpgradePlan, apply_host_upgrade, plan_host_upgrade};
+pub use weixin_ilink::{
+    WeixinQrcodeInfo, WeixinQrcodeStatus, weixin_check_qrcode, weixin_get_qrcode,
+};

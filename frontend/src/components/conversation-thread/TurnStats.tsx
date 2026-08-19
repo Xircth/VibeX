@@ -1,4 +1,4 @@
-import { useCallback, type ComponentType } from 'react';
+import { useCallback, useState, type ComponentType } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
@@ -66,15 +66,17 @@ function StatItem({
   icon: Icon,
   label,
   value,
+  hideLabel = false,
 }: {
   icon: ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  hideLabel?: boolean;
 }) {
   return (
     <span className="conv-turn-stat-item" title={`${label}: ${value}`}>
       <Icon className="h-3.5 w-3.5" />
-      <span className="conv-turn-stat-label">{label}</span>
+      {hideLabel ? null : <span className="conv-turn-stat-label">{label}</span>}
       <span className="conv-turn-stat-value">{value}</span>
     </span>
   );
@@ -89,6 +91,7 @@ export function TurnStats({
 }: TurnStatsProps) {
   const { t } = useTranslation(['conversation', 'common']);
   const [copied, triggerCopied] = useTemporaryFlag(1600);
+  const [showCompletedAt, setShowCompletedAt] = useState(false);
   const hasCopy = Boolean(copyText?.trim());
   const tokenText = (() => {
     const totalTokens = formatTokenCount(stats?.totalTokens);
@@ -172,20 +175,36 @@ export function TurnStats({
             />
           ) : null}
           {tokenText ? (
-            <StatItem icon={Gauge} label="Token" value={tokenText} />
+            <StatItem icon={Gauge} label="Token" value={tokenText} hideLabel />
           ) : null}
           {elapsedText ? (
-            <StatItem
-              icon={Timer}
-              label={t('turnStats.elapsedLabel')}
-              value={elapsedText}
-            />
+            completedAtText ? (
+              <button
+                type="button"
+                className="conv-turn-stat-item conv-turn-stat-elapsed"
+                aria-expanded={showCompletedAt}
+                aria-label={`${t('turnStats.elapsedLabel')} ${elapsedText}`}
+                title={`${t('turnStats.elapsedLabel')}: ${elapsedText}`}
+                onClick={() => setShowCompletedAt((open) => !open)}
+              >
+                <Timer className="h-3.5 w-3.5" />
+                <span className="conv-turn-stat-value">{elapsedText}</span>
+              </button>
+            ) : (
+              <StatItem
+                icon={Timer}
+                label={t('turnStats.elapsedLabel')}
+                value={elapsedText}
+                hideLabel
+              />
+            )
           ) : null}
-          {completedAtText ? (
+          {showCompletedAt && completedAtText ? (
             <StatItem
               icon={Clock3}
               label={t('turnStats.completedLabel')}
               value={completedAtText}
+              hideLabel
             />
           ) : null}
           {stopReasonText ? (

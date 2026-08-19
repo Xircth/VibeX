@@ -151,6 +151,17 @@ export function buildDraftFollowUpScratchUpdate(
   };
 }
 
+export function draftFollowUpContentsEqual(
+  left: Pick<DraftFollowUpData, 'message' | 'images'> | undefined,
+  right: Pick<DraftFollowUpData, 'message' | 'images'> | undefined
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.message !== right.message) return false;
+  if (left.images.length !== right.images.length) return false;
+  return left.images.every((image, index) => image === right.images[index]);
+}
+
 export function getExecutorProfileStateKey(
   profile: ExecutorProfileId | null
 ): string | null {

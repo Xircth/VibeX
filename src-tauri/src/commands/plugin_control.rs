@@ -77,6 +77,7 @@ pub struct ResolvedFileOpenerDto {
     pub target: String,
     pub priority: i32,
     pub generation: u64,
+    pub native_renderer: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -325,6 +326,7 @@ pub struct UnifiedPluginActionCatalogDto {
 #[ts(export)]
 pub struct UnifiedPluginActionDto {
     pub plugin_id: String,
+    #[serde(alias = "workflowId")]
     pub action_id: String,
     pub label: String,
     pub required_skills: Vec<String>,
@@ -381,7 +383,10 @@ pub async fn plugin_action_catalog(
                 .package
                 .invocations
                 .into_iter()
-                .filter(|invocation| invocation.kind == plugins::InvocationKind::Action)
+                .filter(|invocation| {
+                    invocation.kind == plugins::InvocationKind::Action
+                        || invocation.kind == plugins::InvocationKind::Command
+                })
                 .map(move |invocation| UnifiedPluginActionDto {
                     plugin_id: plugin_id.clone(),
                     action_id: invocation.id,
@@ -401,6 +406,24 @@ pub async fn plugin_action_catalog(
         })
         .collect();
     Ok(UnifiedPluginActionCatalogDto { actions })
+}
+
+#[tauri::command]
+pub async fn plugin_workflow_catalog(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, AppError> {
+    let catalog = plugin_action_catalog(state).await?;
+    Ok(serde_json::json!({
+        "workflows": catalog.actions.into_iter().map(|action| serde_json::json!({
+            "pluginId": action.plugin_id,
+            "workflowId": action.action_id,
+            "label": action.label,
+            "requiredSkills": action.required_skills,
+            "requiredTools": action.required_tools,
+            "promptBlocks": action.prompt_blocks,
+            "artifactIntent": action.artifact_intent,
+        })).collect::<Vec<_>>()
+    }))
 }
 
 #[tauri::command]
@@ -467,21 +490,15 @@ pub(crate) async fn refresh_official_product_runtime(
         .map_err(plugin_error)?;
     let gate = plane.official_product_mcp_gate();
 
-    if let Some(plugin) = plane
-        .plugin(plugins::SESSION_ENHANCE_PLUGIN_ID)
-        .await
-        .map_err(plugin_error)?
-        && let Ok(detail) = plugin.product_detail()
-    {
-        gate.set_session_features(session_enhance_feature_bits(&detail.config));
-    }
-
     let mut config = broker.config_snapshot();
     config.enabled = gate.allow_delegation_mcp();
-    if let Some(plugin) = plane
-        .plugin(plugins::MULTI_AGENT_PLUGIN_ID)
-        .await
-        .map_err(plugin_error)?
+    let delegation_plugin_id = gate
+        .bindings()
+        .into_iter()
+        .find(|binding| binding.product == "delegation")
+        .map(|binding| binding.plugin_id);
+    if let Some(plugin_id) = delegation_plugin_id
+        && let Some(plugin) = plane.plugin(&plugin_id).await.map_err(plugin_error)?
         && let Ok(detail) = plugin.product_detail()
     {
         if let Some(depth) = detail
@@ -501,81 +518,7 @@ pub(crate) async fn refresh_official_product_runtime(
         config.agent_defaults = parse_agent_defaults(detail.config.get("agentDefaults"));
     }
     broker.set_config(config);
-    project_official_product_mcp(gate.as_ref()).await;
     Ok(())
-}
-
-async fn project_official_product_mcp(gate: &plugins::OfficialProductMcpGate) {
-    let binary = crate::delegation::inject::locate_vibex_mcp_binary();
-    let command = binary.to_string_lossy().into_owned();
-    let url = gate.http_base();
-    if gate.allow_delegation_mcp() {
-        let mut args = vec!["--features".to_string(), "delegation".to_string()];
-        if let Some(url) = &url {
-            args.extend([
-                "--server-url".to_string(),
-                url.clone(),
-                "--product".to_string(),
-                "delegation".to_string(),
-            ]);
-            if let Some(token) = gate.delegation_token() {
-                args.extend(["--server-token".to_string(), token]);
-            }
-        }
-        let _ = services::services::mcp::upsert_local_server(
-            "vibex.multi-agent.vibex-delegation-mcp".to_string(),
-            serde_json::json!({
-                "type": "stdio",
-                "command": command,
-                "args": args,
-            }),
-            true,
-            Vec::new(),
-        )
-        .await;
-    }
-    if gate.allow_session_mcp() {
-        let features = session_feature_arg(gate.session_features());
-        let mut args = vec!["--features".to_string(), features];
-        if let Some(url) = &url {
-            args.extend([
-                "--server-url".to_string(),
-                url.clone(),
-                "--product".to_string(),
-                "session".to_string(),
-            ]);
-            if let Some(token) = gate.session_token() {
-                args.extend(["--server-token".to_string(), token]);
-            }
-        }
-        let _ = services::services::mcp::upsert_local_server(
-            "vibex.session-enhance.vibex-session-mcp".to_string(),
-            serde_json::json!({
-                "type": "stdio",
-                "command": command,
-                "args": args,
-            }),
-            true,
-            Vec::new(),
-        )
-        .await;
-    }
-}
-
-fn session_feature_arg(bits: u8) -> String {
-    [
-        (bits & plugins::SESSION_FEAT_FEEDBACK != 0, "feedback"),
-        (bits & plugins::SESSION_FEAT_ASK != 0, "ask"),
-        (bits & plugins::SESSION_FEAT_SESSIONS != 0, "sessions"),
-        (
-            bits & plugins::SESSION_FEAT_SESSION_CONTROL != 0,
-            "session-control",
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(enabled, name)| enabled.then_some(name))
-    .collect::<Vec<_>>()
-    .join(",")
 }
 
 fn parse_agent_defaults(
@@ -613,31 +556,6 @@ fn parse_agent_defaults(
             ))
         })
         .collect()
-}
-
-fn session_enhance_feature_bits(config: &serde_json::Value) -> u8 {
-    let mut bits = 0;
-    if config.get("feedback").and_then(serde_json::Value::as_bool) != Some(false) {
-        bits |= plugins::SESSION_FEAT_FEEDBACK;
-    }
-    if config.get("question").and_then(serde_json::Value::as_bool) != Some(false) {
-        bits |= plugins::SESSION_FEAT_ASK;
-    }
-    if config
-        .get("sessionInfo")
-        .and_then(serde_json::Value::as_bool)
-        != Some(false)
-    {
-        bits |= plugins::SESSION_FEAT_SESSIONS;
-    }
-    if config
-        .get("sessionControl")
-        .and_then(serde_json::Value::as_bool)
-        != Some(false)
-    {
-        bits |= plugins::SESSION_FEAT_SESSION_CONTROL;
-    }
-    bits
 }
 
 async fn apply_official_product_runtime(state: &AppState) -> Result<(), AppError> {
@@ -725,6 +643,199 @@ pub async fn plugin_contribution_catalog(
 }
 
 #[tauri::command]
+pub async fn plugin_marketplace_index(
+    state: State<'_, AppState>,
+) -> Result<plugins::MarketplaceIndex, AppError> {
+    let root = plugin_snapshot_root(&state.app_handle)?;
+    let mut index =
+        plugins::load_index(&plugins::default_index_path(&root)).map_err(plugin_error)?;
+    if index.listings.is_empty() {
+        index = bundled_marketplace_index();
+    }
+    Ok(index)
+}
+
+fn bundled_marketplace_index() -> plugins::MarketplaceIndex {
+    plugins::MarketplaceIndex {
+        listings: vec![
+            plugins::MarketplaceListing {
+                publisher: "vibex".into(),
+                plugin_id: "office".into(),
+                version: "4.0.0".into(),
+                summary: "Preview and work with Office documents.".into(),
+                package_digest: "builtin:office".into(),
+                archive: "builtin://office".into(),
+            },
+            plugins::MarketplaceListing {
+                publisher: "vibex".into(),
+                plugin_id: "workflow-creator".into(),
+                version: "4.0.0".into(),
+                summary: "Author and debug VibeX workflows.".into(),
+                package_digest: "builtin:workflow-creator".into(),
+                archive: "builtin://workflow-creator".into(),
+            },
+        ],
+    }
+}
+
+#[tauri::command]
+pub async fn plugin_install(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source: serde_json::Value,
+    conflict: Option<String>,
+) -> Result<PluginControlItemDto, AppError> {
+    let conflict_decision = conflict.unwrap_or_else(|| "reject".into());
+    if let Some(artifact_id) = source.get("artifactId").and_then(|value| value.as_str()) {
+        return plugin_control_import(
+            app,
+            state,
+            artifact_id.to_owned(),
+            false,
+            conflict_decision,
+            Some("vibex".into()),
+            Vec::new(),
+        )
+        .await;
+    }
+    if let Some(marketplace) = source.get("marketplace") {
+        let publisher = marketplace
+            .get("publisher")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let id = marketplace
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let index = plugin_marketplace_index(state.clone()).await?;
+        let listing = index
+            .listings
+            .into_iter()
+            .find(|item| item.publisher == publisher && item.plugin_id == id)
+            .ok_or_else(|| AppError::NotFound(format!("{publisher}/{id}")))?;
+        if listing.archive.starts_with("builtin://") {
+            return Err(AppError::BadRequest(
+                "builtin marketplace listings are already installed with the Host".into(),
+            ));
+        }
+        return plugin_control_import(
+            app,
+            state,
+            listing.archive,
+            false,
+            conflict_decision,
+            Some("vibex".into()),
+            Vec::new(),
+        )
+        .await;
+    }
+    Err(AppError::BadRequest(
+        "plugin install source is invalid".into(),
+    ))
+}
+
+#[tauri::command]
+pub async fn plugin_update(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    version: Option<String>,
+    digest: Option<String>,
+) -> Result<PluginControlItemDto, AppError> {
+    let _ = (version, digest);
+    plugin_control_update(state, plugin_id).await
+}
+
+#[tauri::command]
+pub async fn plugin_uninstall(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    plugin_id: String,
+    retain_data: Option<bool>,
+) -> Result<(), AppError> {
+    let _ = retain_data;
+    plugin_control_uninstall(app, state, plugin_id).await
+}
+
+#[tauri::command]
+pub async fn plugin_dev_link(
+    state: State<'_, AppState>,
+    source_path: String,
+    confirmed: bool,
+    conversation_id: Option<String>,
+) -> Result<serde_json::Value, AppError> {
+    if !confirmed {
+        return Ok(serde_json::json!({
+            "status": "pending_confirmation",
+            "message": "Confirm Full Trust before linking this plugin"
+        }));
+    }
+    let package = plugins::PluginPackage::inspect(
+        std::path::Path::new(&source_path),
+        plugins::PluginSourceKind::DeveloperLink,
+    )
+    .map_err(plugin_error)?;
+    if package.package_class == "isolated" && !plugins::isolated_spawn_supported() {
+        return Err(AppError::BadRequest(
+            "Isolated packages cannot be linked on this host".into(),
+        ));
+    }
+    let digest = plugins::package_content_digest(std::path::Path::new(&source_path))
+        .map_err(plugin_error)?;
+    state
+        .plugin_control_plane
+        .import(package.clone(), plugins::ConflictDecision::Replace)
+        .await
+        .map_err(plugin_error)?;
+    let grant_id = uuid::Uuid::new_v4();
+    let grant_dir = plugin_snapshot_root(&state.app_handle)?.join("plugin-dev/grants");
+    std::fs::create_dir_all(&grant_dir).map_err(|error| {
+        AppError::Internal(format!("create plugin-dev grant directory: {error}"))
+    })?;
+    let token = uuid::Uuid::new_v4().to_string();
+    let grant_path = grant_dir.join(format!("{grant_id}.env"));
+    std::fs::write(
+        &grant_path,
+        format!(
+            "CONVERSATION_ID={}\nPUBLISHER={}\nPLUGIN_ID={}\nSOURCE_DIGEST={}\nTOKEN={token}\n",
+            conversation_id.as_deref().unwrap_or(""),
+            package.publisher.clone().unwrap_or_default(),
+            package.id.as_str(),
+            digest,
+        ),
+    )
+    .map_err(|error| AppError::Internal(format!("write plugin-dev grant: {error}")))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&grant_path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(serde_json::json!({
+        "status": "granted",
+        "grantId": grant_id,
+        "sourcePath": source_path,
+        "packageDigest": digest
+    }))
+}
+
+#[tauri::command]
+pub async fn plugin_invoke_contribution(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    handler: String,
+    input: Option<serde_json::Value>,
+) -> Result<serde_json::Value, AppError> {
+    let lease = state
+        .plugin_control_plane
+        .activation_lease(&plugin_id)
+        .await
+        .ok_or_else(|| AppError::NotFound(format!("plugin `{plugin_id}` is not active")))?;
+    lease
+        .invoke(&handler, input.unwrap_or(serde_json::Value::Null))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))
+}
+
+#[tauri::command]
 pub async fn plugin_resolve_file_opener(
     state: State<'_, AppState>,
     extension: Option<String>,
@@ -748,6 +859,7 @@ pub async fn plugin_resolve_file_opener(
                 .to_owned(),
                 priority: resolved.priority,
                 generation: resolved.generation,
+                native_renderer: resolved.native_renderer,
             })
         })
 }
@@ -885,6 +997,14 @@ fn contribution_kind_key(kind: plugins::ContributionKind) -> &'static str {
         plugins::ContributionKind::FileOpener => "file_opener",
         plugins::ContributionKind::PreviewProvider => "preview_provider",
         plugins::ContributionKind::AppSurface => "app_surface",
+        plugins::ContributionKind::Hook => "hook",
+        plugins::ContributionKind::Toolbar => "toolbar",
+        plugins::ContributionKind::Status => "status",
+        plugins::ContributionKind::ComposerSlash => "composer_slash",
+        plugins::ContributionKind::TimelineCard => "timeline_card",
+        plugins::ContributionKind::SettingsSection => "settings_section",
+        plugins::ContributionKind::HostService => "host_service",
+        plugins::ContributionKind::WorkflowBinding => "workflow_binding",
     }
 }
 
@@ -1465,20 +1585,172 @@ pub async fn plugin_control_set_enabled(
             .await
             .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?
     } else {
-        let plugin = state
+        state
             .plugin_control_plane
             .set_enabled(&plugin_id, false)
             .await
-            .map_err(plugin_error)?;
-        state
-            .plugin_control_plane
-            .deactivate_worker(&plugin_id)
-            .await
-            .map_err(|error| AppError::Internal(format!("{}: {error}", error.code())))?;
-        plugin
+            .map_err(plugin_error)?
     };
     apply_official_product_runtime(&state).await?;
+    if enabled {
+        configure_plugin_default_projections(&state, &plugin).await?;
+    }
     Ok(plugin_dto(plugin))
+}
+
+async fn configure_plugin_default_projections(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+) -> Result<(), AppError> {
+    let known = agents::skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let installed = state
+        .agent_management_runtime
+        .local_runtimes()
+        .await
+        .keys()
+        .map(|agent| agent.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    let saved_agents = sqlx::query_scalar::<_, String>(
+        "SELECT agent_id FROM plugin_agent_bindings_v4
+         WHERE plugin_id = ? AND desired = 1",
+    )
+    .bind(plugin.id())
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let has_saved_agent_preferences = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM plugin_agent_bindings_v4 WHERE plugin_id = ?",
+    )
+    .bind(plugin.id())
+    .fetch_one(&state.deployment.db().pool)
+    .await?
+        > 0;
+    let desired_agents = if has_saved_agent_preferences {
+        saved_agents.into_iter().collect::<BTreeSet<_>>()
+    } else {
+        known.clone()
+    };
+    let targets = desired_agents
+        .intersection(&installed)
+        .cloned()
+        .collect::<Vec<_>>();
+    let skill_sources = plugin
+        .skills
+        .iter()
+        .map(|skill| (skill.id.clone(), plugin.source.path.join(&skill.path)))
+        .collect::<Vec<_>>();
+    let projections =
+        agents::skills::project_plugin_skills(plugin.id(), &skill_sources, targets, true)
+            .map_err(|error| AppError::Internal(error.to_string()))?
+            .into_iter()
+            .map(|result| PluginSkillProjectionDto {
+                skill_id: result.skill_id,
+                agent_id: result.agent_id,
+                status: match result.status {
+                    agents::skills::PluginSkillProjectionStatus::Projected => "projected",
+                    agents::skills::PluginSkillProjectionStatus::Removed => "removed",
+                    agents::skills::PluginSkillProjectionStatus::Collision => "collision",
+                }
+                .to_owned(),
+                message: result.message,
+            })
+            .collect::<Vec<_>>();
+    persist_agent_bindings(
+        state,
+        plugin.id(),
+        &known,
+        &desired_agents,
+        &installed,
+        &projections,
+    )
+    .await?;
+    let (_, desired_mcp) = desired_plugin_mcp_agents(state, plugin.id()).await?;
+    let all_mcp_agents = desired_mcp == known;
+    for error in configure_plugin_mcp(state, plugin, all_mcp_agents, &desired_mcp).await {
+        tracing::warn!(plugin_id = plugin.id(), %error, "default MCP projection failed");
+    }
+    Ok(())
+}
+
+/// Re-materialize enabled plugin projections after Host startup.
+///
+/// Managed MCP specs contain App-lifetime connection details. Replaying the
+/// saved projection here replaces stale credentials from the prior process
+/// while preserving an explicit per-Agent selection (including select-none).
+pub(crate) async fn refresh_enabled_plugin_projections(state: &AppState) {
+    let plugins = match state.plugin_control_plane.catalog().await {
+        Ok(plugins) => plugins,
+        Err(error) => {
+            tracing::warn!(%error, "enabled plugin projection refresh failed");
+            return;
+        }
+    };
+    for plugin in plugins.iter().filter(|plugin| {
+        plugin.activation == plugins::PluginActivation::Enabled
+            && plugin
+                .mcp
+                .get("mcpServers")
+                .unwrap_or(&plugin.mcp)
+                .as_object()
+                .is_some_and(|servers| {
+                    servers
+                        .values()
+                        .any(|spec| spec.get("managedRuntime").is_some())
+                })
+    }) {
+        let refreshed = async {
+            let (known, desired) = desired_plugin_mcp_agents(state, plugin.id()).await?;
+            let all_agents = desired == known;
+            Ok::<_, AppError>(configure_plugin_mcp(state, plugin, all_agents, &desired).await)
+        }
+        .await;
+        match refreshed {
+            Ok(errors) => {
+                for error in errors {
+                    tracing::warn!(
+                        plugin_id = plugin.id(),
+                        %error,
+                        "managed MCP projection refresh failed"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                plugin_id = plugin.id(),
+                %error,
+                "managed MCP projection refresh failed"
+            ),
+        }
+    }
+}
+
+async fn desired_plugin_mcp_agents(
+    state: &AppState,
+    plugin_id: &str,
+) -> Result<(BTreeSet<String>, BTreeSet<String>), AppError> {
+    let known = agents::skills::skill_capable_agent_ids()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let saved = sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT agent_id FROM plugin_mcp_bindings_v4
+         WHERE plugin_id = ? AND desired = 1",
+    )
+    .bind(plugin_id)
+    .fetch_all(&state.deployment.db().pool)
+    .await?;
+    let has_saved_preferences = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM plugin_mcp_bindings_v4 WHERE plugin_id = ?",
+    )
+    .bind(plugin_id)
+    .fetch_one(&state.deployment.db().pool)
+    .await?
+        > 0;
+    let desired = if has_saved_preferences {
+        saved.into_iter().collect()
+    } else {
+        known.clone()
+    };
+    Ok((known, desired))
 }
 
 #[tauri::command]
@@ -2450,6 +2722,13 @@ async fn configure_plugin_mcp(
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
         let projected_id = format!("{}.{}", plugin.id(), server_id);
+        let spec = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await {
+            Ok(spec) => spec,
+            Err(error) => {
+                errors.push(format!("{server_id}: {error}"));
+                continue;
+            }
+        };
         let result = services::services::mcp::upsert_local_server(
             projected_id,
             spec,
@@ -2461,13 +2740,24 @@ async fn configure_plugin_mcp(
         if let Some(error) = &error_message {
             errors.push(format!("{server_id}: {error}"));
         }
-        for agent_id in desired {
+        let known_agents = agents::skills::skill_capable_agent_ids()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        for agent_id in &known_agents {
+            let wanted = desired.contains(agent_id);
+            let binding_error_code =
+                (wanted && error_message.is_some()).then_some("mcp_projection_failed");
+            let binding_error_message = if wanted {
+                error_message.as_deref()
+            } else {
+                None
+            };
             if let Err(error) = sqlx::query(
                 "INSERT INTO plugin_mcp_bindings_v4
                      (plugin_id, mcp_id, agent_id, desired, applied, error_code, error_message, updated_at)
-                 VALUES (?, ?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                  ON CONFLICT(plugin_id, mcp_id, agent_id) DO UPDATE SET
-                     desired = 1,
+                     desired = excluded.desired,
                      applied = excluded.applied,
                      error_code = excluded.error_code,
                      error_message = excluded.error_message,
@@ -2476,9 +2766,10 @@ async fn configure_plugin_mcp(
             .bind(plugin.id())
             .bind(&server_id)
             .bind(agent_id)
-            .bind(i64::from(error_message.is_none()))
-            .bind(error_message.as_ref().map(|_| "mcp_projection_failed"))
-            .bind(error_message.as_deref())
+            .bind(i64::from(wanted))
+            .bind(i64::from(wanted && error_message.is_none()))
+            .bind(binding_error_code)
+            .bind(binding_error_message)
             .execute(pool)
             .await
             {
@@ -2487,6 +2778,86 @@ async fn configure_plugin_mcp(
         }
     }
     errors
+}
+
+async fn materialize_plugin_mcp_spec(
+    state: &AppState,
+    plugin: &plugins::InstalledPlugin,
+    server_id: &str,
+    spec: serde_json::Value,
+) -> Result<serde_json::Value, AppError> {
+    let Some(managed) = spec
+        .get("managedRuntime")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(spec);
+    };
+    if managed.get("kind").and_then(serde_json::Value::as_str) == Some("hostFamilyBinary") {
+        return Ok(spec);
+    }
+    let entrypoint = managed
+        .get("entrypoint")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "managed MCP `{server_id}` requires managedRuntime.entrypoint"
+            ))
+        })?;
+    let relative = Path::new(entrypoint);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` entrypoint must be a package-relative path"
+        )));
+    }
+    let package_root = plugin
+        .source
+        .path
+        .canonicalize()
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let entrypoint = package_root
+        .join(relative)
+        .canonicalize()
+        .map_err(|error| AppError::NotFound(error.to_string()))?;
+    if !entrypoint.starts_with(&package_root) || !entrypoint.is_file() {
+        return Err(AppError::BadRequest(format!(
+            "managed MCP `{server_id}` entrypoint escapes the installed package"
+        )));
+    }
+    let node = state
+        .plugin_worker_runtime
+        .resolve()
+        .await
+        .map_err(plugin_error)?;
+    let scopes = managed
+        .get("hostScopes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    let token = serde_json::json!({
+        "typ": "vibex.plugin-mcp",
+        "plugin_id": plugin.id(),
+        "mcp_id": server_id,
+        "scopes": scopes,
+    })
+    .to_string();
+    Ok(serde_json::json!({
+        "type": "stdio",
+        "command": node.to_string_lossy(),
+        "args": [entrypoint.to_string_lossy()],
+        "env": {
+            "VIBEX_PLUGIN_MCP_TOKEN": token,
+            "VIBEX_MCP_PROTOCOL_REVISION": managed
+                .get("protocolRevision")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("2026-07-28")
+        }
+    }))
 }
 
 fn parse_conflict_decision(value: &str) -> Result<plugins::ConflictDecision, AppError> {

@@ -164,7 +164,7 @@ describe('useSessionComposerImageUpload', () => {
 
     expect(uploadForAttemptMock).toHaveBeenCalledWith('workspace-1', file);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:old-preview');
-    expect(saveToScratch).not.toHaveBeenCalled();
+    expect(saveToScratch).toHaveBeenCalled();
     expect(result.current.attachedImages).toEqual([
       {
         id: 'upload',
@@ -174,5 +174,43 @@ describe('useSessionComposerImageUpload', () => {
       },
       current,
     ]);
+  });
+
+  it('reports an upload failure instead of only logging it', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    uploadForAttemptMock.mockRejectedValue(new Error('disk full'));
+    const onError = vi.fn();
+    const result = renderHook(
+      () => {
+        const [attachedImages, setAttachedImages] = useState<
+          SessionComposerImage[]
+        >([]);
+        const { handleAttachImages } = useSessionComposerImageUpload({
+          workspaceId: 'workspace-1',
+          sessionId: 'session-1',
+          draftMessage: 'local draft',
+          executorProfile: profile,
+          saveToScratch: vi.fn(),
+          setAttachedImages,
+          onError,
+        });
+        return { attachedImages, handleAttachImages };
+      },
+      { wrapper: wrapperFor(queryClient) }
+    );
+
+    await act(async () => {
+      await result.result.current.handleAttachImages([
+        new File(['a'], 'a.png'),
+      ]);
+    });
+
+    expect(onError).toHaveBeenCalledWith('disk full');
+    expect(result.result.current.attachedImages).toEqual([]);
   });
 });

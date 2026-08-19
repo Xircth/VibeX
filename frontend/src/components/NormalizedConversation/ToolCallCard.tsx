@@ -12,6 +12,10 @@ import { FileToolCard } from './tools/FileToolCard';
 import { GenericToolCard } from './tools/GenericToolCard';
 import { SearchToolCard } from './tools/SearchToolCard';
 import {
+  ListDirToolCard,
+  isListDirToolEntry,
+} from './tools/ListDirToolCard';
+import {
   AskQuestionResultCard,
   isAskQuestionToolEntry,
 } from './tools/AskQuestionResultCard';
@@ -93,6 +97,16 @@ export const ToolCallCard: FC<{
   const toolEntry =
     entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
   const action = toolEntry?.action_type.action;
+
+  if (isListDirToolEntry(entry)) {
+    return (
+      <ListDirToolCard
+        entry={entry}
+        expansionKey={expansionKey}
+        forceExpanded={forceExpanded}
+      />
+    );
+  }
 
   if (isPlanToolEntry(entry)) {
     return (

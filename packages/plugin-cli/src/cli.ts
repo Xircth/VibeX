@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { buildPlugin } from "./build.js";
 import { watchPluginSources } from "./dev.js";
@@ -19,7 +20,7 @@ import { scaffoldPlugin } from "./scaffold.js";
 import { testPlugin } from "./pluginTest.js";
 import { validatePlugin } from "./validation.js";
 
-const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template full|app|agent]\n  validate [dir] [--json]\n  build [dir]\n  test [dir]\n  dev [dir] [--host url] [--token token]\n  install --link [dir] [--host url] [--token token]\n  uninstall [dir] [--delete-data] [--host url] [--token token]\n  pack [dir] [--output file.vxp]\n  doctor [dir] [--host url] [--token token]\n\nPlugins run with full trust. Connection can also use VIBEX_PLUGIN_DEV_HOST and VIBEX_PLUGIN_DEV_TOKEN.`;
+const helpText = `VibeX Plugin CLI 1.0\n\nCommands:\n  init [dir] [--publisher id] [--template skill|mcp|file-tab|full|ts-worker|node-worker|python-worker|rust-worker|host-service|hooks]\n  validate [dir] [--json]\n  build [dir]\n  test [dir]\n  dev [dir] [--host url]\n  install --link [dir] [--host url]\n  uninstall [dir] [--delete-data] [--host url]\n  pack [dir] [--output file.vxp]\n  doctor [dir] [--host url]\n  toolchain\n\nHost-local only. Connection uses VIBEX_PLUGIN_DEV_HOST.`;
 const [command = "help", ...args] = process.argv.slice(2);
 
 try {
@@ -28,7 +29,7 @@ try {
       const root = await scaffoldPlugin(
         positional(args) ?? "vibex-plugin",
         flag(args, "--publisher") ?? "local",
-        (flag(args, "--template") ?? "full") as "full" | "app" | "agent",
+        flag(args, "--template") ?? "full",
       );
       await buildPlugin(root);
       console.log(`Created ${root}`);
@@ -106,6 +107,36 @@ try {
         process.removeListener("SIGINT", stop);
         process.removeListener("SIGTERM", stop);
       }
+      break;
+    }
+    case "toolchain": {
+      const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
+      console.log(
+        JSON.stringify(
+          {
+            hostVersion: "0.1.3",
+            cli: resolve(here, "cli.js"),
+            contract: resolve(here, "../../plugin-contract"),
+            js: resolve(here, "../../plugin-sdk"),
+            python: resolve(here, "../../../sdk/python"),
+            rust: resolve(here, "../../../crates/plugin-sdk"),
+            templates: [
+              "skill",
+              "mcp",
+              "file-tab",
+              "full",
+              "ts-worker",
+              "node-worker",
+              "python-worker",
+              "rust-worker",
+              "host-service",
+              "hooks",
+            ],
+          },
+          null,
+          2,
+        ),
+      );
       break;
     }
     case "doctor": {

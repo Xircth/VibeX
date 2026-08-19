@@ -39,15 +39,16 @@ mod tests {
         preflight_component_is_healthy, probe_local_runtime_candidate, probe_system_node_runtime,
         profile_component_distribution_kind, project_agent_environment, project_auth_mode_options,
         project_codex_auth_mode, project_opencode_provider_connections,
-        read_agent_management_snapshot, reconcile_grok_vibex_configuration,
-        reconcile_kimi_vibex_configuration, redact_operation_output,
-        remove_opencode_provider_state, resolve_npm_package_executable, resolve_uv_tool_executable,
-        restore_native_file_rollback, run_agent_management_warmup_once, run_bounded_agent_probes,
+        read_agent_environment_record, read_agent_management_snapshot,
+        reconcile_grok_vibex_configuration, reconcile_kimi_vibex_configuration,
+        redact_operation_output, relocate_managed_path, remove_opencode_provider_state,
+        resolve_npm_package_executable, resolve_uv_tool_executable, restore_native_file_rollback,
+        run_agent_management_warmup_once, run_bounded_agent_probes,
         run_local_runtime_discovery_once, runtime_preflight_facts, safe_archive_executable,
         sanitize_custom_version, seed_kimi_synthetic_credential, set_opencode_provider_enabled,
-        sync_native_launch_preferences, validate_agent_environment_name,
-        validate_native_config_patch, verify_acp_handshake, verify_managed_node_runtime,
-        write_bytes_document,
+        staging_dir_is_referenced_by, sync_native_launch_preferences,
+        validate_agent_environment_name, validate_native_config_patch, verify_acp_handshake,
+        verify_managed_node_runtime, write_bytes_document,
     };
 
     #[tokio::test]
@@ -360,6 +361,46 @@ mod tests {
         assert_eq!(current, "{\"EXTERNAL\":\"1\"}");
     }
 
+    #[tokio::test]
+    async fn missing_agent_setting_row_is_created_on_environment_read() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::query(
+            r#"CREATE TABLE agent_setting (
+                agent_type TEXT PRIMARY KEY,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                env_json TEXT,
+                updated_at TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let agent_id = AgentId::parse("deepseek_harness").unwrap();
+
+        let (raw, environment) = read_agent_environment_record(&pool, &agent_id)
+            .await
+            .expect("create missing settings row");
+        assert!(raw.is_none());
+        assert!(environment.is_empty());
+        assert!(
+            compare_and_set_agent_environment(
+                &pool,
+                &agent_id,
+                None,
+                r#"{"DSH_AGENT_PRESET":"code"}"#,
+            )
+            .await
+            .unwrap()
+        );
+        let stored: String =
+            sqlx::query_scalar("SELECT env_json FROM agent_setting WHERE agent_type = ?")
+                .bind(agent_id.as_str())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, r#"{"DSH_AGENT_PRESET":"code"}"#);
+    }
+
     #[test]
     fn environment_projection_redacts_credentials_and_keeps_plain_values() {
         let environment = BTreeMap::from([
@@ -444,7 +485,13 @@ mod tests {
 
     #[test]
     fn every_built_in_auth_mode_has_a_declared_ui_policy() {
-        for agent in ["claude_code", "gemini", "grok", "cursor"] {
+        for agent in [
+            "claude_code",
+            "gemini",
+            "grok",
+            "cursor",
+            "deepseek_harness",
+        ] {
             let agent_id = AgentId::parse(agent).unwrap();
             let policy = agents::built_in_auth_mode_policy(&agent_id).unwrap();
             let options = project_auth_mode_options(&agent_id, policy.modes);
@@ -704,6 +751,53 @@ wire_api = "responses"
         let expected = format!("{:x}", sha2::Sha256::digest(b"trusted"));
 
         assert!(!preflight_component_is_healthy(&path, Some(&expected)).await);
+    }
+
+    #[tokio::test]
+    async fn managed_preflight_accepts_an_existing_file_when_sha256_was_not_recorded() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("npx-shim");
+        tokio::fs::write(&path, b"#!/bin/sh\nexec node \"$0.js\" \"$@\"\n")
+            .await
+            .unwrap();
+
+        assert!(preflight_component_is_healthy(&path, None).await);
+        assert!(preflight_component_is_healthy(&path, Some("")).await);
+    }
+
+    #[test]
+    fn relocate_rewrites_staging_paths_onto_the_release_directory() {
+        let staging = PathBuf::from("/managed/claude_code/.staging-abc");
+        let release = PathBuf::from("/managed/claude_code/abc");
+        let nested = staging.join("1-acp_adapter/node_modules/.bin/claude-agent-acp");
+
+        assert_eq!(
+            relocate_managed_path(&nested, &staging, &release),
+            release.join("1-acp_adapter/node_modules/.bin/claude-agent-acp")
+        );
+        assert_eq!(
+            relocate_managed_path(Path::new("/usr/local/bin/node"), &staging, &release),
+            PathBuf::from("/usr/local/bin/node")
+        );
+    }
+
+    #[test]
+    fn recovery_cleanup_skips_a_staging_dir_referenced_by_a_live_lock() {
+        let root = Path::new("/managed/agents/grok");
+        let live = root.join(".staging-abc/0-combined_runtime/dist-package/grok");
+        let orphaned = root.join(".staging-def/0-combined_runtime/dist-package/grok");
+        assert!(staging_dir_is_referenced_by(
+            &root.join(".staging-abc"),
+            live.clone()
+        ));
+        assert!(!staging_dir_is_referenced_by(
+            &root.join(".staging-abc"),
+            orphaned
+        ));
+        assert!(!staging_dir_is_referenced_by(
+            &root.join(".staging-def"),
+            live
+        ));
     }
 
     #[tokio::test]
@@ -2101,10 +2195,14 @@ base_url = "https://example.test/v1"
 
 #[path = "agent_management/codex_device_auth.rs"]
 mod codex_device_auth;
+#[path = "agent_management/dsh_configuration.rs"]
+mod dsh_configuration;
 #[path = "agent_management/environment_diagnostics.rs"]
 mod environment_diagnostics;
 #[path = "agent_management/external_reconcile.rs"]
 mod external_reconcile;
+#[path = "agent_management/grok_plugins.rs"]
+mod grok_plugins;
 #[path = "agent_management/model_catalogs.rs"]
 mod model_catalogs;
 #[path = "agent_management/model_providers.rs"]
@@ -2151,21 +2249,25 @@ use api_types::{
     AgentManagementView, AgentModelCatalogView, AgentModelProviderSaveRequest,
     AgentModelProvidersView, AgentNativeConfigFieldKind, AgentNativeConfigFieldView,
     AgentNativeConfigFileView, AgentNativeConfigFileWriteRequest, AgentNativeConfigFormat,
-    AgentNativeConfigOptionView, AgentNativeConfigPatchRequest, AgentNativeConfigView,
-    AgentOperationEvent, AgentOperationKind, AgentOperationReceipt, AgentOperationStatus,
-    AgentPreflightItemView, AgentPreflightSource, AgentPreflightView, AgentRegistryView,
-    AgentSource, AgentUpdateCheckView, CodexDeviceCodePollView, CodexDeviceCodeView,
-    CodexModelCatalogConfigRequest, CodexModelCatalogConfigView, OpenCodePluginStatus,
-    OpenCodePluginSummaryView, OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest,
-    OpenCodeProviderConnectionView, OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest,
-    OpenCodeProviderModelView, PiCommandValidationView, PiConfigurationView,
-    PiCredentialsSaveRequest, PiRuntimeSaveRequest, UserAgentDefinitionRequest,
-    UserAgentDefinitionView,
+    AgentNativeConfigOptionView, AgentNativeConfigPatchRequest, AgentNativeConfigSurface,
+    AgentNativeConfigView, AgentOperationEvent, AgentOperationKind, AgentOperationReceipt,
+    AgentOperationStatus, AgentPreflightItemView, AgentPreflightSource, AgentPreflightView,
+    AgentRegistryView, AgentSource, AgentUpdateCheckView, CodexDeviceCodePollView,
+    CodexDeviceCodeView, CodexModelCatalogConfigRequest, CodexModelCatalogConfigView,
+    DshPluginSummaryView, DshProviderDiscoverRequest, DshProviderModelView, DshProviderSaveRequest,
+    DshProvidersView, GrokPluginSummaryView, OpenCodePluginStatus, OpenCodePluginSummaryView,
+    OpenCodeProviderCatalogView, OpenCodeProviderConnectRequest, OpenCodeProviderConnectionView,
+    OpenCodeProviderConnectionsView, OpenCodeProviderModelRequest, OpenCodeProviderModelView,
+    PiCommandValidationView, PiConfigurationView, PiCredentialsSaveRequest, PiRuntimeSaveRequest,
+    UserAgentDefinitionRequest, UserAgentDefinitionView,
 };
 use chrono::{Duration, Utc};
-use db::models::agent_management::{
-    AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
-    RegistrySnapshotRepository,
+use db::models::{
+    agent_management::{
+        AgentMembershipRepository, InstallationOperationRepository, NewInstallationOperation,
+        RegistrySnapshotRepository,
+    },
+    agent_setting::AgentSetting,
 };
 use futures::StreamExt;
 use services::services::{
@@ -2463,10 +2565,38 @@ pub(crate) async fn recover_interrupted_agent_operations(app: &AppHandle, pool: 
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with(".staging-"));
-        if staging_path.is_absolute() && staging_path.starts_with(&root) && is_staging {
-            let _ = tokio::fs::remove_dir_all(staging_path).await;
+        if !(staging_path.is_absolute() && staging_path.starts_with(&root) && is_staging) {
+            continue;
         }
+        // The crash could have happened after the install lock was persisted
+        // but before the operation was marked finished. Deleting that staging
+        // directory would orphan the current install (the lock keeps pointing
+        // at it), so every later session fails to spawn. Skip any staging dir
+        // still referenced by a persisted component path.
+        let lock_references = sqlx::query_scalar::<_, String>(
+            r#"SELECT absolute_path FROM agent_install_component
+               WHERE lock_id IN (
+                 SELECT id FROM agent_install_lock WHERE agent_id = ?
+               )"#,
+        )
+        .bind(operation.agent_id.as_str())
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .any(|path| staging_dir_is_referenced_by(&staging_path, PathBuf::from(path)));
+        if lock_references {
+            continue;
+        }
+        let _ = tokio::fs::remove_dir_all(&staging_path).await;
     }
+}
+
+/// Whether any persisted component path lives inside `staging` — the recovery
+/// cleanup must never delete a staging directory that the current install lock
+/// still points at.
+fn staging_dir_is_referenced_by(staging: &Path, component_path: PathBuf) -> bool {
+    component_path.starts_with(staging)
 }
 
 struct OperationScheduler {
@@ -3205,6 +3335,81 @@ async fn probe_resolved_local_runtime_candidate(
     })
 }
 
+async fn discover_profile_acp_launch(
+    profile: &agents::BuiltInProfile,
+) -> anyhow::Result<SessionLaunchLock> {
+    let candidate = profile
+        .external_candidates
+        .iter()
+        .find(|candidate| {
+            matches!(
+                candidate.component,
+                ProfileComponent::AcpAdapter | ProfileComponent::CombinedRuntime
+            )
+        })
+        .ok_or_else(|| anyhow::anyhow!("Profile does not declare an ACP candidate"))?;
+    let executable = utils::shell::resolve_executable_path(candidate.executable)
+        .await
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "external ACP candidate `{}` was not found",
+                candidate.executable
+            )
+        })?;
+    let executable = tokio::fs::canonicalize(executable).await?;
+    if !executable.is_absolute() || !tokio::fs::metadata(&executable).await?.is_file() {
+        anyhow::bail!("external ACP candidate is not an absolute executable file");
+    }
+    let args = profile
+        .install_sources
+        .iter()
+        .find_map(|source| match source {
+            ProfileInstallSource::Npx {
+                component, args, ..
+            }
+            | ProfileInstallSource::Uvx {
+                component, args, ..
+            }
+            | ProfileInstallSource::Binary {
+                component, args, ..
+            } if profile_component_key(*component)
+                == profile_component_key(candidate.component) =>
+            {
+                Some(
+                    args.iter()
+                        .map(|argument| (*argument).to_string())
+                        .collect::<Vec<_>>(),
+                )
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
+    let mut env = BTreeMap::new();
+    let mut path_entries = vec![
+        executable
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(".")),
+    ];
+    path_entries.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    env.insert(
+        "PATH".to_string(),
+        std::env::join_paths(path_entries)?
+            .to_string_lossy()
+            .to_string(),
+    );
+    Ok(SessionLaunchLock {
+        agent_id: profile.agent_id.clone(),
+        absolute_acp_program: executable,
+        args,
+        env,
+        runtime_version: String::new(),
+        acp_version: String::new(),
+    })
+}
+
 async fn discover_profile_local_runtime(
     pool: &sqlx::SqlitePool,
     profile: &agents::BuiltInProfile,
@@ -3734,6 +3939,16 @@ pub async fn agent_registry_add_and_install(
     {
         return Ok(receipt);
     }
+    if let Some(receipt) = try_adopt_user_environment(
+        &app,
+        &state.deployment.db().pool,
+        &agent_id,
+        AgentOperationKind::Install,
+    )
+    .await?
+    {
+        return Ok(receipt);
+    }
     queue_operation(
         &app,
         &state.deployment.db().pool,
@@ -3946,6 +4161,7 @@ pub async fn agent_management_preflight(
     let mut runtime_ok = runtime_facts.available;
     let healthy_acp = find_healthy_component(&["acp_adapter", "combined_runtime"]);
     let mut acp_ok = false;
+    let mut acp_error = None;
     let mut authentication_observation = None;
     if let (Some((_, resolved_json)), Some(_)) = (&lock, healthy_acp) {
         #[derive(serde::Deserialize)]
@@ -3990,7 +4206,42 @@ pub async fn agent_management_preflight(
                     acp_ok = true;
                     authentication_observation = capabilities.authentication;
                 }
-                Err(_) => acp_ok = false,
+                Err(error) => {
+                    acp_ok = false;
+                    acp_error = Some(error.to_string());
+                }
+            }
+        }
+    }
+    if !acp_ok {
+        let catalog = BuiltInProfileCatalog::bundled();
+        if let Some(profile) = catalog.profile(&agent_id)
+            && let Ok(discovered) = discover_profile_acp_launch(profile).await
+        {
+            let working_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(internal_error)?
+                .join("agents")
+                .join(agent_id.as_str());
+            match probe_acp_capabilities(
+                &agent_id,
+                &discovered,
+                &working_dir,
+                &CancellationToken::new(),
+            )
+            .await
+            {
+                Ok(capabilities) => {
+                    acp_ok = true;
+                    acp_error = None;
+                    authentication_observation = capabilities.authentication;
+                }
+                Err(error) => {
+                    if acp_error.is_none() {
+                        acp_error = Some(error.to_string());
+                    }
+                }
             }
         }
     }
@@ -4010,6 +4261,20 @@ pub async fn agent_management_preflight(
         }
     } else {
         AgentAuthenticationStatus::NotLoggedIn
+    };
+    let native_authentication = if agent_id.as_str() == "deepseek_harness" {
+        if let Ok(home) = app.path().home_dir() {
+            let paths = dsh_paths(&home, &agent_env);
+            if dsh_configuration::any_credential_present(&paths) {
+                AgentAuthenticationStatus::ApiKey
+            } else {
+                native_authentication
+            }
+        } else {
+            native_authentication
+        }
+    } else {
+        native_authentication
     };
     let authentication_required_by_default = BuiltInProfileCatalog::bundled()
         .profile(&agent_id)
@@ -4116,6 +4381,49 @@ pub async fn agent_management_preflight(
                             detail,
                             version: Some(auth_mode.mode),
                             path: Some(codex_home.join("auth.json").display().to_string()),
+                            source: None,
+                            repairable: !ready,
+                        }),
+                        ready,
+                        ready,
+                    )
+                }
+                Err(error) => (
+                    Some(AgentPreflightItemView {
+                        id: "auth.mode".to_string(),
+                        label: "鉴权模式".to_string(),
+                        status: "fail".to_string(),
+                        detail: error.message,
+                        version: None,
+                        path: None,
+                        source: None,
+                        repairable: true,
+                    }),
+                    false,
+                    false,
+                ),
+            }
+        } else if agent_id.as_str() == "deepseek_harness" {
+            match read_dsh_auth_mode_view(&app, pool).await {
+                Ok(auth_mode) => {
+                    let ready = auth_mode.credential_present;
+                    (
+                        Some(AgentPreflightItemView {
+                            id: "auth.mode".to_string(),
+                            label: "鉴权模式".to_string(),
+                            status: status(ready),
+                            detail: if ready {
+                                "已从 DeepSeek Harness 原生凭据检测到 API 配置。".to_string()
+                            } else {
+                                "尚未检测到 DeepSeek API Key 或自定义模型供应商凭据。".to_string()
+                            },
+                            version: Some(auth_mode.mode),
+                            path: Some(
+                                dsh_paths(&app.path().home_dir().unwrap_or_default(), &agent_env)
+                                    .credentials
+                                    .display()
+                                    .to_string(),
+                            ),
                             source: None,
                             repairable: !ready,
                         }),
@@ -4314,10 +4622,14 @@ pub async fn agent_management_preflight(
             id: "acp".to_string(),
             label: "ACP 适配器".to_string(),
             status: status(acp_ok),
-            detail: if acp.is_none() {
-                "未发现 ACP 安装组件。".to_string()
-            } else {
+            detail: if acp_ok {
                 String::new()
+            } else if let Some(error) = acp_error.as_ref() {
+                format!("ACP 握手失败：{error}")
+            } else if acp.is_none() {
+                "未发现 ACP 安装组件。请先安装官方 CLI，或使用「安装 Runtime 和 ACP」。".to_string()
+            } else {
+                "已记录安装路径，但尚未完成可用的 ACP 握手。".to_string()
             },
             version: acp.map(|(_, _, version, _)| version.clone()),
             path: acp.map(|(_, path, _, _)| path.display().to_string()),
@@ -4407,12 +4719,45 @@ async fn preflight_component_is_healthy(path: &Path, expected_sha256: Option<&st
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
-        return false;
+        // npx/uvx shims and recovered locks may not record a content hash.
+        // Presence is enough to attempt the ACP handshake; a missing hash is
+        // not evidence that the adapter was never installed.
+        return true;
     };
     tokio::fs::read(path)
         .await
         .map(|bytes| format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(expected))
         .unwrap_or(false)
+}
+
+fn relocate_managed_path(path: &Path, from: &Path, to: &Path) -> PathBuf {
+    path.strip_prefix(from)
+        .map(|relative| to.join(relative))
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn relocate_installed_plan(
+    mut installation: InstalledPlan,
+    from: &Path,
+    to: &Path,
+) -> InstalledPlan {
+    installation.launch_lock.absolute_acp_program =
+        relocate_managed_path(&installation.launch_lock.absolute_acp_program, from, to);
+    if let Some(path_value) = installation.launch_lock.env.get("PATH").cloned() {
+        let rewritten = std::env::split_paths(&path_value)
+            .map(|entry| relocate_managed_path(&entry, from, to))
+            .collect::<Vec<_>>();
+        if let Ok(joined) = std::env::join_paths(rewritten) {
+            installation
+                .launch_lock
+                .env
+                .insert("PATH".to_string(), joined.to_string_lossy().into_owned());
+        }
+    }
+    for component in &mut installation.components {
+        component.absolute_path = relocate_managed_path(&component.absolute_path, from, to);
+    }
+    installation
 }
 
 async fn codex_provider_projection_ready(codex_home: &Path) -> bool {
@@ -4633,6 +4978,11 @@ pub async fn agent_management_repair(
     let pool = &state.deployment.db().pool;
     if let Some(receipt) =
         revalidate_external_installation(&app, pool, &agent_id, AgentOperationKind::Repair).await?
+    {
+        return Ok(receipt);
+    }
+    if let Some(receipt) =
+        try_adopt_user_environment(&app, pool, &agent_id, AgentOperationKind::Repair).await?
     {
         return Ok(receipt);
     }
@@ -4918,6 +5268,39 @@ async fn revalidate_external_installation(
     }))
 }
 
+/// Bind a user-environment install (PATH) as the current external lock.
+/// After a data wipe this is the preferred repair/install path: do not
+/// create a second managed staging tree when the official CLI is already
+/// on PATH.
+async fn try_adopt_user_environment(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    kind: AgentOperationKind,
+) -> Result<Option<AgentOperationReceipt>, AgentManagementErrorView> {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let Some(profile) = catalog.profile(agent_id) else {
+        return Ok(None);
+    };
+    let _ = utils::shell::refresh_process_path_after_install().await;
+    let Ok(local_runtime) = discover_profile_local_runtime(pool, profile).await else {
+        return Ok(None);
+    };
+    if probe_one_built_in_external_installation(app, pool, profile, &local_runtime)
+        .await
+        .is_err()
+    {
+        return Ok(None);
+    }
+    let _ = app.emit(MANAGEMENT_INVALIDATED_EVENT, ());
+    Ok(Some(AgentOperationReceipt {
+        operation_id: Uuid::new_v4().to_string(),
+        agent_id: agent_id.clone(),
+        kind,
+        status: AgentOperationStatus::Succeeded,
+    }))
+}
+
 async fn queue_operation_with_version(
     app: &AppHandle,
     pool: &sqlx::SqlitePool,
@@ -4927,7 +5310,10 @@ async fn queue_operation_with_version(
 ) -> Result<AgentOperationReceipt, AgentManagementErrorView> {
     let kind_key = operation_kind_key(kind);
     let mut plan = match kind {
-        AgentOperationKind::Repair => resolve_repair_plan(pool, &agent_id).await,
+        AgentOperationKind::Repair => match resolve_repair_plan(pool, &agent_id).await {
+            Ok(plan) => Ok(plan),
+            Err(_) => resolve_install_plan(pool, &agent_id).await,
+        },
         _ => resolve_install_plan(pool, &agent_id).await,
     }
     .map_err(|error| {
@@ -5257,6 +5643,12 @@ async fn run_install_operation(
             let _ = tokio::fs::remove_dir_all(&staging).await;
             anyhow::bail!("operation canceled");
         }
+        let release = root.join(lock_id.to_string());
+        if let Err(error) = tokio::fs::rename(&staging, &release).await {
+            let _ = tokio::fs::remove_dir_all(&staging).await;
+            return Err(error.into());
+        }
+        let installation = relocate_installed_plan(installation, &staging, &release);
         emit_operation(
             &app,
             agent_id.clone(),
@@ -5303,7 +5695,7 @@ async fn run_install_operation(
                     "failed to restore Agent terminal command after lock persistence failure"
                 );
             }
-            let _ = tokio::fs::remove_dir_all(&staging).await;
+            let _ = tokio::fs::remove_dir_all(&release).await;
             return Err(error);
         }
         CLI_EXPOSURES
@@ -8065,6 +8457,7 @@ async fn sync_model_provider_auth_overlay(
         environment.remove(policy.mode_env);
     }
     let env_json = serde_json::to_string(&environment).map_err(internal_error)?;
+    ensure_agent_setting_row(pool, agent_id).await?;
     let result = sqlx::query(
         "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_type = ?",
     )
@@ -8180,6 +8573,290 @@ pub async fn pi_command_validate(command: String) -> PiCommandValidationView {
     pi_configuration::validate_command(&command).await
 }
 
+fn dsh_agent_id() -> AgentId {
+    AgentId::parse("deepseek_harness").expect("built-in id")
+}
+
+fn dsh_paths(home: &Path, environment: &HashMap<String, String>) -> dsh_configuration::DshPaths {
+    dsh_configuration::resolve_paths(home, environment)
+}
+
+#[tauri::command]
+pub async fn dsh_providers(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<DshProvidersView, AgentManagementErrorView> {
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &dsh_agent_id()).await?;
+    let paths = dsh_paths(&home, &environment);
+    dsh_configuration::load_providers(
+        &paths,
+        environment
+            .get(dsh_configuration::ACP_PROVIDER_ENV)
+            .map(String::as_str),
+        environment
+            .get(dsh_configuration::ACP_MODEL_ENV)
+            .map(String::as_str),
+    )
+    .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn dsh_provider_save(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: DshProviderSaveRequest,
+) -> Result<DshProvidersView, AgentManagementErrorView> {
+    let agent_id = dsh_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let paths = dsh_paths(&home, &environment);
+    let (view, mutations) =
+        dsh_configuration::save_provider(&paths, request.clone()).map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    apply_native_file_mutations(&mutations).await?;
+    apply_dsh_default_environment(
+        &state.deployment.db().pool,
+        &agent_id,
+        &request,
+        &environment,
+    )
+    .await?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "DeepSeek Harness Provider 已更改")
+        .await;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    dsh_configuration::load_providers(
+        &paths,
+        environment
+            .get(dsh_configuration::ACP_PROVIDER_ENV)
+            .map(String::as_str),
+        environment
+            .get(dsh_configuration::ACP_MODEL_ENV)
+            .map(String::as_str),
+    )
+    .map_err(internal_error)
+    .or(Ok(view))
+}
+
+#[tauri::command]
+pub async fn dsh_provider_delete(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    provider_id: String,
+) -> Result<DshProvidersView, AgentManagementErrorView> {
+    let agent_id = dsh_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let paths = dsh_paths(&home, &environment);
+    let (view, mutations) =
+        dsh_configuration::delete_provider(&paths, &provider_id).map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    apply_native_file_mutations(&mutations).await?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "DeepSeek Harness Provider 已删除")
+        .await;
+    Ok(view)
+}
+
+#[tauri::command]
+pub async fn dsh_provider_discover_models(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: DshProviderDiscoverRequest,
+) -> Result<Vec<DshProviderModelView>, AgentManagementErrorView> {
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &dsh_agent_id()).await?;
+    let paths = dsh_paths(&home, &environment);
+    dsh_configuration::discover_models(
+        &paths,
+        &request.base_url,
+        request.api_key.as_deref(),
+        request.provider_id.as_deref(),
+    )
+    .await
+    .map_err(|message| {
+        management_error(
+            AgentManagementErrorCode::InvalidState,
+            message,
+            Some(dsh_agent_id()),
+        )
+    })
+}
+
+#[tauri::command]
+pub async fn dsh_plugins(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<DshPluginSummaryView, AgentManagementErrorView> {
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &dsh_agent_id()).await?;
+    dsh_configuration::load_plugins(&dsh_paths(&home, &environment)).map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn dsh_plugin_add(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    spec: String,
+) -> Result<DshPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = dsh_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let result = dsh_configuration::add_plugin(&dsh_paths(&home, &environment), &spec)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "DeepSeek Harness 插件已更改")
+        .await;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn dsh_plugin_remove(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<DshPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = dsh_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let result = dsh_configuration::remove_plugin(&dsh_paths(&home, &environment), &name)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "DeepSeek Harness 插件已更改")
+        .await;
+    Ok(result)
+}
+
+fn grok_agent_id() -> AgentId {
+    AgentId::parse("grok").expect("built-in id")
+}
+
+#[tauri::command]
+pub async fn grok_plugins(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<GrokPluginSummaryView, AgentManagementErrorView> {
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &grok_agent_id()).await?;
+    grok_plugins::list_plugins(&home, &environment)
+        .await
+        .map_err(internal_error)
+}
+
+#[tauri::command]
+pub async fn grok_plugin_add(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    spec: String,
+) -> Result<GrokPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = grok_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let result = grok_plugins::add_plugin(&home, &environment, &spec)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "Grok 插件已更改")
+        .await;
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn grok_plugin_remove(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<GrokPluginSummaryView, AgentManagementErrorView> {
+    let agent_id = grok_agent_id();
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    let result = grok_plugins::remove_plugin(&home, &environment, &name)
+        .await
+        .map_err(|message| {
+            management_error(
+                AgentManagementErrorCode::InvalidState,
+                message,
+                Some(agent_id.clone()),
+            )
+        })?;
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "Grok 插件已更改")
+        .await;
+    Ok(result)
+}
+
+async fn apply_dsh_default_environment(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+    request: &DshProviderSaveRequest,
+    current: &HashMap<String, String>,
+) -> Result<(), AgentManagementErrorView> {
+    let updates = dsh_configuration::default_env_updates(request, current);
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let (raw_environment, mut environment) = read_agent_environment_record(pool, agent_id).await?;
+    for (name, value) in updates {
+        match value {
+            Some(value) => {
+                environment.insert(name, value);
+            }
+            None => {
+                environment.remove(&name);
+            }
+        }
+    }
+    let serialized = serde_json::to_string(&environment).map_err(internal_error)?;
+    let updated =
+        compare_and_set_agent_environment(pool, agent_id, raw_environment.as_deref(), &serialized)
+            .await?;
+    if !updated {
+        return Err(management_error(
+            AgentManagementErrorCode::ConfigConflict,
+            "Agent 环境变量在保存期间发生变化，请重新读取后再保存",
+            Some(agent_id.clone()),
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn agent_auth_mode(
     app: AppHandle,
@@ -8188,6 +8865,9 @@ pub async fn agent_auth_mode(
 ) -> Result<AgentAuthModeView, AgentManagementErrorView> {
     if agent_id.as_str() == "codex" {
         return read_codex_auth_mode_view(&app, &state.deployment.db().pool).await;
+    }
+    if agent_id.as_str() == "deepseek_harness" {
+        return read_dsh_auth_mode_view(&app, &state.deployment.db().pool).await;
     }
     if matches!(agent_id.as_str(), "claude_code" | "gemini") {
         return read_profile_auth_mode_view(&app, &state.deployment.db().pool, agent_id).await;
@@ -8221,6 +8901,9 @@ pub async fn agent_auth_mode_set(
 ) -> Result<AgentAuthModeView, AgentManagementErrorView> {
     if agent_id.as_str() == "codex" {
         return set_codex_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
+    }
+    if agent_id.as_str() == "deepseek_harness" {
+        return set_dsh_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
     }
     if matches!(agent_id.as_str(), "claude_code" | "gemini") {
         return set_profile_auth_mode(&app, &state, agent_id, &mode, api_key.as_deref()).await;
@@ -8270,6 +8953,7 @@ pub async fn agent_auth_mode_set(
     }
     agents::apply_built_in_auth_mode_policy(&agent_id, &mut env);
     let env_json = serde_json::to_string(&env).map_err(internal_error)?;
+    ensure_agent_setting_row(&state.deployment.db().pool, &agent_id).await?;
     let result = sqlx::query(
         "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_type = ?",
     )
@@ -8290,6 +8974,107 @@ pub async fn agent_auth_mode_set(
         .mark_agent_sessions_config_stale(&agent_id, "Agent 鉴权模式已更改")
         .await;
     Ok(project_agent_auth_mode(agent_id, policy, &env))
+}
+
+async fn read_dsh_auth_mode_view(
+    app: &AppHandle,
+    pool: &sqlx::SqlitePool,
+) -> Result<AgentAuthModeView, AgentManagementErrorView> {
+    let agent_id = dsh_agent_id();
+    let policy = agents::built_in_auth_mode_policy(&agent_id).expect("DSH auth policy");
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let environment = read_agent_environment(pool, &agent_id).await?;
+    let paths = dsh_paths(&home, &environment);
+    let view = dsh_configuration::load_providers(
+        &paths,
+        environment
+            .get(dsh_configuration::ACP_PROVIDER_ENV)
+            .map(String::as_str),
+        environment
+            .get(dsh_configuration::ACP_MODEL_ENV)
+            .map(String::as_str),
+    )
+    .map_err(internal_error)?;
+    let mut projected = project_agent_auth_mode(agent_id, policy, &environment);
+    projected.credential_present = view
+        .providers
+        .iter()
+        .any(|provider| provider.credential_present)
+        || dsh_configuration::any_credential_present(&paths)
+        || environment
+            .get(policy.credential_env)
+            .is_some_and(|value| !value.trim().is_empty());
+    projected.mode = dsh_configuration::inferred_auth_mode(
+        &paths,
+        environment.get(policy.mode_env).map(String::as_str),
+    )
+    .to_string();
+    Ok(projected)
+}
+
+async fn set_dsh_auth_mode(
+    app: &AppHandle,
+    state: &AppState,
+    agent_id: AgentId,
+    mode: &str,
+    api_key: Option<&str>,
+) -> Result<AgentAuthModeView, AgentManagementErrorView> {
+    let policy = agents::built_in_auth_mode_policy(&agent_id).expect("DSH auth policy");
+    if !policy.modes.contains(&mode) {
+        return Err(management_error(
+            AgentManagementErrorCode::InvalidState,
+            format!("不支持鉴权模式 `{mode}`"),
+            Some(agent_id),
+        ));
+    }
+    let home = app.path().home_dir().map_err(internal_error)?;
+    let mut environment = read_agent_environment(&state.deployment.db().pool, &agent_id).await?;
+    environment.insert(policy.mode_env.to_string(), mode.to_string());
+    if let Some(api_key) = api_key.map(str::trim).filter(|value| !value.is_empty()) {
+        let paths = dsh_paths(&home, &environment);
+        let request = DshProviderSaveRequest {
+            id: dsh_configuration::OFFICIAL_PROVIDER_ID.to_string(),
+            display_name: None,
+            notes: None,
+            api: None,
+            base_url: None,
+            api_key: Some(api_key.to_string()),
+            models: Vec::new(),
+            set_default: false,
+            default_model: None,
+        };
+        let (_, mutations) =
+            dsh_configuration::save_provider(&paths, request).map_err(|message| {
+                management_error(
+                    AgentManagementErrorCode::InvalidState,
+                    message,
+                    Some(agent_id.clone()),
+                )
+            })?;
+        apply_native_file_mutations(&mutations).await?;
+    }
+    agents::apply_built_in_auth_mode_policy(&agent_id, &mut environment);
+    let serialized = serde_json::to_string(&environment).map_err(internal_error)?;
+    let (raw, _) = read_agent_environment_record(&state.deployment.db().pool, &agent_id).await?;
+    let updated = compare_and_set_agent_environment(
+        &state.deployment.db().pool,
+        &agent_id,
+        raw.as_deref(),
+        &serialized,
+    )
+    .await?;
+    if !updated {
+        return Err(management_error(
+            AgentManagementErrorCode::ConfigConflict,
+            "Agent 环境变量在保存期间发生变化，请重新读取后再保存",
+            Some(agent_id),
+        ));
+    }
+    state
+        .agent_runtime
+        .mark_agent_sessions_config_stale(&agent_id, "DeepSeek Harness 鉴权模式已更改")
+        .await;
+    read_dsh_auth_mode_view(app, &state.deployment.db().pool).await
 }
 
 fn parse_agent_env(value: Option<&str>) -> Result<HashMap<String, String>, serde_json::Error> {
@@ -8724,6 +9509,7 @@ async fn set_profile_auth_mode(
         }
         agents::apply_built_in_auth_mode_policy(&agent_id, &mut environment);
         let env_json = serde_json::to_string(&environment).map_err(internal_error)?;
+        ensure_agent_setting_row(&state.deployment.db().pool, &agent_id).await?;
         let result = sqlx::query(
             "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_type = ?",
         )
@@ -9193,6 +9979,7 @@ fn native_auth_config_field_id(agent_id: &AgentId, mode: &str) -> Option<&'stati
         ("codex", "api_key") => Some("openai_api_key"),
         ("gemini", "custom" | "gemini_api_key") => Some("gemini_api_key"),
         ("gemini", "vertex_api_key") => Some("gemini_google_api_key"),
+        ("deepseek_harness", "deepseek" | "custom") => Some("deepseek_harness_api_key"),
         _ => None,
     }
 }
@@ -9243,6 +10030,13 @@ fn auth_mode_translation_keys(agent_id: &AgentId, mode: &str) -> (&'static str, 
             "agents.authDescCursorSubscription",
         ),
         ("cursor", "custom") => ("agents.authModeCursorKey", "agents.authDescCursorKey"),
+        ("deepseek_harness", "deepseek") => {
+            ("agents.authModeDeepseekApi", "agents.authDescDeepseekApi")
+        }
+        ("deepseek_harness", "custom") => (
+            "agents.authModeCustomEndpoint",
+            "agents.authDescDeepseekCustom",
+        ),
         _ => ("agents.authModeUnknown", "agents.authDescUnknown"),
     }
 }
@@ -10330,6 +11124,7 @@ async fn compare_and_set_agent_environment(
     expected: Option<&str>,
     serialized: &str,
 ) -> Result<bool, AgentManagementErrorView> {
+    ensure_agent_setting_row(pool, agent_id).await?;
     let result = sqlx::query(
         "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP \
          WHERE agent_type = ? AND env_json IS ?",
@@ -10343,10 +11138,20 @@ async fn compare_and_set_agent_environment(
     Ok(result.rows_affected() == 1)
 }
 
+async fn ensure_agent_setting_row(
+    pool: &sqlx::SqlitePool,
+    agent_id: &AgentId,
+) -> Result<(), AgentManagementErrorView> {
+    AgentSetting::ensure_row(pool, agent_id.as_str())
+        .await
+        .map_err(internal_error)
+}
+
 async fn read_agent_environment_record(
     pool: &sqlx::SqlitePool,
     agent_id: &AgentId,
 ) -> Result<(Option<String>, BTreeMap<String, String>), AgentManagementErrorView> {
+    ensure_agent_setting_row(pool, agent_id).await?;
     let Some(raw) = sqlx::query_scalar::<_, Option<String>>(
         "SELECT env_json FROM agent_setting WHERE agent_type = ?",
     )
@@ -10500,6 +11305,14 @@ fn native_config_view(
             value: field.value,
             masked_value: field.masked_value,
             revision: field.revision,
+            surface: match field.surface {
+                agents::NativeConfigSurface::Configuration => {
+                    AgentNativeConfigSurface::Configuration
+                }
+                agents::NativeConfigSurface::Authentication => {
+                    AgentNativeConfigSurface::Authentication
+                }
+            },
         })
         .collect();
     let files = snapshot
@@ -11017,6 +11830,7 @@ async fn sync_native_launch_preferences(
         }
     }
     let env_json = serde_json::to_string(&env).map_err(internal_error)?;
+    ensure_agent_setting_row(pool, agent_id).await?;
     let result = sqlx::query(
         "UPDATE agent_setting SET env_json = ?, updated_at = CURRENT_TIMESTAMP WHERE agent_type = ?",
     )

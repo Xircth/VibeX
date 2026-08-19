@@ -29,23 +29,13 @@ export async function createWorkerHarness(
     input: JsonValue;
   }> = [];
   const host =
-    options.host ??
-    ({
-      async call<T extends JsonValue = JsonValue>(
-        capability: string,
-        operation: string,
-        input: JsonValue = null
-      ): Promise<T> {
-        hostCalls.push({ capability, operation, input });
-        return null as T;
-      },
-    } satisfies PluginHostClient);
+    options.host ?? createMemoryHostClient(hostCalls);
   const worker = await activatePluginWorker(definition, {
     context: {
       pluginId: options.context?.pluginId ?? 'dev.vibex.test',
       pluginVersion: options.context?.pluginVersion ?? '0.0.0-test',
       generation: options.context?.generation ?? 1,
-      trust: 'full',
+      packageClass: options.context?.packageClass ?? 'full-trust',
       grantedCapabilities: options.context?.grantedCapabilities ?? ['*'],
     },
     host,
@@ -233,6 +223,97 @@ export async function createAppHarness(
     async dispose() {
       revoke();
       await cleanup?.();
+    },
+  };
+}
+
+/**
+ * In-memory Host: implements storage, secrets, log, artifact, and doctor.
+ * Every other catalog operation fails with capability_unimplemented.
+ */
+function createMemoryHostClient(
+  hostCalls: Array<{ capability: string; operation: string; input: JsonValue }>
+): PluginHostClient {
+  const settings: Record<string, JsonValue> = {};
+  const kv = new Map<string, JsonValue>();
+  const secrets = new Map<string, string>();
+  let artifact = {
+    name: "memory.txt",
+    content: "",
+    revision: "sha256:test-0",
+  };
+  return {
+    async call<T extends JsonValue = JsonValue>(
+      capability: string,
+      operation: string,
+      input: JsonValue = null
+    ): Promise<T> {
+      hostCalls.push({ capability, operation, input });
+      const key = `${capability}.${operation}`;
+      switch (key) {
+        case "storage.settings.get":
+          return { ...settings } as T;
+        case "storage.settings.put":
+          Object.assign(settings, (input as { value?: Record<string, JsonValue> })?.value ?? input);
+          return { ...settings } as T;
+        case "storage.kv.get":
+          return (kv.get(String((input as { key?: string })?.key)) ?? null) as T;
+        case "storage.kv.put": {
+          const rec = input as { key?: string; value?: JsonValue };
+          if (rec.key) kv.set(rec.key, rec.value ?? null);
+          return (rec.value ?? null) as T;
+        }
+        case "storage.kv.delete":
+          kv.delete(String((input as { key?: string })?.key));
+          return null as T;
+        case "storage.kv.list":
+          return [...kv.keys()] as T;
+        case "storage.database.execute":
+        case "storage.database.query":
+          return { rows: [], changes: 0 } as unknown as T;
+        case "secrets.get": {
+          const name = String((input as { name?: string })?.name ?? "");
+          const value = secrets.get(name);
+          return (value === undefined ? { present: false } : { present: true, value }) as unknown as T;
+        }
+        case "secrets.put": {
+          const rec = input as { name?: string; value?: string };
+          if (rec.name) secrets.set(rec.name, rec.value ?? "");
+          return { present: true } as unknown as T;
+        }
+        case "secrets.delete":
+          secrets.delete(String((input as { name?: string })?.name ?? ""));
+          return { present: false } as unknown as T;
+        case "log.debug":
+        case "log.info":
+        case "log.warn":
+        case "log.error":
+          return {} as T;
+        case "artifact.readText":
+          return { ...artifact } as unknown as T;
+        case "artifact.writeText": {
+          const rec = input as { content?: string; expectedRevision?: string };
+          if (rec.expectedRevision && rec.expectedRevision !== artifact.revision) {
+            throw new PluginSdkError(
+              "artifact_revision_conflict",
+              "The artifact changed outside this editor"
+            );
+          }
+          artifact = {
+            ...artifact,
+            content: rec.content ?? "",
+            revision: `sha256:test-${Date.now()}`,
+          };
+          return { revision: artifact.revision } as unknown as T;
+        }
+        case "plugin.self.doctor":
+          return { diagnostics: [], recentCrashes: [] } as unknown as T;
+        default:
+          throw new PluginSdkError(
+            "capability_unimplemented",
+            `${key} is not implemented by the in-memory harness`
+          );
+      }
     },
   };
 }

@@ -1,68 +1,60 @@
-//! In-app log viewer commands (P2-8): a static tail of the newest rotating log
-//! file plus the log directory path (for "open folder"). Not a streaming console.
+//! Commands backing Settings → Logs.
 
-use std::io::{Read, Seek, SeekFrom};
+use tauri::{AppHandle, Emitter};
 
-use crate::error::AppError;
+use crate::{
+    error::AppError,
+    logging::{
+        LOG_SETTINGS_CHANGED_EVENT, LogSettings, LogSettingsView,
+        hub::{LogRecord, log_hub},
+        init::{env_level_is_set, load_persisted_settings, persist_settings, sanitize_settings},
+    },
+};
 
-/// How many trailing bytes of the newest log file to read (bounds memory for a
-/// large daily log). ~1 MiB comfortably covers thousands of recent lines.
-const TAIL_BYTES: u64 = 1024 * 1024;
-const DEFAULT_MAX_LINES: usize = 500;
+const DEFAULT_LIMIT: usize = 500;
+const MAX_LIMIT: usize = 5_000;
 
-fn newest_log_file() -> Option<std::path::PathBuf> {
-    let dir = utils::assets::logs_dir();
-    std::fs::read_dir(&dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            // Match by filename prefix, not extension: the primary appender writes
-            // `vibex.<date>.log` (ext "log") but the fallback writes `vibex.log.<date>`
-            // (ext = the date), and both must be found.
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| name.starts_with("vibex") && name.contains(".log"))
-        })
-        .max_by_key(|path| {
-            std::fs::metadata(path)
-                .and_then(|meta| meta.modified())
-                .ok()
-        })
-}
-
-/// Return the last `max_lines` lines of the newest application log file.
 #[tauri::command]
-pub async fn get_app_logs(max_lines: Option<usize>) -> Result<Vec<String>, AppError> {
-    let max_lines = max_lines.unwrap_or(DEFAULT_MAX_LINES).clamp(1, 5000);
-    let Some(path) = newest_log_file() else {
-        return Ok(Vec::new());
-    };
-
-    let mut file = std::fs::File::open(&path)
-        .map_err(|error| AppError::Internal(format!("Failed to open log file: {error}")))?;
-    let len = file
-        .metadata()
-        .map_err(|error| AppError::Internal(format!("Failed to stat log file: {error}")))?
-        .len();
-    let start = len.saturating_sub(TAIL_BYTES);
-    file.seek(SeekFrom::Start(start))
-        .map_err(|error| AppError::Internal(format!("Failed to seek log file: {error}")))?;
-    // Read raw bytes and convert lossily: a tail seek can land mid-UTF-8, so a
-    // strict decode would spuriously fail.
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
-        .map_err(|error| AppError::Internal(format!("Failed to read log file: {error}")))?;
-    let buf = String::from_utf8_lossy(&bytes);
-
-    let mut lines: Vec<String> = buf.lines().map(str::to_string).collect();
-    let tail = lines.split_off(lines.len().saturating_sub(max_lines));
-    Ok(tail)
+pub async fn get_log_settings() -> Result<LogSettingsView, AppError> {
+    let settings = load_persisted_settings();
+    Ok(LogSettingsView {
+        level: settings.level,
+        targets: settings.targets,
+        env_locked: env_level_is_set(),
+    })
 }
 
-/// The application log directory path (for an "open folder" action).
+#[tauri::command]
+pub async fn set_log_settings(
+    settings: LogSettings,
+    app: AppHandle,
+) -> Result<LogSettings, AppError> {
+    let settings = sanitize_settings(settings);
+    persist_settings(&settings).map_err(AppError::Internal)?;
+    if !env_level_is_set() {
+        if let Some(hub) = log_hub() {
+            hub.apply_settings(&settings);
+        }
+    }
+    let _ = app.emit(LOG_SETTINGS_CHANGED_EVENT, &settings);
+    Ok(settings)
+}
+
+#[tauri::command]
+pub async fn get_recent_logs(limit: Option<usize>) -> Result<Vec<LogRecord>, AppError> {
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    Ok(match log_hub() {
+        Some(hub) => {
+            let mut records = hub.snapshot();
+            if records.len() > limit {
+                records.drain(0..records.len() - limit);
+            }
+            records
+        }
+        None => Vec::new(),
+    })
+}
+
 #[tauri::command]
 pub async fn get_logs_dir() -> Result<String, AppError> {
     Ok(utils::assets::logs_dir().to_string_lossy().to_string())

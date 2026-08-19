@@ -130,6 +130,84 @@ async fn workflow_publish_fails_closed_without_its_narrow_scope() {
 }
 
 #[tokio::test]
+async fn workflow_debug_uses_an_unpublished_snapshot_until_explicit_publish() {
+    let registry = setup().await;
+    let principal = Principal::remote(
+        "device",
+        ["workflow.write", "workflow.run", "workflow.read"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    let source_path = "~/.vibex/workflows/application-debug.vibex-workflow.json";
+
+    let debug = registry
+        .execute_name(
+            &principal,
+            "workflow_debug",
+            OperationId::new(),
+            serde_json::json!({"request": {
+                "definition": definition(),
+                "sourcePath": source_path,
+                "workspaceId": Uuid::new_v4(),
+                "input": {},
+                "stepId": "review",
+                "scope": "node"
+            }}),
+        )
+        .await
+        .unwrap();
+    let debug_version = registry
+        .execute_name(
+            &principal,
+            "workflow_version",
+            OperationId::new(),
+            serde_json::json!({
+                "versionId": debug.data["definitionVersionId"]
+            }),
+        )
+        .await
+        .unwrap();
+    assert!(debug_version.data["version"].as_i64().unwrap() < 0);
+
+    let catalog_before_publish = registry
+        .execute_name(
+            &principal,
+            "workflow_list",
+            OperationId::new(),
+            serde_json::json!({"limit": 100}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog_before_publish.data, serde_json::json!([]));
+
+    let published = registry
+        .execute_name(
+            &principal,
+            "workflow_publish",
+            OperationId::new(),
+            serde_json::json!({"request": {
+                "definition": definition(),
+                "sourcePath": source_path
+            }}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(published.data["id"], debug.data["definitionVersionId"]);
+    assert_eq!(published.data["version"], 1);
+
+    let catalog_after_publish = registry
+        .execute_name(
+            &principal,
+            "workflow_list",
+            OperationId::new(),
+            serde_json::json!({"limit": 100}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(catalog_after_publish.data.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn startup_finishes_a_run_persisted_before_its_execution_shell() {
     let pool = setup_pool().await;
     let store = WorkflowStore::new(pool.clone());
@@ -138,6 +216,7 @@ async fn startup_finishes_a_run_persisted_before_its_execution_shell() {
         .publish(PublishWorkflow {
             definition_id: None,
             definition: serde_json::from_value(definition()).unwrap(),
+            source_path: None,
             operation_id: Uuid::new_v4(),
             principal: serde_json::json!({"id": "test"}),
         })
@@ -149,6 +228,7 @@ async fn startup_finishes_a_run_persisted_before_its_execution_shell() {
             workspace_id: Uuid::new_v4(),
             input: serde_json::json!({}),
             policy_override: None,
+            debug_step_id: None,
             operation_id: Uuid::new_v4(),
             principal: serde_json::json!({"id": "test"}),
         })

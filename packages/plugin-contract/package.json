@@ -1,0 +1,14 @@
+{
+  "name": "@vibex/plugin-contract",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared VibeX plugin schema, catalogs, and protocol fixtures",
+  "exports": {
+    "./catalog/contribution-kinds": "./catalog/contribution-kinds.v1.json",
+    "./catalog/host-api": "./catalog/host-api.v1.json",
+    "./catalog/renderers": "./catalog/renderers.v1.json",
+    "./schemas/plugin": "./schemas/plugin.v4.json"
+  },
+  "files": ["catalog", "schemas", "fixtures"]
+}

@@ -13,6 +13,8 @@
     "blockingCount": "{{count}} blocking an agent",
     "kindPermission": "Awaiting permission",
     "kindQuestion": "Awaiting your answer",
+    "kindNotice": "Session notice",
+    "kindCompleted": "Turn completed",
     "kindFailed": "Turn failed",
     "kindInterrupted": "Turn interrupted",
     "kindInReview": "Awaiting review",

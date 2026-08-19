@@ -230,22 +230,26 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let roots = materialize_builtin_plugins(data.path()).unwrap();
 
-        assert_eq!(roots.len(), 1);
+        assert_eq!(roots.len(), 2);
+        let office = roots
+            .iter()
+            .find(|root| root.to_string_lossy().contains("vibex.office"))
+            .unwrap();
         let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(roots[0].join(".vibex-plugin/plugin.json")).unwrap(),
+            &std::fs::read(office.join(".vibex-plugin/plugin.json")).unwrap(),
         )
         .unwrap();
         assert_eq!(manifest["id"], "vibex.office");
 
-        std::fs::write(
-            roots[0].join("config.json"),
-            br#"{"previewMode":"editable"}"#,
-        )
-        .unwrap();
+        std::fs::write(office.join("config.json"), br#"{"previewMode":"editable"}"#).unwrap();
         let repeated = materialize_builtin_plugins(data.path()).unwrap();
         assert_eq!(repeated, roots);
+        let repeated_office = repeated
+            .iter()
+            .find(|root| root.to_string_lossy().contains("vibex.office"))
+            .unwrap();
         assert_eq!(
-            std::fs::read_to_string(roots[0].join("config.json")).unwrap(),
+            std::fs::read_to_string(repeated_office.join("config.json")).unwrap(),
             r#"{"previewMode":"editable"}"#
         );
     }

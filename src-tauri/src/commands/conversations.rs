@@ -12,7 +12,7 @@ use agents::{
         ConversationEventEnvelope, ConversationEventsPage, ConversationFileChangeSummary,
         ConversationInputBlock, ConversationRowPage, ConversationSessionModes,
         ConversationTimeline, ConversationTimelinePage, ConversationTimelineRow,
-        ConversationToolCallPatch, MessageTurn, SessionStats, TurnUsage,
+        ConversationToolCallPatch, ConversationWorkflowRef, MessageTurn, SessionStats, TurnUsage,
     },
 };
 use automation::{
@@ -123,16 +123,9 @@ pub struct ConversationStartTurnRequest {
     /// Composer-selected config option overrides (advertised select options).
     #[serde(default)]
     pub config_overrides: Vec<AgentSessionConfigOverride>,
-    /// Structured PluginActions selected in the Composer for this turn.
-    #[serde(default)]
-    pub plugin_actions: Vec<ConversationPluginActionInvocation>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConversationPluginActionInvocation {
-    pub plugin_id: String,
-    pub action_id: String,
+    /// Structured Plugin Workflow identities selected in the Composer for this turn.
+    #[serde(default, alias = "pluginActions")]
+    pub workflow_refs: Vec<ConversationWorkflowRef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,7 +312,11 @@ pub async fn conversation_detail(
     session_id: String,
 ) -> Result<Option<DbConversationDetail>, AppError> {
     let id = Uuid::parse_str(&session_id)
-        .map_err(|error| AppError::BadRequest(format!("invalid session id: {error}")))?;
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .interrupt_orphaned_turn(id)
+        .await
+        .map_err(AppError::from)?;
     conversation_detail_core(&state.deployment.db().pool, id).await
 }
 
@@ -332,6 +329,19 @@ pub async fn conversation_ensure_session_controls(
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
     ConversationSessionService::new(state.conversation_context())
         .ensure_session_controls(id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn conversation_rebind_session(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> Result<AgentSessionControlsSnapshot, AppError> {
+    let id = Uuid::parse_str(&conversation_id)
+        .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
+    ConversationSessionService::new(state.conversation_context())
+        .rebind_session(id)
         .await
         .map_err(Into::into)
 }
@@ -400,7 +410,7 @@ pub async fn conversation_attach(
 ) -> Result<remote_protocol::SubscriptionBootstrap, remote_protocol::ErrorEnvelope> {
     use application::{
         ApplicationCore, ApplicationError, ConversationSubscriptionRegistrar, Principal,
-        SqliteConversationRepository,
+        SqliteConversationRepository, WorkflowStoreExecutionPort,
     };
     use remote_protocol::SubscriptionResource;
 
@@ -419,21 +429,40 @@ pub async fn conversation_attach(
         }
     }
 
-    let SubscriptionResource::Conversation {
-        conversation_id,
-        after_sequence,
-    } = request.resource;
-    let core = ApplicationCore::new(SqliteConversationRepository::new(
-        state.deployment.db().pool.clone(),
-    ));
-    core.attach_conversation(
-        &Principal::local_desktop(),
-        request.subscription_id,
-        conversation_id,
-        after_sequence,
-        &TauriConversationSubscriptions,
-    )
-    .await
+    let core = ApplicationCore::with_workflows(
+        SqliteConversationRepository::new(state.deployment.db().pool.clone()),
+        std::sync::Arc::new(WorkflowStoreExecutionPort::with_conversations(
+            state.deployment.db().pool.clone(),
+            state.conversation_context(),
+        )),
+    );
+    match request.resource {
+        SubscriptionResource::Conversation {
+            conversation_id,
+            after_sequence,
+        } => {
+            core.attach_conversation(
+                &Principal::local_desktop(),
+                request.subscription_id,
+                conversation_id,
+                after_sequence,
+                &TauriConversationSubscriptions,
+            )
+            .await
+        }
+        SubscriptionResource::WorkflowRun {
+            run_id,
+            after_sequence,
+        } => {
+            core.attach_workflow_run(
+                &Principal::local_desktop(),
+                request.subscription_id,
+                run_id,
+                after_sequence,
+            )
+            .await
+        }
+    }
     .map_err(application::ApplicationError::into_envelope)
 }
 
@@ -560,11 +589,11 @@ pub async fn conversation_start_turn(
     let workspace = Workspace::find_by_id(&pool, workspace_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("workspace {workspace_id} not found")))?;
-    let mut plugin_actions = Vec::with_capacity(request.plugin_actions.len());
-    for invocation in &request.plugin_actions {
+    let mut plugin_actions = Vec::with_capacity(request.workflow_refs.len());
+    for invocation in &request.workflow_refs {
         let action = state
             .plugin_control_plane
-            .resolve_action(&invocation.plugin_id, &invocation.action_id)
+            .resolve_action(&invocation.plugin_id, &invocation.workflow_id)
             .await
             .map_err(|error| AppError::BadRequest(error.to_string()))?;
         let plugin = state
@@ -636,17 +665,10 @@ pub async fn conversation_start_turn(
                 images: request.images,
                 mode_override: request.mode_override,
                 config_overrides: request.config_overrides,
-                plugin_actions: request
-                    .plugin_actions
-                    .into_iter()
-                    .map(
-                        |invocation| agents::conversation::ConversationPluginActionInvocation {
-                            plugin_id: invocation.plugin_id,
-                            action_id: invocation.action_id,
-                        },
-                    )
-                    .collect(),
+                workflow_refs: request.workflow_refs,
+                file_refs: Vec::new(),
                 queued_input_claim: None,
+                operation_id: None,
             },
             conversations::commit_reminder::LOCAL_USER_ORIGIN,
         )
@@ -1004,6 +1026,20 @@ pub async fn conversation_fork(
     let summary = DbConversationSummary::find_by_id(pool, source_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("conversation {source_id} not found")))?;
+    if let Some(conversation) = ConversationRecord::find_by_id(pool, source_id).await? {
+        if let Some(active_turn_id) = conversation.active_turn_id
+            && let Some(active_turn) =
+                ConversationTurnRecord::find_by_id(pool, active_turn_id).await?
+            && matches!(
+                active_turn.status.as_str(),
+                "pending" | "queued" | "running" | "blocked"
+            )
+        {
+            return Err(AppError::Conflict(
+                "Cannot fork a conversation while a turn is in flight".to_string(),
+            ));
+        }
+    }
 
     // Full non-destructive copy with fresh ids via the tested export→import path.
     let exported = export_conversation_bundle(pool, source_id, None).await?;
@@ -1391,7 +1427,7 @@ pub async fn import_agent_session_to_conversation_events(
                     Some(binding.id),
                     ConversationEvent::UserTurnCreated {
                         blocks,
-                        plugin_actions: Vec::new(),
+                        workflow_refs: Vec::new(),
                     },
                     session,
                     &format!("message-{index}-user-created"),
@@ -1724,7 +1760,7 @@ mod tests {
                 blocks: vec![ConversationInputBlock::Text {
                     text: "hello".to_string(),
                 }],
-                plugin_actions: Vec::new(),
+                workflow_refs: Vec::new(),
             },
             "created",
         )

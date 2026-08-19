@@ -7,7 +7,6 @@ module.exports = {
     './components/**/*.{ts,tsx}',
     './app/**/*.{ts,tsx}',
     './src/**/*.{ts,tsx}',
-    'node_modules/@rjsf/shadcn/src/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   safelist: [
     'xl:hidden',

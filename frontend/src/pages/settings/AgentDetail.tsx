@@ -1,6 +1,4 @@
 import {
-  ArrowDown,
-  ArrowUp,
   Download,
   FileDown,
   Loader2,
@@ -43,7 +41,6 @@ type AgentDetailProps = {
   checkingUpdate: boolean;
   updateCheck: AgentUpdateCheckView | null;
   onSetEnabled: (enabled: boolean) => void;
-  onMove: (direction: -1 | 1) => void;
   onPreflight: () => void;
   onInstall: () => void;
   onInstallVersion?: (version: string) => void;
@@ -94,7 +91,6 @@ export function AgentDetail({
   checkingUpdate,
   updateCheck,
   onSetEnabled,
-  onMove,
   onPreflight,
   onInstall,
   onInstallVersion,
@@ -174,26 +170,6 @@ export function AgentDetail({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 w-8 p-0"
-            aria-label={t('agents.moveForward')}
-            disabled={busy}
-            onClick={() => onMove(-1)}
-          >
-            <ArrowUp aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 w-8 p-0"
-            aria-label={t('agents.moveBackward')}
-            disabled={busy}
-            onClick={() => onMove(1)}
-          >
-            <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
           <label className="agent-detail-enable">
             <span>{t('agents.enable')}</span>
             <Switch

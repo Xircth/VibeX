@@ -21,7 +21,7 @@ fn write_sandbox_probe(root: &std::path::Path) {
           "id":"security.sandbox-probe","publisher":"security",
           "name":"Sandbox Probe","version":"1.0.0",
           "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
-          "entrypoints":{"worker":{"path":"worker.mjs","format":"javascript-esm","protocol":"1.0"}},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
             {"id":"probe-fs","kindVersion":1,"label":"Probe FS","entrypoints":["action"],"handler":"probe-fs"},
@@ -40,6 +40,10 @@ import { createInterface } from 'node:readline';
 const handlers = ['probe-fs', 'probe-child', 'probe-network'];
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   const request = JSON.parse(line);
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: handlers, requestedFeatures: [] } }));
+    continue;
+  }
   if (request.method === 'activate') {
     console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers } }));
     continue;
@@ -75,7 +79,7 @@ fn write_busy_worker(root: &std::path::Path) {
           "id":"security.busy-worker","publisher":"security",
           "name":"Busy Worker","version":"1.0.0",
           "engines":{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"},
-          "entrypoints":{"worker":{"path":"worker.mjs","format":"javascript-esm","protocol":"1.0"}},
+          "entrypoints":{"worker":{"path":"worker.mjs","runtime":"node","protocol":"1.1"}},
           "permissions":[],
           "contributes":{"agent.invocations":[
             {"id":"busy","kindVersion":1,"label":"Busy","entrypoints":["action"],"handler":"busy"}
@@ -88,7 +92,9 @@ fn write_busy_worker(root: &std::path::Path) {
         r#"import { createInterface } from 'node:readline';
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   const request = JSON.parse(line);
-  if (request.method === 'activate') {
+  if (request.method === 'initialize') {
+    console.log(JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: '1.1', sdkVersion: '1.0.0', registrations: ['busy'], requestedFeatures: [] } }));
+  } else if (request.method === 'activate') {
     console.log(JSON.stringify({ id: request.id, ok: true, result: { handlers: ['busy'] } }));
   } else if (request.method === 'invoke') {
     while (true) {}

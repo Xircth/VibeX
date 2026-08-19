@@ -12,8 +12,8 @@ export async function scaffoldPlugin(target, publisher = "local", template = "fu
     const entrypoints = {
         worker: {
             path: "dist/worker.mjs",
-            format: "javascript-esm",
-            protocol: "1.0",
+            runtime: "node",
+            protocol: "1.1",
         },
         ...(hasApp
             ? {

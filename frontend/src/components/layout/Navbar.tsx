@@ -22,6 +22,7 @@ import {
 import { Logo } from '@/components/Logo';
 import { SearchBar } from '@/components/SearchBar';
 import { useSearch } from '@/contexts/SearchContext';
+import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { paths } from '@/lib/paths';
 import { useProject } from '@/contexts/ProjectContext';
 import { useOpenProjectInEditor } from '@/hooks/useOpenProjectInEditor';
@@ -84,7 +85,12 @@ export function Navbar() {
 
   const handleCreateSession = () => {
     if (projectId) {
-      navigate(`${paths.projectSessions(projectId)}?createSession=1`);
+      navigate(
+        resolveCreateSessionHref({
+          projectId,
+          isWorkspaceTab: false,
+        })
+      );
     }
   };
 

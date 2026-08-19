@@ -58,6 +58,8 @@ pub struct PluginEntrypoints {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_document: Option<String>,
@@ -90,6 +92,8 @@ pub struct FileOpenerContribution {
     pub label: String,
     #[serde(default)]
     pub extensions: Vec<String>,
+    #[serde(default)]
+    pub file_name_suffixes: Vec<String>,
     #[serde(default)]
     pub media_types: Vec<String>,
     #[serde(default)]
@@ -140,6 +144,8 @@ pub struct AppSurfaceContribution {
     pub allowed_methods: Vec<String>,
     #[serde(default)]
     pub min_height: Option<u32>,
+    #[serde(default)]
+    pub native_renderer: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -265,6 +271,8 @@ pub struct PluginPackage {
     pub description: Option<String>,
     #[serde(default)]
     pub entrypoints: PluginEntrypoints,
+    #[serde(default = "default_package_class")]
+    pub package_class: String,
     #[serde(default)]
     pub permissions: Vec<CapabilityRequest>,
     #[serde(default)]
@@ -322,6 +330,10 @@ pub struct PluginContentDocument {
 
 fn content_index_version() -> u32 {
     1
+}
+
+fn default_package_class() -> String {
+    "full-trust".to_owned()
 }
 
 fn default_readme_path() -> String {
@@ -715,6 +727,11 @@ impl PluginPackage {
             minimum_host_version,
             description,
             entrypoints,
+            package_class: object
+                .get("packageClass")
+                .and_then(Value::as_str)
+                .unwrap_or("full-trust")
+                .to_owned(),
             permissions,
             app,
             mcp,
@@ -756,6 +773,7 @@ impl PluginPackage {
             minimum_host_version: None,
             description: None,
             entrypoints: PluginEntrypoints::default(),
+            package_class: default_package_class(),
             permissions: Vec::new(),
             app: PackageAppContributions::default(),
             mcp: Value::Null,
@@ -851,6 +869,14 @@ fn normalize_product_manifest(root: &Path, manifest: &mut Value) -> Result<(), P
                 preview_providers.push(integration_contribution(integration, &id))
             }
             "app.surface" => surfaces.push(integration_contribution(integration, &id)),
+            "content.hook"
+            | "app.command"
+            | "app.toolbar"
+            | "app.status"
+            | "app.composer.slash"
+            | "app.timeline.card"
+            | "app.settings.section"
+            | "host.service" => {}
             other => {
                 return Err(PluginError::invalid_manifest(format!(
                     "unknown v4 integration kind `{other}`"
@@ -1196,6 +1222,11 @@ fn parse_entrypoints(
         };
         if safe_relative_path(path) && target_exists {
             *target = Some(path.to_owned());
+            if key == "worker" {
+                parsed.worker_runtime = value
+                    .as_object()
+                    .and_then(|entrypoint| compiled_worker_runtime(entrypoint).ok());
+            }
             if key == "app" {
                 let document = value
                     .as_object()
@@ -1303,6 +1334,7 @@ fn parse_app_contributions(
                     handler,
                     target,
                     extensions: string_array(opener.get("extensions")),
+                    file_name_suffixes: string_array(opener.get("fileNameSuffixes")),
                     media_types: string_array(opener.get("mediaTypes")),
                     priority: opener
                         .get("priority")
@@ -1315,12 +1347,22 @@ fn parse_app_contributions(
             .filter(|opener| {
                 !opener.id.trim().is_empty()
                     && !opener.handler.trim().is_empty()
-                    && (!opener.extensions.is_empty() || !opener.media_types.is_empty())
+                    && (!opener.extensions.is_empty()
+                        || !opener.file_name_suffixes.is_empty()
+                        || !opener.media_types.is_empty())
                     && opener.extensions.iter().all(|extension| {
                         !extension.is_empty()
                             && extension
                                 .chars()
                                 .all(|character| character.is_ascii_alphanumeric())
+                    })
+                    && opener.file_name_suffixes.iter().all(|suffix| {
+                        suffix.starts_with('.')
+                            && suffix.len() > 1
+                            && suffix.chars().all(|character| {
+                                character.is_ascii_alphanumeric()
+                                    || matches!(character, '.' | '-' | '_')
+                            })
                     })
             });
         match candidate {
@@ -1329,6 +1371,11 @@ fn parse_app_contributions(
                     .extensions
                     .into_iter()
                     .map(|extension| extension.to_ascii_lowercase())
+                    .collect();
+                opener.file_name_suffixes = opener
+                    .file_name_suffixes
+                    .into_iter()
+                    .map(|suffix| suffix.to_ascii_lowercase())
                     .collect();
                 parsed.push(opener);
             }
@@ -1368,22 +1415,31 @@ fn parse_app_contributions(
                 .get("route")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+            let native_renderer = surface
+                .get("nativeRenderer")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let valid = !id.is_empty()
-                && matches!(slot.as_str(), "plugin.detail.panel" | "artifact.editor")
+                && matches!(
+                    slot.as_str(),
+                    "plugin.detail.panel" | "artifact.editor" | "conversation.timeline.card"
+                )
                 && app_entrypoint == "app"
                 && handler == "surface.createSession"
                 && allowed_methods.iter().all(|method| {
                     !method.is_empty()
                         && method.chars().all(|character| {
-                            character.is_ascii_lowercase()
-                                || character.is_ascii_digit()
+                            character.is_ascii_alphanumeric()
                                 || matches!(character, '.' | '-' | '_')
                         })
                 })
                 && min_height.is_none_or(|height| (240..=900).contains(&height))
                 && route
                     .as_deref()
-                    .is_none_or(|route| route.starts_with('/') && !route.starts_with("//"));
+                    .is_none_or(|route| route.starts_with('/') && !route.starts_with("//"))
+                && native_renderer.as_deref().is_none_or(|renderer| {
+                    renderer == "host.renderer.workflow.studio" || renderer == "workflow.studio"
+                });
             valid.then_some(AppSurfaceContribution {
                 id,
                 label,
@@ -1393,6 +1449,7 @@ fn parse_app_contributions(
                 handler,
                 allowed_methods,
                 min_height,
+                native_renderer,
             })
         })();
         if let Some(surface) = candidate {
@@ -1821,13 +1878,13 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
             )));
         }
         if let Some(worker) = entrypoints_object.get("worker") {
-            validate_v4_object_keys(worker, "worker entrypoint", &["path", "format", "protocol"])?;
-            let worker = worker.as_object().expect("validated object");
-            if worker.get("format").and_then(Value::as_str) != Some("javascript-esm")
-                || worker.get("protocol").and_then(Value::as_str) != Some("1.0")
-            {
+            let worker = worker.as_object().ok_or_else(|| {
+                PluginError::invalid_manifest("worker entrypoint must be an object")
+            })?;
+            let compiled_runtime = compiled_worker_runtime(worker)?;
+            if !matches!(compiled_runtime.as_str(), "node" | "python" | "native") {
                 return Err(PluginError::invalid_manifest(
-                    "v4 Worker must use javascript-esm protocol 1.0",
+                    "Worker must declare runtime node|python|native and protocol 1.1",
                 ));
             }
         }
@@ -2010,6 +2067,25 @@ fn validate_v4_contract(contract: V4Contract<'_>) -> Result<(), PluginError> {
     Ok(())
 }
 
+fn compiled_worker_runtime(worker: &Map<String, Value>) -> Result<String, PluginError> {
+    if let Some(runtime) = worker.get("runtime").and_then(Value::as_str) {
+        if worker.contains_key("format") {
+            return Err(PluginError::invalid_manifest(
+                "Worker format is not a public field; write runtime only",
+            ));
+        }
+        if worker.get("protocol").and_then(Value::as_str) != Some("1.1") {
+            return Err(PluginError::invalid_manifest(
+                "Worker protocol must be 1.1 when runtime is declared",
+            ));
+        }
+        return Ok(runtime.to_owned());
+    }
+    Err(PluginError::invalid_manifest(
+        "Worker must declare runtime node|python|native and protocol 1.1",
+    ))
+}
+
 fn validate_v4_contribution_references(
     contributes: &Map<String, Value>,
 ) -> Result<(), PluginError> {
@@ -2117,6 +2193,7 @@ fn validate_v4_contribution(kind: &str, declaration: &Value) -> Result<(), Plugi
             "kindVersion",
             "label",
             "extensions",
+            "fileNameSuffixes",
             "mediaTypes",
             "priority",
             "previewProvider",
@@ -2133,6 +2210,7 @@ fn validate_v4_contribution(kind: &str, declaration: &Value) -> Result<(), Plugi
             "handler",
             "allowedMethods",
             "minHeight",
+            "nativeRenderer",
             "required",
         ],
         "artifact.previewProviders" => &[

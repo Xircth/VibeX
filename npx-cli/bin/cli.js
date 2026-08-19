@@ -73,6 +73,10 @@ function runBinary(binPath, args, env) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "plugin") {
+    await require("./plugin").run(args.slice(1));
+    return;
+  }
   if (args[0] === "conversation" || args[0] === "workflow") {
     await require("./control").run(args);
     return;

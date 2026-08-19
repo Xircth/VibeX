@@ -1,13 +1,14 @@
 import { Target } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { NormalizedEntry } from 'shared/types';
-import { renderJson } from '../conversation-entry-utils';
+import { ToolArtifact, ToolFacts, ToolProse } from './ToolArtifact';
 import {
   ToolCardShell,
   getToolStatusClassName,
   getToolStatusDotClassName,
 } from './ToolCardShell';
 import { readString } from './jsonValue';
+import { jsonToFacts } from './toolArtifactModel';
 
 function isGoalToolName(toolName: string): boolean {
   return /(^|[_-])goal([_-]|$)|create_goal|update_goal|get_goal/i.test(
@@ -49,28 +50,17 @@ export function GoalToolCall({ entry }: { entry: NormalizedEntry }) {
       expanded
       expandable={false}
     >
-      <div className="conv-tool-details-section-label">
-        {t('goalTool.objectiveLabel')}
-      </div>
-      <div className="conv-tool-details-content">{objective}</div>
-      {status ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('goalTool.statusLabel')}
-          </div>
-          <div className="conv-tool-details-content">{status}</div>
-        </>
-      ) : null}
-      {action.result ? (
-        <>
-          <div className="conv-tool-details-section-label">
-            {t('goalTool.resultLabel')}
-          </div>
-          <div className="conv-tool-details-content">
-            {renderJson(action.result.value)}
-          </div>
-        </>
-      ) : null}
+      <ToolArtifact badge={status || t('goalTool.title')} title={objective}>
+        {action.result?.type.type === 'json' ? (
+          <ToolFacts
+            facts={jsonToFacts(action.result.value, {
+              skipKeys: ['objective', 'goal', 'status', 'state'],
+            })}
+          />
+        ) : action.result ? (
+          <ToolProse>{objective}</ToolProse>
+        ) : null}
+      </ToolArtifact>
     </ToolCardShell>
   );
 }

@@ -7,9 +7,16 @@ import { GeneralSettings } from './GeneralSettings';
 
 const configApiMock = vi.hoisted(() => ({
   checkEditorAvailability: vi.fn(),
-  listPromptEnhancementModels: vi.fn(),
-  refreshPromptEnhancementModels: vi.fn(),
   playNotificationSound: vi.fn(),
+}));
+
+const agentManagementApiMock = vi.hoisted(() => ({
+  bar: vi.fn(),
+}));
+
+const agentsApiMock = vi.hoisted(() => ({
+  refreshCapabilityCatalog: vi.fn(),
+  capabilityCatalog: vi.fn(),
 }));
 
 const userSystemMock = vi.hoisted(() => ({
@@ -20,7 +27,24 @@ vi.mock('@/lib/api', () => ({
   configApi: configApiMock,
 }));
 
+vi.mock('@/features/agent-management/api', () => ({
+  agentManagementApi: agentManagementApiMock,
+}));
+
+vi.mock('@/features/agents/api', () => ({
+  agentsApi: agentsApiMock,
+}));
+
+vi.mock('@/features/agents/sessionControlsQuery', () => ({
+  loadAgentSessionControlsCatalog: () => agentsApiMock.capabilityCatalog(),
+}));
+
 vi.mock('@/components/ConfigProvider', () => userSystemMock);
+
+vi.mock('@/components/sessions/ImportLocalSessionsDialog', () => ({
+  ImportLocalSessionsDialog: ({ open }: { open: boolean }) =>
+    open ? <div>import-dialog</div> : null,
+}));
 
 function promptEnhancementConfig(model: string): Config {
   return {
@@ -35,18 +59,25 @@ function promptEnhancementConfig(model: string): Config {
       sound_enabled: true,
       push_enabled: true,
       sound_file: SoundFile.ABSTRACT_SOUND1,
+      notify_when: 'unfocused',
     },
     prompt_enhancement_enabled: true,
     prompt_enhancement_model: model,
+    prompt_enhancement_agent_id: '',
+    prompt_enhancement_mode: null,
+    prompt_enhancement_session_config: {},
     prompt_enhancement_prompt: null,
     crash_reports_enabled: false,
   } as Config;
 }
 
-function renderSettings(model = 'opencode/minimax-m2.5-free') {
+function renderSettings(
+  model = 'opencode/minimax-m2.5-free',
+  extra: Partial<Config> = {}
+) {
   const updateAndSaveConfig = vi.fn().mockResolvedValue(true);
   userSystemMock.useUserSystem.mockReturnValue({
-    config: promptEnhancementConfig(model),
+    config: { ...promptEnhancementConfig(model), ...extra },
     loading: false,
     updateAndSaveConfig,
   });
@@ -58,67 +89,59 @@ describe('GeneralSettings Agent model catalogs', () => {
     for (const fn of Object.values(configApiMock)) {
       fn.mockReset();
     }
+    agentManagementApiMock.bar.mockReset();
+    agentsApiMock.refreshCapabilityCatalog.mockReset();
+    agentsApiMock.capabilityCatalog.mockReset();
     userSystemMock.useUserSystem.mockReset();
     configApiMock.checkEditorAvailability.mockResolvedValue({
       available: true,
     });
     configApiMock.playNotificationSound.mockResolvedValue(undefined);
+    agentManagementApiMock.bar.mockResolvedValue([
+      {
+        agent_id: 'opencode',
+        display_name: 'OpenCode',
+        enabled: true,
+        retired: false,
+      },
+    ]);
+    agentsApiMock.capabilityCatalog.mockResolvedValue({
+      modes: [],
+      current_mode: null,
+      config_options: [],
+    });
+    agentsApiMock.refreshCapabilityCatalog.mockResolvedValue(true);
   });
 
-  it('does not fabricate choices when the matching capability catalog is empty', async () => {
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
-
+  it('lists enabled Agents for prompt enhancement', async () => {
     renderSettings();
 
     await waitFor(() => {
-      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
-        1
-      );
+      expect(agentManagementApiMock.bar).toHaveBeenCalledTimes(1);
     });
 
-    expect(
-      screen.getByText(
-        /已保存的模型 opencode\/minimax-m2\.5-free 不在当前已验证的 Agent 目录中/
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Agent 模型' })).toBeDisabled();
-    expect(screen.queryByText('opencode/claude-opus-4-7')).toBeNull();
-    expect(configApiMock.refreshPromptEnhancementModels).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Agent' })).not.toBeDisabled();
   });
 
-  it('uses the explicit verified catalog refresh before exposing new models', async () => {
+  it('refreshes the selected Agent session config on demand', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
-    configApiMock.refreshPromptEnhancementModels.mockResolvedValue({
-      models: ['openai/gpt-5.6-sol'],
-    });
-
-    renderSettings();
-    await waitFor(() => {
-      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
-        1
-      );
-    });
-
-    await user.click(screen.getByRole('button', { name: '刷新模型列表' }));
+    renderSettings('unused', { prompt_enhancement_agent_id: 'opencode' });
 
     await waitFor(() => {
-      expect(
-        configApiMock.refreshPromptEnhancementModels
-      ).toHaveBeenCalledTimes(1);
-      expect(configApiMock.listPromptEnhancementModels).toHaveBeenCalledTimes(
-        1
-      );
+      expect(agentsApiMock.capabilityCatalog).toHaveBeenCalled();
     });
 
-    expect(
-      screen.getByRole('combobox', { name: 'Agent 模型' })
-    ).not.toBeDisabled();
+    await user.click(screen.getByRole('button', { name: '刷新会话配置' }));
+
+    await waitFor(() => {
+      expect(agentsApiMock.refreshCapabilityCatalog).toHaveBeenCalledWith(
+        'opencode'
+      );
+    });
   });
 
   it('persists a changed general preference through the shared config boundary', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
     const { updateAndSaveConfig } = renderSettings();
 
     await user.click(
@@ -137,7 +160,6 @@ describe('GeneralSettings Agent model catalogs', () => {
 
   it('persists the detached window and sound notification preferences', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
     const { updateAndSaveConfig } = renderSettings();
 
     await user.click(await screen.findByRole('switch', { name: '声音通知' }));
@@ -158,9 +180,16 @@ describe('GeneralSettings Agent model catalogs', () => {
     });
   });
 
+  it('shows the notification timing control', async () => {
+    renderSettings();
+
+    expect(
+      await screen.findByRole('combobox', { name: '提醒时机' })
+    ).toHaveTextContent('仅当应用失焦时');
+  });
+
   it('enables conversation collapse preferences by default and persists opt-out', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
     const { updateAndSaveConfig } = renderSettings();
 
     const filesChangedToggle = await screen.findByRole('switch', {
@@ -188,7 +217,6 @@ describe('GeneralSettings Agent model catalogs', () => {
 
   it('keeps previous-session continuation opt-in and persists it when enabled', async () => {
     const user = userEvent.setup();
-    configApiMock.listPromptEnhancementModels.mockResolvedValue({ models: [] });
     const { updateAndSaveConfig } = renderSettings();
 
     const toggle = await screen.findByRole('switch', {
@@ -204,5 +232,14 @@ describe('GeneralSettings Agent model catalogs', () => {
         expect.objectContaining({ previous_session_continuation_enabled: true })
       );
     });
+  });
+
+  it('opens local session import from general settings', async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    expect(screen.getByText('本地会话')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '导入' }));
+    expect(screen.getByText('import-dialog')).toBeInTheDocument();
   });
 });

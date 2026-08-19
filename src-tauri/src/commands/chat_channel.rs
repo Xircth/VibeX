@@ -30,8 +30,8 @@ use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use services::services::chat_delivery::{
-    RichMessage, build_rich_localized, channel_has_token, delete_channel_token, deliver_rich, event_key,
-    feishu_tenant_token, http_client, import_legacy_channel_tokens, load_channel_token,
+    RichMessage, build_rich_localized, channel_has_token, delete_channel_token, deliver_rich,
+    event_key, feishu_tenant_token, http_client, import_legacy_channel_tokens, load_channel_token,
     load_channel_tokens, save_channel_token, should_send, telegram_post,
 };
 use sqlx::{FromRow, SqlitePool};
@@ -1936,8 +1936,10 @@ async fn send_task(
             images: Vec::new(),
             mode_override: None,
             config_overrides: Vec::new(),
-            plugin_actions: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
             queued_input_claim: None,
+            operation_id: None,
         })
         .await;
 

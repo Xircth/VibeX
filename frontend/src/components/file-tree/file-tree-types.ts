@@ -9,6 +9,7 @@ export type FileTreeNode = {
 export type FileOpenLocation = {
   line: number;
   column: number;
+  endLine?: number;
 };
 
 export type FileTreeBuildNode = {

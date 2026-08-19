@@ -167,7 +167,7 @@ VibeX is a local engineering control surface for coordinating many agent session
 The macOS contract is a two-layer model:
 
 - A **navigation/controls layer** where structural window chrome uses translucent **Liquid Glass**, while light-mode menus, dialogs, and toasts use a calm opaque `#FAFAFA` overlay surface.
-- A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors) where hierarchy comes from layout, grouping, and hairlines — never from decoration.
+- A **content layer** of crisp, **opaque grouped surfaces** (inset lists, cards, editors) where hierarchy comes from layout and grouping — never from decoration.
 
 VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and behavioral target, not a toolkit. The look is delivered through the tokenized shell classes in `frontend/src/styles/legacy/index.css` (`--surface-*`, `.settings-sidebar`, `.settings-surface`, `.workspace-topbar`, blur materials). Every surface must degrade: when the OS reports reduced transparency, glass collapses to a solid panel; on Windows the custom title-bar controls take over where the OS chrome would otherwise sit.
 
@@ -177,7 +177,7 @@ VibeX is a Tauri app (React + Tailwind + Radix), so "native" is an aesthetic and
 - Glass is structural, not decorative — chrome only, never content.
 - One calm system-blue accent, used only for selected / focused / primary / live.
 - Light mode is the primary working scene; dark mode (Ayu Mirage) is first-class for code-heavy sessions.
-- Hierarchy is expressed by grouping and hairlines; remove any background or border added purely for emphasis.
+- Hierarchy is expressed by grouping and spacing; remove any background, border, or internal rule added purely for emphasis.
 
 ## 2. Materials & Layering
 
@@ -196,7 +196,7 @@ Translucent, blurred, lightly saturated material that floats and lets the worksp
 
 Everything users read, edit, or scan. **No glass here.** Use opaque panels:
 
-- **Inset grouped lists / cards** (`.settings-surface`): solid `--surface-card-strong`, 1px hairline, `14px` corners, flat at rest. Rows are separated by inset hairlines; a row gains elevation only while dragged or actively hovered.
+- **Inset grouped lists / cards** (`.settings-surface`): solid `--surface-card-strong`, 1px outer hairline, `14px` corners, flat at rest (no drop shadow). Rows inside one card are separated by spacing, not internal rules; a row gains elevation only while dragged or actively hovered.
 - **Editors, tables, conversation, file tree, diffs**: opaque content background, hairline seams.
 
 ### Named Rules
@@ -316,7 +316,7 @@ Group items by function and frequency; the primary action is visually distinct (
 
 ### Inset grouped lists & cards (content)
 
-The workhorse content surface: an opaque `.settings-surface` card with a quiet header row and hairline-separated rows. Leading label, trailing control. `14px` corners, `12px` dense / `16px` comfortable padding. This is where settings, agent detail, and list content live.
+The workhorse content surface: an opaque `.settings-surface` card with a quiet header row and spacing-separated rows. Leading label, trailing control. `14px` corners, `12px` dense / `16px` comfortable padding. This is where settings, agent detail, and list content live. Do not draw hairlines between siblings in the same card.
 
 ### Controls
 
@@ -366,7 +366,7 @@ The **Composer Shell** (grounded, always-available action surface) and the **Age
 ### Don't
 
 - **Don't** put Liquid Glass on content (lists, tables, editors, conversation) or stack glass on glass.
-- **Don't** separate a section header from its own content with a full-width divider/underline (e.g. a `border-t` directly beneath a section title). It reads as a hard rule and looks cheap. Use spacing and grouping to relate a heading to its body; reserve hairline separators for between sibling rows in a grouped list, never between a title and the content it introduces.
+- **Don't** separate a section header from its own content, or sibling rows inside the same card, with a full-width divider. It reads as a hard rule and looks cheap. Use spacing and grouping; the card's outer hairline is enough.
 - **Don't** use generic AI-SaaS patterns: oversized cards, decorative gradients, glass panels as ornament, hero metrics, vague productivity claims.
 - **Don't** use the accent as decorative fill — it means selected/focused/primary/live only.
 - **Don't** use side-stripe borders > 1px, gradient text, or `background-clip: text` in product UI.

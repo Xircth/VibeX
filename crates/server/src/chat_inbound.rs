@@ -1599,8 +1599,10 @@ async fn send_task(
             images: Vec::new(),
             mode_override: None,
             config_overrides: Vec::new(),
-            plugin_actions: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
             queued_input_claim: None,
+            operation_id: None,
         })
         .await
     {

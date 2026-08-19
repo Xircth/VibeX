@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import {
   Tooltip,
   TooltipContent,
@@ -10,12 +11,6 @@ interface CodexGoalIndicatorProps {
   goalState: CodexGoalState | null;
 }
 
-const STATUS_LABELS: Record<CodexGoalStatus, string> = {
-  running: '\u8fd0\u884c\u4e2d',
-  paused: '\u5df2\u6682\u505c',
-  completed: '\u5df2\u5b8c\u6210',
-};
-
 const STATUS_CLASSES: Record<CodexGoalStatus, string> = {
   running: 'bg-[hsl(var(--success))]',
   paused: 'bg-[hsl(var(--warning))]',
@@ -23,16 +18,17 @@ const STATUS_CLASSES: Record<CodexGoalStatus, string> = {
 };
 
 export function CodexGoalIndicator({ goalState }: CodexGoalIndicatorProps) {
+  const { t } = useTranslation(['conversation']);
   if (!goalState) return null;
 
-  const statusLabel = STATUS_LABELS[goalState.status];
+  const statusLabel = t(`codexGoal.status.${goalState.status}`);
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="composer-control inline-flex max-w-[220px] cursor-default items-center gap-1.5 rounded-md px-2 py-0.5">
           <span className="shrink-0 text-[11px] text-muted-foreground">
-            {'\u76ee\u6807'}
+            {t('codexGoal.label')}
           </span>
           <span
             className={cn(
@@ -50,14 +46,10 @@ export function CodexGoalIndicator({ goalState }: CodexGoalIndicatorProps) {
       <TooltipContent>
         <div className="max-w-80 space-y-1">
           <div>
-            {'\u72b6\u6001'}
-            {': '}
-            {statusLabel}
+            {t('codexGoal.statusLabel')}: {statusLabel}
           </div>
           <div className="break-words">
-            {'\u5f53\u524d\u76ee\u6807'}
-            {': '}
-            {goalState.objective}
+            {t('codexGoal.currentLabel')}: {goalState.objective}
           </div>
         </div>
       </TooltipContent>

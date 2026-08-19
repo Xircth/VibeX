@@ -11,10 +11,7 @@ pub async fn call_http(
     product: &str,
     message: &BrokerMessage,
 ) -> std::io::Result<BrokerResponse> {
-    let url = format!(
-        "{}/internal/companion",
-        server_url.trim_end_matches('/')
-    );
+    let url = format!("{}/internal/companion", server_url.trim_end_matches('/'));
     let mut request = reqwest::Client::new().post(url).json(message);
     if let Some(token) = server_token {
         request = request.bearer_auth(token);

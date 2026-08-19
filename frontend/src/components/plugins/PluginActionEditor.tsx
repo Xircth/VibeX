@@ -76,6 +76,41 @@ type PluginActionCatalog = {
   };
 };
 
+function mapWorkflowCatalog(value: unknown): PluginActionCatalog | null {
+  if (!value || typeof value !== 'object') return null;
+  const workflows = (value as { workflows?: unknown }).workflows;
+  if (!Array.isArray(workflows)) return null;
+  return {
+    actions: workflows.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const record = item as Record<string, unknown>;
+      const actionId = String(record.workflowId ?? record.actionId ?? '');
+      const pluginId = String(record.pluginId ?? '');
+      if (!actionId || !pluginId) return [];
+      return [
+        {
+          pluginId,
+          actionId,
+          label: String(record.label ?? actionId),
+          requiredSkills: Array.isArray(record.requiredSkills)
+            ? record.requiredSkills.filter(
+                (skill): skill is string => typeof skill === 'string'
+              )
+            : [],
+          requiredTools: Array.isArray(record.requiredTools)
+            ? record.requiredTools.filter(
+                (tool): tool is string => typeof tool === 'string'
+              )
+            : [],
+          promptBlocks: Array.isArray(record.promptBlocks)
+            ? (record.promptBlocks as PluginPromptBlock[])
+            : [{ type: 'text' as const, text: '' }],
+        },
+      ];
+    }),
+  };
+}
+
 function isPluginActionCatalog(value: unknown): value is PluginActionCatalog {
   return (
     typeof value === 'object' &&
@@ -156,9 +191,17 @@ export function PluginActionEditor({
     setIsCatalogLoading(true);
     setCatalogError(null);
     void transport
-      .call('plugin_action_catalog')
+      .call('plugin_workflow_catalog')
+      .catch(() => null)
       .then((catalog) => {
-        if (active && isPluginActionCatalog(catalog)) {
+        const mapped = mapWorkflowCatalog(catalog);
+        if (mapped) return mapped;
+        return transport.call('plugin_action_catalog').then((legacy) =>
+          isPluginActionCatalog(legacy) ? legacy : null
+        );
+      })
+      .then((catalog) => {
+        if (active && catalog) {
           setActions(catalog.actions);
           setCatalog(catalog);
         }
@@ -204,12 +247,17 @@ export function PluginActionEditor({
           runtimeId,
         });
       }
-      const refreshedCatalog = await transport.call('plugin_action_catalog');
-      if (!isPluginActionCatalog(refreshedCatalog)) {
+      const refreshedCatalog =
+        (await transport.call('plugin_workflow_catalog').catch(() => null)) ??
+        (await transport.call('plugin_action_catalog'));
+      const mapped =
+        mapWorkflowCatalog(refreshedCatalog) ??
+        (isPluginActionCatalog(refreshedCatalog) ? refreshedCatalog : null);
+      if (!mapped) {
         throw new Error(t('pluginActions.invalidCatalog'));
       }
-      setActions(refreshedCatalog.actions);
-      setCatalog(refreshedCatalog);
+      setActions(mapped.actions);
+      setCatalog(mapped);
     } catch (error) {
       if (!attempt.cancelRequested) {
         setInstallError(error instanceof Error ? error.message : String(error));

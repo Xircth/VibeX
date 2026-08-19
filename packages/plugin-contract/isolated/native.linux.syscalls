@@ -1,0 +1,62 @@
+# Recorded from protocol fixture initialize-activate-ping.jsonl
+# Native hello worker (current Linux triple).
+# Isolated default (no network.fetch).
+# network.fetch grant additionally allows: socket, connect
+# (still no accept/bind; Host Broker performs the fetch).
+access
+arch_prctl
+brk
+clock_gettime
+clone
+clone3
+close
+epoll_create
+epoll_create1
+epoll_ctl
+epoll_pwait
+epoll_pwait2
+epoll_wait
+eventfd2
+execve
+exit
+exit_group
+faccessat
+fcntl
+fstat
+futex
+getcwd
+getdents64
+getpid
+getrandom
+getrlimit
+gettid
+ioctl
+lseek
+madvise
+mmap
+mprotect
+munmap
+nanosleep
+newfstatat
+openat
+pipe
+pipe2
+poll
+ppoll
+prctl
+pread64
+prlimit64
+read
+readlink
+rt_sigaction
+rt_sigprocmask
+rt_sigreturn
+sched_getaffinity
+sched_yield
+set_robust_list
+set_tid_address
+statx
+uname
+wait4
+write
+writev

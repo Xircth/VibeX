@@ -350,6 +350,8 @@ export interface WebServerStatus {
   token_configured: boolean;
   started_at: string | null;
   message: string | null;
+  host_id?: string | null;
+  reachability?: Array<{ origin: string; kind: string }>;
 }
 
 export interface HostPairingChallenge {
@@ -357,6 +359,10 @@ export interface HostPairingChallenge {
   pairing_token: string;
   expires_at: string;
   requested_scopes: string[];
+  host_id?: string;
+  invitation?: string;
+  preset?: string;
+  reachability?: Array<{ origin: string; kind: string }>;
 }
 
 export interface PortProbeResult {

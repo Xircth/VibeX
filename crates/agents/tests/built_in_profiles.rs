@@ -1,6 +1,6 @@
 use agents::{
-    AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, ProfileComponent, ProfileInstallSource,
-    ProfileManagementActionKind, RegistryEntryIdentity,
+    AgentId, BuiltInProfileCatalog, NativeConfigFieldKind, NativeConfigSurface, ProfileComponent,
+    ProfileInstallSource, ProfileManagementActionKind, RegistryEntryIdentity,
 };
 use api_types::AgentSettingsFeature;
 
@@ -108,6 +108,14 @@ fn codeg_pinned_distribution_matrix_is_exact() {
             "grok",
             ">=20",
         ),
+        (
+            "deepseek_harness",
+            ProfileComponent::CombinedRuntime,
+            "deepseek-acp",
+            "0.3.0",
+            "deepseek-acp",
+            ">=22",
+        ),
     ] {
         let source = profile(id)
             .install_sources
@@ -192,6 +200,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             "pi",
             "grok",
             "cursor",
+            "deepseek_harness",
         ]
     );
 
@@ -266,6 +275,7 @@ fn built_in_profiles_are_declarative_and_bind_explicitly() {
             ("pi", None),
             ("grok", None),
             ("cursor", None),
+            ("deepseek_harness", None),
         ]
     );
 }
@@ -284,8 +294,9 @@ fn codeg_account_action_matrix_is_complete() {
         ("codebuddy", &["login"][..]),
         ("kimi_code", &["login", "logout"][..]),
         ("pi", &["login"][..]),
-        ("grok", &["login", "logout"][..]),
+        ("grok", &["login", "logout", "subscription"][..]),
         ("cursor", &["login", "logout", "subscription"][..]),
+        ("deepseek_harness", &["setup"][..]),
     ] {
         let profile = catalog.profile(&AgentId::parse(agent_id).unwrap()).unwrap();
         assert_eq!(
@@ -371,6 +382,7 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
             "cursor",
             &["cursor_model", "cursor_force", "cursor_sandbox_mode"][..],
         ),
+        ("deepseek_harness", &["deepseek_harness_api_key"][..]),
     ] {
         for field_id in field_ids {
             native_field(&catalog, agent_id, field_id);
@@ -408,6 +420,10 @@ fn built_in_profiles_keep_codeg_advanced_configuration_contract() {
     assert_eq!(
         native_field(&catalog, "cursor", "cursor_sandbox_mode").path,
         ["sandbox", "mode"]
+    );
+    assert_eq!(
+        native_field(&catalog, "deepseek_harness", "deepseek_harness_api_key").path,
+        ["DEEPSEEK_API_KEY"]
     );
 }
 
@@ -465,6 +481,21 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             .settings_features
             .contains(&AgentSettingsFeature::OpenCodeProviders)
     );
+    assert!(
+        profile("deepseek_harness")
+            .settings_features
+            .contains(&AgentSettingsFeature::AuthenticationMode)
+    );
+    assert!(
+        profile("deepseek_harness")
+            .settings_features
+            .contains(&AgentSettingsFeature::DshPlugins)
+    );
+    assert!(
+        profile("grok")
+            .settings_features
+            .contains(&AgentSettingsFeature::GrokPlugins)
+    );
 
     for id in [
         "claude_code",
@@ -485,7 +516,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             "{id} must declare native MCP support"
         );
     }
-    for id in ["openclaw", "pi"] {
+    for id in ["openclaw", "pi", "deepseek_harness"] {
         assert!(
             !profile(id)
                 .settings_features
@@ -506,6 +537,7 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
         "pi",
         "grok",
         "cursor",
+        "deepseek_harness",
     ] {
         assert!(
             profile(id)
@@ -514,4 +546,94 @@ fn codeg_directory_semantics_and_settings_capabilities_are_profile_declared() {
             "{id} must declare native Skills support"
         );
     }
+}
+
+#[test]
+fn native_config_surfaces_keep_runtime_fields_out_of_authentication() {
+    let catalog = BuiltInProfileCatalog::bundled();
+    let surface =
+        |agent_id: &str, field_id: &str| native_field(&catalog, agent_id, field_id).surface;
+
+    assert_eq!(
+        surface("claude_code", "anthropic_base_url"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("claude_code", "anthropic_api_key"),
+        NativeConfigSurface::Authentication
+    );
+    for field_id in [
+        "model",
+        "effort_level",
+        "permission_mode",
+        "include_co_authored_by",
+        "claude_send_attribution_header",
+        "claude_disable_nonessential_traffic",
+        "auto_updates_channel",
+    ] {
+        assert_eq!(
+            surface("claude_code", field_id),
+            NativeConfigSurface::Configuration,
+            "{field_id} must stay in configuration management"
+        );
+    }
+
+    assert_eq!(
+        surface("codex", "openai_api_key"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("codex", "codex_openai_base_url"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("codex", "codex_model_provider"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("codex", "codex_reasoning_effort"),
+        NativeConfigSurface::Configuration
+    );
+    assert_eq!(
+        surface("codex", "codex_approval_policy"),
+        NativeConfigSurface::Configuration
+    );
+
+    assert_eq!(
+        surface("gemini", "gemini_api_key"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("gemini", "gemini_base_url"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("gemini", "gemini_model"),
+        NativeConfigSurface::Configuration
+    );
+
+    assert_eq!(
+        surface("grok", "grok_base_url"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("grok", "grok_api_key"),
+        NativeConfigSurface::Authentication
+    );
+    assert_eq!(
+        surface("grok", "grok_effort"),
+        NativeConfigSurface::Configuration
+    );
+    assert_eq!(
+        surface("grok", "grok_permission"),
+        NativeConfigSurface::Configuration
+    );
+    assert_eq!(
+        surface("cursor", "cursor_model"),
+        NativeConfigSurface::Configuration
+    );
+    assert_eq!(
+        surface("cursor", "cursor_force"),
+        NativeConfigSurface::Configuration
+    );
 }

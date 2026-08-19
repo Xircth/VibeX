@@ -27,7 +27,11 @@ impl ConversationHost for DefaultConversationHost {
         container_ref: &str,
         repos: &[Repo],
     ) -> Option<String> {
-        resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+        Some(resolve_absolute_workspace_agent_working_dir(
+            workspace,
+            container_ref,
+            repos,
+        ))
     }
 
     fn resolve_additional_directories(
@@ -45,8 +49,9 @@ impl ConversationHost for DefaultConversationHost {
         working_dir: &str,
         text: String,
         images: &[String],
+        file_refs: &[agents::ConversationFileRef],
     ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
-        workspace_prompt_blocks(working_dir, text, images).await
+        workspace_prompt_blocks(working_dir, text, images, file_refs).await
     }
 
     async fn launch_settings(
@@ -196,6 +201,14 @@ pub async fn resolve_agent_runtime_launch_settings(
     agents::apply_built_in_auth_mode_policy(agent_id, &mut env);
     let mut args = authorization.args;
     agents::apply_built_in_launch_argument_policy(agent_id, &env, &mut args);
+    // The management lifecycle reflects a probe observation that can go stale.
+    // Verify the persisted program still exists so a removed/relocated binary
+    // fails as an actionable repair request, not a raw ENOENT at spawn.
+    if !agents::launch_program_available(&authorization.absolute_acp_program) {
+        return Err(ConversationServiceError::BadRequest(
+            agents::missing_launch_program_error(&authorization.absolute_acp_program),
+        ));
+    }
     Ok(AgentRuntimeLaunchSettings {
         auto_approve_mode: AgentAutoApproveMode::Off,
         env,
@@ -214,12 +227,16 @@ pub async fn workspace_prompt_blocks(
     working_dir: &str,
     text: String,
     images: &[String],
+    file_refs: &[agents::ConversationFileRef],
 ) -> Result<Vec<AgentContentBlock>, ConversationServiceError> {
     let mut blocks = if text.trim().is_empty() {
         Vec::new()
     } else {
         vec![AgentContentBlock::Text { text }]
     };
+    for file_ref in file_refs {
+        blocks.push(read_workspace_file_link(working_dir, file_ref).await?);
+    }
     for image in images {
         blocks.push(read_workspace_image_block(working_dir, image).await?);
     }
@@ -229,6 +246,52 @@ pub async fn workspace_prompt_blocks(
         ));
     }
     Ok(blocks)
+}
+
+async fn read_workspace_file_link(
+    working_dir: &str,
+    file_ref: &agents::ConversationFileRef,
+) -> Result<AgentContentBlock, ConversationServiceError> {
+    let relative = relative_agent_asset_path(&file_ref.path)?;
+    let canonical_root = tokio::fs::canonicalize(working_dir)
+        .await
+        .map_err(|error| {
+            ConversationServiceError::NotFound(format!(
+                "Workspace directory is unavailable: {error}"
+            ))
+        })?;
+    let requested_path = canonical_root.join(&relative);
+    let file_path = tokio::fs::canonicalize(&requested_path)
+        .await
+        .map_err(|_| {
+            ConversationServiceError::NotFound(format!("File not found: {}", file_ref.path))
+        })?;
+    if !file_path.starts_with(&canonical_root) {
+        return Err(ConversationServiceError::BadRequest(format!(
+            "File path must stay inside the workspace: {}",
+            file_ref.path
+        )));
+    }
+    if !file_path.is_file() {
+        return Err(ConversationServiceError::NotFound(format!(
+            "File not found: {}",
+            file_ref.path
+        )));
+    }
+    let uri = url::Url::from_file_path(&file_path)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| format!("file://{}", file_path.display()));
+    let name = relative
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_ref.path.as_str())
+        .to_string();
+    let title = match (file_ref.start_line, file_ref.end_line) {
+        (Some(start), Some(end)) => Some(format!("{}:{}-{}", name, start, end)),
+        (Some(start), None) => Some(format!("{}:{}", name, start)),
+        _ => Some(name.clone()),
+    };
+    Ok(AgentContentBlock::Resource { uri, title })
 }
 
 async fn read_workspace_image_block(
@@ -323,6 +386,49 @@ pub fn resolve_workspace_agent_working_dir(
 ) -> Option<String> {
     normalized_agent_working_dir(workspace, container_ref, repos)
         .or_else(|| infer_single_repo_working_dir(workspace, container_ref, repos))
+}
+
+fn workspace_base_path(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
+    match repos {
+        [repo] if !workspace.use_worktree => repo.path.clone(),
+        _ => PathBuf::from(container_ref),
+    }
+}
+
+fn workspace_repo_root(workspace: &Workspace, container_ref: &str, repos: &[Repo]) -> PathBuf {
+    let [repo] = repos else {
+        return PathBuf::from(container_ref);
+    };
+    if !workspace.use_worktree {
+        return repo.path.clone();
+    }
+    let mut workspace = workspace.clone();
+    workspace.container_ref = Some(container_ref.to_string());
+    workspace
+        .repo_path(repo)
+        .unwrap_or_else(|| PathBuf::from(container_ref))
+}
+
+/// Absolute directory passed to `Command::current_dir` and ACP `session/new`.
+/// Relative workspace folders such as a managed worktree's repo name must be
+/// joined to the container; spawning with a bare relative path is ENOENT.
+pub fn resolve_absolute_workspace_agent_working_dir(
+    workspace: &Workspace,
+    container_ref: &str,
+    repos: &[Repo],
+) -> String {
+    let base = workspace_base_path(workspace, container_ref, repos);
+    if let Some(working_dir) = resolve_workspace_agent_working_dir(workspace, container_ref, repos)
+    {
+        let path = PathBuf::from(&working_dir);
+        if path.is_absolute() {
+            return working_dir;
+        }
+        return base.join(path).to_string_lossy().into_owned();
+    }
+    workspace_repo_root(workspace, container_ref, repos)
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn resolve_workspace_additional_directories(
@@ -496,10 +602,154 @@ mod tests {
                 workspace.path().to_str().expect("utf8 path"),
                 String::new(),
                 &["linked.png".to_string()],
+                &[],
             )
             .await
             .expect_err("symlink escape must fail");
 
         assert!(matches!(error, ConversationServiceError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn prompt_blocks_emit_resource_links_for_existing_files() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        std::fs::write(workspace.path().join("notes.md"), b"hello").expect("write");
+
+        let blocks = DefaultConversationHost
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                "see this".to_string(),
+                &[],
+                &[agents::ConversationFileRef {
+                    path: "notes.md".to_string(),
+                    start_line: Some(1),
+                    end_line: Some(2),
+                }],
+            )
+            .await
+            .expect("blocks");
+
+        assert!(matches!(
+            &blocks[0],
+            AgentContentBlock::Text { text } if text == "see this"
+        ));
+        assert!(matches!(
+            &blocks[1],
+            AgentContentBlock::Resource { title, uri }
+                if title.as_deref() == Some("notes.md:1-2") && uri.starts_with("file:")
+        ));
+    }
+
+    #[tokio::test]
+    async fn prompt_blocks_reject_missing_file_refs() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let error = DefaultConversationHost
+            .build_prompt_blocks(
+                workspace.path().to_str().expect("utf8 path"),
+                "see this".to_string(),
+                &[],
+                &[agents::ConversationFileRef {
+                    path: "missing.md".to_string(),
+                    start_line: None,
+                    end_line: None,
+                }],
+            )
+            .await
+            .expect_err("missing file must fail");
+        assert!(matches!(error, ConversationServiceError::NotFound(_)));
+    }
+}
+
+#[cfg(test)]
+mod working_dir_tests {
+    use chrono::Utc;
+    use db::models::{repo::Repo, workspace::Workspace};
+    use uuid::Uuid;
+
+    use super::{
+        DefaultConversationHost, resolve_absolute_workspace_agent_working_dir,
+        resolve_workspace_agent_working_dir,
+    };
+    use crate::ConversationHost;
+
+    fn sample_repo(name: &str, path: &str) -> Repo {
+        Repo {
+            id: Uuid::new_v4(),
+            path: std::path::PathBuf::from(path),
+            name: name.to_string(),
+            display_name: name.to_string(),
+            setup_script: None,
+            cleanup_script: None,
+            archive_script: None,
+            copy_files: None,
+            parallel_setup_script: false,
+            dev_server_script: None,
+            default_target_branch: None,
+            default_working_dir: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn sample_workspace(use_worktree: bool, agent_working_dir: Option<&str>) -> Workspace {
+        Workspace {
+            id: Uuid::new_v4(),
+            project_id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            parent_workspace_id: None,
+            container_ref: None,
+            branch: "main".to_string(),
+            use_worktree,
+            agent_working_dir: agent_working_dir.map(ToOwned::to_owned),
+            setup_completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            archived: false,
+            pinned: false,
+            name: None,
+        }
+    }
+
+    #[test]
+    fn managed_worktree_cwd_joins_the_repo_folder_to_the_container() {
+        let workspace = sample_workspace(true, Some("VibeX"));
+        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
+        let container = "/Users/mac/.vibex-workspaces/workflow-debug";
+
+        assert_eq!(
+            resolve_workspace_agent_working_dir(&workspace, container, std::slice::from_ref(&repo))
+                .as_deref(),
+            Some("VibeX")
+        );
+        let expected = format!("{container}/VibeX");
+        assert_eq!(
+            resolve_absolute_workspace_agent_working_dir(
+                &workspace,
+                container,
+                std::slice::from_ref(&repo)
+            ),
+            expected
+        );
+        assert_eq!(
+            DefaultConversationHost
+                .resolve_working_dir(&workspace, container, std::slice::from_ref(&repo))
+                .as_deref(),
+            Some(expected.as_str())
+        );
+    }
+
+    #[test]
+    fn project_root_cwd_stays_the_repository_path() {
+        let workspace = sample_workspace(false, None);
+        let repo = sample_repo("VibeX", "/Users/mac/Projects/VibeX");
+
+        assert_eq!(
+            resolve_absolute_workspace_agent_working_dir(
+                &workspace,
+                "/Users/mac/Projects/VibeX",
+                std::slice::from_ref(&repo)
+            ),
+            "/Users/mac/Projects/VibeX"
+        );
     }
 }

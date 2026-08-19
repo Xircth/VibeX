@@ -82,6 +82,15 @@ impl PluginError {
         }
     }
 
+    pub fn class_unsupported(plugin_id: &str) -> Self {
+        Self {
+            code: "plugin_class_unsupported",
+            message: format!(
+                "plugin `{plugin_id}` is Isolated and cannot be installed until sandboxed spawn is published"
+            ),
+        }
+    }
+
     pub(crate) fn conflict(plugin_id: &str) -> Self {
         Self {
             code: "plugin_id_conflict",
@@ -136,6 +145,13 @@ impl PluginError {
         Self {
             code: "plugin_runtime_install_failed",
             message: format!("failed to install Runtime `{runtime_id}`: {reason}"),
+        }
+    }
+
+    pub(crate) fn dependency_unsatisfied(message: impl Into<String>) -> Self {
+        Self {
+            code: "dependency_unsatisfied",
+            message: message.into(),
         }
     }
 

@@ -172,12 +172,51 @@ describe('Markdown', () => {
     expect(getComputedStyle(icon as Element).alignSelf).toBe('center');
   });
 
-  it('reduces unordered and ordered list indentation by eighty percent', () => {
-    renderMarkdown('- item\n\n1. step');
+  it('keeps ordered-list numbers and periods on one line', () => {
+    renderMarkdown('1. first\n2. second\n10. tenth');
 
-    const [unordered, ordered] = screen.getAllByRole('list');
-    expect(getComputedStyle(unordered).paddingLeft).toBe('4.4px');
-    expect(getComputedStyle(ordered).paddingLeft).toBe('5.6px');
+    const ordered = screen
+      .getAllByRole('list')
+      .find((list) => list.tagName === 'OL');
+    const markers = ordered?.querySelectorAll(':scope > li > span:first-child');
+
+    expect(ordered).toBeTruthy();
+    expect(markers?.length).toBeGreaterThanOrEqual(2);
+    for (const marker of markers ?? []) {
+      const style = getComputedStyle(marker);
+      expect(style.whiteSpace).toBe('nowrap');
+      expect(style.width).not.toBe('12px');
+      expect(style.minWidth).toBe('1.5em');
+    }
+    expect(getComputedStyle(ordered as Element).paddingLeft).toBe('8px');
+  });
+
+  it('keeps unordered list markers compact', () => {
+    renderMarkdown('- item');
+
+    const unordered = screen.getByRole('list');
+    const marker = unordered.querySelector(':scope > li > span:first-child');
+
+    expect(getComputedStyle(unordered).paddingLeft).toBe('2.2px');
+    expect(getComputedStyle(marker as Element).width).toBe('8px');
+  });
+
+  it('leaves extra space below a horizontal rule', () => {
+    const { container } = renderMarkdown('Above\n\n---\n\nBelow');
+    const rule = container.querySelector('hr');
+
+    expect(rule).not.toBeNull();
+    expect(getComputedStyle(rule as Element).marginBottom).toBe('20px');
+  });
+
+  it('uses a looser line-height so adjacent inline code stays separated', () => {
+    const { container } = renderMarkdown(
+      'line with `one` token\n\nline with `two` token'
+    );
+    const root = container.querySelector('.conv-markdown');
+
+    const lineHeight = getComputedStyle(root as Element).lineHeight;
+    expect(['1.7', '22.1px']).toContain(lineHeight);
   });
 
   it('renders a GFM table when projected message rows contain blank gaps', () => {
@@ -232,6 +271,35 @@ describe('Markdown', () => {
       'src',
       'asset://C:/workspace/project/outputs/mockup.png'
     );
+  });
+
+  it('keeps GitHub repository markdown links as web links even when the label looks like a folder', () => {
+    renderMarkdown(
+      '[firecrawl/open-agent-builder](https://github.com/firecrawl/open-agent-builder)'
+    );
+
+    const link = screen.getByRole('link', {
+      name: 'firecrawl/open-agent-builder',
+    });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://github.com/firecrawl/open-agent-builder'
+    );
+    expect(link).toHaveAttribute('data-resource-kind', 'web');
+    fireEvent.click(link);
+    expect(panelActionsMock.revealInFileTree).not.toHaveBeenCalled();
+    expect(panelActionsMock.openFilePreview).not.toHaveBeenCalled();
+  });
+
+  it('turns GitHub owner/repo inline code into a repository link', () => {
+    renderMarkdown('See `escapeboy/agent-fleet-o`');
+
+    const link = screen.getByRole('link', { name: 'escapeboy/agent-fleet-o' });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://github.com/escapeboy/agent-fleet-o'
+    );
+    expect(link).toHaveAttribute('data-resource-kind', 'web');
   });
 
   it('opens file-looking links in the workspace editor instead of navigating project routes', () => {

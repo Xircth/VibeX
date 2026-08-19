@@ -77,19 +77,11 @@ pub trait DelegationInjector: std::fmt::Debug + Send + Sync {
         context: CompanionInjectionContext<'_>,
     ) -> CompanionInjectionList {
         match self.companion(context) {
-            CompanionInjection::Injected(server) => {
-                let mut servers = vec![server];
-                servers.extend(self.extra_stdio_servers());
-                CompanionInjectionList::Injected(servers)
-            }
+            CompanionInjection::Injected(server) => CompanionInjectionList::Injected(vec![server]),
             CompanionInjection::Unsupported { code } => {
                 CompanionInjectionList::Unsupported { code }
             }
         }
-    }
-
-    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
-        Vec::new()
     }
 
     fn remote_servers(&self) -> Vec<InjectedRemoteMcpServer> {

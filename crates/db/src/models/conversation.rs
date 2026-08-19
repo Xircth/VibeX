@@ -559,6 +559,50 @@ impl ConversationAgentBindingRecord {
         .await?;
         Ok(())
     }
+
+    pub async fn update_negotiated_capabilities<'e, E>(
+        executor: E,
+        conversation_id: Uuid,
+        load_supported: bool,
+        resume_supported: bool,
+        close_supported: bool,
+        terminal_supported: bool,
+        additional_directories_supported: bool,
+        prompt_capabilities_json: &str,
+        session_capabilities_json: &str,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
+        sqlx::query(
+            r#"UPDATE conversation_agent_bindings
+               SET load_supported = ?,
+                   resume_supported = ?,
+                   close_supported = ?,
+                   terminal_supported = ?,
+                   additional_directories_supported = ?,
+                   prompt_capabilities_json = ?,
+                   session_capabilities_json = ?,
+                   updated_at = datetime('now', 'subsec')
+               WHERE id = (
+                   SELECT id FROM conversation_agent_bindings
+                   WHERE conversation_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT 1
+               )"#,
+        )
+        .bind(load_supported)
+        .bind(resume_supported)
+        .bind(close_supported)
+        .bind(terminal_supported)
+        .bind(additional_directories_supported)
+        .bind(prompt_capabilities_json)
+        .bind(session_capabilities_json)
+        .bind(conversation_id)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

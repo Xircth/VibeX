@@ -9,8 +9,8 @@
 //! ## Serialized form (canonical): snake_case
 //!
 //! `claude_code`, `codex`, `opencode`, `gemini`, `openclaw`, `cline`, `hermes`,
-//! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `qa_mock` — the
-//! `executor_key` form already persisted in `sessions.agent_type`.
+//! `codebuddy`, `kimi_code`, `pi`, `grok`, `cursor`, `deepseek_harness`,
+//! `qa_mock` — the `executor_key` form already persisted in `sessions.agent_type`.
 //! `Serialize` / `Display` / `FromStr` / sqlx all emit this single canonical form.
 //!
 //! ## Read leniency (zero data migration, ADR-0002)
@@ -49,12 +49,13 @@ pub enum AgentKind {
     Pi,
     Grok,
     Cursor,
+    DeepseekHarness,
     QaMock,
 }
 
 impl AgentKind {
     /// Every variant, in a stable order (registry / picker ordering).
-    pub const ALL: [AgentKind; 13] = [
+    pub const ALL: [AgentKind; 14] = [
         AgentKind::ClaudeCode,
         AgentKind::Codex,
         AgentKind::Gemini,
@@ -67,6 +68,7 @@ impl AgentKind {
         AgentKind::Pi,
         AgentKind::Grok,
         AgentKind::Cursor,
+        AgentKind::DeepseekHarness,
         AgentKind::QaMock,
     ];
 
@@ -85,6 +87,7 @@ impl AgentKind {
             AgentKind::Pi => "pi",
             AgentKind::Grok => "grok",
             AgentKind::Cursor => "cursor",
+            AgentKind::DeepseekHarness => "deepseek_harness",
             AgentKind::QaMock => "qa_mock",
         }
     }
@@ -111,6 +114,7 @@ impl AgentKind {
             "pi" => AgentKind::Pi,
             "grok" => AgentKind::Grok,
             "cursor" => AgentKind::Cursor,
+            "deepseekharness" => AgentKind::DeepseekHarness,
             "qamock" => AgentKind::QaMock,
             _ => return None,
         };
@@ -177,6 +181,7 @@ mod tests {
             (AgentKind::Pi, "pi"),
             (AgentKind::Grok, "grok"),
             (AgentKind::Cursor, "cursor"),
+            (AgentKind::DeepseekHarness, "deepseek_harness"),
             (AgentKind::QaMock, "qa_mock"),
         ];
         for (kind, key) in expected {
@@ -215,6 +220,10 @@ mod tests {
             ("PI", AgentKind::Pi),
             ("GROK", AgentKind::Grok),
             ("CURSOR", AgentKind::Cursor),
+            ("DEEPSEEK_HARNESS", AgentKind::DeepseekHarness),
+            ("DeepseekHarness", AgentKind::DeepseekHarness),
+            ("deepseek-harness", AgentKind::DeepseekHarness),
+            ("deepseek_harness", AgentKind::DeepseekHarness),
             ("QA_MOCK", AgentKind::QaMock),
             ("QaMock", AgentKind::QaMock),
             ("qa_mock", AgentKind::QaMock),

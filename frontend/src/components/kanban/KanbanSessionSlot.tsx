@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import { useRightPanelSlot } from '@/contexts/RightPanelSlotContext';
+import {
+  kanbanSessionResizeHandleSide,
+  useKanbanArrangement,
+} from '@/lib/layoutArrangement';
+import { kanbanSessionFillsHub } from '@/lib/kanbanZoneVisibility';
+import { cn } from '@/lib/utils';
 
 interface KanbanSessionSlotProps {
   /** Which kanban slot this instance renders in. */
@@ -21,8 +27,13 @@ interface KanbanSessionSlotProps {
  */
 export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
   const { host, placement } = useRightPanelSlot();
-  const isRightPanelVisible = useLayoutStore(
-    (state) => state.isRightPanelVisible
+  const arrangement = useKanbanArrangement();
+  const handleSide = kanbanSessionResizeHandleSide(arrangement);
+  const isKanbanSessionVisible = useLayoutStore(
+    (state) => state.isKanbanSessionVisible
+  );
+  const isKanbanMonitorVisible = useLayoutStore(
+    (state) => state.isKanbanMonitorVisible
   );
   // The kanban page has its own session width memory; it shares only the
   // DEFAULT with the workspace C zone (whose live width may be a flexible
@@ -36,7 +47,12 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeAbortRef = useRef<AbortController | null>(null);
 
-  const shouldShow = isRightPanelVisible && !!host && active;
+  const fill = kanbanSessionFillsHub(side === 'center', {
+    list: true,
+    monitor: isKanbanMonitorVisible,
+    session: isKanbanSessionVisible,
+  });
+  const shouldShow = isKanbanSessionVisible && !!host && active;
   const ownsHost = shouldShow && placement === 'kanban';
 
   useEffect(() => {
@@ -70,10 +86,8 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
       document.addEventListener(
         'mousemove',
         (moveEvent) => {
-          // The handle sits on the board-facing edge: right edge when the
-          // slot is at the left, left edge otherwise.
           const delta =
-            side === 'left'
+            handleSide === 'right'
               ? moveEvent.clientX - startX
               : startX - moveEvent.clientX;
           setKanbanSessionWidth(startWidth + delta);
@@ -89,27 +103,34 @@ export function KanbanSessionSlot({ side, active }: KanbanSessionSlotProps) {
         { signal }
       );
     },
-    [kanbanSessionWidth, setKanbanSessionWidth, side]
+    [handleSide, kanbanSessionWidth, setKanbanSessionWidth]
   );
 
   if (!shouldShow) return null;
 
-  const handle = (
+  const handle = fill ? null : (
     <div
+      role="separator"
+      aria-orientation="vertical"
+      data-handle-side={handleSide}
       className="workspace-resize-handle relative z-20 w-px shrink-0 cursor-col-resize after:absolute after:inset-y-0 after:-left-[5px] after:w-[11px] after:content-['']"
       onMouseDown={handleResizeMouseDown}
     />
   );
 
   return (
-    <div className="flex h-full shrink-0" data-panel="kanban-session-slot">
-      {side !== 'left' && handle}
+    <div
+      className={cn('flex h-full', fill ? 'min-w-0 flex-1' : 'shrink-0')}
+      data-panel="kanban-session-slot"
+      data-slot-side={side}
+    >
+      {handleSide === 'left' && handle}
       <div
         ref={containerRef}
         className="workspace-right-panel h-full min-w-0 overflow-hidden"
-        style={{ width: kanbanSessionWidth }}
+        style={{ width: fill ? '100%' : kanbanSessionWidth }}
       />
-      {side === 'left' && handle}
+      {handleSide === 'right' && handle}
     </div>
   );
 }

@@ -23,15 +23,13 @@ import type {
   ConversationInputView,
   ConversationOutputView,
   ConversationSteeringReceipt,
+  ConversationWorkflowRef,
   DbConversationDetail,
   DbConversationSummary,
   ExecutorProfileId,
 } from 'shared/types';
 
-export type ConversationPluginActionInvocation = {
-  pluginId: string;
-  actionId: string;
-};
+export type { ConversationWorkflowRef };
 
 export type ConversationStartTurnRequest = {
   agentId: AgentId;
@@ -43,7 +41,7 @@ export type ConversationStartTurnRequest = {
   images?: string[];
   modeOverride?: string | null;
   configOverrides?: AgentSessionConfigOverride[];
-  pluginActions?: ConversationPluginActionInvocation[];
+  workflowRefs?: ConversationWorkflowRef[];
 };
 
 export type ConversationCreateRequest = {
@@ -164,6 +162,11 @@ export function createConversationApi(transport: BackendTransport) {
       conversationId: string
     ): Promise<AgentSessionControlsSnapshot> =>
       call('conversation_ensure_session_controls', { conversationId }),
+
+    rebindSession: (
+      conversationId: string
+    ): Promise<AgentSessionControlsSnapshot> =>
+      call('conversation_rebind_session', { conversationId }),
 
     startTurn: (
       request: ConversationStartTurnRequest

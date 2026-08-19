@@ -13,6 +13,7 @@ import {
   conversationStoreReducer,
   emptyConversationStoreState,
   sideRowsForEntry,
+  timelineItemsForEntry,
   timelineTurnsForEntry,
   type ConversationStoreState,
 } from './conversationStore';
@@ -342,6 +343,28 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('stops streaming an assistant row once the paired user turn is terminal', () => {
+    for (const phase of ['failed', 'cancelled', 'interrupted'] as const) {
+      const state = loaded([
+        timelineRow('t1:user', 2n, {
+          kind: 'message_turn',
+          phase,
+          turn: messageTurn('t1:user', 'user', [{ type: 'text', text: 'q' }]),
+        }),
+        assistantRow(
+          't1',
+          [{ type: 'text', text: 'partial' }],
+          1n,
+          'streaming'
+        ),
+      ]);
+      const assistant = timelineTurnsForEntry(entryOf(state)).find(
+        (row) => row.turn.role === 'assistant'
+      );
+      expect(assistant?.phase).toBe(phase);
+    }
+  });
+
   it('applies agent-advertised session modes carried by a batch', () => {
     let state = loaded();
     state = conversationStoreReducer(state, {
@@ -492,6 +515,98 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
   });
 
+  it('reconciles a persisted normalized user row with its optimistic token turn', () => {
+    const tokenizedDisplay = `${formatSessionComposerCommand({
+      type: '/',
+      key: 'skill:/Users/mac/.codex/skills/drawio/drawio:drawio',
+      value: '/drawio',
+    })} draw the architecture`;
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: tokenizedDisplay },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 1n, {
+              kind: 'message_turn',
+              phase: 'persisted',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: '/drawio draw the architecture' },
+              ]),
+            }),
+          },
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:assistant', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-1:assistant', 'assistant', [
+                { type: 'text', text: 'working' },
+              ]),
+            }),
+          },
+        ],
+        1n
+      ),
+    });
+
+    const timeline = timelineTurnsForEntry(entryOf(state));
+    const userTurns = timeline.filter((row) => row.turn.role === 'user');
+    expect(userTurns).toHaveLength(1);
+    expect(userTurns[0]?.turn.blocks).toEqual([
+      { type: 'text', text: tokenizedDisplay },
+    ]);
+    expect(
+      timeline.filter((row) => row.turn.role === 'assistant')
+    ).toHaveLength(1);
+  });
+
+  it('does not consume an unrelated optimistic turn for a streaming user row', () => {
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: 'second request' },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: timelineRow('turn-1:user', 1n, {
+              kind: 'message_turn',
+              phase: 'streaming',
+              turn: messageTurn('turn-1:user', 'user', [
+                { type: 'text', text: 'first request' },
+              ]),
+            }),
+          },
+        ],
+        1n
+      ),
+    });
+
+    expect(
+      timelineTurnsForEntry(entryOf(state))
+        .filter((row) => row.turn.role === 'user')
+        .map((row) => row.turn.blocks)
+    ).toEqual([
+      [{ type: 'text', text: 'first request' }],
+      [{ type: 'text', text: 'second request' }],
+    ]);
+  });
+
   it('keeps reconciled token text across later authoritative user-row upserts', () => {
     const tokenizedDisplay = `${formatSessionComposerCommand({
       type: '/',
@@ -560,6 +675,176 @@ describe('conversationStore (row-op dumb container)', () => {
     ]);
     const turns = timelineTurnsForEntry(entryOf(state));
     expect(turns.map((row) => row.turn.role)).toEqual(['user', 'assistant']);
+  });
+
+  it('keeps a stable conversation key across the pending-to-persisted assistant handoff', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 2n,
+            stream: 'text',
+            delta: 'he',
+          },
+        ],
+        2n
+      ),
+    });
+    const pending = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(pending?.key).toBe('conversation-t1:assistant');
+
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow('t1', [{ type: 'text', text: 'hello' }], 3n),
+          },
+        ],
+        3n
+      ),
+    });
+    const persisted = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(persisted?.key).toBe('conversation-t1:assistant');
+  });
+
+  it('does not concatenate overlay text onto a fuller upserted prefix', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 5n,
+            stream: 'text',
+            delta: 'he',
+          },
+        ],
+        5n
+      ),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'upsert',
+            row: assistantRow(
+              't1',
+              [{ type: 'text', text: 'hello' }],
+              3n,
+              'streaming'
+            ),
+          },
+        ],
+        3n
+      ),
+    });
+    const assistant = timelineTurnsForEntry(entryOf(state)).find(
+      (row) => row.turn.role === 'assistant'
+    );
+    expect(textOf(assistant?.turn.blocks ?? [])).toBe('hello');
+  });
+
+  it('marks a sequence gap when live ops skip past the local cursor', () => {
+    let state = loaded([userRow('t1', 'q', 1n)]);
+    expect(entryOf(state).lastSequence).toBe(1n);
+    state = conversationStoreReducer(state, {
+      type: 'row_ops',
+      batch: batch(
+        [
+          {
+            op: 'append_text',
+            row_id: 't1:assistant',
+            revision: 6n,
+            stream: 'text',
+            delta: 'x',
+          },
+        ],
+        6n
+      ),
+    });
+    expect(entryOf(state).gap).toEqual({
+      kind: 'gap',
+      expectedSequence: 2n,
+      receivedSequence: 6n,
+    });
+  });
+
+  it('consumes only one optimistic turn when two identical prompts persist', () => {
+    let state = loaded();
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-1', 'user', [
+        { type: 'text', text: 'same' },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'optimistic_turn',
+      conversationId: CONVERSATION_ID,
+      turn: messageTurn('optimistic-2', 'user', [
+        { type: 'text', text: 'same' },
+      ]),
+    });
+    state = conversationStoreReducer(state, {
+      type: 'load_success',
+      conversationId: CONVERSATION_ID,
+      detail: emptyDetail([userRow('t1', 'same', 1n)]),
+    });
+    const userTurns = timelineTurnsForEntry(entryOf(state)).filter(
+      (row) => row.turn.role === 'user'
+    );
+    expect(userTurns).toHaveLength(2);
+    expect(userTurns.map((row) => row.phase)).toEqual([
+      'persisted',
+      'optimistic',
+    ]);
+  });
+
+  it('interleaves side rows with messages by revision', () => {
+    const permission: TimelineRow = timelineRow('perm:p1', 2n, {
+      kind: 'permission_request',
+      request: {
+        permission_id: 'p1',
+        title: 'Allow?',
+        status: 'pending',
+        details: null,
+        options: [],
+      },
+    });
+    const terminal: TimelineRow = timelineRow('term:t1', 3n, {
+      kind: 'terminal_summary',
+      terminal: {
+        terminal_id: 't1',
+        command: 'ls',
+        status: 'exited',
+        output_summary: 'ok',
+        output_truncated: false,
+      },
+    });
+    const state = loaded([
+      userRow('t1', 'run it', 1n),
+      permission,
+      terminal,
+      assistantRow('t1', [{ type: 'text', text: 'done' }], 4n),
+    ]);
+    expect(
+      timelineItemsForEntry(entryOf(state)).map((item) =>
+        item.kind === 'message' ? item.item.turn.role : item.row.row.kind
+      )
+    ).toEqual(['user', 'terminal_summary', 'assistant']);
   });
 });
 

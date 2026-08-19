@@ -1,18 +1,30 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useTauriPatchStream } from './useTauriPatchStream';
 import { scratchApi } from '@/lib/api';
-import { ScratchType, type Scratch, type UpdateScratch } from 'shared/types';
+import {
+  ScratchType,
+  type Scratch,
+  type ScratchUpdateOutcome,
+  type UpdateScratch,
+} from 'shared/types';
 
 type ScratchState = {
   scratch: Scratch | null;
 };
+
+export interface UpdateScratchOptions {
+  overwriteOnConflict?: boolean;
+}
 
 export interface UseScratchResult {
   scratch: Scratch | null;
   isLoading: boolean;
   isConnected: boolean;
   error: string | null;
-  updateScratch: (update: UpdateScratch) => Promise<void>;
+  updateScratch: (
+    update: UpdateScratch,
+    options?: UpdateScratchOptions
+  ) => Promise<ScratchUpdateOutcome>;
   deleteScratch: () => Promise<void>;
 }
 
@@ -52,10 +64,28 @@ export const useScratch = (
   // Treat deleted scratches as null
   const rawScratch = data?.scratch as (Scratch & { deleted?: boolean }) | null;
   const scratch = rawScratch?.deleted ? null : rawScratch;
+  const scratchRef = useRef(scratch);
+  scratchRef.current = scratch;
 
   const updateScratch = useCallback(
-    async (update: UpdateScratch) => {
-      await scratchApi.update(scratchType, id, update);
+    async (
+      update: UpdateScratch,
+      persistOptions?: UpdateScratchOptions
+    ): Promise<ScratchUpdateOutcome> => {
+      const overwriteOnConflict = persistOptions?.overwriteOnConflict ?? true;
+      const expectedRevision =
+        update.expected_revision ?? scratchRef.current?.revision ?? 0;
+      let outcome = await scratchApi.update(scratchType, id, {
+        ...update,
+        expected_revision: expectedRevision,
+      });
+      if (outcome.kind === 'conflict' && overwriteOnConflict) {
+        outcome = await scratchApi.update(scratchType, id, {
+          ...update,
+          expected_revision: outcome.server.revision,
+        });
+      }
+      return outcome;
     },
     [scratchType, id]
   );

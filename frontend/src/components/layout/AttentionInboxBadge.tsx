@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
+  CircleAlert,
   Eye,
   Inbox,
   MessageCircleQuestion,
@@ -18,7 +19,27 @@ import {
 } from '@/components/ui/popover';
 import { attentionApi } from '@/lib/api/attention';
 import { useOpenProjectSession } from '@/hooks/useOpenProjectSession';
+import { backendListen } from '@/lib/backendTransport';
 import { cn } from '@/lib/utils';
+
+type SessionAttentionKind =
+  | 'permission'
+  | 'question'
+  | 'notice'
+  | 'warning'
+  | 'error'
+  | 'completed';
+
+type SessionAttentionPayload = {
+  projectId: string;
+  workspaceId: string;
+  sessionId: string;
+  kind: SessionAttentionKind;
+  title?: string | null;
+  message?: string | null;
+};
+
+type OverlayItem = AttentionItem & { overlay: true };
 
 const POLL_MS = 15_000;
 
@@ -35,6 +56,16 @@ const KIND_PRESENTATION: Record<
     icon: MessageCircleQuestion,
     labelKey: 'attentionInbox.kindQuestion',
     tone: 'blocking',
+  },
+  [AttentionItemKind.SESSION_NOTICE]: {
+    icon: CircleAlert,
+    labelKey: 'attentionInbox.kindNotice',
+    tone: 'info',
+  },
+  [AttentionItemKind.TURN_COMPLETED]: {
+    icon: Eye,
+    labelKey: 'attentionInbox.kindCompleted',
+    tone: 'info',
   },
   [AttentionItemKind.TURN_FAILED]: {
     icon: XCircle,
@@ -136,7 +167,9 @@ function AttentionItemRow({
 export function AttentionInboxBadge() {
   const { t } = useTranslation('statusbar');
   const [open, setOpen] = useState(false);
+  const [overlay, setOverlay] = useState<OverlayItem[]>([]);
   const openProjectSession = useOpenProjectSession();
+  const queryClient = useQueryClient();
 
   const { data } = useQuery({
     queryKey: ['attention-inbox'],
@@ -146,11 +179,66 @@ export function AttentionInboxBadge() {
     meta: { suppressGlobalError: true },
   });
 
-  const items = data?.items ?? [];
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void backendListen<SessionAttentionPayload>(
+      'desktop-session-attention',
+      (payload) => {
+        void queryClient.invalidateQueries({ queryKey: ['attention-inbox'] });
+        if (
+          payload.kind === 'permission' ||
+          payload.kind === 'question' ||
+          payload.kind === 'error'
+        ) {
+          return;
+        }
+        const kind =
+          payload.kind === 'completed'
+            ? AttentionItemKind.TURN_COMPLETED
+            : AttentionItemKind.SESSION_NOTICE;
+        setOverlay((current) => [
+          {
+            overlay: true,
+            kind,
+            sessionId: payload.sessionId,
+            workspaceId: payload.workspaceId,
+            taskId: payload.sessionId,
+            projectId: payload.projectId,
+            projectName: '',
+            sessionName: payload.title ?? null,
+            agentType: null,
+            detail: payload.message ?? payload.title ?? null,
+            happenedAtMs: Date.now(),
+          },
+          ...current.filter((item) => item.sessionId !== payload.sessionId),
+        ]);
+      }
+    ).then((dispose) => {
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [queryClient]);
+
+  const serverItems = data?.items ?? [];
+  const items = [
+    ...overlay.filter(
+      (extra) =>
+        !serverItems.some((item) => item.sessionId === extra.sessionId)
+    ),
+    ...serverItems,
+  ];
   const blockingCount = data?.blockingCount ?? 0;
 
   const handleOpen = (item: AttentionItem) => {
     setOpen(false);
+    setOverlay((current) =>
+      current.filter((extra) => extra.sessionId !== item.sessionId)
+    );
     openProjectSession({
       projectId: item.projectId,
       workspaceId: item.workspaceId,

@@ -1,4 +1,5 @@
 export const VIBEX_PLUGIN_API_VERSION = "1.0" as const;
+export const VIBEX_PLUGIN_PROTOCOL_VERSION = "1.1" as const;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -6,17 +7,39 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type PackageClass = "full-trust" | "isolated";
+
+export interface InitializeParams {
+  protocolRange: ["1.1"];
+  hostVersion: string;
+  pluginIdentity: { publisher: string; id: string };
+  packageVersion: string;
+  packageDigest: string;
+  generationId: number;
+  declaredContributions: string[];
+  packageClass: PackageClass;
+  features: string[];
+  limits: { maxFrameBytes: number; requestTimeoutMs: number };
+  runtime: { id: string; version: string; target: string; digest: string };
+}
+
+export interface InitializedResult {
+  protocolVersion: "1.1";
+  sdkVersion: string;
+  registrations: string[];
+  requestedFeatures: string[];
+}
+
 export interface PluginContext {
   pluginId: string;
   pluginVersion: string;
   generation: number;
-  /** VibeX product plugins execute with the same local authority as the Host. */
-  trust?: "full";
-  /** @deprecated Full-trust packages receive `['*']`; do not use this as a gate. */
+  packageClass: PackageClass;
   grantedCapabilities: string[];
 }
 
 export type WorkerRequest =
+  | { id: string; method: "initialize"; params: InitializeParams }
   | { id: string; method: "activate"; params: PluginContext }
   | {
       id: string;

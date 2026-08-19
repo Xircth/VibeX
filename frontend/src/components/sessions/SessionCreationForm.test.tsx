@@ -105,8 +105,41 @@ const CONTROLS = {
   ],
 };
 
+const GROK_CONTROLS = {
+  modes: [
+    { id: 'default', label: 'Ask', description: null },
+    { id: 'bypassPermissions', label: 'Bypass', description: null },
+  ],
+  current_mode: 'default',
+  config_options: [
+    {
+      key: 'model',
+      label: 'Model',
+      description: null,
+      category: 'model',
+      value: 'grok-4.6',
+      choices: [
+        { value: 'grok-4.6', label: 'Grok 4.6', description: null },
+        { value: 'grok-4.5', label: 'Grok 4.5', description: null },
+      ],
+    },
+    {
+      key: 'effort',
+      label: '推理强度',
+      description: null,
+      category: 'thought_level',
+      value: 'high',
+      choices: [
+        { value: 'xhigh', label: 'Extra High Effort', description: null },
+        { value: 'high', label: 'High Effort', description: null },
+        { value: 'medium', label: 'Medium Effort', description: null },
+      ],
+    },
+  ],
+};
+
 function renderForm(
-  executor: 'claude_code' | 'codex' | 'gemini',
+  executor: 'claude_code' | 'codex' | 'gemini' | 'grok',
   onPreset: (preset: SessionControlsPreset | null) => void,
   mode: 'existing_workspace' | 'new_workspace' = 'existing_workspace',
   compact = false,
@@ -225,6 +258,24 @@ describe('SessionCreationForm agent capability catalog controls', () => {
       screen.queryByText('当前分支非 Git Worktree，建议选择 Worktree 分支。')
     ).not.toBeInTheDocument();
     await waitFor(() => expect(agentManagementBar).toHaveBeenCalled());
+  });
+
+  it('shows the Codex-style settings summary for Grok model, effort, and permission', async () => {
+    capabilityCatalog.mockResolvedValue(GROK_CONTROLS);
+    const onPreset = vi.fn();
+    renderForm('grok', onPreset, 'new_workspace');
+
+    const summary = await screen.findByTestId('session-settings-summary');
+    expect(summary).toHaveAttribute(
+      'aria-label',
+      expect.stringMatching(/Grok 4\.6/)
+    );
+    expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/高/));
+    expect(summary).toHaveAttribute('aria-label', expect.stringMatching(/Ask/));
+    expect(onPreset).toHaveBeenLastCalledWith({
+      modeOverride: 'default',
+      configOverrides: { model: 'grok-4.6', effort: 'high' },
+    });
   });
 
   it('loads editable controls for the first session in a new workspace', async () => {

@@ -23,6 +23,7 @@ function scratchWithPayload(payload: Scratch['payload']): Scratch {
   return {
     id: 'scratch-1',
     payload,
+    revision: 1,
     created_at: now,
     updated_at: now,
   };

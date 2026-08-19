@@ -18,6 +18,10 @@ pub enum SubscriptionResource {
         conversation_id: ConversationId,
         after_sequence: i64,
     },
+    WorkflowRun {
+        run_id: uuid::Uuid,
+        after_sequence: i64,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize, TS)]

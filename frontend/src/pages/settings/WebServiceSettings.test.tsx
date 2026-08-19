@@ -49,7 +49,15 @@ function renderSettings() {
   const transport: BackendTransport = {
     environment: 'desktop',
     call: vi.fn(),
-    createDevicePairing: vi.fn(),
+    createDevicePairing: vi.fn(async () => ({
+      pairing_id: 'pair-1',
+      pairing_token: 'pair-once-secret',
+      expires_at: '2026-08-17T00:00:00Z',
+      requested_scopes: ['conversation.read'],
+      invitation:
+        'vibex-pairing:{"pairing_token":"pair-once-secret","reachability":[{"origin":"http://192.168.1.20:17891","kind":"lan"}]}',
+      reachability: [{ origin: 'http://192.168.1.20:17891', kind: 'lan' }],
+    })),
   };
 
   return render(
@@ -132,6 +140,28 @@ describe('WebServiceSettings', () => {
       expect(webServiceApiMock.generateToken).toHaveBeenCalledOnce()
     );
     expect(port).toHaveValue(19000);
+  });
+
+  it('does not show a raw address QR that a phone would reject as an invitation', async () => {
+    webServiceApiMock.getConfig.mockResolvedValue({
+      port: 17891,
+      token: null,
+      auto_start: false,
+      allow_lan: true,
+    });
+    webServiceApiMock.getStatus.mockResolvedValue({
+      ...runningStatus,
+      address: 'http://127.0.0.1:17891',
+      addresses: ['http://127.0.0.1:17891', 'http://192.168.1.20:17891'],
+    });
+
+    renderSettings();
+
+    expect(await screen.findByText('当前状态')).toBeVisible();
+    expect(screen.queryByAltText('地址二维码')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/在同一网络的另一台设备上扫描/)
+    ).not.toBeInTheDocument();
   });
 
   it('saves the edited access configuration through the action bar', async () => {

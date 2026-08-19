@@ -49,6 +49,7 @@ struct WebServiceRuntime {
     port: u16,
     address: String,
     addresses: Vec<String>,
+    allow_lan: bool,
     started_at: String,
     handle: JoinHandle<()>,
 }
@@ -89,6 +90,10 @@ pub struct WebServerStatus {
     pub token_configured: bool,
     pub started_at: Option<String>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub host_id: Option<String>,
+    #[serde(default)]
+    pub reachability: Vec<remote_protocol::ReachabilityOrigin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -476,8 +481,10 @@ async fn api_start_turn(
             images: request.images,
             mode_override: request.mode_override,
             config_overrides: request.config_overrides,
-            plugin_actions: Vec::new(),
+            workflow_refs: Vec::new(),
+            file_refs: Vec::new(),
             queued_input_claim: None,
+            operation_id: None,
         })
         .await;
     notify_events_after(&pool, conversation_id, previous_last_sequence).await;
@@ -591,13 +598,8 @@ fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
     if !allow_lan {
         return addresses;
     }
-    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
-        && socket.connect("1.1.1.1:80").is_ok()
-        && let Ok(std::net::SocketAddr::V4(addr)) = socket.local_addr()
-        && !addr.ip().is_loopback()
-        && !addr.ip().is_unspecified()
-    {
-        let candidate = format!("http://{}:{port}", addr.ip());
+    for ip in lan_ipv4_addrs() {
+        let candidate = format!("http://{ip}:{port}");
         if !addresses.contains(&candidate) {
             addresses.push(candidate);
         }
@@ -605,24 +607,127 @@ fn advertised_addresses(port: u16, allow_lan: bool) -> Vec<String> {
     addresses
 }
 
-fn resolve_static_root() -> Option<PathBuf> {
+fn reachability_from_addresses(addresses: &[String]) -> Vec<remote_protocol::ReachabilityOrigin> {
+    addresses
+        .iter()
+        .filter(|origin| !remote_protocol::is_loopback_origin(origin))
+        .map(remote_protocol::ReachabilityOrigin::lan)
+        .collect()
+}
+
+fn lan_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    let mut addrs = BTreeSet::new();
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0")
+        && socket.connect("1.1.1.1:80").is_ok()
+        && let Ok(std::net::SocketAddr::V4(addr)) = socket.local_addr()
+        && is_advertisable_ipv4(*addr.ip())
+    {
+        addrs.insert(*addr.ip());
+    }
+    addrs.extend(interface_ipv4_addrs());
+    addrs.into_iter().collect()
+}
+
+fn is_advertisable_ipv4(ip: std::net::Ipv4Addr) -> bool {
+    !ip.is_loopback() && !ip.is_unspecified() && !ip.is_link_local() && !ip.is_multicast()
+}
+
+#[cfg(unix)]
+fn interface_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    let mut addrs = Vec::new();
+    let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&mut ifap) } != 0 || ifap.is_null() {
+        return addrs;
+    }
+    let mut cursor = ifap;
+    while !cursor.is_null() {
+        let entry = unsafe { &*cursor };
+        if !entry.ifa_addr.is_null()
+            && unsafe { (*entry.ifa_addr).sa_family as i32 } == libc::AF_INET
+        {
+            let sin = unsafe { &*(entry.ifa_addr as *const libc::sockaddr_in) };
+            let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+            if is_advertisable_ipv4(ip) {
+                addrs.push(ip);
+            }
+        }
+        cursor = entry.ifa_next;
+    }
+    unsafe { libc::freeifaddrs(ifap) };
+    addrs
+}
+
+#[cfg(not(unix))]
+fn interface_ipv4_addrs() -> Vec<std::net::Ipv4Addr> {
+    Vec::new()
+}
+
+fn host_identity_path() -> PathBuf {
+    utils::assets::asset_dir().join("host-identity.json")
+}
+
+async fn load_or_create_host_id() -> Result<String, AppError> {
+    let path = host_identity_path();
+    if let Ok(text) = tokio::fs::read_to_string(&path).await
+        && let Ok(value) = serde_json::from_str::<Value>(&text)
+        && let Some(host_id) = value
+            .get("host_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    {
+        return Ok(host_id.to_string());
+    }
+    let host_id = Uuid::new_v4().to_string();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|error| {
+            AppError::Internal(format!("Failed to create host identity directory: {error}"))
+        })?;
+    }
+    tokio::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({ "host_id": host_id })).map_err(|error| {
+            AppError::Internal(format!("Failed to encode host identity: {error}"))
+        })?,
+    )
+    .await
+    .map_err(|error| AppError::Internal(format!("Failed to persist host identity: {error}")))?;
+    Ok(host_id)
+}
+
+fn resolve_static_root(app: Option<&tauri::AppHandle>) -> Option<PathBuf> {
     if let Ok(root) = std::env::var("VIBEX_STATIC_ROOT") {
         let path = PathBuf::from(root);
         if path.join("index.html").is_file() {
             return Some(path);
         }
     }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
+    let mut roots = Vec::new();
+    if let Some(app) = app
+        && let Ok(dir) = app.path().resource_dir()
     {
-        for candidate in [dir.join("web"), dir.join("../web")] {
-            if candidate.join("index.html").is_file() {
-                return Some(candidate);
-            }
+        roots.push(dir.join("web"));
+        roots.push(dir.join("../web"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut current = exe.parent().map(PathBuf::from);
+        while let Some(dir) = current {
+            roots.push(dir.join("web"));
+            roots.push(dir.join("frontend/dist"));
+            current = dir.parent().map(PathBuf::from);
         }
     }
-    let dev = PathBuf::from("frontend/dist");
-    dev.join("index.html").is_file().then_some(dev)
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut current = Some(cwd);
+        while let Some(dir) = current {
+            roots.push(dir.join("web"));
+            roots.push(dir.join("frontend/dist"));
+            current = dir.parent().map(PathBuf::from);
+        }
+    }
+    roots
+        .into_iter()
+        .find(|path| path.join("index.html").is_file())
 }
 
 fn issue_host_token() -> server::ServerToken {
@@ -634,6 +739,7 @@ fn issue_host_token() -> server::ServerToken {
 }
 
 async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
+    let host_id = load_or_create_host_id().await.ok();
     let runtime = WEB_SERVICE_RUNTIME.lock().await;
     if let Some(runtime) = runtime.as_ref() {
         return WebServerStatus {
@@ -644,6 +750,8 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
             token_configured: config.token.is_some(),
             started_at: Some(runtime.started_at.clone()),
             message: None,
+            host_id,
+            reachability: reachability_from_addresses(&runtime.addresses),
         };
     }
 
@@ -655,6 +763,8 @@ async fn status_from_runtime(config: WebServiceConfig) -> WebServerStatus {
         token_configured: config.token.is_some(),
         started_at: None,
         message: None,
+        host_id,
+        reachability: Vec::new(),
     }
 }
 
@@ -665,9 +775,17 @@ pub async fn get_web_service_config() -> Result<WebServiceConfig, AppError> {
 
 #[tauri::command]
 pub async fn update_web_service_config(
+    app: tauri::AppHandle,
     config: WebServiceConfig,
 ) -> Result<WebServiceConfig, AppError> {
-    save_config(&config).await
+    let previous = load_config().await?;
+    let saved = save_config(&config).await?;
+    let running = WEB_SERVICE_RUNTIME.lock().await.is_some();
+    if running && (previous.allow_lan != saved.allow_lan || previous.port != saved.port) {
+        stop_web_server_with_config(saved.clone()).await;
+        start_web_server(app).await?;
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -694,6 +812,19 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         config.token = Some(issued.expose_once());
         config = save_config(&config).await?;
     }
+    {
+        let runtime = WEB_SERVICE_RUNTIME.lock().await;
+        if let Some(current) = runtime.as_ref()
+            && current.allow_lan == config.allow_lan
+            && current.port == config.port
+        {
+            drop(runtime);
+            return Ok(status_from_runtime(config).await);
+        }
+    }
+    if WEB_SERVICE_RUNTIME.lock().await.is_some() {
+        stop_web_server_with_config(config.clone()).await;
+    }
     let listen = std::net::SocketAddr::from((
         if config.allow_lan {
             std::net::Ipv4Addr::UNSPECIFIED
@@ -702,10 +833,13 @@ pub async fn start_web_server(app: tauri::AppHandle) -> Result<WebServerStatus, 
         },
         config.port,
     ));
+    let host_id = load_or_create_host_id().await?;
+    let advertised = advertised_addresses(config.port, config.allow_lan);
     let mut server_config = server::ServerConfig::default()
         .with_listen_addr(listen, config.allow_lan)
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    if let Some(static_root) = resolve_static_root() {
+        .map_err(|error| AppError::BadRequest(error.to_string()))?
+        .with_host_identity(host_id, reachability_from_addresses(&advertised));
+    if let Some(static_root) = resolve_static_root(Some(&app)) {
         server_config = server_config.with_static_root(static_root);
     }
     let core = server::host_application_core(
@@ -778,6 +912,7 @@ async fn start_web_server_with_router(
         port: local_addr.port(),
         address,
         addresses,
+        allow_lan: config.allow_lan,
         started_at,
         handle,
     });
@@ -823,10 +958,13 @@ pub async fn probe_web_service_port(port: u16) -> Result<PortProbeResult, AppErr
 }
 
 #[tauri::command]
-pub async fn generate_web_service_token(app: tauri::AppHandle) -> Result<WebServiceConfig, AppError> {
+pub async fn generate_web_service_token(
+    app: tauri::AppHandle,
+) -> Result<WebServiceConfig, AppError> {
     let mut config = load_config().await?;
     let plaintext = issue_host_token().expose_once();
-    let store = server::SqliteTokenHashStore::new(app.state::<AppState>().deployment.db().pool.clone());
+    let store =
+        server::SqliteTokenHashStore::new(app.state::<AppState>().deployment.db().pool.clone());
     let persisted = server::ServerToken::try_new(plaintext.clone())
         .map_err(|error| AppError::Internal(error.to_string()))?;
     store
@@ -846,13 +984,15 @@ pub struct CreateHostPairingRequest {
 pub async fn create_host_device_pairing(
     app: tauri::AppHandle,
     request: CreateHostPairingRequest,
-) -> Result<remote_protocol::PairingChallenge, AppError> {
+) -> Result<remote_protocol::IssuedPairingInvitation, AppError> {
     let preset = match request.preset.as_deref() {
-        None | Some("") => Some(remote_protocol::DevicePermissionPreset::Companion),
-        Some("companion") => Some(remote_protocol::DevicePermissionPreset::Companion),
-        Some("workstation") => Some(remote_protocol::DevicePermissionPreset::Workstation),
+        None | Some("") => remote_protocol::DevicePermissionPreset::Companion,
+        Some("companion") => remote_protocol::DevicePermissionPreset::Companion,
+        Some("workstation") => remote_protocol::DevicePermissionPreset::Workstation,
         Some(other) => {
-            return Err(AppError::BadRequest(format!("unknown pairing preset: {other}")));
+            return Err(AppError::BadRequest(format!(
+                "unknown pairing preset: {other}"
+            )));
         }
     };
     use server::ServerAuth;
@@ -864,15 +1004,33 @@ pub async fn create_host_device_pairing(
         device_id: None,
         scopes: BTreeSet::from(["device.pair".to_string()]),
     };
-    auth.create_pairing(
-        &creator,
-        remote_protocol::CreatePairingRequest {
-            preset,
-            requested_scopes: Vec::new(),
-        },
-    )
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))
+    let challenge = auth
+        .create_pairing(
+            &creator,
+            remote_protocol::CreatePairingRequest {
+                preset: Some(preset),
+                requested_scopes: Vec::new(),
+            },
+        )
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let host_id = load_or_create_host_id().await?;
+    let reachability = {
+        let runtime = WEB_SERVICE_RUNTIME.lock().await;
+        runtime
+            .as_ref()
+            .map(|current| reachability_from_addresses(&current.addresses))
+            .unwrap_or_default()
+    };
+    let payload = remote_protocol::PairingInvitationPayload::from_challenge(
+        host_id,
+        preset,
+        &challenge,
+        reachability,
+    );
+    Ok(remote_protocol::IssuedPairingInvitation::from_payload(
+        challenge, payload,
+    ))
 }
 
 pub async fn ensure_web_service_autostart(app: tauri::AppHandle) -> Result<(), AppError> {
@@ -889,7 +1047,34 @@ mod tests {
 
     use axum::Router;
 
-    use super::{WebServiceConfig, start_web_server_with_router, stop_web_server_with_config};
+    use super::{
+        WebServiceConfig, advertised_addresses, reachability_from_addresses,
+        start_web_server_with_router, stop_web_server_with_config,
+    };
+
+    #[test]
+    fn advertised_lan_addresses_exclude_loopback_from_reachability() {
+        let addresses = advertised_addresses(17891, true);
+        let reachability = reachability_from_addresses(&addresses);
+        assert!(
+            addresses
+                .iter()
+                .any(|address| address.contains("127.0.0.1"))
+        );
+        assert!(
+            reachability
+                .iter()
+                .all(|item| !item.origin.contains("127.0.0.1"))
+        );
+    }
+
+    #[test]
+    fn advertised_addresses_without_lan_are_loopback_only() {
+        assert_eq!(
+            advertised_addresses(3080, false),
+            vec!["http://127.0.0.1:3080".to_string()]
+        );
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn starting_web_service_returns_the_running_status_without_hanging() {

@@ -67,12 +67,23 @@ fn commit_changes_prompt(changes: &UncommittedChanges) -> String {
 }
 
 pub fn is_complete_ai_reply(stop_reason: Option<&str>) -> bool {
-    stop_reason.is_some_and(|reason| {
+    normalized_stop_reason(stop_reason).as_deref() == Some("endturn")
+}
+
+pub fn is_cancelled_stop_reason(stop_reason: Option<&str>) -> bool {
+    matches!(
+        normalized_stop_reason(stop_reason).as_deref(),
+        Some("cancelled" | "canceled")
+    )
+}
+
+fn normalized_stop_reason(stop_reason: Option<&str>) -> Option<String> {
+    stop_reason.map(|reason| {
         reason
             .chars()
             .filter(|character| character.is_ascii_alphanumeric())
-            .map(|character| character.to_ascii_lowercase())
-            .eq("endturn".chars())
+            .flat_map(char::to_lowercase)
+            .collect()
     })
 }
 
@@ -162,10 +173,12 @@ pub async fn start_commit_reminder_if_needed(
                 text: agent_prompt,
                 display_text: Some(display_text),
                 images: Vec::new(),
-                plugin_actions: Vec::new(),
+                workflow_refs: Vec::new(),
+                file_refs: Vec::new(),
                 mode_override: None,
                 config_overrides: Vec::new(),
                 queued_input_claim: None,
+                operation_id: None,
             },
             COMMIT_REMINDER_ORIGIN,
         )

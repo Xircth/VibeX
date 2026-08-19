@@ -126,23 +126,41 @@ impl WorktreeManager {
         if create_branch {
             let repo_path_owned = repo_path.to_path_buf();
             let base_branch_owned = base_branch.to_string();
+            let branch_name_owned = branch_name.to_string();
+            let worktree_path_owned = worktree_path.to_path_buf();
 
-            tokio::task::spawn_blocking(move || {
+            // The requested base branch (e.g. a frontend fallback of "main")
+            // may not exist in this repository. Fall back to the repository's
+            // actual HEAD branch so worktree creation never fails with
+            // "fatal: invalid reference: <base>".
+            let effective_base = tokio::task::spawn_blocking(move || {
                 let repo = Repository::open(&repo_path_owned)?;
-                GitService::find_branch(&repo, &base_branch_owned)?;
-                Ok::<(), GitServiceError>(())
+                match GitService::find_branch(&repo, &base_branch_owned) {
+                    Ok(_) => Ok(base_branch_owned),
+                    Err(GitServiceError::BranchNotFound(_)) => GitService::new()
+                        .get_current_branch(&repo_path_owned)
+                        .map_err(|error| {
+                            GitServiceError::InvalidRepository(format!(
+                                "Could not resolve a worktree base branch: {error}"
+                            ))
+                        }),
+                    Err(error) => Err(error),
+                }
             })
             .await
             .map_err(|e| WorktreeError::TaskJoin(format!("Task join error: {e}")))??;
+
+            Self::ensure_worktree_exists_from_ref(
+                repo_path,
+                &branch_name_owned,
+                &worktree_path_owned,
+                Some(&effective_base),
+            )
+            .await?;
+            return Ok(());
         }
 
-        Self::ensure_worktree_exists_from_ref(
-            repo_path,
-            branch_name,
-            worktree_path,
-            create_branch.then_some(base_branch),
-        )
-        .await
+        Self::ensure_worktree_exists_from_ref(repo_path, branch_name, worktree_path, None).await
     }
 
     /// Ensure worktree exists, recreating if necessary with proper synchronization

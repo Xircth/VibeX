@@ -1,0 +1,35 @@
+# Recorded from protocol fixture initialize-activate-ping.jsonl
+# Native hello worker under sandbox-exec. Isolated default (no network.fetch).
+# network.fetch grant does not add connect/bind/accept; Host Broker fetches.
+access
+bsdthread_create
+bsdthread_register
+bsdthread_terminate
+close
+execve
+fcntl
+fork
+getdirentries
+getdirentries64
+getcwd
+getpid
+ioctl
+kevent
+kevent64
+kqueue
+lseek
+mmap
+mprotect
+munmap
+open
+pipe
+posix_spawn
+psynch_cvwait
+psynch_mutexwait
+read
+stat64
+sysctl
+thread_selfid
+wait4
+write
+writev

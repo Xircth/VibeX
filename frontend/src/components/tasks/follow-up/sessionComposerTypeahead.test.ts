@@ -123,7 +123,7 @@ describe('session composer typeahead option derivation', () => {
       formatSessionComposerCommand({
         type: '/',
         key: 'skill:review-skill:review-skill',
-        value: '/review-skill',
+        value: '/skill:review-skill:review-skill',
       }),
     ]);
     expect(options[0]).toMatchObject({

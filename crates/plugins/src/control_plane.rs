@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{
         Arc, RwLock,
@@ -13,9 +13,8 @@ use sqlx::{Row, SqlitePool};
 
 use crate::{
     ActionId, ActivationLease, ActivationManager, CapabilityBroker, CapabilityGrant,
-    ContributionCatalog, InvocationKind, PluginAction, PluginActivation, PluginError,
-    PluginPackage, PluginSource, PromptBlock, ResolvedFileOpener, SkillId, ToolId,
-    WorkerActivation, WorkerHostError,
+    ContributionCatalog, PluginAction, PluginActivation, PluginError, PluginPackage, PluginSource,
+    PromptBlock, ResolvedFileOpener, SkillId, ToolId, WorkerActivation, WorkerHostError,
     contribution::{ContributionRegistry, descriptors_for_package},
 };
 
@@ -174,6 +173,8 @@ pub trait PluginRegistry: Send + Sync {
     async fn fail_candidate(&self, generation: u64, evidence: &str) -> Result<(), PluginError>;
     async fn retire_generation(&self, generation: u64) -> Result<(), PluginError>;
     async fn retire_draining_generations(&self, plugin_id: &str) -> Result<(), PluginError>;
+    /// Drop the live generation without changing enable intent.
+    async fn retire_published_generation(&self, plugin_id: &str) -> Result<(), PluginError>;
     async fn replace_declared_grants(
         &self,
         plugin_id: &str,
@@ -495,6 +496,18 @@ impl PluginRegistry for InMemoryPluginRegistry {
     }
 
     async fn retire_draining_generations(&self, _plugin_id: &str) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    async fn retire_published_generation(&self, plugin_id: &str) -> Result<(), PluginError> {
+        self.published_generations
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
+        self.published_contributions
+            .write()
+            .map_err(lock_error)?
+            .remove(plugin_id);
         Ok(())
     }
 
@@ -1026,44 +1039,7 @@ impl PluginRegistry for SqlitePluginRegistry {
             .await
             .map_err(registry_error)?;
         }
-        sqlx::query(
-            "UPDATE plugin_grants_v4 SET revoked_at = datetime('now','subsec')
-             WHERE plugin_id = ? AND package_digest = ? AND revoked_at IS NULL",
-        )
-        .bind(plugin_id)
-        .bind(&candidate)
-        .execute(&mut *transaction)
-        .await
-        .map_err(registry_error)?;
-        for permission in package.permissions.iter().filter(|permission| {
-            grants.iter().any(|grant| {
-                grant.capability == permission.capability
-                    && grant.scope == permission.scope
-                    && grant.trust_tier == permission.trust_tier
-            })
-        }) {
-            sqlx::query(
-                "INSERT INTO plugin_grants_v4
-                    (publisher, plugin_id, package_digest, permission_id, capability, scope_json,
-                     trust_tier, declaration_digest, granted_at, revoked_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'), NULL)
-                 ON CONFLICT(publisher, plugin_id, package_digest, permission_id) DO UPDATE SET
-                    capability = excluded.capability, scope_json = excluded.scope_json,
-                    trust_tier = excluded.trust_tier, declaration_digest = excluded.declaration_digest,
-                    granted_at = excluded.granted_at, revoked_at = NULL",
-            )
-            .bind(package_publisher(package))
-            .bind(plugin_id)
-            .bind(&candidate)
-            .bind(&permission.id)
-            .bind(&permission.capability)
-            .bind(serde_json::to_string(&permission.scope).map_err(registry_error)?)
-            .bind(&permission.trust_tier)
-            .bind(&candidate)
-            .execute(&mut *transaction)
-            .await
-            .map_err(registry_error)?;
-        }
+        let _ = (grants, plugin_id);
         // Runtime downloads/probes happen before publication. The publish
         // transaction binds an already verified artifact to the candidate
         // digest, so consumers never observe a generation without its exact
@@ -1167,88 +1143,53 @@ impl PluginRegistry for SqlitePluginRegistry {
         transaction.commit().await.map_err(registry_error)
     }
 
+    async fn retire_published_generation(&self, plugin_id: &str) -> Result<(), PluginError> {
+        sqlx::query(
+            "UPDATE plugin_generations_v4 SET state = 'retired'
+             WHERE plugin_id = ? AND state IN ('active','active_degraded','draining')",
+        )
+        .bind(plugin_id)
+        .execute(&self.pool)
+        .await
+        .map_err(registry_error)?;
+        Ok(())
+    }
+
     async fn replace_declared_grants(
         &self,
         plugin_id: &str,
         permissions: &[crate::CapabilityRequest],
     ) -> Result<(), PluginError> {
-        let plugin = self
+        let _ = permissions;
+        let _ = self
             .plugin(plugin_id)
             .await?
             .ok_or_else(|| PluginError::not_found(plugin_id))?;
-        let digest = plugin.package_digest.clone();
-        let publisher = package_publisher(&plugin.package);
-        let mut transaction = self.pool.begin().await.map_err(registry_error)?;
-        sqlx::query(
-            "UPDATE plugin_grants_v4 SET revoked_at = datetime('now','subsec')
-             WHERE plugin_id = ? AND package_digest = ? AND revoked_at IS NULL",
-        )
-        .bind(plugin_id)
-        .bind(&digest)
-        .execute(&mut *transaction)
-        .await
-        .map_err(registry_error)?;
-        for permission in permissions {
-            sqlx::query(
-                "INSERT INTO plugin_grants_v4
-                    (publisher, plugin_id, package_digest, permission_id, capability, scope_json,
-                     trust_tier, declaration_digest, granted_at, revoked_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','subsec'), NULL)
-                 ON CONFLICT(publisher, plugin_id, package_digest, permission_id) DO UPDATE SET
-                    capability = excluded.capability, scope_json = excluded.scope_json,
-                    trust_tier = excluded.trust_tier, declaration_digest = excluded.declaration_digest,
-                    granted_at = excluded.granted_at, revoked_at = NULL",
-            )
-            .bind(publisher)
-            .bind(plugin_id)
-            .bind(&digest)
-            .bind(&permission.id)
-            .bind(&permission.capability)
-            .bind(serde_json::to_string(&permission.scope).map_err(registry_error)?)
-            .bind(&permission.trust_tier)
-            .bind(&digest)
-            .execute(&mut *transaction)
-            .await
-            .map_err(registry_error)?;
-        }
-        transaction.commit().await.map_err(registry_error)
+        Ok(())
     }
 
     async fn capability_grants(
         &self,
         plugin_id: &str,
     ) -> Result<Vec<crate::CapabilityGrant>, PluginError> {
-        let rows = sqlx::query(
-            "SELECT g.capability, g.scope_json, g.trust_tier
-             FROM plugin_grants_v4 g
-             JOIN plugin_installations_v4 i
-               ON i.publisher = g.publisher AND i.plugin_id = g.plugin_id
-              AND i.current_package_digest = g.package_digest
-             WHERE g.plugin_id = ? AND g.revoked_at IS NULL
-             ORDER BY g.permission_id",
-        )
-        .bind(plugin_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(registry_error)?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(crate::CapabilityGrant {
-                    capability: row.get("capability"),
-                    scope: serde_json::from_str(row.get::<String, _>("scope_json").as_str())
-                        .map_err(registry_error)?,
-                    trust_tier: row.get("trust_tier"),
-                })
-            })
-            .collect()
+        let _ = plugin_id;
+        Ok(Vec::new())
     }
+}
+
+#[derive(Clone)]
+struct WorkerRestore {
+    node_executable: PathBuf,
+    broker: Arc<dyn CapabilityBroker>,
 }
 
 pub struct PluginControlPlane {
     registry: Arc<dyn PluginRegistry>,
     contributions: ContributionRegistry,
     activations: ActivationManager,
-    official_mcp: Arc<crate::OfficialProductMcpGate>,
+    official_mcp: Arc<crate::OfficialMcpRuntime>,
+    host_services: crate::host_service::HostServiceSupervisor,
+    worker_restore: tokio::sync::RwLock<Option<WorkerRestore>>,
 }
 
 impl PluginControlPlane {
@@ -1257,18 +1198,234 @@ impl PluginControlPlane {
             registry,
             contributions: ContributionRegistry::default(),
             activations: ActivationManager::default(),
-            official_mcp: Arc::new(crate::OfficialProductMcpGate::default()),
+            official_mcp: Arc::new(crate::OfficialMcpRuntime::default()),
+            host_services: crate::host_service::HostServiceSupervisor::default(),
+            worker_restore: tokio::sync::RwLock::new(None),
         }
     }
 
-    pub fn official_product_mcp_gate(&self) -> Arc<crate::OfficialProductMcpGate> {
+    pub fn official_product_mcp_gate(&self) -> Arc<crate::OfficialMcpRuntime> {
         self.official_mcp.clone()
     }
 
     pub async fn sync_official_product_mcp_gate(&self) -> Result<(), PluginError> {
-        self.official_mcp.reset();
+        self.refresh_live_projections().await
+    }
+
+    async fn plugin_is_live(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        Ok(self.registry.active_generation(plugin_id).await?.is_some())
+    }
+
+    async fn refresh_live_projections(&self) -> Result<(), PluginError> {
+        let plugins = self.registry.list_plugins().await?;
+        let mut live = Vec::new();
+        for plugin in plugins {
+            if plugin.activation == PluginActivation::Enabled
+                && self.plugin_is_live(plugin.id()).await?
+            {
+                live.push(plugin);
+            }
+        }
+        self.official_mcp.sync_from_plugins(&live);
+        self.contributions
+            .publish(self.registry.active_contributions().await?)?;
+        Ok(())
+    }
+
+    /// Reverse of publishing a generation: stop host.service, dispose Worker,
+    /// then drop contribution descriptors. Enable intent is unchanged.
+    async fn withdraw_live_generation(&self, plugin_id: &str) -> Result<(), PluginError> {
+        if !self.plugin_is_live(plugin_id).await? {
+            self.host_services.stop(plugin_id);
+            let _ = self.activations.deactivate(plugin_id).await;
+            return Ok(());
+        }
+        self.host_services.stop(plugin_id);
+        self.activations
+            .deactivate(plugin_id)
+            .await
+            .map_err(|error| PluginError::registry(error.to_string()))?;
+        self.registry.retire_published_generation(plugin_id).await
+    }
+
+    async fn live_dependents(&self, plugin_id: &str) -> Result<Vec<String>, PluginError> {
+        let mut dependents = Vec::new();
         for plugin in self.registry.list_plugins().await? {
-            self.official_mcp.observe(plugin.id(), plugin.activation);
+            if plugin.activation != PluginActivation::Enabled {
+                continue;
+            }
+            if !self.plugin_is_live(plugin.id()).await? {
+                continue;
+            }
+            let required = plugin_dependencies(&plugin.package)
+                .into_iter()
+                .any(|dep| dep.required && dep.id == plugin_id);
+            if required {
+                dependents.push(plugin.id().to_owned());
+            }
+        }
+        Ok(dependents)
+    }
+
+    async fn withdraw_with_dependents(&self, plugin_id: &str) -> Result<(), PluginError> {
+        let mut stack = vec![plugin_id.to_owned()];
+        let mut order = Vec::new();
+        let mut visited = BTreeSet::new();
+        while let Some(id) = stack.pop() {
+            if !visited.insert(id.clone()) {
+                continue;
+            }
+            order.push(id.clone());
+            stack.extend(self.live_dependents(&id).await?);
+        }
+        for id in order.into_iter().rev() {
+            self.withdraw_live_generation(&id).await?;
+        }
+        Ok(())
+    }
+
+    async fn remount_if_ready(&self, plugin_id: &str) -> Result<bool, PluginError> {
+        let Some(plugin) = self.registry.plugin(plugin_id).await? else {
+            return Ok(false);
+        };
+        if plugin.activation != PluginActivation::Enabled {
+            return Ok(false);
+        }
+        if self.plugin_is_live(plugin_id).await? {
+            return Ok(false);
+        }
+        if self
+            .require_plugin_dependencies(&plugin.package)
+            .await
+            .is_err()
+        {
+            return Ok(false);
+        }
+        if plugin.entrypoints.worker.is_some() {
+            let restore = self.worker_restore.read().await.clone();
+            let Some(restore) = restore else {
+                return Ok(false);
+            };
+            let grants = candidate_capability_grants(&plugin.package, &[], &[])?;
+            self.publish_live_generation(
+                plugin_id,
+                Some((
+                    restore.node_executable.as_path(),
+                    grants.as_slice(),
+                    restore.broker.clone(),
+                )),
+            )
+            .await
+            .map_err(|error| PluginError::registry(error.to_string()))?;
+            return Ok(true);
+        }
+        self.publish_live_generation(plugin_id, None)
+            .await
+            .map_err(|error| PluginError::registry(error.to_string()))?;
+        Ok(true)
+    }
+
+    async fn reconcile_enabled(&self) -> Result<(), PluginError> {
+        let plugins = self.registry.list_plugins().await?;
+        for _ in 0..plugins.len().saturating_add(1) {
+            let mut progressed = false;
+            for plugin in &plugins {
+                if self.remount_if_ready(plugin.id()).await? {
+                    progressed = true;
+                }
+            }
+            if !progressed {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    async fn publish_live_generation(
+        &self,
+        plugin_id: &str,
+        worker: Option<(
+            &std::path::Path,
+            &[CapabilityGrant],
+            Arc<dyn CapabilityBroker>,
+        )>,
+    ) -> Result<(), WorkerHostError> {
+        let plugin = self
+            .registry
+            .plugin(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
+        self.ensure_plugin_dependencies(&plugin.package).await?;
+        if plugin.entrypoints.worker.is_some() {
+            self.ensure_runtime_readiness(plugin_id, &plugin.package)
+                .await?;
+        }
+        let generation = self
+            .registry
+            .create_candidate(plugin_id)
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        let grants = worker
+            .as_ref()
+            .map(|(_, grants, _)| grants.to_vec())
+            .unwrap_or_default();
+        let candidate = if let Some((node_executable, _, broker)) = worker {
+            match self
+                .activations
+                .prepare_candidate_at(
+                    generation,
+                    node_executable,
+                    &plugin.package,
+                    &grants,
+                    broker,
+                )
+                .await
+            {
+                Ok(candidate) => Some(candidate),
+                Err(error) => {
+                    let _ = self
+                        .registry
+                        .fail_candidate(generation, &error.to_string())
+                        .await;
+                    return Err(error);
+                }
+            }
+        } else if plugin.entrypoints.worker.is_some() {
+            return Err(WorkerHostError::external(
+                "plugin_registry_failed",
+                "Worker plugins must be enabled through candidate activation",
+            ));
+        } else {
+            None
+        };
+        let contributions = descriptors_for_package(&plugin.package, generation);
+        if let Err(error) = self
+            .registry
+            .publish_candidate(
+                plugin_id,
+                generation,
+                &plugin.package,
+                &contributions,
+                &grants,
+            )
+            .await
+        {
+            if let Some(candidate) = candidate {
+                let _ = candidate.discard("activation persistence failed").await;
+            }
+            let _ = self
+                .registry
+                .fail_candidate(generation, error.message())
+                .await;
+            return Err(WorkerHostError::external("plugin_registry_failed", error));
+        }
+        if let Some(candidate) = candidate {
+            let drain = self.activations.commit(candidate).await;
+            self.retire_after_drain(plugin_id.to_owned(), drain);
+        }
+        if let Some(lease) = self.activations.lease(plugin_id).await {
+            self.host_services.start(plugin_id, lease, &plugin.package);
         }
         Ok(())
     }
@@ -1346,6 +1503,9 @@ impl PluginControlPlane {
         package: PluginPackage,
         decision: ConflictDecision,
     ) -> Result<ImportResult, PluginError> {
+        if package.package_class == "isolated" && !crate::isolated_spawn_supported() {
+            return Err(PluginError::class_unsupported(package.id.as_str()));
+        }
         let existing = self.registry.plugin(package.id.as_str()).await?;
         if let Some(ref installed) = existing {
             if package_publisher(&installed.package) != package_publisher(&package) {
@@ -1405,7 +1565,19 @@ impl PluginControlPlane {
         self.contributions
             .publish(self.registry.active_contributions().await?)?;
         self.contributions
-            .resolve_file_opener(extension, media_type)
+            .resolve_file_opener(None, extension, media_type)
+    }
+
+    pub async fn resolve_file_opener_for_file(
+        &self,
+        file_name: Option<&str>,
+        extension: Option<&str>,
+        media_type: Option<&str>,
+    ) -> Result<Option<ResolvedFileOpener>, PluginError> {
+        self.contributions
+            .publish(self.registry.active_contributions().await?)?;
+        self.contributions
+            .resolve_file_opener(file_name, extension, media_type)
     }
 
     pub async fn set_enabled(
@@ -1424,31 +1596,22 @@ impl PluginControlPlane {
                     "Worker plugins must be enabled through candidate activation",
                 ));
             }
-            let generation = self.registry.create_candidate(plugin_id).await?;
-            let contributions = descriptors_for_package(&plugin.package, generation);
-            if let Err(error) = self
-                .registry
-                .publish_candidate(plugin_id, generation, &plugin.package, &contributions, &[])
+            self.require_plugin_dependencies(&plugin.package).await?;
+            self.publish_live_generation(plugin_id, None)
                 .await
-            {
-                let _ = self
-                    .registry
-                    .fail_candidate(generation, error.message())
-                    .await;
-                return Err(error);
-            }
+                .map_err(|error| PluginError::registry(format!("{}: {error}", error.code())))?;
+            self.reconcile_enabled().await?;
         } else {
+            self.withdraw_with_dependents(plugin_id).await?;
             self.registry
                 .set_activation(plugin_id, PluginActivation::Disabled)
                 .await?;
         }
-        let plugin = self
-            .registry
+        self.refresh_live_projections().await?;
+        self.registry
             .plugin(plugin_id)
             .await?
-            .ok_or_else(|| PluginError::not_found(plugin_id))?;
-        self.official_mcp.observe(plugin.id(), plugin.activation);
-        Ok(plugin)
+            .ok_or_else(|| PluginError::not_found(plugin_id))
     }
 
     pub async fn activate_candidate(
@@ -1483,64 +1646,32 @@ impl PluginControlPlane {
             .await
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
             .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
-        self.ensure_runtime_readiness(plugin_id, &plugin.package)
-            .await?;
+        self.ensure_plugin_dependencies(&plugin.package).await?;
         let active_matches = self
             .activations
             .lease(plugin_id)
             .await
             .is_some_and(|lease| lease.activation().package_digest == plugin.package_digest);
-        if active_matches {
+        if active_matches && self.plugin_is_live(plugin_id).await.unwrap_or(false) {
             return Ok(plugin);
         }
-        let generation = self
-            .registry
-            .create_candidate(plugin_id)
+        *self.worker_restore.write().await = Some(WorkerRestore {
+            node_executable: node_executable.to_path_buf(),
+            broker: broker.clone(),
+        });
+        let worker =
+            plugin
+                .entrypoints
+                .worker
+                .is_some()
+                .then_some((node_executable, grants, broker));
+        self.publish_live_generation(plugin_id, worker).await?;
+        self.reconcile_enabled()
+            .await
+            .map_err(|error| WorkerHostError::external(error.code(), error))?;
+        self.refresh_live_projections()
             .await
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
-        let candidate = if plugin.entrypoints.worker.is_some() {
-            match self
-                .activations
-                .prepare_candidate_at(generation, node_executable, &plugin.package, grants, broker)
-                .await
-            {
-                Ok(candidate) => Some(candidate),
-                Err(error) => {
-                    let _ = self
-                        .registry
-                        .fail_candidate(generation, &error.to_string())
-                        .await;
-                    return Err(error);
-                }
-            }
-        } else {
-            None
-        };
-        let contributions = descriptors_for_package(&plugin.package, generation);
-        if let Err(error) = self
-            .registry
-            .publish_candidate(
-                plugin_id,
-                generation,
-                &plugin.package,
-                &contributions,
-                grants,
-            )
-            .await
-        {
-            if let Some(candidate) = candidate {
-                let _ = candidate.discard("activation persistence failed").await;
-            }
-            let _ = self
-                .registry
-                .fail_candidate(generation, error.message())
-                .await;
-            return Err(WorkerHostError::external("plugin_registry_failed", error));
-        }
-        if let Some(candidate) = candidate {
-            let drain = self.activations.commit(candidate).await;
-            self.retire_after_drain(plugin_id.to_owned(), drain);
-        }
         self.registry
             .plugin(plugin_id)
             .await
@@ -1568,6 +1699,11 @@ impl PluginControlPlane {
                 "candidate publisher does not own the installed plugin identity",
             ));
         }
+        *self.worker_restore.write().await = Some(WorkerRestore {
+            node_executable: node_executable.to_path_buf(),
+            broker: broker.clone(),
+        });
+        self.ensure_plugin_dependencies(&package).await?;
         self.ensure_runtime_readiness(&plugin_id, &package).await?;
         let generation = self
             .registry
@@ -1611,13 +1747,30 @@ impl PluginControlPlane {
             let drain = self.activations.commit(candidate).await;
             self.retire_after_drain(plugin_id.clone(), drain);
         }
+        if let Some(lease) = self.activations.lease(&plugin_id).await {
+            if let Ok(Some(installed)) = self.registry.plugin(&plugin_id).await {
+                self.host_services
+                    .start(&plugin_id, lease, &installed.package);
+            }
+        }
         let plugin = self
             .registry
             .plugin(&plugin_id)
             .await
             .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
             .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
-        self.official_mcp.observe(plugin.id(), plugin.activation);
+        let plugins = self
+            .registry
+            .list_plugins()
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+        self.official_mcp.sync_from_plugins(&plugins);
+        self.reconcile_enabled()
+            .await
+            .map_err(|error| WorkerHostError::external(error.code(), error))?;
+        self.refresh_live_projections()
+            .await
+            .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
         Ok(plugin)
     }
 
@@ -1667,6 +1820,10 @@ impl PluginControlPlane {
         candidate_root: &std::path::Path,
         broker: Arc<dyn CapabilityBroker>,
     ) -> Result<Vec<ActivationRecoveryFailure>, PluginError> {
+        *self.worker_restore.write().await = Some(WorkerRestore {
+            node_executable: node_executable.to_path_buf(),
+            broker: broker.clone(),
+        });
         let mut failures = Vec::new();
         for plugin in self.registry.list_plugins().await? {
             if plugin.activation != PluginActivation::Enabled || plugin.entrypoints.worker.is_none()
@@ -1720,16 +1877,10 @@ impl PluginControlPlane {
             let grants = candidate_capability_grants(&plugin.package, &[], &[])?;
             let generation = match self.registry.active_generation(plugin.id()).await? {
                 Some(generation) => generation,
-                None => {
-                    failures.push(ActivationRecoveryFailure {
-                        plugin_id: plugin.id().to_owned(),
-                        code: "activation_generation_missing".to_owned(),
-                        message: "Enabled plugin has no published generation".to_owned(),
-                    });
-                    continue;
-                }
+                None => continue,
             };
             let restored = async {
+                self.ensure_plugin_dependencies(&plugin.package).await?;
                 self.ensure_runtime_readiness(plugin.id(), &plugin.package)
                     .await?;
                 let candidate = self
@@ -1744,6 +1895,10 @@ impl PluginControlPlane {
                     .await?;
                 let drain = self.activations.commit(candidate).await;
                 self.retire_after_drain(plugin.id().to_owned(), drain);
+                if let Some(lease) = self.activations.lease(plugin.id()).await {
+                    self.host_services
+                        .start(plugin.id(), lease, &plugin.package);
+                }
                 Ok::<(), WorkerHostError>(())
             }
             .await;
@@ -1755,10 +1910,13 @@ impl PluginControlPlane {
                 });
             }
         }
+        let _ = self.reconcile_enabled().await;
+        let _ = self.refresh_live_projections().await;
         Ok(failures)
     }
 
     pub async fn deactivate_worker(&self, plugin_id: &str) -> Result<bool, WorkerHostError> {
+        self.host_services.stop(plugin_id);
         self.activations.deactivate(plugin_id).await
     }
 
@@ -1773,12 +1931,13 @@ impl PluginControlPlane {
             .await?
             .filter(|plugin| plugin.activation == PluginActivation::Enabled)
             .ok_or_else(|| PluginError::invocation_unavailable(plugin_id, action_id))?;
+        if !self.plugin_is_live(plugin_id).await? {
+            return Err(PluginError::invocation_unavailable(plugin_id, action_id));
+        }
         let invocation = plugin
             .invocations
             .iter()
-            .find(|invocation| {
-                invocation.id == action_id && invocation.kind == InvocationKind::Action
-            })
+            .find(|invocation| invocation.id == action_id)
             .ok_or_else(|| PluginError::invocation_unavailable(plugin_id, action_id))?;
         let required_runtime_ids = if invocation.required_runtimes.is_empty() {
             plugin
@@ -1832,9 +1991,8 @@ impl PluginControlPlane {
             })
             .collect::<Vec<_>>();
         if !skill_paths.is_empty() || !runtime_paths.is_empty() {
-            let mut context = vec![
-                "VibeX has resolved this PluginAction to verified local resources:".to_owned(),
-            ];
+            let mut context =
+                vec!["VibeX has resolved this workflow to verified local resources:".to_owned()];
             context.extend(
                 skill_paths
                     .iter()
@@ -1870,7 +2028,13 @@ impl PluginControlPlane {
         if self.registry.plugin(plugin_id).await?.is_none() {
             return Err(PluginError::not_found(plugin_id));
         }
-        self.registry.delete_plugin(plugin_id).await
+        self.withdraw_with_dependents(plugin_id).await?;
+        self.registry
+            .set_activation(plugin_id, PluginActivation::Disabled)
+            .await
+            .ok();
+        self.registry.delete_plugin(plugin_id).await?;
+        self.refresh_live_projections().await
     }
 
     pub async fn runtime_inventory(&self) -> Result<Vec<RuntimeInstallation>, PluginError> {
@@ -1918,6 +2082,79 @@ impl PluginControlPlane {
             .ok_or_else(|| WorkerHostError::external("plugin_not_found", plugin_id))?;
         self.ensure_runtime_readiness(plugin_id, &plugin.package)
             .await
+    }
+
+    async fn ensure_plugin_dependencies(
+        &self,
+        package: &PluginPackage,
+    ) -> Result<(), WorkerHostError> {
+        for dependency in plugin_dependencies(package) {
+            if !dependency.required {
+                continue;
+            }
+            let installed = self
+                .registry
+                .plugin(&dependency.id)
+                .await
+                .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?;
+            let Some(installed) = installed else {
+                return Err(WorkerHostError::external(
+                    "dependency_unsatisfied",
+                    format!(
+                        "required plugin `{}/{}` is not installed",
+                        dependency.publisher, dependency.id
+                    ),
+                ));
+            };
+            if package_publisher(&installed.package) != dependency.publisher {
+                return Err(WorkerHostError::external(
+                    "dependency_unsatisfied",
+                    format!(
+                        "required plugin `{}` is not published by `{}`",
+                        dependency.id, dependency.publisher
+                    ),
+                ));
+            }
+            if installed.activation != PluginActivation::Enabled
+                || !self
+                    .plugin_is_live(&dependency.id)
+                    .await
+                    .map_err(|error| WorkerHostError::external("plugin_registry_failed", error))?
+            {
+                return Err(WorkerHostError::external(
+                    "dependency_unsatisfied",
+                    format!("required plugin `{}` is not ready", dependency.id),
+                ));
+            }
+            if let Ok(requirement) = semver::VersionReq::parse(&dependency.version_range)
+                && let Ok(version) = semver::Version::parse(&installed.version)
+                && !requirement.matches(&version)
+            {
+                return Err(WorkerHostError::external(
+                    "dependency_unsatisfied",
+                    format!(
+                        "plugin `{}` {} does not satisfy {}",
+                        dependency.id, installed.version, dependency.version_range
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    async fn require_plugin_dependencies(
+        &self,
+        package: &PluginPackage,
+    ) -> Result<(), PluginError> {
+        self.ensure_plugin_dependencies(package)
+            .await
+            .map_err(|error| {
+                if error.code() == "dependency_unsatisfied" {
+                    PluginError::dependency_unsatisfied(error.to_string())
+                } else {
+                    PluginError::registry(error.to_string())
+                }
+            })
     }
 
     pub async fn grant_permissions(
@@ -2128,9 +2365,53 @@ fn contribution_kind_key(kind: crate::ContributionKind) -> &'static str {
         crate::ContributionKind::FileOpener => "file_opener",
         crate::ContributionKind::PreviewProvider => "preview_provider",
         crate::ContributionKind::AppSurface => "app_surface",
+        crate::ContributionKind::Hook => "hook",
+        crate::ContributionKind::Toolbar => "toolbar",
+        crate::ContributionKind::Status => "status",
+        crate::ContributionKind::ComposerSlash => "composer_slash",
+        crate::ContributionKind::TimelineCard => "timeline_card",
+        crate::ContributionKind::SettingsSection => "settings_section",
+        crate::ContributionKind::HostService => "host_service",
+        crate::ContributionKind::WorkflowBinding => "workflow_binding",
     }
 }
 
 fn package_publisher(package: &PluginPackage) -> &str {
     package.publisher.as_deref().unwrap_or("legacy.local")
+}
+
+struct PluginDependency {
+    publisher: String,
+    id: String,
+    version_range: String,
+    required: bool,
+}
+
+fn plugin_dependencies(package: &PluginPackage) -> Vec<PluginDependency> {
+    package
+        .manifest
+        .get("depends")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            let object = value.as_object()?;
+            if object.get("kind").and_then(serde_json::Value::as_str) != Some("plugin") {
+                return None;
+            }
+            Some(PluginDependency {
+                publisher: object.get("publisher")?.as_str()?.to_owned(),
+                id: object.get("id")?.as_str()?.to_owned(),
+                version_range: object
+                    .get("versionRange")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("*")
+                    .to_owned(),
+                required: object
+                    .get("required")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true),
+            })
+        })
+        .collect()
 }

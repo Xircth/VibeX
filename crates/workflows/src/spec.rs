@@ -10,6 +10,7 @@ pub const MAX_WORKFLOW_STEPS: usize = 1_000;
 pub(crate) const MAX_WORKFLOW_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_WORKFLOW_DEFINITION_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STEP_PROMPT_BYTES: usize = 64 * 1024;
+const MAX_STEP_OUTPUT_DESCRIPTION_BYTES: usize = 16 * 1024;
 const MAX_SCHEMA_DEPTH: usize = 32;
 const MAX_SCHEMA_NODES: usize = 10_000;
 
@@ -49,6 +50,7 @@ pub struct WorkflowStep {
 pub enum WorkflowStepSpec {
     Agent(AgentStepSpec),
     Approval(ApprovalStepSpec),
+    Notify(NotifyStepSpec),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -57,6 +59,16 @@ pub enum WorkflowStepSpec {
 pub struct AgentStepSpec {
     pub agent_id: String,
     pub prompt: String,
+    #[serde(default)]
+    pub executor_profile_id: Option<serde_json::Value>,
+    #[serde(default)]
+    pub mode_override: Option<String>,
+    #[serde(default)]
+    pub config_overrides: BTreeMap<String, String>,
+    #[serde(default)]
+    pub output_language: Option<String>,
+    #[serde(default)]
+    pub output_description: Option<String>,
     #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
     #[serde(default)]
@@ -67,6 +79,17 @@ pub struct AgentStepSpec {
     pub allow_one_repair: bool,
     #[serde(default)]
     pub allow_skip_on_review: bool,
+    #[serde(default)]
+    pub completion_policy: CompletionPolicy,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum CompletionPolicy {
+    #[default]
+    Automatic,
+    Manual,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -78,6 +101,14 @@ pub struct ApprovalStepSpec {
     pub approver_scope: String,
     #[serde(default)]
     pub skippable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, rename_all = "camelCase")]
+pub struct NotifyStepSpec {
+    #[serde(default)]
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -92,8 +123,9 @@ pub enum WorkflowBinding {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum WorkspaceAccess {
-    ReadOnlyShared,
     #[default]
+    Native,
+    ReadOnlyShared,
     WriteSerialized,
     WriteIsolated,
 }
@@ -114,7 +146,9 @@ pub enum SideEffectClass {
 pub struct WorkflowPolicy {
     pub max_concurrent_agent_steps: u32,
     pub max_agent_calls: u32,
-    pub deadline_seconds: u64,
+    // u32 on purpose: the hard limit (7 days) fits, and JSON IPC (Tauri
+    // serializes invoke payloads with JSON.stringify) cannot carry bigint.
+    pub deadline_seconds: u32,
     pub max_output_bytes: usize,
 }
 
@@ -172,10 +206,6 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
         )));
     }
     validate_policy(&definition.policy)?;
-    if let Some(schema) = &definition.input_schema {
-        validate_json_schema(schema)?;
-    }
-
     let mut ids = BTreeSet::new();
     for step in &definition.steps {
         if !valid_step_id(&step.id) || !ids.insert(step.id.as_str()) {
@@ -206,8 +236,27 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
                         step.id
                     )));
                 }
-                if let Some(schema) = &agent.output_schema {
-                    validate_json_schema(schema)?;
+                if agent
+                    .output_language
+                    .as_ref()
+                    .is_some_and(|language| language.trim().is_empty() || language.len() > 64)
+                {
+                    return Err(WorkflowError::Validation(format!(
+                        "agent step `{}` has an invalid outputLanguage",
+                        step.id
+                    )));
+                }
+                if agent
+                    .output_description
+                    .as_ref()
+                    .is_some_and(|description| {
+                        description.len() > MAX_STEP_OUTPUT_DESCRIPTION_BYTES
+                    })
+                {
+                    return Err(WorkflowError::Validation(format!(
+                        "agent step `{}` outputDescription exceeds the size limit",
+                        step.id
+                    )));
                 }
             }
             WorkflowStepSpec::Approval(approval) => {
@@ -218,6 +267,14 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
                     )));
                 }
                 validate_json_schema(&approval.decision_schema)?;
+            }
+            WorkflowStepSpec::Notify(notify) => {
+                if notify.title.len() > 200 {
+                    return Err(WorkflowError::Validation(format!(
+                        "notify step `{}` title exceeds supported size",
+                        step.id
+                    )));
+                }
             }
         }
     }
@@ -250,17 +307,7 @@ pub fn validate_definition(definition: &WorkflowDefinition) -> Result<(), Workfl
                         step.id
                     )));
                 }
-                if !matches!(
-                    source.spec,
-                    WorkflowStepSpec::Agent(AgentStepSpec {
-                        output_schema: Some(_),
-                        ..
-                    }) | WorkflowStepSpec::Approval(_)
-                ) {
-                    return Err(WorkflowError::Validation(format!(
-                        "step `{step_id}` has no accepted structured output"
-                    )));
-                }
+                let _ = source;
                 validate_pointer(pointer)?;
             }
         }
@@ -688,11 +735,17 @@ mod tests {
             spec: WorkflowStepSpec::Agent(AgentStepSpec {
                 agent_id: "codex".to_string(),
                 prompt: format!("run {id}"),
+                executor_profile_id: None,
+                mode_override: None,
+                config_overrides: BTreeMap::new(),
+                output_language: None,
+                output_description: None,
                 output_schema: Some(serde_json::json!({"type": "object"})),
                 workspace_access: WorkspaceAccess::ReadOnlyShared,
                 side_effect_class: SideEffectClass::ReadOnly,
                 allow_one_repair: false,
                 allow_skip_on_review: false,
+                completion_policy: CompletionPolicy::Automatic,
             }),
         }
     }
@@ -706,6 +759,21 @@ mod tests {
             steps,
             policy: WorkflowPolicy::default(),
         }
+    }
+
+    #[test]
+    fn agent_workspace_access_defaults_to_the_native_session_policy() {
+        let step: WorkflowStep = serde_json::from_value(serde_json::json!({
+            "id": "review",
+            "kind": "agent",
+            "agentId": "codex",
+            "prompt": "Review"
+        }))
+        .unwrap();
+        let WorkflowStepSpec::Agent(agent) = step.spec else {
+            unreachable!()
+        };
+        assert_eq!(agent.workspace_access, WorkspaceAccess::Native);
     }
 
     #[test]
@@ -744,6 +812,28 @@ mod tests {
         assert_eq!(
             deterministic_order(&workflow).unwrap(),
             vec!["alpha", "beta", "finish"]
+        );
+    }
+
+    #[test]
+    fn agent_completion_policy_defaults_to_automatic_and_round_trips_manual() {
+        let automatic: AgentStepSpec = serde_json::from_value(serde_json::json!({
+            "agentId": "codex",
+            "prompt": "inspect"
+        }))
+        .unwrap();
+        assert_eq!(automatic.completion_policy, CompletionPolicy::Automatic);
+
+        let manual: AgentStepSpec = serde_json::from_value(serde_json::json!({
+            "agentId": "codex",
+            "prompt": "inspect",
+            "completionPolicy": "manual"
+        }))
+        .unwrap();
+        assert_eq!(manual.completion_policy, CompletionPolicy::Manual);
+        assert_eq!(
+            serde_json::to_value(manual).unwrap()["completionPolicy"],
+            "manual"
         );
     }
 

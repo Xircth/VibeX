@@ -196,6 +196,7 @@ struct ScratchRow {
     pub id: Uuid,
     pub scratch_type: String,
     pub payload: String,
+    pub revision: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -204,6 +205,8 @@ struct ScratchRow {
 pub struct Scratch {
     pub id: Uuid,
     pub payload: ScratchPayload,
+    #[ts(type = "number")]
+    pub revision: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -228,6 +231,7 @@ impl TryFrom<ScratchRow> for Scratch {
         Ok(Scratch {
             id: r.id,
             payload,
+            revision: u64::try_from(r.revision).unwrap_or(1),
             created_at: r.created_at,
             updated_at: r.updated_at,
         })
@@ -244,6 +248,17 @@ pub struct CreateScratch {
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct UpdateScratch {
     pub payload: ScratchPayload,
+    #[serde(default)]
+    #[ts(optional, type = "number")]
+    pub expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ScratchUpdateOutcome {
+    Saved { scratch: Scratch },
+    Conflict { server: Scratch },
 }
 
 impl Scratch {
@@ -265,7 +280,8 @@ impl Scratch {
                 scratch_type,
                 payload,
                 created_at      as "created_at!: DateTime<Utc>",
-                updated_at      as "updated_at!: DateTime<Utc>"
+                updated_at      as "updated_at!: DateTime<Utc>",
+                revision        as "revision!: i64"
             "#,
             id,
             scratch_type_str,
@@ -290,6 +306,7 @@ impl Scratch {
                 id              as "id!: Uuid",
                 scratch_type,
                 payload,
+                revision        as "revision!: i64",
                 created_at      as "created_at!: DateTime<Utc>",
                 updated_at      as "updated_at!: DateTime<Utc>"
             FROM scratch
@@ -313,6 +330,7 @@ impl Scratch {
                 id              as "id!: Uuid",
                 scratch_type,
                 payload,
+                revision        as "revision!: i64",
                 created_at      as "created_at!: DateTime<Utc>",
                 updated_at      as "updated_at!: DateTime<Utc>"
             FROM scratch
@@ -330,40 +348,76 @@ impl Scratch {
         Ok(scratches)
     }
 
-    /// Upsert a scratch record - creates if not exists, updates if exists.
     pub async fn update(
         pool: &SqlitePool,
         id: Uuid,
         scratch_type: &ScratchType,
         data: &UpdateScratch,
-    ) -> Result<Self, ScratchError> {
-        let payload_str = serde_json::to_string(&data.payload)?;
-        let scratch_type_str = scratch_type.to_string();
-
-        // Upsert: insert if not exists, update if exists
-        let row = sqlx::query_as!(
-            ScratchRow,
-            r#"
-            INSERT INTO scratch (id, scratch_type, payload)
-            VALUES ($1, $2, $3)
-            ON CONFLICT(id, scratch_type) DO UPDATE SET
-                payload = excluded.payload,
-                updated_at = datetime('now', 'subsec')
-            RETURNING
-                id              as "id!: Uuid",
-                scratch_type,
-                payload,
-                created_at      as "created_at!: DateTime<Utc>",
-                updated_at      as "updated_at!: DateTime<Utc>"
-            "#,
-            id,
-            scratch_type_str,
-            payload_str,
-        )
-        .fetch_one(pool)
-        .await?;
-
-        Scratch::try_from(row)
+    ) -> Result<ScratchUpdateOutcome, ScratchError> {
+        let existing = Self::find_by_id(pool, id, scratch_type).await?;
+        match existing {
+            None if data.expected_revision.unwrap_or(0) == 0 => {
+                let created = Self::create(
+                    pool,
+                    id,
+                    &CreateScratch {
+                        payload: data.payload.clone(),
+                    },
+                )
+                .await?;
+                Ok(ScratchUpdateOutcome::Saved { scratch: created })
+            }
+            None => Err(ScratchError::TypeMismatch {
+                expected: scratch_type.to_string(),
+                actual: "missing".to_string(),
+            }),
+            Some(server) if Some(server.revision) != data.expected_revision => {
+                Ok(ScratchUpdateOutcome::Conflict { server })
+            }
+            Some(_) => {
+                let payload_str = serde_json::to_string(&data.payload)?;
+                let scratch_type_str = scratch_type.to_string();
+                let expected = i64::try_from(data.expected_revision.unwrap_or(0)).unwrap_or(0);
+                let row = sqlx::query_as!(
+                    ScratchRow,
+                    r#"
+                    UPDATE scratch
+                    SET payload = $1,
+                        revision = revision + 1,
+                        updated_at = datetime('now', 'subsec')
+                    WHERE id = $2 AND scratch_type = $3 AND revision = $4
+                    RETURNING
+                        id              as "id!: Uuid",
+                        scratch_type,
+                        payload,
+                        revision        as "revision!: i64",
+                        created_at      as "created_at!: DateTime<Utc>",
+                        updated_at      as "updated_at!: DateTime<Utc>"
+                    "#,
+                    payload_str,
+                    id,
+                    scratch_type_str,
+                    expected,
+                )
+                .fetch_optional(pool)
+                .await?;
+                match row {
+                    Some(row) => Ok(ScratchUpdateOutcome::Saved {
+                        scratch: Scratch::try_from(row)?,
+                    }),
+                    None => {
+                        let server =
+                            Self::find_by_id(pool, id, scratch_type)
+                                .await?
+                                .ok_or_else(|| ScratchError::TypeMismatch {
+                                    expected: scratch_type.to_string(),
+                                    actual: "missing".to_string(),
+                                })?;
+                        Ok(ScratchUpdateOutcome::Conflict { server })
+                    }
+                }
+            }
+        }
     }
 
     pub async fn delete(
@@ -402,6 +456,7 @@ impl Scratch {
                 id              as "id!: Uuid",
                 scratch_type,
                 payload,
+                revision        as "revision!: i64",
                 created_at      as "created_at!: DateTime<Utc>",
                 updated_at      as "updated_at!: DateTime<Utc>"
             FROM scratch
@@ -414,5 +469,112 @@ impl Scratch {
 
         let scratch = row.map(Scratch::try_from).transpose()?;
         Ok(scratch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::SqlitePool;
+    use uuid::Uuid;
+
+    use super::{
+        CreateScratch, DraftFollowUpData, Scratch, ScratchPayload, ScratchType,
+        ScratchUpdateOutcome, UpdateScratch,
+    };
+
+    async fn setup_pool() -> SqlitePool {
+        let pool = SqlitePool::connect(":memory:").await.expect("memory db");
+        sqlx::query(
+            r#"
+            CREATE TABLE scratch (
+                id           BLOB NOT NULL,
+                scratch_type TEXT NOT NULL,
+                payload      TEXT NOT NULL,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'subsec')),
+                revision     INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (id, scratch_type)
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("create scratch table");
+        pool
+    }
+
+    fn draft_payload(message: &str) -> ScratchPayload {
+        ScratchPayload::DraftFollowUp(DraftFollowUpData {
+            message: message.to_string(),
+            images: Vec::new(),
+            executor_config: executors::profile::ExecutorConfig::new(api_types::AgentKind::Codex),
+            queued: false,
+            mode_override: None,
+            config_overrides: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn create_starts_at_revision_one_and_conflict_keeps_server() {
+        let pool = setup_pool().await;
+        let id = Uuid::new_v4();
+        let created = Scratch::create(
+            &pool,
+            id,
+            &CreateScratch {
+                payload: draft_payload("first"),
+            },
+        )
+        .await
+        .expect("create");
+        assert_eq!(created.revision, 1);
+
+        let saved = Scratch::update(
+            &pool,
+            id,
+            &ScratchType::DraftFollowUp,
+            &UpdateScratch {
+                payload: draft_payload("second"),
+                expected_revision: Some(1),
+            },
+        )
+        .await
+        .expect("update");
+        let ScratchUpdateOutcome::Saved { scratch } = saved else {
+            panic!("expected saved, got {saved:?}");
+        };
+        assert_eq!(scratch.revision, 2);
+        assert_eq!(
+            match &scratch.payload {
+                ScratchPayload::DraftFollowUp(data) => data.message.as_str(),
+                other => panic!("unexpected payload {other:?}"),
+            },
+            "second"
+        );
+
+        let conflict = Scratch::update(
+            &pool,
+            id,
+            &ScratchType::DraftFollowUp,
+            &UpdateScratch {
+                payload: draft_payload("stale"),
+                expected_revision: Some(1),
+            },
+        )
+        .await
+        .expect("conflict");
+        match conflict {
+            ScratchUpdateOutcome::Conflict { server } => {
+                assert_eq!(server.revision, 2);
+                assert_eq!(
+                    match &server.payload {
+                        ScratchPayload::DraftFollowUp(data) => data.message.as_str(),
+                        other => panic!("unexpected payload {other:?}"),
+                    },
+                    "second"
+                );
+            }
+            other => panic!("expected conflict, got {other:?}"),
+        }
     }
 }

@@ -27,10 +27,10 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
         mut request: StartConversationTurn,
     ) -> Result<conversations::ConversationTurnSnapshot, ApplicationError> {
         let mut action_prompts = Vec::new();
-        for invocation in &request.plugin_actions {
+        for invocation in &request.workflow_refs {
             let action = self
                 .plugin_control_plane
-                .resolve_action(&invocation.plugin_id, &invocation.action_id)
+                .resolve_action(&invocation.plugin_id, &invocation.workflow_id)
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
             action_prompts.extend(action.prompt_blocks.into_iter().map(|block| match block {
@@ -77,9 +77,9 @@ impl ConversationExecutionPort for PluginAwareConversationExecution {
         &self,
         request: conversations::SubmitConversationInput,
     ) -> Result<conversations::ConversationInputSubmission, ApplicationError> {
-        for invocation in &request.payload.plugin_actions {
+        for invocation in &request.payload.workflow_refs {
             self.plugin_control_plane
-                .resolve_action(&invocation.plugin_id, &invocation.action_id)
+                .resolve_action(&invocation.plugin_id, &invocation.workflow_id)
                 .await
                 .map_err(|error| ApplicationError::bad_request(error.to_string()))?;
         }

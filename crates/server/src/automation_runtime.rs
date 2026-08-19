@@ -207,6 +207,7 @@ impl HeadlessAutomationRuntime {
                     workspace_id: workspace.workspace_id,
                     input: spec.input,
                     policy_override,
+                    debug_step_id: None,
                 },
             )
             .await
@@ -816,15 +817,17 @@ impl TurnLauncherPort for ServerTurnLauncher {
                         images: Vec::new(),
                         mode_override: spec.mode_id.clone(),
                         config_overrides: spec.config_values.clone(),
-                        plugin_actions: spec
+                        workflow_refs: spec
                             .plugin_actions
                             .iter()
-                            .map(|invocation| agents::ConversationPluginActionInvocation {
+                            .map(|invocation| agents::ConversationWorkflowRef {
                                 plugin_id: invocation.plugin_id.as_str().to_owned(),
-                                action_id: invocation.action.id.as_str().to_owned(),
+                                workflow_id: invocation.action.id.as_str().to_owned(),
                             })
                             .collect(),
+                        file_refs: Vec::new(),
                         queued_input_claim: None,
+                        operation_id: None,
                     },
                     conversations::commit_reminder::AUTOMATION_ORIGIN,
                 )

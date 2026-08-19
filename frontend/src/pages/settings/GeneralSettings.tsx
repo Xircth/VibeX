@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bell,
   Bug,
@@ -14,8 +14,18 @@ import {
 } from 'lucide-react';
 import { toast } from '@/components/ui/toast';
 import { useTranslation } from 'react-i18next';
-import { SoundFile, type Config, type LinkOpenBehavior } from 'shared/types';
+import {
+  SoundFile,
+  type AgentManagementView,
+  type AgentSessionControlsSnapshot,
+  type Config,
+  type LinkOpenBehavior,
+  type NotificationWhen,
+} from 'shared/types';
 
+import { PluginSettingsSections } from '@/components/plugins/PluginSettingsSections';
+import { ImportLocalSessionsDialog } from '@/components/sessions/ImportLocalSessionsDialog';
+import { SessionControlsFields } from '@/components/sessions/SessionControlsFields';
 import { ExternalEditorPicker } from '@/components/settings/ExternalEditorPicker';
 import { useUserSystem } from '@/components/ConfigProvider';
 import { Button } from '@/components/ui/button';
@@ -31,6 +41,9 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { configApi } from '@/lib/api';
+import { agentManagementApi } from '@/features/agent-management/api';
+import { agentsApi } from '@/features/agents/api';
+import { loadAgentSessionControlsCatalog } from '@/features/agents/sessionControlsQuery';
 import { DEFAULT_COLLAPSE_PREFERENCES } from '@/lib/conversationCollapsePreferences';
 import {
   getDefaultTerminalShell,
@@ -79,9 +92,14 @@ export function GeneralSettings() {
     (state) => state.setPreviewFontSize
   );
 
-  const [agentModels, setAgentModels] = useState<string[]>([]);
-  const [agentModelsLoading, setAgentModelsLoading] = useState(false);
-  const agentModelsRequestIdRef = useRef(0);
+  const [importOpen, setImportOpen] = useState(false);
+  const [enabledAgents, setEnabledAgents] = useState<AgentManagementView[]>(
+    []
+  );
+  const [sessionControls, setSessionControls] =
+    useState<AgentSessionControlsSnapshot | null>(null);
+  const [sessionControlsLoading, setSessionControlsLoading] = useState(false);
+  const sessionControlsRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (config && !dirty) {
@@ -97,68 +115,68 @@ export function GeneralSettings() {
     });
   }, []);
 
-  const readPersistedAgentModels = useCallback(async () => {
-    const requestId = ++agentModelsRequestIdRef.current;
-    try {
-      const result = await configApi.listPromptEnhancementModels();
-      if (requestId === agentModelsRequestIdRef.current) {
-        setAgentModels(result.models);
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('general.modelsRefreshFailed')
-      );
-    }
+  useEffect(() => {
+    let active = true;
+    void agentManagementApi
+      .bar()
+      .then((rows) => {
+        if (!active) return;
+        setEnabledAgents(
+          rows.filter((row) => row.enabled && !row.retired)
+        );
+      })
+      .catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('general.agentsLoadFailed')
+        );
+      });
+    return () => {
+      active = false;
+    };
   }, [t]);
+
+  const selectedEnhancementAgentId =
+    draft?.prompt_enhancement_agent_id?.trim() ?? '';
+
+  const loadSessionControls = useCallback(
+    async (agentId: string, refresh: boolean) => {
+      const requestId = ++sessionControlsRequestIdRef.current;
+      setSessionControlsLoading(true);
+      try {
+        if (refresh) {
+          await agentsApi.refreshCapabilityCatalog(agentId);
+        }
+        const controls = await loadAgentSessionControlsCatalog(agentId);
+        if (requestId === sessionControlsRequestIdRef.current) {
+          setSessionControls(controls);
+        }
+      } catch (error) {
+        if (requestId === sessionControlsRequestIdRef.current) {
+          setSessionControls(null);
+        }
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('general.sessionControlsLoadFailed')
+        );
+      } finally {
+        if (requestId === sessionControlsRequestIdRef.current) {
+          setSessionControlsLoading(false);
+        }
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
-    void readPersistedAgentModels();
-  }, [readPersistedAgentModels]);
-
-  const refreshAgentModels = useCallback(async () => {
-    setAgentModelsLoading(true);
-    const requestId = ++agentModelsRequestIdRef.current;
-    try {
-      // This is the only user-initiated path allowed to refresh discovery. The
-      // backend uses each eligible Agent's verified local Runtime/ACP pair.
-      const refreshed = await configApi.refreshPromptEnhancementModels();
-      if (!refreshed.models.length) {
-        toast.error(t('general.modelsRefreshFailed'));
-        return;
-      }
-      if (requestId === agentModelsRequestIdRef.current) {
-        setAgentModels(refreshed.models);
-      }
-      toast.success(t('general.modelsRefreshed'));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t('general.modelsRefreshFailed')
-      );
-    } finally {
-      setAgentModelsLoading(false);
+    if (!selectedEnhancementAgentId) {
+      setSessionControls(null);
+      return;
     }
-  }, [t]);
-
-  const promptEnhancementModels = useMemo(() => {
-    const uniqueModels: string[] = [];
-
-    for (const model of agentModels) {
-      if (model && !uniqueModels.includes(model)) {
-        uniqueModels.push(model);
-      }
-    }
-
-    return uniqueModels.sort((a, b) => a.localeCompare(b));
-  }, [agentModels]);
-  const currentPromptEnhancementModel =
-    draft?.prompt_enhancement_model?.trim() ?? '';
-  const currentPromptEnhancementModelAvailable =
-    currentPromptEnhancementModel.length > 0 &&
-    promptEnhancementModels.includes(currentPromptEnhancementModel);
+    void loadSessionControls(selectedEnhancementAgentId, false);
+  }, [loadSessionControls, selectedEnhancementAgentId]);
 
   const playSound = async (soundFile: SoundFile) => {
     try {
@@ -281,76 +299,98 @@ export function GeneralSettings() {
                   }
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {t('general.enablePromptEnhancementHint')}
-              </p>
             </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-4">
                 <Label className="shrink-0 text-xs font-medium text-muted-foreground">
-                  {t('general.promptEnhancementModel')}
+                  {t('general.promptEnhancementAgent')}
                 </Label>
                 <div className="flex items-center justify-end gap-2">
                   <Select
-                    value={
-                      currentPromptEnhancementModelAvailable
-                        ? currentPromptEnhancementModel
-                        : undefined
-                    }
+                    value={selectedEnhancementAgentId || undefined}
                     onValueChange={(value: string) =>
-                      updateDraft({ prompt_enhancement_model: value })
+                      updateDraft({
+                        prompt_enhancement_agent_id: value,
+                        prompt_enhancement_mode: null,
+                        prompt_enhancement_session_config: {},
+                      })
                     }
-                    disabled={promptEnhancementModels.length === 0}
+                    disabled={enabledAgents.length === 0}
                   >
                     <SelectTrigger
                       className="!w-72"
-                      aria-label={t('general.promptEnhancementModel')}
+                      aria-label={t('general.promptEnhancementAgent')}
                     >
                       <SelectValue
-                        placeholder={t('general.selectModelPlaceholder')}
+                        placeholder={t('general.selectAgentPlaceholder')}
                       />
                     </SelectTrigger>
                     <SelectContent align="start" className="max-h-72">
-                      {promptEnhancementModels.map((model) => {
-                        return (
-                          <SelectItem
-                            key={model}
-                            value={model}
-                            textValue={model}
-                          >
-                            <span className="truncate">{model}</span>
-                          </SelectItem>
-                        );
-                      })}
+                      {enabledAgents.map((agent) => (
+                        <SelectItem
+                          key={agent.agent_id}
+                          value={agent.agent_id}
+                          textValue={agent.display_name}
+                        >
+                          <span className="truncate">{agent.display_name}</span>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() => void refreshAgentModels()}
-                    disabled={agentModelsLoading}
-                    title={t('general.refreshModels')}
-                    aria-label={t('general.refreshModels')}
+                    onClick={() =>
+                      selectedEnhancementAgentId
+                        ? void loadSessionControls(
+                            selectedEnhancementAgentId,
+                            true
+                          )
+                        : undefined
+                    }
+                    disabled={
+                      !selectedEnhancementAgentId || sessionControlsLoading
+                    }
+                    title={t('general.refreshSessionControls')}
+                    aria-label={t('general.refreshSessionControls')}
                   >
                     <RefreshCw
                       className={`h-3.5 w-3.5 ${
-                        agentModelsLoading ? 'animate-spin' : ''
+                        sessionControlsLoading ? 'animate-spin' : ''
                       }`}
                     />
                   </Button>
                 </div>
               </div>
-              {currentPromptEnhancementModel &&
-              !currentPromptEnhancementModelAvailable ? (
-                <p className="text-right text-[11px] text-muted-foreground">
-                  {t('general.currentModelUnavailable', {
-                    model: currentPromptEnhancementModel,
-                  })}
-                </p>
-              ) : null}
             </div>
+
+            {sessionControls ? (
+              <SessionControlsFields
+                modes={sessionControls.modes}
+                currentModeId={sessionControls.current_mode ?? null}
+                configOptions={sessionControls.config_options}
+                selectedModeId={draft.prompt_enhancement_mode ?? null}
+                pendingConfigValues={
+                  draft.prompt_enhancement_session_config as Record<
+                    string,
+                    string
+                  >
+                }
+                onSelectMode={(modeId) =>
+                  updateDraft({ prompt_enhancement_mode: modeId })
+                }
+                onSelectConfigValue={(key, value) =>
+                  updateDraft({
+                    prompt_enhancement_session_config: {
+                      ...draft.prompt_enhancement_session_config,
+                      [key]: value,
+                    },
+                  })
+                }
+              />
+            ) : null}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-4">
@@ -423,6 +463,25 @@ export function GeneralSettings() {
                 updateDraft({ previous_session_continuation_enabled: checked })
               }
             />
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={History}
+          title={t('general.importLocalSessionsTitle')}
+        >
+          <div className="settings-row">
+            <div>
+              <Label>{t('general.importLocalSessions')}</Label>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+            >
+              {t('general.importLocalSessionsAction')}
+            </Button>
           </div>
         </SettingsSection>
 
@@ -511,6 +570,38 @@ export function GeneralSettings() {
                   })
                 }
               />
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <Label className="shrink-0 text-xs font-medium text-muted-foreground">
+                {t('general.notifyWhen')}
+              </Label>
+              <Select
+                value={draft.notifications.notify_when ?? 'unfocused'}
+                onValueChange={(value: NotificationWhen) =>
+                  updateDraft({
+                    notifications: {
+                      ...draft.notifications,
+                      notify_when: value,
+                    },
+                  })
+                }
+              >
+                <SelectTrigger
+                  className="!w-40"
+                  aria-label={t('general.notifyWhen')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectItem value="unfocused">
+                    {t('general.notifyWhenUnfocused')}
+                  </SelectItem>
+                  <SelectItem value="always">
+                    {t('general.notifyWhenAlways')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </SettingsSection>
@@ -640,8 +731,29 @@ export function GeneralSettings() {
                 }
               />
             </div>
+
+            <div className="settings-row">
+              <div>
+                <Label>{t('general.hideModelThinking')}</Label>
+                <p className="settings-row__description">
+                  {t('general.hideModelThinkingHint')}
+                </p>
+              </div>
+              <Switch
+                className="settings-switch"
+                aria-label={t('general.hideModelThinking')}
+                checked={
+                  draft.hide_model_thinking ??
+                  DEFAULT_COLLAPSE_PREFERENCES.hideModelThinking
+                }
+                onCheckedChange={(checked) =>
+                  updateDraft({ hide_model_thinking: checked })
+                }
+              />
+            </div>
           </div>
         </SettingsSection>
+        <PluginSettingsSections />
       </div>
 
       <SettingsActionBar
@@ -649,6 +761,11 @@ export function GeneralSettings() {
         saving={saving}
         onDiscard={handleReset}
         onSave={handleSave}
+      />
+
+      <ImportLocalSessionsDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
       />
     </div>
   );

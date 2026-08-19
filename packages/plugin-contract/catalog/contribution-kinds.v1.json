@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "kinds": [
+    { "id": "content.skill", "status": "ready", "handler": false },
+    { "id": "content.mcp", "status": "ready", "handler": false },
+    { "id": "content.hook", "status": "ready", "handler": false },
+    { "id": "workflow.binding", "status": "ready", "handler": false },
+    { "id": "file.opener", "status": "ready", "handler": false },
+    { "id": "artifact.preview", "status": "ready", "handler": true },
+    { "id": "app.surface", "status": "ready", "handler": true },
+    { "id": "app.command", "status": "ready", "handler": true },
+    { "id": "app.toolbar", "status": "ready", "handler": true },
+    { "id": "app.status", "status": "ready", "handler": true },
+    { "id": "app.composer.slash", "status": "ready", "handler": false },
+    { "id": "app.timeline.card", "status": "ready", "handler": true },
+    { "id": "app.settings.section", "status": "ready", "handler": false },
+    { "id": "host.service", "status": "ready", "handler": true }
+  ]
+}

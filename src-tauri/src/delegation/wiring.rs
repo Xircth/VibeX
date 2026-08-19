@@ -41,7 +41,7 @@ pub(crate) fn build_delegation(
     runtime: Arc<AgentRuntime>,
     pool: SqlitePool,
     conversation_context: conversations::ConversationContext,
-    official_mcp: Arc<plugins::OfficialProductMcpGate>,
+    official_mcp: Arc<plugins::OfficialMcpRuntime>,
 ) -> DelegationState {
     let map = Arc::new(Mutex::new(HashMap::new()));
     let spawner = Arc::new(RuntimeSpawner {

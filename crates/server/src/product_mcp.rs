@@ -8,11 +8,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::post,
 };
-use delegation::{
-    DelegationListener, TokenEntry, TokenPermissions, TokenRegistry,
-};
+use delegation::{DelegationListener, TokenEntry, TokenPermissions, TokenRegistry};
 use delegation_proto::BrokerMessage;
-use plugins::OfficialProductMcpGate;
+use plugins::OfficialMcpRuntime;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -25,14 +23,14 @@ pub trait ProductMcpSessionLookup: Send + Sync {
 struct GatewayState {
     listener: Arc<DelegationListener>,
     tokens: Arc<TokenRegistry>,
-    gate: Arc<OfficialProductMcpGate>,
+    gate: Arc<OfficialMcpRuntime>,
     sessions: Arc<dyn ProductMcpSessionLookup>,
 }
 
 pub async fn start_product_mcp_gateway(
     listener: Arc<DelegationListener>,
     tokens: Arc<TokenRegistry>,
-    gate: Arc<OfficialProductMcpGate>,
+    gate: Arc<OfficialMcpRuntime>,
     sessions: Arc<dyn ProductMcpSessionLookup>,
 ) -> Result<String, std::io::Error> {
     let listener_tcp = TcpListener::bind("127.0.0.1:0").await?;
@@ -70,10 +68,7 @@ async fn companion(
         .get("x-vibex-product")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("delegation");
-    let expected = match product {
-        "session" => state.gate.session_token(),
-        _ => state.gate.delegation_token(),
-    };
+    let expected = state.gate.token_for_product(product);
     if expected.as_deref() != Some(bearer) {
         return Err(StatusCode::UNAUTHORIZED);
     }

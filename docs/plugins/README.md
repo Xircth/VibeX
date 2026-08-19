@@ -3,6 +3,12 @@
 VibeX Plugin 是一个用户可理解的功能产品，不是 Skill、MCP、Runtime、命令或 App surface 的
 集合页。一个插件以同一身份、版本、配置和生命周期扩展 VibeX；内部接线由 Kernel 管理。
 
+## 面向用户和作者
+
+- [插件指南](user-guide.md)，安装、启用、使用、关闭和卸载。
+- [插件开发文档](developer-guide.md)，包结构、CLI、JS / Python / Rust SDK、测试、更新、本机分发。不含公共货架上传。
+- [官方插件介绍](official-plugins.md)，随 Host 带来的 Office、会话增强、多智能体、Workflow Creator、插件开发。
+
 ## 用户入口
 
 - `/plugins`：保留设置侧栏的单列已安装插件目录；

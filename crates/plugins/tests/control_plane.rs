@@ -312,6 +312,7 @@ async fn activation_publishes_one_atomic_generation_for_app_and_agent_contributi
         id: "preview".to_owned(),
         label: "Document preview".to_owned(),
         extensions: vec!["docx".to_owned()],
+        file_name_suffixes: Vec::new(),
         media_types: vec![
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_owned(),
         ],
@@ -365,6 +366,7 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
         id: "office".to_owned(),
         label: "Office preview".to_owned(),
         extensions: vec!["docx".to_owned()],
+        file_name_suffixes: Vec::new(),
         media_types: Vec::new(),
         priority: 90,
         handler: "office.openPreview".to_owned(),
@@ -397,6 +399,250 @@ async fn file_opener_resolution_is_deterministic_and_disappears_when_disabled() 
             .await
             .unwrap()
             .is_none()
+    );
+}
+
+#[tokio::test]
+async fn file_opener_can_match_a_compound_filename_without_hijacking_json() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let mut plugin = package(
+        "dev.vibex.workflow",
+        PluginSourceKind::Snapshot,
+        root.path(),
+    );
+    plugin.skills.clear();
+    plugin.app.file_openers.push(FileOpenerContribution {
+        id: "workflow".to_owned(),
+        label: "Workflow Studio".to_owned(),
+        extensions: Vec::new(),
+        file_name_suffixes: vec![".vibex-workflow.json".to_owned()],
+        media_types: Vec::new(),
+        priority: 100,
+        handler: "workflow.open".to_owned(),
+        target: FileOpenerTarget::AppSurface,
+    });
+    control_plane
+        .import(plugin, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.workflow", true)
+        .await
+        .unwrap();
+
+    assert!(
+        control_plane
+            .resolve_file_opener(Some("json"), None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let resolved = control_plane
+        .resolve_file_opener_for_file(Some("release.vibex-workflow.json"), Some("json"), None)
+        .await
+        .unwrap()
+        .expect("compound Workflow suffix");
+    assert_eq!(resolved.handler, "workflow.open");
+}
+
+fn with_required_plugin(mut package: PluginPackage, dependency_id: &str) -> PluginPackage {
+    package.manifest.as_object_mut().unwrap().insert(
+        "depends".to_owned(),
+        serde_json::json!([{
+            "kind": "plugin",
+            "publisher": "dev.vibex.test",
+            "id": dependency_id,
+            "versionRange": "*",
+            "required": true
+        }]),
+    );
+    package
+}
+
+#[tokio::test]
+async fn disable_withdraws_contributions_before_the_generation_is_gone() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let root = tempfile::tempdir().unwrap();
+    let mut plugin = package("dev.vibex.preview", PluginSourceKind::Snapshot, root.path());
+    plugin.skills.clear();
+    plugin.app.file_openers.push(FileOpenerContribution {
+        id: "office".to_owned(),
+        label: "Office preview".to_owned(),
+        extensions: vec!["docx".to_owned()],
+        file_name_suffixes: Vec::new(),
+        media_types: Vec::new(),
+        priority: 90,
+        handler: "office.openPreview".to_owned(),
+        target: FileOpenerTarget::PreviewProvider,
+    });
+    control_plane
+        .import(plugin, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.preview", true)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.preview", false)
+        .await
+        .unwrap();
+
+    assert!(
+        control_plane
+            .contributions()
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        control_plane
+            .plugin("dev.vibex.preview")
+            .await
+            .unwrap()
+            .unwrap()
+            .activation,
+        PluginActivation::Disabled
+    );
+}
+
+#[tokio::test]
+async fn losing_a_required_plugin_unreads_dependents_without_clearing_enable_intent() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let base_root = tempfile::tempdir().unwrap();
+    let child_root = tempfile::tempdir().unwrap();
+    let base = package(
+        "dev.vibex.base",
+        PluginSourceKind::Snapshot,
+        base_root.path(),
+    );
+    let child = with_required_plugin(
+        package(
+            "dev.vibex.child",
+            PluginSourceKind::Snapshot,
+            child_root.path(),
+        ),
+        "dev.vibex.base",
+    );
+    control_plane
+        .import(base, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .import(child, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.base", true)
+        .await
+        .unwrap();
+    control_plane
+        .set_enabled("dev.vibex.child", true)
+        .await
+        .unwrap();
+    assert!(
+        control_plane
+            .contributions()
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.plugin_id == "dev.vibex.child")
+    );
+
+    control_plane
+        .set_enabled("dev.vibex.base", false)
+        .await
+        .unwrap();
+
+    let child = control_plane
+        .plugin("dev.vibex.child")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(child.activation, PluginActivation::Enabled);
+    assert!(
+        control_plane
+            .contributions()
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .all(|item| item.plugin_id != "dev.vibex.child")
+    );
+    assert!(
+        control_plane
+            .resolve_action("dev.vibex.child", "missing")
+            .await
+            .is_err()
+    );
+
+    control_plane
+        .set_enabled("dev.vibex.base", true)
+        .await
+        .unwrap();
+    assert!(
+        control_plane
+            .contributions()
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| item.plugin_id == "dev.vibex.child"),
+        "enabled dependents remount when the required plugin is live again"
+    );
+}
+
+#[tokio::test]
+async fn enabling_a_plugin_fails_closed_when_its_required_plugin_is_not_ready() {
+    let registry = Arc::new(InMemoryPluginRegistry::default());
+    let control_plane = PluginControlPlane::new(registry);
+    let base_root = tempfile::tempdir().unwrap();
+    let child_root = tempfile::tempdir().unwrap();
+    control_plane
+        .import(
+            package(
+                "dev.vibex.base",
+                PluginSourceKind::Snapshot,
+                base_root.path(),
+            ),
+            ConflictDecision::Reject,
+        )
+        .await
+        .unwrap();
+    control_plane
+        .import(
+            with_required_plugin(
+                package(
+                    "dev.vibex.child",
+                    PluginSourceKind::Snapshot,
+                    child_root.path(),
+                ),
+                "dev.vibex.base",
+            ),
+            ConflictDecision::Reject,
+        )
+        .await
+        .unwrap();
+
+    let error = control_plane
+        .set_enabled("dev.vibex.child", true)
+        .await
+        .expect_err("child cannot go live before its dependency");
+    assert_eq!(error.code(), "dependency_unsatisfied");
+    assert_eq!(
+        control_plane
+            .plugin("dev.vibex.child")
+            .await
+            .unwrap()
+            .unwrap()
+            .activation,
+        PluginActivation::Disabled
     );
 }
 

@@ -315,10 +315,6 @@ impl ServerApplicationDomains {
                 .set_enabled(&args.plugin_id, false)
                 .await
                 .map_err(internal_error)?;
-            control_plane
-                .deactivate_worker(&args.plugin_id)
-                .await
-                .map_err(internal_error)?;
         }
         let plugin = control_plane
             .plugin(&args.plugin_id)
@@ -1498,7 +1494,9 @@ fn store_error(error: sqlx::Error) -> ApplicationError {
 
 fn capability_catalog_fingerprint(launch_lock: &SessionLaunchLock) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"open-agent-capability-catalog-v1:");
+    // v3 invalidates catalogs captured before effort/permission were merged
+    // from Grok's vendor `_meta` into the standard session-control snapshot.
+    digest.update(b"open-agent-capability-catalog-v3:");
     digest.update(launch_lock.agent_id.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(

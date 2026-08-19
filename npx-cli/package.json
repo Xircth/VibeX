@@ -14,9 +14,19 @@
   },
   "license": "",
   "description": "NPX launcher for the VibeX Host family (vibex-server)",
-  "dependencies": {},
+  "scripts": {
+    "prepack": "node bin/prepare-plugin-cli.js",
+    "postpack": "node bin/prepare-plugin-cli.js --clean"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
   "files": [
-    "bin",
-    "dist"
+    "bin/cli.js",
+    "bin/control.js",
+    "bin/download.js",
+    "bin/plugin.js",
+    "dist",
+    "plugin-cli"
   ]
 }

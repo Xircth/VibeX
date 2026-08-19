@@ -1,0 +1,65 @@
+{
+  "lockVersion": 1,
+  "packageDigest": "c7b307c7c8d26c1c6511bd374e21c19cbefe1bde1812a4863a5974a277c2dd2f",
+  "files": [
+    {
+      "path": ".vibex-plugin/content.index.json",
+      "size": 302,
+      "sha256": "c25deb8e7419dd1e929328306b9ea83ea90d085a7afeefce48d4b216fa56d88e"
+    },
+    {
+      "path": ".vibex-plugin/plugin.json",
+      "size": 1921,
+      "sha256": "0ac7cc18e2998e42e16f65c975b00071e02d2ae99afbfee2f033e26462ede176"
+    },
+    {
+      "path": "README.md",
+      "size": 2425,
+      "sha256": "8227cab5240923d78dde114adc1c99b3927cb32959d0df71d13d08758bebcb3a"
+    },
+    {
+      "path": "assets/icon.svg",
+      "size": 482,
+      "sha256": "d9c3d46ee06d2ead243fffb646e119926ddf0c6763ab24b17d5d1faf08ef4adf"
+    },
+    {
+      "path": "contents/mcps/workflow-control.json",
+      "size": 205,
+      "sha256": "970c39608955d8dbe06c9d3ab56776093a424a52959057771d7c8cfdb7411ad6"
+    },
+    {
+      "path": "contents/skills/vibex-workflow-creator/SKILL.md",
+      "size": 2945,
+      "sha256": "f19e00f5d17f1ba77a6cc5a77af9bea411ebe772b136e76a9f69b3835f27a7d3"
+    },
+    {
+      "path": "dist/app/index.html",
+      "size": 2463,
+      "sha256": "12f93ac9eff1b843def53fb158d34aeca4bd582de3fa671dda2422f3b3403569"
+    },
+    {
+      "path": "dist/mcp/workflow-control.mjs",
+      "size": 605322,
+      "sha256": "63c7feed55b96175d132a123aeb7e33fe62cb1796215c9fe12e5d345a5c56975"
+    },
+    {
+      "path": "dist/worker.mjs",
+      "size": 5030,
+      "sha256": "2661cce7dc9650a61aaa5da1b8a37390c292fae772f01a293ca0130575c3e723"
+    },
+    {
+      "path": "test-mcp/live-host.mjs",
+      "size": 10957,
+      "sha256": "9a5ea33d63a5711efd270cf703d217243b2903b61f762dc03cc0a96942c516e2"
+    },
+    {
+      "path": "test-mcp/mcp-server.test.mjs",
+      "size": 2226,
+      "sha256": "f74189465f0beab936a6965f141d7f6e28933ab850c37bbc931c4e2996a900c7"
+    }
+  ],
+  "build": {
+    "cliVersion": "1.0.0",
+    "reproducible": true
+  }
+}

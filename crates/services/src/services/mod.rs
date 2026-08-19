@@ -2,7 +2,6 @@ pub mod agent_management;
 pub mod agent_plan_usage;
 pub mod agent_registry;
 pub mod approvals;
-pub mod automation;
 pub mod chat_delivery;
 pub mod config;
 pub mod container;

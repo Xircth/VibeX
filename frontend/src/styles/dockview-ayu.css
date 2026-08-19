@@ -485,7 +485,7 @@
 [class*='dockview-theme-ayu']
   .dv-scrollable
   > .dv-tabs-container::-webkit-scrollbar {
-  height: 8px;
+  height: 4px;
 }
 [class*='dockview-theme-ayu']
   .dv-scrollable
@@ -500,7 +500,7 @@
     rgba(0, 0, 0, 0.2)
   );
   border-radius: 9999px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background-clip: padding-box;
 }
 [class*='dockview-theme-ayu']

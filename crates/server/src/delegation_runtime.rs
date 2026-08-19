@@ -20,7 +20,7 @@ use delegation::{
     DelegationOutcome, DelegationScope, DelegationStartedEvent, DepthLookup, ParentSessionLookup,
     SpawnerError, TaskStatus, TokenEntry, TokenPermissions, TokenRegistry, outcome_from_turn,
 };
-use plugins::OfficialProductMcpGate;
+use plugins::OfficialMcpRuntime;
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tokio::{
@@ -40,7 +40,7 @@ impl HeadlessDelegationRuntime {
         runtime: Arc<AgentRuntime>,
         pool: SqlitePool,
         conversation_context: ConversationContext,
-        official_mcp: Arc<OfficialProductMcpGate>,
+        official_mcp: Arc<OfficialMcpRuntime>,
     ) -> Self {
         let map = Arc::new(Mutex::new(HashMap::new()));
         let broker = Arc::new(DelegationBroker::new(
@@ -85,7 +85,9 @@ impl HeadlessDelegationRuntime {
                 gateway_listener,
                 gateway_tokens,
                 gateway_gate,
-                Arc::new(RuntimeConversationLookup { runtime: gateway_runtime }),
+                Arc::new(RuntimeConversationLookup {
+                    runtime: gateway_runtime,
+                }),
             )
             .await;
         });
@@ -559,7 +561,7 @@ impl DelegationMetaWriter for NoopMetaWriter {
 struct HeadlessDelegationInjector {
     tokens: Arc<TokenRegistry>,
     socket_path: PathBuf,
-    official_mcp: Arc<OfficialProductMcpGate>,
+    official_mcp: Arc<OfficialMcpRuntime>,
 }
 
 impl DelegationInjector for HeadlessDelegationInjector {
@@ -587,16 +589,27 @@ impl DelegationInjector for HeadlessDelegationInjector {
             };
         }
         let mut servers = Vec::new();
-        if self.official_mcp.allow_delegation_mcp() {
-            servers.push(self.product_server(context, "vibex-delegation-mcp", "delegation", true));
-        }
-        if self.official_mcp.allow_session_mcp() {
-            servers.push(self.product_server(
-                context,
-                "vibex-session-mcp",
-                "feedback,ask,sessions,session-control",
-                false,
-            ));
+        for binding in self.official_mcp.bindings() {
+            match binding.product.as_str() {
+                "delegation" => servers.push(self.product_server(
+                    context,
+                    "vibex-delegation-mcp",
+                    "delegation",
+                    true,
+                )),
+                "session" => servers.push(self.product_server(
+                    context,
+                    "vibex-session-mcp",
+                    "feedback,ask,sessions,session-control",
+                    false,
+                )),
+                "workflow" => servers.push(InjectedMcpServer {
+                    name: "vibex-workflow-mcp".to_string(),
+                    command: locate_named_sibling("vibex-workflow-mcp"),
+                    args: Vec::new(),
+                }),
+                _ => {}
+            }
         }
         if servers.is_empty() {
             return agents::CompanionInjectionList::Unsupported {
@@ -604,17 +617,6 @@ impl DelegationInjector for HeadlessDelegationInjector {
             };
         }
         agents::CompanionInjectionList::Injected(servers)
-    }
-
-    fn extra_stdio_servers(&self) -> Vec<InjectedMcpServer> {
-        if !self.official_mcp.allow_workflow_mcp() {
-            return Vec::new();
-        }
-        vec![InjectedMcpServer {
-            name: "vibex-workflow-mcp".to_string(),
-            command: locate_named_sibling("vibex-workflow-mcp"),
-            args: Vec::new(),
-        }]
     }
 }
 
@@ -795,16 +797,23 @@ mod official_mcp_tests {
     use std::path::Path;
 
     use agents::{CompanionCapabilities, CompanionInjection, CompanionInjectionContext};
-    use plugins::{
-        COLLABORATION_PLUGIN_ID, MULTI_AGENT_PLUGIN_ID, OfficialProductMcpGate, PluginActivation,
-        SESSION_ENHANCE_PLUGIN_ID,
-    };
+    use plugins::{OfficialMcpBinding, OfficialMcpRuntime, SESSION_FEAT_ALL};
 
     use super::*;
 
+    fn binding(product: &str) -> OfficialMcpBinding {
+        OfficialMcpBinding {
+            plugin_id: format!("vibex.{product}"),
+            binary_id: "vibex-mcp".into(),
+            product: product.into(),
+            features: SESSION_FEAT_ALL,
+            token: "test-token".into(),
+        }
+    }
+
     #[test]
-    fn headless_companion_stays_off_until_collaboration_is_enabled() {
-        let gate = Arc::new(OfficialProductMcpGate::default());
+    fn headless_companion_stays_off_until_a_host_family_binding_is_published() {
+        let gate = Arc::new(OfficialMcpRuntime::default());
         let injector = HeadlessDelegationInjector {
             tokens: Arc::new(TokenRegistry::new()),
             socket_path: PathBuf::from("/tmp/vibex-delegation-test.sock"),
@@ -828,15 +837,15 @@ mod official_mcp_tests {
             }
         );
 
-        gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Enabled);
+        gate.publish_binding(binding("delegation"));
         assert!(matches!(
             injector.companion(context),
             CompanionInjection::Injected(_)
         ));
 
-        gate.observe(COLLABORATION_PLUGIN_ID, PluginActivation::Disabled);
-        gate.observe(MULTI_AGENT_PLUGIN_ID, PluginActivation::Enabled);
-        gate.observe(SESSION_ENHANCE_PLUGIN_ID, PluginActivation::Enabled);
+        gate.reset();
+        gate.publish_binding(binding("delegation"));
+        gate.publish_binding(binding("session"));
         let agents::CompanionInjectionList::Injected(servers) =
             injector.injected_stdio_servers(context)
         else {

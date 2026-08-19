@@ -7,7 +7,11 @@ mod contribution;
 mod control_plane;
 mod error;
 mod host_capability_broker;
+mod host_service;
+mod isolated;
+mod language_runtimes;
 mod manifest;
+mod marketplace;
 mod native;
 mod official_mcp;
 mod package;
@@ -36,10 +40,17 @@ pub use control_plane::{
 };
 pub use error::PluginError;
 pub use host_capability_broker::HostCapabilityBroker;
+pub use language_runtimes::{
+    LanguageRuntimeLock, PLUGIN_WORKER_CPYTHON_VERSION, plugin_worker_cpython_lock,
+};
 pub use manifest::{
     ActionId, ArtifactIntent, ConsoleBinding, Distribution, ManifestSource, PluginAction, PluginId,
     PluginManifest, PluginMembership, PromptBlock, SkillDeclaration, SkillId, SkillSource,
     ToolDependency, ToolId, ToolKind,
+};
+pub use marketplace::{
+    MarketplaceIndex, MarketplaceListing, PublisherTofu, archive_digest, default_index_path,
+    default_tofu_path, load_index, load_tofu, remember_publisher, save_tofu,
 };
 pub use native::{
     FilesystemNativePluginAdapter, NativeAdapterCapabilities, NativeEcosystem, NativePluginAdapter,
@@ -47,9 +58,9 @@ pub use native::{
     parse_official_plugin_import_commands,
 };
 pub use official_mcp::{
-    COLLABORATION_PLUGIN_ID, MULTI_AGENT_PLUGIN_ID, OfficialProductMcpGate,
-    SESSION_ENHANCE_PLUGIN_ID, SESSION_FEAT_ALL, SESSION_FEAT_ASK, SESSION_FEAT_FEEDBACK,
-    SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS, WORKFLOW_CREATOR_PLUGIN_ID,
+    OfficialMcpBinding, OfficialMcpRuntime, SESSION_FEAT_ALL, SESSION_FEAT_ASK,
+    SESSION_FEAT_FEEDBACK, SESSION_FEAT_SESSION_CONTROL, SESSION_FEAT_SESSIONS,
+    session_features_from_config,
 };
 pub use package::{
     AppSurfaceContribution, CapabilityRequest, FileOpenerContribution, FileOpenerTarget,
@@ -80,5 +91,6 @@ pub use runtime::{
 pub use service::PluginService;
 pub use worker_host::{
     CapabilityBroker, CapabilityGrant, DenyCapabilityBroker, ScopedCapabilityBroker,
-    WorkerActivation, WorkerHost, WorkerHostError,
+    WorkerActivation, WorkerHost, WorkerHostError, isolated_spawn_supported, recent_plugin_crashes,
+    record_plugin_crash,
 };

@@ -622,6 +622,7 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             ("pi", true),
             ("grok", true),
             ("cursor", true),
+            ("deepseek_harness", true),
         ]
     );
     assert!(
@@ -636,6 +637,31 @@ async fn migration_seeds_and_promotes_the_current_built_in_agent_catalog() {
             .filter(|row| matches!(row.agent_id.as_str(), "openclaw" | "hermes"))
             .all(|row| row.source == AgentSource::BuiltInProfile && row.built_in)
     );
+    for agent_id in [
+        "claude_code",
+        "codex",
+        "gemini",
+        "openclaw",
+        "opencode",
+        "cline",
+        "hermes",
+        "codebuddy",
+        "kimi_code",
+        "pi",
+        "grok",
+        "cursor",
+        "deepseek_harness",
+    ] {
+        assert!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM agent_setting WHERE agent_type = ?")
+                .bind(agent_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                == 1,
+            "built-in `{agent_id}` must have an agent_setting row"
+        );
+    }
 
     // The completion marker makes the migration one-shot even if old rows
     // change later.

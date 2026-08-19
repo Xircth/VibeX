@@ -46,10 +46,53 @@ describe('toolBlockToNormalizedEntry', () => {
         action: 'file_read',
         path: 'a.ts',
         line_start: 81,
-        line_end: 120,
-        content: '81: first line\n82: second line',
+        line_end: 82,
+        content: 'first line\nsecond line',
       },
       status: { status: 'success' },
+    });
+  });
+
+  it('maps read_file target_file + FileContent to a file snippet', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('read_file', {
+        variant: 'ReadFile',
+        target_file: '/Users/mac/.agents/skills/understand/SKILL.md',
+        offset: 1,
+        limit: 40,
+      }),
+      result(
+        JSON.stringify({
+          type: 'ReadFile',
+          FileContent: {
+            content: '1→---\n2→name: understand\n3→description: Analyze',
+          },
+        })
+      ),
+      null
+    );
+
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'file_read',
+        path: '/Users/mac/.agents/skills/understand/SKILL.md',
+        line_start: 1,
+        line_end: 3,
+        content: '---\nname: understand\ndescription: Analyze',
+      },
+    });
+    expect(entry.content).toBe('/Users/mac/.agents/skills/understand/SKILL.md');
+  });
+
+  it('does not repeat a generic tool name as its detail', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('mcp_custom', { a: 1 }),
+      result('done'),
+      null
+    );
+    expect(entry.content).toBe('');
+    expect(entry.entry_type).toMatchObject({
+      action_type: { action: 'tool', tool_name: 'mcp_custom' },
     });
   });
 
@@ -66,6 +109,72 @@ describe('toolBlockToNormalizedEntry', () => {
         result: { output: 'file list' },
       },
       status: { status: 'success' },
+    });
+  });
+
+  it('maps spawn_subagent to a task_create action', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('spawn_subagent', {
+        subagent_type: 'explore',
+        description: 'Audit stream',
+        prompt: 'look',
+      }),
+      null,
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'task_create',
+        description: 'Audit stream',
+        subagent_type: 'explore',
+      },
+    });
+  });
+
+  it('maps list_dir to a directory listing tool', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('list_dir', { target_directory: '/Users/mac/Projects/VibeX' }),
+      result('src/\nREADME.md'),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'tool',
+        tool_name: 'list_dir',
+        arguments: { path: '/Users/mac/Projects/VibeX' },
+      },
+    });
+  });
+
+  it('reads a nested web-search query instead of leaving the search blank', () => {
+    const entry = toolBlockToNormalizedEntry(
+      use('搜索', {
+        action: {
+          type: 'search',
+          query: 'site:github.com vibex workflow creator plugin',
+        },
+      }),
+      result(
+        JSON.stringify({
+          action: {
+            type: 'search',
+            query: 'site:github.com vibex workflow creator plugin',
+            sources: [
+              {
+                type: 'url',
+                url: 'https://github.com/jfmaes/awesome-ai-workflow',
+              },
+            ],
+          },
+        })
+      ),
+      null
+    );
+    expect(entry.entry_type).toMatchObject({
+      action_type: {
+        action: 'search',
+        query: 'site:github.com vibex workflow creator plugin',
+      },
     });
   });
 

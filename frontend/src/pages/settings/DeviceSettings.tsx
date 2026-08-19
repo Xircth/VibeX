@@ -9,12 +9,19 @@ export function DeviceSettings() {
   const transport = useBackendTransport();
 
   return (
-    <div className="settings-content mx-auto w-full max-w-3xl">
+    <div className="settings-content">
       <SettingsPageHeader
         title={t('devices.title')}
         description={t('devices.description')}
       />
-      <DevicePairingPanel transport={transport} />
+      <div className="settings-sections">
+        <DevicePairingPanel
+          transport={transport}
+          hostUrls={
+            typeof window === 'undefined' ? [] : [window.location.origin]
+          }
+        />
+      </div>
     </div>
   );
 }

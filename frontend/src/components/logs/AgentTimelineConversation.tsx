@@ -9,6 +9,8 @@ import {
   useState,
 } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { ConversationFindBar } from '@/components/NormalizedConversation/conversation/ConversationFindBar';
+import { findInConversationTimeline } from '@/lib/conversationFind';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -33,8 +35,10 @@ import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFil
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
+import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
+import { PluginTimelineCards } from '@/components/plugins/PluginTimelineCards';
 import { agentsApi } from '@/features/agents/api';
 import { publishLiveSessionControls } from '@/features/agents/sessionControlsQuery';
 import { conversationApi } from '@/features/conversation/conversationApi';
@@ -54,7 +58,10 @@ import {
   findActiveConversationMessageNavEntry,
   type ConversationMessageNavEntry,
 } from '@/components/conversation-thread/messageNavEntries';
-import { type ConversationTimelineTurn } from '@/features/conversation/conversationStore';
+import {
+  type ConversationTimelineItem,
+  type ConversationTimelineTurn,
+} from '@/features/conversation/conversationStore';
 import { useConversationTimeline } from '@/features/conversation/useConversationTimeline';
 import { WorkflowRunCard } from '@/features/workflow/WorkflowRunCard';
 import { useOptionalEntries } from '@/contexts/EntriesContext';
@@ -72,10 +79,7 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { resolveConversationCollapsePreferences } from '@/lib/conversationCollapsePreferences';
 import { paths } from '@/lib/paths';
 import { cn } from '@/lib/utils';
-import {
-  getContextCompactStatusKind,
-  isContextCompactPrompt,
-} from '@/lib/contextCompact';
+import { isContextCompactPrompt } from '@/lib/contextCompact';
 import { useLayoutStore } from '@/stores/useLayoutStore';
 import {
   findPreviousUserMessageVirtualIndex,
@@ -87,6 +91,15 @@ import {
 
 const ESTIMATED_ROW_HEIGHT = 128;
 const OVERSCAN = 10;
+
+function timelineItemAsMessage(
+  entry: ConversationTimelineTurn | ConversationTimelineItem
+): ConversationTimelineTurn | null {
+  if ('kind' in entry) {
+    return entry.kind === 'message' ? entry.item : null;
+  }
+  return entry;
+}
 
 export function conversationThreadMaxWidthClass(
   widthMode: 'bounded' | 'workspace',
@@ -106,12 +119,13 @@ interface AgentTimelineConversationProps {
 
 /** Nav dots derived from the timeline's user turns (one dot per user message). */
 export function buildTimelineNavEntries(
-  timeline: ConversationTimelineTurn[]
+  timeline: Array<ConversationTimelineTurn | ConversationTimelineItem>
 ): ConversationMessageNavEntry[] {
   const entries: ConversationMessageNavEntry[] = [];
   let ordinal = 0;
-  timeline.forEach((row, index) => {
-    if (row.turn.role !== 'user') return;
+  timeline.forEach((entry, index) => {
+    const row = timelineItemAsMessage(entry);
+    if (!row || row.turn.role !== 'user') return;
     ordinal += 1;
     const preview =
       row.turn.blocks
@@ -180,22 +194,23 @@ export function contextCompactPresentationForRow(
     .join('\n\n');
   if (!isContextCompactPrompt(prompt)) return null;
 
-  const statusFromContent = row.turn.blocks
-    .flatMap((block) => (block.type === 'text' ? [block.text] : []))
-    .map((text) => getContextCompactStatusKind(text))
-    .find((status) => status != null);
   const status =
     row.phase === 'streaming' || row.phase === 'optimistic'
       ? 'running'
-      : statusFromContent === 'failed'
+      : row.phase === 'failed' ||
+          row.phase === 'cancelled' ||
+          row.phase === 'interrupted'
         ? 'failed'
         : 'success';
   const usage = row.turn.usage;
   const contextTokens = usage
-    ? Number(usage.input_tokens) +
-      Number(usage.output_tokens) +
-      Number(usage.cache_creation_input_tokens) +
-      Number(usage.cache_read_input_tokens)
+    ? Number(
+        usage.context_used ??
+          Number(usage.input_tokens) +
+            Number(usage.output_tokens) +
+            Number(usage.cache_creation_input_tokens) +
+            Number(usage.cache_read_input_tokens)
+      )
     : null;
 
   return {
@@ -229,11 +244,13 @@ function latestTokenUsage(
     const window =
       usage.context_window_max != null ? Number(usage.context_window_max) : 0;
     if (window <= 0) continue;
-    const total =
+    const breakdown =
       Number(usage.input_tokens) +
       Number(usage.output_tokens) +
       Number(usage.cache_creation_input_tokens) +
       Number(usage.cache_read_input_tokens);
+    const total =
+      usage.context_used != null ? Number(usage.context_used) : breakdown;
     if (total <= 0) continue;
     return { total_tokens: total, model_context_window: window };
   }
@@ -247,12 +264,18 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
     model: turn.model ?? null,
     startedAt: turn.timestamp,
     totalTokens: usage
-      ? Number(usage.input_tokens) +
-        Number(usage.output_tokens) +
-        Number(usage.cache_creation_input_tokens) +
-        Number(usage.cache_read_input_tokens)
+      ? Number(
+          usage.context_used ??
+            Number(usage.input_tokens) +
+              Number(usage.output_tokens) +
+              Number(usage.cache_creation_input_tokens) +
+              Number(usage.cache_read_input_tokens)
+        )
       : null,
-    contextWindow: null,
+    contextWindow:
+      usage?.context_window_max != null
+        ? Number(usage.context_window_max)
+        : null,
     cacheReadTokens: usage ? Number(usage.cache_read_input_tokens) : null,
     cacheWriteTokens: usage ? Number(usage.cache_creation_input_tokens) : null,
     elapsedMs: turn.duration_ms != null ? Number(turn.duration_ms) : null,
@@ -261,155 +284,105 @@ function buildSettledTurnStats(turn: MessageTurn): TurnStatsData {
   };
 }
 
-function ConversationSideRows({
-  rows,
+function InlineTimelineSideRow({
+  entry,
   showSessionNotices,
-  dockPendingQuestions,
   onRespondQuestion,
   respondingQuestionId,
   onOpenChild,
   isStatusDismissed,
   onDismissStatus,
 }: {
-  rows: TimelineRow[];
+  entry: TimelineRow;
   showSessionNotices: boolean;
-  dockPendingQuestions: boolean;
   onRespondQuestion: (
     questionId: string,
     response: AgentElicitationResponse
   ) => void;
   respondingQuestionId: string | null;
-  onOpenChild?: (childConversationId: string) => void;
+  onOpenChild?: (
+    childConversationId: string,
+    childWorkspaceId?: string
+  ) => void;
   isStatusDismissed: (notice: ConversationStatusNotice) => boolean;
   onDismissStatus: (notice: ConversationStatusNotice) => void;
 }) {
   const { t } = useTranslation(['conversation']);
-  // turn_error renders as the standalone TurnErrorCard; file_change_summary is
-  // anchored inline at the end of its own turn (TurnFileChangesCard); pending
-  // permission requests dock at the bottom of the stream instead.
-  const visibleRows = rows.filter((entry) => {
-    if (
-      entry.row.kind === 'turn_error' ||
-      entry.row.kind === 'file_change_summary' ||
-      entry.row.kind === 'permission_request'
-    ) {
-      return false;
-    }
-    if (
-      dockPendingQuestions &&
-      entry.row.kind === 'question_request' &&
-      !entry.row.response
-    ) {
-      return false;
-    }
-    if (entry.row.kind !== 'session_notice') return true;
-    if (!showSessionNotices) return false;
-    return !isStatusDismissed({
+  const row = entry.row;
+  if (row.kind === 'question_request') {
+    return (
+      <QuestionRequestCard
+        request={row.request}
+        response={row.response ?? null}
+        onRespond={onRespondQuestion}
+        responding={respondingQuestionId === row.request.question_id}
+      />
+    );
+  }
+  if (row.kind === 'feedback_request') {
+    return (
+      <div className="rounded-md border border-violet-300/50 bg-violet-50 px-3 py-2 text-xs text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/25 dark:text-violet-100">
+        <div className="font-medium">Feedback requested</div>
+        <div className="mt-1 whitespace-pre-wrap break-words text-violet-800/80 dark:text-violet-100/75">
+          {row.request.prompt}
+        </div>
+      </div>
+    );
+  }
+  if (row.kind === 'terminal_summary') {
+    return (
+      <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <div className="font-medium text-foreground">
+          {row.terminal.command ?? 'Terminal'} · {row.terminal.status}
+        </div>
+        {row.terminal.output_summary ? (
+          <div className="mt-1 whitespace-pre-wrap break-words">
+            {row.terminal.output_summary}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (row.kind === 'delegation') {
+    return (
+      <DelegationCard delegation={row.delegation} onOpenChild={onOpenChild} />
+    );
+  }
+  if (row.kind === 'artifact_revision') {
+    return <ArtifactTimelineCard artifact={row.artifact} />;
+  }
+  if (row.kind === 'session_notice') {
+    if (!showSessionNotices) return null;
+    const notice: ConversationStatusNotice = {
       id: entry.row_id,
       kind: 'session-notice',
-      notice: entry.row.notice,
-    });
-  });
-  if (visibleRows.length === 0) return null;
-
-  return (
-    <div className="mb-3 space-y-2">
-      {visibleRows.map((entry, index) => {
-        const row = entry.row;
-        if (row.kind === 'question_request') {
-          return (
-            <QuestionRequestCard
-              key={`question-${row.request.question_id}-${index}`}
-              request={row.request}
-              response={row.response ?? null}
-              onRespond={onRespondQuestion}
-              responding={respondingQuestionId === row.request.question_id}
-            />
-          );
-        }
-        if (row.kind === 'feedback_request') {
-          return (
-            <div
-              key={`feedback-${row.request.feedback_id}-${index}`}
-              className="rounded-md border border-violet-300/50 bg-violet-50 px-3 py-2 text-xs text-violet-950 dark:border-violet-500/30 dark:bg-violet-950/25 dark:text-violet-100"
-            >
-              <div className="font-medium">Feedback requested</div>
-              <div className="mt-1 whitespace-pre-wrap break-words text-violet-800/80 dark:text-violet-100/75">
-                {row.request.prompt}
-              </div>
+      notice: row.notice,
+    };
+    if (isStatusDismissed(notice)) return null;
+    const copy = getConversationSessionNoticeCopy(row.notice, t);
+    return (
+      <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-foreground">{copy.title}</div>
+          {copy.message ? (
+            <div className="mt-1 whitespace-pre-wrap break-words">
+              {copy.message}
             </div>
-          );
-        }
-        if (row.kind === 'terminal_summary') {
-          return (
-            <div
-              key={`terminal-${row.terminal.terminal_id}-${index}`}
-              className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
-            >
-              <div className="font-medium text-foreground">
-                {row.terminal.command ?? 'Terminal'} · {row.terminal.status}
-              </div>
-              {row.terminal.output_summary ? (
-                <div className="mt-1 whitespace-pre-wrap break-words">
-                  {row.terminal.output_summary}
-                </div>
-              ) : null}
-            </div>
-          );
-        }
-        if (row.kind === 'delegation') {
-          return (
-            <DelegationCard
-              key={`delegation-${row.delegation.delegation_id}-${index}`}
-              delegation={row.delegation}
-              onOpenChild={onOpenChild}
-            />
-          );
-        }
-        if (row.kind === 'artifact_revision') {
-          return (
-            <ArtifactTimelineCard
-              key={`artifact-${row.artifact.artifact_id}-${index}`}
-              artifact={row.artifact}
-            />
-          );
-        }
-        if (row.kind === 'session_notice') {
-          const copy = getConversationSessionNoticeCopy(row.notice, t);
-          const notice: ConversationStatusNotice = {
-            id: entry.row_id,
-            kind: 'session-notice',
-            notice: row.notice,
-          };
-          return (
-            <div
-              key={`notice-${entry.row_id}`}
-              className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-medium text-foreground">{copy.title}</div>
-                {copy.message ? (
-                  <div className="mt-1 whitespace-pre-wrap break-words">
-                    {copy.message}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                onClick={() => onDismissStatus(notice)}
-                title={t('statusDock.dismiss')}
-                aria-label={t('statusDock.dismiss')}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          );
-        }
-        return null;
-      })}
-    </div>
-  );
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="shrink-0 rounded-md p-1 opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          onClick={() => onDismissStatus(notice)}
+          title={t('statusDock.dismiss')}
+          aria-label={t('statusDock.dismiss')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+  return null;
 }
 
 /**
@@ -454,6 +427,7 @@ const AgentTimelineConversation = forwardRef<
   const conversationStatus = useOptionalConversationStatus();
   const setConversationStatusNotices = conversationStatus?.setNotices;
   const setConversationStatusQuestion = conversationStatus?.setQuestion;
+  const setConversationStatusPermissions = conversationStatus?.setPermissions;
   const usesComposerStatusDock = conversationStatus?.enabled ?? false;
   const timeline = conversation.timeline;
   const isTurnInFlight = useMemo(
@@ -463,6 +437,30 @@ const AgentTimelineConversation = forwardRef<
   const detailLoading = conversation.loading;
   const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
+  const timelineItems = useMemo(
+    () =>
+      conversation.items.filter((item) => {
+        if (item.kind !== 'side') return true;
+        const kind = item.row.row.kind;
+        if (
+          kind === 'permission_request' ||
+          kind === 'turn_error' ||
+          kind === 'file_change_summary'
+        ) {
+          return false;
+        }
+        if (usesComposerStatusDock && kind === 'session_notice') return false;
+        if (
+          usesComposerStatusDock &&
+          kind === 'question_request' &&
+          !item.row.row.response
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [conversation.items, usesComposerStatusDock]
+  );
   const { dismiss: dismissStatus, isDismissed: isStatusDismissed } =
     useConversationStatusDismissal(sessionId);
   useEffect(() => {
@@ -472,6 +470,11 @@ const AgentTimelineConversation = forwardRef<
   const conversationResetAndReload = conversation.resetAndReload;
   // Restore a failed ACP connection without clearing the durable/live timeline.
   const conversationReconnectAndReload = conversation.reconnectAndReload;
+  const conversationRebindSession = useCallback(async () => {
+    if (!sessionId) return;
+    await conversationApi.rebindSession(sessionId);
+    await conversation.resetAndReload();
+  }, [conversation, sessionId]);
   // Stable reference for answering permission requests inline.
   const conversationRespondPermission = conversation.respondPermission;
   const [respondingPermissionId, setRespondingPermissionId] = useState<
@@ -565,6 +568,15 @@ const AgentTimelineConversation = forwardRef<
     latestTurnErrorRow?.row.kind === 'turn_error'
       ? latestTurnErrorRow.row.error.error
       : null;
+  const turnIdsWithErrors = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of sideRows) {
+      if (entry.row.kind !== 'turn_error') continue;
+      const turnId = entry.row.error.turn_id;
+      if (turnId) ids.add(turnId);
+    }
+    return ids;
+  }, [sideRows]);
   const latestTurnErrorNotice: ConversationStatusNotice | null =
     latestTurnError && latestTurnErrorRow
       ? {
@@ -656,15 +668,15 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const navEntries = useMemo(
-    () => buildTimelineNavEntries(timeline),
-    [timeline]
+    () => buildTimelineNavEntries(timelineItems),
+    [timelineItems]
   );
   const userMessageIndexes = useMemo(
     () =>
-      timeline.flatMap((row, index) =>
-        row.turn.role === 'user' ? [index] : []
+      timelineItems.flatMap((item, index) =>
+        timelineItemAsMessage(item)?.turn.role === 'user' ? [index] : []
       ),
-    [timeline]
+    [timelineItems]
   );
   const activeNavEntry = useMemo(
     () => findActiveConversationMessageNavEntry(navEntries, activeIndex),
@@ -672,15 +684,77 @@ const AgentTimelineConversation = forwardRef<
   );
 
   const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: timeline.length,
+    count: timelineItems.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
-    getItemKey: (index) => timeline[index]?.key ?? index,
+    getItemKey: (index) =>
+      timelineItems[index]?.kind === 'message'
+        ? timelineItems[index].item.key
+        : (timelineItems[index]?.row.row_id ?? index),
     overscan: OVERSCAN,
     scrollMargin,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findMatchIndex, setFindMatchIndex] = useState(0);
+  const findMatches = useMemo(
+    () => (findOpen ? findInConversationTimeline(timeline, findQuery) : []),
+    [findOpen, findQuery, timeline]
+  );
+  const currentFindMatch = findMatches[findMatchIndex] ?? null;
+
+  const scrollToFindMatch = useCallback(
+    (matchIndex: number) => {
+      const match = findMatches[matchIndex];
+      if (!match) return;
+      const key = timeline[match.rowIndex]?.key;
+      if (!key) return;
+      const virtualIndex = timelineItems.findIndex(
+        (item) => item.kind === 'message' && item.item.key === key
+      );
+      if (virtualIndex < 0) return;
+      rowVirtualizer.scrollToIndex(virtualIndex, {
+        align: 'center',
+        behavior: scrollBehavior,
+      });
+    },
+    [findMatches, rowVirtualizer, scrollBehavior, timeline, timelineItems]
+  );
+
+  const goToFindMatch = useCallback(
+    (direction: 1 | -1) => {
+      if (findMatches.length === 0) return;
+      setFindMatchIndex((current) => {
+        const next =
+          (current + direction + findMatches.length) % findMatches.length;
+        queueMicrotask(() => scrollToFindMatch(next));
+        return next;
+      });
+    },
+    [findMatches.length, scrollToFindMatch]
+  );
+
+  useEffect(() => {
+    setFindMatchIndex(0);
+  }, [findQuery]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isFind =
+        (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f';
+      if (!isFind) return;
+      const panel = panelRef.current;
+      if (!panel?.contains(document.activeElement)) return;
+      event.preventDefault();
+      setFindOpen(true);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const updateAtBottomState = useCallback(() => {
     const container = containerRef.current;
@@ -717,8 +791,8 @@ const AgentTimelineConversation = forwardRef<
     (behavior: ScrollBehavior) => {
       const container = containerRef.current;
       if (!container) return;
-      if (timeline.length > 0) {
-        rowVirtualizer.scrollToIndex(timeline.length - 1, {
+      if (timelineItems.length > 0) {
+        rowVirtualizer.scrollToIndex(timelineItems.length - 1, {
           align: 'end',
           behavior,
         });
@@ -728,12 +802,12 @@ const AgentTimelineConversation = forwardRef<
       isAtBottomRef.current = true;
       onAtBottomChange?.(true);
     },
-    [onAtBottomChange, rowVirtualizer, timeline.length]
+    [onAtBottomChange, rowVirtualizer, timelineItems.length]
   );
 
   const scrollToIndex = useCallback(
     (index: number) => {
-      if (index < 0 || index >= timeline.length) return;
+      if (index < 0 || index >= timelineItems.length) return;
       detachFromBottom();
       // Nav-dot jumps pin the target user message to the top of the panel.
       rowVirtualizer.scrollToIndex(index, {
@@ -742,7 +816,7 @@ const AgentTimelineConversation = forwardRef<
       });
       setActiveIndex(index);
     },
-    [detachFromBottom, rowVirtualizer, scrollBehavior, timeline.length]
+    [detachFromBottom, rowVirtualizer, scrollBehavior, timelineItems.length]
   );
 
   const updateScrollMargin = useCallback(() => {
@@ -762,7 +836,7 @@ const AgentTimelineConversation = forwardRef<
 
   useLayoutEffect(() => {
     updateScrollMargin();
-  }, [sideRows.length, timeline.length, updateScrollMargin]);
+  }, [sideRows.length, timelineItems.length, updateScrollMargin]);
 
   useLayoutEffect(() => {
     updateActiveIndex();
@@ -770,14 +844,14 @@ const AgentTimelineConversation = forwardRef<
 
   // Stick to the bottom as the conversation grows, unless the user scrolled up.
   useLayoutEffect(() => {
-    if (timeline.length === 0) {
+    if (timelineItems.length === 0) {
       updateAtBottomState();
       return;
     }
     if (isAtBottomRef.current) {
       scrollToBottom('auto');
     }
-  }, [scrollToBottom, timeline.length, totalSize, updateAtBottomState]);
+  }, [scrollToBottom, timelineItems.length, totalSize, updateAtBottomState]);
 
   useImperativeHandle(
     ref,
@@ -786,7 +860,7 @@ const AgentTimelineConversation = forwardRef<
         scrollToBottom(scrollBehavior);
       },
       scrollToIndex(index, options) {
-        if (index < 0 || index >= timeline.length) return;
+        if (index < 0 || index >= timelineItems.length) return;
         if ((options?.behavior ?? scrollBehavior) === 'smooth') {
           detachFromBottom();
         }
@@ -820,7 +894,7 @@ const AgentTimelineConversation = forwardRef<
       rowVirtualizer,
       scrollBehavior,
       scrollToBottom,
-      timeline.length,
+      timelineItems.length,
       userMessageIndexes,
     ]
   );
@@ -877,20 +951,21 @@ const AgentTimelineConversation = forwardRef<
   const userOrdinalByKey = useMemo(() => {
     const map = new Map<string, number>();
     let ordinal = 0;
-    for (const row of timeline) {
-      if (row.turn.role === 'user') {
+    for (const item of timelineItems) {
+      const row = timelineItemAsMessage(item);
+      if (row?.turn.role === 'user') {
         map.set(row.key, ordinal);
         ordinal += 1;
       }
     }
     return map;
-  }, [timeline]);
+  }, [timelineItems]);
   const lastUserRowKey = navEntries.at(-1)?.key ?? null;
   const latestInterruptedRow = useMemo(() => {
-    const latestRow = timeline.at(-1);
-    return latestRow?.turn.role === 'user' && latestRow.phase === 'interrupted'
-      ? latestRow
-      : null;
+    const latestRow = [...timeline]
+      .reverse()
+      .find((row) => row.turn.role === 'user');
+    return latestRow?.phase === 'interrupted' ? latestRow : null;
   }, [timeline]);
 
   // Same ordinal keyed by turn id (message rows are `${turnId}:user`), for the
@@ -1056,6 +1131,7 @@ const AgentTimelineConversation = forwardRef<
         kind: 'turn-error' as const,
         error: latestTurnError,
         onReload: conversationReconnectAndReload,
+        onRebind: conversationRebindSession,
       });
     }
     if (latestInterruptedRow) {
@@ -1077,11 +1153,13 @@ const AgentTimelineConversation = forwardRef<
         id: latestSessionNoticeRow.row_id,
         kind: 'session-notice' as const,
         notice: latestSessionNoticeRow.row.notice,
+        onRebind: conversationRebindSession,
       });
     }
     return notices;
   }, [
     conversationReconnectAndReload,
+    conversationRebindSession,
     handleRetry,
     latestInterruptedRow,
     latestSessionNoticeRow,
@@ -1100,158 +1178,218 @@ const AgentTimelineConversation = forwardRef<
     return () => setConversationStatusQuestion?.(null);
   }, [composerQuestion, setConversationStatusQuestion]);
 
+  const composerPermissions = useMemo(() => {
+    if (!usesComposerStatusDock) return [];
+    return pendingPermissions.map((request) => ({
+      request,
+      responding: respondingPermissionId === request.permission_id,
+      onRespond: handleRespondPermission,
+    }));
+  }, [
+    handleRespondPermission,
+    pendingPermissions,
+    respondingPermissionId,
+    usesComposerStatusDock,
+  ]);
+
+  useEffect(() => {
+    setConversationStatusPermissions?.(composerPermissions);
+    return () => setConversationStatusPermissions?.([]);
+  }, [composerPermissions, setConversationStatusPermissions]);
+
   return (
-    <div
-      ref={containerRef}
-      className="h-full overflow-y-auto px-2 py-3"
-      data-panel="conversation-logs"
-      onScroll={handleScroll}
-    >
-      {detailLoading && timeline.length === 0 ? (
-        <div className="flex h-full min-h-[160px] items-center justify-center text-muted-foreground">
-          <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading session...</span>
-          </div>
-        </div>
-      ) : (
-        <div
-          className={cn(
-            'conv-thread-shell relative mx-auto w-full',
-            conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
-          )}
-        >
-          <div className="conv-thread-content min-w-0">
-            {attempt.session?.executor === 'workflow' && sessionId ? (
-              <WorkflowRunCard runId={sessionId} />
-            ) : null}
-            {attempt.session?.executor !== 'workflow' && sessionId ? (
-              <ConversationChildrenSummary
-                conversationId={sessionId}
-                onOpenChild={handleOpenChild}
-              />
-            ) : null}
-            {latestTurnErrorNotice &&
-            !usesComposerStatusDock &&
-            !isStatusDismissed(latestTurnErrorNotice) ? (
-              <TurnErrorCard
-                error={latestTurnErrorNotice.error}
-                onReload={conversationReconnectAndReload}
-                onDismiss={() => dismissStatus(latestTurnErrorNotice)}
-              />
-            ) : null}
-            <ConversationSideRows
-              rows={sideRows}
-              showSessionNotices={!usesComposerStatusDock}
-              dockPendingQuestions={usesComposerStatusDock}
-              onRespondQuestion={handleRespondQuestion}
-              respondingQuestionId={respondingQuestionId}
-              onOpenChild={handleOpenChild}
-              isStatusDismissed={isStatusDismissed}
-              onDismissStatus={dismissStatus}
-            />
-            <div
-              ref={virtualListRef}
-              className="relative w-full"
-              style={{ height: `${totalSize}px` }}
-            >
-              {virtualRows.map((virtualRow) => {
-                const row = timeline[virtualRow.index];
-                if (!row) return null;
-                return (
-                  <div
-                    key={virtualRow.key}
-                    ref={rowVirtualizer.measureElement}
-                    data-index={virtualRow.index}
-                    className={cn(
-                      'absolute left-0 top-0 w-full pb-3',
-                      activeNavEntry?.index === virtualRow.index &&
-                        'conv-message-nav-target-active'
-                    )}
-                    style={{
-                      transform: getVirtualRowTranslateY(
-                        virtualRow.start,
-                        scrollMargin
-                      ),
-                    }}
-                  >
-                    <MessageTurnView
-                      turn={row.turn}
-                      phase={row.phase}
-                      attempt={attempt}
-                      task={task}
-                      workspacePath={workspaceRoot}
-                      onRetry={
-                        row.turn.role === 'user'
-                          ? () =>
-                              void handleRetry(
-                                row.turn,
-                                userOrdinalByKey.get(row.key) ?? 0
-                              )
-                          : undefined
-                      }
-                      onEditRetry={
-                        isEditableUserTimelineRow(row, lastUserRowKey)
-                          ? (editedText) =>
-                              handleRetry(
-                                row.turn,
-                                userOrdinalByKey.get(row.key) ?? 0,
-                                editedText
-                              )
-                          : undefined
-                      }
-                      collapseProcess={collapseProcess}
-                      showInterruptedNotice={!usesComposerStatusDock}
-                      contextCompact={contextCompactPresentationForRow(
-                        timeline,
-                        virtualRow.index
-                      )}
-                    />
-                    {row.turn.role === 'assistant'
-                      ? (() => {
-                          const turnId = row.turn.id.replace(/:assistant$/, '');
-                          const fileChanges = fileChangesByTurnId.get(turnId);
-                          if (!fileChanges) return null;
-                          return (
-                            <TurnFileChangesCard
-                              summary={fileChanges.summary}
-                              expansionKey={`turn-files:${turnId}`}
-                              defaultExpanded={expandFileChanges}
-                              onUndo={() => void handleUndoTurnChanges(turnId)}
-                              undoDisabled={isTurnInFlight}
-                            />
-                          );
-                        })()
-                      : null}
-                    {renderTurnStats(row, virtualRow.index)}
-                  </div>
-                );
-              })}
+    <div ref={panelRef} className="flex h-full min-h-0 flex-col">
+      {findOpen ? (
+        <ConversationFindBar
+          query={findQuery}
+          current={findMatches.length === 0 ? 0 : findMatchIndex + 1}
+          total={findMatches.length}
+          onQueryChange={setFindQuery}
+          onNext={() => goToFindMatch(1)}
+          onPrevious={() => goToFindMatch(-1)}
+          onClose={() => {
+            setFindOpen(false);
+            setFindQuery('');
+            setFindMatchIndex(0);
+          }}
+        />
+      ) : null}
+      <div
+        ref={containerRef}
+        className="min-h-0 flex-1 overflow-y-auto px-2 py-3"
+        data-panel="conversation-logs"
+        onScroll={handleScroll}
+      >
+        <PluginTimelineCards />
+        {detailLoading && timeline.length === 0 ? (
+          <div className="flex h-full min-h-[160px] items-center justify-center text-muted-foreground">
+            <div className="flex items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-xs shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Loading session...</span>
             </div>
-            {pendingPermissions.length > 0 ? (
-              <div className="sticky bottom-0 z-10 space-y-2 pt-2">
-                {pendingPermissions.map((request) => (
-                  <PermissionRequestCard
-                    key={`permission-${request.permission_id}`}
-                    request={request}
-                    onRespond={handleRespondPermission}
-                    responding={
-                      respondingPermissionId === request.permission_id
-                    }
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'conv-thread-shell relative mx-auto w-full',
+              conversationThreadMaxWidthClass(widthMode, isEditorAreaVisible)
+            )}
+          >
+            <SubagentLifecycleProvider turns={timeline.map((row) => row.turn)}>
+              <div className="conv-thread-content min-w-0">
+                {attempt.session?.executor === 'workflow' && sessionId ? (
+                  <WorkflowRunCard runId={sessionId} />
+                ) : null}
+                {attempt.session?.executor !== 'workflow' && sessionId ? (
+                  <ConversationChildrenSummary
+                    conversationId={sessionId}
+                    onOpenChild={handleOpenChild}
                   />
-                ))}
+                ) : null}
+                {latestTurnErrorNotice &&
+                !usesComposerStatusDock &&
+                !isStatusDismissed(latestTurnErrorNotice) ? (
+                  <TurnErrorCard
+                    error={latestTurnErrorNotice.error}
+                    onReload={conversationReconnectAndReload}
+                    onRebind={conversationRebindSession}
+                    onDismiss={() => dismissStatus(latestTurnErrorNotice)}
+                  />
+                ) : null}
+                <div
+                  ref={virtualListRef}
+                  className="relative w-full"
+                  style={{ height: `${totalSize}px` }}
+                >
+                  {virtualRows.map((virtualRow) => {
+                    const item = timelineItems[virtualRow.index];
+                    if (!item) return null;
+                    const row = item.kind === 'message' ? item.item : null;
+                    const isCurrentFindMatch =
+                      row != null &&
+                      currentFindMatch != null &&
+                      timeline[currentFindMatch.rowIndex]?.key === row.key;
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        ref={rowVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        className={cn(
+                          'absolute left-0 top-0 w-full pb-3',
+                          activeNavEntry?.index === virtualRow.index &&
+                            'conv-message-nav-target-active',
+                          isCurrentFindMatch && 'rounded-md bg-primary/10'
+                        )}
+                        style={{
+                          transform: getVirtualRowTranslateY(
+                            virtualRow.start,
+                            scrollMargin
+                          ),
+                        }}
+                      >
+                        {item.kind === 'side' ? (
+                          <InlineTimelineSideRow
+                            entry={item.row}
+                            showSessionNotices={!usesComposerStatusDock}
+                            onRespondQuestion={handleRespondQuestion}
+                            respondingQuestionId={respondingQuestionId}
+                            onOpenChild={handleOpenChild}
+                            isStatusDismissed={isStatusDismissed}
+                            onDismissStatus={dismissStatus}
+                          />
+                        ) : null}
+                        {row ? (
+                          <MessageTurnView
+                            turn={row.turn}
+                            phase={row.phase}
+                            attempt={attempt}
+                            task={task}
+                            workspacePath={workspaceRoot}
+                            onRetry={
+                              row.turn.role === 'user'
+                                ? () =>
+                                    void handleRetry(
+                                      row.turn,
+                                      userOrdinalByKey.get(row.key) ?? 0
+                                    )
+                                : undefined
+                            }
+                            onEditRetry={
+                              isEditableUserTimelineRow(row, lastUserRowKey)
+                                ? (editedText) =>
+                                    handleRetry(
+                                      row.turn,
+                                      userOrdinalByKey.get(row.key) ?? 0,
+                                      editedText
+                                    )
+                                : undefined
+                            }
+                            collapseProcess={collapseProcess}
+                            showInterruptedNotice={!usesComposerStatusDock}
+                            contextCompact={contextCompactPresentationForRow(
+                              timeline,
+                              timeline.findIndex(
+                                (candidate) => candidate.key === row.key
+                              )
+                            )}
+                            hasTurnError={turnIdsWithErrors.has(
+                              row.turn.id.replace(/:(?:assistant|user)$/u, '')
+                            )}
+                          />
+                        ) : null}
+                        {row?.turn.role === 'assistant'
+                          ? (() => {
+                              const turnId = row.turn.id.replace(
+                                /:assistant$/,
+                                ''
+                              );
+                              const fileChanges =
+                                fileChangesByTurnId.get(turnId);
+                              if (!fileChanges) return null;
+                              return (
+                                <TurnFileChangesCard
+                                  summary={fileChanges.summary}
+                                  expansionKey={`turn-files:${turnId}`}
+                                  defaultExpanded={expandFileChanges}
+                                  onUndo={() =>
+                                    void handleUndoTurnChanges(turnId)
+                                  }
+                                  undoDisabled={isTurnInFlight}
+                                />
+                              );
+                            })()
+                          : null}
+                        {row ? renderTurnStats(row, virtualRow.index) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+                {!usesComposerStatusDock && pendingPermissions.length > 0 ? (
+                  <div className="sticky bottom-0 z-10 space-y-2 pt-2">
+                    {pendingPermissions.map((request) => (
+                      <PermissionRequestCard
+                        key={`permission-${request.permission_id}`}
+                        request={request}
+                        onRespond={handleRespondPermission}
+                        responding={
+                          respondingPermissionId === request.permission_id
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </SubagentLifecycleProvider>
+            <div className="conv-message-nav-anchor">
+              <ConversationMessageNav
+                entries={navEntries}
+                activeIndex={activeIndex}
+                onSelect={scrollToIndex}
+              />
+            </div>
           </div>
-          <div className="conv-message-nav-anchor">
-            <ConversationMessageNav
-              entries={navEntries}
-              activeIndex={activeIndex}
-              onSelect={scrollToIndex}
-            />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 });

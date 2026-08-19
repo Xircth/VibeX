@@ -358,10 +358,12 @@ impl Companion {
                 let relayed = write_opt(&stdout, respond(id, render_result(&outcome))).await;
                 if relayed && !feedback_ids.is_empty() {
                     let _ = self
-                        .send(&BrokerMessage::CommitFeedback(BrokerCommitFeedbackRequest {
-                            token: self.token.clone(),
-                            ids: feedback_ids,
-                        }))
+                        .send(&BrokerMessage::CommitFeedback(
+                            BrokerCommitFeedbackRequest {
+                                token: self.token.clone(),
+                                ids: feedback_ids,
+                            },
+                        ))
                         .await;
                 }
             }
@@ -499,11 +501,8 @@ impl Companion {
             external_handle: handle,
             reason: Some("client cancelled".to_string()),
         });
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
-            self.send(&message),
-        )
-        .await;
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(500), self.send(&message)).await;
     }
 }
 

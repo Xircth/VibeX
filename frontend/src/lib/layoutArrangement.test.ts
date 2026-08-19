@@ -6,6 +6,7 @@ import {
   getKanbanArrangement,
   getLayoutArrangement,
   isDefaultArrangement,
+  kanbanSessionResizeHandleSide,
   kanbanSlotOfZone,
   resetKanbanArrangement,
   resetLayoutArrangement,
@@ -130,6 +131,33 @@ describe('layoutArrangement', () => {
       );
       // The workspace arrangement is unaffected by kanban changes.
       expect(getLayoutArrangement()).toEqual(DEFAULT_LAYOUT_ARRANGEMENT);
+    });
+
+    it('places the session resize handle on the edge facing the monitor', () => {
+      expect(kanbanSessionResizeHandleSide(DEFAULT_KANBAN_ARRANGEMENT)).toBe(
+        'left'
+      );
+      expect(
+        kanbanSessionResizeHandleSide({
+          left: 'list',
+          center: 'session',
+          right: 'monitor',
+        })
+      ).toBe('right');
+      expect(
+        kanbanSessionResizeHandleSide({
+          left: 'session',
+          center: 'monitor',
+          right: 'list',
+        })
+      ).toBe('right');
+      expect(
+        kanbanSessionResizeHandleSide({
+          left: 'monitor',
+          center: 'session',
+          right: 'list',
+        })
+      ).toBe('left');
     });
 
     it('rejects non-bijective values', () => {

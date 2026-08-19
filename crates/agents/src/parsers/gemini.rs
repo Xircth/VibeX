@@ -114,6 +114,7 @@ fn record_from_message(message: &Value) -> Option<ParsedRecord> {
         output_tokens: token_field(tokens, "output"),
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: token_field(tokens, "cached"),
+        context_used: None,
         context_window_max: None,
         cost_amount: None,
         cost_currency: None,

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibex.dev/plugin/v5/isolated.schema.json",
+  "type": "object",
+  "required": ["manifestVersion", "packageClass"],
+  "properties": {
+    "manifestVersion": { "const": 5 },
+    "packageClass": { "const": "isolated" },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "capability"],
+        "properties": {
+          "id": { "type": "string" },
+          "capability": {
+            "enum": [
+              "network.fetch",
+              "files.read",
+              "files.write",
+              "storage.kv",
+              "storage.database",
+              "secrets"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -38,9 +38,16 @@ public struct ServerCapabilities: Codable {
     public let protocol_version: String
     public let minimum_client_version: String
     public let capabilities: [CapabilityId]
+    public let host_id: String?
+    public let reachability: [ReachabilityOrigin]?
 }
 
 public typealias CapabilityId = String
+
+public struct ReachabilityOrigin: Codable {
+    public let origin: String
+    public let kind: String
+}
 
 public struct CommandRequest: Codable {
     public let operation_id: String
@@ -87,14 +94,14 @@ public struct RemoteEvent: Codable {
     public let payload: JSONValue
 }
 
+public struct CreatePairingRequest: Codable {
+    public let preset: JSONValue?
+    public let requested_scopes: [String]?
+}
+
 public enum DevicePermissionPreset: String, Codable {
     case workstation
     case companion
-}
-
-public struct CreatePairingRequest: Codable {
-    public let preset: DevicePermissionPreset?
-    public let requested_scopes: [String]
 }
 
 public struct PairingChallenge: Codable {

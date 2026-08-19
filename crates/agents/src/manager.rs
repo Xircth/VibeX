@@ -24,11 +24,11 @@ use agent_client_protocol::{
             InitializeRequest, KillTerminalRequest, KillTerminalResponse, ListSessionsRequest,
             LoadSessionRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
             ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
-            RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
-            SessionConfigKind, SessionConfigOption as AcpSessionConfigOption,
-            SessionConfigOptionCategory, SessionConfigOptionValue,
-            SessionConfigOptionsCapabilities, SessionConfigSelectOption,
-            SessionConfigSelectOptions, SessionId, SessionModeId, SessionModeState,
+            RequestPermissionResponse, ResourceLink, ResumeSessionRequest,
+            SelectedPermissionOutcome, SessionConfigKind,
+            SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
+            SessionConfigOptionValue, SessionConfigOptionsCapabilities, SessionConfigSelectOption,
+            SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState,
             SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
             SetSessionModeRequest, TerminalId, TerminalOutputResponse, TextContent,
             ToolCallContent, ToolCallLocation, WaitForTerminalExitResponse,
@@ -66,9 +66,41 @@ use crate::{
         CompanionCapabilities, CompanionInjectionContext, CompanionInjectionList,
         DelegationInjector, InjectedRemoteMcpTransport,
     },
+    grok_subagent::GrokSubagentTracker,
     state::{AgentConnectionSnapshot, AgentConnectionStatus},
     terminal::agent_terminal_registry,
 };
+
+/// Grok applies model changes through the non-standard `session/set_model`
+/// method (`{sessionId, modelId}`) — its `session/set_config_option` handler
+/// rejects the standard param shape. Typed as a custom ACP request so the
+/// apply path stays on the typed JSON-RPC transport.
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcRequest)]
+#[request(
+    method = "session/set_model",
+    response = SetSessionModelResponse,
+    crate = acp
+)]
+struct SetSessionModelRequest {
+    session_id: SessionId,
+    model_id: String,
+}
+
+impl SetSessionModelRequest {
+    fn new(session_id: SessionId, model_id: String) -> Self {
+        Self {
+            session_id,
+            model_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, acp::JsonRpcResponse)]
+#[response(crate = acp)]
+struct SetSessionModelResponse {
+    #[serde(default)]
+    _meta: Option<serde_json::Value>,
+}
 
 fn acp_tool_input_preview(
     raw_input: Option<&serde_json::Value>,
@@ -150,19 +182,19 @@ const PI_TRUST_WORKSPACE_ENV: &str = "PI_ACP_TRUST_WORKSPACE";
 const AUTH_STATUS_TIMEOUT_SECS: u64 = 5;
 const MAX_CONTENT_META_BYTES: usize = 16 * 1024;
 
-fn agent_accepts_wire_mcp(agent_id: &AgentId) -> bool {
-    agent_id.as_str() != "openclaw"
+fn wire_mcp_offer(capabilities: &AcpCapabilitySnapshot) -> WireMcpOffer {
+    WireMcpOffer {
+        stdio: capabilities.mcp_stdio,
+        http: capabilities.mcp_http,
+        sse: capabilities.mcp_sse,
+    }
 }
 
-fn agent_delivers_wire_mcp(agent_id: &AgentId) -> bool {
-    agent_accepts_wire_mcp(agent_id) && agent_id.as_str() != "pi"
-}
-
-fn agent_reads_native_mcp(agent_id: &AgentId) -> bool {
-    matches!(
-        agent_id.as_str(),
-        "hermes" | "kimi_code" | "grok" | "cursor"
-    )
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WireMcpOffer {
+    stdio: bool,
+    http: bool,
+    sse: bool,
 }
 
 const PROXY_ENV_KEYS: [&str; 8] = [
@@ -293,10 +325,19 @@ fn acp_error_code_str(error: &acp::Error) -> Option<String> {
 }
 
 fn map_acp_session_error(context: &str, error: acp::Error) -> AgentError {
-    if i32::from(error.code) == -32000 {
-        AgentError::AuthenticationRequired(error.to_string())
-    } else {
-        AgentError::Runtime(format!("{context}: {error}"))
+    match i32::from(error.code) {
+        -32000 => AgentError::AuthenticationRequired(error.to_string()),
+        -32002 => AgentError::SessionLoadFailed(SessionLoadFailureReason::ResourceNotFound),
+        _ => AgentError::Runtime(format!("{context}: {error}")),
+    }
+}
+
+fn map_session_restore_error(error: acp::Error) -> AgentError {
+    match classify_session_load_error(&error) {
+        SessionLoadFailureReason::AuthenticationRequired { message } => {
+            AgentError::AuthenticationRequired(message)
+        }
+        reason => AgentError::SessionLoadFailed(reason),
     }
 }
 
@@ -897,12 +938,29 @@ struct AgentConnectionRunner {
     // with the bridge (refreshed on every session notification) so the prompt
     // idle watchdog can fail a silently-hung agent without killing live turns.
     last_activity: Arc<Mutex<Instant>>,
+    grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
+}
+
+/// Non-standard wire surface an ACP agent requires for its vendor-advertised
+/// session controls. Standard ACP agents keep `None` and use
+/// `session/set_config_option` unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VendorConfigWire {
+    /// Grok (`grok agent stdio`) advertises config through
+    /// `_meta["x.ai/sessionConfig"]` and applies model changes via the
+    /// non-standard `session/set_model` method (`{sessionId, modelId}`).
+    XaiSessionConfig,
 }
 
 #[derive(Debug, Clone, Default)]
 struct SessionControlState {
-    modes: Option<SessionModeState>,
     config_options: Vec<AcpSessionConfigOption>,
+    /// Set when `config_options` were synthesized from a vendor `_meta`
+    /// extension instead of the standard ACP response fields.
+    vendor_config: Option<VendorConfigWire>,
+    /// True when the category=`mode` option was adapted from V1 Session Modes
+    /// and must be written back with `session/set_mode`.
+    mode_uses_set_mode: bool,
 }
 
 #[derive(Debug)]
@@ -985,6 +1043,7 @@ impl AgentConnectionRunner {
             stream_dedup: Arc::new(Mutex::new(HashMap::new())),
             active_prompt: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(Mutex::new(Instant::now())),
+            grok_subagent: Arc::new(Mutex::new(GrokSubagentTracker::default())),
         }
     }
 
@@ -1000,7 +1059,7 @@ impl AgentConnectionRunner {
         if let Err(error) = self.run_acp(cmd_rx, Arc::clone(&ready)).await {
             let message = error.to_string();
             if let Some(tx) = ready.lock().await.take() {
-                let _ = tx.send(Err(AgentError::Runtime(message.clone())));
+                let _ = tx.send(Err(error));
             }
             self.emit_connection_status(AgentConnectionStatus::Failed, Some(message.clone()));
             // If a prompt was still in flight when the connection died (the agent
@@ -1391,6 +1450,20 @@ impl AgentConnectionRunner {
                 "Installation lock does not contain an absolute ACP program".to_string(),
             ));
         }
+        // The persisted program can go stale (Agent self-update, interrupted
+        // install cleanup, moved external install). Fail with an actionable
+        // repair message instead of a raw ENOENT from `Command::spawn`.
+        if !crate::launch_program_available(&launch_lock.absolute_acp_program) {
+            return Err(AgentError::Runtime(crate::missing_launch_program_error(
+                &launch_lock.absolute_acp_program,
+            )));
+        }
+        if !self.snapshot.working_dir.is_dir() {
+            return Err(AgentError::Runtime(format!(
+                "workspace working directory is missing: {}",
+                self.snapshot.working_dir.display()
+            )));
+        }
         let mut command =
             new_hidden_tokio_command(&launch_lock.absolute_acp_program, &launch_lock.args);
 
@@ -1541,6 +1614,7 @@ impl AgentConnectionRunner {
             self.auto_approve_mode,
             Arc::clone(&self.stream_dedup),
             Arc::clone(&self.last_activity),
+            Arc::clone(&self.grok_subagent),
         );
         let request_bridge = bridge.clone();
         let notification_bridge = bridge;
@@ -1619,7 +1693,7 @@ impl AgentConnectionRunner {
                 )
                 .await
                 .map(Into::into);
-                *runner.capabilities.write().await = capability_snapshot;
+                *runner.capabilities.write().await = capability_snapshot.clone();
                 let supports_load_session = initialize_response.agent_capabilities.load_session;
                 let supports_resume_session = initialize_response
                     .agent_capabilities
@@ -1636,10 +1710,8 @@ impl AgentConnectionRunner {
                     .session_capabilities
                     .fork
                     .is_some();
-                // Describe the effective wire path: OpenClaw rejects entries,
-                // while Pi accepts the field but drops it before the model.
                 let companion_capabilities = CompanionCapabilities {
-                    accepts_session_mcp_servers: agent_delivers_wire_mcp(&runner.snapshot.agent_id),
+                    accepts_session_mcp_servers: capability_snapshot.accepts_session_mcp_servers(),
                 };
                 let supports_list = initialize_response
                     .agent_capabilities
@@ -1739,10 +1811,7 @@ impl AgentConnectionRunner {
                                     },
                                     companion_capabilities,
                                 )
-                                .await
-                                .map_err(|error| {
-                                    map_acp_session_error("ACP session resume failed", error)
-                                });
+                                .await;
                             let result = match result {
                                 Ok(acp_session_id) => Ok((
                                     acp_session_id,
@@ -1973,7 +2042,7 @@ impl AgentConnectionRunner {
         external_session_id: String,
         support: SessionRestoreSupport,
         companion_capabilities: CompanionCapabilities,
-    ) -> Result<String, acp::Error> {
+    ) -> AgentResult<String> {
         if let Some(existing) = self.session_map.read().await.get(&session_id).cloned() {
             return Ok(existing);
         }
@@ -2002,46 +2071,73 @@ impl AgentConnectionRunner {
                         .write()
                         .await
                         .insert(session_id, external_session_id.clone());
-                    self.emit_session_controls(session_id, response.modes, response.config_options)
+                    self.emit_session_linked(session_id, external_session_id.clone())
+                        .await;
+                    let (modes, config_options, vendor_config) =
+                        session_controls_with_vendor_fallback(
+                            response.modes,
+                            response.config_options,
+                            response.meta.as_ref(),
+                        );
+                    self.emit_session_controls(session_id, modes, config_options, vendor_config)
                         .await;
                     return Ok(external_session_id);
                 }
                 Err(error) => {
-                    self.emit_session_load_failed(session_id, classify_session_load_error(&error));
+                    let reason = classify_session_load_error(&error);
+                    self.emit_session_load_failed(session_id, reason.clone());
+                    return Err(map_session_restore_error(error));
                 }
             }
-        } else {
-            if support.resume {
-                let mut request = ResumeSessionRequest::new(
-                    SessionId::new(external_session_id.clone()),
-                    working_dir.to_path_buf(),
-                );
-                if self.capabilities.read().await.additional_directories {
-                    request = request
-                        .additional_directories(self.snapshot.additional_directories.clone());
-                }
-                request = request.mcp_servers(
-                    self.session_mcp_servers_with_companion(
-                        working_dir,
-                        session_id,
-                        companion_capabilities,
-                    )
-                    .await,
-                );
-                let response = conn.send_request(request).block_task().await?;
-                self.session_map
-                    .write()
-                    .await
-                    .insert(session_id, external_session_id.clone());
-                self.emit_session_controls(session_id, response.modes, response.config_options)
-                    .await;
-                return Ok(external_session_id);
-            }
-            self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
         }
 
-        self.new_acp_session(conn, working_dir, session_id, companion_capabilities)
-            .await
+        if support.resume {
+            let mut request = ResumeSessionRequest::new(
+                SessionId::new(external_session_id.clone()),
+                working_dir.to_path_buf(),
+            );
+            if self.capabilities.read().await.additional_directories {
+                request =
+                    request.additional_directories(self.snapshot.additional_directories.clone());
+            }
+            request = request.mcp_servers(
+                self.session_mcp_servers_with_companion(
+                    working_dir,
+                    session_id,
+                    companion_capabilities,
+                )
+                .await,
+            );
+            match conn.send_request(request).block_task().await {
+                Ok(response) => {
+                    self.session_map
+                        .write()
+                        .await
+                        .insert(session_id, external_session_id.clone());
+                    self.emit_session_linked(session_id, external_session_id.clone())
+                        .await;
+                    let (modes, config_options, vendor_config) =
+                        session_controls_with_vendor_fallback(
+                            response.modes,
+                            response.config_options,
+                            response.meta.as_ref(),
+                        );
+                    self.emit_session_controls(session_id, modes, config_options, vendor_config)
+                        .await;
+                    return Ok(external_session_id);
+                }
+                Err(error) => {
+                    let reason = classify_session_load_error(&error);
+                    self.emit_session_load_failed(session_id, reason.clone());
+                    return Err(map_session_restore_error(error));
+                }
+            }
+        }
+
+        self.emit_session_load_failed(session_id, SessionLoadFailureReason::Unsupported);
+        Err(AgentError::SessionLoadFailed(
+            SessionLoadFailureReason::Unsupported,
+        ))
     }
 
     /// Fork the live ACP session for `session_id`, returning the new (forked)
@@ -2087,18 +2183,28 @@ impl AgentConnectionRunner {
             .write()
             .await
             .insert(session_id, acp_session_id.clone());
+        self.emit_session_linked(session_id, acp_session_id.clone())
+            .await;
+        let (modes, config_options, vendor_config) = session_controls_with_vendor_fallback(
+            response.modes,
+            response.config_options,
+            response.meta.as_ref(),
+        );
+        self.emit_session_controls(session_id, modes, config_options, vendor_config)
+            .await;
+        Ok(acp_session_id)
+    }
+
+    async fn emit_session_linked(&self, session_id: AgentSessionId, acp_session_id: String) {
         self.emit(
             Some(session_id),
             None,
             AgentEvent::SessionLinked {
-                acp_session_id: acp_session_id.clone(),
+                acp_session_id,
                 agent_id: self.snapshot.agent_id.clone(),
                 capabilities: self.capabilities.read().await.clone(),
             },
         );
-        self.emit_session_controls(session_id, response.modes, response.config_options)
-            .await;
-        Ok(acp_session_id)
     }
 
     async fn session_mcp_servers_with_companion(
@@ -2107,7 +2213,7 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         companion_capabilities: CompanionCapabilities,
     ) -> Vec<acp::schema::v1::McpServer> {
-        let mut servers = self.session_mcp_servers(working_dir).await;
+        let mut servers = self.session_mcp_servers().await;
         // Restored sessions need the same companion as newly created sessions.
         if companion_capabilities.accepts_session_mcp_servers
             && let Some(injector) = &self.delegation_injector
@@ -2138,26 +2244,14 @@ impl AgentConnectionRunner {
                     },
                 ),
             }
-            for server in injector.extra_stdio_servers() {
-                servers.push(acp::schema::v1::McpServer::Stdio(
-                    acp::schema::v1::McpServerStdio::new(server.name, server.command)
-                        .args(server.args),
-                ));
-            }
         }
         servers
     }
 
-    async fn session_mcp_servers(&self, _working_dir: &Path) -> Vec<acp::schema::v1::McpServer> {
-        if !agent_accepts_wire_mcp(&self.snapshot.agent_id)
-            || !agent_delivers_wire_mcp(&self.snapshot.agent_id)
-            || agent_reads_native_mcp(&self.snapshot.agent_id)
-        {
-            return Vec::new();
-        }
+    async fn session_mcp_servers(&self) -> Vec<acp::schema::v1::McpServer> {
+        let offer = wire_mcp_offer(&*self.capabilities.read().await);
         let mut servers = Vec::new();
         if let Some(injector) = &self.delegation_injector {
-            let capabilities = self.capabilities.read().await.clone();
             for server in injector.remote_servers() {
                 let headers = server
                     .headers
@@ -2165,13 +2259,13 @@ impl AgentConnectionRunner {
                     .map(|(name, value)| acp::schema::v1::HttpHeader::new(name, value))
                     .collect();
                 match server.transport {
-                    InjectedRemoteMcpTransport::Http if capabilities.mcp_http => {
+                    InjectedRemoteMcpTransport::Http if offer.http => {
                         servers.push(acp::schema::v1::McpServer::Http(
                             acp::schema::v1::McpServerHttp::new(server.name, server.url)
                                 .headers(headers),
                         ));
                     }
-                    InjectedRemoteMcpTransport::Sse if capabilities.mcp_sse => {
+                    InjectedRemoteMcpTransport::Sse if offer.sse => {
                         servers.push(acp::schema::v1::McpServer::Sse(
                             acp::schema::v1::McpServerSse::new(server.name, server.url)
                                 .headers(headers),
@@ -2184,54 +2278,47 @@ impl AgentConnectionRunner {
         servers
     }
 
+    /// Prefer the standard ACP `modes`/`configOptions` fields and only fall
+    /// back to a vendor `_meta` extension when the agent advertised neither
+    /// (Grok currently). The returned wire marker tells the apply path which
+    /// non-standard method (if any) the agent expects for changes.
     async fn emit_session_controls(
         &self,
         session_id: AgentSessionId,
         modes: Option<SessionModeState>,
         config_options: Option<Vec<AcpSessionConfigOption>>,
+        vendor_config: Option<VendorConfigWire>,
     ) {
-        let uses_config_options = config_options
-            .as_ref()
-            .is_some_and(|options| !options.is_empty());
+        let (config_options, mode_uses_set_mode) = unify_session_config_options(
+            modes,
+            config_options.unwrap_or_default(),
+            vendor_config.is_some(),
+        );
         {
             let mut controls = self.session_controls.write().await;
             let entry = controls.entry(session_id).or_default();
-            if uses_config_options {
-                // ACP requires clients supporting configOptions to use them
-                // exclusively when the agent also sends legacy modes.
-                entry.modes = None;
-            } else if let Some(modes) = modes.clone() {
-                entry.modes = Some(modes);
-            }
-            if let Some(options) = config_options.clone() {
-                entry.config_options = options;
+            entry.config_options = config_options.clone();
+            entry.mode_uses_set_mode = mode_uses_set_mode;
+            if let Some(vendor_config) = vendor_config {
+                entry.vendor_config = Some(vendor_config);
             }
         }
 
-        if uses_config_options {
-            self.emit(
-                Some(session_id),
-                None,
-                AgentEvent::SessionModes {
-                    modes: Vec::new(),
-                    current: None,
-                },
-            );
-        } else if let Some(modes) = modes {
-            let (modes, current) = agent_session_modes_from_acp(modes);
-            self.emit(
-                Some(session_id),
-                None,
-                AgentEvent::SessionModes { modes, current },
-            );
-        }
-
-        if let Some(options) = config_options {
+        let (derived_modes, current) = session_modes_from_config_options(&config_options);
+        self.emit(
+            Some(session_id),
+            None,
+            AgentEvent::SessionModes {
+                modes: derived_modes,
+                current,
+            },
+        );
+        if !config_options.is_empty() {
             self.emit(
                 Some(session_id),
                 None,
                 AgentEvent::SessionConfigOptions {
-                    options: agent_session_config_options_from_acp(options),
+                    options: agent_session_config_options_from_acp(config_options),
                 },
             );
         }
@@ -2250,17 +2337,18 @@ impl AgentConnectionRunner {
                 capabilities: Some(self.capabilities.read().await.clone()),
             };
         };
-        let (modes, current_mode) = controls
-            .modes
-            .clone()
-            .map(agent_session_modes_from_acp)
-            .unwrap_or_default();
+        let (modes, current_mode) = session_modes_from_config_options(&controls.config_options);
         AgentSessionControlsSnapshot {
             modes,
             current_mode,
             config_options: agent_session_config_options_from_acp(controls.config_options.clone()),
             capabilities: Some(self.capabilities.read().await.clone()),
         }
+    }
+
+    async fn emit_derived_session_controls(&self, session_id: AgentSessionId) {
+        let snapshot = self.session_controls_snapshot(session_id).await;
+        self.emit_controls_snapshot(session_id, &snapshot);
     }
 
     fn emit_controls_snapshot(
@@ -2342,74 +2430,8 @@ impl AgentConnectionRunner {
         session_id: AgentSessionId,
         requested_mode: &str,
     ) -> Result<(), acp::Error> {
-        let uses_config_option = self
-            .session_controls
-            .read()
+        self.apply_config_override(conn, acp_session_id, session_id, "mode", requested_mode)
             .await
-            .get(&session_id)
-            .and_then(|controls| mode_config_override_selection(controls, requested_mode))
-            .is_some();
-        if uses_config_option {
-            self.apply_config_override(conn, acp_session_id, session_id, "mode", requested_mode)
-                .await
-        } else {
-            self.apply_mode_override(conn, acp_session_id, session_id, requested_mode)
-                .await
-        }
-    }
-
-    async fn apply_mode_override(
-        &self,
-        conn: &ConnectionTo<Agent>,
-        acp_session_id: &str,
-        session_id: AgentSessionId,
-        requested_mode: &str,
-    ) -> Result<(), acp::Error> {
-        let modes = self
-            .session_controls
-            .read()
-            .await
-            .get(&session_id)
-            .and_then(|controls| controls.modes.clone());
-        let Some(modes) = modes else {
-            self.emit_override_diagnostic(session_id, "mode_controls_missing", requested_mode);
-            return Ok(());
-        };
-        let Some(mode_id) = find_matching_mode_id(&modes, requested_mode) else {
-            self.emit_override_diagnostic(session_id, "mode_not_found", requested_mode);
-            return Ok(());
-        };
-        let mode_id = mode_id.to_string();
-        if modes.current_mode_id.0.as_ref() == mode_id {
-            return Ok(());
-        }
-
-        conn.send_request(SetSessionModeRequest::new(
-            SessionId::new(acp_session_id.to_string()),
-            mode_id.clone(),
-        ))
-        .block_task()
-        .await?;
-        let snapshot = {
-            let mut controls = self.session_controls.write().await;
-            let stored = controls
-                .entry(session_id)
-                .or_default()
-                .modes
-                .get_or_insert(modes);
-            stored.current_mode_id = SessionModeId::new(mode_id.clone());
-            stored.clone()
-        };
-        // Emit the full state (persisted by the conversation projection) plus the
-        // lightweight ModeChanged signal for live listeners.
-        let (modes, current) = agent_session_modes_from_acp(snapshot);
-        self.emit(
-            Some(session_id),
-            None,
-            AgentEvent::SessionModes { modes, current },
-        );
-        self.emit(Some(session_id), None, AgentEvent::ModeChanged { mode_id });
-        Ok(())
     }
 
     async fn apply_config_override(
@@ -2438,13 +2460,16 @@ impl AgentConnectionRunner {
         key: &str,
         value: &serde_json::Value,
     ) -> Result<(), acp::Error> {
-        let config_options = self
-            .session_controls
-            .read()
-            .await
-            .get(&session_id)
-            .map(|controls| controls.config_options.clone())
-            .unwrap_or_default();
+        let (config_options, vendor_config) = {
+            let controls = self.session_controls.read().await;
+            let state = controls.get(&session_id);
+            (
+                state
+                    .map(|controls| controls.config_options.clone())
+                    .unwrap_or_default(),
+                state.and_then(|controls| controls.vendor_config),
+            )
+        };
         if config_options.is_empty() {
             self.emit_override_diagnostic(session_id, "config_controls_missing", key);
             return Ok(());
@@ -2462,6 +2487,91 @@ impl AgentConnectionRunner {
             return Ok(());
         }
 
+        // Grok applies its vendor-advertised model option via the non-standard
+        // `session/set_model` method; the standard `session/set_config_option`
+        // rejects it. The model value rides `selection.event_value` so the
+        // exact advertised choice id is sent.
+        if vendor_config == Some(VendorConfigWire::XaiSessionConfig)
+            && selection.config_id == "model"
+        {
+            let Some(model_id) = selection.event_value.as_str() else {
+                return Ok(());
+            };
+            let _response = conn
+                .send_request(SetSessionModelRequest::new(
+                    SessionId::new(acp_session_id.to_string()),
+                    model_id.to_string(),
+                ))
+                .block_task()
+                .await?;
+            self.store_vendor_config_selection(session_id, &selection)
+                .await;
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::ConfigChanged {
+                    key: selection.config_id,
+                    value: selection.event_value,
+                },
+            );
+            return Ok(());
+        }
+        if vendor_config == Some(VendorConfigWire::XaiSessionConfig)
+            && advertised_option_is_thought_level(&config_options, &selection.config_id)
+        {
+            let Some(mode_id) = selection.event_value.as_str() else {
+                return Ok(());
+            };
+            conn.send_request(SetSessionModeRequest::new(
+                SessionId::new(acp_session_id.to_string()),
+                mode_id.to_string(),
+            ))
+            .block_task()
+            .await?;
+            self.store_vendor_config_selection(session_id, &selection)
+                .await;
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::ConfigChanged {
+                    key: selection.config_id,
+                    value: selection.event_value,
+                },
+            );
+            return Ok(());
+        }
+        if self
+            .session_controls
+            .read()
+            .await
+            .get(&session_id)
+            .is_some_and(|controls| {
+                controls.mode_uses_set_mode
+                    && advertised_option_is_mode(&config_options, &selection.config_id)
+            })
+        {
+            let Some(mode_id) = selection.event_value.as_str() else {
+                return Ok(());
+            };
+            conn.send_request(SetSessionModeRequest::new(
+                SessionId::new(acp_session_id.to_string()),
+                mode_id.to_string(),
+            ))
+            .block_task()
+            .await?;
+            self.store_vendor_config_selection(session_id, &selection)
+                .await;
+            self.emit_derived_session_controls(session_id).await;
+            self.emit(
+                Some(session_id),
+                None,
+                AgentEvent::ModeChanged {
+                    mode_id: mode_id.to_string(),
+                },
+            );
+            return Ok(());
+        }
+
         let response = conn
             .send_request(SetSessionConfigOptionRequest::new(
                 SessionId::new(acp_session_id.to_string()),
@@ -2474,7 +2584,6 @@ impl AgentConnectionRunner {
         {
             let mut controls = self.session_controls.write().await;
             let stored = controls.entry(session_id).or_default();
-            stored.modes = None;
             stored.config_options = response.config_options;
         }
         self.emit(
@@ -2493,6 +2602,27 @@ impl AgentConnectionRunner {
             },
         );
         Ok(())
+    }
+
+    async fn store_vendor_config_selection(
+        &self,
+        session_id: AgentSessionId,
+        selection: &ConfigOverrideSelection,
+    ) {
+        let mut controls = self.session_controls.write().await;
+        let Some(stored) = controls.get_mut(&session_id) else {
+            return;
+        };
+        for option in &mut stored.config_options {
+            if option.id.0.as_ref() != selection.config_id {
+                continue;
+            }
+            if let SessionConfigKind::Select(select) = &mut option.kind {
+                if let Some(value_id) = selection.event_value.as_str() {
+                    select.current_value = SessionConfigValueId::new(value_id);
+                }
+            }
+        }
     }
 
     /// Resolve the live ACP session and apply a mode change right now (idle
@@ -3166,6 +3296,7 @@ struct AcpClientBridge {
     // Shared idle-watchdog clock: every session notification refreshes it so the
     // prompt watchdog only fires on a genuinely silent (hung) agent.
     last_activity: Arc<Mutex<Instant>>,
+    grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
 }
 
 impl AcpClientBridge {
@@ -3180,6 +3311,7 @@ impl AcpClientBridge {
         auto_approve_mode: AgentAutoApproveMode,
         stream_dedup: Arc<Mutex<HashMap<String, StreamDedupState>>>,
         last_activity: Arc<Mutex<Instant>>,
+        grok_subagent: Arc<Mutex<GrokSubagentTracker>>,
     ) -> Self {
         Self {
             connection_id,
@@ -3191,6 +3323,7 @@ impl AcpClientBridge {
             auto_approve_mode,
             stream_dedup,
             last_activity,
+            grok_subagent,
         }
     }
 
@@ -3289,7 +3422,7 @@ impl AcpClientBridge {
     ) -> Result<(), acp::Error> {
         match notification {
             AgentNotification::SessionNotification(args) => self.session_notification(args).await,
-            AgentNotification::ExtNotification(_) => Ok(()),
+            AgentNotification::ExtNotification(ext) => self.handle_ext_notification(ext).await,
             _ => Ok(()),
         }
     }
@@ -3434,6 +3567,63 @@ impl AcpClientBridge {
         )))
     }
 
+    async fn handle_ext_notification(
+        &self,
+        ext: agent_client_protocol::schema::v1::ExtNotification,
+    ) -> Result<(), acp::Error> {
+        let params: serde_json::Value =
+            serde_json::from_str(ext.params.get()).unwrap_or(serde_json::Value::Null);
+        let updates = self
+            .grok_subagent
+            .lock()
+            .await
+            .handle_ext(ext.method.as_ref(), &params);
+        let session_id = match params
+            .get("sessionId")
+            .or_else(|| params.get("session_id"))
+            .and_then(|value| value.as_str())
+        {
+            Some(acp_session_id) => self.agent_session_for_acp(acp_session_id.to_string()).await,
+            None => {
+                let sessions = self.session_map.read().await;
+                if sessions.len() == 1 {
+                    sessions.keys().next().copied()
+                } else {
+                    None
+                }
+            }
+        };
+        if updates.is_empty() {
+            let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id,
+                prompt_id: None,
+                event: AgentEvent::RawAcpDiagnostic {
+                    raw: bounded_ext_notification(ext.method.as_ref(), &params),
+                },
+            });
+            return Ok(());
+        }
+        for update in updates {
+            let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                connection_id: self.connection_id,
+                session_id,
+                prompt_id: None,
+                event: AgentEvent::ToolCallUpdate {
+                    update: AgentToolCallUpdate {
+                        id: update.tool_call_id,
+                        status: None,
+                        content: None,
+                        input_preview: None,
+                        meta: Some(update.meta),
+                        images: Vec::new(),
+                    },
+                },
+            });
+        }
+        Ok(())
+    }
+
     async fn session_notification(&self, args: SessionNotification) -> Result<(), acp::Error> {
         // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
         // the in-flight prompt alive for the idle watchdog in `run_prompt`.
@@ -3465,81 +3655,102 @@ impl AcpClientBridge {
                     &tool_call.content,
                     &tool_call.locations,
                 );
+                let meta = bounded_optional_meta(tool_call.meta);
+                self.grok_subagent.lock().await.note_tool_call(
+                    tool_call.tool_call_id.0.as_ref(),
+                    Some(tool_call.title.as_str()),
+                    input_preview.as_deref(),
+                    meta.as_ref(),
+                    Some("running"),
+                );
                 Some(AgentEvent::ToolCall {
                     tool_call: AgentToolCall {
                         id: tool_call.tool_call_id.0.to_string(),
                         title: tool_call.title,
                         kind: Some(acp_enum_label(&tool_call.kind)),
                         input_preview,
-                        meta: bounded_optional_meta(tool_call.meta),
+                        meta,
                         images: acp_tool_images(&tool_call.content),
                     },
                 })
             }
-            SessionUpdate::ToolCallUpdate(update) => Some(AgentEvent::ToolCallUpdate {
-                update: AgentToolCallUpdate {
-                    id: update.tool_call_id.0.to_string(),
-                    status: update.fields.status.as_ref().map(acp_enum_label),
-                    content: update
-                        .fields
-                        .raw_output
-                        .as_ref()
-                        .and_then(|output| serde_json::to_string(output).ok())
-                        .or_else(|| {
-                            update
-                                .fields
-                                .content
-                                .as_deref()
-                                .and_then(acp_tool_content_preview)
-                        }),
-                    input_preview: acp_tool_input_preview(
-                        update.fields.raw_input.as_ref(),
-                        update.fields.content.as_deref().unwrap_or_default(),
-                        update.fields.locations.as_deref().unwrap_or_default(),
-                    ),
-                    meta: bounded_optional_meta(update.meta),
-                    images: acp_tool_images(update.fields.content.as_deref().unwrap_or_default()),
-                },
-            }),
+            SessionUpdate::ToolCallUpdate(update) => {
+                let input_preview = acp_tool_input_preview(
+                    update.fields.raw_input.as_ref(),
+                    update.fields.content.as_deref().unwrap_or_default(),
+                    update.fields.locations.as_deref().unwrap_or_default(),
+                );
+                let status = update.fields.status.as_ref().map(acp_enum_label);
+                let meta = bounded_optional_meta(update.meta);
+                self.grok_subagent.lock().await.note_tool_call(
+                    update.tool_call_id.0.as_ref(),
+                    None,
+                    input_preview.as_deref(),
+                    meta.as_ref(),
+                    status.as_deref(),
+                );
+                Some(AgentEvent::ToolCallUpdate {
+                    update: AgentToolCallUpdate {
+                        id: update.tool_call_id.0.to_string(),
+                        status,
+                        content: update
+                            .fields
+                            .raw_output
+                            .as_ref()
+                            .and_then(|output| serde_json::to_string(output).ok())
+                            .or_else(|| {
+                                update
+                                    .fields
+                                    .content
+                                    .as_deref()
+                                    .and_then(acp_tool_content_preview)
+                            }),
+                        input_preview,
+                        meta,
+                        images: acp_tool_images(
+                            update.fields.content.as_deref().unwrap_or_default(),
+                        ),
+                    },
+                })
+            }
             SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
                 plan: AgentPlan {
                     entries: plan
                         .entries
                         .into_iter()
-                        .map(|entry| entry.content)
+                        .map(|entry| crate::AgentPlanEntry {
+                            content: entry.content,
+                            status: plan_entry_status_name(entry.status),
+                            priority: Some(plan_entry_priority_name(entry.priority)),
+                        })
                         .collect(),
                 },
             }),
             SessionUpdate::AvailableCommandsUpdate(update) => Some(AgentEvent::AvailableCommands {
                 commands: agent_available_commands_from_acp(update.available_commands),
             }),
+            SessionUpdate::UserMessageChunk(chunk) => Some(AgentEvent::RawAcpDiagnostic {
+                raw: serde_json::json!({
+                    "kind": "user_message_acknowledged",
+                    "preview": acp_content_preview(&chunk.content),
+                }),
+            }),
             SessionUpdate::CurrentModeUpdate(update) => {
                 let mode_id = update.current_mode_id.0.to_string();
-                // Keep the stored mode state authoritative and re-emit the FULL
-                // state: a bare ModeChanged is not persisted by the conversation
-                // projection, so a late-joining UI would otherwise miss the switch.
                 if let Some(session_id) = session_id {
-                    let snapshot: Option<SessionModeState> = {
+                    let options = {
                         let mut controls = self.session_controls.write().await;
                         let entry = controls.entry(session_id).or_default();
-                        match entry.modes.as_mut() {
-                            Some(modes) => {
-                                modes.current_mode_id =
-                                    SessionModeId::new(update.current_mode_id.0.to_string());
-                                Some(modes.clone())
-                            }
-                            None => None,
-                        }
+                        apply_current_mode_to_config_options(&mut entry.config_options, &mode_id);
+                        entry.config_options.clone()
                     };
-                    if let Some(snapshot) = snapshot {
-                        let (modes, current) = agent_session_modes_from_acp(snapshot);
-                        let _ = self.event_tx.send(AgentConnectionManagerEvent {
-                            connection_id: self.connection_id,
-                            session_id: Some(session_id),
-                            prompt_id: None,
-                            event: AgentEvent::SessionModes { modes, current },
-                        });
-                    }
+                    let (modes, current) = session_modes_from_config_options(&options);
+                    let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                        connection_id: self.connection_id,
+                        session_id: Some(session_id),
+                        prompt_id: None,
+                        event: AgentEvent::SessionModes { modes, current },
+                    });
                 }
                 Some(AgentEvent::ModeChanged { mode_id })
             }
@@ -3549,8 +3760,9 @@ impl AcpClientBridge {
                 if let Some(session_id) = session_id {
                     let mut controls = self.session_controls.write().await;
                     let stored = controls.entry(session_id).or_default();
-                    stored.modes = None;
                     stored.config_options = update.config_options.clone();
+                    stored.mode_uses_set_mode = stored.mode_uses_set_mode
+                        && config_options_have_mode_category(&stored.config_options);
                 }
                 Some(AgentEvent::SessionConfigOptions {
                     options: agent_session_config_options_from_acp(update.config_options),
@@ -3691,22 +3903,6 @@ async fn effective_auto_approve_mode(
     configured
 }
 
-fn find_matching_mode_id<'a>(modes: &'a SessionModeState, requested_mode: &str) -> Option<&'a str> {
-    let requested = normalize_config_token(requested_mode);
-    modes
-        .available_modes
-        .iter()
-        .find(|mode| {
-            let id = normalize_config_token(mode.id.0.as_ref());
-            let name = normalize_config_token(&mode.name);
-            id == requested
-                || name == requested
-                || (requested.len() > 3 && id.contains(&requested))
-                || (requested.len() > 3 && name.contains(&requested))
-        })
-        .map(|mode| mode.id.0.as_ref())
-}
-
 fn find_config_override_selection(
     options: &[AcpSessionConfigOption],
     key: &str,
@@ -3747,17 +3943,108 @@ fn find_config_override_selection(
     None
 }
 
-fn mode_config_override_selection(
-    controls: &SessionControlState,
-    requested_mode: &str,
-) -> Option<ConfigOverrideSelection> {
-    controls.modes.is_none().then(|| {
-        find_config_override_selection(
-            &controls.config_options,
-            "mode",
-            &serde_json::Value::String(requested_mode.to_string()),
-        )
-    })?
+fn advertised_option_is_mode(options: &[AcpSessionConfigOption], config_id: &str) -> bool {
+    options.iter().any(|option| {
+        option.id.0.as_ref() == config_id
+            && matches!(option.category, Some(SessionConfigOptionCategory::Mode))
+    })
+}
+
+fn config_options_have_mode_category(options: &[AcpSessionConfigOption]) -> bool {
+    options
+        .iter()
+        .any(|option| matches!(option.category, Some(SessionConfigOptionCategory::Mode)))
+}
+
+fn unify_session_config_options(
+    modes: Option<SessionModeState>,
+    mut config_options: Vec<AcpSessionConfigOption>,
+    keep_legacy_modes: bool,
+) -> (Vec<AcpSessionConfigOption>, bool) {
+    if config_options_have_mode_category(&config_options) {
+        return (config_options, false);
+    }
+    // Standard ACP treats advertised config options as exclusive of legacy
+    // Session Modes. Vendor adapters may keep both dimensions.
+    if !config_options.is_empty() && !keep_legacy_modes {
+        return (config_options, false);
+    }
+    let Some(modes) = modes.filter(|modes| !modes.available_modes.is_empty()) else {
+        return (config_options, false);
+    };
+    config_options.insert(0, config_option_from_session_modes(&modes));
+    (config_options, true)
+}
+
+fn config_option_from_session_modes(modes: &SessionModeState) -> AcpSessionConfigOption {
+    let choices = modes
+        .available_modes
+        .iter()
+        .map(|mode| {
+            vendor_select_choice(
+                mode.id.0.to_string(),
+                mode.name.clone(),
+                mode.description.clone(),
+            )
+        })
+        .collect();
+    AcpSessionConfigOption::select(
+        "mode",
+        "Mode",
+        modes.current_mode_id.0.to_string(),
+        SessionConfigSelectOptions::Ungrouped(choices),
+    )
+    .category(SessionConfigOptionCategory::Mode)
+}
+
+fn session_modes_from_config_options(
+    options: &[AcpSessionConfigOption],
+) -> (Vec<AgentSessionMode>, Option<String>) {
+    let Some(option) = options
+        .iter()
+        .find(|option| matches!(option.category, Some(SessionConfigOptionCategory::Mode)))
+    else {
+        return (Vec::new(), None);
+    };
+    let mapped = agent_session_config_option_from_acp(option.clone());
+    let current = mapped
+        .value
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+    let modes = mapped
+        .choices
+        .into_iter()
+        .filter_map(|choice| {
+            let id = choice.value.as_str()?.to_string();
+            if id.is_empty() {
+                return None;
+            }
+            Some(AgentSessionMode {
+                id,
+                label: choice.label,
+                description: choice.description,
+            })
+        })
+        .collect();
+    (modes, current)
+}
+
+fn apply_current_mode_to_config_options(options: &mut [AcpSessionConfigOption], mode_id: &str) {
+    for option in options {
+        if !matches!(option.category, Some(SessionConfigOptionCategory::Mode)) {
+            continue;
+        }
+        if let SessionConfigKind::Select(select) = &mut option.kind {
+            select.current_value = SessionConfigValueId::new(mode_id);
+        }
+    }
+}
+
+fn advertised_option_is_thought_level(options: &[AcpSessionConfigOption], config_id: &str) -> bool {
+    options.iter().any(|option| {
+        option.id.0.as_ref() == config_id && config_option_matches(option, "thought_level")
+    })
 }
 
 fn config_option_matches(option: &AcpSessionConfigOption, key: &str) -> bool {
@@ -3928,7 +4215,18 @@ fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
             mime_type,
             uri,
         } => ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri)),
-        AgentContentBlock::Resource { uri, .. } => ContentBlock::Text(TextContent::new(uri)),
+        AgentContentBlock::Resource { uri, title } => {
+            let name = title
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    uri.rsplit(['/', '\\'])
+                        .find(|segment| !segment.is_empty())
+                        .unwrap_or(uri.as_str())
+                        .to_string()
+                });
+            ContentBlock::ResourceLink(ResourceLink::new(name, uri).title(title))
+        }
         AgentContentBlock::Protocol { content } => {
             serde_json::from_value(content).unwrap_or_else(|error| {
                 ContentBlock::Text(TextContent::new(format!(
@@ -3937,6 +4235,29 @@ fn agent_block_to_acp(block: AgentContentBlock) -> ContentBlock {
             })
         }
     }
+}
+
+fn acp_content_preview(block: &ContentBlock) -> String {
+    match acp_content_to_agent(block.clone()) {
+        AgentContentBlock::Text { text } => text.chars().take(200).collect(),
+        AgentContentBlock::Image { mime_type, .. } => format!("image/{mime_type}"),
+        AgentContentBlock::Resource { uri, .. } => uri,
+        AgentContentBlock::Protocol { content } => content
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("content")
+            .to_string(),
+    }
+}
+
+fn bounded_ext_notification(method: &str, params: &serde_json::Value) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "kind": "ext_notification",
+        "method": method,
+        "params": params,
+    });
+    bound_meta_fields(&mut payload);
+    payload
 }
 
 fn acp_content_to_agent(block: ContentBlock) -> AgentContentBlock {
@@ -4015,11 +4336,62 @@ fn agent_usage_from_acp(update: agent_client_protocol::schema::v1::UsageUpdate) 
         .cost
         .map(|cost| (Some(cost.amount), Some(cost.currency)))
         .unwrap_or((None, None));
+    let meta = update.meta.as_ref().and_then(|meta| {
+        serde_json::to_value(meta)
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+    });
     AgentUsage {
         used: update.used,
         limit: Some(update.size),
+        input_tokens: meta_u64(meta.as_ref(), &["input_tokens", "prompt_tokens"]),
+        output_tokens: meta_u64(meta.as_ref(), &["output_tokens", "completion_tokens"]),
+        cache_read_tokens: meta_u64(meta.as_ref(), &["cached_read_tokens", "cache_read_tokens"]),
+        cache_write_tokens: meta_u64(
+            meta.as_ref(),
+            &[
+                "cached_write_tokens",
+                "cache_write_tokens",
+                "cache_creation_input_tokens",
+            ],
+        ),
         cost_amount,
         cost_currency,
+    }
+}
+
+fn meta_u64(
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+    keys: &[&str],
+) -> Option<u64> {
+    let meta = meta?;
+    keys.iter().find_map(|key| {
+        meta.get(*key).and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+                .or_else(|| value.as_f64().and_then(|n| (n >= 0.0).then_some(n as u64)))
+        })
+    })
+}
+
+fn plan_entry_status_name(status: agent_client_protocol::schema::v1::PlanEntryStatus) -> String {
+    match status {
+        agent_client_protocol::schema::v1::PlanEntryStatus::Pending => "pending".into(),
+        agent_client_protocol::schema::v1::PlanEntryStatus::InProgress => "in_progress".into(),
+        agent_client_protocol::schema::v1::PlanEntryStatus::Completed => "completed".into(),
+        _ => "pending".into(),
+    }
+}
+
+fn plan_entry_priority_name(
+    priority: agent_client_protocol::schema::v1::PlanEntryPriority,
+) -> String {
+    match priority {
+        agent_client_protocol::schema::v1::PlanEntryPriority::High => "high".into(),
+        agent_client_protocol::schema::v1::PlanEntryPriority::Medium => "medium".into(),
+        agent_client_protocol::schema::v1::PlanEntryPriority::Low => "low".into(),
+        _ => "medium".into(),
     }
 }
 
@@ -4049,6 +4421,248 @@ fn merge_agent_env(
     env
 }
 
+/// Session controls synthesized from a vendor `_meta` extension. The standard
+/// ACP response fields remain authoritative when present; this only covers
+/// agents that advertise their config through `_meta` instead.
+struct VendorSessionControls {
+    modes: Option<SessionModeState>,
+    config_options: Vec<AcpSessionConfigOption>,
+}
+
+/// Prefer the standard ACP `modes`/`configOptions` fields and only fall back
+/// to a vendor `_meta` extension when the agent advertised neither (Grok
+/// currently). The returned wire marker tells the apply path which
+/// non-standard method (if any) the agent expects for changes.
+fn session_controls_with_vendor_fallback(
+    modes: Option<SessionModeState>,
+    config_options: Option<Vec<AcpSessionConfigOption>>,
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> (
+    Option<SessionModeState>,
+    Option<Vec<AcpSessionConfigOption>>,
+    Option<VendorConfigWire>,
+) {
+    // Grok often advertises a standard model `configOption` *and* puts effort
+    // / permission in `_meta`. Skipping the vendor map whenever any standard
+    // field is present drops those extra dimensions from the create-session
+    // and workflow summaries.
+    match meta.and_then(vendor_session_controls_from_meta) {
+        Some(vendor) => (
+            merge_session_mode_states(modes, vendor.modes),
+            Some(merge_session_config_options(
+                config_options.unwrap_or_default(),
+                vendor.config_options,
+            )),
+            Some(VendorConfigWire::XaiSessionConfig),
+        ),
+        None => (modes, config_options, None),
+    }
+}
+
+fn merge_session_mode_states(
+    standard: Option<SessionModeState>,
+    vendor: Option<SessionModeState>,
+) -> Option<SessionModeState> {
+    match (standard, vendor) {
+        (None, vendor) => vendor,
+        (standard, None) => standard,
+        (Some(standard), Some(vendor)) => {
+            let mut modes = standard.available_modes;
+            for mode in vendor.available_modes {
+                if !modes.iter().any(|existing| existing.id == mode.id) {
+                    modes.push(mode);
+                }
+            }
+            Some(SessionModeState::new(standard.current_mode_id, modes))
+        }
+    }
+}
+
+fn merge_session_config_options(
+    standard: Vec<AcpSessionConfigOption>,
+    vendor: Vec<AcpSessionConfigOption>,
+) -> Vec<AcpSessionConfigOption> {
+    let mut options = standard;
+    for option in vendor {
+        if !options.iter().any(|existing| existing.id == option.id) {
+            options.push(option);
+        }
+    }
+    options
+}
+
+/// Parse grok's `_meta["x.ai/sessionConfig"]` extension
+/// (`{options: [{id, category, label, description?, selected}]}`).
+///
+/// Grok's `mode` category is reasoning effort (`xhigh` / `high` / `medium`),
+/// not ACP session permission modes. Emit it as a `thought_level` config
+/// option so the shared summary shows Model · 高 instead of hiding it behind
+/// a Mode row. Permission options stay ACP session modes so the existing
+/// bypass-permissions safety gate still applies. Effort changes are applied
+/// with `session/set_mode`; model changes use `session/set_model`.
+fn vendor_session_controls_from_meta(
+    meta: &serde_json::Map<String, serde_json::Value>,
+) -> Option<VendorSessionControls> {
+    let session_config = meta.get("x.ai/sessionConfig")?.as_object()?;
+    let options = session_config.get("options")?.as_array()?;
+    if options.is_empty() {
+        return None;
+    }
+
+    let mut model_options: Vec<SessionConfigSelectOption> = Vec::new();
+    let mut selected_model: Option<String> = None;
+    let mut effort_options: Vec<SessionConfigSelectOption> = Vec::new();
+    let mut selected_effort: Option<String> = None;
+    let mut permission_modes: Vec<acp::schema::v1::SessionMode> = Vec::new();
+    let mut selected_permission: Option<String> = None;
+
+    for raw in options {
+        let Some(option) = raw.as_object() else {
+            continue;
+        };
+        let Some(id) = option
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
+        else {
+            continue;
+        };
+        let label = option
+            .get("label")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
+            .unwrap_or_else(|| id.clone());
+        let description = option
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        let selected = option
+            .get("selected")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let category = option.get("category").and_then(serde_json::Value::as_str);
+        match classify_vendor_session_option(category, &id, &label) {
+            VendorSessionOptionKind::Model => {
+                model_options.push(vendor_select_choice(id.clone(), label, description));
+                if selected {
+                    selected_model = Some(id);
+                }
+            }
+            VendorSessionOptionKind::Effort => {
+                effort_options.push(vendor_select_choice(id.clone(), label, description));
+                if selected {
+                    selected_effort = Some(id);
+                }
+            }
+            VendorSessionOptionKind::Permission => {
+                let mut mode = acp::schema::v1::SessionMode::new(id.clone(), label);
+                if let Some(description) = description {
+                    mode = mode.description(description);
+                }
+                permission_modes.push(mode);
+                if selected {
+                    selected_permission = Some(id);
+                }
+            }
+            VendorSessionOptionKind::Unknown => {}
+        }
+    }
+
+    let mut config_options = Vec::new();
+    if !model_options.is_empty() {
+        let current = selected_model.unwrap_or_else(|| model_options[0].value.0.to_string());
+        config_options.push(
+            AcpSessionConfigOption::select(
+                "model",
+                "Model",
+                current,
+                SessionConfigSelectOptions::Ungrouped(model_options),
+            )
+            .category(SessionConfigOptionCategory::Model),
+        );
+    }
+    if !effort_options.is_empty() {
+        let current = selected_effort.unwrap_or_else(|| effort_options[0].value.0.to_string());
+        config_options.push(
+            AcpSessionConfigOption::select(
+                "effort",
+                "推理强度",
+                current,
+                SessionConfigSelectOptions::Ungrouped(effort_options),
+            )
+            .category(SessionConfigOptionCategory::ThoughtLevel),
+        );
+    }
+    let modes = if permission_modes.is_empty() {
+        None
+    } else {
+        let current = selected_permission.unwrap_or_else(|| permission_modes[0].id.0.to_string());
+        Some(SessionModeState::new(current, permission_modes))
+    };
+    if config_options.is_empty() && modes.is_none() {
+        return None;
+    }
+    Some(VendorSessionControls {
+        modes,
+        config_options,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VendorSessionOptionKind {
+    Model,
+    Effort,
+    Permission,
+    Unknown,
+}
+
+fn classify_vendor_session_option(
+    category: Option<&str>,
+    id: &str,
+    label: &str,
+) -> VendorSessionOptionKind {
+    let token = normalize_config_token(&format!("{} {id} {label}", category.unwrap_or_default()));
+    if token.contains("model") {
+        return VendorSessionOptionKind::Model;
+    }
+    if token.contains("permission")
+        || token.contains("approval")
+        || matches!(
+            normalize_config_token(id).as_str(),
+            "default" | "acceptedits" | "auto" | "dontask" | "bypasspermissions" | "plan"
+        )
+    {
+        return VendorSessionOptionKind::Permission;
+    }
+    if matches!(
+        category,
+        Some("mode" | "effort" | "thought" | "thought_level" | "reasoning")
+    ) || token.contains("effort")
+        || token.contains("thought")
+        || token.contains("reason")
+        || matches!(
+            normalize_config_token(id).as_str(),
+            "xhigh" | "high" | "medium" | "low" | "minimal"
+        )
+    {
+        return VendorSessionOptionKind::Effort;
+    }
+    VendorSessionOptionKind::Unknown
+}
+
+fn vendor_select_choice(
+    id: String,
+    label: String,
+    description: Option<String>,
+) -> SessionConfigSelectOption {
+    let mut choice = SessionConfigSelectOption::new(id, label);
+    if let Some(description) = description {
+        choice = choice.description(description);
+    }
+    choice
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn agent_session_modes_from_acp(
     state: SessionModeState,
 ) -> (Vec<AgentSessionMode>, Option<String>) {
@@ -4262,18 +4876,92 @@ mod tests {
     }
 
     #[test]
-    fn wire_mcp_policy_matches_each_adapter_delivery_path() {
-        let id = |value: &str| AgentId::parse(value).unwrap();
+    fn wire_mcp_offer_follows_negotiated_capabilities_not_agent_id() {
+        let mut snapshot = AcpCapabilitySnapshot::default();
+        assert_eq!(
+            wire_mcp_offer(&snapshot),
+            WireMcpOffer {
+                stdio: false,
+                http: false,
+                sse: false,
+            }
+        );
 
-        assert!(!agent_accepts_wire_mcp(&id("openclaw")));
-        assert!(!agent_delivers_wire_mcp(&id("openclaw")));
-        assert!(!agent_delivers_wire_mcp(&id("pi")));
-        assert!(agent_delivers_wire_mcp(&id("codex")));
+        snapshot.mcp_stdio = true;
+        snapshot.mcp_http = true;
+        assert_eq!(
+            wire_mcp_offer(&snapshot),
+            WireMcpOffer {
+                stdio: true,
+                http: true,
+                sse: false,
+            }
+        );
+        assert!(snapshot.accepts_session_mcp_servers());
+    }
 
-        for native in ["hermes", "kimi_code", "grok", "cursor"] {
-            assert!(agent_reads_native_mcp(&id(native)), "{native}");
+    #[test]
+    fn v1_session_modes_become_mode_category_config_options() {
+        let modes = SessionModeState::new(
+            "ask",
+            vec![
+                agent_client_protocol::schema::v1::SessionMode::new("ask", "Ask"),
+                agent_client_protocol::schema::v1::SessionMode::new("act", "Act"),
+            ],
+        );
+
+        let (options, mode_uses_set_mode) =
+            unify_session_config_options(Some(modes), Vec::new(), false);
+
+        assert!(mode_uses_set_mode);
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].id.0.as_ref(), "mode");
+        assert_eq!(
+            options[0].category.as_ref(),
+            Some(&SessionConfigOptionCategory::Mode)
+        );
+        let (derived, current) = session_modes_from_config_options(&options);
+        assert_eq!(current.as_deref(), Some("ask"));
+        assert_eq!(
+            derived
+                .iter()
+                .map(|mode| mode.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ask", "act"]
+        );
+    }
+
+    #[test]
+    fn native_mode_config_option_is_not_replaced_by_legacy_modes() {
+        let modes = SessionModeState::new(
+            "ask",
+            vec![agent_client_protocol::schema::v1::SessionMode::new(
+                "ask", "Ask",
+            )],
+        );
+        let existing = vec![
+            AcpSessionConfigOption::select(
+                "mode",
+                "Mode",
+                "agent",
+                vec![
+                    agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                        "agent", "Agent",
+                    ),
+                ],
+            )
+            .category(SessionConfigOptionCategory::Mode),
+        ];
+
+        let (options, mode_uses_set_mode) =
+            unify_session_config_options(Some(modes), existing, false);
+        assert!(!mode_uses_set_mode);
+        assert_eq!(options[0].id.0.as_ref(), "mode");
+        if let SessionConfigKind::Select(select) = &options[0].kind {
+            assert_eq!(select.current_value.0.as_ref(), "agent");
+        } else {
+            panic!("expected select option");
         }
-        assert!(!agent_reads_native_mcp(&id("claude_code")));
     }
 
     #[test]
@@ -4312,6 +5000,19 @@ mod tests {
             let round_tripped = agent_block_to_acp(normalized);
             assert_eq!(serde_json::to_value(round_tripped).unwrap(), fixture);
         }
+    }
+
+    #[test]
+    fn first_class_resource_blocks_are_sent_as_resource_links() {
+        let encoded = serde_json::to_value(agent_block_to_acp(AgentContentBlock::Resource {
+            uri: "file:///notes.md".to_string(),
+            title: Some("notes.md".to_string()),
+        }))
+        .unwrap();
+        assert_eq!(encoded["type"], "resource_link");
+        assert_eq!(encoded["uri"], "file:///notes.md");
+        assert_eq!(encoded["name"], "notes.md");
+        assert_eq!(encoded["title"], "notes.md");
     }
 
     #[test]
@@ -4515,6 +5216,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_manager_refuses_a_missing_working_directory() {
+        let program = std::env::current_exe().expect("test binary path");
+        let mut launch_lock = test_launch_lock(AgentId::parse("grok").unwrap());
+        launch_lock.absolute_acp_program = program;
+        let (event_tx, _event_rx) = mpsc::unbounded_channel();
+        let manager = AgentConnectionManager::new_with_driver(event_tx, true);
+        let (_snapshot, ready_rx) = manager
+            .register_connection(AgentConnectionLaunch {
+                connection_id: AgentConnectionId::new(),
+                agent_id: AgentId::parse("grok").unwrap(),
+                launch_lock,
+                workspace_id: uuid::Uuid::new_v4(),
+                working_dir: PathBuf::from("VibeX"),
+                additional_directories: Vec::new(),
+                auto_approve_mode: AgentAutoApproveMode::Off,
+                env: HashMap::new(),
+            })
+            .await;
+        let result = tokio::time::timeout(Duration::from_secs(1), ready_rx)
+            .await
+            .expect("runtime guard should fail before a process can start")
+            .expect("driver should report its startup error");
+        let error = result.expect_err("a relative missing cwd must not spawn");
+        let message = error.to_string();
+        assert!(
+            message.contains("workspace working directory is missing"),
+            "{message}"
+        );
+        assert!(message.contains("VibeX"), "{message}");
+        assert!(!message.contains("No such file or directory"), "{message}");
+    }
+
+    #[tokio::test]
     async fn manager_registers_and_removes_connection() {
         let (event_tx, _event_rx) = mpsc::unbounded_channel();
         let manager = AgentConnectionManager::new_with_driver(event_tx, false);
@@ -4672,13 +5406,9 @@ mod tests {
         let controls = RwLock::new(HashMap::from([(
             session_id,
             SessionControlState {
-                modes: Some(SessionModeState::new(
-                    "auto",
-                    vec![agent_client_protocol::schema::v1::SessionMode::new(
-                        "auto", "Auto",
-                    )],
-                )),
                 config_options: Vec::new(),
+                vendor_config: None,
+                mode_uses_set_mode: false,
             },
         )]));
 
@@ -4758,6 +5488,181 @@ mod tests {
             Some("Balanced")
         );
         assert_eq!(mapped[1].choices[0].value, serde_json::json!("high"));
+    }
+
+    #[test]
+    fn grok_vendor_meta_session_config_becomes_standard_controls() {
+        // Grok 1.0.4 advertises session config via `_meta["x.ai/sessionConfig"]`
+        // instead of the standard `modes`/`configOptions` fields (verified
+        // against `grok agent stdio` 2026-08). Without this adapter the
+        // create-session summary stays empty.
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "grok-4.5", "category": "model", "label": "Grok 4.5", "selected": false },
+                    { "id": "xhigh", "category": "mode", "label": "Extra High Effort", "description": "Highest effort", "selected": false },
+                    { "id": "high", "category": "mode", "label": "High Effort", "description": "Higher implementation quality", "selected": true },
+                    { "id": "medium", "category": "mode", "label": "Medium Effort", "selected": false }
+                ]
+            }
+        });
+
+        let vendor = vendor_session_controls_from_meta(meta.as_object().unwrap())
+            .expect("vendor session config parses");
+
+        assert!(vendor.modes.is_none(), "effort is not a permission mode");
+        assert_eq!(vendor.config_options.len(), 2);
+        let model = &vendor.config_options[0];
+        assert_eq!(model.id.0.as_ref(), "model");
+        assert_eq!(model.name, "Model");
+        assert_eq!(
+            model.category.as_ref(),
+            Some(&SessionConfigOptionCategory::Model)
+        );
+        let SessionConfigKind::Select(select) = &model.kind else {
+            panic!("model option must be a select");
+        };
+        assert_eq!(select.current_value.0.as_ref(), "grok-4.6");
+        let SessionConfigSelectOptions::Ungrouped(options) = &select.options else {
+            panic!("model options must be ungrouped");
+        };
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0].value.0.as_ref(), "grok-4.6");
+        assert_eq!(options[0].name, "Grok 4.6");
+        assert_eq!(options[1].value.0.as_ref(), "grok-4.5");
+
+        let effort = &vendor.config_options[1];
+        assert_eq!(effort.id.0.as_ref(), "effort");
+        assert_eq!(
+            effort.category.as_ref(),
+            Some(&SessionConfigOptionCategory::ThoughtLevel)
+        );
+        let SessionConfigKind::Select(select) = &effort.kind else {
+            panic!("effort option must be a select");
+        };
+        assert_eq!(select.current_value.0.as_ref(), "high");
+        let SessionConfigSelectOptions::Ungrouped(options) = &select.options else {
+            panic!("effort options must be ungrouped");
+        };
+        assert_eq!(options.len(), 3);
+        assert_eq!(options[0].value.0.as_ref(), "xhigh");
+        assert_eq!(options[0].description.as_deref(), Some("Highest effort"));
+    }
+
+    #[test]
+    fn vendor_fallback_keeps_standard_model_and_adds_effort() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "high", "category": "mode", "label": "High Effort", "selected": true }
+                ]
+            }
+        });
+        let standard_options = Some(vec![AcpSessionConfigOption::select(
+            "model",
+            "Model",
+            "sonnet",
+            vec![
+                agent_client_protocol::schema::v1::SessionConfigSelectOption::new(
+                    "sonnet", "Sonnet",
+                ),
+            ],
+        )]);
+
+        let (_, config_options, vendor) =
+            session_controls_with_vendor_fallback(None, standard_options, meta.as_object());
+
+        assert_eq!(vendor, Some(VendorConfigWire::XaiSessionConfig));
+        let options = config_options.expect("merged config");
+        assert_eq!(options[0].id.0.as_ref(), "model");
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[1].id.0.as_ref(), "effort");
+        assert_eq!(
+            options[1].category.as_ref(),
+            Some(&SessionConfigOptionCategory::ThoughtLevel)
+        );
+    }
+
+    #[test]
+    fn vendor_fallback_keeps_standard_permission_modes_and_adds_effort() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "high", "category": "mode", "label": "High Effort", "selected": true }
+                ]
+            }
+        });
+        let standard_modes = Some(SessionModeState::new(
+            "auto",
+            vec![agent_client_protocol::schema::v1::SessionMode::new(
+                "auto", "Auto",
+            )],
+        ));
+
+        let (modes, config_options, vendor) =
+            session_controls_with_vendor_fallback(standard_modes, None, meta.as_object());
+
+        assert_eq!(vendor, Some(VendorConfigWire::XaiSessionConfig));
+        assert!(modes.is_some_and(|state| state.current_mode_id.0.as_ref() == "auto"));
+        let options = config_options.expect("vendor config");
+        assert!(
+            options
+                .iter()
+                .any(|option| option.id.0.as_ref() == "effort")
+        );
+    }
+
+    #[test]
+    fn vendor_permission_options_become_session_modes() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "default", "category": "permission", "label": "Ask", "selected": true },
+                    { "id": "bypassPermissions", "category": "permission", "label": "Bypass" }
+                ]
+            }
+        });
+        let vendor = vendor_session_controls_from_meta(meta.as_object().unwrap())
+            .expect("permission options parse");
+        let modes = vendor.modes.expect("permission options become modes");
+        assert_eq!(modes.current_mode_id.0.as_ref(), "default");
+        assert_eq!(modes.available_modes.len(), 2);
+        assert_eq!(modes.available_modes[1].id.0.as_ref(), "bypassPermissions");
+    }
+
+    #[test]
+    fn vendor_fallback_maps_only_when_no_standard_config_is_advertised() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    { "id": "grok-4.6", "category": "model", "label": "Grok 4.6", "selected": true },
+                    { "id": "high", "category": "mode", "label": "High Effort", "selected": true }
+                ]
+            }
+        });
+
+        let (modes, config_options, vendor) =
+            session_controls_with_vendor_fallback(None, None, meta.as_object());
+
+        assert_eq!(vendor, Some(VendorConfigWire::XaiSessionConfig));
+        assert!(modes.is_none());
+        let options = config_options.expect("vendor config");
+        assert!(options.iter().any(|option| option.id.0.as_ref() == "model"));
+        assert!(
+            options
+                .iter()
+                .any(|option| option.id.0.as_ref() == "effort")
+        );
+    }
+
+    #[test]
+    fn grok_vendor_meta_without_config_returns_none() {
+        assert!(vendor_session_controls_from_meta(&serde_json::Map::new()).is_none());
+        let unrelated = serde_json::json!({ "other": "meta" });
+        assert!(vendor_session_controls_from_meta(unrelated.as_object().unwrap()).is_none());
     }
 
     #[test]
@@ -4858,7 +5763,6 @@ mod tests {
     #[test]
     fn codex_mode_override_uses_config_option_when_legacy_modes_are_suppressed() {
         let controls = SessionControlState {
-            modes: None,
             config_options: vec![
                 AcpSessionConfigOption::select(
                     "mode",
@@ -4876,10 +5780,16 @@ mod tests {
                 )
                 .category(Some(SessionConfigOptionCategory::Mode)),
             ],
+            vendor_config: None,
+            mode_uses_set_mode: false,
         };
 
-        let selection = mode_config_override_selection(&controls, "agent-full-access")
-            .expect("the unified mode intent must use the advertised config option");
+        let selection = find_config_override_selection(
+            &controls.config_options,
+            "mode",
+            &serde_json::json!("agent-full-access"),
+        )
+        .expect("the unified mode intent must use the advertised config option");
         assert_eq!(selection.config_id, "mode");
         assert_eq!(
             selection.event_value,

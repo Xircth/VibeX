@@ -22,6 +22,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import {
+  resolvePermissionAllowOption,
+  type PermissionAllowScope,
+} from './permissionRequestPresentation';
 
 /**
  * Inline, answerable permission request (VibeX style — docked at the bottom of
@@ -53,28 +57,30 @@ export function PermissionRequestCard({
   );
   const permissionType = permissionTypeFor(detail.kind);
   const PermissionTypeIcon = permissionType.icon;
-  const allowOptions = options.filter(
-    (option) => option.kind === 'allow_once' || option.kind === 'allow_always'
-  );
-  const primaryAllow =
-    allowOptions.find((option) => option.kind === 'allow_once') ??
-    allowOptions[0];
+  const primaryAllow = resolvePermissionAllowOption(options, 'once');
   const rejectOption =
     options.find((option) => option.kind === 'reject_once') ??
     options.find((option) => option.kind === 'reject_always');
-  const unknownOptions = options.filter(
-    (option) => !option.kind || option.kind === 'unknown'
-  );
-  const menuOptions = [...allowOptions, ...unknownOptions];
-  const showAllowMenu = menuOptions.length > 1 || !primaryAllow;
+  const allowScopes: Array<{
+    scope: PermissionAllowScope;
+    label: string;
+  }> = [
+    { scope: 'once', label: t('permissionRequestCard.allowOnce') },
+    { scope: 'session', label: t('permissionRequestCard.allowSession') },
+    { scope: 'always', label: t('permissionRequestCard.allowAlways') },
+  ];
   const respondWithOption = (option: AgentPermissionOption) =>
     onRespond(request.permission_id, {
       kind: 'selected',
       option_id: option.id,
     });
+  const respondWithScope = (scope: PermissionAllowScope) => {
+    const option = resolvePermissionAllowOption(options, scope);
+    if (option) respondWithOption(option);
+  };
 
   return (
-    <section className="conv-entry-item rounded-lg border border-border bg-[var(--conv-surface-card)] px-4 py-3.5 text-sm">
+    <section className="permission-request-card conv-entry-item w-full rounded-lg border border-border bg-[var(--conv-surface-card)] px-4 py-3.5 text-sm">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <PermissionTypeIcon className="h-4 w-4" aria-hidden="true" />
@@ -83,13 +89,18 @@ export function PermissionRequestCard({
         <h3 className="mt-3 text-sm font-semibold text-foreground">
           {t('permissionRequestCard.title')}
         </h3>
-        {request.title ? (
-          <p className="mt-1 text-sm leading-5 text-foreground">
-            {request.title}
-          </p>
+        {request.title || detail.body ? (
+          <div className="permission-request-preview-wrap mt-1" tabIndex={0}>
+            <div className="permission-request-preview">
+              {request.title ? (
+                <p className="text-sm leading-5 text-foreground">
+                  {request.title}
+                </p>
+              ) : null}
+              {detail.body ? <div className="mt-1">{detail.body}</div> : null}
+            </div>
+          </div>
         ) : null}
-
-        {detail.body ? <div className="mt-2">{detail.body}</div> : null}
 
         {pending ? (
           <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
@@ -108,7 +119,7 @@ export function PermissionRequestCard({
             </Button>
             {primaryAllow ? (
               <div
-                className="inline-flex items-stretch"
+                className="permission-request-allow-group inline-flex items-stretch"
                 role="group"
                 aria-label={t('permissionRequestCard.allowActions')}
               >
@@ -116,46 +127,47 @@ export function PermissionRequestCard({
                   type="button"
                   size="sm"
                   disabled={responding}
-                  className={cn(showAllowMenu && 'rounded-r-none')}
-                  onClick={() => respondWithOption(primaryAllow)}
+                  className="rounded-r-none"
+                  onClick={() => respondWithScope('once')}
                 >
-                  {primaryAllow.label}
+                  {t('permissionRequestCard.allow')}
                 </Button>
-                {showAllowMenu ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={responding}
-                        className="w-8 rounded-l-none border-l border-l-primary-foreground/20 px-0"
-                        aria-label={t('permissionRequestCard.expandAllow')}
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <PermissionOptionMenu
-                      options={menuOptions}
-                      responding={responding}
-                      onSelect={respondWithOption}
-                    />
-                  </DropdownMenu>
-                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={responding}
+                      className="w-8 rounded-l-none border-l border-l-primary-foreground/20 px-0"
+                      aria-label={t('permissionRequestCard.expandAllow')}
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    side="top"
+                    className="w-[min(280px,calc(100vw-24px))] p-1.5"
+                  >
+                    {allowScopes.map(({ scope, label }) => {
+                      const option = resolvePermissionAllowOption(
+                        options,
+                        scope
+                      );
+                      return (
+                        <DropdownMenuItem
+                          key={scope}
+                          disabled={responding || !option}
+                          className="px-2.5 py-2"
+                          onSelect={() => respondWithScope(scope)}
+                        >
+                          {label}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-            ) : showAllowMenu ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" size="sm" disabled={responding}>
-                    {t('permissionRequestCard.options')}
-                    <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <PermissionOptionMenu
-                  options={menuOptions}
-                  responding={responding}
-                  onSelect={respondWithOption}
-                />
-              </DropdownMenu>
             ) : null}
           </div>
         ) : (
@@ -197,44 +209,6 @@ function permissionTypeFor(kind: string | null): PermissionType {
     return { key: 'web', icon: Globe2 };
   }
   return { key: 'tool', icon: Wrench };
-}
-
-function PermissionOptionMenu({
-  options,
-  responding,
-  onSelect,
-}: {
-  options: AgentPermissionOption[];
-  responding: boolean;
-  onSelect: (option: AgentPermissionOption) => void;
-}) {
-  return (
-    <DropdownMenuContent
-      align="end"
-      side="top"
-      className="w-[min(320px,calc(100vw-24px))] p-1.5"
-    >
-      {options.map((option) => (
-        <DropdownMenuItem
-          key={option.id}
-          disabled={responding}
-          className="items-start px-2.5 py-2"
-          onSelect={() => onSelect(option)}
-        >
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              {option.label}
-            </span>
-            {option.description ? (
-              <span className="mt-0.5 block whitespace-normal text-xs leading-4 text-muted-foreground">
-                {option.description}
-              </span>
-            ) : null}
-          </span>
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  );
 }
 
 type ParsedDetail = { kind: string | null; body: React.ReactNode | null };

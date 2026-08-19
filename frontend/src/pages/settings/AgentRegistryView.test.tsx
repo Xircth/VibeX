@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentRegistryView } from 'shared/types';
+import type { AgentRegistryView, CommunityAcpPresetView } from 'shared/types';
 
 import { AgentRegistryViewPanel } from './AgentRegistryView';
 
@@ -75,6 +75,24 @@ const view: AgentRegistryView = {
       platform_supported: false,
     },
   ],
+  presets: [],
+};
+
+const deepseekPreset: CommunityAcpPresetView = {
+  preset_id: 'deepseek-acp',
+  agent_id: 'deepseek_harness',
+  display_name: 'DeepSeek Harness',
+  description: 'Community ACP adapter for DeepSeek Harness',
+  authors: ['xintaofei'],
+  repository: 'https://github.com/xintaofei/deepseek-acp',
+  version: '0.3.0',
+  distribution_kind: 'npx',
+  distribution_json:
+    '{"npx":{"package":"deepseek-acp@0.3.0","args":[],"env":{}}}',
+  icon_light: '/agents/deepseek-harness.svg',
+  icon_dark: '/agents/deepseek-harness.svg',
+  built_in: true,
+  added: true,
 };
 
 describe('AgentRegistryViewPanel', () => {
@@ -201,6 +219,58 @@ describe('AgentRegistryViewPanel', () => {
         },
       }),
       skills_shared_store: false,
+      skills_directory: null,
+    });
+  });
+
+  it('shows community ACP presets on the manual tab', async () => {
+    const onAddUserDefinition = vi.fn();
+    render(
+      <AgentRegistryViewPanel
+        view={{ ...view, presets: [deepseekPreset] }}
+        loading={false}
+        addingAgentId={null}
+        onRefresh={vi.fn()}
+        onAdd={vi.fn()}
+        onAddUserDefinition={onAddUserDefinition}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('tab', { name: '手动添加' }));
+    expect(screen.getByText('预设 ACP')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek Harness')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: '已内置' })).toBeInTheDocument();
+    expect(onAddUserDefinition).not.toHaveBeenCalled();
+  });
+
+  it('adds an available community ACP preset without filling the form', async () => {
+    const onAddUserDefinition = vi.fn();
+    render(
+      <AgentRegistryViewPanel
+        view={{
+          ...view,
+          presets: [{ ...deepseekPreset, built_in: false, added: false }],
+        }}
+        loading={false}
+        addingAgentId={null}
+        onRefresh={vi.fn()}
+        onAdd={vi.fn()}
+        onAddUserDefinition={onAddUserDefinition}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('tab', { name: '手动添加' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: '安装 DeepSeek Harness' })
+    );
+    expect(onAddUserDefinition).toHaveBeenCalledWith({
+      agent_id: 'deepseek_harness',
+      display_name: 'DeepSeek Harness',
+      description: 'Community ACP adapter for DeepSeek Harness',
+      version: '0.3.0',
+      distribution_kind: 'npx',
+      distribution_json: deepseekPreset.distribution_json,
+      skills_shared_store: true,
       skills_directory: null,
     });
   });

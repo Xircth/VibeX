@@ -221,7 +221,7 @@ async fn failed_office_candidate_keeps_the_previous_generation_active() {
     let candidate_root = tempfile::tempdir().unwrap();
     std::fs::write(
         candidate_root.path().join("bad.mjs"),
-        "import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);console.log(JSON.stringify({id:m.id,ok:true,result:{handlers:['undeclared-handler']}}));}",
+        "import{createInterface}from'node:readline';for await(const l of createInterface({input:process.stdin})){const m=JSON.parse(l);const result=m.method==='initialize'?{protocolVersion:'1.1',sdkVersion:'1.0.0',registrations:['undeclared-handler'],requestedFeatures:[]}:{handlers:['undeclared-handler']};console.log(JSON.stringify({id:m.id,ok:true,result}));}",
     )
     .unwrap();
     let mut bad = package.clone();

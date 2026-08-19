@@ -434,7 +434,7 @@ async fn authenticated_call_starts_a_turn_through_the_execution_port() {
     let calls = execution.starts.lock().expect("start calls");
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].text, "Run remotely");
-    assert_eq!(calls[0].plugin_actions.len(), 1);
-    assert_eq!(calls[0].plugin_actions[0].plugin_id, "vibex.office");
-    assert_eq!(calls[0].plugin_actions[0].action_id, "create-presentation");
+    assert_eq!(calls[0].workflow_refs.len(), 1);
+    assert_eq!(calls[0].workflow_refs[0].plugin_id, "vibex.office");
+    assert_eq!(calls[0].workflow_refs[0].workflow_id, "create-presentation");
 }

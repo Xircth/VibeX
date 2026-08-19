@@ -20,6 +20,7 @@ import {
   type KanbanProjectSessionRecord,
 } from '@/hooks/useKanbanProjectSessions';
 import { dateTimestamp } from '@/utils/date';
+import { resolveCreateSessionHref } from '@/lib/createSessionHref';
 import { sessionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/dialogs/shared/ConfirmDialog';
@@ -326,7 +327,10 @@ function SessionKanbanBoard() {
     (_status?: SessionStatus) => {
       if (!projectId) return;
       window.location.assign(
-        `/local-projects/${projectId}/sessions?createSession=1`
+        resolveCreateSessionHref({
+          projectId,
+          isWorkspaceTab: false,
+        })
       );
     },
     [projectId]

@@ -35,28 +35,18 @@ pub enum SlashCommandKind {
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
-    #[error("Follow-up is not supported: {0}")]
-    FollowUpNotSupported(String),
     #[error(transparent)]
     SpawnError(#[from] FuturesIoError),
-    #[error("Unknown executor type: {0}")]
-    UnknownExecutorType(String),
     #[error("I/O error: {0}")]
     Io(std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    #[error(transparent)]
-    ExecutorApprovalError(#[from] crate::approvals::ExecutorApprovalError),
     #[error(transparent)]
     CommandBuild(#[from] CommandBuildError),
     #[error("Executable `{program}` not found in PATH")]
     ExecutableNotFound { program: String },
     #[error("Setup helper not supported")]
     SetupHelperNotSupported,
-    #[error("Auth required: {0}")]
-    AuthRequired(String),
-    #[error("Unsupported executor configuration for ACP migration: {0}")]
-    UnsupportedExecutorConfig(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Display)]
@@ -143,12 +133,5 @@ pub struct AppendPrompt(pub Option<String>);
 impl AppendPrompt {
     pub fn get(&self) -> Option<String> {
         self.0.clone()
-    }
-
-    pub fn combine_prompt(&self, prompt: &str) -> String {
-        match self {
-            AppendPrompt(Some(value)) => format!("{prompt}{value}"),
-            AppendPrompt(None) => prompt.to_string(),
-        }
     }
 }

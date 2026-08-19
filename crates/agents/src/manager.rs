@@ -20,12 +20,12 @@ use agent_client_protocol::{
             CreateElicitationRequest, CreateElicitationResponse, CreateTerminalResponse,
             DeleteSessionRequest, ElicitationAcceptAction, ElicitationAction,
             ElicitationCapabilities, ElicitationContentValue, ElicitationFormCapabilities,
-            ElicitationMode, ElicitationScope, ForkSessionRequest, ImageContent, Implementation,
-            InitializeRequest, KillTerminalRequest, KillTerminalResponse, ListSessionsRequest,
-            LoadSessionRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
-            ReleaseTerminalResponse, RequestPermissionOutcome, RequestPermissionRequest,
-            RequestPermissionResponse, ResourceLink, ResumeSessionRequest,
-            SelectedPermissionOutcome, SessionConfigKind,
+            ElicitationMode, ElicitationScope, ExtRequest, ExtResponse, ForkSessionRequest,
+            ImageContent, Implementation, InitializeRequest, KillTerminalRequest,
+            KillTerminalResponse, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
+            PermissionOptionKind, PromptRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
+            RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
+            ResumeSessionRequest, SelectedPermissionOutcome, SessionConfigKind,
             SessionConfigOption as AcpSessionConfigOption, SessionConfigOptionCategory,
             SessionConfigOptionValue, SessionConfigOptionsCapabilities, SessionConfigSelectOption,
             SessionConfigSelectOptions, SessionConfigValueId, SessionId, SessionModeState,
@@ -102,13 +102,27 @@ struct SetSessionModelResponse {
     _meta: Option<serde_json::Value>,
 }
 
+const MAX_TOOL_PREVIEW_BYTES: usize = 16 * 1024;
+const MAX_TOOL_PREVIEW_IMAGES: usize = 4;
+
+fn truncate_preview(value: String) -> String {
+    if value.len() <= MAX_TOOL_PREVIEW_BYTES {
+        return value;
+    }
+    let mut end = MAX_TOOL_PREVIEW_BYTES;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_string()
+}
+
 fn acp_tool_input_preview(
     raw_input: Option<&serde_json::Value>,
     content: &[ToolCallContent],
     locations: &[ToolCallLocation],
 ) -> Option<String> {
     if let Some(raw_input) = raw_input {
-        return serde_json::to_string(raw_input).ok();
+        return serde_json::to_string(raw_input).ok().map(truncate_preview);
     }
 
     for item in content {
@@ -118,7 +132,8 @@ fn acp_tool_input_preview(
                 "oldText": diff.old_text,
                 "newText": diff.new_text,
             }))
-            .ok();
+            .ok()
+            .map(truncate_preview);
         }
     }
 
@@ -128,6 +143,7 @@ fn acp_tool_input_preview(
             "line": location.line,
         }))
         .ok()
+        .map(truncate_preview)
     })
 }
 
@@ -145,6 +161,7 @@ fn acp_tool_images(content: &[ToolCallContent]) -> Vec<crate::conversation::Imag
             },
             _ => None,
         })
+        .take(MAX_TOOL_PREVIEW_IMAGES)
         .collect()
 }
 
@@ -160,7 +177,7 @@ fn acp_tool_content_preview(content: &[ToolCallContent]) -> Option<String> {
         })
         .collect::<Vec<_>>();
     (!visible.is_empty())
-        .then(|| serde_json::to_string(&visible).ok())
+        .then(|| serde_json::to_string(&visible).ok().map(truncate_preview))
         .flatten()
 }
 
@@ -1606,6 +1623,7 @@ impl AgentConnectionRunner {
             acp::ByteStreams::new(acp_out_writer.compat_write(), acp_incoming_reader.compat());
         let bridge = AcpClientBridge::new(
             self.snapshot.connection_id,
+            self.snapshot.agent_id.clone(),
             self.event_tx.clone(),
             Arc::clone(&self.session_map),
             Arc::clone(&self.session_controls),
@@ -2233,16 +2251,13 @@ impl AgentConnectionRunner {
                         ));
                     }
                 }
-                CompanionInjectionList::Unsupported { code } => self.emit(
-                    Some(session_id),
-                    None,
-                    AgentEvent::RawAcpDiagnostic {
-                        raw: serde_json::json!({
-                            "kind": "companion_capability",
-                            "code": code,
-                        }),
-                    },
-                ),
+                CompanionInjectionList::Unsupported { code } => {
+                    tracing::debug!(
+                        code,
+                        session_id = %session_id.0,
+                        "companion MCP not injected; session continues without it"
+                    );
+                }
             }
         }
         servers
@@ -3281,6 +3296,7 @@ fn dedup_stream_text(state: &mut StreamDedupState, kind: StreamKind, text: &str)
 #[derive(Clone)]
 struct AcpClientBridge {
     connection_id: AgentConnectionId,
+    agent_id: crate::AgentId,
     event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
     session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
     // Shared with the owning runner: session-notification pushes (mode / config
@@ -3303,6 +3319,7 @@ impl AcpClientBridge {
     #[allow(clippy::too_many_arguments)]
     fn new(
         connection_id: AgentConnectionId,
+        agent_id: crate::AgentId,
         event_tx: mpsc::UnboundedSender<AgentConnectionManagerEvent>,
         session_map: Arc<RwLock<HashMap<AgentSessionId, String>>>,
         session_controls: Arc<RwLock<HashMap<AgentSessionId, SessionControlState>>>,
@@ -3315,6 +3332,7 @@ impl AcpClientBridge {
     ) -> Self {
         Self {
             connection_id,
+            agent_id,
             event_tx,
             session_map,
             session_controls,
@@ -3409,9 +3427,10 @@ impl AcpClientBridge {
             AgentRequest::KillTerminalRequest(args) => Ok(ClientResponse::KillTerminalResponse(
                 self.kill_terminal(args).await?,
             )),
-            AgentRequest::ReadTextFileRequest(_)
-            | AgentRequest::WriteTextFileRequest(_)
-            | AgentRequest::ExtMethodRequest(_) => Err(acp::Error::method_not_found()),
+            AgentRequest::ExtMethodRequest(ext) => self.handle_ext_method(ext).await,
+            AgentRequest::ReadTextFileRequest(_) | AgentRequest::WriteTextFileRequest(_) => {
+                Err(acp::Error::method_not_found())
+            }
             _ => Err(acp::Error::method_not_found()),
         }
     }
@@ -3536,13 +3555,63 @@ impl AcpClientBridge {
             return Err(acp::Error::invalid_params());
         };
 
+        let requested_schema = serde_json::to_value(&form.requested_schema)
+            .map_err(acp::Error::into_internal_error)?;
+        let response = self
+            .wait_for_question(session_id, args.message, requested_schema)
+            .await;
+        Ok(CreateElicitationResponse::new(elicitation_response_action(
+            response,
+        )))
+    }
+
+    async fn handle_ext_method(&self, ext: ExtRequest) -> Result<ClientResponse, acp::Error> {
+        let Some(parsed) = crate::ext_question::parse(ext.method.as_ref(), ext.params.get()) else {
+            return Err(acp::Error::method_not_found());
+        };
+        let question = parsed.map_err(|error| {
+            tracing::warn!(
+                method = %ext.method,
+                error = %error,
+                "invalid vendor question ext-method params"
+            );
+            acp::Error::invalid_params()
+        })?;
+        let sessions = self.session_map.read().await;
+        let Some(session_id) =
+            crate::ext_question::resolve_session_id(question.session_id.as_deref(), &sessions)
+        else {
+            tracing::warn!(
+                method = %ext.method,
+                acp_session = ?question.session_id,
+                "vendor question ext-method for unknown ACP session"
+            );
+            return Err(acp::Error::invalid_params());
+        };
+        drop(sessions);
+        let response = self
+            .wait_for_question(session_id, question.prompt.clone(), question.schema.clone())
+            .await;
+        let payload = question.into_response(response);
+        let raw =
+            serde_json::value::to_raw_value(&payload).map_err(acp::Error::into_internal_error)?;
+        Ok(ClientResponse::ExtMethodResponse(ExtResponse::new(
+            raw.into(),
+        )))
+    }
+
+    async fn wait_for_question(
+        &self,
+        session_id: AgentSessionId,
+        message: String,
+        requested_schema: serde_json::Value,
+    ) -> AgentElicitationResponse {
         let elicitation_id = AgentElicitationId::new();
         let request = AgentElicitationRequest {
             id: elicitation_id,
             session_id,
-            message: args.message,
-            requested_schema: serde_json::to_value(&form.requested_schema)
-                .map_err(acp::Error::into_internal_error)?,
+            message,
+            requested_schema,
         };
         let _ = self.event_tx.send(AgentConnectionManagerEvent {
             connection_id: self.connection_id,
@@ -3561,10 +3630,7 @@ impl AcpClientBridge {
             },
         );
 
-        let response = rx.await.unwrap_or(AgentElicitationResponse::Cancel);
-        Ok(CreateElicitationResponse::new(elicitation_response_action(
-            response,
-        )))
+        rx.await.unwrap_or(AgentElicitationResponse::Cancel)
     }
 
     async fn handle_ext_notification(
@@ -3593,6 +3659,22 @@ impl AcpClientBridge {
                 }
             }
         };
+        if crate::grok_announcements::is_announcements_method(ext.method.as_ref()) {
+            if let Some(update) = crate::grok_announcements::parse_update(&params) {
+                let notices =
+                    crate::grok_announcements::notices_from_update(&update, &self.agent_id);
+                let _ = self.event_tx.send(AgentConnectionManagerEvent {
+                    connection_id: self.connection_id,
+                    session_id,
+                    prompt_id: None,
+                    event: AgentEvent::AnnouncementsUpdated {
+                        generation: update.generation,
+                        notices,
+                    },
+                });
+            }
+            return Ok(());
+        }
         if updates.is_empty() {
             let _ = self.event_tx.send(AgentConnectionManagerEvent {
                 connection_id: self.connection_id,
@@ -3628,8 +3710,6 @@ impl AcpClientBridge {
         // Any agent activity (message/thought/tool/plan/usage/mode update) keeps
         // the in-flight prompt alive for the idle watchdog in `run_prompt`.
         *self.last_activity.lock().await = Instant::now();
-        let mut raw_notification = serde_json::to_value(&args).unwrap_or(serde_json::Value::Null);
-        bound_meta_fields(&mut raw_notification);
         let acp_session_id = args.session_id.0.to_string();
         let session_id = self.agent_session_for_acp(acp_session_id.clone()).await;
         let event = match args.update {
@@ -3697,7 +3777,9 @@ impl AcpClientBridge {
                             .fields
                             .raw_output
                             .as_ref()
-                            .and_then(|output| serde_json::to_string(output).ok())
+                            .and_then(|output| {
+                                serde_json::to_string(output).ok().map(truncate_preview)
+                            })
                             .or_else(|| {
                                 update
                                     .fields
@@ -3774,9 +3856,14 @@ impl AcpClientBridge {
             SessionUpdate::SessionInfoUpdate(update) => Some(AgentEvent::SessionInfoUpdated {
                 patch: session_info_patch_from_acp(update),
             }),
-            _ => Some(AgentEvent::RawAcpDiagnostic {
-                raw: raw_notification,
-            }),
+            other => {
+                let mut raw_notification =
+                    serde_json::to_value(other).unwrap_or(serde_json::Value::Null);
+                bound_meta_fields(&mut raw_notification);
+                Some(AgentEvent::RawAcpDiagnostic {
+                    raw: raw_notification,
+                })
+            }
         };
 
         if let Some(event) = event {

@@ -131,11 +131,7 @@ function PreflightInformationStack({
         <PreflightInformation
           isDisclosureDetail
           label={t('agents.source')}
-          value={
-            source === 'system'
-              ? t('agents.sourceSystem')
-              : t('agents.sourceVibexManaged')
-          }
+          value={t('agents.sourceSystem')}
           monospace={false}
         />
       ) : null}

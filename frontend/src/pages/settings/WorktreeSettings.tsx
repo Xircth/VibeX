@@ -20,7 +20,6 @@ import {
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 import {
   SettingsActionBar,
-  SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
 

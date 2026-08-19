@@ -46,6 +46,9 @@ export interface AppReleaseStatus {
   repository: string | null;
   checked: boolean;
   error: string | null;
+  body?: string | null;
+  published_at?: string | null;
+  checked_at?: string;
 }
 
 export type AgentCapability =
@@ -361,6 +364,7 @@ export interface HostPairingChallenge {
   requested_scopes: string[];
   host_id?: string;
   invitation?: string;
+  connection_code?: string;
   preset?: string;
   reachability?: Array<{ origin: string; kind: string }>;
 }

@@ -42,79 +42,92 @@ impl FileSearchService {
             return Err(format!("Path not found: {}", repo_path.display()));
         }
 
-        let query_lower = query.to_lowercase();
-        let walker = match mode {
-            SearchMode::Settings => WalkBuilder::new(repo_path)
-                .git_ignore(false)
-                .git_global(false)
-                .git_exclude(false)
-                .hidden(false)
-                .filter_entry(|entry| {
-                    !matches!(
-                        entry.file_name().to_string_lossy().as_ref(),
-                        ".git" | "node_modules" | "target" | "dist" | "build"
-                    )
-                })
-                .build(),
-            SearchMode::TaskForm => WalkBuilder::new(repo_path)
-                .git_ignore(true)
-                .git_global(true)
-                .git_exclude(true)
-                .hidden(false)
-                .filter_entry(|entry| entry.file_name() != ".git")
-                .build(),
-        };
-
-        let mut results = Vec::new();
-        for entry in walker {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let path = entry.path();
-            if path == repo_path {
-                continue;
-            }
-            let relative = path
-                .strip_prefix(repo_path)
-                .map_err(|error| error.to_string())?;
-            let relative_lower = relative.to_string_lossy().to_lowercase();
-            let file_name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-
-            let match_type =
-                if file_name.contains(&query_lower) {
-                    SearchMatchType::FileName
-                } else if path.parent().and_then(Path::file_name).is_some_and(|name| {
-                    name.to_string_lossy().to_lowercase().contains(&query_lower)
-                }) {
-                    SearchMatchType::DirectoryName
-                } else if relative_lower.contains(&query_lower) {
-                    SearchMatchType::FullPath
-                } else {
-                    continue;
-                };
-            let score = match match_type {
-                SearchMatchType::FileName => 100,
-                SearchMatchType::DirectoryName => 10,
-                SearchMatchType::FullPath => 1,
-            };
-            results.push(SearchResult {
-                path: relative.to_string_lossy().to_string(),
-                is_file: path.is_file(),
-                match_type,
-                score,
-            });
-        }
-
-        results.sort_by(|left, right| {
-            right
-                .score
-                .cmp(&left.score)
-                .then_with(|| left.path.cmp(&right.path))
-        });
-        results.truncate(10);
-        Ok(results)
+        let repo_path = repo_path.to_path_buf();
+        let query = query.to_string();
+        tokio::task::spawn_blocking(move || search_repo_blocking(&repo_path, &query, mode))
+            .await
+            .map_err(|error| error.to_string())?
     }
+}
+
+fn search_repo_blocking(
+    repo_path: &Path,
+    query: &str,
+    mode: SearchMode,
+) -> Result<Vec<SearchResult>, String> {
+    let query_lower = query.to_lowercase();
+    let walker = match mode {
+        SearchMode::Settings => WalkBuilder::new(repo_path)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false)
+            .hidden(false)
+            .filter_entry(|entry| {
+                !matches!(
+                    entry.file_name().to_string_lossy().as_ref(),
+                    ".git" | "node_modules" | "target" | "dist" | "build"
+                )
+            })
+            .build(),
+        SearchMode::TaskForm => WalkBuilder::new(repo_path)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .hidden(false)
+            .filter_entry(|entry| entry.file_name() != ".git")
+            .build(),
+    };
+
+    let mut results = Vec::new();
+    for entry in walker {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if path == repo_path {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(repo_path)
+            .map_err(|error| error.to_string())?;
+        let relative_lower = relative.to_string_lossy().to_lowercase();
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        let match_type = if file_name.contains(&query_lower) {
+            SearchMatchType::FileName
+        } else if path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name.to_string_lossy().to_lowercase().contains(&query_lower))
+        {
+            SearchMatchType::DirectoryName
+        } else if relative_lower.contains(&query_lower) {
+            SearchMatchType::FullPath
+        } else {
+            continue;
+        };
+        let score = match match_type {
+            SearchMatchType::FileName => 100,
+            SearchMatchType::DirectoryName => 10,
+            SearchMatchType::FullPath => 1,
+        };
+        results.push(SearchResult {
+            path: relative.to_string_lossy().to_string(),
+            is_file: path.is_file(),
+            match_type,
+            score,
+        });
+    }
+
+    results.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    results.truncate(10);
+    Ok(results)
 }
 
 #[cfg(test)]

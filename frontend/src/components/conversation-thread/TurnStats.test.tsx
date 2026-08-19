@@ -7,7 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NormalizedEntryType } from 'shared/types';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 import { LiveTurnStats } from './LiveTurnStats';
 import { formatCompletionTime, TurnStats } from './TurnStats';
 import { buildTurnStatsByAssistantKey } from './turnStatsModel';

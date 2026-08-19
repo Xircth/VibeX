@@ -61,20 +61,24 @@ impl HeadlessAutomationRuntime {
         let service = engine.with_claim_store(self.store.clone(), SystemClock);
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut next_retention = std::time::Instant::now();
         loop {
             interval.tick().await;
             if let Err(error) = self.reconcile_running_turns().await {
                 tracing::warn!("headless Automation terminal reconciliation failed: {error}");
             }
-            let retention = AutomationRetentionService::new(
-                self.store.clone(),
-                ServerRetentionWorkspaces {
-                    deployment: self.deployment.clone(),
-                },
-                RetentionPolicy::default(),
-            );
-            if let Err(error) = retention.enforce(chrono::Utc::now()).await {
-                tracing::warn!("headless Automation retention failed: {error}");
+            if std::time::Instant::now() >= next_retention {
+                let retention = AutomationRetentionService::new(
+                    self.store.clone(),
+                    ServerRetentionWorkspaces {
+                        deployment: self.deployment.clone(),
+                    },
+                    RetentionPolicy::default(),
+                );
+                if let Err(error) = retention.enforce(chrono::Utc::now()).await {
+                    tracing::warn!("headless Automation retention failed: {error}");
+                }
+                next_retention = std::time::Instant::now() + Duration::from_secs(60 * 60);
             }
             match service.tick().await {
                 Ok(claimed) => {

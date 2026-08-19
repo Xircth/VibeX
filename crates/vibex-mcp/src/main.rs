@@ -138,7 +138,7 @@ fn parse_args() -> Result<Args, String> {
         features: CompanionFeatures::parse(features.as_deref()),
         server_url,
         server_token,
-        conversation_id,
+        conversation_id: resolve_conversation_id(conversation_id),
         product: product.unwrap_or_else(|| "delegation".to_string()),
     })
 }
@@ -515,9 +515,15 @@ fn required_string(arguments: &Value, name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{name} is required"))
 }
 
+fn resolve_conversation_id(flag: Option<String>) -> Option<String> {
+    flag.or_else(|| std::env::var("VIBEX_CONVERSATION_ID").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn initialize_result() -> Value {
     json!({
-        "protocolVersion": "2024-11-05",
+        "protocolVersion": "2026-07-28",
         "capabilities": { "tools": {} },
         "serverInfo": { "name": "vibex-mcp", "version": env!("CARGO_PKG_VERSION") }
     })
@@ -687,6 +693,7 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#,
         ));
         assert_eq!(value["result"]["serverInfo"]["name"], "vibex-mcp");
+        assert_eq!(value["result"]["protocolVersion"], "2026-07-28");
         assert_eq!(value["id"], 1);
     }
 
@@ -834,6 +841,27 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":9,"method":"nope"}"#,
         ));
         assert_eq!(value["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn conversation_id_falls_back_to_the_parent_process_env() {
+        assert_eq!(
+            resolve_conversation_id(Some("from-flag".to_string())).as_deref(),
+            Some("from-flag")
+        );
+        // SAFETY: this process-local env key is only read by resolve_conversation_id
+        // in this test and is restored afterwards.
+        let previous = std::env::var("VIBEX_CONVERSATION_ID").ok();
+        unsafe {
+            std::env::set_var("VIBEX_CONVERSATION_ID", " from-env ");
+        }
+        assert_eq!(resolve_conversation_id(None).as_deref(), Some("from-env"));
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("VIBEX_CONVERSATION_ID", value),
+                None => std::env::remove_var("VIBEX_CONVERSATION_ID"),
+            }
+        }
     }
 
     #[test]

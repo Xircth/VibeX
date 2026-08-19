@@ -130,11 +130,17 @@ export function DevicePairingPanel({
     hasReachableOrigin,
   ]);
 
-  const copyInvitation = useCallback(async () => {
-    if (!invitation) return;
-    await navigator.clipboard.writeText(invitation);
+  const connectionCode =
+    challenge?.connection_code ??
+    (challenge?.pairing_token && challenge.pairing_token.length === 8
+      ? challenge.pairing_token
+      : null);
+
+  const copyConnectionCode = useCallback(async () => {
+    if (!connectionCode) return;
+    await navigator.clipboard.writeText(connectionCode);
     toast.success(t('webService.pairingCopied'));
-  }, [invitation, t]);
+  }, [connectionCode, t]);
 
   return (
     <SettingsSection
@@ -208,14 +214,16 @@ export function DevicePairingPanel({
             )}
           </div>
           <div className="min-w-0 flex-1 space-y-3">
-            <div>
-              <p className="text-sm font-medium">
-                {t('webService.pairingCodeLabel')}
-              </p>
-              <code className="mt-1 block break-all rounded-md bg-muted px-2 py-1.5 text-sm">
-                {challenge.pairing_token}
-              </code>
-            </div>
+            {connectionCode ? (
+              <div>
+                <p className="text-sm font-medium">
+                  {t('webService.pairingCodeLabel')}
+                </p>
+                <code className="mt-1 block tracking-[0.28em] rounded-md bg-muted px-3 py-2 text-2xl font-semibold">
+                  {connectionCode}
+                </code>
+              </div>
+            ) : null}
             {resolvedReachability.length > 0 ? (
               <p className="text-sm text-muted-foreground">
                 {resolvedReachability.map((item) => item.origin).join(' · ')}
@@ -227,14 +235,16 @@ export function DevicePairingPanel({
                 expiresAt: new Date(challenge.expires_at).toLocaleString(),
               })}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void copyInvitation()}
-            >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              {t('webService.copyPairingCode')}
-            </Button>
+            {connectionCode ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copyConnectionCode()}
+              >
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                {t('webService.copyPairingCode')}
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}

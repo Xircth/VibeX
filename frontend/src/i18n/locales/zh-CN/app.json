@@ -113,6 +113,7 @@
     "closeBehaviorMinimize": "最小化",
     "appUpdateAvailable": "VibeX {{version}} 可更新。",
     "openReleasePage": "打开发布页",
+    "viewUpdate": "查看更新",
     "agentRuntimeSetupRequired": "{{agents}} 的本机 Agent Runtime 或 ACP 缺失或不兼容。请在 Agent 设置中预检查并安装或更新。",
     "openAgentSettings": "前往 Agent 设置"
   },

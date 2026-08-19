@@ -15,6 +15,7 @@ import {
   getScratchExecutorProfileApplication,
   getScratchProfileResetDecision,
   shouldPersistDraftFollowUp,
+  shouldRaiseDraftConflict,
 } from './sessionComposerDraft';
 
 const now = '2026-05-25T00:00:00.000Z';
@@ -146,6 +147,36 @@ describe('session composer draft helpers', () => {
         images: [],
         executorProfileId: null,
         hasExistingScratch: true,
+      })
+    ).toBe(false);
+  });
+
+  it('does not treat a cleared composer as a draft conflict', () => {
+    expect(
+      shouldRaiseDraftConflict({
+        local: { message: '', images: [] },
+        server: { message: 'just sent', images: [] },
+      })
+    ).toBe(false);
+    expect(
+      shouldRaiseDraftConflict({
+        local: { message: '   ', images: [] },
+        server: { message: 'just sent', images: [] },
+      })
+    ).toBe(false);
+  });
+
+  it('raises a draft conflict only when uncommitted local content differs', () => {
+    expect(
+      shouldRaiseDraftConflict({
+        local: { message: 'mine', images: [] },
+        server: { message: 'theirs', images: [] },
+      })
+    ).toBe(true);
+    expect(
+      shouldRaiseDraftConflict({
+        local: { message: 'same', images: [] },
+        server: { message: 'same', images: [] },
       })
     ).toBe(false);
   });

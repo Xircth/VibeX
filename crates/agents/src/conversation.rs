@@ -970,6 +970,11 @@ pub enum ConversationEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         payload: Option<serde_json::Value>,
     },
+    AnnouncementsUpdated {
+        #[serde(default)]
+        generation: u64,
+        notices: Vec<ConversationSessionNotice>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -1018,13 +1023,32 @@ pub struct ConversationErrorView {
     pub error: ConversationError,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ConversationSessionNotice {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub announcement_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<ConversationNoticeAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConversationNoticeAction {
+    UpdateAgent {
+        agent_id: AgentId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fallback_url: Option<String>,
+    },
+    OpenUrl {
+        url: String,
+        label: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

@@ -307,7 +307,9 @@ async fn pairing_token_can_be_redeemed_exactly_once() {
         .expect("create pairing response");
     assert_eq!(create.status(), StatusCode::CREATED);
     let challenge: PairingChallenge = json_body(create).await;
-    assert!(!challenge.pairing_token.is_empty());
+    assert!(remote_protocol::is_connection_code(
+        &challenge.pairing_token
+    ));
 
     let redeem_request = RedeemPairingRequest {
         pairing_token: challenge.pairing_token,

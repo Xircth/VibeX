@@ -110,7 +110,14 @@ async fn companion(
         return Ok(Json(response));
     }
 
-    Ok(Json(state.listener.handle_message(message).await))
+    Ok(Json(unbound_conversation_response()))
+}
+
+fn unbound_conversation_response() -> delegation_proto::BrokerResponse {
+    delegation_proto::BrokerResponse::Error {
+        code: "missing_conversation".to_string(),
+        message: "host conversation context is missing".to_string(),
+    }
 }
 
 fn rewrite_token(message: &mut BrokerMessage, token: &str, connection_id: &str) {

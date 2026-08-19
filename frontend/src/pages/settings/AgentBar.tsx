@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { AgentManagementIcon } from './AgentManagementIcon';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { moveAgentInOrder, nudgeAgentInOrder } from './agentBarOrder';
 
 type AgentBarProps = {

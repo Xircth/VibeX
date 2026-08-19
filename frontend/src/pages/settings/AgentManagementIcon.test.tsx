@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { AgentManagementView } from 'shared/types';
 
-import { AgentManagementIcon } from './AgentManagementIcon';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 
 function builtIn(agentId: string, displayName: string): AgentManagementView {
   return {

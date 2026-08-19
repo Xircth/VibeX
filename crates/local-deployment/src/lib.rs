@@ -149,7 +149,6 @@ impl LocalDeployment {
             config.clone(),
             git.clone(),
             image.clone(),
-            approvals.clone(),
             settings_file.clone(),
         )
         .await;

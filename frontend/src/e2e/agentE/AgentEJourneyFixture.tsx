@@ -75,8 +75,14 @@ export class FakeMcpDelegationTransport implements BackendTransport {
       return {
         active_binding: {
           id: 'fixture-binding',
-          capabilities: { mcp_servers: true },
+          delegation_mcp_delivered: true,
         },
+      };
+    }
+    if (command === 'plugin_control_catalog') {
+      return {
+        plugins: [{ id: 'vibex.multi-agent', enabled: true }],
+        runtimes: [],
       };
     }
     if (command === 'fixture_projection') {

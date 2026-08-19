@@ -299,7 +299,7 @@ impl Default for DelegationConfig {
             max_calls_per_parent: 16,
             child_deadline_ms: 30 * 60 * 1_000,
             max_result_bytes: 256 * 1024,
-            completed_cache_cap_bytes: 512 * 1024 * 1024,
+            completed_cache_cap_bytes: 8 * 1024 * 1024,
             agent_defaults: std::collections::BTreeMap::new(),
         }
     }

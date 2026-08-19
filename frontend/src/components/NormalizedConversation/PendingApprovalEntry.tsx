@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -21,7 +20,7 @@ import { InlineMarkdownComposer } from '@/components/ui/inline-markdown-composer
 
 import { useTranslation } from 'react-i18next';
 import { useHotkeysContext } from 'react-hotkeys-hook';
-import { TabNavContext } from '@/contexts/TabNavigationContext';
+
 import { useKeyApproveRequest, useKeyDenyApproval, Scope } from '@/keyboard';
 import { useApprovalForm } from '@/contexts/ApprovalFormContext';
 import { dateTimestamp } from '@/utils/date';
@@ -203,10 +202,8 @@ const PendingApprovalEntry = ({
   } = useApprovalForm(pendingStatus.approval_id);
 
   const { enableScope, disableScope, activeScopes } = useHotkeysContext();
-  const tabNav = useContext(TabNavContext);
-  const isLogsTabActive = tabNav ? tabNav.activeTab === 'logs' : true;
   const dialogScopeActive = activeScopes.includes(Scope.DIALOG);
-  const shouldControlScopes = isLogsTabActive && !dialogScopeActive;
+  const shouldControlScopes = !dialogScopeActive;
   const approvalsScopeEnabledRef = useRef(false);
   const dialogScopeActiveRef = useRef(dialogScopeActive);
 

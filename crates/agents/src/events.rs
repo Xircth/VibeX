@@ -426,6 +426,11 @@ pub enum AgentEvent {
     RawAcpDiagnostic {
         raw: serde_json::Value,
     },
+    AnnouncementsUpdated {
+        #[serde(default)]
+        generation: u64,
+        notices: Vec<crate::conversation::ConversationSessionNotice>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

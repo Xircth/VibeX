@@ -29,7 +29,6 @@ import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
 
 import {
   SettingsActionBar,
-  SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
 import { DevicePairingPanel } from './DevicePairingPanel';
@@ -256,11 +255,6 @@ export function WebServiceSettings({
 
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('webService.title')}
-        description={t('webService.description')}
-      />
-
       <div className="settings-sections">
         <DevicePairingPanel
           transport={transport}

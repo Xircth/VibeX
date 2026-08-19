@@ -31,7 +31,7 @@ import {
   type TargetDirective,
 } from '@/lib/api';
 import { applyLogBatch } from './logBuffer';
-import { SettingsPageHeader, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
 
 const CAPTURE_LEVELS: LogLevel[] = [
   'all',
@@ -351,10 +351,6 @@ export function LogsSettings() {
 
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('logs.title')}
-        description={t('logs.description')}
-      />
       <div className="settings-sections">
         <SettingsSection
           icon={SlidersHorizontal}

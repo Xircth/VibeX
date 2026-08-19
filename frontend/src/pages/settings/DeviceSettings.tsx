@@ -1,11 +1,7 @@
-import { useTranslation } from 'react-i18next';
-
 import { useBackendTransport } from '@/lib/transport';
 import { DevicePairingPanel } from './DevicePairingPanel';
-import { SettingsPageHeader } from './SettingsUi';
 
 export function DeviceSettings() {
-  const { t } = useTranslation('settings');
   const transport = useBackendTransport();
 
   return (

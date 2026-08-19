@@ -44,6 +44,16 @@ impl RuntimeEventSink for UnboundedRuntimeEventSink {
 
 /// A lossless, non-blocking event path for the single Conversation persistence
 /// consumer. Live observers continue to use the bounded broadcast channel.
+const CONVERSATION_ID_ENV: &str = "VIBEX_CONVERSATION_ID";
+
+fn env_with_conversation_id(
+    mut env: HashMap<String, String>,
+    session_id: AgentSessionId,
+) -> HashMap<String, String> {
+    env.insert(CONVERSATION_ID_ENV.to_string(), session_id.to_string());
+    env
+}
+
 pub fn runtime_event_channel() -> (
     Arc<dyn RuntimeEventSink>,
     mpsc::UnboundedReceiver<AgentEventEnvelope>,
@@ -668,7 +678,7 @@ impl AgentRuntime {
                     working_dir: input.working_dir,
                     additional_directories: input.additional_directories,
                     auto_approve_mode: input.auto_approve_mode,
-                    env: input.env,
+                    env: env_with_conversation_id(input.env, input.session_id),
                 })
                 .await?
                 .id

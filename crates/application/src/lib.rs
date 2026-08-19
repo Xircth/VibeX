@@ -13,13 +13,14 @@ mod workflow;
 pub use agents::ConversationWorkflowRef;
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
-    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn,
+    ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, ConversationCatalog,
+    ConversationCatalogAgent, ConversationCatalogProject, ConversationCatalogWorkspace,
     ConversationExecutionPort, ConversationOutputView, ConversationRepository,
     ConversationSubscriptionRegistrar, CreateChildConversationRequest, CreateConversation,
     ListConversationInputsRequest, ListConversationRelationsRequest, ListConversations,
-    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
-    SqliteConversationRepository, StartConversationTurn, SteerConversationTurnRequest,
-    SubmitConversationInputRequest, UpdateConversationInputRequest,
+    ListRecentConversations, ReorderConversationInputRequest, RespondConversationPermission,
+    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
+    SteerConversationTurnRequest, SubmitConversationInputRequest, UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;

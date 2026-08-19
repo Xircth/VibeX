@@ -1,6 +1,7 @@
 use remote_protocol::{
-    DevicePermissionPreset, PairingChallenge, PairingId, PairingInvitationPayload,
-    ReachabilityOrigin, is_loopback_origin,
+    CONNECTION_CODE_LEN, DevicePermissionPreset, PairingChallenge, PairingId,
+    PairingInvitationPayload, ReachabilityOrigin, is_connection_code, is_loopback_origin,
+    issue_connection_code,
 };
 
 #[test]
@@ -30,6 +31,14 @@ fn invitation_encodes_host_identity_and_drops_loopback() {
     assert!(!invitation.contains("127.0.0.1"));
     assert!(!invitation.contains("vbx_device_"));
     assert!(!invitation.contains("localhost"));
+}
+
+#[test]
+fn connection_code_is_eight_unambiguous_characters() {
+    let code = issue_connection_code();
+    assert_eq!(code.len(), CONNECTION_CODE_LEN);
+    assert!(is_connection_code(&code));
+    assert!(!is_connection_code("vbx_pair_secret"));
 }
 
 #[test]

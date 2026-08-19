@@ -49,7 +49,7 @@ import {
 } from '@/lib/api/automations';
 import { type BackendTransport } from '@/lib/backendTransport';
 import { useBackendTransport } from '@/lib/transport';
-import { SettingsPageHeader, SettingsSection } from './SettingsUi';
+import { SettingsSection } from './SettingsUi';
 
 type ProjectOption = {
   id: string;
@@ -770,10 +770,6 @@ export function AutomationsSettings({
 
   return (
     <div className="settings-sections">
-      <SettingsPageHeader
-        title={t('automations.pageTitle')}
-        description={t('automations.pageDescription')}
-      />
       <SettingsSection
         icon={CalendarClock}
         title={t('automations.pageTitle')}

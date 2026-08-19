@@ -4,11 +4,11 @@ use api_types::{AgentId, AgentSource, UserAgentDistributionKind};
 use db::{
     DBService,
     models::agent_management::{
-        AgentManagementRepositoryError, AgentMembershipRepository, DiagnosticRecord,
-        DiagnosticRepository, InstallLockRecord, InstallationOperationRepository,
-        InstallationRepository, NewAgentMembership, NewInstallationOperation, RegistryEntryRecord,
-        RegistrySnapshotRecord, RegistrySnapshotRepository, SessionDefaultRecord,
-        SessionDefaultRepository, UserAgentDefinitionRecord, UserAgentDefinitionRepository,
+        AgentMembershipRepository, DiagnosticRecord, DiagnosticRepository, InstallLockRecord,
+        InstallationOperationRepository, InstallationRepository, NewAgentMembership,
+        NewInstallationOperation, RegistryEntryRecord, RegistrySnapshotRecord,
+        RegistrySnapshotRepository, SessionDefaultRecord, SessionDefaultRepository,
+        UserAgentDefinitionRecord, UserAgentDefinitionRepository,
         conversation_migration::{
             ConversationAgentReferenceRepository, LegacyConversationAgentMigration,
             RetiredAgentHistoryRepository,
@@ -834,7 +834,7 @@ async fn fresh_install_enqueue_waits_for_the_startup_warmup_writer() {
 }
 
 #[tokio::test]
-async fn managed_install_cannot_implicitly_replace_an_external_installation() {
+async fn user_environment_reinstall_can_replace_an_existing_installation() {
     let pool = migrated_pool().await;
     let agent_id = AgentId::parse("claude_code").unwrap();
     AgentMembershipRepository::new(pool.clone())
@@ -867,7 +867,7 @@ async fn managed_install_cannot_implicitly_replace_an_external_installation() {
         .await
         .unwrap();
 
-    let result = InstallationOperationRepository::new(pool.clone())
+    let operation = InstallationOperationRepository::new(pool.clone())
         .enqueue(NewInstallationOperation {
             agent_id: agent_id.clone(),
             kind: "install".to_string(),
@@ -876,14 +876,10 @@ async fn managed_install_cannot_implicitly_replace_an_external_installation() {
             resource_claims: vec!["agent:claude_code".to_string()],
             staging_path: None,
         })
-        .await;
+        .await
+        .expect("reinstalling into the user environment must be allowed");
 
-    assert!(matches!(
-        result,
-        Err(AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(
-            ref rejected_agent_id
-        )) if rejected_agent_id == &agent_id
-    ));
+    assert_eq!(operation.agent_id, agent_id);
     let installation = sqlx::query_as::<_, (String, String, Option<String>)>(
         r#"SELECT ownership, lifecycle, active_operation
            FROM agent_installation WHERE agent_id = ?"#,
@@ -894,7 +890,11 @@ async fn managed_install_cannot_implicitly_replace_an_external_installation() {
     .unwrap();
     assert_eq!(
         installation,
-        ("external".to_string(), "ready".to_string(), None)
+        (
+            "external".to_string(),
+            "queued".to_string(),
+            Some("install".to_string())
+        )
     );
 }
 

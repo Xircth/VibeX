@@ -7,14 +7,16 @@ decision-makers:
 
 # 卸载与移除是不同操作
 
-“卸载”只删除 VibeX 托管的 Agent Runtime 与 ACP 适配器，保留 Agent 的已添加
-关系、导航带位置、设置和历史会话，使内置与普通 Agent 都可以原位重新安装。
-“从 VibeX 移除”只适用于非内置 Agent：它终止已添加关系，并清除 VibeX 保存的
-Agent 专属设置、明文凭据和托管运行组件，但不删除历史会话。
+“卸载”按 Installation lock 的分发方式移除该 Agent 在用户环境中的 CLI 包
+（`npm uninstall -g`、`uv tool uninstall`，或删除用户 bin 中由 VibeX 写入的
+Binary），再清除锁。它保留已添加关系、导航带位置、设置和历史会话，使内置与
+普通 Agent 都可以原位重新安装。卸载后 PATH 上该 Agent 命令仍在时必须失败并
+保留锁，避免下次探测立刻重新接入。
+“从 VibeX 移除”只适用于非内置 Agent：它先走同一套用户环境卸载，再终止已添加
+关系，并清除 VibeX 保存的 Agent 专属设置与明文凭据，但不删除历史会话。
 
-两种操作都不能修改外部 Runtime、外部 CLI 登录状态或外部配置文件。共享的
-Node、Python、uv 等托管环境在仍有使用者时必须保留；无人使用时只进入可清理
-状态，不随单个 Agent 的卸载或移除连带删除。
+两种操作都不能删除 Agent 原生配置、凭据或共享工具链（Node、npm、uv、Python）。
+也不能删除 Homebrew 或系统目录里 VibeX 写不进去的文件；这类残留只能报告给用户。
 
 这一限制只约束卸载与移除的隐式副作用；它不禁止用户通过 Agent 档案明确提供的
 白名单登录、注销或账号管理动作修改官方 CLI 的账号状态（见 ADR-0037）。

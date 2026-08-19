@@ -444,5 +444,14 @@ describe('session composer submit helpers', () => {
         serverRevision: 3,
       }).shouldDeleteScratch
     ).toBe(false);
+
+    expect(
+      getAfterSendCleanup({
+        attachments: [],
+        scratchId: 'session-1',
+        savedRevision: 2,
+        serverRevision: 1,
+      }).shouldDeleteScratch
+    ).toBe(true);
   });
 });

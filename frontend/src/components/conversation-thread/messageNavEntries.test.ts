@@ -3,7 +3,7 @@ import type { ActionType, NormalizedEntry } from 'shared/types';
 import type {
   DisplayEntry,
   PatchTypeWithKey,
-} from '@/hooks/useConversationHistory/types';
+} from '@/hooks/conversationEntries';
 import {
   buildConversationMessageNavEntries,
   findActiveConversationMessageNavEntry,

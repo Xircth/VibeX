@@ -129,8 +129,12 @@
   "delegationCard": {
     "delegatedTo": "委派给 {{agent}}",
     "subAgentDelegation": "子代理委派",
+    "task": "任务",
+    "result": "结果",
     "openChildSession": "打开子会话",
-    "duration": "耗时 {{duration}}",
+    "durationMs": "耗时 {{count}} 毫秒",
+    "durationSeconds": "耗时 {{count}} 秒",
+    "durationMinutes": "耗时 {{count}} 分钟",
     "running": "运行中",
     "cancel": "取消委派",
     "canceling": "正在取消…",
@@ -223,7 +227,11 @@
     "newerEventTitle": "此会话包含较新版本的记录",
     "newerEventDescription": "当前版本暂时无法显示其中一条记录，其余会话内容不受影响。更新 VibeX 后可再次查看。",
     "unreadableEventTitle": "部分会话记录无法显示",
-    "unreadableEventDescription": "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。"
+    "unreadableEventDescription": "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。",
+    "updateAgent": "更新",
+    "updating": "正在更新",
+    "updateStarted": "已开始更新",
+    "updateFailed": "更新失败"
   },
   "liveFeedback": {
     "placeholder": "给这一回合纠偏",

@@ -1,6 +1,7 @@
 use application::{
-    ApplicationCore, ApplicationDomainPort, CommandRegistry, ConversationRepository, DomainCommand,
-    Principal, RegisteredCommand,
+    ApplicationCore, ApplicationDomainPort, CommandRegistry, ConversationCatalog,
+    ConversationCatalogProject, ConversationCatalogWorkspace, ConversationRepository,
+    DomainCommand, Principal, RegisteredCommand,
 };
 use async_trait::async_trait;
 use remote_protocol::{ErrorCode, OperationId};
@@ -131,6 +132,54 @@ async fn local_adapter_matches_the_registered_serde_contract() {
             .expect("protocol round trip"),
         response
     );
+}
+
+#[tokio::test]
+async fn recent_conversation_list_and_catalog_are_registered() {
+    let registry = CommandRegistry::new(ApplicationCore::new(EmptyConversations));
+    let operation_id = OperationId::new();
+    let recent = registry
+        .execute_name(
+            &Principal::local_desktop(),
+            "conversation_list_recent",
+            operation_id,
+            json!({"sinceDays": 3, "limit": 20}),
+        )
+        .await
+        .expect("list recent");
+    assert_eq!(recent.data, json!([]));
+    let catalog = registry
+        .execute_name(
+            &Principal::local_desktop(),
+            "conversation_catalog",
+            operation_id,
+            json!({}),
+        )
+        .await
+        .expect("catalog");
+    assert_eq!(catalog.data["projects"], json!([]));
+}
+
+#[test]
+fn conversation_catalog_wire_uses_camel_case() {
+    let catalog = ConversationCatalog {
+        projects: vec![ConversationCatalogProject {
+            id: Uuid::nil(),
+            name: "VibeX".into(),
+            path: "/tmp/app".into(),
+        }],
+        workspaces: vec![ConversationCatalogWorkspace {
+            id: Uuid::nil(),
+            project_id: Uuid::nil(),
+            name: "main".into(),
+            branch: "main".into(),
+        }],
+        agents: vec![],
+    };
+    let value = serde_json::to_value(&catalog).expect("serialize catalog");
+    assert_eq!(value["projects"][0]["path"], "/tmp/app");
+    assert_eq!(value["workspaces"][0]["projectId"], Uuid::nil().to_string());
+    assert!(value["workspaces"][0].get("project_id").is_none());
 }
 
 #[tokio::test]

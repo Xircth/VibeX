@@ -12,12 +12,17 @@ mod codex_auth;
 mod community_acp_presets;
 pub mod contribution_capability;
 pub mod conversation;
+mod cursor_ask;
 pub mod delegation_inject;
 pub mod distribution;
 pub mod elicitation;
 pub mod error;
 pub mod events;
+mod ext_question;
 pub mod filesystem;
+mod grok_announcements;
+mod grok_ask;
+mod grok_plan;
 mod grok_subagent;
 pub mod history;
 pub mod ids;
@@ -77,14 +82,15 @@ pub use conversation::{
     ConversationFeedbackRequest, ConversationFeedbackResponse, ConversationFileChange,
     ConversationFileChangeSummary, ConversationFileLocation, ConversationFileRef,
     ConversationInputBlock, ConversationInputEvent, ConversationInputPayload,
-    ConversationPermissionRequest, ConversationPermissionResponse, ConversationPermissionView,
-    ConversationPlanEntry, ConversationQuestionRequest, ConversationQuestionResponse,
-    ConversationRelationKind, ConversationRelationVisibility, ConversationSessionNotice,
-    ConversationSteeringEvent, ConversationSummary, ConversationTerminalPatch,
-    ConversationTerminalView, ConversationTimeline, ConversationTimelinePage,
-    ConversationTimelineRow, ConversationToolCallPatch, ConversationUsage, ConversationWorkflowRef,
-    ImageData, MessageTurn, SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats,
-    SubAgentToolCall, TurnBlockedReason, TurnRole, TurnUsage,
+    ConversationNoticeAction, ConversationPermissionRequest, ConversationPermissionResponse,
+    ConversationPermissionView, ConversationPlanEntry, ConversationQuestionRequest,
+    ConversationQuestionResponse, ConversationRelationKind, ConversationRelationVisibility,
+    ConversationSessionNotice, ConversationSteeringEvent, ConversationSummary,
+    ConversationTerminalPatch, ConversationTerminalView, ConversationTimeline,
+    ConversationTimelinePage, ConversationTimelineRow, ConversationToolCallPatch,
+    ConversationUsage, ConversationWorkflowRef, ImageData, MessageTurn,
+    SessionLoadFailureReason, SessionRecoveryStrategy, SessionStats, SubAgentToolCall,
+    TurnBlockedReason, TurnRole, TurnUsage,
 };
 pub use delegation_inject::{
     CompanionCapabilities, CompanionInjection, CompanionInjectionContext, CompanionInjectionList,

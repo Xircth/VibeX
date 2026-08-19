@@ -1,5 +1,5 @@
 import type { ActionType, NormalizedEntry, ToolStatus } from 'shared/types';
-import type { PatchTypeWithKey } from '@/hooks/useConversationHistory/types';
+import type { PatchTypeWithKey } from '@/hooks/conversationEntries';
 
 const BASE_TIMESTAMP = '2026-06-13T08:00:00.000Z';
 

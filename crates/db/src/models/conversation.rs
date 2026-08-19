@@ -74,6 +74,53 @@ impl DbConversationSummary {
         .await
     }
 
+    /// Recently updated conversations, optionally limited to one project.
+    ///
+    /// `updated_at` is stored as TEXT in mixed RFC3339 / SQLite datetime shapes.
+    /// Normalize the first 19 characters before comparing so a 3-day window
+    /// does not silently drop rows whose timestamps contain `T` or a timezone.
+    pub async fn list_recent(
+        pool: &SqlitePool,
+        since_days: i64,
+        project_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let cutoff = (Utc::now() - chrono::Duration::days(since_days.max(1)))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let limit = limit.clamp(1, 500);
+        let recency = "datetime(replace(substr(updated_at, 1, 19), 'T', ' ')) >= datetime(?)";
+        if let Some(project_id) = project_id {
+            sqlx::query_as::<_, Self>(&format!(
+                r#"SELECT {SUMMARY_COLUMNS}
+                   FROM sessions
+                   WHERE deleted_at IS NULL
+                     AND {recency}
+                     AND workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)
+                   ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
+                   LIMIT ?"#
+            ))
+            .bind(cutoff)
+            .bind(project_id)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        } else {
+            sqlx::query_as::<_, Self>(&format!(
+                r#"SELECT {SUMMARY_COLUMNS}
+                   FROM sessions
+                   WHERE deleted_at IS NULL
+                     AND {recency}
+                   ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
+                   LIMIT ?"#
+            ))
+            .bind(cutoff)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+    }
+
     /// A single non-deleted conversation by id.
     pub async fn find_by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as::<_, Self>(&format!(

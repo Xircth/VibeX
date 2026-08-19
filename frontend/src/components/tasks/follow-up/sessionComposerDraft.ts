@@ -162,6 +162,24 @@ export function draftFollowUpContentsEqual(
   return left.images.every((image, index) => image === right.images[index]);
 }
 
+export function hasComposerDraftContent(
+  draft: Pick<DraftFollowUpData, 'message' | 'images'> | undefined
+): boolean {
+  if (!draft) return false;
+  return Boolean(draft.message.trim() || draft.images.length > 0);
+}
+
+export function shouldRaiseDraftConflict({
+  local,
+  server,
+}: {
+  local: Pick<DraftFollowUpData, 'message' | 'images'>;
+  server: Pick<DraftFollowUpData, 'message' | 'images'> | undefined;
+}): boolean {
+  if (!hasComposerDraftContent(local)) return false;
+  return !draftFollowUpContentsEqual(local, server);
+}
+
 export function getExecutorProfileStateKey(
   profile: ExecutorProfileId | null
 ): string | null {

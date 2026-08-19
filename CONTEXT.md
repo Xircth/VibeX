@@ -254,10 +254,10 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **New-session default（新会话默认偏好）** — VibeX 为某个 Agent 全局记忆、并在创建会话时尝试应用的 ACP 会话配置选择；它不是 Project 设置或 Agent 原生配置，也不会改变已经存在的会话。
 - **Native ACP agent（原生 ACP agent）** — 本地 agent runtime 与 ACP server 由同一个安装物提供的 agent；它只有一个需安装和验证的运行组件。
 - **Adapter-backed ACP agent（适配器型 ACP agent）** — ACP server 只负责桥接、实际能力由另一个本地 agent runtime 提供的 agent；两个运行组件都必须安装、验证并显式绑定。
-- **Managed agent installation（托管 Agent 安装）** — 安装产物及其生命周期由 VibeX 所有；VibeX 可以校验、升级、修复和卸载这些产物，并通过带所有权标记的用户级稳定 shim 将本地 Runtime 主命令暴露给终端。
-- **External agent installation（外部 Agent 安装）** — 由用户或系统所有、经 VibeX 校验后接入的本地 Agent runtime；VibeX 可以使用和重新校验它，但不能擅自升级、修改或卸载它。
+- **User-environment agent installation（用户环境 Agent 安装）** — 本地 Runtime 与 ACP 只存在于用户环境（PATH、npm 全局前缀、uv tools、用户 bin）。平台安装也写入该环境，再按 PATH 探测接入；Installation lock 只记录这次观察，不是另一份托管产物。见 [ADR-0060](docs/adr/0060-agent-installs-use-user-environment.md)。
+- **External agent installation（外部 Agent 安装）** — 历史用语，现与用户环境安装同义：VibeX 绑定并校验用户环境中的 CLI，不再维护独立托管树。
 - **Installation attempt（安装尝试）** — 一次把 Agent 的托管组件安装、修复或更新到目标版本的有界操作；它可以完成、失败、由用户取消或因宿主退出而中断，其终态不改变 Agent 的已添加关系。
-- **Installation lock（安装锁）** — 一次 Agent 安装实际采用的 Agent Runtime、ACP 适配器与基础运行环境的精确版本和来源记录；它使当前安装可以被验证、复现和安全回退。
+- **Installation lock（安装锁）** — 一次成功探测或用户环境安装后，对 Agent Runtime、ACP 适配器路径、版本与分发方式的观察记录；它使当前绑定可以被验证和回退，但不是独立托管产物。
 - **Verified binary（已验证 Binary）** — 其内容与 VibeX 预先维护的预期 SHA-256 一致的 Binary；只有此类产物可以宣称经过 VibeX 完整性验证。
 - **TOFU binary（首次信任 Binary）** — 官方 Registry 未提供预期校验和时，首次取得并记录内容指纹、此后严格检查该指纹的普通 Registry Binary；它不等同于已验证 Binary。
 - **Installed agent（已安装 Agent）** — 所需本地运行组件已经存在且通过兼容性验证的 Agent；是否已经完成认证不影响其安装状态。
@@ -272,8 +272,8 @@ _Avoid_: 连接, 隧道, 服务器地址（单独拿来当 Host 身份）
 - **Available agent（可添加 Agent）** — 当前 Registry 中存在、但尚未被用户纳入 VibeX Agent 集合的 Agent。
 - **Agent activation（Agent 启用状态）** — 用户是否允许某个已添加 Agent 接受后续执行的独立开关；禁用不改变其纳入、安装、认证、配置或历史状态。
 - **Retired agent（退役 Agent）** — 已停止提供新增、安装和新会话能力，但为保持历史可解释性而继续保留稳定身份的旧 Agent。
-- **Uninstall agent（卸载 Agent）** — 删除 VibeX 为 Agent 托管的运行组件，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。
-- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并清除 VibeX 拥有的 Agent 专属设置与产物；它不删除历史会话，也不触碰外部安装。
+- **Uninstall agent（卸载 Agent）** — 按分发方式移除该 Agent 在用户环境中的 CLI 包并清除 Installation lock，但保留其已添加关系、设置与历史会话，使其可以原位重新安装。它不删除 Node、npm、uv、Python 或 Agent 原生配置。
+- **Remove agent（移除 Agent）** — 终止非内置 Agent 与 VibeX 的已添加关系，使其离开 Agent 导航带，并先走同一套用户环境卸载，再清除 VibeX 拥有的 Agent 专属设置；它不删除历史会话。
 - **Agent bar（Agent 导航带）** — “设置 → Agent”中的统一横向 Agent 选择器；所有已添加 Agent 共用同一列表，不按支持等级或安装状态分区，末位固定为打开 Registry 的添加入口。
 - **ACP Registry view（ACP 注册表视图）** — 从 Agent bar 添加入口进入的 Agent 发现与管理界面，只展示当前 Registry 中仍存在的条目；条目从上游下架不会移除 Agent bar 中已经纳入的 Agent。
 - **Registry snapshot（注册表快照）** — VibeX 最近一次成功获取并验证的 ACP 官方 Registry 目录副本；离线时它只提供带时间标记的浏览能力，不授权新的添加或更新。

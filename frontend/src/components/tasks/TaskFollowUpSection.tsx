@@ -23,7 +23,6 @@ import { conversationApi } from '@/features/conversation/conversationApi';
 import { useGitStatus } from '@/hooks/git';
 
 import type { Session, Workspace } from 'shared/types';
-import { getLatestProfileFromProcesses } from '@/utils/executor';
 import { buildPromptEnhancementContext } from '@/lib/promptEnhancement';
 import type { UseWorkspaceSessionsResult } from '@/hooks/useWorkspaceSessions';
 import { useWorktree } from '@/contexts/WorktreeContext';
@@ -322,14 +321,10 @@ export function TaskFollowUpSection({
     executorProfileRef,
     localMessage,
   });
-  const latestProfileId = useMemo(
-    () => getLatestProfileFromProcesses(processes),
-    [processes]
-  );
   const defaultExecutorProfile = useMemo(() => {
     return getDefaultExecutorProfile({
       scratchExecutorProfile,
-      latestProfileId,
+      latestProfileId: null,
       createdSessionProfiles,
       sessionId: session?.id,
       sessionExecutor: session?.executor as AgentKind | null | undefined,
@@ -338,7 +333,6 @@ export function TaskFollowUpSection({
     });
   }, [
     scratchExecutorProfile,
-    latestProfileId,
     createdSessionProfiles,
     session?.id,
     session?.executor,
@@ -565,16 +559,13 @@ export function TaskFollowUpSection({
     () => buildPromptEnhancementContext(entries),
     [entries]
   );
-  const { todos: legacyTodos } = useTodos(entries);
   const todos = useMemo(
     () =>
-      conversationPlanEntries.length > 0
-        ? conversationPlanEntries.map((entry) => ({
-            ...entry,
-            priority: entry.priority ?? null,
-          }))
-        : legacyTodos,
-    [conversationPlanEntries, legacyTodos]
+      conversationPlanEntries.map((entry) => ({
+        ...entry,
+        priority: entry.priority ?? null,
+      })),
+    [conversationPlanEntries]
   );
   const hasPendingApproval = useMemo(
     () => hasPendingToolApproval(entries),

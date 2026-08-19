@@ -28,12 +28,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-// v11 replaces stacked Plan blocks and keeps turn-less late ACP updates visible
-// on the latest turn instead of dropping them from the timeline.
-pub const CONVERSATION_PROJECTION_VERSION: u32 = 11;
+// v14 hides protocol-ack and expected companion-capability diagnostics.
+pub const CONVERSATION_PROJECTION_VERSION: u32 = 14;
 
 const AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID: &str = "notice:agent-binding-load-failed";
 const AGENT_BINDING_REBIND_NOTICE_ROW_ID: &str = "notice:agent-session-rebound";
+const ANNOUNCEMENT_ROW_PREFIX: &str = "notice:announcement:";
 
 pub struct ConversationEventAppender;
 
@@ -969,6 +969,7 @@ impl ProjectionFold {
                                 .into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     }
                 } else {
                     ConversationSessionNotice {
@@ -977,6 +978,7 @@ impl ProjectionFold {
                             "VibeX 无法读取其中一条历史记录，其余会话内容不受影响。".into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     }
                 };
                 let row = side_row(
@@ -1458,12 +1460,14 @@ impl ProjectionFold {
                                 .into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     },
                     SessionLoadFailureReason::AuthenticationRequired { message } => {
                         ConversationSessionNotice {
                             title: "需要重新认证".into(),
                             message: Some(message),
                             severity: "error".into(),
+                            ..Default::default()
                         }
                     }
                     SessionLoadFailureReason::Unsupported => ConversationSessionNotice {
@@ -1473,6 +1477,7 @@ impl ProjectionFold {
                                 .into(),
                         ),
                         severity: "warning".into(),
+                        ..Default::default()
                     },
                     SessionLoadFailureReason::Other { message } => ConversationSessionNotice {
                         title: "加载代理会话失败".into(),
@@ -1480,6 +1485,7 @@ impl ProjectionFold {
                             "{message} 确认重新绑定后将冷启动，不会保留 Agent 侧上下文。"
                         )),
                         severity: "warning".into(),
+                        ..Default::default()
                     },
                 };
                 side_rows.retain(|row| row.row_id != AGENT_BINDING_LOAD_FAILURE_NOTICE_ROW_ID);
@@ -1523,6 +1529,7 @@ impl ProjectionFold {
                                         .into(),
                                 ),
                                 severity: "warning".into(),
+                                ..Default::default()
                             },
                         },
                     });
@@ -1536,6 +1543,7 @@ impl ProjectionFold {
                             title: "Agent session recovery failed".into(),
                             message: Some(reason),
                             severity: "error".into(),
+                            ..Default::default()
                         },
                     },
                 ));
@@ -1549,18 +1557,40 @@ impl ProjectionFold {
                                 title: "Agent configuration changed".into(),
                                 message: reason,
                                 severity: "info".into(),
+                                ..Default::default()
                             },
                         },
                     ));
                 }
             }
             ConversationEvent::RawDiagnosticRecorded { label, payload } => {
-                side_rows.push(side_row(
-                    record.sequence,
-                    ConversationTimelineRow::SessionNotice {
-                        notice: diagnostic_session_notice(&label, payload.as_ref()),
-                    },
-                ));
+                if let Some(notice) = diagnostic_session_notice(&label, payload.as_ref()) {
+                    side_rows.push(side_row(
+                        record.sequence,
+                        ConversationTimelineRow::SessionNotice { notice },
+                    ));
+                }
+            }
+            ConversationEvent::AnnouncementsUpdated { notices, .. } => {
+                let stale: Vec<String> = side_rows
+                    .iter()
+                    .filter(|row| row.row_id.starts_with(ANNOUNCEMENT_ROW_PREFIX))
+                    .map(|row| row.row_id.clone())
+                    .collect();
+                side_rows.retain(|row| !row.row_id.starts_with(ANNOUNCEMENT_ROW_PREFIX));
+                for row_id in stale {
+                    deleted_rows.push(ConversationRowOp::Delete {
+                        row_id,
+                        revision: record.sequence,
+                    });
+                }
+                for notice in notices {
+                    side_rows.push(TimelineRow {
+                        row_id: announcement_row_id(&notice, record.sequence),
+                        revision: record.sequence,
+                        row: ConversationTimelineRow::SessionNotice { notice },
+                    });
+                }
             }
             ConversationEvent::TurnBlocked { reason } => {
                 if let agents::conversation::TurnBlockedReason::Authentication { message } = reason
@@ -1791,8 +1821,18 @@ fn row_id_for(row: &ConversationTimelineRow, sequence: i64) -> String {
             Some(turn_id) => format!("err:{turn_id}:{sequence}"),
             None => format!("err:{sequence}"),
         },
-        ConversationTimelineRow::SessionNotice { .. } => format!("notice:{sequence}"),
+        ConversationTimelineRow::SessionNotice { notice } => announcement_row_id(notice, sequence),
     }
+}
+
+fn announcement_row_id(notice: &ConversationSessionNotice, sequence: i64) -> String {
+    notice
+        .announcement_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| format!("{ANNOUNCEMENT_ROW_PREFIX}{id}"))
+        .unwrap_or_else(|| format!("notice:{sequence}"))
 }
 
 /// Wrap a freshly-produced side row with its row_id + revision (= the producing
@@ -1869,35 +1909,25 @@ enum ParsedEvent {
 fn diagnostic_session_notice(
     label: &str,
     payload: Option<&serde_json::Value>,
-) -> ConversationSessionNotice {
+) -> Option<ConversationSessionNotice> {
     let kind = payload
         .and_then(|value| value.get("kind"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or(label);
     match kind {
-        "session_config_override_skipped" => ConversationSessionNotice {
+        "session_config_override_skipped" => Some(ConversationSessionNotice {
             title: "会话配置未应用".into(),
             message: payload.and_then(skipped_override_message),
             severity: "warning".into(),
-        },
-        "user_message_acknowledged" => ConversationSessionNotice {
-            title: "用户消息已确认".into(),
-            message: payload.and_then(user_message_preview),
-            severity: "info".into(),
-        },
-        "ext_notification" => ConversationSessionNotice {
-            title: "未识别的代理通知".into(),
-            message: payload
-                .and_then(|value| value.get("method"))
-                .and_then(serde_json::Value::as_str)
-                .map(ToOwned::to_owned),
-            severity: "info".into(),
-        },
-        _ => ConversationSessionNotice {
+            ..Default::default()
+        }),
+        "user_message_acknowledged" | "companion_capability" | "ext_notification" => None,
+        _ => Some(ConversationSessionNotice {
             title: "未识别的会话更新".into(),
             message: Some(label.to_string()),
             severity: "info".into(),
-        },
+            ..Default::default()
+        }),
     }
 }
 
@@ -1907,15 +1937,6 @@ fn skipped_override_message(payload: &serde_json::Value) -> Option<String> {
         .get("requested")
         .and_then(serde_json::Value::as_str)?;
     Some(format!("{reason}: {requested}"))
-}
-
-fn user_message_preview(payload: &serde_json::Value) -> Option<String> {
-    payload
-        .get("preview")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|preview| !preview.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn conversation_event_from_record(record: &ConversationEventRecord) -> ParsedEvent {
@@ -2069,6 +2090,29 @@ mod tests {
         .await
         .expect("create turn");
         (conversation_id, turn.id)
+    }
+
+    fn diagnostic_record(
+        conversation_id: Uuid,
+        sequence: i64,
+        event: &ConversationEvent,
+    ) -> ConversationEventRecord {
+        ConversationEventRecord {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: None,
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            sequence,
+            source: "acp".into(),
+            event_kind: "raw_diagnostic_recorded".into(),
+            event_version: CURRENT_EVENT_VERSION,
+            normalized_json: serde_json::to_string(event).expect("diagnostic json"),
+            raw_json: None,
+            idempotency_key: None,
+            created_at: chrono::Utc::now(),
+        }
     }
 
     #[tokio::test]
@@ -2573,6 +2617,159 @@ mod tests {
         );
     }
 
+    #[test]
+    fn unrecognized_ext_notifications_are_not_timeline_notices() {
+        let conversation_id = Uuid::new_v4();
+        let ext = ConversationEvent::RawDiagnosticRecorded {
+            label: "ext_notification".into(),
+            payload: Some(serde_json::json!({
+                "kind": "ext_notification",
+                "method": "x.ai/announcements/update",
+            })),
+        };
+        let skipped = ConversationEvent::RawDiagnosticRecorded {
+            label: "session_config_override_skipped".into(),
+            payload: Some(serde_json::json!({
+                "kind": "session_config_override_skipped",
+                "reason": "config_choice_not_found",
+                "requested": "model=missing",
+            })),
+        };
+        let user_ack = ConversationEvent::RawDiagnosticRecorded {
+            label: "user_message_acknowledged".into(),
+            payload: Some(serde_json::json!({
+                "kind": "user_message_acknowledged",
+                "preview": "hello",
+            })),
+        };
+        let companion = ConversationEvent::RawDiagnosticRecorded {
+            label: "companion_capability".into(),
+            payload: Some(serde_json::json!({
+                "kind": "companion_capability",
+                "code": "official_product_mcp_disabled",
+            })),
+        };
+        let timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                diagnostic_record(conversation_id, 1, &ext),
+                diagnostic_record(conversation_id, 2, &skipped),
+                diagnostic_record(conversation_id, 3, &user_ack),
+                diagnostic_record(conversation_id, 4, &companion),
+            ],
+        )
+        .expect("diagnostics should fold");
+
+        let notices: Vec<&ConversationSessionNotice> = timeline
+            .rows
+            .iter()
+            .filter_map(|row| match &row.row {
+                ConversationTimelineRow::SessionNotice { notice } => Some(notice),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            notices.len(),
+            1,
+            "protocol and capability noise must stay hidden"
+        );
+        assert_eq!(notices[0].title, "会话配置未应用");
+        assert!(notices.iter().all(|notice| {
+            notice.title != "未识别的会话更新"
+                && notice.title != "用户消息已确认"
+                && notice.title != "未识别的代理通知"
+        }));
+    }
+
+    #[test]
+    fn announcement_updates_replace_previous_banners() {
+        let conversation_id = Uuid::new_v4();
+        let first = ConversationEvent::AnnouncementsUpdated {
+            generation: 1,
+            notices: vec![ConversationSessionNotice {
+                title: "Grok CLI".into(),
+                message: Some("A new version is available.".into()),
+                severity: "info".into(),
+                announcement_id: Some("cli-update".into()),
+                action: Some(
+                    agents::conversation::ConversationNoticeAction::UpdateAgent {
+                        agent_id: AgentId::parse("grok").expect("grok"),
+                        fallback_url: Some("https://x.ai/cli/install".into()),
+                    },
+                ),
+            }],
+        };
+        let cleared = ConversationEvent::AnnouncementsUpdated {
+            generation: 2,
+            notices: Vec::new(),
+        };
+        let first_timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[ConversationEventRecord {
+                id: Uuid::new_v4(),
+                conversation_id,
+                turn_id: None,
+                binding_id: None,
+                connection_id: None,
+                prompt_id: None,
+                sequence: 1,
+                source: "acp".into(),
+                event_kind: "announcements_updated".into(),
+                event_version: CURRENT_EVENT_VERSION,
+                normalized_json: serde_json::to_string(&first).expect("first json"),
+                raw_json: None,
+                idempotency_key: None,
+                created_at: chrono::Utc::now(),
+            }],
+        )
+        .expect("first announcements");
+        assert_eq!(first_timeline.rows.len(), 1);
+        assert_eq!(
+            first_timeline.rows[0].row_id,
+            "notice:announcement:cli-update"
+        );
+
+        let cleared_timeline = ConversationProjector::project_records(
+            conversation_id,
+            &[
+                ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    sequence: 1,
+                    source: "acp".into(),
+                    event_kind: "announcements_updated".into(),
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json: serde_json::to_string(&first).expect("first json"),
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: chrono::Utc::now(),
+                },
+                ConversationEventRecord {
+                    id: Uuid::new_v4(),
+                    conversation_id,
+                    turn_id: None,
+                    binding_id: None,
+                    connection_id: None,
+                    prompt_id: None,
+                    sequence: 2,
+                    source: "acp".into(),
+                    event_kind: "announcements_updated".into(),
+                    event_version: CURRENT_EVENT_VERSION,
+                    normalized_json: serde_json::to_string(&cleared).expect("cleared json"),
+                    raw_json: None,
+                    idempotency_key: None,
+                    created_at: chrono::Utc::now(),
+                },
+            ],
+        )
+        .expect("cleared announcements");
+        assert!(cleared_timeline.rows.is_empty());
+    }
+
     #[tokio::test]
     async fn stale_snapshot_version_replays_events_instead_of_cached_notices() {
         let pool = setup_pool().await;
@@ -2612,6 +2809,7 @@ mod tests {
                     title: "cached stale notice".into(),
                     message: None,
                     severity: "warning".into(),
+                    ..Default::default()
                 },
             },
         ));

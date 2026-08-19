@@ -75,6 +75,7 @@ pub struct IssuedPairingInvitation {
     pub preset: String,
     pub reachability: Vec<ReachabilityOrigin>,
     pub invitation: String,
+    pub connection_code: String,
 }
 
 impl IssuedPairingInvitation {
@@ -82,14 +83,38 @@ impl IssuedPairingInvitation {
         Self {
             host_id: payload.host_id.clone(),
             pairing_id: challenge.pairing_id,
-            pairing_token: challenge.pairing_token,
+            pairing_token: challenge.pairing_token.clone(),
             expires_at: challenge.expires_at,
             requested_scopes: challenge.requested_scopes,
             preset: payload.preset.clone(),
             reachability: payload.reachability.clone(),
             invitation: payload.encode(),
+            connection_code: challenge.pairing_token,
         }
     }
+}
+
+/// Eight-character Host console code for manual pairing. Unambiguous alphabet.
+pub const CONNECTION_CODE_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+pub const CONNECTION_CODE_LEN: usize = 8;
+
+pub fn issue_connection_code() -> String {
+    uuid::Uuid::new_v4()
+        .as_bytes()
+        .iter()
+        .take(CONNECTION_CODE_LEN)
+        .map(|byte| {
+            CONNECTION_CODE_ALPHABET[(*byte as usize) % CONNECTION_CODE_ALPHABET.len()] as char
+        })
+        .collect()
+}
+
+pub fn is_connection_code(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.len() == CONNECTION_CODE_LEN
+        && trimmed
+            .bytes()
+            .all(|byte| CONNECTION_CODE_ALPHABET.contains(&byte.to_ascii_uppercase()))
 }
 
 pub fn is_loopback_origin(origin: &str) -> bool {

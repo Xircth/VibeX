@@ -32,7 +32,7 @@ struct InstalledComponentDiagnostic {
 }
 
 pub(super) async fn collect(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &AppState,
     agent_id: AgentId,
 ) -> Result<AgentEnvironmentDiagnosticsView, AgentManagementErrorView> {
@@ -78,11 +78,6 @@ pub(super) async fn collect(
     let target_on_app_path = resolve_on_current_path(target_command).await;
     let terminal = terminal_path_probe(target_command, &app_path_entries).await;
     let installed_components = installed_components(&state.deployment.db().pool, &agent_id).await?;
-    let managed_uv = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .and_then(|app_data_dir| managed_uv_executable(&app_data_dir));
 
     let mut runtime_checks = vec![
         check(
@@ -129,21 +124,7 @@ pub(super) async fn collect(
     let mut dependency_checks = Vec::with_capacity(profile.dependencies.len());
     let mut missing_required_dependency = false;
     for dependency in profile.dependencies {
-        let mut path = resolve_on_current_path(dependency.executable).await;
-        let managed = if path.is_none() && dependency.executable == "uv" {
-            if let Some(candidate) = managed_uv.as_ref()
-                && tokio::fs::metadata(candidate)
-                    .await
-                    .is_ok_and(|metadata| metadata.is_file())
-            {
-                path = Some(candidate.clone());
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        let path = resolve_on_current_path(dependency.executable).await;
         let version = match path.as_ref() {
             Some(path) => probe_first_output_line(path, dependency.version_args).await,
             None => None,
@@ -164,10 +145,6 @@ pub(super) async fn collect(
             AgentEnvironmentDiagnosticLevel::Warning
         };
         let value = match (version, path) {
-            (Some(version), Some(path)) if managed => {
-                format!("{version} (managed · {})", path.display())
-            }
-            (None, Some(path)) if managed => format!("managed · {}", path.display()),
             (Some(version), Some(path)) => format!("{version} ({})", path.display()),
             (None, Some(path)) => path.display().to_string(),
             _ => format!("NOT FOUND · {}", dependency.requirement),
@@ -226,7 +203,7 @@ pub(super) async fn collect(
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| {
                 if managed_launchable {
-                    "managed installation lock".to_string()
+                    "user environment".to_string()
                 } else {
                     "NOT RESOLVED".to_string()
                 }

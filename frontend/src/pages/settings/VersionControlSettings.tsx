@@ -30,7 +30,6 @@ import {
 } from '@/lib/api';
 import {
   SettingsActionBar,
-  SettingsPageHeader,
   SettingsSection,
 } from './SettingsUi';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
@@ -381,11 +380,6 @@ export function VersionControlSettings() {
 
   return (
     <div className="settings-content">
-      <SettingsPageHeader
-        title={t('versionControl.title')}
-        description={t('versionControl.description')}
-      />
-
       <div className="settings-sections">
         <SettingsSection
           icon={TerminalSquare}

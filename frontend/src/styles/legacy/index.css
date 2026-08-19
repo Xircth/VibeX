@@ -1,3 +1,4 @@
+@config '../../../tailwind.legacy.config.js';
 @import '../fonts.css';
 
 @tailwind base;

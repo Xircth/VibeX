@@ -604,12 +604,13 @@ impl ServerApplicationDomains {
             .get_by_id(&self.pool, args.repo_id)
             .await
             .map_err(internal_error)?;
-        serialize(
-            self.deployment
-                .git()
-                .get_all_branches(&repo.path)
-                .map_err(internal_error)?,
-        )
+        let git = self.deployment.git().clone();
+        let repo_path = repo.path.clone();
+        let branches = tokio::task::spawn_blocking(move || git.get_all_branches(&repo_path))
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .map_err(internal_error)?;
+        serialize(branches)
     }
 
     async fn agent_management_bar(&self) -> Result<Value, ApplicationError> {

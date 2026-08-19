@@ -16,8 +16,26 @@ use crate::{AgentRuntimeLaunchSettings, ConversationHost, ConversationServiceErr
 
 /// Product-owned host behavior shared by the desktop and headless composition
 /// roots. All executable paths come from the persisted installation lock.
-#[derive(Debug, Default)]
-pub struct DefaultConversationHost;
+#[derive(Default)]
+pub struct DefaultConversationHost {
+    product_mcp_server_names: Option<std::sync::Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
+}
+
+impl std::fmt::Debug for DefaultConversationHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DefaultConversationHost").finish()
+    }
+}
+
+impl DefaultConversationHost {
+    pub fn with_product_mcp_server_names(
+        names: std::sync::Arc<dyn Fn() -> Vec<String> + Send + Sync>,
+    ) -> Self {
+        Self {
+            product_mcp_server_names: Some(names),
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl ConversationHost for DefaultConversationHost {
@@ -60,6 +78,13 @@ impl ConversationHost for DefaultConversationHost {
         agent_id: &AgentId,
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError> {
         resolve_agent_runtime_launch_settings(pool, agent_id).await
+    }
+
+    fn product_mcp_server_names(&self) -> Vec<String> {
+        self.product_mcp_server_names
+            .as_ref()
+            .map(|resolve| resolve())
+            .unwrap_or_default()
     }
 }
 
@@ -597,7 +622,7 @@ mod tests {
         std::fs::write(&secret, b"not for the workspace").expect("secret");
         symlink(&secret, workspace.path().join("linked.png")).expect("symlink");
 
-        let error = DefaultConversationHost
+        let error = DefaultConversationHost::default()
             .build_prompt_blocks(
                 workspace.path().to_str().expect("utf8 path"),
                 String::new(),
@@ -615,7 +640,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("workspace");
         std::fs::write(workspace.path().join("notes.md"), b"hello").expect("write");
 
-        let blocks = DefaultConversationHost
+        let blocks = DefaultConversationHost::default()
             .build_prompt_blocks(
                 workspace.path().to_str().expect("utf8 path"),
                 "see this".to_string(),
@@ -643,7 +668,7 @@ mod tests {
     #[tokio::test]
     async fn prompt_blocks_reject_missing_file_refs() {
         let workspace = tempfile::tempdir().expect("workspace");
-        let error = DefaultConversationHost
+        let error = DefaultConversationHost::default()
             .build_prompt_blocks(
                 workspace.path().to_str().expect("utf8 path"),
                 "see this".to_string(),
@@ -731,7 +756,7 @@ mod working_dir_tests {
             expected
         );
         assert_eq!(
-            DefaultConversationHost
+            DefaultConversationHost::default()
                 .resolve_working_dir(&workspace, container, std::slice::from_ref(&repo))
                 .as_deref(),
             Some(expected.as_str())

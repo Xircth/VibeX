@@ -209,3 +209,58 @@ async fn attach_accepts_the_dedicated_remote_scope_without_general_read_access()
 
     assert!(bootstrap.ready);
 }
+
+#[tokio::test]
+async fn attach_skips_event_reload_when_already_caught_up() {
+    let options = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("sqlite options")
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("memory database");
+    sqlx::migrate!("../db/migrations")
+        .run(&pool)
+        .await
+        .expect("migrations");
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&pool)
+        .await
+        .expect("focused fixture");
+    let conversation_id = Uuid::new_v4();
+    ConversationEventRecord::append(
+        &pool,
+        AppendConversationEvent {
+            id: Uuid::new_v4(),
+            conversation_id,
+            turn_id: None,
+            binding_id: None,
+            connection_id: None,
+            prompt_id: None,
+            source: "host",
+            event_kind: "turn_started",
+            normalized_json: r#"{"kind":"turn_started"}"#,
+            raw_json: None,
+            idempotency_key: None,
+        },
+    )
+    .await
+    .expect("append event");
+
+    let core = ApplicationCore::new(SqliteConversationRepository::new(pool));
+    let bootstrap = core
+        .attach_conversation(
+            &Principal::local_desktop(),
+            SubscriptionId::new(),
+            ConversationId::from_uuid(conversation_id),
+            1,
+            &ReadySubscriptions,
+        )
+        .await
+        .expect("caught-up attach");
+
+    assert!(bootstrap.replay.is_empty());
+    assert!(bootstrap.snapshot.is_none());
+    assert_eq!(bootstrap.high_water_mark, 1);
+}

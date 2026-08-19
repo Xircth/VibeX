@@ -829,7 +829,8 @@ impl RetentionStorePort for SqliteAutomationStore {
              JOIN automations a ON a.id = r.automation_id
              LEFT JOIN workspaces w ON w.id = r.worktree_workspace_id
              WHERE r.status <> 'running'
-             ORDER BY COALESCE(r.finished_at, r.started_at) ASC, r.id ASC",
+             ORDER BY COALESCE(r.finished_at, r.started_at) ASC, r.id ASC
+             LIMIT 100",
         )
         .fetch_all(&self.pool)
         .await

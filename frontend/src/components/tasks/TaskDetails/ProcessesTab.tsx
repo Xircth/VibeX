@@ -11,10 +11,9 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { executionProcessesApi } from '@/lib/api';
-import { ProfileVariantBadge } from '@/components/common/ProfileVariantBadge.tsx';
 import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useLogStream } from '@/hooks/useLogStream';
-import { extractProfileFromAction } from '@/utils/executor';
+
 import { ProcessLogsViewerContent } from './ProcessLogsViewer';
 import type { ExecutionProcessStatus, ExecutionProcess } from 'shared/types';
 
@@ -218,22 +217,7 @@ function ProcessesTab({ sessionId }: ProcessesTabProps) {
                             {t('processesTab.dropped')}
                           </span>
                         )}
-                        {
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {t('processesTab.agentLabel')}{' '}
-                            {(() => {
-                              const profileVariant = extractProfileFromAction(
-                                process.executor_action ?? null
-                              );
 
-                              return profileVariant ? (
-                                <ProfileVariantBadge
-                                  profileVariant={profileVariant}
-                                />
-                              ) : null;
-                            })()}
-                          </p>
-                        }
                       </div>
                     </div>
                     <div className="text-right">

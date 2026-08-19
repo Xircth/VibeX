@@ -34,7 +34,12 @@ import {
 import { TurnFileChangesCard } from '@/components/NormalizedConversation/TurnFileChangesCard';
 import { PermissionRequestCard } from '@/components/NormalizedConversation/conversation/PermissionRequestCard';
 import { QuestionRequestCard } from '@/components/NormalizedConversation/conversation/QuestionRequestCard';
+import { SessionNoticeActions } from '@/components/tasks/follow-up/SessionNoticeActions';
 import { DelegationCard } from '@/components/NormalizedConversation/conversation/DelegationCard';
+import {
+  hostDelegationToolUseIds,
+  shouldInlineDelegationSideRow,
+} from '@/components/NormalizedConversation/conversation/hostDelegation';
 import { SubagentLifecycleProvider } from '@/components/NormalizedConversation/tools/SubagentLifecycleContext';
 import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/TurnErrorCard';
 import { ArtifactTimelineCard } from '@/components/NormalizedConversation/ArtifactTimelineCard';
@@ -369,6 +374,11 @@ function InlineTimelineSideRow({
               {copy.message}
             </div>
           ) : null}
+          {row.notice.action ? (
+            <div className="mt-2">
+              <SessionNoticeActions action={row.notice.action} />
+            </div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -437,6 +447,17 @@ const AgentTimelineConversation = forwardRef<
   const detailLoading = conversation.loading;
   const conversationError = conversation.error;
   const sideRows = conversation.sideRows;
+  const hostDelegationIds = useMemo(
+    () => hostDelegationToolUseIds(timeline.map((item) => item.turn)),
+    [timeline]
+  );
+  const delegations = useMemo(
+    () =>
+      sideRows.flatMap((row) =>
+        row.row.kind === 'delegation' ? [row.row.delegation] : []
+      ),
+    [sideRows]
+  );
   const timelineItems = useMemo(
     () =>
       conversation.items.filter((item) => {
@@ -446,6 +467,15 @@ const AgentTimelineConversation = forwardRef<
           kind === 'permission_request' ||
           kind === 'turn_error' ||
           kind === 'file_change_summary'
+        ) {
+          return false;
+        }
+        if (
+          kind === 'delegation' &&
+          !shouldInlineDelegationSideRow(
+            item.row.row.delegation.parent_tool_call_id,
+            hostDelegationIds
+          )
         ) {
           return false;
         }
@@ -459,7 +489,7 @@ const AgentTimelineConversation = forwardRef<
         }
         return true;
       }),
-    [conversation.items, usesComposerStatusDock]
+    [conversation.items, hostDelegationIds, usesComposerStatusDock]
   );
   const { dismiss: dismissStatus, isDismissed: isStatusDismissed } =
     useConversationStatusDismissal(sessionId);
@@ -1325,6 +1355,8 @@ const AgentTimelineConversation = forwardRef<
                                 : undefined
                             }
                             collapseProcess={collapseProcess}
+                            delegations={delegations}
+                            onOpenChild={handleOpenChild}
                             showInterruptedNotice={!usesComposerStatusDock}
                             contextCompact={contextCompactPresentationForRow(
                               timeline,

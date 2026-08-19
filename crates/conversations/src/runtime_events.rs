@@ -822,6 +822,13 @@ fn map_agent_event(
             label: diagnostic_label(raw),
             payload: Some(raw.clone()),
         }),
+        AgentEvent::AnnouncementsUpdated {
+            generation,
+            notices,
+        } => Some(ConversationEvent::AnnouncementsUpdated {
+            generation: *generation,
+            notices: notices.clone(),
+        }),
         AgentEvent::SessionCreated { .. }
         | AgentEvent::PromptStarted { .. }
         | AgentEvent::ModeChanged { .. }
@@ -900,7 +907,8 @@ fn conversation_event_source(event: &AgentEvent) -> &'static str {
         | AgentEvent::SessionInfoUpdated { .. }
         | AgentEvent::TurnCompleted { .. }
         | AgentEvent::PromptFinished { .. }
-        | AgentEvent::RawAcpDiagnostic { .. } => "acp",
+        | AgentEvent::RawAcpDiagnostic { .. }
+        | AgentEvent::AnnouncementsUpdated { .. } => "acp",
         _ => "runtime",
     }
 }
@@ -1060,6 +1068,31 @@ mod tests {
             }),
             "acp"
         );
+    }
+
+    #[test]
+    fn grok_announcements_are_persisted_as_typed_events() {
+        let envelope = envelope(AgentEvent::AnnouncementsUpdated {
+            generation: 3,
+            notices: vec![agents::conversation::ConversationSessionNotice {
+                title: "Grok CLI".into(),
+                message: Some("A new version is available.".into()),
+                severity: "info".into(),
+                announcement_id: Some("cli-update".into()),
+                action: Some(
+                    agents::conversation::ConversationNoticeAction::UpdateAgent {
+                        agent_id: agents::AgentId::parse("grok").expect("grok"),
+                        fallback_url: None,
+                    },
+                ),
+            }],
+        });
+        assert_eq!(conversation_event_source(&envelope.event), "acp");
+        assert!(matches!(
+            map_agent_event(&envelope, Some(Uuid::new_v4())),
+            Some(ConversationEvent::AnnouncementsUpdated { generation, notices })
+                if generation == 3 && notices.len() == 1 && notices[0].title == "Grok CLI"
+        ));
     }
 
     #[test]

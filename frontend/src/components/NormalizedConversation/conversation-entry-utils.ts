@@ -26,7 +26,7 @@ import type {
   BaseDisplayEntry,
   DisplayEntry,
   PatchTypeWithKey,
-} from '@/hooks/useConversationHistory/types';
+} from '@/hooks/conversationEntries';
 import type { ScriptType } from '@/components/dialogs/scripts/ScriptFixerDialog';
 import i18n from '@/i18n';
 import { listDirPath } from './tools/toolDirListing';

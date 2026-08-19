@@ -1,12 +1,25 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { UpdateAvailableBadge } from './UpdateAvailableBadge';
 
-const checkMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  checkAppUpdate: vi.fn(),
+  readCachedAppUpdate: vi.fn(),
+  subscribeAppUpdate: vi.fn(() => () => undefined),
+  autoUpdateEnabled: true,
+}));
 
-vi.mock('@tauri-apps/plugin-updater', () => ({
-  check: checkMock,
+vi.mock('@/lib/appUpdate', () => ({
+  checkAppUpdate: (...args: unknown[]) => mocks.checkAppUpdate(...args),
+  readCachedAppUpdate: () => mocks.readCachedAppUpdate(),
+  subscribeAppUpdate: (...args: unknown[]) => mocks.subscribeAppUpdate(...args),
+}));
+
+vi.mock('@/components/ConfigProvider', () => ({
+  useUserSystem: () => ({
+    config: { auto_update_enabled: mocks.autoUpdateEnabled },
+  }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -19,27 +32,28 @@ vi.mock('react-router-dom', () => ({
 
 describe('UpdateAvailableBadge', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
     vi.clearAllMocks();
+    mocks.autoUpdateEnabled = true;
+    mocks.readCachedAppUpdate.mockReturnValue(null);
+    mocks.checkAppUpdate.mockResolvedValue({ update: null });
   });
 
-  it('does not contact the updater endpoint in a development build', async () => {
-    vi.stubEnv('DEV', true);
+  it('does not check when automatic updates are disabled', async () => {
+    mocks.autoUpdateEnabled = false;
 
     render(<UpdateAvailableBadge />);
-    await act(async () => {
-      await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mocks.checkAppUpdate).not.toHaveBeenCalled();
+  });
+
+  it('uses the shared update check when automatic updates are on', async () => {
+    mocks.checkAppUpdate.mockResolvedValue({
+      update: { version: '0.1.3' },
     });
 
-    expect(checkMock).not.toHaveBeenCalled();
-  });
-
-  it('checks for updates in a packaged build', async () => {
-    vi.stubEnv('DEV', false);
-    checkMock.mockResolvedValue(null);
-
     render(<UpdateAvailableBadge />);
 
-    await waitFor(() => expect(checkMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.checkAppUpdate).toHaveBeenCalledOnce());
   });
 });

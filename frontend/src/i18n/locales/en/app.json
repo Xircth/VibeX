@@ -113,6 +113,7 @@
     "closeBehaviorMinimize": "Minimize",
     "appUpdateAvailable": "VibeX {{version}} is available to update.",
     "openReleasePage": "Open release page",
+    "viewUpdate": "View update",
     "agentRuntimeSetupRequired": "{{agents}} has a missing or incompatible local Agent Runtime or ACP. Open Agent Settings to check, install, or update it.",
     "openAgentSettings": "Open Agent Settings"
   },

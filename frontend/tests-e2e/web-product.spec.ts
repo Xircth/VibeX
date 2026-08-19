@@ -47,7 +47,7 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
   await page.getByRole('button', { name: /Devices|设备/ }).click();
   await page
     .getByRole('button', {
-      name: /Show invitation|出示邀请|Create device pairing|创建设备配对/,
+      name: /Generate connection code|生成连接码|Show invitation|出示邀请/,
     })
     .click();
   await expect(

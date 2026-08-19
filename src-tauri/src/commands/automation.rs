@@ -598,21 +598,25 @@ pub fn start_automation_engine(app: AppHandle) {
         let service = engine.with_claim_store(automation_store, SystemClock);
         let mut interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut next_retention = std::time::Instant::now();
         loop {
             interval.tick().await;
             if let Err(error) = reconcile_running_turns(&app).await {
                 tracing::warn!("automation terminal reconciliation failed: {error}");
             }
-            let retention = AutomationRetentionService::new(
-                {
-                    let state = app.state::<AppState>();
-                    store(state.inner())
-                },
-                TauriRetentionWorkspaces { app: app.clone() },
-                RetentionPolicy::default(),
-            );
-            if let Err(error) = retention.enforce(Utc::now()).await {
-                tracing::warn!("automation retention failed: {error}");
+            if std::time::Instant::now() >= next_retention {
+                let retention = AutomationRetentionService::new(
+                    {
+                        let state = app.state::<AppState>();
+                        store(state.inner())
+                    },
+                    TauriRetentionWorkspaces { app: app.clone() },
+                    RetentionPolicy::default(),
+                );
+                if let Err(error) = retention.enforce(Utc::now()).await {
+                    tracing::warn!("automation retention failed: {error}");
+                }
+                next_retention = std::time::Instant::now() + Duration::from_secs(60 * 60);
             }
             match service.tick().await {
                 Ok(claimed) => {

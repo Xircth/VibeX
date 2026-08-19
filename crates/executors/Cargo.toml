@@ -16,17 +16,14 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 ts-rs = { workspace = true }
 schemars = { workspace = true }
-async-trait = { workspace = true } 
 command-group = { workspace = true }
 regex = { workspace = true }
 json-patch = { workspace = true }
 thiserror = { workspace = true }
-enum_dispatch = "0.3.13"
 futures-io = "0.3.31"
 futures = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-convert_case = "0.6"
 sqlx = { version = "0.8.6", default-features = false, features = ["derive"] }
 shlex = "1.3.0"
 

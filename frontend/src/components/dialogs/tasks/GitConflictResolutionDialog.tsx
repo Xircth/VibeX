@@ -14,12 +14,8 @@ import {
 import { defineModal } from '@/lib/modals';
 import { buildResolveConflictsInstructions } from '@/lib/conflicts';
 import { useTaskAttemptWithSession } from '@/hooks/useTaskAttempt';
-import { useExecutionProcesses } from '@/hooks/useExecutionProcesses';
 import { useUserSystem } from '@/components/ConfigProvider';
-import {
-  getFirstAvailableProfile,
-  getLatestProfileFromProcesses,
-} from '@/utils/executor';
+import { getFirstAvailableProfile } from '@/utils/executor';
 import { sessionsApi } from '@/lib/api';
 import { sendAgentRuntimeTurn } from '@/features/agents/sendAgentRuntimeTurn';
 import { useQueryClient } from '@tanstack/react-query';
@@ -51,9 +47,6 @@ const GitConflictResolutionDialogImpl =
       const queryClient = useQueryClient();
       const { config, profiles } = useUserSystem();
       const { data: attempt } = useTaskAttemptWithSession(workspaceId);
-      const { executionProcesses } = useExecutionProcesses(
-        attempt?.session?.id
-      );
       const [isSending, setIsSending] = useState(false);
       const [isCopying, setIsCopying] = useState(false);
       const [error, setError] = useState<string | null>(null);
@@ -71,8 +64,6 @@ const GitConflictResolutionDialogImpl =
       );
 
       const executorProfile = useMemo<ExecutorProfileId | null>(() => {
-        const latestProfile = getLatestProfileFromProcesses(executionProcesses);
-        if (latestProfile) return latestProfile;
         if (attempt?.session?.executor) {
           return {
             executor: attempt.session.executor as AgentKind,
@@ -84,7 +75,6 @@ const GitConflictResolutionDialogImpl =
       }, [
         attempt?.session?.executor,
         config?.executor_profile,
-        executionProcesses,
         profiles,
       ]);
 

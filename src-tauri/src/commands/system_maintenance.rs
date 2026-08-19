@@ -1,5 +1,6 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf, time::Duration};
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
@@ -13,32 +14,64 @@ pub struct AppReleaseStatus {
     pub repository: Option<String>,
     pub checked: bool,
     pub error: Option<String>,
+    pub body: Option<String>,
+    pub published_at: Option<String>,
+    pub checked_at: String,
 }
 
-const DEFAULT_UPDATE_REPOSITORY: &str = "vibex/vibex";
+const DEFAULT_UPDATE_REPOSITORY: &str = "Xircth/VibeX";
+const RELEASE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[tauri::command]
 pub async fn check_app_release() -> Result<AppReleaseStatus, AppError> {
     Ok(check_latest_release().await)
 }
 
+fn checked_at_now() -> String {
+    Utc::now().to_rfc3339()
+}
+
+fn empty_status(
+    current_version: String,
+    repository: Option<String>,
+    error: Option<String>,
+) -> AppReleaseStatus {
+    AppReleaseStatus {
+        current_version,
+        latest_version: None,
+        update_available: false,
+        release_url: None,
+        repository,
+        checked: false,
+        error,
+        body: None,
+        published_at: None,
+        checked_at: checked_at_now(),
+    }
+}
+
 async fn check_latest_release() -> AppReleaseStatus {
     let current_version = utils::version::APP_VERSION.to_string();
     let repository = update_repository();
     let Some(repository) = repository else {
-        return AppReleaseStatus {
+        return empty_status(
             current_version,
-            latest_version: None,
-            update_available: false,
-            release_url: None,
-            repository: None,
-            checked: false,
-            error: Some("No GitHub repository configured for release checks".to_string()),
-        };
+            None,
+            Some("No GitHub repository configured for release checks".to_string()),
+        );
     };
 
     let url = format!("https://api.github.com/repos/{repository}/releases/latest");
-    let response = match reqwest::Client::new()
+    let client = match reqwest::Client::builder()
+        .timeout(RELEASE_CHECK_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            return empty_status(current_version, Some(repository), Some(error.to_string()));
+        }
+    };
+    let response = match client
         .get(url)
         .header(reqwest::header::USER_AGENT, "VibeX")
         .send()
@@ -46,55 +79,41 @@ async fn check_latest_release() -> AppReleaseStatus {
     {
         Ok(response) => response,
         Err(error) => {
-            return AppReleaseStatus {
-                current_version,
-                latest_version: None,
-                update_available: false,
-                release_url: None,
-                repository: Some(repository),
-                checked: false,
-                error: Some(error.to_string()),
-            };
+            return empty_status(current_version, Some(repository), Some(error.to_string()));
         }
     };
 
     if !response.status().is_success() {
-        return AppReleaseStatus {
+        return empty_status(
             current_version,
-            latest_version: None,
-            update_available: false,
-            release_url: None,
-            repository: Some(repository),
-            checked: false,
-            error: Some(format!(
+            Some(repository),
+            Some(format!(
                 "GitHub release check returned {}",
                 response.status()
             )),
-        };
+        );
     }
 
     #[derive(Deserialize)]
     struct GitHubRelease {
         tag_name: String,
         html_url: String,
+        body: Option<String>,
+        published_at: Option<String>,
     }
 
     let release = match response.json::<GitHubRelease>().await {
         Ok(release) => release,
         Err(error) => {
-            return AppReleaseStatus {
-                current_version,
-                latest_version: None,
-                update_available: false,
-                release_url: None,
-                repository: Some(repository),
-                checked: false,
-                error: Some(error.to_string()),
-            };
+            return empty_status(current_version, Some(repository), Some(error.to_string()));
         }
     };
 
     let latest_version = release.tag_name.trim_start_matches('v').to_string();
+    let body = release
+        .body
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
     AppReleaseStatus {
         update_available: version_is_newer(&latest_version, &current_version),
         current_version,
@@ -103,6 +122,9 @@ async fn check_latest_release() -> AppReleaseStatus {
         repository: Some(repository),
         checked: true,
         error: None,
+        body,
+        published_at: release.published_at,
+        checked_at: checked_at_now(),
     }
 }
 
@@ -197,5 +219,37 @@ mod tests {
     fn compares_numeric_versions() {
         assert!(version_is_newer("0.10.0", "0.9.9"));
         assert!(!version_is_newer("0.9.9", "0.10.0"));
+    }
+
+    #[test]
+    fn default_repository_matches_signed_updater_feed() {
+        assert_eq!(DEFAULT_UPDATE_REPOSITORY, "Xircth/VibeX");
+    }
+
+    #[test]
+    fn parses_release_notes_and_published_at() {
+        let release: GitHubReleaseFixture = serde_json::from_value(serde_json::json!({
+            "tag_name": "v0.1.3",
+            "html_url": "https://github.com/Xircth/VibeX/releases/tag/v0.1.3",
+            "body": "## English\n\nNotes\n",
+            "published_at": "2026-08-16T00:00:00Z"
+        }))
+        .expect("github release json");
+
+        assert_eq!(release.tag_name, "v0.1.3");
+        assert!(release.html_url.contains("Xircth/VibeX"));
+        assert_eq!(release.body.as_deref(), Some("## English\n\nNotes\n"));
+        assert_eq!(
+            release.published_at.as_deref(),
+            Some("2026-08-16T00:00:00Z")
+        );
+    }
+
+    #[derive(Deserialize)]
+    struct GitHubReleaseFixture {
+        tag_name: String,
+        html_url: String,
+        body: Option<String>,
+        published_at: Option<String>,
     }
 }

@@ -7,6 +7,8 @@ import {
   foldSubagentLifecycle,
   formatSubagentDuration,
   formatTokenCount,
+  isHostDelegationLifecycleTool,
+  isHostDelegationTool,
   isNativeSubagentTool,
   shouldHideLifecycleTool,
 } from './subagentCardModel';
@@ -62,6 +64,21 @@ describe('subagent card model', () => {
     expect(
       isNativeSubagentTool(use('Task', { title: 'Write the weekly report' }))
     ).toBe(false);
+    expect(
+      isNativeSubagentTool(
+        use('delegate_to_agent', { agent_type: 'grok', task: 'look' })
+      )
+    ).toBe(false);
+    expect(
+      isHostDelegationTool(
+        use('delegate_to_agent', { agent_type: 'grok', task: 'look' })
+      )
+    ).toBe(true);
+    expect(
+      isHostDelegationLifecycleTool(
+        use('get_delegation_status', { task_ids: ['task-1'] })
+      )
+    ).toBe(true);
   });
 
   it('builds a live running card from progress metadata', () => {
@@ -198,20 +215,22 @@ describe('subagent card model', () => {
     ).toBe(true);
   });
 
-  it('reads host-mediated completion meta even after a background launch ack', () => {
-    const model = buildSubagentCardModel(
-      use(
-        'delegate_to_agent',
-        { agent_type: 'grok', task: 'Review the diff' },
-        { status: 'completed', agent_type: 'grok', duration_ms: 5400 }
-      ),
-      result('Subagent started in background.\ntask_id: task-1')
-    );
+  it('does not fold host MCP delegation onto a native subagent card', () => {
+    const spawn = use('delegate_to_agent', {
+      agent_type: 'grok',
+      task: 'Review the diff',
+    });
+    spawn.tool_use_id = 'spawn-1';
+    const poll = use('get_delegation_status', { task_ids: ['task-1'] });
+    poll.tool_use_id = 'poll-1';
+    const folded = foldSubagentLifecycle([
+      { use: spawn, result: result('{"task_id":"task-1","status":"running"}') },
+      { use: poll, result: null },
+    ]);
 
-    expect(model.status).toBe('completed');
-    expect(model.durationMs).toBe(5400);
-    expect(model.agentKind).toBe('grok');
-    expect(model.prompt).toBe('Review the diff');
+    expect(folded.cards).toHaveLength(0);
+    expect(isHostDelegationTool(spawn)).toBe(true);
+    expect(isHostDelegationLifecycleTool(poll)).toBe(true);
   });
 
   it('folds Grok poll output onto the spawn card with stats and completed status', () => {

@@ -9,16 +9,19 @@ use crate::{
     ConversationRepository, CreateChildConversationRequest, CreateConversation,
     DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand, ForkWorkflowRequest,
     ListConversationInputsRequest, ListConversationRelationsRequest, ListConversations,
-    PauseWorkflowRequest, PauseWorkflowStepRequest, Principal, PublishWorkflowRequest,
-    ReorderConversationInputRequest, RespondConversationPermission, RespondConversationQuestion,
-    ResumePausedWorkflowRequest, ResumeWorkflowRequest, StartConversationTurn,
-    StartWorkflowRequest, SteerConversationTurnRequest, SubmitConversationInputRequest,
-    SubmitWorkflowStepInputRequest, UpdateConversationInputRequest, ValidateWorkflowRequest,
+    ListRecentConversations, PauseWorkflowRequest, PauseWorkflowStepRequest, Principal,
+    PublishWorkflowRequest, ReorderConversationInputRequest, RespondConversationPermission,
+    RespondConversationQuestion, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
+    StartConversationTurn, StartWorkflowRequest, SteerConversationTurnRequest,
+    SubmitConversationInputRequest, SubmitWorkflowStepInputRequest, UpdateConversationInputRequest,
+    ValidateWorkflowRequest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegisteredCommand {
     ConversationList,
+    ConversationListRecent,
+    ConversationCatalog,
     ConversationCreate,
     ConversationChildCreate,
     ConversationOutput,
@@ -60,6 +63,8 @@ impl RegisteredCommand {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ConversationList => "conversation_list",
+            Self::ConversationListRecent => "conversation_list_recent",
+            Self::ConversationCatalog => "conversation_catalog",
             Self::ConversationCreate => "conversation_create",
             Self::ConversationChildCreate => "conversation_child_create",
             Self::ConversationOutput => "conversation_output",
@@ -105,6 +110,8 @@ impl FromStr for RegisteredCommand {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "conversation_list" => Ok(Self::ConversationList),
+            "conversation_list_recent" => Ok(Self::ConversationListRecent),
+            "conversation_catalog" => Ok(Self::ConversationCatalog),
             "conversation_create" => Ok(Self::ConversationCreate),
             "conversation_child_create" => Ok(Self::ConversationChildCreate),
             "conversation_output" => Ok(Self::ConversationOutput),
@@ -148,6 +155,17 @@ impl FromStr for RegisteredCommand {
 #[serde(rename_all = "camelCase")]
 struct ConversationListArgs {
     workspace_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationListRecentArgs {
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    since_days: Option<i64>,
+    #[serde(default)]
+    project_id: Option<uuid::Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -384,6 +402,58 @@ where
                             workspace_id: args.workspace_id,
                         },
                     )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationListRecent => {
+                let args = serde_json::from_value::<ConversationListRecentArgs>(args).unwrap_or(
+                    ConversationListRecentArgs {
+                        limit: None,
+                        since_days: None,
+                        project_id: None,
+                    },
+                );
+                let result = self
+                    .core
+                    .list_recent_conversations(
+                        principal,
+                        ListRecentConversations {
+                            since_days: args.since_days.unwrap_or(3),
+                            project_id: args.project_id,
+                            limit: args.limit.unwrap_or(100),
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationCatalog => {
+                let result = self
+                    .core
+                    .conversation_catalog(principal)
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();

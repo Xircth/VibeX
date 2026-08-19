@@ -5,6 +5,12 @@ import type { BackendTransport } from '@/lib/backendTransport';
 import { BackendTransportProvider } from '@/lib/transport';
 import { DelegationCard } from './DelegationCard';
 
+vi.mock('../AstryxMarkdown', () => ({
+  AstryxMarkdown: ({ value }: { value: string }) => (
+    <div data-testid="markdown">{value}</div>
+  ),
+}));
+
 function running(
   overrides: Partial<ConversationDelegationView> = {}
 ): ConversationDelegationView {
@@ -33,12 +39,23 @@ function renderCard(card: React.ReactElement) {
 }
 
 describe('DelegationCard', () => {
-  it('shows the running sub-agent with its task and agent label', () => {
+  it('shows the running host delegation with its agent mark and collapsed task', () => {
     renderCard(<DelegationCard delegation={running()} />);
 
-    expect(screen.getByText('委派给 Codex')).toBeInTheDocument();
-    expect(screen.getByText('Review the diff')).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: '委派给 Codex' })
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('host-delegation-card')).toBeInTheDocument();
+    expect(screen.getByTitle('Codex')).toBeInTheDocument();
     expect(screen.getByText('运行中')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '任务' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.queryByTestId('markdown')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '任务' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent('Review the diff');
   });
 
   it('renders the completion result preview and duration', () => {
@@ -56,8 +73,11 @@ describe('DelegationCard', () => {
     );
 
     expect(screen.getByText('已完成')).toBeInTheDocument();
-    expect(screen.getByText('All good')).toBeInTheDocument();
-    expect(screen.getByText('耗时 1.5s')).toBeInTheDocument();
+    expect(screen.getByText('耗时 1.5 秒')).toBeInTheDocument();
+    expect(screen.queryByTestId('markdown')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent('All good');
   });
 
   it('renders a failure with the real error message', () => {
@@ -74,7 +94,10 @@ describe('DelegationCard', () => {
     );
 
     expect(screen.getByText('失败')).toBeInTheDocument();
-    expect(screen.getByText('sub-agent crashed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent(
+      'sub-agent crashed'
+    );
   });
 
   it('renders a canceled delegation as canceled instead of failed', () => {
@@ -95,7 +118,10 @@ describe('DelegationCard', () => {
 
     expect(screen.getByText('已取消')).toBeInTheDocument();
     expect(screen.queryByText('失败')).toBeNull();
-    expect(screen.getByText('canceled by request')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '结果' }));
+    expect(screen.getByTestId('markdown')).toHaveTextContent(
+      'canceled by request'
+    );
   });
 
   it('opens the child transcript with the real child conversation id', () => {

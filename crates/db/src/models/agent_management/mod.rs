@@ -93,24 +93,6 @@ impl InstallationOperationRepository {
         // race to startup warmup, and then fail immediately with SQLITE_BUSY_SNAPSHOT when
         // upgraded. Claim the writer slot up front so SQLite's busy timeout can serialize it.
         let mut transaction = self.pool.begin_with("BEGIN IMMEDIATE").await?;
-        let existing_installation = sqlx::query_as::<_, (String, Option<String>)>(
-            r#"SELECT ownership, current_lock_id
-               FROM agent_installation
-               WHERE agent_id = ?"#,
-        )
-        .bind(operation.agent_id.as_str())
-        .fetch_optional(&mut *transaction)
-        .await?;
-        if existing_installation
-            .as_ref()
-            .is_some_and(|(ownership, lock_id)| ownership == "external" && lock_id.is_some())
-        {
-            return Err(
-                AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(
-                    operation.agent_id,
-                ),
-            );
-        }
         sqlx::query(
             r#"INSERT INTO agent_install_operation
                (id, agent_id, operation_kind, status, frozen_plan_json,
@@ -140,7 +122,7 @@ impl InstallationOperationRepository {
             r#"INSERT INTO agent_installation
                (agent_id, ownership, lifecycle, current_lock_id, rollback_lock_id,
                 active_operation, active_operation_id, updated_at)
-               VALUES (?, 'managed', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
+               VALUES (?, 'external', 'queued', NULL, NULL, ?, ?, CURRENT_TIMESTAMP)
                ON CONFLICT(agent_id) DO UPDATE SET
                  lifecycle = 'queued',
                  active_operation = excluded.active_operation,
@@ -324,8 +306,6 @@ pub enum AgentManagementRepositoryError {
     InvalidOperationId(String),
     #[error("invalid installation operation resource claims")]
     InvalidResourceClaims,
-    #[error("external Agent installation `{0}` must be revalidated instead of managed")]
-    ExternalInstallationRequiresRevalidation(AgentId),
     #[error("invalid installation operation status `{0}`")]
     InvalidOperationStatus(String),
     #[error("reorder must contain every membership exactly once")]

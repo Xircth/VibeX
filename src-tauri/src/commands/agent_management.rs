@@ -4839,10 +4839,7 @@ async fn probe_profile_dependencies(
                 detail,
                 version,
                 path: path.map(|path| path.display().to_string()),
-                source: runtime_source.map(|source| match source {
-                    RuntimeSource::System => AgentPreflightSource::System,
-                    RuntimeSource::Managed => AgentPreflightSource::VibexManaged,
-                }),
+                source: runtime_source.map(|_| AgentPreflightSource::System),
                 repairable: dependency.repairable,
             });
             continue;
@@ -4938,10 +4935,7 @@ async fn probe_profile_dependencies(
             detail,
             version,
             path: path.map(|path| path.display().to_string()),
-            source: runtime_source.map(|source| match source {
-                RuntimeSource::System => AgentPreflightSource::System,
-                RuntimeSource::Managed => AgentPreflightSource::VibexManaged,
-            }),
+            source: runtime_source.map(|_| AgentPreflightSource::System),
             repairable: dependency.repairable,
         });
     }
@@ -5345,13 +5339,6 @@ async fn queue_operation_with_version(
         })
         .await
         .map_err(|error| match error {
-            db::models::agent_management::AgentManagementRepositoryError::ExternalInstallationRequiresRevalidation(_) => {
-                management_error(
-                    AgentManagementErrorCode::InvalidState,
-                    "外部 Agent 安装不能被托管操作隐式替换；请先使用原安装方式更新或卸载",
-                    Some(agent_id.clone()),
-                )
-            }
             error if error.to_string().contains("UNIQUE constraint failed") => management_error(
                 AgentManagementErrorCode::Busy,
                 "Agent 已有正在执行的管理操作，或所需共享资源正被占用",

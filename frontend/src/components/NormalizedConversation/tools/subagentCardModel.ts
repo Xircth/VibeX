@@ -132,7 +132,19 @@ const AGENT_KIND_ALIASES: Record<string, string> = {
   'x.ai': 'grok',
 };
 
+export function isHostDelegationTool(use: ToolUseBlock): boolean {
+  return canonicalToolName(use.tool_name) === 'delegatetoagent';
+}
+
+export function isHostDelegationLifecycleTool(use: ToolUseBlock): boolean {
+  const name = canonicalToolName(use.tool_name);
+  return name === 'getdelegationstatus' || name === 'canceldelegation';
+}
+
 export function isNativeSubagentTool(use: ToolUseBlock): boolean {
+  if (isHostDelegationTool(use) || isHostDelegationLifecycleTool(use)) {
+    return false;
+  }
   const input = inputRecord(use);
   const vendorName = readString(
     asObject(asObject(use.meta)?.['x.ai/tool']) as JsonValue,
@@ -140,7 +152,6 @@ export function isNativeSubagentTool(use: ToolUseBlock): boolean {
   );
   if (vendorName === 'spawn_subagent') return true;
   const name = canonicalToolName(use.tool_name);
-  if (name === 'delegatetoagent') return true;
   if (LIFECYCLE_WAIT_NAMES.has(name) || LIFECYCLE_CLOSE_NAMES.has(name)) {
     return false;
   }

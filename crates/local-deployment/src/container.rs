@@ -22,15 +22,13 @@ use db::{
 };
 use deployment::DeploymentError;
 use executors::{
-    actions::{Executable, ExecutorAction},
-    approvals::{ExecutorApprovalService, NoopExecutorApprovalService},
+    actions::ExecutorAction,
     env::{ExecutionEnv, RepoContext},
     executors::{CancellationToken, ExecutorExitSignal, SpawnedChild},
 };
 use futures::{FutureExt, TryStreamExt, stream::select};
 use git::GitService;
 use services::services::{
-    approvals::{Approvals, executor_approvals::ExecutorApprovalBridge},
     config::Config,
     container::{ContainerError, ContainerRef, ContainerService},
     diff_stream::{self, DiffStreamHandle},
@@ -64,7 +62,6 @@ pub struct LocalContainerService {
     config: Arc<RwLock<Config>>,
     git: GitService,
     image_service: ImageService,
-    approvals: Approvals,
     notification_service: NotificationService,
     settings_path: PathBuf,
 }
@@ -179,7 +176,6 @@ impl LocalContainerService {
         config: Arc<RwLock<Config>>,
         git: GitService,
         image_service: ImageService,
-        approvals: Approvals,
         settings_path: PathBuf,
     ) -> Self {
         let child_store = Arc::new(RwLock::new(HashMap::new()));
@@ -198,7 +194,6 @@ impl LocalContainerService {
             config,
             git,
             image_service,
-            approvals,
             notification_service,
             settings_path,
         };
@@ -965,25 +960,6 @@ impl LocalContainerService {
         self.add_exit_monitor_handle(execution_id, monitor_handle)
             .await;
     }
-
-    fn create_executor_approval_service(
-        &self,
-        executor_action: &ExecutorAction,
-        execution_id: Uuid,
-    ) -> Arc<dyn ExecutorApprovalService> {
-        if process_completion::should_create_executor_approval_bridge(
-            executor_action.base_executor(),
-        ) {
-            return ExecutorApprovalBridge::new(
-                self.approvals.clone(),
-                self.db.clone(),
-                self.notification_service.clone(),
-                execution_id,
-            );
-        }
-
-        Arc::new(NoopExecutorApprovalService {})
-    }
 }
 
 #[async_trait]
@@ -1306,9 +1282,6 @@ impl ContainerService for LocalContainerService {
         let repos = WorkspaceRepo::find_repos_for_workspace(&self.db.pool, workspace.id).await?;
         let current_dir = Self::normalized_workspace_base_dir(workspace, &repos);
 
-        let approvals_service =
-            self.create_executor_approval_service(executor_action, execution_process.id);
-
         let env = self
             .build_execution_env(workspace, execution_process, current_dir.clone(), &repos)
             .await?;
@@ -1316,7 +1289,7 @@ impl ContainerService for LocalContainerService {
         // Create the child and stream, add to execution tracker with timeout
         let spawned = tokio::time::timeout(
             Duration::from_secs(30),
-            executor_action.spawn(&current_dir, approvals_service, &env),
+            executor_action.spawn(&current_dir, &env),
         )
         .await
         .map_err(|_| {
@@ -1580,9 +1553,8 @@ mod tests {
     };
     use git::GitService;
     use services::services::{
-        approvals::Approvals, config::Config, image::ImageService,
-        notification::NotificationService, workspace_manager::WorkspaceManager,
-        worktree_manager::WorktreeManager,
+        config::Config, image::ImageService, notification::NotificationService,
+        workspace_manager::WorkspaceManager, worktree_manager::WorktreeManager,
     };
     use sqlx::{SqlitePool, types::chrono::Utc};
     use tempfile::TempDir;
@@ -1931,7 +1903,6 @@ mod tests {
             config: config.clone(),
             git: GitService::new(),
             image_service: ImageService::new(pool).unwrap(),
-            approvals: Approvals::new(msg_stores),
             notification_service: NotificationService::new(config),
             settings_path: std::env::temp_dir()
                 .join(format!("vibex-test-settings-{}.json", Uuid::new_v4())),
@@ -2152,7 +2123,6 @@ mod tests {
             Arc::new(RwLock::new(Config::default())),
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
-            Approvals::new(msg_stores),
             settings_dir.path().join("settings.json"),
         )
         .await;
@@ -2708,7 +2678,6 @@ mod tests {
             Arc::new(RwLock::new(Config::default())),
             GitService::new(),
             ImageService::new(pool.clone()).unwrap(),
-            Approvals::new(msg_stores),
             temp_root.path().join("settings.json"),
         )
         .await;

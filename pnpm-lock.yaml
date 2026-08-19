@@ -320,34 +320,6 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@26.1.2)(jsdom@28.1.0)
 
-  launch-site:
-    dependencies:
-      lucide-react:
-        specifier: ^0.539.0
-        version: 0.539.0(react@19.2.8)
-      react:
-        specifier: ^19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: ^19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
-      '@types/react':
-        specifier: ^19.2.18
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.4
-        version: 19.2.4(@types/react@19.2.18)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.4
-        version: 4.5.2(vite@5.4.19(@types/node@26.1.2))
-      typescript:
-        specifier: ^5.9.2
-        version: 5.9.2
-      vite:
-        specifier: ^5.0.8
-        version: 5.4.19(@types/node@26.1.2)
-
   packages/plugin-cli:
     dependencies:
       '@vibex/plugin-sdk':

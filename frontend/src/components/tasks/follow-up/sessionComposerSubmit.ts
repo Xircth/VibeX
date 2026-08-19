@@ -237,16 +237,16 @@ export function getAfterSendCleanup({
   shouldDeleteScratch: boolean;
 } {
   const clearedImages = clearComposerImageAttachments(attachments);
-  const revisionStillMatches =
-    savedRevision == null ||
-    serverRevision == null ||
-    savedRevision === serverRevision;
+  const remoteDraftIsNewer =
+    savedRevision != null &&
+    serverRevision != null &&
+    serverRevision > savedRevision;
 
   return {
     message: '',
     attachments: clearedImages.attachments,
     imagesToRevoke: clearedImages.imagesToRevoke,
     hydratedScratchId: scratchId,
-    shouldDeleteScratch: Boolean(scratchId) && revisionStillMatches,
+    shouldDeleteScratch: Boolean(scratchId) && !remoteDraftIsNewer,
   };
 }

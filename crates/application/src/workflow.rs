@@ -958,7 +958,7 @@ fn render_agent_prompt(
     Ok(sections.join("\n\n"))
 }
 
-async fn extract_last_assistant_text(
+pub(crate) async fn extract_last_assistant_text(
     pool: &sqlx::SqlitePool,
     conversation_id: Uuid,
     turn_id: Uuid,

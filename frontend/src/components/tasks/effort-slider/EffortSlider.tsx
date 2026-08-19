@@ -3,7 +3,7 @@
  * Claude Code's effort range slider (ported from the claude-range-slider
  * reference): a black squircle card with a Faster↔Smarter track, discrete
  * snap points for the agent-advertised choices, a glowing status label, and
- * a WebGL flame that ignites while the slider sits at the top level.
+ * a glow when the slider sits at the top level.
  */
 
 import {
@@ -18,7 +18,6 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { useWebglFire } from './useWebglFire';
 import './effort-slider.css';
 
 const THUMB_WIDTH_PX = 17;
@@ -144,8 +143,6 @@ export function EffortSlider({
   const [isDragging, setIsDragging] = useState(false);
   const draggingRef = useRef(false);
   const flipTimerRef = useRef<number | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const syncFire = useWebglFire(canvasRef);
 
   // Follow external selection changes while not dragging.
   useEffect(() => {
@@ -193,10 +190,6 @@ export function EffortSlider({
     []
   );
 
-  useEffect(() => {
-    syncFire(percent / 100, isActive);
-  }, [isActive, percent, syncFire]);
-
   const commitSelection = useCallback(
     (index: number) => {
       setPercent(snapPercents[index] ?? 0);
@@ -233,9 +226,6 @@ export function EffortSlider({
     const next = Math.min(Math.max(currentIndex + step, 0), topIndex);
     commitSelection(next);
   };
-
-  const maskPercent = Math.min(percent + 2, 100);
-  const canvasMask = `linear-gradient(to right, black 0%, black ${maskPercent}%, transparent ${maskPercent}%)`;
 
   return (
     <div className={cn('vx-effort-shadow', className)}>
@@ -352,13 +342,6 @@ export function EffortSlider({
               />
             ))}
           </div>
-          <canvas
-            ref={canvasRef}
-            style={{
-              maskImage: canvasMask,
-              WebkitMaskImage: canvasMask,
-            }}
-          />
           <input
             type="range"
             min={0}

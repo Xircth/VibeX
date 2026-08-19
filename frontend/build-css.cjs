@@ -4,7 +4,7 @@ const autoprefixer = require('autoprefixer');
 const fs = require('node:fs');
 
 const css = fs.readFileSync('src/styles/legacy/index.css', 'utf8');
-postcss([tailwindcss, autoprefixer])
+postcss([tailwindcss({ config: './tailwind.legacy.config.js' }), autoprefixer])
   .process(css, { from: 'src/styles/legacy/index.css' })
   .then((result) => {
     fs.writeFileSync('/tmp/legacy.css', result.css);

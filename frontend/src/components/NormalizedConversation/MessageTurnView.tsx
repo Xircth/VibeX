@@ -17,7 +17,11 @@ import {
   RotateCcw,
   Wrench,
 } from 'lucide-react';
-import { type MessageTurn, type TaskWithAttemptStatus } from 'shared/types';
+import {
+  type ConversationDelegationView,
+  type MessageTurn,
+  type TaskWithAttemptStatus,
+} from 'shared/types';
 import { ChatMessage, ChatMessageBubble } from '@astryxdesign/core/Chat';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import { cn } from '@/lib/utils';
@@ -33,7 +37,8 @@ import { AstryxMarkdown } from './AstryxMarkdown';
 import { UserMessageMarkdown } from './UserMessageMarkdown';
 import { ThinkingEntry } from './ThinkingEntry';
 import { ToolCardShell } from './tools/ToolCardShell';
-import { TimelinePlanCard } from './TimelinePlanCard';
+import { ConversationPlanCard } from './ConversationPlanCard';
+import { toConversationPlanItem } from './conversationPlan';
 import { GeneratedImageCard } from './conversation/GeneratedImageCard';
 import DisplayConversationEntry from './DisplayConversationEntry';
 import { toolBlockToNormalizedEntry } from './messageTurnTool';
@@ -157,7 +162,11 @@ function renderItem(
       );
     case 'plan':
       return (
-        <TimelinePlanCard key={key} entries={item.entries} expansionKey={key} />
+        <ConversationPlanCard
+          key={key}
+          items={item.entries.map(toConversationPlanItem)}
+          expansionKey={key}
+        />
       );
     case 'resource':
       return (
@@ -467,6 +476,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice = true,
   contextCompact,
   hasTurnError = false,
+  delegations = [],
+  onOpenChild,
 }: {
   turn: MessageTurn;
   phase?: MessageTurnPhase;
@@ -479,6 +490,8 @@ export const MessageTurnView = memo(function MessageTurnView({
   showInterruptedNotice?: boolean;
   contextCompact?: ContextCompactPresentation | null;
   hasTurnError?: boolean;
+  delegations?: ConversationDelegationView[];
+  onOpenChild?: (childConversationId: string) => void;
 }) {
   const { t } = useTranslation(['conversation', 'common', 'app']);
   const { config } = useOptionalUserSystem() ?? {};
@@ -610,6 +623,8 @@ export const MessageTurnView = memo(function MessageTurnView({
           attempt={attempt}
           task={task}
           workspacePath={resolvedWorkspacePath}
+          delegations={delegations}
+          onOpenChild={onOpenChild}
         />
       );
     });

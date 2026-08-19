@@ -8,6 +8,7 @@ import {
 import { ChevronDown, Images } from 'lucide-react';
 import type {
   ActionType,
+  ConversationDelegationView,
   FileChange,
   ImageData,
   MessageTurn,
@@ -15,6 +16,13 @@ import type {
 } from 'shared/types';
 import type { WorkspaceWithSession } from '@/types/attempt';
 import DisplayConversationEntry from './DisplayConversationEntry';
+import { DelegationCard } from './conversation/DelegationCard';
+import {
+  isHostDelegationLifecycleTool,
+  isHostDelegationTool,
+  matchHostDelegationView,
+  mergeHostDelegationView,
+} from './conversation/hostDelegation';
 import { getToolSummary } from './conversation-entry-utils';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
@@ -258,6 +266,77 @@ function subagentChatStatus(status: SubagentStatus): ChatToolCallStatus {
   }
 }
 
+function HostDelegationToolCall({
+  expansionKey,
+  label,
+  target,
+  use,
+  result,
+  event,
+  onOpenChild,
+}: {
+  expansionKey: string;
+  label: string;
+  target?: string;
+  use: ToolUseBlock;
+  result: ToolResultBlock | null;
+  event: ConversationDelegationView | null;
+  onOpenChild?: (childConversationId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const delegation = mergeHostDelegationView(use, result, event);
+  const toggle = () => setExpanded((open) => !open);
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggle();
+    }
+  };
+  const status = delegationChatStatus(delegation.status);
+
+  return (
+    <div className="space-y-1">
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-controls={expansionKey}
+        onClick={toggle}
+        onKeyDown={onKeyDown}
+        className="cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ChatToolCalls
+          calls={[
+            {
+              key: expansionKey,
+              name: label,
+              target,
+              status,
+            },
+          ]}
+        />
+      </div>
+      {expanded ? (
+        <div id={expansionKey}>
+          <DelegationCard delegation={delegation} onOpenChild={onOpenChild} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function delegationChatStatus(status: string): ChatToolCallStatus {
+  if (status === 'failed') return 'error';
+  if (
+    status === 'completed' ||
+    status === 'canceled' ||
+    status === 'cancelled'
+  ) {
+    return 'complete';
+  }
+  return 'running';
+}
+
 function SubagentToolCall({
   expansionKey,
   label,
@@ -351,6 +430,8 @@ export function TurnToolCalls({
   attempt,
   task,
   workspacePath,
+  delegations = [],
+  onOpenChild,
 }: {
   turnId: string;
   timestamp: MessageTurn['timestamp'];
@@ -359,6 +440,8 @@ export function TurnToolCalls({
   attempt: WorkspaceWithSession;
   task: TaskWithAttemptStatus | null;
   workspacePath?: string | null;
+  delegations?: ConversationDelegationView[];
+  onOpenChild?: (childConversationId: string) => void;
 }) {
   const { t } = useTranslation('conversation');
   const lifecycleIndex = useSubagentLifecycleIndex();
@@ -375,6 +458,7 @@ export function TurnToolCalls({
             images: item.use.images ?? [],
             use: item.use,
             result: item.result,
+            isHostDelegation: isHostDelegationTool(item.use),
             isSubagent: isNativeSubagentTool(item.use),
           },
         ];
@@ -395,6 +479,8 @@ export function TurnToolCalls({
   const regularEntries = useMemo(
     () =>
       entries.filter((entry) => {
+        if (entry.isHostDelegation) return false;
+        if (isHostDelegationLifecycleTool(entry.use)) return false;
         if (entry.isSubagent) return false;
         if (!isSubagentLifecycleTool(entry.use)) return true;
         if (entry.toolUseId && folded.hiddenToolUseIds.has(entry.toolUseId)) {
@@ -407,6 +493,10 @@ export function TurnToolCalls({
         );
       }),
     [entries, folded.hiddenToolUseIds, lifecycleIndex.spawnBindingIds]
+  );
+  const hostDelegationEntries = useMemo(
+    () => entries.filter((entry) => entry.isHostDelegation),
+    [entries]
   );
   const subagentEntries = useMemo(
     () =>
@@ -530,6 +620,29 @@ export function TurnToolCalls({
 
   return (
     <div className="conv-entry-item vibex-turn-tool-calls space-y-1">
+      {hostDelegationEntries.map(({ use, result, toolUseId, index, entry }) => {
+        const toolEntry =
+          entry.entry_type.type === 'tool_use' ? entry.entry_type : null;
+        const summary = toolEntry
+          ? getToolSummary(toolEntry, entry.content.trim())
+          : { label: t('delegationCard.subAgentDelegation'), detail: '' };
+        return (
+          <HostDelegationToolCall
+            key={toolUseId || `${turnId}-delegation-${index}`}
+            expansionKey={`${turnId}-delegation-${toolUseId || index}`}
+            label={summary.label}
+            target={
+              summary.detail && summary.detail !== summary.label
+                ? summary.detail
+                : undefined
+            }
+            use={use}
+            result={result}
+            event={matchHostDelegationView(use, delegations)}
+            onOpenChild={onOpenChild}
+          />
+        );
+      })}
       {subagentEntries.map(({ use, result, lifecycle, toolUseId, index }) => {
         const match = entries.find(
           (entry) => entry.use.tool_use_id === use.tool_use_id

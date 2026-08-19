@@ -52,15 +52,15 @@ pub async fn emit_conversation_row_ops_after(
     conversation_id: Uuid,
     after_sequence: i64,
 ) {
-    // The cursor read, durable-event read, fold, and Tauri enqueue form one ordered
-    // publication critical section. Locking only the fold allowed a notifier for a
-    // later sequence to read first and initialize the projector beyond an earlier
-    // committed event.
-    let mut map = projectors.lock().await;
-    let publish_after = map
-        .get(&conversation_id)
-        .map(IncrementalRowProjector::last_sequence)
-        .unwrap_or(after_sequence);
+    // Read the cursor and the durable tail without holding the map across SQLite.
+    // Apply still runs under the lock so two notifiers cannot fold out of order;
+    // a later load that wins the insert already includes earlier sequences.
+    let publish_after = {
+        let map = projectors.lock().await;
+        map.get(&conversation_id)
+            .map(IncrementalRowProjector::last_sequence)
+            .unwrap_or(after_sequence)
+    };
     let new_records =
         match ConversationEventRecord::events_since(pool, conversation_id, publish_after, 2000)
             .await
@@ -110,21 +110,45 @@ pub async fn emit_conversation_row_ops_after(
         .iter()
         .any(|record| record.event_kind == "conversation_input");
 
-    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
-        match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
-            Ok(projector) => {
-                entry.insert(projector);
-            }
-            Err(error) => {
-                tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
-                return;
+    let loaded = {
+        let map = projectors.lock().await;
+        if map.contains_key(&conversation_id) {
+            None
+        } else {
+            drop(map);
+            match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
+                Ok(projector) => Some(projector),
+                Err(error) => {
+                    tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                    return;
+                }
             }
         }
+    };
+
+    let mut map = projectors.lock().await;
+    if let std::collections::hash_map::Entry::Vacant(entry) = map.entry(conversation_id) {
+        let projector = match loaded {
+            Some(projector) => projector,
+            None => {
+                match IncrementalRowProjector::load(pool, conversation_id, publish_after).await {
+                    Ok(projector) => projector,
+                    Err(error) => {
+                        tracing::warn!(%conversation_id, %error, "row-op emit: projector load failed");
+                        return;
+                    }
+                }
+            }
+        };
+        entry.insert(projector);
     }
     let mut ops = Vec::new();
     {
         let projector = map.get_mut(&conversation_id).expect("projector present");
         for record in &new_records {
+            if record.sequence <= projector.last_sequence() {
+                continue;
+            }
             match projector.apply(record) {
                 Ok(record_ops) => ops.extend(record_ops),
                 Err(error) => {

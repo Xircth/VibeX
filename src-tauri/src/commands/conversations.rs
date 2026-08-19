@@ -90,6 +90,10 @@ pub struct ConversationActiveBinding {
     pub acp_session_id: Option<String>,
     pub status: String,
     pub capabilities: AcpCapabilitySnapshot,
+    /// True when this binding was created while the multi-agent plugin was on,
+    /// so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
+    #[serde(default)]
+    pub delegation_mcp_delivered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1229,6 +1233,7 @@ async fn active_binding_for_conversation(
         acp_session_id: binding.acp_session_id,
         status: binding.status,
         capabilities,
+        delegation_mcp_delivered: plugins::binding_has_delegation_mcp(&binding.mcp_servers_json),
     }))
 }
 

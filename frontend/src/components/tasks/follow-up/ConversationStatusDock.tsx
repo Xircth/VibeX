@@ -6,6 +6,7 @@ import { TurnErrorCard } from '@/components/NormalizedConversation/conversation/
 import { ConversationStatusDetails } from '@/components/NormalizedConversation/conversation/ConversationStatusDetails';
 import { getConversationSessionNoticeCopy } from '@/features/conversation/sessionNoticeCopy';
 import { useConversationStatusDismissal } from '@/features/conversation/conversationStatusDismissal';
+import { SessionNoticeActions } from './SessionNoticeActions';
 
 type ConversationStatusDockProps = {
   notices: ConversationStatusNotice[];
@@ -138,6 +139,9 @@ export function ConversationStatusDock({
               badgeLabel={t(`statusDock.${tone}Badge`)}
               action={
                 <div className="flex items-center gap-1">
+                  {notice.notice.action ? (
+                    <SessionNoticeActions action={notice.notice.action} />
+                  ) : null}
                   {notice.onRebind ? (
                     <button
                       type="button"

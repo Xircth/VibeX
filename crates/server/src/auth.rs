@@ -427,11 +427,7 @@ impl ServerAuth for SqliteServerAuth {
         }
         let scopes = resolve_pairing_scopes(&creator.scopes, request)?;
         let pairing_id = PairingId::new();
-        let pairing_token = format!(
-            "vbx_pair_{}{}",
-            Uuid::new_v4().simple(),
-            Uuid::new_v4().simple()
-        );
+        let pairing_token = remote_protocol::issue_connection_code();
         let digest = TokenDigest::from_secret(&pairing_token);
         let created_at = self.now();
         let expires_at = created_at.saturating_add(self.pairing_ttl_seconds);

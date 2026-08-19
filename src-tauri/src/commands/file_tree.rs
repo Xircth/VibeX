@@ -251,7 +251,9 @@ pub async fn get_file_tree(
     root_path: String,
     depth: Option<u32>,
 ) -> Result<Vec<FileTreeEntry>, AppError> {
-    get_file_tree_entries(&root_path, depth)
+    tokio::task::spawn_blocking(move || get_file_tree_entries(&root_path, depth))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?
 }
 
 #[tauri::command]

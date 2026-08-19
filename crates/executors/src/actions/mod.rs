@@ -1,15 +1,12 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
-use async_trait::async_trait;
-use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
     actions::script::ScriptRequest,
-    approvals::ExecutorApprovalService,
     env::ExecutionEnv,
-    executors::{AgentKind, ExecutorError, SpawnedChild},
+    executors::{ExecutorError, SpawnedChild},
 };
 pub mod script;
 
@@ -23,11 +20,10 @@ pub(crate) fn effective_working_dir(
     }
 }
 
-#[enum_dispatch]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
 pub enum ExecutorActionType {
-    ScriptRequest,
+    ScriptRequest(ScriptRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -57,33 +53,14 @@ impl ExecutorAction {
         self.next_action.as_deref()
     }
 
-    pub fn base_executor(&self) -> Option<AgentKind> {
-        match self.typ() {
-            ExecutorActionType::ScriptRequest(_) => None,
-        }
-    }
-}
-
-#[async_trait]
-#[enum_dispatch(ExecutorActionType)]
-pub trait Executable {
-    async fn spawn(
+    pub async fn spawn(
         &self,
         current_dir: &Path,
-        approvals: Arc<dyn ExecutorApprovalService>,
-        env: &ExecutionEnv,
-    ) -> Result<SpawnedChild, ExecutorError>;
-}
-
-#[async_trait]
-impl Executable for ExecutorAction {
-    async fn spawn(
-        &self,
-        current_dir: &Path,
-        approvals: Arc<dyn ExecutorApprovalService>,
         env: &ExecutionEnv,
     ) -> Result<SpawnedChild, ExecutorError> {
-        self.typ.spawn(current_dir, approvals, env).await
+        match self.typ() {
+            ExecutorActionType::ScriptRequest(request) => request.spawn(current_dir, env).await,
+        }
     }
 }
 

@@ -376,7 +376,7 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
             loop {
                 match workflow_dispatcher.tick().await {
                     Ok(true) => continue,
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+                    Ok(false) => tokio::time::sleep(std::time::Duration::from_secs(2)).await,
                     Err(error) => {
                         tracing::warn!(%error, "workflow dispatcher tick failed");
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -653,15 +653,12 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::conversations::conversation_list,
         commands::conversations::application_call,
         commands::conversations::conversation_attach,
-        commands::conversations::conversation_start_turn,
         commands::conversations::conversation_events_since,
         commands::conversations::conversation_timeline_page,
-        commands::conversations::conversation_respond_permission,
         commands::conversations::conversation_respond_question,
         commands::conversations::conversation_submit_feedback,
         commands::conversations::conversation_set_session_mode,
         commands::conversations::conversation_set_session_config_option,
-        commands::conversations::conversation_cancel_turn,
         commands::conversations::conversation_truncate_to_turn,
         commands::conversations::conversation_checkpoint_file_changes_preview,
         commands::conversations::conversation_close,

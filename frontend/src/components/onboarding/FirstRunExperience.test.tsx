@@ -919,7 +919,7 @@ describe('FirstRunExperience', () => {
     const user = userEvent.setup();
     managementMock.addAndInstall.mockRejectedValue({
       code: 'internal',
-      message: '托管 Node.js 无法启动',
+      message: '未找到兼容的系统 Node.js',
       agent_id: 'codex',
     });
 
@@ -947,7 +947,7 @@ describe('FirstRunExperience', () => {
           expect.objectContaining({
             details: [
               expect.objectContaining({
-                description: '托管 Node.js 无法启动',
+                description: '未找到兼容的系统 Node.js',
               }),
             ],
           })

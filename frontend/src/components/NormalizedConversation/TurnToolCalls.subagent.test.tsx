@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatToolCallItem } from '@astryxdesign/core/Chat';
+import { BackendTransportProvider } from '@/lib/transport';
+import type { BackendTransport } from '@/lib/backendTransport';
 import { TurnToolCalls } from './TurnToolCalls';
 import type { IndexedTurnItem } from './messageTurnAggregate';
 import type { ToolResultBlock, ToolUseBlock } from './messageTurnBlocks';
@@ -69,29 +71,44 @@ function toolItem(
 }
 
 describe('TurnToolCalls subagent expansion', () => {
-  it('keeps agent delegation on the tool-call row and expands the card by default', () => {
+  it('renders the host product card for MCP delegation and hides the poll tool', () => {
     captured.groups = [];
+    const transport = {
+      environment: 'desktop',
+      call: vi.fn().mockResolvedValue(undefined),
+    } satisfies BackendTransport;
     render(
-      <TurnToolCalls
-        turnId="turn-1"
-        timestamp="2026-08-18T00:00:00.000Z"
-        offset={0}
-        items={[
-          toolItem(
-            'delegate_to_agent',
-            { agent_type: 'grok', task: 'Review the diff' },
-            'task_id: task-1',
-            0
-          ),
-          toolItem('get_delegation_status', { task_ids: ['task-1'] }, null, 1),
-          toolItem('bash', { command: 'ls' }, 'ok', 2),
-        ]}
-        attempt={{ id: 'ws-1', container_ref: null } as never}
-        task={null}
-      />
+      <BackendTransportProvider transport={transport}>
+        <TurnToolCalls
+          turnId="turn-1"
+          timestamp="2026-08-18T00:00:00.000Z"
+          offset={0}
+          items={[
+            toolItem(
+              'delegate_to_agent',
+              { agent_type: 'grok', task: 'Review the diff' },
+              'task_id: task-1',
+              0
+            ),
+            toolItem(
+              'get_delegation_status',
+              { task_ids: ['task-1'] },
+              null,
+              1
+            ),
+            toolItem('bash', { command: 'ls' }, 'ok', 2),
+          ]}
+          attempt={{ id: 'ws-1', container_ref: null } as never}
+          task={null}
+        />
+      </BackendTransportProvider>
     );
 
+    expect(screen.getByTestId('host-delegation-card')).toBeInTheDocument();
     expect(screen.getByTitle('Grok')).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: '委派给 Grok' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { expanded: true })).toHaveAttribute(
       'aria-expanded',
       'true'

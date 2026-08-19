@@ -189,7 +189,8 @@ Project / Workspace / Agent。因此 Host 必须在 **conversation.read** 下提
 只读目录，而不是开放 `application.call`：
 
 - 已添加且就绪的 Agent（id、显示名、是否 ready）
-- 用户可见的 Project / Workspace（id、名称、所属）
+- 用户可见的 Project / Workspace（id、名称、目录路径、所属、分支）
+- 某项目近 N 天会话（`conversation_list_recent`，默认 3 天）
 - 无工作区会话是否可用（ADR-0006）
 
 这是会话读模型的一部分，不是运维面。

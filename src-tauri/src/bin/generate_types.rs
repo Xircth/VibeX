@@ -30,7 +30,8 @@ use agents::{
         ConversationEventEnvelope, ConversationEventsPage, ConversationFeedbackRequest,
         ConversationFeedbackResponse, ConversationFileChange, ConversationFileChangeSummary,
         ConversationFileLocation, ConversationFileRef, ConversationInputBlock,
-        ConversationInputEvent, ConversationInputPayload, ConversationPermissionRequest,
+        ConversationInputEvent, ConversationInputPayload, ConversationNoticeAction,
+        ConversationPermissionRequest,
         ConversationPermissionResponse, ConversationPermissionView, ConversationPlanEntry,
         ConversationQuestionRequest, ConversationQuestionResponse, ConversationRelationKind,
         ConversationRelationVisibility, ConversationRowOp, ConversationRowOpBatch,
@@ -90,7 +91,8 @@ use db::models::{
     workspace_repo::{RepoWithTargetBranch, WorkspaceRepo},
 };
 use executors::{
-    executors::{SlashCommandDescription, SlashCommandKind},
+    actions::{ExecutorAction, ExecutorActionType},
+    executors::{CodingAgent, SlashCommandDescription, SlashCommandKind},
     logs::{ActionType, utils::shell_command_parsing::CommandCategory},
     profile::ExecutorProfileId,
 };
@@ -307,6 +309,20 @@ fn removed_declarations() -> &'static std::collections::BTreeSet<&'static str> {
             "Automation",
             "AutomationInput",
             "AutomationRun",
+            "Amp",
+            "Auggie",
+            "AuggieModel",
+            "Autonomy",
+            "CodingAgentFollowUpRequest",
+            "CodingAgentInitialRequest",
+            "Copilot",
+            "CursorAgent",
+            "Droid",
+            "DroidReasoningEffort",
+            "Gemini",
+            "QwenCode",
+            "RepoReviewContext",
+            "ReviewRequest",
         ])
     })
 }
@@ -342,6 +358,9 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<UpdateScratch>(&mut decls);
     insert_declaration::<ScratchUpdateOutcome>(&mut decls);
     insert_declaration::<ExecutorProfileId>(&mut decls);
+    insert_declaration::<ExecutorAction>(&mut decls);
+    insert_declaration::<ExecutorActionType>(&mut decls);
+    insert_declaration::<CodingAgent>(&mut decls);
     insert_declaration::<ActionType>(&mut decls);
     insert_declaration::<CommandCategory>(&mut decls);
     // Temporary compatibility enum while live session identity migrates to the
@@ -591,6 +610,7 @@ fn replacement_declarations() -> BTreeMap<String, String> {
     insert_declaration::<ConversationTerminalView>(&mut decls);
     insert_declaration::<ConversationErrorView>(&mut decls);
     insert_declaration::<ConversationSessionNotice>(&mut decls);
+    insert_declaration::<ConversationNoticeAction>(&mut decls);
     insert_declaration::<ConversationTimelineRow>(&mut decls);
     insert_declaration::<TimelineRow>(&mut decls);
     insert_declaration::<TimelineTextStream>(&mut decls);

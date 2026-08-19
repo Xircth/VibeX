@@ -47,6 +47,7 @@ export type DevicePairingChallenge = {
   requested_scopes: string[];
   host_id?: string;
   invitation?: string;
+  connection_code?: string;
   preset?: string;
   reachability?: Array<{ origin: string; kind: string }>;
 };

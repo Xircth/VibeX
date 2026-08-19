@@ -26,7 +26,7 @@ import type { AgentOperationState } from '@/features/agent-management';
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
 import { cn } from '@/lib/utils';
 
-import { AgentManagementIcon } from './AgentManagementIcon';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { AgentPreflightCheckItem } from './AgentPreflightCheckItem';
 
 const OPERATION_DIAGNOSTICS_KEY = 'vibex:operation-diagnostics';

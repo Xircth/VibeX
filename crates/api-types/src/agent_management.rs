@@ -316,7 +316,6 @@ pub struct AgentManagementErrorView {
 #[ts(rename_all = "snake_case")]
 pub enum AgentPreflightSource {
     System,
-    VibexManaged,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

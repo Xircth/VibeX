@@ -873,16 +873,9 @@ export type QueueStatus =
 
 export type ConflictOp = "rebase" | "merge" | "cherry_pick" | "revert";
 
-export type ExecutorAction = {
-  typ: ExecutorActionType;
-  next_action: ExecutorAction | null;
-};
+export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAction | null, };
 
-export type ExecutorActionType =
-  | ({ type: "CodingAgentInitialRequest" } & CodingAgentInitialRequest)
-  | ({ type: "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest)
-  | ({ type: "ScriptRequest" } & ScriptRequest)
-  | ({ type: "ReviewRequest" } & ReviewRequest);
+export type ExecutorActionType = { "type": "ScriptRequest" } & ScriptRequest;
 
 export type ScriptContext =
   | "SetupScript"
@@ -904,17 +897,7 @@ export type ScriptRequest = {
 
 export type ScriptRequestLanguage = "Bash";
 
-export type CodingAgent =
-  | { CLAUDE_CODE: ClaudeCode }
-  | { AMP: Amp }
-  | { GEMINI: Gemini }
-  | { CODEX: Codex }
-  | { OPENCODE: Opencode }
-  | { CURSOR_AGENT: CursorAgent }
-  | { QWEN_CODE: QwenCode }
-  | { COPILOT: Copilot }
-  | { DROID: Droid }
-  | { AUGGIE: Auggie };
+export type CodingAgent = { "CLAUDE_CODE": ClaudeCode } | { "CODEX": Codex } | { "OPENCODE": Opencode };
 
 export type SlashCommandDescription = {
 /**
@@ -959,15 +942,8 @@ reasoning_effort?: string | null, };
 export type ExecutorConfig = {
   [key in string]?:
     | { CLAUDE_CODE: ClaudeCode }
-    | { AMP: Amp }
-    | { GEMINI: Gemini }
     | { CODEX: Codex }
-    | { OPENCODE: Opencode }
-    | { CURSOR_AGENT: CursorAgent }
-    | { QWEN_CODE: QwenCode }
-    | { COPILOT: Copilot }
-    | { DROID: Droid }
-    | { AUGGIE: Auggie };
+    | { OPENCODE: Opencode };
 };
 
 export type ExecutorConfigs = {
@@ -982,23 +958,6 @@ export type ClaudeCode = {
   model?: string | null;
   dangerously_skip_permissions?: boolean | null;
   disable_api_key?: boolean | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type Gemini = {
-  append_prompt: AppendPrompt;
-  model?: string | null;
-  yolo?: boolean | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type Amp = {
-  append_prompt: AppendPrompt;
-  dangerously_allow_all?: boolean | null;
   base_command_override?: string | null;
   additional_params?: Array<string> | null;
   env?: { [key in string]?: string } | null;
@@ -1042,28 +1001,6 @@ export type ReasoningSummary = "auto" | "concise" | "detailed" | "none";
 
 export type ReasoningSummaryFormat = "none" | "experimental";
 
-export type CursorAgent = {
-  append_prompt: AppendPrompt;
-  force?: boolean | null;
-  model?: string | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type Copilot = {
-  append_prompt: AppendPrompt;
-  model?: string | null;
-  allow_all_tools?: boolean | null;
-  allow_tool?: string | null;
-  deny_tool?: string | null;
-  add_dir?: Array<string> | null;
-  disable_mcp_server?: Array<string> | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
 export type Opencode = {
   append_prompt: AppendPrompt;
   model?: string | null;
@@ -1082,98 +1019,7 @@ export type Opencode = {
   env?: { [key in string]?: string } | null;
 };
 
-export type QwenCode = {
-  append_prompt: AppendPrompt;
-  yolo?: boolean | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type Droid = {
-  append_prompt: AppendPrompt;
-  autonomy: Autonomy;
-  model?: string | null;
-  reasoning_effort?: DroidReasoningEffort | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type Auggie = {
-  append_prompt: AppendPrompt;
-  model?: AuggieModel | null;
-  base_command_override?: string | null;
-  additional_params?: Array<string> | null;
-  env?: { [key in string]?: string } | null;
-};
-
-export type AuggieModel = "claude-opus-4-6" | "gpt-5.2";
-
-export type Autonomy =
-  | "normal"
-  | "low"
-  | "medium"
-  | "high"
-  | "skip-permissions-unsafe";
-
-export type DroidReasoningEffort =
-  | "none"
-  | "dynamic"
-  | "off"
-  | "low"
-  | "medium"
-  | "high";
-
 export type AppendPrompt = string | null;
-
-export type CodingAgentInitialRequest = {
-  prompt: string;
-  /**
-   * Executor profile specification
-   */
-  executor_profile_id: ExecutorProfileId;
-  /**
-   * Optional relative path to execute the agent in (relative to container_ref).
-   * If None, uses the container_ref directory directly.
-   */
-  working_dir: string | null;
-};
-
-export type CodingAgentFollowUpRequest = {
-  prompt: string;
-  session_id: string;
-  reset_to_message_id: string | null;
-  /**
-   * Executor profile specification
-   */
-  executor_profile_id: ExecutorProfileId;
-  /**
-   * Optional relative path to execute the agent in (relative to container_ref).
-   * If None, uses the container_ref directory directly.
-   */
-  working_dir: string | null;
-};
-
-export type ReviewRequest = {
-  executor_profile_id: ExecutorProfileId;
-  context: Array<RepoReviewContext> | null;
-  prompt: string;
-  /**
-   * Optional session ID to resume an existing session
-   */
-  session_id: string | null;
-  /**
-   * Optional relative path to execute the agent in (relative to container_ref).
-   */
-  working_dir: string | null;
-};
-
-export type RepoReviewContext = {
-  repo_id: string;
-  repo_name: string;
-  base_commit: string;
-};
 
 export type CommandExitStatus =
   | { type: "exit_code"; code: number }
@@ -1399,7 +1245,7 @@ export type AgentEvent = { "kind": "connection_status_changed", snapshot: AgentC
 /**
  * The child's `sessions.id` — the conversation the user can open.
  */
-child_session_id: string, agent_id: AgentId, task_preview: string, } | { "kind": "delegation_completed", delegation_id: string, parent_tool_use_id: string, child_session_id: string, agent_id: AgentId, result: DelegationResultSummary, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, };
+child_session_id: string, agent_id: AgentId, task_preview: string, } | { "kind": "delegation_completed", delegation_id: string, parent_tool_use_id: string, child_session_id: string, agent_id: AgentId, result: DelegationResultSummary, } | { "kind": "error", error: AgentErrorEvent, } | { "kind": "raw_acp_diagnostic", raw: JsonValue, } | { "kind": "announcements_updated", generation: bigint, notices: Array<ConversationSessionNotice>, };
 
 export type AgentEventEnvelope = { sequence: bigint, workspace_id: string, connection_id: AgentConnectionId, session_id?: AgentSessionId | null, event: AgentEvent, created_at: string, };
 
@@ -1661,7 +1507,9 @@ answer: string,
  */
 content?: JsonValue | null, };
 
-export type ConversationSessionNotice = { title: string, message?: string | null, severity: string, };
+export type ConversationNoticeAction = { "kind": "update_agent", agent_id: AgentId, fallback_url?: string | null, } | { "kind": "open_url", url: string, label: string, };
+
+export type ConversationSessionNotice = { title: string, message?: string | null, severity: string, announcement_id?: string | null, action?: ConversationNoticeAction | null, };
 
 export type ConversationTerminalPatch = { terminal_id: string, command?: string | null, args: Array<string>, cwd?: string | null, status: string, output_summary?: string | null, output_truncated: boolean, exit_status?: JsonValue | null, };
 
@@ -1710,7 +1558,12 @@ export type TurnBlockedReason = { "kind": "permission", permission_id: string, }
 
 export type ConversationTurnSnapshot = { conversationId: string, turnId: string, promptId?: string | null, status: string, lastSequence: bigint, };
 
-export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot, };
+export type ConversationActiveBinding = { id: string, agent_type: string, working_dir: string, acp_session_id?: string | null, status: string, capabilities: AcpCapabilitySnapshot,
+/**
+ * True when this binding was created while the multi-agent plugin was on,
+ * so Host delivered `vibex-delegation-mcp` on that session new/resume/rebind.
+ */
+delegation_mcp_delivered: boolean, };
 
 export type ConversationCurrentTurn = { id: string, ordinal: bigint, status: string, prompt_id?: string | null, text_preview?: string | null, };
 
@@ -2085,7 +1938,7 @@ export type AgentDiscoveryPhase = "pending" | "checking" | "complete";
 
 export type AgentDiscoveryProgressView = { phase: AgentDiscoveryPhase, completed: number, total: number, found: number, checked_agent_ids: Array<AgentId>, timed_out: boolean, };
 
-export type AgentPreflightSource = "system" | "vibex_managed";
+export type AgentPreflightSource = "system";
 
 export type CommitReminderMode = "separate_turn" | "smart";
 

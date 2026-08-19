@@ -16,6 +16,7 @@ import {
   extractDraftFollowUpData,
   getDraftExecutorProfile,
   shouldPersistDraftFollowUp,
+  shouldRaiseDraftConflict,
 } from './sessionComposerDraft';
 
 export function useSessionComposerDraftScratch({
@@ -65,6 +66,8 @@ export function useSessionComposerDraftScratch({
 
   const lastSavedRevisionRef = useRef<number | null>(scratch?.revision ?? null);
   const lastSeenRevisionRef = useRef<number | null>(scratch?.revision ?? null);
+  const saveGenerationRef = useRef(0);
+  const cancelDebouncedSaveRef = useRef(() => {});
   const [lastSavedRevision, setLastSavedRevision] = useState<number | null>(
     scratch?.revision ?? null
   );
@@ -76,6 +79,11 @@ export function useSessionComposerDraftScratch({
     setLastSavedRevision(revision);
   };
 
+  const discardInFlightSaves = () => {
+    saveGenerationRef.current += 1;
+    cancelDebouncedSaveRef.current();
+  };
+
   useEffect(() => {
     if (!scratch) {
       lastSeenRevisionRef.current = null;
@@ -85,13 +93,15 @@ export function useSessionComposerDraftScratch({
       rememberRevision(scratch.revision);
       return;
     }
-    if (scratch.revision === lastSeenRevisionRef.current) return;
+    if (scratch.revision <= lastSeenRevisionRef.current) return;
     lastSeenRevisionRef.current = scratch.revision;
-    const server = extractDraftFollowUpData(scratch);
     if (
-      !draftFollowUpContentsEqual(server, {
-        message: localMessage,
-        images: attachedImagePathsRef.current,
+      shouldRaiseDraftConflict({
+        local: {
+          message: localMessage,
+          images: attachedImagePathsRef.current,
+        },
+        server: extractDraftFollowUpData(scratch),
       })
     ) {
       setConflict(scratch);
@@ -124,12 +134,29 @@ export function useSessionComposerDraftScratch({
       );
       if (!update) return;
 
+      const generation = saveGenerationRef.current;
       try {
-        const outcome = await updateScratch(update, {
-          overwriteOnConflict: false,
-        });
+        const outcome = await updateScratch(
+          {
+            ...update,
+            expected_revision:
+              lastSavedRevisionRef.current ?? scratchRef.current?.revision ?? 0,
+          },
+          { overwriteOnConflict: false }
+        );
+        if (generation !== saveGenerationRef.current) return;
         if (outcome.kind === 'conflict') {
-          setConflict(outcome.server);
+          if (
+            shouldRaiseDraftConflict({
+              local: {
+                message: localMessage,
+                images: attachedImagePathsRef.current,
+              },
+              server: extractDraftFollowUpData(outcome.server),
+            })
+          ) {
+            setConflict(outcome.server);
+          }
           return;
         }
         rememberRevision(outcome.scratch.revision);
@@ -138,19 +165,26 @@ export function useSessionComposerDraftScratch({
         console.error('Failed to save follow-up draft', e);
       }
     },
-    [scratchData, updateScratch, workspaceId]
+    [localMessage, scratchData, updateScratch, workspaceId]
   );
 
   const keepServerDraft = useCallback(() => {
     if (!conflict) return null;
-    rememberRevision(conflict.revision);
-    const data = extractDraftFollowUpData(conflict);
+    discardInFlightSaves();
+    const source =
+      scratchRef.current && scratchRef.current.revision >= conflict.revision
+        ? scratchRef.current
+        : conflict;
+    rememberRevision(source.revision);
+    const data = extractDraftFollowUpData(source);
     setConflict(null);
     return data ?? null;
   }, [conflict]);
 
   const keepLocalDraft = useCallback(async () => {
     if (!conflict) return;
+    discardInFlightSaves();
+    const generation = saveGenerationRef.current;
     const executorProfileId =
       executorProfileRef?.current ?? latestExecutorProfileRef.current;
     const update = buildDraftFollowUpScratchUpdate(
@@ -167,6 +201,7 @@ export function useSessionComposerDraftScratch({
       },
       { overwriteOnConflict: false }
     );
+    if (generation !== saveGenerationRef.current) return;
     if (outcome.kind === 'conflict') {
       setConflict(outcome.server);
       return;
@@ -187,6 +222,11 @@ export function useSessionComposerDraftScratch({
       ),
       500
     );
+  const cancelPendingDraftWrites = useCallback(() => {
+    discardInFlightSaves();
+    setConflict(null);
+  }, []);
+  cancelDebouncedSaveRef.current = cancelDebouncedSave;
 
   return {
     scratch,
@@ -196,7 +236,7 @@ export function useSessionComposerDraftScratch({
     isScratchLoading,
     saveToScratch,
     setFollowUpMessage,
-    cancelDebouncedSave,
+    cancelDebouncedSave: cancelPendingDraftWrites,
     draftConflict: conflict,
     keepServerDraft,
     keepLocalDraft,

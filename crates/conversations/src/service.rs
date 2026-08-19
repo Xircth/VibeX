@@ -42,7 +42,7 @@ use executors::profile::ExecutorProfileId;
 use git::{Commit, DiffTarget};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::Mutex;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -327,62 +327,78 @@ async fn copy_conversation_history(
         i64::MAX,
     )
     .await?;
-    let mut turn_map = HashMap::new();
-    for record in events {
-        let event: ConversationEvent = serde_json::from_str(&record.normalized_json)?;
-        if matches!(
-            event,
-            ConversationEvent::ConversationRelationCreated { .. }
-                | ConversationEvent::ConversationCreated { .. }
-                | ConversationEvent::ConversationInput { .. }
-                | ConversationEvent::ConversationSteering { .. }
-        ) {
-            continue;
-        }
-        let new_turn_id = if let Some(old_turn_id) = record.turn_id {
-            Some(
-                ensure_copied_turn(pool, destination_id, old_turn_id, &event, &mut turn_map)
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    let copied = async {
+        let mut turn_map = HashMap::new();
+        for record in events {
+            let event: ConversationEvent = serde_json::from_str(&record.normalized_json)?;
+            if matches!(
+                event,
+                ConversationEvent::ConversationRelationCreated { .. }
+                    | ConversationEvent::ConversationCreated { .. }
+                    | ConversationEvent::ConversationInput { .. }
+                    | ConversationEvent::ConversationSteering { .. }
+            ) {
+                continue;
+            }
+            let new_turn_id = if let Some(old_turn_id) = record.turn_id {
+                Some(
+                    ensure_copied_turn(
+                        &mut conn,
+                        destination_id,
+                        old_turn_id,
+                        &event,
+                        &mut turn_map,
+                    )
                     .await?,
+                )
+            } else {
+                None
+            };
+            let copy_key = format!(
+                "fork-copy:{destination_id}:{}",
+                record
+                    .idempotency_key
+                    .as_deref()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| record.sequence.to_string())
+            );
+            ConversationEventAppender::append_and_apply(
+                &mut conn,
+                AppendConversationEvent {
+                    id: Uuid::new_v4(),
+                    conversation_id: destination_id,
+                    turn_id: new_turn_id,
+                    binding_id: None,
+                    connection_id: record.connection_id.as_deref(),
+                    prompt_id: record.prompt_id.as_deref(),
+                    source: "import",
+                    event_kind: &record.event_kind,
+                    normalized_json: &record.normalized_json,
+                    raw_json: record.raw_json.as_deref(),
+                    idempotency_key: Some(&copy_key),
+                },
             )
-        } else {
-            None
-        };
-        let normalized_json = serde_json::to_string(&event)?;
-        let event_kind = serde_json::to_value(&event)?
-            .get("kind")
-            .and_then(|kind| kind.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let copy_key = format!(
-            "fork-copy:{destination_id}:{}",
-            record
-                .idempotency_key
-                .clone()
-                .unwrap_or_else(|| record.sequence.to_string())
-        );
-        ConversationEventAppender::append(
-            pool,
-            AppendConversationEvent {
-                id: Uuid::new_v4(),
-                conversation_id: destination_id,
-                turn_id: new_turn_id,
-                binding_id: None,
-                connection_id: record.connection_id.as_deref(),
-                prompt_id: record.prompt_id.as_deref(),
-                source: "import",
-                event_kind: &event_kind,
-                normalized_json: &normalized_json,
-                raw_json: record.raw_json.as_deref(),
-                idempotency_key: Some(&copy_key),
-            },
-        )
-        .await?;
+            .await?;
+        }
+        Ok::<_, ConversationServiceError>(())
     }
-    Ok(())
+    .await;
+    match copied {
+        Ok(()) => {
+            sqlx::query("COMMIT").execute(&mut *conn).await?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            Err(error)
+        }
+    }
 }
 
 async fn ensure_copied_turn(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     conversation_id: Uuid,
     old_turn_id: Uuid,
     event: &ConversationEvent,
@@ -402,8 +418,8 @@ async fn ensure_copied_turn(
         }),
         _ => None,
     };
-    ConversationTurnRecord::create_pending(
-        pool,
+    ConversationTurnRecord::create_pending_on_connection(
+        conn,
         new_turn_id,
         CreateConversationTurn {
             conversation_id,
@@ -611,6 +627,11 @@ pub trait ConversationHost: Send + Sync {
         pool: &SqlitePool,
         agent_id: &agents::AgentId,
     ) -> Result<AgentRuntimeLaunchSettings, ConversationServiceError>;
+
+    /// Product MCP identities Host will deliver on this session new/resume/rebind.
+    fn product_mcp_server_names(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// Receives a durable conversation event immediately after its append transaction
@@ -2403,6 +2424,8 @@ impl ConversationSessionService {
             .unwrap_or_else(|| format!("vibex-new-session-{}", input.conversation_id));
         let session_capabilities_json = serde_json::to_string(&AcpCapabilitySnapshot::default())
             .map_err(|error| ConversationServiceError::Internal(error.to_string()))?;
+        let mcp_servers_json = serde_json::to_string(&self.ctx.host.product_mcp_server_names())
+            .unwrap_or_else(|_| "[]".to_string());
 
         // Lazy reconnect (ADR-0001): when a conversation is reopened after its agent
         // process ended (host restart, or the conversation was closed), the runtime has
@@ -2439,7 +2462,7 @@ impl ConversationSessionService {
                     r#"{"text":true,"image":false,"audio":false,"resource":false,"resource_link":true}"#,
                 session_capabilities_json: &session_capabilities_json,
                 client_capabilities_json: "{}",
-                mcp_servers_json: "[]",
+                mcp_servers_json: &mcp_servers_json,
                 modes_json: "[]",
                 config_options_json: "[]",
                 current_mode: None,

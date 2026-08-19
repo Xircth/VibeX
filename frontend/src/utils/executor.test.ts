@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ExecutorConfigs } from 'shared/types';
 import {
-  extractProfileFromAction,
   getClaudeModelOptions,
   getClaudeVariantConfig,
   getClaudeVariantFromSelection,
@@ -109,22 +108,6 @@ const profiles = {
 } as const satisfies ExecutorConfigs['executors'];
 
 describe('executor utilities', () => {
-  it('extracts the executor profile from a coding action chain', () => {
-    expect(
-      extractProfileFromAction({
-        typ: {
-          type: 'CodingAgentFollowUpRequest',
-          prompt: 'retry',
-          session_id: 'session-1',
-          reset_to_message_id: null,
-          executor_profile_id: { executor: 'codex', variant: 'PLAN' },
-          working_dir: null,
-        },
-        next_action: null,
-      })
-    ).toEqual({ executor: 'codex', variant: 'PLAN' });
-  });
-
   it('maps Claude controls back to real variants', () => {
     expect(getClaudeVariantFromSelection(profiles, 'auto', 'opus')).toBe(
       'OPUS'

@@ -74,8 +74,8 @@ vi.mock('./tools/ToolCardShell', () => ({
     status.status === 'created' ? 'running' : 'complete',
 }));
 
-vi.mock('./TimelinePlanCard', () => ({
-  TimelinePlanCard: () => <div />,
+vi.mock('./ConversationPlanCard', () => ({
+  ConversationPlanCard: () => <div />,
 }));
 
 vi.mock('./DisplayConversationEntry', () => ({

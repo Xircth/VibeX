@@ -328,7 +328,7 @@ describe('AgentDetail', () => {
       })
     );
     expect(within(nodeResult).getByText('来源')).toBeInTheDocument();
-    expect(within(nodeResult).getByText('系统环境')).toBeInTheDocument();
+    expect(within(nodeResult).getByText('本机环境')).toBeInTheDocument();
     expect(
       within(nodeResult).getByText('当前版本不满足 >=22。')
     ).toBeInTheDocument();
@@ -432,7 +432,7 @@ describe('AgentDetail', () => {
           message: '正在安装本地 Runtime 与 ACP',
           logs: [
             '正在解析已锁定的安装方案',
-            '$ npm install --prefix <managed> @openai/codex@1.0.0',
+            '$ npm install -g @openai/codex@1.0.0',
           ],
         }}
         preflight={null}

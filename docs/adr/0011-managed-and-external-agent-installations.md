@@ -1,8 +1,9 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-28
 decision-makers:
   - VibeX maintainers
+superseded-by: 0060
 ---
 
 # Agent 安装采用托管与外部两种所有权

@@ -153,6 +153,7 @@ describe('useSessionComposerDraftScratch', () => {
             config_overrides: {},
           },
         },
+        expected_revision: 0,
       },
       { overwriteOnConflict: false }
     );
@@ -188,6 +189,7 @@ describe('useSessionComposerDraftScratch', () => {
             config_overrides: {},
           },
         },
+        expected_revision: 0,
       },
       { overwriteOnConflict: false }
     );
@@ -228,9 +230,111 @@ describe('useSessionComposerDraftScratch', () => {
             config_overrides: {},
           },
         },
+        expected_revision: 1,
       },
       { overwriteOnConflict: false }
     );
+  });
+
+  it('does not treat a lagging scratch stream as a remote conflict', async () => {
+    mockScratch(draftScratch(1, 'hello'));
+    const { result, rerender } = renderHook(
+      ({ localMessage }: { localMessage: string }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths: [],
+          localMessage,
+        }),
+      { initialProps: { localMessage: 'hello' } }
+    );
+
+    await act(async () => {
+      await result.current.saveToScratch('hello', profile, []);
+    });
+    expect(result.current.draftConflict).toBeNull();
+
+    rerender({ localMessage: '' });
+    expect(result.current.draftConflict).toBeNull();
+  });
+
+  it('does not raise a conflict after send leaves an empty composer', async () => {
+    mockScratch(draftScratch(1, 'hello'));
+    const { result, rerender } = renderHook(
+      ({ localMessage }: { localMessage: string }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths: [],
+          localMessage,
+        }),
+      { initialProps: { localMessage: 'hello' } }
+    );
+
+    act(() => {
+      result.current.cancelDebouncedSave();
+    });
+    rerender({ localMessage: '' });
+
+    mockScratch(draftScratch(2, 'hello'));
+    rerender({ localMessage: '' });
+
+    expect(result.current.draftConflict).toBeNull();
+  });
+
+  it('ignores in-flight saves after the user keeps the server draft', async () => {
+    let resolveSave: ((value: unknown) => void) | undefined;
+    updateScratchMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve;
+      })
+    );
+    mockScratch(draftScratch(1, 'mine'));
+
+    const { result, rerender } = renderHook(
+      ({
+        localMessage,
+        attachedImagePaths,
+      }: {
+        localMessage: string;
+        attachedImagePaths: string[];
+      }) =>
+        useSessionComposerDraftScratch({
+          ...draftArgs,
+          attachedImagePaths,
+          localMessage,
+        }),
+      {
+        initialProps: {
+          localMessage: 'mine',
+          attachedImagePaths: ['.vibe-images/current.png'],
+        },
+      }
+    );
+
+    let savePromise: Promise<void> = Promise.resolve();
+    act(() => {
+      savePromise = result.current.saveToScratch('mine', profile);
+    });
+
+    const server = draftScratch(3, 'server draft');
+    mockScratch(server);
+    rerender({
+      localMessage: 'mine',
+      attachedImagePaths: ['.vibe-images/current.png'],
+    });
+    expect(result.current.draftConflict).toEqual(server);
+
+    let applied: { message: string } | null = null;
+    act(() => {
+      applied = result.current.keepServerDraft();
+    });
+    expect(applied?.message).toBe('server draft');
+    expect(result.current.draftConflict).toBeNull();
+
+    await act(async () => {
+      resolveSave?.({ kind: 'conflict', server });
+      await savePromise;
+    });
+    expect(result.current.draftConflict).toBeNull();
   });
 
   it('keeps both drafts when the server reports a revision conflict', async () => {

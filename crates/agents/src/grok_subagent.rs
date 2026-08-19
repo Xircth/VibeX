@@ -468,6 +468,11 @@ mod tests {
             &json!({"update":{"sessionUpdate":"subagent_progress","subagent_id":"x"}}),
         );
         assert!(updates.is_empty());
+        assert!(
+            tracker
+                .handle_ext("x.ai/announcements/update", &json!({"announcements":[]}))
+                .is_empty()
+        );
     }
 
     #[test]

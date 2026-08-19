@@ -20,7 +20,9 @@ pub use error::{ErrorCode, ErrorEnvelope};
 pub use ids::{ConversationId, OperationId, SubscriptionId};
 pub use notification::{NotificationOutcome, NotificationSource, TerminalNotificationSummary};
 pub use pairing_invitation::{
-    IssuedPairingInvitation, PairingInvitationPayload, ReachabilityOrigin, is_loopback_origin,
+    CONNECTION_CODE_ALPHABET, CONNECTION_CODE_LEN, IssuedPairingInvitation,
+    PairingInvitationPayload, ReachabilityOrigin, is_connection_code, is_loopback_origin,
+    issue_connection_code,
 };
 pub use schema::{ProtocolSchemaBundle, protocol_schema_bundle, write_protocol_schema_artifacts};
 pub use subscription::{

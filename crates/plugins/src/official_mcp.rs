@@ -19,6 +19,12 @@ pub const SESSION_FEAT_SESSION_CONTROL: u8 = 1 << 3;
 pub const SESSION_FEAT_ALL: u8 =
     SESSION_FEAT_FEEDBACK | SESSION_FEAT_ASK | SESSION_FEAT_SESSIONS | SESSION_FEAT_SESSION_CONTROL;
 
+/// Host-injected / native-projected MCP identity for multi-agent delegation.
+pub const DELEGATION_MCP_NAME: &str = "vibex-delegation-mcp";
+
+/// Host-injected / native-projected MCP identity for session enhancement.
+pub const SESSION_MCP_NAME: &str = "vibex-session-mcp";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfficialMcpBinding {
     pub plugin_id: String,
@@ -52,6 +58,17 @@ impl OfficialMcpRuntime {
         self.bindings().iter().any(|binding| {
             binding.binary_id == "vibex-workflow-mcp" || binding.product == "workflow"
         })
+    }
+
+    pub fn product_mcp_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if self.allow_delegation_mcp() {
+            names.push(DELEGATION_MCP_NAME.to_string());
+        }
+        if self.allow_session_mcp() {
+            names.push(SESSION_MCP_NAME.to_string());
+        }
+        names
     }
 
     pub fn set_session_features(&self, bits: u8) {
@@ -178,6 +195,12 @@ pub fn session_features_from_config(config: &Value) -> u8 {
         | flag("question", SESSION_FEAT_ASK)
         | flag("sessionInfo", SESSION_FEAT_SESSIONS)
         | flag("sessionControl", SESSION_FEAT_SESSION_CONTROL)
+}
+
+pub fn binding_has_delegation_mcp(mcp_servers_json: &str) -> bool {
+    serde_json::from_str::<Vec<String>>(mcp_servers_json)
+        .ok()
+        .is_some_and(|names| names.iter().any(|name| name == DELEGATION_MCP_NAME))
 }
 
 #[cfg(test)]

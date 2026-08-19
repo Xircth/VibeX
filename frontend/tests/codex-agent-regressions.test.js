@@ -17,18 +17,6 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-test('排队中的 follow-up 会在历史区先以用户消息实时渲染', () => {
-  const source = readFrontendFile(
-    'src/hooks/useConversationHistory/useConversationHistory.ts'
-  );
-
-  assert.match(source, /queryKey:\s*\['queue-status',\s*sessionId\]/);
-  assert.match(source, /queueApi\.getStatus\(sessionId!\)/);
-  assert.match(source, /queueStatus\?\.status === 'queued'/);
-  assert.match(source, /patchKey:\s*`queued:\$\{queueStatus\.message\.session_id\}`/);
-  assert.match(source, /type:\s*'user_message'/);
-});
-
 test('主题提供器会监听系统主题切换，预览编辑器跟随明暗主题', () => {
   const themeProvider = readFrontendFile('src/components/ThemeProvider.tsx');
   const previewPanel = readFrontendFile(

@@ -1,7 +1,7 @@
 use std::{io, process::ExitStatus};
 
 use db::models::execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus};
-use executors::executors::{AgentKind, ExecutorExitResult};
+use executors::executors::ExecutorExitResult;
 use uuid::Uuid;
 
 pub(crate) fn execution_result_from_exit(
@@ -92,13 +92,6 @@ pub(crate) fn should_mark_task_in_review_after_stop(
     !matches!(run_reason, ExecutionProcessRunReason::DevServer)
 }
 
-pub(crate) fn should_create_executor_approval_bridge(base_executor: Option<AgentKind>) -> bool {
-    matches!(
-        base_executor,
-        Some(AgentKind::Codex | AgentKind::ClaudeCode | AgentKind::Opencode)
-    )
-}
-
 pub(crate) fn should_start_next_after_commit(
     run_reason: &ExecutionProcessRunReason,
     _changes_committed: bool,
@@ -132,15 +125,14 @@ mod tests {
     use std::io;
 
     use db::models::execution_process::{ExecutionProcessRunReason, ExecutionProcessStatus};
-    use executors::executors::{AgentKind, ExecutorExitResult};
+    use executors::executors::ExecutorExitResult;
     use uuid::Uuid;
 
     use super::{
         commit_message_for_execution, execution_result_from_exit, executor_signal_exit_status,
-        should_commit_and_consider_next, should_create_executor_approval_bridge,
-        should_inspect_commits_from_execution, should_mark_task_in_review_after_stop,
-        should_start_next_after_commit, should_try_commit_changes, stop_exit_code_for_status,
-        success_exit_status,
+        should_commit_and_consider_next, should_inspect_commits_from_execution,
+        should_mark_task_in_review_after_stop, should_start_next_after_commit,
+        should_try_commit_changes, stop_exit_code_for_status, success_exit_status,
     };
 
     #[test]
@@ -253,24 +245,6 @@ mod tests {
         assert!(should_mark_task_in_review_after_stop(
             &ExecutionProcessRunReason::CleanupScript
         ));
-    }
-
-    #[test]
-    fn approval_bridge_is_used_for_interactive_coding_executors() {
-        assert!(should_create_executor_approval_bridge(Some(
-            AgentKind::Codex
-        )));
-        assert!(should_create_executor_approval_bridge(Some(
-            AgentKind::ClaudeCode
-        )));
-        assert!(should_create_executor_approval_bridge(Some(
-            AgentKind::Opencode
-        )));
-    }
-
-    #[test]
-    fn approval_bridge_is_skipped_for_non_interactive_actions() {
-        assert!(!should_create_executor_approval_bridge(None));
     }
 
     #[test]

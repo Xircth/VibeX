@@ -11,7 +11,7 @@ import type {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-import { AgentManagementIcon } from './AgentManagementIcon';
+import { AgentManagementIcon } from '@/components/agents/AgentManagementIcon';
 import { UserAgentDefinitionEditor } from './UserAgentDefinitionEditor';
 
 type AgentRegistryViewProps = {

@@ -204,9 +204,9 @@ impl AgentManagementApplicationService {
                 .remove(membership.agent_id.as_str())
                 .unwrap_or_default();
             // The management list is a persisted read model and must not run
-            // filesystem integrity checks on the UI request path. Explicit
-            // probes update installation.lifecycle; session launch always
-            // performs the authoritative SHA-256 gate again.
+            // filesystem probes on the UI request path. Explicit checks update
+            // installation.lifecycle; session launch only requires the bound
+            // user-environment program to still exist.
             let components_verified = !component_rows.is_empty()
                 && installation.is_some_and(|row| row.lifecycle != "needs_repair");
             let required_components = component_rows
@@ -293,9 +293,9 @@ impl AgentManagementApplicationService {
         Ok(views)
     }
 
-    /// Revalidate installed component bytes outside latency-sensitive snapshot
-    /// reads. A failed check can only demote the installation; successful
-    /// recovery still requires the normal repair/preflight flow.
+    /// Revalidate leftover non-user-environment component bytes outside
+    /// latency-sensitive snapshot reads. Current user-environment installs are
+    /// `external` and skipped; a failed check can only demote the installation.
     pub async fn refresh_component_integrity(&self) -> Result<()> {
         let rows = sqlx::query_as::<_, ComponentProjection>(
             r#"SELECT installation.agent_id, component.component_kind,

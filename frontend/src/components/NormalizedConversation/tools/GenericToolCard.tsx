@@ -86,10 +86,6 @@ function getProcessActionDetail(entry: ProcessStartPayload) {
     return actionType.context;
   }
 
-  if (actionType.type === 'ReviewRequest') {
-    return 'Review';
-  }
-
   return actionType.type;
 }
 

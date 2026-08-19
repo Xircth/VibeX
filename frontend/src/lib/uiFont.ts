@@ -1,4 +1,5 @@
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
+import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 /**
  * Monospace font selection (P3-2). Frontend-only, localStorage-persisted (mirrors
@@ -45,7 +46,7 @@ const FONT_KEY = 'vibex:mono-font';
 const DEFAULT_FONT_ID = 'default';
 
 export function getMonoFontId(): string {
-  const raw = localStorage.getItem(FONT_KEY);
+  const raw = readLocalStorage(FONT_KEY);
   return MONO_FONT_OPTIONS.some((option) => option.id === raw)
     ? (raw as string)
     : DEFAULT_FONT_ID;
@@ -62,7 +63,7 @@ export function applyMonoFont(id: string): void {
 }
 
 export function setMonoFont(id: string): void {
-  localStorage.setItem(FONT_KEY, id);
+  writeLocalStorage(FONT_KEY, id);
   persistFrontendPreference(FONT_KEY, id);
   applyMonoFont(id);
   // Let live consumers (open xterm terminals) re-read the variable.

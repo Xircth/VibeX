@@ -184,13 +184,21 @@ export function conversationStoreReducer(
         let rows = entry.rows;
         let liveText = entry.liveText;
         let optimisticTurns = entry.optimisticTurns;
+        const rowIndexById = new Map(
+          rows.map((row, index) => [row.row_id, index] as const)
+        );
         for (const row of action.rows) {
           const reconciled = reconcileOptimisticTurnAgainstUserRow(
             optimisticTurns,
             row
           );
           optimisticTurns = reconciled.optimisticTurns;
-          const applied = upsertRow(rows, liveText, reconciled.row);
+          const applied = upsertRow(
+            rows,
+            liveText,
+            reconciled.row,
+            rowIndexById
+          );
           rows = applied.rows;
           liveText = applied.liveText;
         }
@@ -234,6 +242,9 @@ function applyRowOpBatch(
   let liveText = entry.liveText;
   let currentTurnId = entry.currentTurnId;
   let optimisticTurns = entry.optimisticTurns;
+  const rowIndexById = new Map(
+    rows.map((row, index) => [row.row_id, index] as const)
+  );
 
   for (const op of batch.ops) {
     if (op.op === 'upsert') {
@@ -242,7 +253,7 @@ function applyRowOpBatch(
         op.row
       );
       optimisticTurns = reconciled.optimisticTurns;
-      const applied = upsertRow(rows, liveText, reconciled.row);
+      const applied = upsertRow(rows, liveText, reconciled.row, rowIndexById);
       rows = applied.rows;
       liveText = applied.liveText;
       if (
@@ -253,9 +264,13 @@ function applyRowOpBatch(
       }
     } else if (op.op === 'delete') {
       const revision = toBigInt(op.revision);
-      const existing = rows.find((row) => row.row_id === op.row_id);
+      const existingIndex = rowIndexById.get(op.row_id);
+      const existing =
+        existingIndex === undefined ? undefined : rows[existingIndex];
       if (existing && revision >= toBigInt(existing.revision)) {
         rows = rows.filter((row) => row.row_id !== op.row_id);
+        rowIndexById.clear();
+        rows.forEach((row, index) => rowIndexById.set(row.row_id, index));
       }
       const overlay = liveText[op.row_id];
       if (overlay && revision >= overlay.revision) {
@@ -292,14 +307,18 @@ function applyRowOpBatch(
 function upsertRow(
   rows: TimelineRow[],
   liveText: Record<string, LiveTextOverlay>,
-  incoming: TimelineRow
+  incoming: TimelineRow,
+  rowIndexById?: Map<string, number>
 ): { rows: TimelineRow[]; liveText: Record<string, LiveTextOverlay> } {
   const incomingRevision = toBigInt(incoming.revision);
-  const index = rows.findIndex((row) => row.row_id === incoming.row_id);
+  const index =
+    rowIndexById?.get(incoming.row_id) ??
+    rows.findIndex((row) => row.row_id === incoming.row_id);
   let nextRows = rows;
   let applied = false;
-  if (index === -1) {
+  if (index === undefined || index === -1) {
     nextRows = [...rows, incoming];
+    rowIndexById?.set(incoming.row_id, nextRows.length - 1);
     applied = true;
   } else if (incomingRevision >= toBigInt(rows[index].revision)) {
     const mergedIncoming = preserveStructuredUserText(rows[index], incoming);

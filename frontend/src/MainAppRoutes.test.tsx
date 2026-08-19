@@ -48,7 +48,7 @@ vi.mock('@/components/layout/ProjectRail', () => ({
   ProjectRail: () => <aside data-testid="project-rail" />,
 }));
 
-vi.mock('@/pages/settings/', async () => {
+vi.mock('@/pages/settings/SettingsLayout', async () => {
   const React = await vi.importActual<typeof import('react')>('react');
   const { Outlet } =
     await vi.importActual<typeof import('react-router-dom')>(
@@ -56,48 +56,63 @@ vi.mock('@/pages/settings/', async () => {
     );
 
   return {
-    AgentSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-agents' }),
-    AppearanceSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-appearance' }),
-    AutomationsSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-automations' }),
-    ChatChannelSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-chat-channels' }),
-    DeviceSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-devices' }),
-    EditorSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-editor' }),
-    GeneralSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-general' }),
-    InstructionsSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-instructions' }),
-    LogsSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-logs' }),
-    McpSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-mcp' }),
-    PluginsSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-plugins' }),
     SettingsLayout: () =>
       React.createElement(
         'div',
         { 'data-testid': 'settings-layout' },
         React.createElement(Outlet)
       ),
-    ShortcutSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-shortcuts' }),
-    SkillsSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-skills' }),
-    SystemSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-system' }),
-    VersionControlSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-version-control' }),
-    WorktreeSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-worktrees' }),
-    WebServiceSettings: () =>
-      React.createElement('div', { 'data-testid': 'settings-web-service' }),
   };
 });
+
+vi.mock('@/pages/settings/AgentSettings', () => ({
+  AgentSettings: () => <div data-testid="settings-agents" />,
+}));
+vi.mock('@/pages/settings/AppearanceSettings', () => ({
+  AppearanceSettings: () => <div data-testid="settings-appearance" />,
+}));
+vi.mock('@/pages/settings/AutomationsSettings', () => ({
+  AutomationsSettings: () => <div data-testid="settings-automations" />,
+}));
+vi.mock('@/pages/settings/ChatChannelSettings', () => ({
+  ChatChannelSettings: () => <div data-testid="settings-chat-channels" />,
+}));
+vi.mock('@/pages/settings/DeviceSettings', () => ({
+  DeviceSettings: () => <div data-testid="settings-devices" />,
+}));
+vi.mock('@/pages/settings/EditorSettings', () => ({
+  EditorSettings: () => <div data-testid="settings-editor" />,
+}));
+vi.mock('@/pages/settings/GeneralSettings', () => ({
+  GeneralSettings: () => <div data-testid="settings-general" />,
+}));
+vi.mock('@/pages/settings/InstructionsSettings', () => ({
+  InstructionsSettings: () => <div data-testid="settings-instructions" />,
+}));
+vi.mock('@/pages/settings/LogsSettings', () => ({
+  LogsSettings: () => <div data-testid="settings-logs" />,
+}));
+vi.mock('@/pages/settings/McpSettings', () => ({
+  McpSettings: () => <div data-testid="settings-mcp" />,
+}));
+vi.mock('@/pages/settings/ShortcutSettings', () => ({
+  ShortcutSettings: () => <div data-testid="settings-shortcuts" />,
+}));
+vi.mock('@/pages/settings/SkillsSettings', () => ({
+  SkillsSettings: () => <div data-testid="settings-skills" />,
+}));
+vi.mock('@/pages/settings/SystemSettings', () => ({
+  SystemSettings: () => <div data-testid="settings-system" />,
+}));
+vi.mock('@/pages/settings/VersionControlSettings', () => ({
+  VersionControlSettings: () => <div data-testid="settings-version-control" />,
+}));
+vi.mock('@/pages/settings/WorktreeSettings', () => ({
+  WorktreeSettings: () => <div data-testid="settings-worktrees" />,
+}));
+vi.mock('@/pages/settings/WebServiceSettings', () => ({
+  WebServiceSettings: () => <div data-testid="settings-web-service" />,
+}));
 
 vi.mock('@/pages/Projects', () => ({
   Projects: () => <div data-testid="projects-page" />,
@@ -144,19 +159,21 @@ describe('MainAppRoutes', () => {
     expect(screen.getByTestId('projects-page')).toBeInTheDocument();
   });
 
-  it('renders workspace session routes through the IDE layout', () => {
+  it('renders workspace session routes through the IDE layout', async () => {
     renderAt(
       '/local-projects/project-1/workspaces/workspace-1/sessions/session-1'
     );
 
-    expect(screen.getByTestId('ide-layout')).toBeInTheDocument();
+    expect(await screen.findByTestId('ide-layout')).toBeInTheDocument();
     expect(screen.getByTestId('project-tasks-page')).toBeInTheDocument();
   });
 
-  it('keeps full attempt logs outside the standard and IDE layout groups', () => {
+  it('keeps full attempt logs outside the standard and IDE layout groups', async () => {
     renderAt('/local-projects/project-1/workspaces/workspace-1/full');
 
-    expect(screen.getByTestId('full-attempt-logs-page')).toBeInTheDocument();
+    expect(
+      await screen.findByTestId('full-attempt-logs-page')
+    ).toBeInTheDocument();
     expect(screen.queryByTestId('normal-layout')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ide-layout')).not.toBeInTheDocument();
   });
@@ -169,18 +186,18 @@ describe('MainAppRoutes', () => {
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });
 
-  it('keeps the product plugin module inside the settings layout', () => {
+  it('keeps the product plugin module inside the settings layout', async () => {
     renderAt('/plugins');
 
-    expect(screen.getByTestId('plugins-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('plugins-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });
 
-  it('keeps the settings layout around an independent plugin detail page', () => {
+  it('keeps the settings layout around an independent plugin detail page', async () => {
     renderAt('/plugins/vibex.office');
 
-    expect(screen.getByTestId('plugin-detail-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('plugin-detail-page')).toBeInTheDocument();
     expect(screen.getByTestId('settings-layout')).toBeInTheDocument();
     expect(screen.queryByTestId('project-rail')).not.toBeInTheDocument();
   });

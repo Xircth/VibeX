@@ -494,7 +494,10 @@ export function BrowserPanel({
     resizeObserver.observe(toolbarElement);
     intersectionObserver.observe(element);
     window.addEventListener('resize', scheduleSurfaceSync);
-    window.addEventListener('scroll', scheduleSurfaceSync, true);
+    window.addEventListener('scroll', scheduleSurfaceSync, {
+      capture: true,
+      passive: true,
+    });
     document.addEventListener('visibilitychange', scheduleSurfaceSync);
     scheduleSurfaceSync();
 

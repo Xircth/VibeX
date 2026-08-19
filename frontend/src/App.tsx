@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Minimize2, Power, X } from 'lucide-react';
@@ -19,7 +26,6 @@ import { HotkeysProvider } from 'react-hotkeys-hook';
 import { ProjectProvider } from '@/contexts/ProjectContext';
 import { ThemeMode } from 'shared/types';
 
-import { FirstRunExperience } from '@/components/onboarding/FirstRunExperience';
 import { CrashReportDialog } from '@/components/dialogs/global/CrashReportDialog';
 import { crashReportsApi } from '@/lib/api/crashReports';
 import { ClickedElementsProvider } from './contexts/ClickedElementsProvider';
@@ -37,6 +43,7 @@ import {
 } from '@/mainWindowCloseBehavior';
 import { MainAppRoutes } from '@/MainAppRoutes';
 import { AgentWorkbenchProvider } from '@/features/agents/useAgentWorkbench';
+import { scheduleIdleWork } from '@/lib/scheduleIdleWork';
 import { useBackendTransport } from '@/lib/transport';
 import {
   SequenceIndicator,
@@ -44,6 +51,12 @@ import {
   SHORTCUT_ACTION_EVENT,
   type ShortcutActionEventDetail,
 } from '@/keyboard';
+
+const FirstRunExperience = lazy(() =>
+  import('@/components/onboarding/FirstRunExperience').then((module) => ({
+    default: module.FirstRunExperience,
+  }))
+);
 
 // Tahoe design compatibility scope. The exported component keeps its historical
 // name while the `.legacy-design` class remains Tailwind's active scope.
@@ -253,20 +266,30 @@ function MainAppContent() {
     }
 
     crashPromptShownRef.current = true;
-    void (async () => {
-      try {
-        const info = await crashReportsApi.list();
-        const newest = info.reports[0];
-        if (!newest) return;
-        await CrashReportDialog.show({
-          reportId: newest.id,
-          repository: info.repository,
-        });
-        CrashReportDialog.hide();
-      } catch (error) {
-        console.error('Crash report check failed:', error);
+    let started = false;
+    const cancelIdle = scheduleIdleWork(() => {
+      started = true;
+      void (async () => {
+        try {
+          const info = await crashReportsApi.list();
+          const newest = info.reports[0];
+          if (!newest) return;
+          await CrashReportDialog.show({
+            reportId: newest.id,
+            repository: info.repository,
+          });
+          CrashReportDialog.hide();
+        } catch (error) {
+          console.error('Crash report check failed:', error);
+        }
+      })();
+    });
+    return () => {
+      cancelIdle();
+      if (!started) {
+        crashPromptShownRef.current = false;
       }
-    })();
+    };
   }, [config, isDesktop, location.pathname]);
 
   useEffect(() => {
@@ -308,10 +331,18 @@ function MainAppContent() {
         }
       }
     };
-    void runMaintenance();
+    let started = false;
+    const cancelIdle = scheduleIdleWork(() => {
+      started = true;
+      void runMaintenance();
+    });
 
     return () => {
       cancelled = true;
+      cancelIdle();
+      if (!started) {
+        maintenanceStartedRef.current = false;
+      }
     };
   }, [config, isDesktop, t]);
 
@@ -324,14 +355,16 @@ function MainAppContent() {
           {isDesktop ? <MainWindowCloseToastBridge /> : null}
           <ThemedToaster />
           <MainAppRoutes />
-          {config ? (
-            <FirstRunExperience
-              open={isDesktop && startupPromptStep === 'first-run'}
-              initialEditor={config.editor}
-              initialDefaultAgentId={config.executor_profile.executor}
-              onPersist={persistFirstRun}
-              onFinish={finishFirstRun}
-            />
+          {config && isDesktop && startupPromptStep === 'first-run' ? (
+            <Suspense fallback={null}>
+              <FirstRunExperience
+                open
+                initialEditor={config.editor}
+                initialDefaultAgentId={config.executor_profile.executor}
+                onPersist={persistFirstRun}
+                onFinish={finishFirstRun}
+              />
+            </Suspense>
           ) : null}
         </AgentWorkbenchProvider>
       </SearchProvider>

@@ -108,7 +108,10 @@ export function AstryxSelect({
   React.useEffect(() => {
     if (!open) return;
     reposition();
-    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('scroll', reposition, {
+      capture: true,
+      passive: true,
+    });
     window.addEventListener('resize', reposition);
     return () => {
       window.removeEventListener('scroll', reposition, true);

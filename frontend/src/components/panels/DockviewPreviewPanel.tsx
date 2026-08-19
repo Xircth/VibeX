@@ -50,6 +50,7 @@ import {
   pluginControlApi,
   type ResolvedPluginFileOpener,
 } from '@/lib/api/plugins';
+import { preloadMonacoEditor } from '@/lib/monacoPreload';
 
 const LazyMarkdown = lazy(
   () => import('@/components/NormalizedConversation/AstryxMarkdown')
@@ -165,6 +166,9 @@ function DockviewPreviewPanel(props: IDockviewPanelProps) {
     () => (filePath ? resolveFilePathFromRoot(filePath, rootPath) : null),
     [filePath, rootPath]
   );
+  useEffect(() => {
+    void preloadMonacoEditor();
+  }, []);
   const [pluginOpener, setPluginOpener] =
     useState<ResolvedPluginFileOpener | null>(null);
   const [pluginResolutionPending, setPluginResolutionPending] = useState(false);

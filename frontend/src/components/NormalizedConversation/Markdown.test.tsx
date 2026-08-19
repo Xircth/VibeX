@@ -474,14 +474,16 @@ describe('Markdown', () => {
     expect(screen.getByText('plain output')).toBeInTheDocument();
   });
 
-  it('renders inline and display math through KaTeX', () => {
+  it('renders inline and display math through KaTeX', async () => {
     const { container } = renderMarkdown(String.raw`Euler $e^{i\pi}+1=0$
 
 $$
 \int_0^1 x^2 dx
 $$`);
 
-    expect(container.querySelector('.katex')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.katex')).toBeInTheDocument();
+    });
     expect(container.querySelector('.katex-display')).toBeInTheDocument();
   });
 
@@ -490,7 +492,9 @@ $$`);
       'Inline \\(a+b\\)\n\n\\[\nc=d\n\\]\n\n```ts\nconst raw = "\\\\(not math\\\\)";\n```'
     );
 
-    expect(container.querySelector('.katex')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(container.querySelector('.katex')).toBeInTheDocument();
+    });
     expect(container.querySelector('.katex-display')).toBeInTheDocument();
     await waitFor(() =>
       expect(shikiMock.codeToTokensWithThemes).toHaveBeenCalledWith(

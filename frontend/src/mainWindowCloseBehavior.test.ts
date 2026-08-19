@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { clearLocalStorageCache } from '@/lib/safeStorage';
 import {
   getSavedMainWindowCloseBehavior,
   saveMainWindowCloseBehavior,
@@ -8,6 +9,7 @@ import {
 describe('main window close behavior storage', () => {
   afterEach(() => {
     window.localStorage.clear();
+    clearLocalStorageCache();
   });
 
   it('returns no saved behavior when storage is empty or invalid', () => {

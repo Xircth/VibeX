@@ -1,35 +1,108 @@
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { LegacyDesignScope } from '@/components/legacy-design/LegacyDesignScope';
-import { IDEWorkspaceRoute } from '@/components/layout/IDEWorkspaceRoute';
 import { NormalLayout } from '@/components/layout/NormalLayout';
 import { ProjectRail } from '@/components/layout/ProjectRail';
-import { FullAttemptLogsPage } from '@/pages/FullAttemptLogs';
-import { PluginsPage } from '@/pages/Plugins';
-import { PluginDetailPage } from '@/pages/plugins/ProductPlugins';
-import { ProjectTasks } from '@/pages/ProjectTasks';
+import { Loader } from '@/components/ui/loader';
 import { Projects } from '@/pages/Projects';
-import { WorkflowInspector } from '@/pages/workflows/WorkflowInspector';
-import {
-  AgentSettings,
-  AppearanceSettings,
-  AutomationsSettings,
-  ChatChannelSettings,
-  DeviceSettings,
-  EditorSettings,
-  GeneralSettings,
-  InstructionsSettings,
-  LogsSettings,
-  McpSettings,
-  SettingsLayout,
-  ShortcutSettings,
-  SkillsSettings,
-  SystemSettings,
-  VersionControlSettings,
-  WorktreeSettings,
-  WebServiceSettings,
-} from '@/pages/settings/';
+
+function lazyNamed<
+  T extends Record<Name, ComponentType>,
+  Name extends keyof T & string,
+>(load: () => Promise<T>, name: Name) {
+  return lazy(() => load().then((mod) => ({ default: mod[name] })));
+}
+
+const IDEWorkspaceRoute = lazyNamed(
+  () => import('@/components/layout/IDEWorkspaceRoute'),
+  'IDEWorkspaceRoute'
+);
+const ProjectTasks = lazyNamed(
+  () => import('@/pages/ProjectTasks'),
+  'ProjectTasks'
+);
+const FullAttemptLogsPage = lazyNamed(
+  () => import('@/pages/FullAttemptLogs'),
+  'FullAttemptLogsPage'
+);
+const PluginsPage = lazyNamed(() => import('@/pages/Plugins'), 'PluginsPage');
+const PluginDetailPage = lazyNamed(
+  () => import('@/pages/plugins/ProductPlugins'),
+  'PluginDetailPage'
+);
+const WorkflowInspector = lazyNamed(
+  () => import('@/pages/workflows/WorkflowInspector'),
+  'WorkflowInspector'
+);
+const SettingsLayout = lazyNamed(
+  () => import('@/pages/settings/SettingsLayout'),
+  'SettingsLayout'
+);
+const AgentSettings = lazyNamed(
+  () => import('@/pages/settings/AgentSettings'),
+  'AgentSettings'
+);
+const AppearanceSettings = lazyNamed(
+  () => import('@/pages/settings/AppearanceSettings'),
+  'AppearanceSettings'
+);
+const AutomationsSettings = lazyNamed(
+  () => import('@/pages/settings/AutomationsSettings'),
+  'AutomationsSettings'
+);
+const ChatChannelSettings = lazyNamed(
+  () => import('@/pages/settings/ChatChannelSettings'),
+  'ChatChannelSettings'
+);
+const DeviceSettings = lazyNamed(
+  () => import('@/pages/settings/DeviceSettings'),
+  'DeviceSettings'
+);
+const EditorSettings = lazyNamed(
+  () => import('@/pages/settings/EditorSettings'),
+  'EditorSettings'
+);
+const GeneralSettings = lazyNamed(
+  () => import('@/pages/settings/GeneralSettings'),
+  'GeneralSettings'
+);
+const InstructionsSettings = lazyNamed(
+  () => import('@/pages/settings/InstructionsSettings'),
+  'InstructionsSettings'
+);
+const LogsSettings = lazyNamed(
+  () => import('@/pages/settings/LogsSettings'),
+  'LogsSettings'
+);
+const McpSettings = lazyNamed(
+  () => import('@/pages/settings/McpSettings'),
+  'McpSettings'
+);
+const ShortcutSettings = lazyNamed(
+  () => import('@/pages/settings/ShortcutSettings'),
+  'ShortcutSettings'
+);
+const SkillsSettings = lazyNamed(
+  () => import('@/pages/settings/SkillsSettings'),
+  'SkillsSettings'
+);
+const SystemSettings = lazyNamed(
+  () => import('@/pages/settings/SystemSettings'),
+  'SystemSettings'
+);
+const VersionControlSettings = lazyNamed(
+  () => import('@/pages/settings/VersionControlSettings'),
+  'VersionControlSettings'
+);
+const WorktreeSettings = lazyNamed(
+  () => import('@/pages/settings/WorktreeSettings'),
+  'WorktreeSettings'
+);
+const WebServiceSettings = lazyNamed(
+  () => import('@/pages/settings/WebServiceSettings'),
+  'WebServiceSettings'
+);
 
 function MainLegacyScope({
   children,
@@ -43,9 +116,13 @@ function MainLegacyScope({
   return (
     <LegacyDesignScope className={className}>
       {showProjectRail ? <ProjectRail /> : null}
-      {children}
+      <Suspense fallback={<RouteFallback />}>{children}</Suspense>
     </LegacyDesignScope>
   );
+}
+
+function RouteFallback() {
+  return <Loader size={24} className="h-full min-h-[40vh]" />;
 }
 
 export function MainAppRoutes() {

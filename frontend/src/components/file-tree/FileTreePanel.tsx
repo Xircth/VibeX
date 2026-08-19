@@ -1163,7 +1163,10 @@ export function FileTreePanel({
     window.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('keydown', handleEscape);
     window.addEventListener('resize', handleWindowChange);
-    window.addEventListener('scroll', handleWindowChange, true);
+    window.addEventListener('scroll', handleWindowChange, {
+      capture: true,
+      passive: true,
+    });
 
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown);

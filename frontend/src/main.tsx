@@ -12,7 +12,7 @@ import { isBinaryContentError } from '@/utils/filePreviewKind';
 import { isCanceledError } from '@/lib/errors';
 import { initUiZoom } from '@/lib/uiZoom';
 import { initMonoFont } from '@/lib/uiFont';
-import { preloadMonacoEditor } from '@/lib/monacoPreload';
+import { initResolvedTheme } from '@/lib/resolvedTheme';
 // Initialize the i18n runtime (module side-effect) before first render.
 import '@/i18n';
 // Import modal type definitions
@@ -58,9 +58,7 @@ export const queryClient = new QueryClient({
 
 initUiZoom();
 initMonoFont();
-void preloadMonacoEditor().catch((error) => {
-  console.error('Failed to preload the local file preview runtime:', error);
-});
+initResolvedTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

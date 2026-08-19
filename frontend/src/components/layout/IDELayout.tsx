@@ -1238,7 +1238,10 @@ export function IDELayout({
 
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('resize', dismiss);
-    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('scroll', dismiss, {
+      capture: true,
+      passive: true,
+    });
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {

@@ -74,14 +74,15 @@ export function UserSystemProvider({ children }: UserSystemProviderProps) {
     let disposed = false;
     const sync = async () => {
       try {
-        await syncFrontendPreferences();
-        initUiZoom();
-        initMonoFont();
-        const nextLanguage = getUiLanguage();
-        if (i18n.language !== nextLanguage) {
-          await i18n.changeLanguage(nextLanguage);
-        }
+        const language = getUiLanguage();
         await Promise.all([
+          syncFrontendPreferences().then(() => {
+            initUiZoom();
+            initMonoFont();
+          }),
+          language === i18n.language
+            ? Promise.resolve()
+            : i18n.changeLanguage(language),
           useEditorSettingsStore.persist.rehydrate(),
           useKeyBindingOverridesStore.persist.rehydrate(),
         ]);

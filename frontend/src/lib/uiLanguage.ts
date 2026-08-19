@@ -1,4 +1,5 @@
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
+import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 /**
  * UI language (P3-1, i18n): a frontend-only, localStorage-persisted interface
@@ -27,10 +28,7 @@ function isSupported(value: string | null): value is UiLanguage {
 }
 
 export function getUiLanguage(): UiLanguage {
-  const stored =
-    typeof localStorage === 'undefined'
-      ? null
-      : localStorage.getItem(LANGUAGE_KEY);
+  const stored = readLocalStorage(LANGUAGE_KEY);
   if (isSupported(stored)) return stored;
 
   if (typeof navigator === 'undefined') return DEFAULT_LANGUAGE;
@@ -39,6 +37,6 @@ export function getUiLanguage(): UiLanguage {
 }
 
 export function persistUiLanguage(language: UiLanguage): void {
-  localStorage.setItem(LANGUAGE_KEY, language);
+  writeLocalStorage(LANGUAGE_KEY, language);
   persistFrontendPreference(LANGUAGE_KEY, language);
 }

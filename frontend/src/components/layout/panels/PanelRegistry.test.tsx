@@ -50,13 +50,12 @@ vi.mock(
 );
 
 describe('panelComponents', () => {
-  it('resolves workspace panels synchronously without a lazy module boundary', () => {
+  it('resolves workspace panels through a lazy module boundary', async () => {
     const Panel = panelComponents[PANEL_IDS.KANBAN];
 
     render(React.createElement(Panel, {} as IDockviewPanelProps));
 
-    expect(screen.getByTestId('kanban-panel')).toBeInTheDocument();
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('kanban-panel')).toBeInTheDocument();
   });
 });
 

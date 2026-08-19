@@ -1,4 +1,5 @@
 import { persistFrontendPreference } from '@/lib/frontendPreferences';
+import { readLocalStorage, writeLocalStorage } from '@/lib/safeStorage';
 
 /**
  * UI zoom (P3): a frontend-only, localStorage-persisted scale applied to the
@@ -11,7 +12,7 @@ export const UI_ZOOM_LEVELS = [0.8, 0.9, 1, 1.1, 1.25] as const;
 const DEFAULT_ZOOM = 1;
 
 export function getUiZoom(): number {
-  const raw = Number(localStorage.getItem(ZOOM_KEY));
+  const raw = Number(readLocalStorage(ZOOM_KEY));
   return UI_ZOOM_LEVELS.includes(raw as (typeof UI_ZOOM_LEVELS)[number])
     ? raw
     : DEFAULT_ZOOM;
@@ -23,7 +24,7 @@ export function applyUiZoom(scale: number): void {
 }
 
 export function setUiZoom(scale: number): void {
-  localStorage.setItem(ZOOM_KEY, String(scale));
+  writeLocalStorage(ZOOM_KEY, String(scale));
   persistFrontendPreference(ZOOM_KEY, scale);
   applyUiZoom(scale);
 }

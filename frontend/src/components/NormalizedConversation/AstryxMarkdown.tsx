@@ -1,7 +1,9 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useMemo,
+  useState,
   type MouseEvent,
   type ReactNode,
 } from 'react';
@@ -9,8 +11,7 @@ import {
   Markdown as AstryxMarkdownBase,
   type MarkdownProps,
 } from '@astryxdesign/core/Markdown';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
+import { loadKatex } from '@/lib/katexRuntime';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { TagReferenceChip } from '@/components/ui/tag-reference-chip';
 import { useImageMetadata } from '@/hooks/useImageMetadata';
@@ -288,6 +289,41 @@ function protectMathSegments(value: string): {
 
 const MATH_PLACEHOLDER_PATTERN = /\uE000MATH(\d+)\uE000/g;
 
+function KatexMath({ tex, display }: { tex: string; display: boolean }) {
+  const [html, setHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadKatex()
+      .then((katex) => {
+        if (cancelled) return;
+        setHtml(
+          katex.renderToString(tex, {
+            displayMode: display,
+            throwOnError: false,
+          })
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setHtml(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [display, tex]);
+
+  if (html) {
+    return (
+      <span
+        className={display ? 'katex-display' : undefined}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  return <span>{display ? `$$${tex}$$` : `$${tex}$`}</span>;
+}
+
 function arePropsEqual(prev: AstryxMarkdownProps, next: AstryxMarkdownProps) {
   return (
     prev.value === next.value &&
@@ -326,18 +362,7 @@ export const AstryxMarkdown = memo(function AstryxMarkdown({
           const index = Number(match[1]);
           const math = normalizedValue.math[index];
           if (!math) return null;
-          return (
-            <span
-              key={key}
-              className={math.display ? 'katex-display' : undefined}
-              dangerouslySetInnerHTML={{
-                __html: katex.renderToString(math.tex, {
-                  displayMode: math.display,
-                  throwOnError: false,
-                }),
-              }}
-            />
-          );
+          return <KatexMath key={key} tex={math.tex} display={math.display} />;
         },
       },
     ],

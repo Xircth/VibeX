@@ -13,6 +13,11 @@ import {
   resolveAppLogo,
   subscribeAppIconStyle,
 } from '@/lib/appIcon';
+import {
+  applyResolvedThemeClass,
+  persistResolvedTheme,
+  readCachedResolvedTheme,
+} from '@/lib/resolvedTheme';
 
 type ResolvedTheme = 'light' | 'dark';
 
@@ -44,9 +49,12 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<ThemeMode>(initialTheme);
-  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
-    getSystemTheme()
-  );
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => {
+    if (initialTheme !== ThemeMode.SYSTEM) {
+      return initialTheme === ThemeMode.DARK ? 'dark' : 'light';
+    }
+    return readCachedResolvedTheme() ?? getSystemTheme();
+  });
   const appIconStyle = useSyncExternalStore(
     subscribeAppIconStyle,
     getAppIconStyle,
@@ -83,10 +91,8 @@ export function ThemeProvider({
         : 'light';
 
   useEffect(() => {
-    const root = window.document.documentElement;
-
-    root.classList.remove('light', 'dark');
-    root.classList.add(resolvedTheme);
+    applyResolvedThemeClass(resolvedTheme);
+    persistResolvedTheme(resolvedTheme);
   }, [resolvedTheme]);
 
   useEffect(() => {

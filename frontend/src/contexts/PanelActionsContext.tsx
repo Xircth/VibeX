@@ -19,6 +19,7 @@ import {
   applyLeftGroupHeaderHiding,
   syncDockviewGroupRegistry,
 } from '@/utils/dockviewHelpers';
+import { preloadMonacoEditor } from '@/lib/monacoPreload';
 import { DEFAULT_TERMINAL_PANEL_HEIGHT } from '@/lib/terminalPreferences';
 import {
   buildPreviewPanelParams,
@@ -352,6 +353,7 @@ export function PanelActionsProvider({ children }: { children: ReactNode }) {
 
   const openFilePreview = useCallback(
     (filePath: string, options?: OpenFilePreviewOptions) => {
+      void preloadMonacoEditor();
       const dockviewApi = apiRef.current;
       if (!dockviewApi) return;
 

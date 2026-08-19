@@ -40,26 +40,7 @@ function createManualChunks(id: string): string | undefined {
 
   if (
     normalizedId.includes('/node_modules/mermaid/') ||
-    normalizedId.includes('/node_modules/@mermaid-js/') ||
-    normalizedId.includes('/node_modules/@braintree/sanitize-url/') ||
-    normalizedId.includes('/node_modules/@iconify/') ||
-    normalizedId.includes('/node_modules/@upsetjs/venn.js/') ||
-    normalizedId.includes('/node_modules/cytoscape') ||
-    normalizedId.includes('/node_modules/cose-base/') ||
-    normalizedId.includes('/node_modules/d3') ||
-    normalizedId.includes('/node_modules/dagre-d3-es/') ||
-    normalizedId.includes('/node_modules/dayjs/') ||
-    normalizedId.includes('/node_modules/delaunator/') ||
-    normalizedId.includes('/node_modules/es-toolkit/') ||
-    normalizedId.includes('/node_modules/internmap/') ||
-    normalizedId.includes('/node_modules/khroma/') ||
-    normalizedId.includes('/node_modules/layout-base/') ||
-    normalizedId.includes('/node_modules/marked/') ||
-    normalizedId.includes('/node_modules/robust-predicates/') ||
-    normalizedId.includes('/node_modules/roughjs/') ||
-    normalizedId.includes('/node_modules/stylis/') ||
-    normalizedId.includes('/node_modules/ts-dedent/') ||
-    normalizedId.includes('/node_modules/uuid/')
+    normalizedId.includes('/node_modules/@mermaid-js/')
   ) {
     return 'vendor-mermaid';
   }
@@ -89,35 +70,6 @@ function createManualChunks(id: string): string | undefined {
     normalizedId.includes('/node_modules/@uiw/react-codemirror/')
   ) {
     return 'vendor-codemirror';
-  }
-
-  if (normalizedId.includes('/node_modules/highlight.js/es/languages/')) {
-    const language = path.basename(normalizedId, '.js');
-    if (
-      ['mathematica', 'isbl', 'gml', 'sqf', '1c', 'maxima', 'pgsql'].includes(
-        language
-      )
-    ) {
-      return 'vendor-highlight-special';
-    }
-
-    if (/^[a-f]/.test(language)) {
-      return 'vendor-highlight-a-f';
-    }
-
-    if (/^[g-m]/.test(language)) {
-      return 'vendor-highlight-g-m';
-    }
-
-    return 'vendor-highlight-n-z';
-  }
-
-  if (normalizedId.includes('/node_modules/highlight.js/')) {
-    return 'vendor-highlight';
-  }
-
-  if (normalizedId.includes('/node_modules/prismjs/')) {
-    return 'vendor-prism';
   }
 
   if (
@@ -202,6 +154,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['wa-sqlite'],
+    include: ['lucide-react'],
   },
   build: {
     sourcemap: true,

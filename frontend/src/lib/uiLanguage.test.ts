@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { clearLocalStorageCache } from './safeStorage';
 import { getUiLanguage, LANGUAGE_KEY, type UiLanguage } from './uiLanguage';
 
 const originalLanguage = navigator.language;
@@ -17,6 +18,8 @@ afterEach(() => {
     language: { configurable: true, value: originalLanguage },
     languages: { configurable: true, value: originalLanguages },
   });
+  localStorage.removeItem(LANGUAGE_KEY);
+  clearLocalStorageCache(LANGUAGE_KEY);
 });
 
 describe('getUiLanguage', () => {

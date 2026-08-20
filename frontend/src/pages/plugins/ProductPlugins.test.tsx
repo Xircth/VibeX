@@ -1,9 +1,11 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   act,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -112,15 +114,20 @@ function renderRoute(
       capabilities,
     }),
   };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   render(
-    <BackendTransportProvider transport={transport}>
-      <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/plugins" element={<PluginCatalogPage />} />
-          <Route path="/plugins/:pluginId" element={<PluginDetailPage />} />
-        </Routes>
-      </MemoryRouter>
-    </BackendTransportProvider>
+    <QueryClientProvider client={queryClient}>
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/plugins" element={<PluginCatalogPage />} />
+            <Route path="/plugins/:pluginId" element={<PluginDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </BackendTransportProvider>
+    </QueryClientProvider>
   );
   return call;
 }
@@ -185,6 +192,7 @@ describe('product plugin experience', () => {
     });
     renderRoute('/plugins/office', call);
 
+    await waitFor(() => expect(resolveCatalog).toBeTypeOf('function'));
     await waitFor(() => expect(resolveDetail).toBeTypeOf('function'));
     await act(async () => resolveDetail?.(detail));
 
@@ -205,10 +213,17 @@ describe('product plugin experience', () => {
     );
 
     expect(
-      screen.getByRole('tablist', { name: /插件详情|plugin detail/i })
+      await screen.findByRole('tablist', { name: /插件详情|plugin detail/i })
     ).toBeVisible();
+    expect(screen.getByRole('tab', { name: /配置|config/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
     expect(
-      screen.getByRole('region', { name: /插件内容|plugin content/i })
+      screen.queryByRole('region', { name: /插件内容|plugin content/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: 'Document preview' })
     ).toBeVisible();
   });
 
@@ -229,12 +244,19 @@ describe('product plugin experience', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/runtime/i)).not.toBeInTheDocument();
     const search = screen.getByRole('searchbox', {
-      name: /搜索已安装的插件|search installed plugins/i,
+      name: /搜索插件|search plugins/i,
     });
     expect(search.parentElement).toHaveAttribute(
       'data-control-frame',
       'single'
     );
+    expect(
+      screen.queryByRole('button', { name: /目录|catalog/i })
+    ).not.toBeInTheDocument();
+    const development = screen.getByRole('button', {
+      name: /插件开发|plugin development/i,
+    });
+    expect(development.parentElement).toContainElement(search.parentElement);
     expect(
       screen.getByRole('button', { name: /添加插件|add plugin/i })
     ).toHaveClass('primary-control');
@@ -540,6 +562,26 @@ describe('product plugin experience', () => {
         .closest('.gap-4')
     ).not.toHaveClass('max-w-md');
     expect(screen.getByText('http://127.0.0.1:4555')).toBeVisible();
+    const docs = screen.getByRole('link', {
+      name: /开发文档|developer docs/i,
+    });
+    expect(docs).toHaveAttribute(
+      'href',
+      'https://vibex.xforver.xin/docs/developers'
+    );
+    expect(
+      screen.getByText(
+        /本地插件开发 Host 已就绪|Local Plugin Dev Host is ready/i
+      ).parentElement
+    ).toContainElement(docs);
+    expect(
+      screen.getByRole('button', {
+        name: /启用插件开发|enable plugin development/i,
+      })
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: /复制 CLI|copy CLI/i })
+    ).not.toBeInTheDocument();
   });
 
   it('opens an independent detail page with content and config tabs', async () => {
@@ -557,7 +599,7 @@ describe('product plugin experience', () => {
       (await screen.findAllByRole('heading', { name: 'VibeX Office' }))[0]
     ).toBeVisible();
     expect(
-      screen.getByText('Open Word, Excel, and PowerPoint files.')
+      screen.getByText('Preview and work with Office documents.')
     ).toBeVisible();
     const detailHeading = screen.getAllByRole('heading', {
       name: 'VibeX Office',
@@ -567,11 +609,19 @@ describe('product plugin experience', () => {
       name: /插件元数据|plugin metadata/i,
     });
     expect(detailHeading.parentElement).toContainElement(metadata);
-    expect(metadata).toHaveTextContent('vibex');
+    expect(metadata).toHaveTextContent('内置');
     expect(metadata).toHaveTextContent('v4.0.0');
     expect(detailHeader).toContainElement(
       screen.getByRole('tablist', { name: /插件详情|plugin detail/i })
     );
+    expect(screen.getByRole('tab', { name: /配置|config/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      screen.getByRole('switch', { name: 'Document preview' })
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: /内容|content/i }));
     expect(
       screen.getByRole('region', { name: /插件内容|plugin content/i })
     ).toBeVisible();
@@ -612,5 +662,200 @@ describe('product plugin experience', () => {
         config: { preview: false, idleTimeoutMinutes: 20 },
       })
     );
+  });
+
+  it('shows source and version chips and official copy on the catalog', async () => {
+    const official = {
+      ...plugin,
+      id: 'vibex.office',
+      name: 'VibeX Office',
+      description: 'Package summary that should be replaced.',
+    };
+    const call = vi.fn().mockResolvedValue({
+      plugins: [official, drawioPlugin],
+      runtimes: [],
+    });
+    renderRoute('/plugins', call);
+
+    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(
+      screen.getByText(
+        '在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。'
+      )
+    ).toBeVisible();
+    const officialRow = screen
+      .getByText('VibeX Office')
+      .closest('.product-plugin-row');
+    expect(officialRow).toHaveTextContent('内置');
+    expect(officialRow).toHaveTextContent('v4.0.0');
+    const installedRow = screen
+      .getByText('Drawio')
+      .closest('.product-plugin-row');
+    expect(installedRow).toHaveTextContent('已安装');
+    expect(installedRow).toHaveTextContent('v1.0.0');
+    expect(
+      officialRow?.querySelector('[data-official="office"]')
+    ).not.toBeNull();
+    expect(installedRow?.querySelector('[data-official]')).toBeNull();
+  });
+
+  it('uninstalls an installed plugin from the catalog context menu after confirmation', async () => {
+    let catalogPlugins = [plugin, drawioPlugin];
+    const call = vi.fn(
+      async (command: string, args?: { pluginId?: string }) => {
+        if (command === 'plugin_control_catalog') {
+          return { plugins: catalogPlugins, runtimes: [] };
+        }
+        if (command === 'plugin_control_uninstall') {
+          catalogPlugins = catalogPlugins.filter(
+            (item) => item.id !== args?.pluginId
+          );
+          return undefined;
+        }
+        throw new Error(command);
+      }
+    );
+    renderRoute('/plugins', call);
+
+    const installedRow = (await screen.findByText('Drawio')).closest(
+      '.product-plugin-row'
+    );
+    expect(installedRow).not.toBeNull();
+    fireEvent.contextMenu(installedRow as HTMLElement);
+
+    const menu = await screen.findByRole('menu', { name: 'Drawio' });
+    fireEvent.click(
+      within(menu).getByRole('menuitem', { name: /卸载插件|uninstall plugin/i })
+    );
+
+    const dialog = await screen.findByRole('dialog', {
+      name: /卸载 Drawio|uninstall drawio/i,
+    });
+    expect(call).not.toHaveBeenCalledWith(
+      'plugin_control_uninstall',
+      expect.anything()
+    );
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /确认卸载|uninstall/i })
+    );
+
+    await waitFor(() =>
+      expect(call).toHaveBeenCalledWith('plugin_control_uninstall', {
+        pluginId: 'drawio',
+      })
+    );
+    await waitFor(() =>
+      expect(screen.queryByText('Drawio')).not.toBeInTheDocument()
+    );
+    expect(toastMock.success).toHaveBeenCalledWith('已卸载 Drawio');
+    expect(screen.getByText('VibeX Office')).toBeVisible();
+  });
+
+  it('does not offer uninstall for built-in plugins', async () => {
+    const call = vi.fn().mockResolvedValue({
+      plugins: [plugin, drawioPlugin],
+      runtimes: [],
+    });
+    renderRoute('/plugins', call);
+
+    const builtinRow = (await screen.findByText('VibeX Office')).closest(
+      '.product-plugin-row'
+    );
+    fireEvent.contextMenu(builtinRow as HTMLElement);
+    const menu = await screen.findByRole('menu', { name: 'VibeX Office' });
+    expect(
+      within(menu).queryByRole('menuitem', {
+        name: /卸载插件|uninstall plugin/i,
+      })
+    ).not.toBeInTheDocument();
+    expect(
+      within(menu).getByRole('menuitem', { name: /打开|open/i })
+    ).toBeVisible();
+  });
+
+  it('does not offer uninstall without plugin write access', async () => {
+    const call = vi.fn().mockResolvedValue({
+      plugins: [plugin, drawioPlugin],
+      runtimes: [],
+    });
+    renderRoute('/plugins', call, ['plugin.read']);
+
+    const installedRow = (await screen.findByText('Drawio')).closest(
+      '.product-plugin-row'
+    );
+    fireEvent.contextMenu(installedRow as HTMLElement);
+    const menu = await screen.findByRole('menu', { name: 'Drawio' });
+    expect(
+      within(menu).queryByRole('menuitem', {
+        name: /卸载插件|uninstall plugin/i,
+      })
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the plugin when uninstall confirmation is cancelled', async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === 'plugin_control_catalog') {
+        return { plugins: [plugin, drawioPlugin], runtimes: [] };
+      }
+      throw new Error(command);
+    });
+    renderRoute('/plugins', call);
+
+    const installedRow = (await screen.findByText('Drawio')).closest(
+      '.product-plugin-row'
+    );
+    fireEvent.contextMenu(installedRow as HTMLElement);
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: /卸载插件|uninstall plugin/i })
+    );
+    fireEvent.click(screen.getByRole('button', { name: /取消|cancel/i }));
+
+    expect(call).not.toHaveBeenCalledWith(
+      'plugin_control_uninstall',
+      expect.anything()
+    );
+    expect(screen.getByText('Drawio')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('reuses the catalog cache instead of refetching on remount', async () => {
+    const call = vi.fn().mockResolvedValue({ plugins: [plugin], runtimes: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const transport: BackendTransport = {
+      environment: 'desktop',
+      call,
+      capabilities: vi.fn().mockResolvedValue({
+        server_version: 'desktop',
+        protocol_version: '1.0',
+        minimum_client_version: '0.1.0',
+        capabilities: ['plugin.read', 'plugin.write'],
+      }),
+    };
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <BackendTransportProvider transport={transport}>
+          <MemoryRouter initialEntries={['/plugins']}>
+            <PluginCatalogPage />
+          </MemoryRouter>
+        </BackendTransportProvider>
+      </QueryClientProvider>
+    );
+    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(call).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BackendTransportProvider transport={transport}>
+          <MemoryRouter initialEntries={['/plugins']}>
+            <PluginCatalogPage />
+          </MemoryRouter>
+        </BackendTransportProvider>
+      </QueryClientProvider>
+    );
+    expect(await screen.findByText('VibeX Office')).toBeVisible();
+    expect(call).toHaveBeenCalledTimes(1);
   });
 });

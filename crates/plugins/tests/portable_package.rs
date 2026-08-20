@@ -184,6 +184,69 @@ fn snapshot_update_preserves_the_root_config_file() {
 }
 
 #[test]
+fn snapshot_update_drops_removed_config_fields_and_keeps_valid_values() {
+    let first = tempfile::tempdir().expect("first package");
+    let update = tempfile::tempdir().expect("updated package");
+    let storage = tempfile::tempdir().expect("installed packages");
+    let schemas = [
+        (
+            first.path(),
+            "1.0.0",
+            r#"{"previewMode":{"type":"string"},"timeout":{"type":"integer"}}"#,
+            r#"{"previewMode":"live","timeout":10}"#,
+        ),
+        (
+            update.path(),
+            "1.1.0",
+            r#"{"timeout":{"type":"integer"}}"#,
+            r#"{"timeout":10}"#,
+        ),
+    ];
+    for (root, version, properties, config) in schemas {
+        write(
+            &root.join(".vibex-plugin/plugin.json"),
+            &format!(
+                r#"{{
+                  "manifestVersion":4,"apiVersion":"1.0",
+                  "id":"dev.vibex.config-migrate","publisher":"dev.vibex","name":"Config","version":"{version}",
+                  "readme":"README.md","content":{{"root":"contents","index":".vibex-plugin/content.index.json"}},
+                  "config":{{"schema":{{"type":"object","properties":{properties},"additionalProperties":false}}}},
+                  "engines":{{"vibex":">=0.1.3 <1.0.0","pluginSdk":"^1.0.0"}},
+                  "integrations":[{{"id":"config","kind":"content.skill","resource":"contents/skills/config"}}]
+                }}"#
+            ),
+        );
+        write(
+            &root.join("README.md"),
+            "---\nsummary: Keep valid settings when this plugin schema shrinks.\n---\n# Config\n",
+        );
+        write(&root.join("config.json"), config);
+        write(
+            &root.join(".vibex-plugin/content.index.json"),
+            r#"{"schemaVersion":1,"items":[{"path":"contents/skills/config/SKILL.md","kind":"skill","title":"Config"}]}"#,
+        );
+        write(
+            &root.join("contents/skills/config/SKILL.md"),
+            "---\nname: config\ndescription: Config\n---\n",
+        );
+    }
+
+    let installed =
+        PluginPackage::materialize(first.path(), storage.path(), PluginSourceKind::Snapshot)
+            .expect("install first version");
+    installed
+        .write_config(serde_json::json!({"previewMode": "live", "timeout": 7}))
+        .expect("change user config");
+
+    let updated =
+        PluginPackage::materialize(update.path(), storage.path(), PluginSourceKind::Snapshot)
+            .expect("schema shrink must not fail the package update");
+
+    assert_eq!(updated.version, "1.1.0");
+    assert_eq!(updated.config, serde_json::json!({"timeout": 7}));
+}
+
+#[test]
 fn developer_link_executes_an_immutable_content_addressed_candidate() {
     let source = tempfile::tempdir().expect("linked package source");
     let storage = tempfile::tempdir().expect("candidate storage");

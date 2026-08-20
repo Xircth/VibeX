@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,12 +18,17 @@ function renderPage(environment: BackendTransport['environment']) {
       capabilities: ['plugin.read'],
     }),
   };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <BackendTransportProvider transport={transport}>
-      <MemoryRouter initialEntries={['/plugins']}>
-        <PluginsPage />
-      </MemoryRouter>
-    </BackendTransportProvider>
+    <QueryClientProvider client={queryClient}>
+      <BackendTransportProvider transport={transport}>
+        <MemoryRouter initialEntries={['/plugins']}>
+          <PluginsPage />
+        </MemoryRouter>
+      </BackendTransportProvider>
+    </QueryClientProvider>
   );
 }
 

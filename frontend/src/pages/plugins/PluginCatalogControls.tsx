@@ -1,11 +1,10 @@
 import {
-  Check,
-  Copy,
   Loader2,
   PackageOpen,
   PackagePlus,
   TerminalSquare,
 } from 'lucide-react';
+import { type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -19,47 +18,32 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { PluginDevConnection } from '@/lib/api/plugins';
+import { PLUGIN_DEVELOPMENT_DOCS_URL } from './officialPlugins';
 
 export function PluginCatalogActions({
   canDevelop,
   canAdd,
   adding,
-  devReady,
+  search,
   onOpenDevelopment,
   onAdd,
-  onBrowseMarketplace,
 }: {
   canDevelop: boolean;
   canAdd: boolean;
   adding: boolean;
-  devReady: boolean;
+  search?: ReactNode;
   onOpenDevelopment: () => void;
   onAdd: () => void;
-  onBrowseMarketplace?: () => void;
 }) {
   const { t } = useTranslation('settings');
 
   return (
     <div className="product-plugins-header-actions">
+      {search}
       {canDevelop ? (
-        <Button
-          type="button"
-          variant="outline"
-          disabled={!devReady}
-          onClick={onOpenDevelopment}
-        >
+        <Button type="button" variant="outline" onClick={onOpenDevelopment}>
           <TerminalSquare aria-hidden="true" className="h-3.5 w-3.5" />
           {t('plugins.developerTools')}
-        </Button>
-      ) : null}
-      {canAdd && onBrowseMarketplace ? (
-        <Button
-          type="button"
-          variant="outline"
-          disabled={adding}
-          onClick={onBrowseMarketplace}
-        >
-          {t('plugins.marketplace')}
         </Button>
       ) : null}
       {canAdd ? (
@@ -160,17 +144,15 @@ export function PluginDetailLoading() {
 export function PluginDevelopmentDialog({
   open,
   connection,
-  copied,
   onOpenChange,
-  onCopy,
+  onOpenPlugin,
 }: {
   open: boolean;
   connection: PluginDevConnection | null;
-  copied: boolean;
   onOpenChange: (open: boolean) => void;
-  onCopy: () => void;
+  onOpenPlugin: () => void;
 }) {
-  const { t } = useTranslation('settings');
+  const { t } = useTranslation(['settings', 'common']);
 
   return (
     <Dialog
@@ -187,12 +169,26 @@ export function PluginDevelopmentDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="product-plugin-dev-connection">
-          <span className="product-plugin-dev-status">
-            <i aria-hidden="true" />
-            {t('plugins.devHostReady')}
-          </span>
-          <code>{connection?.endpoint}</code>
-          <p>{t('plugins.devHostUsage')}</p>
+          <div className="product-plugin-dev-status-row">
+            <span
+              className="product-plugin-dev-status"
+              data-ready={connection ? 'true' : 'false'}
+            >
+              <i aria-hidden="true" />
+              {connection
+                ? t('plugins.devHostReady')
+                : t('plugins.devHostUnavailable')}
+            </span>
+            <a
+              className="product-plugin-dev-docs"
+              href={PLUGIN_DEVELOPMENT_DOCS_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t('plugins.pluginDevDocs')}
+            </a>
+          </div>
+          {connection ? <code>{connection.endpoint}</code> : null}
         </div>
         <DialogFooter>
           <Button
@@ -202,15 +198,14 @@ export function PluginDevelopmentDialog({
           >
             {t('common:close')}
           </Button>
-          <Button type="button" disabled={!connection} onClick={onCopy}>
-            {copied ? (
-              <Check aria-hidden="true" className="h-3.5 w-3.5" />
-            ) : (
-              <Copy aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-            {copied
-              ? t('plugins.devConnectionCopied')
-              : t('plugins.copyDevConnection')}
+          <Button
+            type="button"
+            onClick={() => {
+              onOpenChange(false);
+              onOpenPlugin();
+            }}
+          >
+            {t('plugins.enablePluginDevelopment')}
           </Button>
         </DialogFooter>
       </DialogContent>

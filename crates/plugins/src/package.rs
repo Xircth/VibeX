@@ -408,6 +408,21 @@ impl PluginPackage {
         Ok(config)
     }
 
+    pub fn adopt_installed_config(&self, previous: &Value) -> Result<Value, PluginError> {
+        let Some(schema) = &self.config_schema else {
+            return if previous.is_object() {
+                Ok(previous.clone())
+            } else {
+                Ok(self.config.clone())
+            };
+        };
+        adopt_config_value(schema, previous, &self.config, "config")
+    }
+
+    pub fn write_adopted_config(&self, previous: Value) -> Result<(), PluginError> {
+        self.write_config(self.adopt_installed_config(&previous)?)
+    }
+
     pub fn write_config(&self, config: Value) -> Result<(), PluginError> {
         if !config.is_object() {
             return Err(PluginError::invalid_manifest(
@@ -530,17 +545,17 @@ impl PluginPackage {
             let previous: Value = serde_json::from_str(&previous).map_err(|error| {
                 PluginError::invalid_manifest(format!("installed config.json is invalid: {error}"))
             })?;
-            if let Some(schema) = &incoming.config_schema
-                && let Err(error) = validate_config_value(schema, &previous, "config")
-            {
-                remove_snapshot_path(&staging)?;
-                return Err(error);
-            }
+            let preserved = incoming
+                .adopt_installed_config(&previous)
+                .map_err(|error| {
+                    let _ = remove_snapshot_path(&staging);
+                    error
+                })?;
             fs::write(
                 staging.join("config.json"),
                 format!(
                     "{}\n",
-                    serde_json::to_string_pretty(&previous)
+                    serde_json::to_string_pretty(&preserved)
                         .map_err(|error| { PluginError::invalid_manifest(error.to_string()) })?
                 ),
             )
@@ -1069,6 +1084,65 @@ fn strip_readme_frontmatter(readme: &str) -> &str {
         .strip_prefix("---\n")
         .and_then(|rest| rest.split_once("\n---\n").map(|(_, body)| body))
         .unwrap_or(readme)
+}
+
+fn adopt_config_value(
+    schema: &Value,
+    previous: &Value,
+    defaults: &Value,
+    path: &str,
+) -> Result<Value, PluginError> {
+    if validate_config_value(schema, previous, path).is_ok() {
+        return Ok(previous.clone());
+    }
+
+    let schema_object = schema
+        .as_object()
+        .ok_or_else(|| PluginError::invalid_manifest("config schema must be an object"))?;
+    match schema_object.get("type").and_then(Value::as_str) {
+        Some("object") => {
+            let mut adopted = match defaults {
+                Value::Object(map) => map.clone(),
+                _ => Map::new(),
+            };
+            let properties = schema_object.get("properties").and_then(Value::as_object);
+            let additional_properties = schema_object
+                .get("additionalProperties")
+                .and_then(Value::as_bool)
+                != Some(false);
+            if let Some(previous) = previous.as_object() {
+                for (name, value) in previous {
+                    if let Some(property_schema) =
+                        properties.and_then(|properties| properties.get(name))
+                    {
+                        let property_default = defaults
+                            .as_object()
+                            .and_then(|defaults| defaults.get(name))
+                            .cloned()
+                            .unwrap_or(Value::Null);
+                        adopted.insert(
+                            name.clone(),
+                            adopt_config_value(
+                                property_schema,
+                                value,
+                                &property_default,
+                                &format!("{path}.{name}"),
+                            )?,
+                        );
+                    } else if additional_properties {
+                        adopted.insert(name.clone(), value.clone());
+                    }
+                }
+            }
+            let adopted = Value::Object(adopted);
+            validate_config_value(schema, &adopted, path)?;
+            Ok(adopted)
+        }
+        _ if validate_config_value(schema, defaults, path).is_ok() => Ok(defaults.clone()),
+        _ => Err(PluginError::invalid_manifest(format!(
+            "{path} from the previous installation is incompatible with the updated schema"
+        ))),
+    }
 }
 
 fn validate_config_value(schema: &Value, value: &Value, path: &str) -> Result<(), PluginError> {

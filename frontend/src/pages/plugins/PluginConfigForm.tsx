@@ -17,37 +17,46 @@ import {
 } from '@/lib/api/plugins';
 import { useBackendCapabilities, useBackendTransport } from '@/lib/transport';
 import { SettingsActionBar } from '@/pages/settings/SettingsUi';
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
+import {
+  AgentDefaultsField,
+  isAgentDefaultsSchema,
+} from './AgentDefaultsField';
+import { officialConfigFieldCopy } from './officialPlugins';
+import { errorMessage } from './pluginQueries';
 
 type JsonSchema = Record<string, unknown>;
 
 function schemaProperties(schema: JsonSchema): Array<[string, JsonSchema]> {
   const properties = schema.properties;
-  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+  if (
+    !properties ||
+    typeof properties !== 'object' ||
+    Array.isArray(properties)
+  ) {
     return [];
   }
   return Object.entries(properties as Record<string, JsonSchema>);
 }
 
 function SchemaField({
+  pluginId,
   name,
   schema,
   value,
   disabled,
   onChange,
 }: {
+  pluginId: string;
   name: string;
   schema: JsonSchema;
   value: unknown;
   disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
-  const label = String(schema.title ?? name);
-  const description =
-    typeof schema.description === 'string' ? schema.description : undefined;
+  const { t } = useTranslation('settings');
+  const copyText = officialConfigFieldCopy(pluginId, name, schema, t);
+  const label = copyText.title;
+  const description = copyText.description;
   const copy = (
     <span className="product-plugin-config-copy">
       <strong>{label}</strong>
@@ -73,7 +82,7 @@ function SchemaField({
           <SelectContent>
             {schema.enum.map((item) => (
               <SelectItem key={String(item)} value={String(item)}>
-                {String(item)}
+                {copyText.enumLabel(String(item))}
               </SelectItem>
             ))}
           </SelectContent>
@@ -96,6 +105,19 @@ function SchemaField({
     );
   }
 
+  if (isAgentDefaultsSchema(name, schema)) {
+    return (
+      <AgentDefaultsField
+        pluginId={pluginId}
+        name={name}
+        schema={schema}
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (schema.type === 'object') {
     const draft =
       value && typeof value === 'object' && !Array.isArray(value)
@@ -107,6 +129,7 @@ function SchemaField({
         {schemaProperties(schema).map(([child, childSchema]) => (
           <SchemaField
             key={child}
+            pluginId={pluginId}
             name={child}
             schema={childSchema}
             value={draft[child]}
@@ -121,7 +144,9 @@ function SchemaField({
   if (schema.type === 'array') {
     const items = Array.isArray(value) ? value : [];
     const itemSchema =
-      schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)
+      schema.items &&
+      typeof schema.items === 'object' &&
+      !Array.isArray(schema.items)
         ? (schema.items as JsonSchema)
         : { type: 'string' };
     return (
@@ -130,6 +155,7 @@ function SchemaField({
         {items.map((item, index) => (
           <div key={`${name}-${index}`} className="product-plugin-config-row">
             <SchemaField
+              pluginId={pluginId}
               name={`${name}-${index}`}
               schema={itemSchema}
               value={item}
@@ -146,7 +172,8 @@ function SchemaField({
     );
   }
 
-  const inputType = schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text';
+  const inputType =
+    schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text';
   return (
     <div className="product-plugin-config-row">
       {copy}
@@ -220,6 +247,7 @@ export function PluginConfigForm({
         {properties.map(([key, schema]) => (
           <SchemaField
             key={key}
+            pluginId={pluginId}
             name={key}
             schema={schema}
             value={draft[key]}
@@ -234,7 +262,8 @@ export function PluginConfigForm({
         dirty={dirty}
         saving={saving}
         disabled={!supports('plugin.write')}
-        onReset={() => setDraft(detail.config)}
+        onDiscard={() => setDraft(detail.config)}
+        onSave={() => void save()}
       />
     </form>
   );

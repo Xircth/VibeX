@@ -656,26 +656,10 @@ pub async fn plugin_marketplace_index(
 }
 
 fn bundled_marketplace_index() -> plugins::MarketplaceIndex {
-    plugins::MarketplaceIndex {
-        listings: vec![
-            plugins::MarketplaceListing {
-                publisher: "vibex".into(),
-                plugin_id: "office".into(),
-                version: "4.0.0".into(),
-                summary: "Preview and work with Office documents.".into(),
-                package_digest: "builtin:office".into(),
-                archive: "builtin://office".into(),
-            },
-            plugins::MarketplaceListing {
-                publisher: "vibex".into(),
-                plugin_id: "workflow-creator".into(),
-                version: "4.0.0".into(),
-                summary: "Author and debug VibeX workflows.".into(),
-                package_digest: "builtin:workflow-creator".into(),
-                archive: "builtin://workflow-creator".into(),
-            },
-        ],
-    }
+    serde_json::from_str(include_str!(
+        "../../../assets/plugins/index/official.v1.json"
+    ))
+    .expect("bundled official marketplace index")
 }
 
 #[tauri::command]
@@ -1390,6 +1374,74 @@ pub async fn plugin_control_import(
         .await
         .map_err(plugin_error)?;
     Ok(plugin_dto(imported.plugin))
+}
+
+pub async fn import_cli_inbox(app: AppHandle) -> Result<(), AppError> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    let inbox = home.join(".vibex").join("imports");
+    let Ok(entries) = std::fs::read_dir(&inbox) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_cli_inbox_package(&path) {
+            continue;
+        }
+        let marker = cli_inbox_marker(&path);
+        if marker.exists() {
+            continue;
+        }
+        let result = plugin_control_import(
+            app.clone(),
+            app.state(),
+            path.to_string_lossy().into_owned(),
+            false,
+            "keep".to_string(),
+            None,
+            Vec::new(),
+        )
+        .await;
+        match result {
+            Ok(item) => {
+                tracing::info!(plugin = %item.id, path = %path.display(), "imported CLI marketplace package");
+                let _ = std::fs::write(&marker, format!("{}\n", item.id));
+            }
+            Err(AppError::Conflict(_)) => {
+                let _ = std::fs::write(&marker, "installed\n");
+            }
+            Err(error) => {
+                tracing::warn!(
+                    path = %path.display(),
+                    error = %error,
+                    "CLI marketplace package import failed"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_cli_inbox_package(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    if name.ends_with(".imported") {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".vxp") || lower.ends_with(".zip")
+}
+
+fn cli_inbox_marker(path: &Path) -> PathBuf {
+    let mut marker = path.as_os_str().to_os_string();
+    marker.push(".imported");
+    PathBuf::from(marker)
 }
 
 async fn preview_native_import(
@@ -2722,21 +2774,27 @@ async fn configure_plugin_mcp(
     let mut errors = Vec::new();
     for (server_id, spec) in servers {
         let projected_id = format!("{}.{}", plugin.id(), server_id);
-        let spec = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await {
+        let materialized = match materialize_plugin_mcp_spec(state, plugin, &server_id, spec).await
+        {
             Ok(spec) => spec,
             Err(error) => {
                 errors.push(format!("{server_id}: {error}"));
                 continue;
             }
         };
-        let result = services::services::mcp::upsert_local_server(
-            projected_id,
-            spec,
-            all_agents,
-            apps.clone(),
-        )
-        .await;
-        let error_message = result.as_ref().err().map(ToString::to_string);
+        let error_message = match materialized {
+            None => None,
+            Some(spec) => {
+                let result = services::services::mcp::upsert_local_server(
+                    projected_id,
+                    spec,
+                    all_agents,
+                    apps.clone(),
+                )
+                .await;
+                result.as_ref().err().map(ToString::to_string)
+            }
+        };
         if let Some(error) = &error_message {
             errors.push(format!("{server_id}: {error}"));
         }
@@ -2780,20 +2838,27 @@ async fn configure_plugin_mcp(
     errors
 }
 
+fn is_host_family_binary_mcp(spec: &serde_json::Value) -> bool {
+    spec.get("managedRuntime")
+        .and_then(|value| value.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        == Some("hostFamilyBinary")
+}
+
 async fn materialize_plugin_mcp_spec(
     state: &AppState,
     plugin: &plugins::InstalledPlugin,
     server_id: &str,
     spec: serde_json::Value,
-) -> Result<serde_json::Value, AppError> {
+) -> Result<Option<serde_json::Value>, AppError> {
     let Some(managed) = spec
         .get("managedRuntime")
         .and_then(serde_json::Value::as_object)
     else {
-        return Ok(spec);
+        return Ok(Some(spec));
     };
-    if managed.get("kind").and_then(serde_json::Value::as_str) == Some("hostFamilyBinary") {
-        return Ok(spec);
+    if is_host_family_binary_mcp(&spec) {
+        return Ok(None);
     }
     let entrypoint = managed
         .get("entrypoint")
@@ -2846,7 +2911,7 @@ async fn materialize_plugin_mcp_spec(
         "scopes": scopes,
     })
     .to_string();
-    Ok(serde_json::json!({
+    Ok(Some(serde_json::json!({
         "type": "stdio",
         "command": node.to_string_lossy(),
         "args": [entrypoint.to_string_lossy()],
@@ -2857,7 +2922,7 @@ async fn materialize_plugin_mcp_spec(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("2026-07-28")
         }
-    }))
+    })))
 }
 
 fn parse_conflict_decision(value: &str) -> Result<plugins::ConflictDecision, AppError> {
@@ -3136,6 +3201,27 @@ mod tests {
     use zip::{ZipWriter, write::SimpleFileOptions};
 
     use super::*;
+
+    #[test]
+    fn host_family_binary_mcp_is_injected_not_saved_as_native_spec() {
+        assert!(is_host_family_binary_mcp(&serde_json::json!({
+            "managedRuntime": {
+                "kind": "hostFamilyBinary",
+                "binaryId": "vibex-mcp",
+                "product": "delegation"
+            }
+        })));
+        assert!(!is_host_family_binary_mcp(&serde_json::json!({
+            "command": "npx",
+            "args": ["demo-mcp"]
+        })));
+        assert!(!is_host_family_binary_mcp(&serde_json::json!({
+            "managedRuntime": {
+                "kind": "node",
+                "entrypoint": "dist/mcp/hello.mjs"
+            }
+        })));
+    }
 
     #[test]
     fn extracts_one_nested_plugin_root_from_zip() {

@@ -8,8 +8,8 @@ const TABS: Array<{
   icon: typeof FileText;
   label: 'plugins.contentTab' | 'plugins.configTab';
 }> = [
-  { value: 'content', icon: FileText, label: 'plugins.contentTab' },
   { value: 'config', icon: SlidersHorizontal, label: 'plugins.configTab' },
+  { value: 'content', icon: FileText, label: 'plugins.contentTab' },
 ];
 
 export function PluginDetailTabs({

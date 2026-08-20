@@ -10,6 +10,55 @@ fn inspect(dir: &str) -> PluginPackage {
     PluginPackage::inspect(&root.join(dir), PluginSourceKind::Builtin).unwrap()
 }
 
+#[tokio::test]
+async fn replaced_collaboration_builtin_is_retired_into_multi_agent() {
+    let retired_root = tempfile::tempdir().unwrap();
+    let successor_root = tempfile::tempdir().unwrap();
+    let mut retired = PluginPackage::for_test(
+        "vibex.collaboration",
+        "VibeX Collaboration",
+        "1.0.0",
+        PluginSourceKind::Builtin,
+        retired_root.path(),
+    );
+    retired.description = Some("让父 Agent 通过 vibex-mcp 把工作委派给其它 Agent。".into());
+    retired.config = serde_json::json!({ "depthLimit": 3 });
+    let mut successor = inspect("multi-agent");
+    successor.source.path = successor_root.path().to_path_buf();
+    std::fs::write(
+        successor_root.path().join("config.json"),
+        successor.config.to_string(),
+    )
+    .unwrap();
+
+    let control = PluginControlPlane::new(Arc::new(InMemoryPluginRegistry::default()));
+    control
+        .import(retired, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .import(successor, ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .set_enabled("vibex.collaboration", true)
+        .await
+        .unwrap();
+
+    control.retire_replaced_builtins().await.unwrap();
+
+    assert!(
+        control
+            .plugin("vibex.collaboration")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let successor = control.plugin("vibex.multi-agent").await.unwrap().unwrap();
+    assert_eq!(successor.activation, plugins::PluginActivation::Enabled);
+    assert_eq!(successor.config["depthLimit"], 3);
+}
+
 #[test]
 fn bundled_multi_agent_plugin_is_the_delegation_gate() {
     let package = inspect("multi-agent");
@@ -19,6 +68,20 @@ fn bundled_multi_agent_plugin_is_the_delegation_gate() {
     assert!(package.entrypoints.worker.is_none());
     assert_eq!(package.skills.len(), 1);
     assert_eq!(package.skills[0].id, "vibex-multi-agent");
+    let schema = package
+        .config_schema
+        .as_ref()
+        .expect("multi-agent config schema");
+    let agent_defaults = schema
+        .pointer("/properties/agentDefaults")
+        .expect("agentDefaults schema");
+    assert_eq!(agent_defaults["type"], "object");
+    assert_eq!(
+        agent_defaults
+            .pointer("/additionalProperties/properties/modeId/type")
+            .unwrap(),
+        "string"
+    );
 }
 
 #[test]
@@ -71,4 +134,61 @@ async fn enabling_each_plugin_opens_only_its_mcp_gate() {
         .unwrap();
     assert!(!gate.allow_delegation_mcp());
     assert!(gate.allow_session_mcp());
+}
+
+#[test]
+fn bundled_plugin_development_declares_gated_dev_mcp() {
+    let package = inspect("plugin-development");
+    assert_eq!(package.id.as_str(), "vibex.plugin-development");
+    assert_eq!(package.publisher.as_deref(), Some("vibex"));
+    assert_eq!(
+        package.summary,
+        "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。"
+    );
+    assert_eq!(package.skills.len(), 1);
+    assert!(package.mcp.get("vibex-plugin-dev-mcp").is_some());
+    assert_eq!(package.config["devMcp"], false);
+}
+
+#[tokio::test]
+async fn plugin_development_mcp_stays_closed_until_config_enables_it() {
+    let workspace = tempfile::tempdir().unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/plugins/plugin-development");
+    let root = workspace.path().join("plugin-development");
+    copy_dir(&source, &root);
+    let package = PluginPackage::inspect(&root, PluginSourceKind::Builtin).unwrap();
+    let control = PluginControlPlane::new(Arc::new(InMemoryPluginRegistry::default()));
+    control
+        .import(package.clone(), ConflictDecision::Reject)
+        .await
+        .unwrap();
+    control
+        .set_enabled("vibex.plugin-development", true)
+        .await
+        .unwrap();
+    let gate = control.official_product_mcp_gate();
+    assert!(!gate.allow_plugin_dev_mcp());
+
+    package
+        .write_config(serde_json::json!({ "devMcp": true }))
+        .unwrap();
+    control.sync_official_product_mcp_gate().await.unwrap();
+    assert!(gate.allow_plugin_dev_mcp());
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() == "node_modules" {
+            continue;
+        }
+        let destination = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &destination);
+        } else {
+            std::fs::copy(entry.path(), destination).unwrap();
+        }
+    }
 }

@@ -20,7 +20,7 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
         "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。"
     );
     assert_eq!(manifest.content_index.items.len(), 9);
-    assert_eq!(manifest.config["previewMode"], "read-only");
+    assert_eq!(manifest.config["idleTimeoutMinutes"], 10);
     assert_eq!(manifest.runtimes[0].id, "officecli");
     assert_eq!(manifest.invocations.len(), 12);
     assert_eq!(manifest.skills.len(), 3);
@@ -56,6 +56,27 @@ fn bundled_office_manifest_covers_pptx_docx_and_xlsx_actions() {
         assert!(manifest_text.contains(suffix));
     }
     let _public_kind = ContributionKind::PreviewProvider;
+}
+
+#[test]
+fn office_package_update_keeps_valid_config_and_drops_removed_fields() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/plugins/office");
+    let package = PluginPackage::inspect(&root, PluginSourceKind::Builtin).unwrap();
+
+    let adopted = package
+        .adopt_installed_config(&json!({
+            "previewMode": "live",
+            "editable": true,
+            "idleTimeoutMinutes": 7
+        }))
+        .expect("builtin rematerialize must adopt the previous Office config");
+    assert_eq!(adopted, json!({ "idleTimeoutMinutes": 7 }));
+    assert!(
+        package
+            .write_config(json!({ "previewMode": "live" }))
+            .is_err(),
+        "authoring still rejects fields the current schema does not declare"
+    );
 }
 
 #[tokio::test]

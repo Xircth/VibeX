@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   AlertTriangle,
@@ -11,7 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -47,91 +47,27 @@ import {
 import { PluginConfigForm } from './PluginConfigForm';
 import { PluginContentBrowser } from './PluginContentBrowser';
 import { PluginDetailTabs, type PluginDetailTab } from './PluginDetailTabs';
+import { PluginIdentityMeta } from './PluginIdentity';
+import { PluginProductIcon } from './OfficialPluginIcon';
+import {
+  officialPluginName,
+  officialPluginSummary,
+  pluginCanUninstall,
+  PLUGIN_DEVELOPMENT_PLUGIN_ID,
+} from './officialPlugins';
+import {
+  errorMessage,
+  pluginDetailQueryKey,
+  usePluginContributionCatalog,
+  useProductPluginCatalog,
+  useProductPluginDetail,
+} from './pluginQueries';
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isProductPlugin(plugin: PluginControlItem) {
-  return !['codex_native', 'claude_code_native'].includes(plugin.sourceKind);
-}
-
-function PluginIcon() {
-  return (
-    <span className="product-plugin-icon" aria-hidden="true">
-      <Puzzle />
-    </span>
-  );
-}
-
-function PluginMetadataBadges({
-  publisher,
-  version,
-}: {
-  publisher: string;
-  version: string;
-}) {
-  const { t } = useTranslation('settings');
-
-  return (
-    <div
-      className="product-plugin-detail-metadata"
-      role="group"
-      aria-label={t('plugins.productMetadata')}
-    >
-      <Badge
-        variant="secondary"
-        className="product-plugin-metadata-badge"
-        title={t('plugins.sourceTitle')}
-      >
-        {publisher}
-      </Badge>
-      <Badge
-        variant="outline"
-        className="product-plugin-metadata-badge"
-        title={t('plugins.versionTitle')}
-      >
-        v{version}
-      </Badge>
-    </div>
-  );
-}
-
-function useProductPlugins() {
-  const { t } = useTranslation('settings');
+function usePluginControl() {
   const transport = useBackendTransport();
   const api = useMemo(() => createPluginControlApi(transport), [transport]);
-  const [plugins, setPlugins] = useState<PluginControlItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const refreshSequence = useRef(0);
-
-  const refresh = useCallback(
-    async (showLoading = true) => {
-      const sequence = ++refreshSequence.current;
-      if (showLoading) setLoading(true);
-      try {
-        const catalog = await api.catalog();
-        if (sequence === refreshSequence.current) {
-          setPlugins(catalog.plugins.filter(isProductPlugin));
-        }
-      } catch (error) {
-        if (sequence === refreshSequence.current) {
-          toast.error(t('plugins.productCatalogFailed'), {
-            description: errorMessage(error),
-          });
-        }
-      } finally {
-        if (sequence === refreshSequence.current) setLoading(false);
-      }
-    },
-    [api, t]
-  );
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  return { api, plugins, setPlugins, loading, refresh };
+  const catalog = useProductPluginCatalog(api);
+  return { api, ...catalog };
 }
 
 function replacePlugin(
@@ -160,8 +96,8 @@ export function PluginCatalogPage() {
   const { t } = useTranslation('settings');
   const navigate = useNavigate();
   const { supports } = useBackendCapabilities();
-  const { api, plugins, setPlugins, loading, refresh } = useProductPlugins();
-  const canInstall = supports('plugin.write') && supports('desktop.tauri');
+  const { api, plugins, setPlugins, loading, refresh } = usePluginControl();
+  const canInstall = supports('plugin.write');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -170,22 +106,41 @@ export function PluginCatalogPage() {
   const [devConnection, setDevConnection] =
     useState<PluginDevConnection | null>(null);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
-  const [devConnectionCopied, setDevConnectionCopied] = useState(false);
   const [replacement, setReplacement] = useState<{
     path: string;
     preview: PluginImportPreview;
   } | null>(null);
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
-  const [marketplace, setMarketplace] = useState<{
-    listings: Array<{
-      publisher: string;
-      pluginId: string;
-      version: string;
-      summary: string;
-      packageDigest: string;
-      archive: string;
-    }>;
+  const [contextMenu, setContextMenu] = useState<{
+    plugin: PluginControlItem;
+    x: number;
+    y: number;
   } | null>(null);
+  const [uninstallTarget, setUninstallTarget] =
+    useState<PluginControlItem | null>(null);
+
+  const contextMenuStyle = useMemo(() => {
+    if (!contextMenu || typeof window === 'undefined') return null;
+    return {
+      left: Math.max(12, Math.min(contextMenu.x, window.innerWidth - 180)),
+      top: Math.max(12, Math.min(contextMenu.y, window.innerHeight - 96)),
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeMenu = () => setContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('blur', closeMenu);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('blur', closeMenu);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     if (!supports('desktop.tauri')) return;
@@ -199,11 +154,16 @@ export function PluginCatalogPage() {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return plugins;
     return plugins.filter((plugin) =>
-      [plugin.name, plugin.description, plugin.publisher, plugin.id]
+      [
+        officialPluginName(plugin.id, plugin.name, t),
+        officialPluginSummary(plugin.id, plugin.description, t),
+        plugin.publisher,
+        plugin.id,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase().includes(needle))
     );
-  }, [plugins, query]);
+  }, [plugins, query, t]);
 
   const applyEnabled = useCallback(
     async (plugin: PluginControlItem, enabled: boolean) => {
@@ -221,13 +181,18 @@ export function PluginCatalogPage() {
         setPlugins((current) => replacePlugin(current, updated));
         toast.success(
           t(enabled ? 'plugins.productEnabled' : 'plugins.productDisabled', {
-            name: plugin.name,
+            name: officialPluginName(plugin.id, plugin.name, t),
           })
         );
       } catch (error) {
-        toast.error(t('plugins.productEnableFailed', { name: plugin.name }), {
-          description: errorMessage(error),
-        });
+        toast.error(
+          t('plugins.productEnableFailed', {
+            name: officialPluginName(plugin.id, plugin.name, t),
+          }),
+          {
+            description: errorMessage(error),
+          }
+        );
       } finally {
         setBusyId(null);
       }
@@ -365,20 +330,27 @@ export function PluginCatalogPage() {
     };
   }, [canInstall, installPlugin, t]);
 
-  const copyDevConnection = useCallback(async () => {
-    if (!devConnection) return;
+  const uninstallPlugin = useCallback(async () => {
+    if (!uninstallTarget || !canInstall) return;
+    const target = uninstallTarget;
+    const name = officialPluginName(target.id, target.name, t);
+    setBusyId(target.id);
     try {
-      await navigator.clipboard.writeText(
-        `export VIBEX_PLUGIN_DEV_HOST='${devConnection.endpoint}'`
+      await api.uninstall(target.id);
+      setUninstallTarget(null);
+      setPlugins((current) =>
+        current.filter((plugin) => plugin.id !== target.id)
       );
-      setDevConnectionCopied(true);
-      toast.success(t('plugins.devConnectionCopied'));
+      toast.success(t('plugins.productUninstalled', { name }));
+      await refresh(false);
     } catch (error) {
-      toast.error(t('plugins.devConnectionCopyFailed'), {
+      toast.error(t('plugins.productUninstallFailed', { name }), {
         description: errorMessage(error),
       });
+    } finally {
+      setBusyId(null);
     }
-  }, [devConnection, t]);
+  }, [api, canInstall, refresh, setPlugins, t, uninstallTarget]);
 
   return (
     <main className="product-plugins-page">
@@ -394,38 +366,25 @@ export function PluginCatalogPage() {
           canDevelop={supports('desktop.tauri')}
           canAdd={canInstall}
           adding={importing}
-          devReady={Boolean(devConnection)}
+          search={
+            <label
+              className="product-plugin-search"
+              data-control-frame="single"
+            >
+              <Search aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t('plugins.productSearchPlaceholder')}
+                aria-label={t('plugins.productSearchPlaceholder')}
+              />
+            </label>
+          }
           onOpenDevelopment={() => setDevToolsOpen(true)}
           onAdd={() => void addPlugin()}
-          onBrowseMarketplace={() => {
-            setMarketplaceOpen(true);
-            void api
-              .marketplaceIndex()
-              .then(setMarketplace)
-              .catch((error) => {
-                toast.error(t('plugins.productCatalogFailed'), {
-                  description: errorMessage(error),
-                });
-              });
-          }}
         />
       </header>
-
-      <div className="product-plugin-toolbar">
-        <span className="product-plugin-count">
-          {t('plugins.installedCount', { count: visible.length })}
-        </span>
-        <label className="product-plugin-search" data-control-frame="single">
-          <Search aria-hidden="true" />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('plugins.productSearchPlaceholder')}
-            aria-label={t('plugins.productSearchPlaceholder')}
-          />
-        </label>
-      </div>
 
       <section
         className="product-plugin-list settings-surface"
@@ -439,6 +398,15 @@ export function PluginCatalogPage() {
               <div
                 key={`${plugin.publisher ?? 'local'}:${plugin.id}`}
                 className="product-plugin-row"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setContextMenu({
+                    plugin,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               >
                 <button
                   type="button"
@@ -447,16 +415,17 @@ export function PluginCatalogPage() {
                     navigate(`/plugins/${encodeURIComponent(plugin.id)}`)
                   }
                 >
-                  <PluginIcon />
+                  <PluginProductIcon pluginId={plugin.id} />
                   <span className="product-plugin-row-copy">
                     <span className="product-plugin-row-title">
-                      <strong>{plugin.name}</strong>
-                      <small>
-                        {plugin.publisher ?? t('plugins.localPublisher')} · v
-                        {plugin.version}
-                      </small>
+                      <strong>
+                        {officialPluginName(plugin.id, plugin.name, t)}
+                      </strong>
+                      <PluginIdentityMeta plugin={plugin} />
                     </span>
-                    <span>{plugin.description ?? t('plugins.noSummary')}</span>
+                    <span className="product-plugin-row-summary">
+                      {officialPluginSummary(plugin.id, plugin.description, t)}
+                    </span>
                   </span>
                   <ChevronRight aria-hidden="true" />
                 </button>
@@ -469,7 +438,7 @@ export function PluginCatalogPage() {
                   ) : null}
                   <Switch
                     aria-label={t('plugins.enableNamed', {
-                      name: plugin.name,
+                      name: officialPluginName(plugin.id, plugin.name, t),
                     })}
                     checked={plugin.enabled}
                     disabled={
@@ -503,12 +472,56 @@ export function PluginCatalogPage() {
         ) : null}
       </section>
 
+      {contextMenu && contextMenuStyle ? (
+        <div
+          className="product-plugin-context-menu tahoe-popover"
+          role="menu"
+          aria-label={officialPluginName(
+            contextMenu.plugin.id,
+            contextMenu.plugin.name,
+            t
+          )}
+          style={contextMenuStyle}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.preventDefault()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const pluginId = contextMenu.plugin.id;
+              setContextMenu(null);
+              navigate(`/plugins/${encodeURIComponent(pluginId)}`);
+            }}
+          >
+            {t('plugins.openPlugin')}
+          </button>
+          {canInstall && pluginCanUninstall(contextMenu.plugin) ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="is-destructive"
+              onClick={() => {
+                setUninstallTarget(contextMenu.plugin);
+                setContextMenu(null);
+              }}
+            >
+              {t('plugins.uninstall')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <PluginDevelopmentDialog
         open={devToolsOpen}
         connection={devConnection}
-        copied={devConnectionCopied}
         onOpenChange={setDevToolsOpen}
-        onCopy={() => void copyDevConnection()}
+        onOpenPlugin={() =>
+          navigate(
+            `/plugins/${encodeURIComponent(PLUGIN_DEVELOPMENT_PLUGIN_ID)}`
+          )
+        }
       />
 
       <Dialog
@@ -558,60 +571,55 @@ export function PluginCatalogPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={marketplaceOpen} onOpenChange={setMarketplaceOpen}>
-        <DialogContent>
+      <Dialog
+        open={Boolean(uninstallTarget)}
+        onOpenChange={(open) => !open && setUninstallTarget(null)}
+        aria-labelledby="plugin-uninstall-title"
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('plugins.marketplaceTitle')}</DialogTitle>
-            <DialogDescription>{t('plugins.productSubtitle')}</DialogDescription>
+            <DialogTitle id="plugin-uninstall-title">
+              {t('plugins.uninstallTitle', {
+                name: uninstallTarget
+                  ? officialPluginName(
+                      uninstallTarget.id,
+                      uninstallTarget.name,
+                      t
+                    )
+                  : '',
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('plugins.uninstallDescription', {
+                name: uninstallTarget
+                  ? officialPluginName(
+                      uninstallTarget.id,
+                      uninstallTarget.name,
+                      t
+                    )
+                  : '',
+              })}
+            </DialogDescription>
           </DialogHeader>
-          <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
-            {(marketplace?.listings ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {t('plugins.marketplaceEmpty')}
-              </p>
-            ) : (
-              (marketplace?.listings ?? []).map((listing) => (
-                <div
-                  key={`${listing.publisher}:${listing.pluginId}`}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2"
-                >
-                  <div>
-                    <strong className="text-sm">{listing.pluginId}</strong>
-                    <p className="text-xs text-muted-foreground">
-                      {listing.summary}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={listing.archive.startsWith('builtin://')}
-                    onClick={() => {
-                      void api
-                        .install({
-                          marketplace: {
-                            publisher: listing.publisher,
-                            id: listing.pluginId,
-                            version: listing.version,
-                            digest: listing.packageDigest,
-                          },
-                        })
-                        .then(() => refresh(false))
-                        .catch((error) => {
-                          toast.error(t('plugins.productImportFailed'), {
-                            description: errorMessage(error),
-                          });
-                        });
-                    }}
-                  >
-                    {listing.archive.startsWith('builtin://')
-                      ? t('plugins.marketplaceBuiltin')
-                      : t('plugins.addPlugin')}
-                  </Button>
-                </div>
-              ))
-            )}
-          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setUninstallTarget(null)}
+              disabled={busyId === uninstallTarget?.id}
+            >
+              {t('common:cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void uninstallPlugin()}
+              disabled={busyId === uninstallTarget?.id}
+            >
+              {busyId === uninstallTarget?.id ? (
+                <Loader2 className="animate-spin" />
+              ) : null}
+              {t('plugins.confirmUninstall')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
@@ -625,32 +633,31 @@ export function PluginDetailPage() {
   const navigate = useNavigate();
   const transport = useBackendTransport();
   const { supports } = useBackendCapabilities();
-  const { api, plugins, loading } = useProductPlugins();
+  const queryClient = useQueryClient();
+  const { api, plugins, loading } = usePluginControl();
   const plugin = plugins.find((candidate) => candidate.id === decodedId);
-  const [detail, setDetail] = useState<PluginProductDetail | null>(null);
-  const [contributions, setContributions] =
-    useState<PluginContributionCatalog | null>(null);
-  const [tab, setTab] = useState<PluginDetailTab>('content');
+  const detailQuery = useProductPluginDetail(api, decodedId);
+  const contributionsQuery = usePluginContributionCatalog(api);
+  const [tab, setTab] = useState<PluginDetailTab>('config');
+  const [openedTabs, setOpenedTabs] = useState<Set<PluginDetailTab>>(
+    () => new Set(['config'])
+  );
+  const detail = detailQuery.data ?? null;
+  const contributions = contributionsQuery.data ?? null;
   const appSurfaceTransport = useMemo(
     () => createBackendAppSurfaceTransport(transport),
     [transport]
   );
 
-  useEffect(() => {
-    if (!decodedId) return;
-    void api
-      .productDetail(decodedId)
-      .then(setDetail)
-      .catch((error) => {
-        toast.error(t('plugins.productDetailFailed'), {
-          description: errorMessage(error),
-        });
-      });
-    void api
-      .contributionCatalog()
-      .then(setContributions)
-      .catch(() => setContributions(null));
-  }, [api, decodedId, t]);
+  const openTab = (next: PluginDetailTab) => {
+    setTab(next);
+    setOpenedTabs((current) => {
+      if (current.has(next)) return current;
+      const nextTabs = new Set(current);
+      nextTabs.add(next);
+      return nextTabs;
+    });
+  };
 
   if (!plugin && !loading) {
     return (
@@ -678,33 +685,50 @@ export function PluginDetailPage() {
         <>
           <header className="product-plugin-detail-header">
             <div className="product-plugin-detail-identity">
-              <PluginIcon />
+              <PluginProductIcon pluginId={plugin.id} />
               <div className="product-plugin-detail-copy">
                 <div className="product-plugin-detail-title-row">
-                  <h1>{plugin.name}</h1>
-                  <PluginMetadataBadges
-                    publisher={plugin.publisher ?? t('plugins.localPublisher')}
-                    version={plugin.version}
-                  />
+                  <h1>{officialPluginName(plugin.id, plugin.name, t)}</h1>
+                  <PluginIdentityMeta plugin={plugin} />
                 </div>
-                <p>{detail.summary ?? plugin.description}</p>
+                <p>
+                  {officialPluginSummary(
+                    plugin.id,
+                    detail.summary ?? plugin.description,
+                    t
+                  )}
+                </p>
               </div>
             </div>
-            <PluginDetailTabs value={tab} onChange={setTab} />
+            <PluginDetailTabs value={tab} onChange={openTab} />
           </header>
 
-          {tab === 'content' ? <PluginContentBrowser detail={detail} /> : null}
+          {openedTabs.has('content') ? (
+            <div hidden={tab !== 'content'}>
+              <PluginContentBrowser pluginId={decodedId} detail={detail} />
+            </div>
+          ) : null}
 
-          {tab === 'config' ? (
-            <PluginDetailConfig
-              plugin={plugin}
-              pluginId={decodedId}
-              detail={detail}
-              contributions={contributions}
-              canSurface={supports('plugin.surface')}
-              transport={appSurfaceTransport}
-              onSaved={setDetail}
-            />
+          {openedTabs.has('config') ? (
+            <div
+              className="product-plugin-detail-body"
+              hidden={tab !== 'config'}
+            >
+              <PluginDetailConfig
+                plugin={plugin}
+                pluginId={decodedId}
+                detail={detail}
+                contributions={contributions}
+                canSurface={supports('plugin.surface')}
+                transport={appSurfaceTransport}
+                onSaved={(updated) => {
+                  queryClient.setQueryData(
+                    pluginDetailQueryKey(decodedId),
+                    updated
+                  );
+                }}
+              />
+            </div>
           ) : null}
         </>
       ) : (

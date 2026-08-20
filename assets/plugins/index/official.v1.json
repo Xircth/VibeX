@@ -2,35 +2,43 @@
   "listings": [
     {
       "publisher": "vibex",
-      "pluginId": "office",
-      "version": "4.0.0",
-      "summary": "Preview and work with Office documents.",
-      "packageDigest": "builtin:office",
-      "archive": "builtin://office"
+      "pluginId": "vibex.office",
+      "version": "3.0.0",
+      "summary": "在 VibeX 中创建、编辑、分析和预览 DOCX、XLSX 与 PPTX 文件。",
+      "packageDigest": "builtin:vibex.office",
+      "archive": "builtin://vibex.office"
     },
     {
       "publisher": "vibex",
-      "pluginId": "workflow-creator",
-      "version": "4.0.0",
-      "summary": "Author and debug VibeX workflows.",
-      "packageDigest": "builtin:workflow-creator",
-      "archive": "builtin://workflow-creator"
+      "pluginId": "vibex.session-enhance",
+      "version": "1.0.0",
+      "summary": "在会话里向智能体提供提问、纠偏、会话查询和控制。",
+      "packageDigest": "builtin:vibex.session-enhance",
+      "archive": "builtin://vibex.session-enhance"
     },
     {
       "publisher": "vibex",
-      "pluginId": "session-enhance",
-      "version": "4.0.0",
-      "summary": "Session questions, feedback, and control.",
-      "packageDigest": "builtin:session-enhance",
-      "archive": "builtin://session-enhance"
+      "pluginId": "vibex.multi-agent",
+      "version": "1.0.0",
+      "summary": "让父 Agent 把子任务委托给其它 Agent。",
+      "packageDigest": "builtin:vibex.multi-agent",
+      "archive": "builtin://vibex.multi-agent"
     },
     {
       "publisher": "vibex",
-      "pluginId": "multi-agent",
-      "version": "4.0.0",
-      "summary": "Delegate work across VibeX-managed agents.",
-      "packageDigest": "builtin:multi-agent",
-      "archive": "builtin://multi-agent"
+      "pluginId": "vibex.workflow-creator",
+      "version": "1.0.0",
+      "summary": "Create, inspect, debug, and safely revise VibeX DAG Workflows from Agent conversations and editable file tabs.",
+      "packageDigest": "builtin:vibex.workflow-creator",
+      "archive": "builtin://vibex.workflow-creator"
+    },
+    {
+      "publisher": "vibex",
+      "pluginId": "vibex.plugin-development",
+      "version": "1.0.0",
+      "summary": "让 Agent 在本机用当前 Host 的 SDK 与 CLI 开发、校验并链接插件。",
+      "packageDigest": "builtin:vibex.plugin-development",
+      "archive": "builtin://vibex.plugin-development"
     }
   ]
 }

@@ -14,6 +14,7 @@ import type {
   PluginContentDocument,
   PluginProductDetail,
 } from '@/lib/api/plugins';
+import { officialPluginReadme } from './officialPlugins';
 
 interface PluginContentTree {
   name: string;
@@ -158,8 +159,10 @@ function ContentTree({
 }
 
 export function PluginContentBrowser({
+  pluginId,
   detail,
 }: {
+  pluginId: string;
   detail: PluginProductDetail;
 }) {
   const { t } = useTranslation('settings');
@@ -179,7 +182,11 @@ export function PluginContentBrowser({
     (document) => document.path === selectedPath
   );
   const documentTitle = selected?.path.split('/').at(-1) ?? 'README.md';
-  const documentContent = selected?.content ?? detail.readme;
+  const packageContent = selected?.content ?? detail.readme;
+  const documentContent =
+    !selected || selected.path === 'README.md'
+      ? officialPluginReadme(pluginId, packageContent, t)
+      : packageContent;
   const isMarkdown = !selected || selected.path.endsWith('.md');
 
   const toggleFolder = (path: string) => {

@@ -2037,6 +2037,39 @@ impl PluginControlPlane {
         self.refresh_live_projections().await
     }
 
+    /// Builtins whose identity was replaced. The old id stays in the install
+    /// table until this runs, so the catalog would show two products for one
+    /// capability.
+    pub const REPLACED_BUILTIN_PLUGINS: &'static [(&'static str, &'static str)] =
+        &[("vibex.collaboration", "vibex.multi-agent")];
+
+    pub async fn retire_replaced_builtins(&self) -> Result<(), PluginError> {
+        for (retired_id, successor_id) in Self::REPLACED_BUILTIN_PLUGINS {
+            let Some(retired) = self.registry.plugin(retired_id).await? else {
+                continue;
+            };
+            let Some(successor) = self.registry.plugin(successor_id).await? else {
+                continue;
+            };
+            if successor.package.config_schema.is_some() {
+                successor
+                    .package
+                    .write_adopted_config(retired.config.clone())?;
+                let mut refreshed = successor.clone();
+                refreshed.package.config =
+                    successor.package.adopt_installed_config(&retired.config)?;
+                self.registry.put_plugin(refreshed).await?;
+            }
+            if retired.activation == PluginActivation::Enabled
+                && successor.activation != PluginActivation::Enabled
+            {
+                self.set_enabled(successor_id, true).await?;
+            }
+            self.uninstall(retired_id).await?;
+        }
+        Ok(())
+    }
+
     pub async fn runtime_inventory(&self) -> Result<Vec<RuntimeInstallation>, PluginError> {
         self.registry.list_runtimes().await
     }

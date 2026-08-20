@@ -1,6 +1,6 @@
 # VibeX 官方插件介绍
 
-我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。Office、会话增强、工作流创建器在 `assets/plugins/`；插件开发和多智能体协同是 git 子仓库 `assets/plugins/plugin-development` 与 `assets/plugins/multi-agent`。公共货架还没开，这里只讲已经装进 Host 的这几个。
+我对照的是 Host 0.1.3 发行物里随包带上的五份产品包。它们都是独立 git 子仓库，挂在 `assets/plugins/`：`office`、`session-enhance`、`multi-agent`、`workflow-creator`、`plugin-development`。检出 VibeX 时用 `git clone --recurse-submodules`，或之后 `git submodule update --init --recursive`。公共货架还没开，这里只讲已经装进 Host 的这几个。
 
 它们的发布者都是 `vibex`。引擎要求 `vibex >=0.1.3 <1.0.0`，SDK 要求 `^1.0.0`。磁盘上有包，不等于已经注入 Agent。目录里标成「VibeX 内置」或「已随 Host 安装」，默认关掉。你只需要启用，不要再从货架装一遍。
 
@@ -10,7 +10,7 @@
 
 ## VibeX Office
 
-身份 `vibex.office`，当前版本 `3.0.0`，产品名 VibeX Office。一句话简介写的是在 VibeX 里创建、编辑、分析和预览 DOCX、XLSX 与 PPTX。
+身份 `vibex.office`，当前版本 `3.0.0`，产品名 VibeX Office。一句话简介写的是在 VibeX 里创建、编辑、分析和预览 DOCX、XLSX 与 PPTX。源码是 git 子仓库 `assets/plugins/office`。
 
 这是目前最完整的一份官方包。它同时带 Skill、Workflow、文件打开器、预览和一份锁死的 Runtime。
 
@@ -55,7 +55,7 @@
 
 ## 会话增强
 
-身份 `vibex.session-enhance`，版本 `1.0.0`，产品名「会话增强」。简介是在会话里向智能体提供提问、纠偏、会话查询和控制。
+身份 `vibex.session-enhance`，版本 `1.0.0`，产品名「会话增强」。简介是在会话里向智能体提供提问、纠偏、会话查询和控制。源码是 git 子仓库 `assets/plugins/session-enhance`。
 
 这个包没有 Worker，也没有文件页。它把 Host 自己的会话能力，通过官方 MCP 和一条 Skill 交给之后新开或重新绑定的 Agent 会话。
 
@@ -115,7 +115,7 @@ MCP 同样走 Host 家族二进制 `vibex-mcp`，产品面是 `delegation`，协
 
 ## VibeX Workflow Creator
 
-身份 `vibex.workflow-creator`，版本 `1.0.0`，产品名 VibeX Workflow Creator。简介写的是从对话和可编辑文件页里设计、检查、调试并安全改写 `*.vibex-workflow.json`。
+身份 `vibex.workflow-creator`，版本 `1.0.0`，产品名 VibeX Workflow Creator。简介写的是从对话和可编辑文件页里设计、检查、调试并安全改写 `*.vibex-workflow.json`。源码是 git 子仓库 `assets/plugins/workflow-creator`。
 
 这个包同时带 Skill、独立 MCP、文件打开器和一个 App 编辑页。源文件仍是创作真相。保存走产物修订，外部改过会拒绝盲覆盖。发布才生成不可变版本。Automation 钉在某个已发布版本上，不会跟着草稿走。
 

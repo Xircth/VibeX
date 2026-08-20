@@ -21,7 +21,7 @@ fn bundled_workflow_creator_uses_only_public_full_stack_extensions() {
     );
     assert_eq!(
         package.app.surfaces[0].native_renderer.as_deref(),
-        Some("workflow.studio")
+        Some("host.renderer.workflow.studio")
     );
     assert_eq!(
         package.entrypoints.worker.as_deref(),

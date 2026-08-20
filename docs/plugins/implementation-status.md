@@ -34,7 +34,7 @@
 ## 已落地（有测试或命令证据）
 
 - 协议 1.1 initialize→activate；作者只写 `runtime`
-- Office / workflow-creator / session-enhance / multi-agent 走公共契约
+- Office / workflow-creator / session-enhance / multi-agent / plugin-development 走公共契约
 - `OfficialMcpRuntime` + `hostFamilyBinary`；`injected_stdio_servers` 一份列表
 - Composer/Toolbar/Status/Palette/timeline/settings 孔
 - CPython 3.12.11 lock；Worker 按 node/python/native 启动

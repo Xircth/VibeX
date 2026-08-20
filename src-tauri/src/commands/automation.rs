@@ -147,23 +147,40 @@ impl Drop for EngineOwnershipMarker {
     }
 }
 
+/// Lease identity is the Host data directory, the same path `FileOwnerLock` uses.
+/// Tauri `app_data_dir()` is a different folder in debug (`dev_assets/` vs
+/// Application Support), so status and run gates must not use it.
+fn automation_engine_data_dir_key() -> String {
+    utils::assets::host_data_dir()
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn this_host_owns_automation_engine() -> bool {
+    OWNED_DATA_DIRS
+        .lock()
+        .expect("Automation ownership registry poisoned")
+        .contains(&automation_engine_data_dir_key())
+}
+
+fn require_automation_engine_owner() -> Result<(), AppError> {
+    if this_host_owns_automation_engine() {
+        Ok(())
+    } else {
+        Err(AppError::Conflict(
+            "this host does not own the Automation Engine lease".to_string(),
+        ))
+    }
+}
+
 fn store(state: &AppState) -> SqliteAutomationStore {
     SqliteAutomationStore::new(state.deployment.db().pool.clone())
 }
 
 #[tauri::command]
-pub async fn automation_engine_status(app: AppHandle) -> Result<AutomationEngineStatus, AppError> {
-    let data_dir_key = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| AppError::Internal(error.to_string()))?
-        .to_string_lossy()
-        .to_string();
+pub async fn automation_engine_status() -> Result<AutomationEngineStatus, AppError> {
     Ok(AutomationEngineStatus {
-        active: OWNED_DATA_DIRS
-            .lock()
-            .expect("Automation ownership registry poisoned")
-            .contains(&data_dir_key),
+        active: this_host_owns_automation_engine(),
     })
 }
 
@@ -478,21 +495,7 @@ pub async fn automation_run_now(
     id: Uuid,
     debug_step_id: Option<String>,
 ) -> Result<AutomationRunView, AppError> {
-    let data_dir_key = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| AppError::Internal(error.to_string()))?
-        .to_string_lossy()
-        .to_string();
-    if !OWNED_DATA_DIRS
-        .lock()
-        .expect("Automation ownership registry poisoned")
-        .contains(&data_dir_key)
-    {
-        return Err(AppError::Conflict(
-            "this host does not own the Automation Engine lease".to_string(),
-        ));
-    }
+    require_automation_engine_owner()?;
     let automation_store = store(state.inner());
     let run = automation_store.run_now(id, Utc::now()).await?;
     let dto = run_to_dto(run.clone())?;
@@ -563,14 +566,7 @@ pub async fn automation_cancel_run(
 
 pub fn start_automation_engine(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let data_dir = match app.path().app_data_dir() {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::warn!("automation data directory unavailable: {error}");
-                return;
-            }
-        };
-        let key = data_dir.to_string_lossy().to_string();
+        let key = automation_engine_data_dir_key();
         let Some(engine) = (match AutomationEngine::acquire(&key, FileOwnerLock::default()).await {
             Ok(engine) => engine,
             Err(error) => {
@@ -1459,4 +1455,43 @@ fn run_to_dto(run: AutomationRunRecord) -> Result<AutomationRunView, AppError> {
 
 fn workspace_adapter_error(error: impl std::fmt::Display) -> WorkspaceError {
     WorkspaceError::Adapter(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static OWNERSHIP_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[tokio::test]
+    async fn engine_status_is_active_when_this_host_holds_the_host_data_dir_lease() {
+        let _guard = OWNERSHIP_TEST_LOCK.lock().expect("ownership test lock");
+        let _marker = EngineOwnershipMarker::register(automation_engine_data_dir_key());
+        let status = automation_engine_status().await.expect("engine status");
+        assert!(status.active);
+        assert!(require_automation_engine_owner().is_ok());
+    }
+
+    #[tokio::test]
+    async fn engine_status_ignores_a_lease_registered_on_a_foreign_data_dir() {
+        let _guard = OWNERSHIP_TEST_LOCK.lock().expect("ownership test lock");
+        let _marker =
+            EngineOwnershipMarker::register("/tmp/com.vibex.app-app-data-dir".to_string());
+        let status = automation_engine_status().await.expect("engine status");
+        assert!(!status.active);
+        let error = require_automation_engine_owner().expect_err("foreign dir is not owner");
+        assert!(
+            error
+                .to_string()
+                .contains("does not own the Automation Engine lease")
+        );
+    }
+
+    #[test]
+    fn engine_lease_key_is_the_host_data_directory() {
+        assert_eq!(
+            automation_engine_data_dir_key(),
+            utils::assets::host_data_dir().to_string_lossy().as_ref()
+        );
+    }
 }

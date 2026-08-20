@@ -355,6 +355,7 @@ export interface WebServerStatus {
   message: string | null;
   host_id?: string | null;
   reachability?: Array<{ origin: string; kind: string }>;
+  serves_web_ui?: boolean;
 }
 
 export interface HostPairingChallenge {
@@ -369,11 +370,72 @@ export interface HostPairingChallenge {
   reachability?: Array<{ origin: string; kind: string }>;
 }
 
+export interface HostPairedDevice {
+  device_id: string;
+  device_name: string;
+  scopes: string[];
+  created_at: string;
+  preset: 'companion' | 'workstation' | null;
+}
+
 export interface PortProbeResult {
   port: number;
   available: boolean;
   message: string | null;
 }
+
+export interface HostClientProfile {
+  id: string;
+  origin: string;
+  host_id: string | null;
+  name: string;
+  last_connected_at: string | null;
+  needs_token: boolean;
+  has_credential: boolean;
+  connected: boolean;
+}
+
+export interface DiscoveredHost {
+  origin: string;
+  host_id: string | null;
+  name: string | null;
+  saved: boolean;
+}
+
+export interface HostClientStatus {
+  connected: boolean;
+  profile: HostClientProfile | null;
+  profiles: HostClientProfile[];
+}
+
+export interface ConnectHostResult {
+  profile: HostClientProfile;
+  stopped_host: boolean;
+}
+
+export const hostClientApi = {
+  status: async (): Promise<HostClientStatus> => {
+    return backendCall<HostClientStatus>('host_client_status');
+  },
+  discover: async (): Promise<DiscoveredHost[]> => {
+    return backendCall<DiscoveredHost[]>('host_client_discover');
+  },
+  connect: async (request: {
+    origin?: string;
+    token?: string;
+    profile_id?: string;
+  }): Promise<ConnectHostResult> => {
+    return backendCall<ConnectHostResult>('host_client_connect', { request });
+  },
+  disconnect: async (): Promise<void> => {
+    await backendCall('host_client_disconnect');
+  },
+  delete: async (profileId: string): Promise<void> => {
+    await backendCall('host_client_delete', {
+      request: { profile_id: profileId },
+    });
+  },
+};
 
 export const webServiceApi = {
   getConfig: async (): Promise<WebServiceConfig> => {
@@ -400,10 +462,19 @@ export const webServiceApi = {
     return backendCall<WebServiceConfig>('generate_web_service_token');
   },
   createPairing: async (
-    preset: 'companion' | 'workstation' = 'companion'
+    preset: 'companion' | 'workstation' = 'companion',
+    ttlSeconds?: number
   ): Promise<HostPairingChallenge> => {
     return backendCall<HostPairingChallenge>('create_host_device_pairing', {
-      request: { preset },
+      request: { preset, ttl_seconds: ttlSeconds },
+    });
+  },
+  listDevices: async (): Promise<HostPairedDevice[]> => {
+    return backendCall<HostPairedDevice[]>('list_host_devices');
+  },
+  revokeDevice: async (deviceId: string): Promise<void> => {
+    await backendCall('revoke_host_device', {
+      request: { device_id: deviceId },
     });
   },
 };

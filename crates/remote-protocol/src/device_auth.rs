@@ -142,6 +142,8 @@ pub struct CreatePairingRequest {
     pub preset: Option<DevicePermissionPreset>,
     #[serde(default)]
     pub requested_scopes: Vec<String>,
+    #[serde(default)]
+    pub ttl_seconds: Option<i64>,
 }
 
 #[derive(Clone, Deserialize, Eq, JsonSchema, PartialEq, Serialize, TS)]

@@ -16,6 +16,7 @@ mod deeplink;
 mod delegation;
 mod error;
 mod events;
+mod host_client;
 pub mod linux_display;
 mod logging;
 mod managed_artifacts;
@@ -436,6 +437,14 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         });
 
         app.manage(state);
+        {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = commands::plugin_control::import_cli_inbox(handle).await {
+                    tracing::warn!(%error, "CLI marketplace inbox import failed");
+                }
+            });
+        }
         // Recover Agent management, publish stable terminal commands, and
         // warm slow installation evidence without making Settings → Agent
         // responsible for startup work.
@@ -877,6 +886,13 @@ pub fn run(cef_bootstrap: Result<CefBootstrap, String>) {
         commands::web_service::probe_web_service_port,
         commands::web_service::generate_web_service_token,
         commands::web_service::create_host_device_pairing,
+        commands::web_service::list_host_devices,
+        commands::web_service::revoke_host_device,
+        commands::host_client::host_client_status,
+        commands::host_client::host_client_discover,
+        commands::host_client::host_client_connect,
+        commands::host_client::host_client_disconnect,
+        commands::host_client::host_client_delete,
         commands::chat_channel::list_chat_channels,
         commands::chat_channel::list_chat_channel_statuses,
         commands::chat_channel::get_chat_event_webhooks,

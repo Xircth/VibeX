@@ -38,6 +38,7 @@ export type {
 export type CreateDevicePairingRequest = {
   preset?: 'workstation' | 'companion';
   requested_scopes?: string[];
+  ttl_seconds?: number;
 };
 
 export type DevicePairingChallenge = {

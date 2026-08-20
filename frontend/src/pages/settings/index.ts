@@ -9,7 +9,6 @@ export {
   WorkflowAutomationEditorRoute,
 } from './AutomationEditorRoutes';
 export { ChatChannelSettings } from './ChatChannelSettings';
-export { DeviceSettings } from './DeviceSettings';
 export { EditorSettings } from './EditorSettings';
 export { GeneralSettings } from './GeneralSettings';
 export { InstructionsSettings } from './InstructionsSettings';

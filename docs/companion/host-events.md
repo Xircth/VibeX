@@ -102,6 +102,10 @@ P1 不接 FCM / APNs。前台服务只把摘要变成本地通知。
 
 | Companion 动作 | Control | 随后可见的事件（典型） |
 |---|---|---|
+| 归档会话 | `conversation_archive` | 会话从近 N 天列表消失 |
+| 删除会话 | `conversation_delete` | 软删除；列表不再返回 |
+| 切换模式 | `conversation_set_session_mode` | `session_mode_updated` |
+| 改配置选项 | `conversation_set_session_config_option` | `session_config_options_updated` |
 | 新建会话 | `create` | `conversation_created`，可选 `conversation_input` / `user_turn_created` |
 | 发送 / 排队 | `submit` | `conversation_input`（Submitted）；空闲则 `user_turn_created` → `user_turn_started` |
 | 改未认领输入 | `submit` 更新 | `conversation_input`（Updated） |
@@ -188,10 +192,11 @@ ADR-0054 未给 Companion `application.call`。没有只读目录就无法选
 Project / Workspace / Agent。因此 Host 必须在 **conversation.read** 下提供
 只读目录，而不是开放 `application.call`：
 
-- 已添加且就绪的 Agent（id、显示名、是否 ready）
+- 已启用的 Agent（id、显示名、ready/enabled、lifecycle、authentication、usable）
 - 用户可见的 Project / Workspace（id、名称、目录路径、所属、分支）
 - 某项目近 N 天会话（`conversation_list_recent`，默认 3 天）
 - 无工作区会话是否可用（ADR-0006）
+- 会话 `/` 命令：`conversation_slash_commands`（`conversation.read`）返回该 Agent 在工作区上的 Skill 命令，不开放 `list_agent_skills` / `application.call`
 
 这是会话读模型的一部分，不是运维面。
 

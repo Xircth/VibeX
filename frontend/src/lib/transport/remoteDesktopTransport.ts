@@ -87,16 +87,19 @@ export class RemoteDesktopTransport implements BackendTransport {
   readonly environment = 'remote-desktop' as const;
   readonly profileId: string;
   private readonly baseUrl: string;
+  private readonly token: string;
   private readonly bridge: RemoteDesktopBridge;
   private destroyed = false;
 
   private constructor(
     profileId: string,
     baseUrl: string,
+    token: string,
     bridge: RemoteDesktopBridge
   ) {
     this.profileId = profileId;
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.token = token;
     this.bridge = bridge;
   }
 
@@ -108,6 +111,7 @@ export class RemoteDesktopTransport implements BackendTransport {
     return new RemoteDesktopTransport(
       profile.profileId,
       profile.baseUrl,
+      profile.token,
       bridge
     );
   }
@@ -127,6 +131,58 @@ export class RemoteDesktopTransport implements BackendTransport {
 
   capabilities(): Promise<ServerCapabilities> {
     return this.bridge.capabilities(this.profileId);
+  }
+
+  async listen<T>(
+    event: string,
+    handler: (payload: T) => void
+  ): Promise<() => void> {
+    const prefix = 'terminal-output:';
+    if (!event.startsWith(prefix) || this.destroyed) {
+      return () => undefined;
+    }
+    const controller = new AbortController();
+    const sessionId = event.slice(prefix.length);
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${this.baseUrl}/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
+          {
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              'X-VibeX-Protocol-Version': '1.0',
+            },
+            signal: controller.signal,
+          }
+        );
+        if (!response.ok || !response.body) {
+          return;
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() ?? '';
+          for (const frame of frames) {
+            const data = frame
+              .split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n');
+            if (data.length > 0) {
+              (handler as (payload: string) => void)(data);
+            }
+          }
+        }
+      } catch {
+        // Panel close and disconnect abort the stream.
+      }
+    })();
+    return () => controller.abort();
   }
 
   async *subscribe(request: SubscriptionRequest): AsyncIterable<RemoteEvent> {

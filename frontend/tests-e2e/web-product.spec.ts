@@ -12,10 +12,10 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
 
   await page.goto(`${baseUrl}/settings/automations`);
   await expect(
-    page.getByRole('form', { name: 'Connect to VibeX Server' })
+    page.getByRole('form', { name: /Connect to VibeX|连接到 VibeX/ })
   ).toBeVisible();
-  await page.getByLabel('Server token').fill(token);
-  await page.getByRole('button', { name: 'Connect' }).click();
+  await page.getByLabel(/Access token|访问 Token|Server token/).fill(token);
+  await page.getByRole('button', { name: /Connect|连接/ }).click();
 
   await expect(
     page.getByRole('heading', { name: /Automations|自动化/ })
@@ -27,15 +27,15 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
     page.getByRole('button', { name: /Plugins|插件/ })
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: /Devices|设备/ })
+    page.getByRole('button', { name: /Agents|智能体/ })
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: /Agents|智能体/ })).toHaveCount(
-    0
-  );
   await expect(
     page.getByRole('button', {
-      name: /Remote connection|远程连接|Web Service|Web 服务/,
+      name: /Remote connection|远程连接/,
     })
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^Devices$|^设备$/ })
   ).toHaveCount(0);
 
   await page.getByRole('button', { name: /Plugins|插件/ }).click();
@@ -44,7 +44,9 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
   ).toBeVisible();
   await expect(page).toHaveURL(/\/settings\/plugins$/);
 
-  await page.getByRole('button', { name: /Devices|设备/ }).click();
+  await page
+    .getByRole('button', { name: /Remote connection|远程连接/ })
+    .click();
   await page
     .getByRole('button', {
       name: /Generate connection code|生成连接码|Show invitation|出示邀请/,
@@ -54,7 +56,7 @@ test('production Web UI authenticates and exposes only Server capabilities', asy
     page.getByRole('img', { name: /Device pairing QR code|设备配对二维码/ })
   ).toBeVisible();
   await expect(page.getByText(/Shown once|仅显示一次/)).toBeVisible();
-  await expect(page).toHaveURL(/\/settings\/devices$/);
+  await expect(page).toHaveURL(/\/settings\/web-service$/);
   await expect
     .poll(() => pageErrors, {
       message: 'the production UI emitted page errors',

@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    var origin by remember { mutableStateOf("http://127.0.0.1:3080") }
+                    var origin by remember { mutableStateOf("http://127.0.0.1:17891") }
                     var token by remember { mutableStateOf("") }
                     var status by remember { mutableStateOf("Enter the Host origin and pairing token.") }
                     val scope = rememberCoroutineScope()

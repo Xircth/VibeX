@@ -65,7 +65,7 @@ describe('WebTransport', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const transport = new WebTransport({
-      baseUrl: 'http://127.0.0.1:3080',
+      baseUrl: 'http://127.0.0.1:17891',
       token: 'remote-secret',
     });
 
@@ -73,7 +73,7 @@ describe('WebTransport', () => {
       transport.call('conversation_list', { workspaceId: 'workspace-1' })
     ).resolves.toEqual([{ title: 'Remote conversation' }]);
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:3080/api/v1/call/conversation_list',
+      'http://127.0.0.1:17891/api/v1/call/conversation_list',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
@@ -105,7 +105,7 @@ describe('WebTransport', () => {
       })
     );
     const transport = new WebTransport({
-      baseUrl: 'http://127.0.0.1:3080',
+      baseUrl: 'http://127.0.0.1:17891',
       token: 'remote-secret',
     });
 
@@ -131,7 +131,7 @@ describe('WebTransport', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const transport = new WebTransport({
-      baseUrl: 'http://127.0.0.1:3080',
+      baseUrl: 'http://127.0.0.1:17891',
       token: 'remote-secret',
     });
 
@@ -142,7 +142,7 @@ describe('WebTransport', () => {
     ).resolves.toMatchObject({ pairing_token: 'pair-once-secret' });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://127.0.0.1:3080/api/v1/auth/pairings');
+    expect(url).toBe('http://127.0.0.1:17891/api/v1/auth/pairings');
     expect(url).not.toContain('remote-secret');
     expect(url).not.toContain('pair-once-secret');
     expect(init.headers).toEqual(
@@ -157,7 +157,7 @@ describe('WebTransport', () => {
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', MockWebSocket);
     const transport = new WebTransport({
-      baseUrl: 'http://127.0.0.1:3080',
+      baseUrl: 'http://127.0.0.1:17891',
       token: 'remote-secret',
     });
     const first = transport
@@ -181,7 +181,7 @@ describe('WebTransport', () => {
 
     expect(MockWebSocket.instances).toHaveLength(1);
     const socket = MockWebSocket.instances[0]!;
-    expect(socket.url).toBe('ws://127.0.0.1:3080/api/v1/ws');
+    expect(socket.url).toBe('ws://127.0.0.1:17891/api/v1/ws');
     expect(socket.url).not.toContain('remote-secret');
     expect(socket.protocols).toEqual([
       'vibex.v1',

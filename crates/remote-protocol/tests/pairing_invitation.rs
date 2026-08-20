@@ -19,7 +19,7 @@ fn invitation_encodes_host_identity_and_drops_loopback() {
         DevicePermissionPreset::Companion,
         &challenge,
         [
-            ReachabilityOrigin::lan("http://127.0.0.1:3080"),
+            ReachabilityOrigin::lan("http://127.0.0.1:17891"),
             ReachabilityOrigin::lan("http://192.168.1.20:17891"),
         ],
     );
@@ -44,6 +44,6 @@ fn connection_code_is_eight_unambiguous_characters() {
 #[test]
 fn loopback_origin_detection_covers_ipv4_and_localhost() {
     assert!(is_loopback_origin("http://127.0.0.1:17891"));
-    assert!(is_loopback_origin("http://localhost:3080"));
-    assert!(!is_loopback_origin("http://192.168.1.8:3080"));
+    assert!(is_loopback_origin("http://localhost:17891"));
+    assert!(!is_loopback_origin("http://192.168.1.8:17891"));
 }

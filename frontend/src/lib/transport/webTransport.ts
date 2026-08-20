@@ -144,6 +144,23 @@ export class WebTransport implements BackendTransport {
     return response.json() as Promise<ServerCapabilities>;
   }
 
+  async listen<T>(
+    event: string,
+    handler: (payload: T) => void
+  ): Promise<() => void> {
+    const prefix = 'terminal-output:';
+    if (!event.startsWith(prefix)) {
+      return () => undefined;
+    }
+    const controller = new AbortController();
+    void this.consumeTerminalOutput(
+      event.slice(prefix.length),
+      handler as (payload: string) => void,
+      controller.signal
+    );
+    return () => controller.abort();
+  }
+
   async createDevicePairing(
     request: CreateDevicePairingRequest
   ): Promise<DevicePairingChallenge> {
@@ -331,6 +348,46 @@ export class WebTransport implements BackendTransport {
     }
     subscription.cursor = sequence;
     subscription.queue.push({ ...message.event, sequence });
+  }
+
+  private async consumeTerminalOutput(
+    sessionId: string,
+    handler: (payload: string) => void,
+    signal: AbortSignal
+  ): Promise<void> {
+    try {
+      const response = await this.request(
+        `/api/v1/terminals/${encodeURIComponent(sessionId)}/output`,
+        { signal }
+      );
+      if (!response.body) {
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (!signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const data = frame
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart())
+            .join('\n');
+          if (data.length > 0) {
+            handler(data);
+          }
+        }
+      }
+    } catch {
+      // Abort and disconnect are expected when the panel closes.
+    }
   }
 
   private scheduleReconnect(): void {

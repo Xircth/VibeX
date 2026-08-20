@@ -9,13 +9,13 @@ fun main() {
             setOf("plugin.write"),
     )
 
-    val origin = HostOrigin.parse("http://127.0.0.1:3080/")
-    check(origin.value == "http://127.0.0.1:3080")
-    check(origin.resolve("/api/v1/capabilities") == "http://127.0.0.1:3080/api/v1/capabilities")
+    val origin = HostOrigin.parse("http://127.0.0.1:17891/")
+    check(origin.value == "http://127.0.0.1:17891")
+    check(origin.resolve("/api/v1/capabilities") == "http://127.0.0.1:17891/api/v1/capabilities")
 
     var threw = false
     try {
-        HostOrigin.parse("http://user:secret@127.0.0.1:3080")
+        HostOrigin.parse("http://user:secret@127.0.0.1:17891")
     } catch (_: IllegalArgumentException) {
         threw = true
     }

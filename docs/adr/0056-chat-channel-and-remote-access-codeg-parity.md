@@ -82,7 +82,7 @@ HTTP Webhook 汇点。提示词默认不外发。IM 文案至少中英，可在�
 Companion 连上。** 它启动的是 Remote Protocol 的 `ServerRuntime`，并托管
 与 Host 家族相同的 `web/` 前端。不再提供第二套业务 REST 作为产品入口。
 
-- 默认端口 `3080`，与 `vibex-server` / Host 家族一致。
+- 默认端口 `17891`，与 `vibex-server` / Host 家族一致。
 - 默认绑定 loopback。打开「允许局域网」后才绑定 `0.0.0.0`，并列出本机
   可达地址。开关必须改变真实监听，不能只改配置。
 - 启动时解析或轮换 Host 管理员 token（`SqliteTokenHashStore`）。设置页

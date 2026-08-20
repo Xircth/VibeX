@@ -13,7 +13,7 @@
 ## P0 — 远程访问可用
 
 - [x] `start_web_server` 按 `allow_lan` 绑定 `127.0.0.1` 或 `0.0.0.0`
-- [x] 状态返回全部可达 `http://` 地址；默认端口 3080
+- [x] 状态返回全部可达 `http://` 地址；默认端口 17891
 - [x] 注入 frontend `dist` / `VIBEX_STATIC_ROOT`，浏览器打开即 UI
 - [x] Host 管理员 token 走 `SqliteTokenHashStore`；生成/复制/显示隐藏
 - [x] 桌面设置可创建 Workstation / Companion 配对二维码

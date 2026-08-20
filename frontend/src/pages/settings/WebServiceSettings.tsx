@@ -26,15 +26,24 @@ import {
   webServiceApi,
 } from '@/lib/api';
 import { SETTINGS_CHANGED_EVENT } from '@/lib/frontendPreferences';
+import { openInSystemBrowser } from '@/hooks/useOpenLink';
+import { cn } from '@/lib/utils';
 
-import {
-  SettingsActionBar,
-  SettingsSection,
-} from './SettingsUi';
+import { SettingsActionBar, SettingsSection } from './SettingsUi';
 import { DevicePairingPanel } from './DevicePairingPanel';
+import { presentRemoteAccess, type RemoteAccessRowKind } from './hostEndpoints';
+import { isLoopbackOrigin } from './pairingInvitation';
+import { RemoteClientSettings } from './RemoteClientSettings';
+
+type RemoteRoleTab = 'server' | 'client';
+
+const ROLE_TABS: Array<{ value: RemoteRoleTab; labelKey: string }> = [
+  { value: 'server', labelKey: 'webService.roleServer' },
+  { value: 'client', labelKey: 'webService.roleClient' },
+];
 
 const DEFAULT_CONFIG: WebServiceConfig = {
-  port: 3080,
+  port: 17891,
   token: null,
   auto_start: false,
   allow_lan: false,
@@ -61,10 +70,56 @@ export function WebServiceSettings({
   const [statusBusy, setStatusBusy] = useState(false);
   const [probing, setProbing] = useState(false);
   const [tokenRevealed, setTokenRevealed] = useState(false);
+  const [role, setRole] = useState<RemoteRoleTab>('server');
+  const hostConsole = transport.environment === 'desktop';
+  const serviceRunning = Boolean(status?.running);
 
   const dirty = useMemo(() => !sameConfig(config, draft), [config, draft]);
+  const accessRows = useMemo(
+    () =>
+      presentRemoteAccess({
+        running: Boolean(status?.running),
+        servesWebUi: Boolean(status?.serves_web_ui),
+        address: status?.address,
+        addresses: status?.addresses,
+        reachability: status?.reachability,
+        windowOrigin: window.location.origin,
+      }),
+    [status]
+  );
+
+  const hasSeparateBrowser = accessRows.some((row) => row.kind === 'browser');
+  const addressCopy: Record<
+    RemoteAccessRowKind,
+    { label: string; description: string }
+  > = {
+    browser: {
+      label: t('webService.browserAddressLabel'),
+      description: t('webService.browserAddressDescription'),
+    },
+    thisComputer: {
+      label: hasSeparateBrowser
+        ? t('webService.hostAddressLabel')
+        : t('webService.thisComputerAddressLabel'),
+      description: hasSeparateBrowser
+        ? t('webService.hostAddressDescription')
+        : t('webService.thisComputerAddressDescription'),
+    },
+    lan: {
+      label: t('webService.lanAddressLabel'),
+      description: t('webService.lanAddressDescription'),
+    },
+    published: {
+      label: t('webService.publishedAddressLabel'),
+      description: t('webService.publishedAddressDescription'),
+    },
+  };
 
   const load = useCallback(async () => {
+    if (!hostConsole) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [savedConfig, currentStatus] = await Promise.all([
@@ -90,7 +145,7 @@ export function WebServiceSettings({
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [hostConsole, t]);
 
   useEffect(() => {
     void load();
@@ -161,6 +216,9 @@ export function WebServiceSettings({
     setStatusBusy(true);
     try {
       const next = await webServiceApi.start();
+      const saved = await webServiceApi.getConfig();
+      setConfig(saved);
+      setDraft(saved);
       setStatus(next);
       toast.success(t('webService.started'));
       return next;
@@ -173,17 +231,6 @@ export function WebServiceSettings({
       setStatusBusy(false);
     }
   }, [dirty, saveConfig, t]);
-
-  const ensureListening = useCallback(async () => {
-    const current = status?.running ? status : await startServer();
-    if (!current) {
-      throw new Error(t('webService.startFailed'));
-    }
-    if (current.addresses && current.addresses.length > 0) {
-      return current.addresses;
-    }
-    return current.address ? [current.address] : [];
-  }, [startServer, status, t]);
 
   const stopServer = useCallback(async () => {
     setStatusBusy(true);
@@ -198,7 +245,7 @@ export function WebServiceSettings({
     } finally {
       setStatusBusy(false);
     }
-  }, [t]);
+  }, [draft.port, t]);
 
   const probePort = useCallback(async () => {
     setProbing(true);
@@ -219,7 +266,14 @@ export function WebServiceSettings({
     }
   }, [draft.port, t]);
 
+  const requireRunning = useCallback(() => {
+    if (serviceRunning) return true;
+    toast.error(t('webService.enableServiceFirst'));
+    return false;
+  }, [serviceRunning, t]);
+
   const generateToken = useCallback(async () => {
+    if (!requireRunning()) return;
     setSaving(true);
     try {
       const saved = await webServiceApi.generateToken();
@@ -235,7 +289,7 @@ export function WebServiceSettings({
     } finally {
       setSaving(false);
     }
-  }, [t]);
+  }, [requireRunning, t]);
 
   const copyText = useCallback(
     async (text: string, label: string) => {
@@ -243,6 +297,14 @@ export function WebServiceSettings({
       toast.success(t('webService.copied', { label }));
     },
     [t]
+  );
+
+  const publishedOrigins = useMemo(
+    () =>
+      (status?.reachability ?? []).filter(
+        (item) => item.kind !== 'lan' && !isLoopbackOrigin(item.origin)
+      ),
+    [status?.reachability]
   );
 
   if (loading) {
@@ -253,300 +315,436 @@ export function WebServiceSettings({
     );
   }
 
+  const focusRole = (next: RemoteRoleTab) => {
+    setRole(next);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>(`[data-remote-role-tab="${next}"]`)
+        ?.focus();
+    });
+  };
+
   return (
     <div className="settings-content">
-      <div className="settings-sections">
-        <DevicePairingPanel
-          transport={transport}
-          hostId={status?.host_id}
-          hostUrls={
-            status?.addresses && status.addresses.length > 0
-              ? status.addresses
-              : status?.address
-                ? [status.address]
-                : []
-          }
-          reachability={status?.reachability ?? []}
-          autoIssue={Boolean(status?.running)}
-          onEnsureListening={ensureListening}
-        />
-
-        <SettingsSection
-          icon={Globe}
-          title={t('webService.statusSectionTitle')}
-          description={t('webService.statusSectionDescription')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label className="text-xs">
-                {t('webService.currentStatusLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {(status?.addresses && status.addresses.length > 0
-                  ? status.addresses.join(' · ')
-                  : status?.address) ?? t('webService.serviceNotStarted')}
-              </p>
+      <div className="chat-channel-heading">
+        <div className="chat-channel-heading__copy">
+          <h2>
+            <Globe aria-hidden="true" />
+            <span>{t('webService.title')}</span>
+          </h2>
+        </div>
+        {hostConsole ? (
+          <div className="chat-channel-heading__actions">
+            <div
+              className="chat-channel-tabs"
+              role="tablist"
+              aria-label={t('webService.roleTabsAria')}
+              onKeyDown={(event) => {
+                const index = ROLE_TABS.findIndex(
+                  (item) => item.value === role
+                );
+                let next = index;
+                if (event.key === 'ArrowRight')
+                  next = (index + 1) % ROLE_TABS.length;
+                else if (event.key === 'ArrowLeft') {
+                  next = (index - 1 + ROLE_TABS.length) % ROLE_TABS.length;
+                } else if (event.key === 'Home') next = 0;
+                else if (event.key === 'End') next = ROLE_TABS.length - 1;
+                else return;
+                event.preventDefault();
+                focusRole(ROLE_TABS[next].value);
+              }}
+            >
+              {ROLE_TABS.map((item) => {
+                const active = role === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    role="tab"
+                    data-remote-role-tab={item.value}
+                    aria-selected={active}
+                    tabIndex={active ? 0 : -1}
+                    className={active ? 'is-active' : undefined}
+                    onClick={() => setRole(item.value)}
+                  >
+                    {t(item.labelKey)}
+                  </button>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`rounded-full px-2 py-1 text-xs font-medium ${
-                  status?.running
-                    ? 'settings-status-success'
-                    : 'text-muted-foreground'
-                }`}
-              >
-                {!status
-                  ? t('webService.statusUnchecked')
-                  : status.running
-                    ? t('webService.statusRunning')
-                    : t('webService.statusStopped')}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => void refreshStatus()}
-                disabled={statusBusy}
-                title={t('webService.refreshStatus')}
-                aria-label={t('webService.refreshStatus')}
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${statusBusy ? 'animate-spin' : ''}`}
-                />
-              </Button>
-              {status?.address ? (
-                <>
+          </div>
+        ) : null}
+      </div>
+
+      {role === 'client' && hostConsole ? <RemoteClientSettings /> : null}
+
+      {role === 'server' || !hostConsole ? (
+        <div className="settings-sections">
+          {hostConsole ? (
+            <SettingsSection
+              icon={Globe}
+              title={t('webService.hostSectionTitle')}
+              description={t('webService.hostSectionDescription')}
+            >
+              <div className="settings-row">
+                <div>
+                  <Label>{t('webService.currentStatusLabel')}</Label>
+                  {serviceRunning ? null : (
+                    <p className="settings-row__description">
+                      {t('webService.serviceNotStarted')}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      'settings-status-lamp',
+                      serviceRunning
+                        ? 'settings-status-dot-success'
+                        : 'settings-status-dot-neutral'
+                    )}
+                    data-testid="web-service-status-lamp"
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-1 text-sm font-medium',
+                      serviceRunning
+                        ? 'settings-status-success'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {!status
+                      ? t('webService.statusUnchecked')
+                      : serviceRunning
+                        ? t('webService.statusRunning')
+                        : t('webService.statusStopped')}
+                  </span>
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-8 w-8 p-0"
-                    onClick={() =>
-                      void copyText(
-                        status.address!,
-                        t('webService.copyAddress')
-                      )
-                    }
-                    aria-label={t('webService.copyAddress')}
+                    onClick={() => void refreshStatus()}
+                    disabled={statusBusy}
+                    title={t('webService.refreshStatus')}
+                    aria-label={t('webService.refreshStatus')}
                   >
-                    <Copy className="h-3.5 w-3.5" />
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${statusBusy ? 'animate-spin' : ''}`}
+                    />
+                  </Button>
+                  <Switch
+                    className="settings-switch"
+                    checked={serviceRunning}
+                    onCheckedChange={(checked: boolean) => {
+                      if (checked) {
+                        void startServer();
+                      } else {
+                        void stopServer();
+                      }
+                    }}
+                    disabled={statusBusy}
+                    aria-label={
+                      serviceRunning
+                        ? t('webService.stop')
+                        : t('webService.start')
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <div>
+                  <Label htmlFor="web-service-port">
+                    {t('webService.portLabel')}
+                  </Label>
+                  <p className="settings-row__description">
+                    {t('webService.portDescription')}
+                  </p>
+                </div>
+                <div className="flex w-full max-w-xs gap-2">
+                  <Input
+                    id="web-service-port"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={draft.port}
+                    onChange={(event) =>
+                      setDraft((previous) => ({
+                        ...previous,
+                        port: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0"
+                    onClick={() => void probePort()}
+                    disabled={probing}
+                  >
+                    {probing ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    {t('webService.probe')}
+                  </Button>
+                </div>
+              </div>
+
+              {probe && !probe.available && !serviceRunning ? (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                  <p className="font-medium">
+                    {t('webService.stalePortOccupied', { port: probe.port })}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {t('webService.stalePortHint')}
+                  </p>
+                </div>
+              ) : probe ? (
+                <p className="settings-row__description">
+                  {t('webService.portProbeResult', {
+                    port: probe.port,
+                    result: probe.available
+                      ? t('webService.available')
+                      : probe.message,
+                  })}
+                </p>
+              ) : null}
+
+              <div className="settings-row">
+                <div>
+                  <Label htmlFor="web-service-autostart">
+                    {t('webService.autoStartLabel')}
+                  </Label>
+                  <p className="settings-row__description">
+                    {t('webService.autoStartDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="web-service-autostart"
+                  className="settings-switch"
+                  checked={draft.auto_start}
+                  onCheckedChange={(checked: boolean) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      auto_start: checked,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="settings-row">
+                <div>
+                  <Label htmlFor="web-service-lan">
+                    {t('webService.allowLanLabel')}
+                  </Label>
+                  <p className="settings-row__description">
+                    {t('webService.allowLanDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="web-service-lan"
+                  className="settings-switch"
+                  checked={Boolean(draft.allow_lan)}
+                  onCheckedChange={(checked: boolean) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      allow_lan: checked,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="settings-row settings-row--stacked">
+                <div>
+                  <Label>{t('webService.tunnelLabel')}</Label>
+                  <p className="settings-row__description">
+                    {t('webService.tunnelDescription')}
+                  </p>
+                </div>
+                {publishedOrigins.length === 0 ? (
+                  <p className="settings-row__description">
+                    {t('webService.tunnelEmpty')}
+                  </p>
+                ) : (
+                  publishedOrigins.map((item) => (
+                    <p
+                      key={item.origin}
+                      className="settings-row__description font-mono"
+                    >
+                      {item.origin}
+                    </p>
+                  ))
+                )}
+              </div>
+            </SettingsSection>
+          ) : null}
+
+          <DevicePairingPanel
+            transport={transport}
+            hostId={status?.host_id}
+            hostUrls={
+              status?.addresses && status.addresses.length > 0
+                ? status.addresses
+                : status?.address
+                  ? [status.address]
+                  : []
+            }
+            reachability={status?.reachability ?? []}
+            serviceRunning={serviceRunning}
+          />
+
+          {hostConsole ? (
+            <SettingsSection
+              icon={Shield}
+              title={t('webService.webSectionTitle')}
+              description={t('webService.webSectionDescription')}
+              className={!serviceRunning ? 'settings-remote-gated' : undefined}
+            >
+              <div className="settings-row">
+                <div>
+                  <Label>{t('webService.tokenLabel')}</Label>
+                  <p className="settings-row__description">
+                    {t('webService.tokenDescription')}
+                  </p>
+                </div>
+                <div className="flex w-full max-w-sm gap-2">
+                  <Input
+                    type={tokenRevealed ? 'text' : 'password'}
+                    value={draft.token ?? ''}
+                    onChange={(event) =>
+                      setDraft((previous) => ({
+                        ...previous,
+                        token: event.target.value || null,
+                      }))
+                    }
+                    placeholder={t('webService.tokenPlaceholder')}
+                    className="font-mono"
+                    autoComplete="off"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0"
+                    onClick={() => {
+                      if (!requireRunning()) return;
+                      setTokenRevealed((value) => !value);
+                    }}
+                    title={
+                      tokenRevealed
+                        ? t('webService.hideToken')
+                        : t('webService.showToken')
+                    }
+                    aria-label={
+                      tokenRevealed
+                        ? t('webService.hideToken')
+                        : t('webService.showToken')
+                    }
+                  >
+                    {tokenRevealed ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs"
-                    onClick={() => window.open(status.address!, '_blank')}
+                    className="h-8 w-8 shrink-0 p-0"
+                    onClick={() => {
+                      if (!requireRunning() || !draft.token) return;
+                      void copyText(draft.token, 'Token');
+                    }}
+                    disabled={!draft.token}
+                    title={t('webService.copyToken')}
+                    aria-label={t('webService.copyToken')}
                   >
-                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                    {t('webService.open')}
+                    <Copy className="h-3.5 w-3.5" />
                   </Button>
-                </>
-              ) : null}
-              <Switch
-                className="settings-switch"
-                checked={Boolean(status?.running)}
-                onCheckedChange={(checked: boolean) => {
-                  if (checked) {
-                    void startServer();
-                  } else {
-                    void stopServer();
-                  }
-                }}
-                disabled={statusBusy}
-                aria-label={
-                  status?.running ? t('webService.stop') : t('webService.start')
-                }
-              />
-            </div>
-          </div>
-        </SettingsSection>
+                  <Button
+                    size="sm"
+                    className="h-8 shrink-0"
+                    onClick={() => void generateToken()}
+                    disabled={saving}
+                  >
+                    <KeyRound className="mr-1 h-3.5 w-3.5" />
+                    {t('webService.generate')}
+                  </Button>
+                </div>
+              </div>
 
-        <SettingsSection
-          icon={Shield}
-          title={t('webService.accessSectionTitle')}
-          description={t('webService.accessSectionDescription')}
-        >
-          <div className="settings-row">
-            <div>
-              <Label htmlFor="web-service-port" className="text-xs">
-                {t('webService.portLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {t('webService.portDescription')}
-              </p>
-            </div>
-            <div className="flex w-full max-w-xs gap-2">
-              <Input
-                id="web-service-port"
-                type="number"
-                min={1}
-                max={65535}
-                value={draft.port}
-                onChange={(event) =>
-                  setDraft((previous) => ({
-                    ...previous,
-                    port: Number(event.target.value),
-                  }))
-                }
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0 text-xs"
-                onClick={() => void probePort()}
-                disabled={probing}
-              >
-                {probing ? (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                )}
-                {t('webService.probe')}
-              </Button>
-            </div>
-          </div>
-
-          {probe && !probe.available && !status?.running ? (
-            <div className="mx-4 mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-              <p className="font-medium">
-                {t('webService.stalePortOccupied', { port: probe.port })}
-              </p>
-              <p className="text-muted-foreground">
-                {t('webService.stalePortHint')}
-              </p>
-            </div>
-          ) : probe ? (
-            <div className="px-4 pb-3 text-[11px] text-muted-foreground">
-              {t('webService.portProbeResult', {
-                port: probe.port,
-                result: probe.available
-                  ? t('webService.available')
-                  : probe.message,
-              })}
-            </div>
+              {accessRows.length === 0 ? (
+                <p className="settings-row__description">
+                  {t('webService.serviceNotStarted')}
+                </p>
+              ) : (
+                accessRows.map((row) => {
+                  const copy = addressCopy[row.kind];
+                  return (
+                    <div
+                      className="settings-row"
+                      key={`${row.kind}:${row.origin}`}
+                    >
+                      <div>
+                        <Label>{copy.label}</Label>
+                        <p className="settings-row__description font-mono">
+                          {row.origin}
+                        </p>
+                        <p className="settings-row__description">
+                          {copy.description}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => {
+                            if (!requireRunning()) return;
+                            void copyText(
+                              row.origin,
+                              t('webService.copyOrigin')
+                            );
+                          }}
+                          aria-label={`${t('webService.copyOrigin')} ${row.origin}`}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => {
+                            if (!requireRunning()) return;
+                            void openInSystemBrowser(row.openHref);
+                          }}
+                        >
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                          {t('webService.openOrigin')}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </SettingsSection>
           ) : null}
+        </div>
+      ) : null}
 
-          <div className="settings-row">
-            <div>
-              <Label htmlFor="web-service-autostart" className="text-xs">
-                {t('webService.autoStartLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {t('webService.autoStartDescription')}
-              </p>
-            </div>
-            <Switch
-              id="web-service-autostart"
-              className="settings-switch"
-              checked={draft.auto_start}
-              onCheckedChange={(checked: boolean) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  auto_start: checked,
-                }))
-              }
-            />
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <Label htmlFor="web-service-lan" className="text-xs">
-                {t('webService.allowLanLabel')}
-              </Label>
-              <p className="settings-row__description">
-                {t('webService.allowLanDescription')}
-              </p>
-            </div>
-            <Switch
-              id="web-service-lan"
-              className="settings-switch"
-              checked={Boolean(draft.allow_lan)}
-              onCheckedChange={(checked: boolean) =>
-                setDraft((previous) => ({
-                  ...previous,
-                  allow_lan: checked,
-                }))
-              }
-            />
-          </div>
-
-          <div className="settings-row">
-            <div>
-              <Label className="text-xs">{t('webService.tokenLabel')}</Label>
-              <p className="settings-row__description">
-                {t('webService.tokenDescription')}
-              </p>
-            </div>
-            <div className="flex w-full max-w-sm gap-2">
-              <Input
-                type={tokenRevealed ? 'text' : 'password'}
-                value={draft.token ?? ''}
-                onChange={(event) =>
-                  setDraft((previous) => ({
-                    ...previous,
-                    token: event.target.value || null,
-                  }))
-                }
-                placeholder={t('webService.tokenPlaceholder')}
-                className="font-mono"
-                autoComplete="off"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 shrink-0 p-0"
-                onClick={() => setTokenRevealed((value) => !value)}
-                title={
-                  tokenRevealed
-                    ? t('webService.hideToken')
-                    : t('webService.showToken')
-                }
-                aria-label={
-                  tokenRevealed
-                    ? t('webService.hideToken')
-                    : t('webService.showToken')
-                }
-              >
-                {tokenRevealed ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 shrink-0 p-0"
-                onClick={() =>
-                  draft.token ? void copyText(draft.token, 'Token') : undefined
-                }
-                disabled={!draft.token}
-                title={t('webService.copyToken')}
-                aria-label={t('webService.copyToken')}
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                size="sm"
-                className="h-8 shrink-0 text-xs"
-                onClick={() => void generateToken()}
-                disabled={saving}
-              >
-                <KeyRound className="mr-1 h-3.5 w-3.5" />
-                {t('webService.generate')}
-              </Button>
-            </div>
-          </div>
-        </SettingsSection>
-      </div>
-
-      <SettingsActionBar
-        dirty={dirty}
-        saving={saving}
-        onDiscard={discard}
-        onSave={() => void saveConfig()}
-        disabled={saving}
-        message={t('webService.actionBarMessage')}
-      />
+      {role === 'server' ? (
+        <SettingsActionBar
+          dirty={dirty}
+          saving={saving}
+          onDiscard={discard}
+          onSave={() => void saveConfig()}
+          disabled={saving}
+          message={t('webService.actionBarMessage')}
+        />
+      ) : null}
     </div>
   );
 }

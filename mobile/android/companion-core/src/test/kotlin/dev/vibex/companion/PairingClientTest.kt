@@ -21,7 +21,7 @@ class PairingClientTest {
             ),
         )
         val session = PairingClient(transport).redeem(
-            HostOrigin.parse("http://127.0.0.1:3080"),
+            HostOrigin.parse("http://127.0.0.1:17891"),
             "one-time-secret",
             "Pixel",
         )
@@ -57,7 +57,7 @@ class PairingClientTest {
     @Test
     fun hostOriginRejectsCredentialsInUrl() {
         assertFailsWith<IllegalArgumentException> {
-            HostOrigin.parse("http://user:secret@127.0.0.1:3080")
+            HostOrigin.parse("http://user:secret@127.0.0.1:17891")
         }
     }
 }

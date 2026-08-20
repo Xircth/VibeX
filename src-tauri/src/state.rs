@@ -244,7 +244,7 @@ impl AppState {
                 {
                     if installed.config_schema.is_some() {
                         builtin
-                            .write_config(installed.config.clone())
+                            .write_adopted_config(installed.config.clone())
                             .map_err(|error| {
                                 deployment::DeploymentError::Other(anyhow::anyhow!(error))
                             })?;
@@ -287,6 +287,10 @@ impl AppState {
                 Some(_) => {}
             }
         }
+        plugin_control_plane
+            .retire_replaced_builtins()
+            .await
+            .map_err(|error| deployment::DeploymentError::Other(anyhow::anyhow!(error)))?;
         let enabled_worker_exists = plugin_control_plane
             .catalog()
             .await

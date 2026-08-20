@@ -44,6 +44,7 @@ fn pairing_request_keeps_legacy_scope_only_payloads() {
     .unwrap();
     assert_eq!(request.preset, None);
     assert_eq!(request.requested_scopes, vec!["conversation.read"]);
+    assert_eq!(request.ttl_seconds, None);
 }
 
 #[test]

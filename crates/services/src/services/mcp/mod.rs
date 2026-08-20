@@ -629,8 +629,8 @@ fn codex_config_toml_path() -> PathBuf {
 }
 
 fn opencode_config_path() -> PathBuf {
-    configured_dir("XDG_CONFIG_HOME", home_dir_or_default().join(".config"))
-        .join("opencode")
+    agents::metadata::opencode_config_dir()
+        .unwrap_or_else(|| home_dir_or_default().join(".config").join("opencode"))
         .join("opencode.json")
 }
 

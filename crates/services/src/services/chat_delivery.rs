@@ -645,17 +645,18 @@ pub fn event_key(event: &AgentEvent) -> Option<&'static str> {
 }
 
 // ---------------------------------------------------------------------------
-// IM channel secret store — plaintext `~/.vibex/.env` (ADR-0004)
+// IM channel secret store — plaintext `{host_data_dir}/.env` (ADR-0004)
 // ---------------------------------------------------------------------------
 //
 // A deliberate, user-decided deviation from "desktop apps put secrets in the OS
-// keychain": IM channel tokens live plaintext in `~/.vibex/.env` (perms 0600), traded
-// for zero dependencies + directly editable/backup-able simplicity. Scope is strictly
-// IM channel secrets — model-provider API keys / MCP env keep their existing homes.
+// keychain": IM channel tokens live plaintext next to the Host database
+// (perms 0600), traded for zero dependencies + directly editable/backup-able
+// simplicity. Scope is strictly IM channel secrets — model-provider API keys /
+// MCP env keep their existing homes.
 
-/// Absolute path to the plaintext IM secret file (`~/.vibex/.env`).
+/// Absolute path to the plaintext IM secret file next to the Host database.
 pub fn im_env_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".vibex").join(".env"))
+    Some(utils::assets::im_env_path())
 }
 
 /// Env var name holding a channel's token. Channel ids (uuid-ish) are normalized to an

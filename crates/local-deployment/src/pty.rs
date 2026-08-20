@@ -134,16 +134,21 @@ impl PtyService {
             cmd.cwd(&working_dir);
 
             // Configure shell-specific options
-            let shell_name = shell.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let shell_name = shell
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let shell_stem = shell_name
+                .strip_suffix(".exe")
+                .unwrap_or(shell_name.as_str());
 
-            if shell_name == "powershell.exe" || shell_name == "pwsh.exe" {
-                // PowerShell: use -NoLogo for cleaner startup
+            if shell_stem == "powershell" || shell_stem == "pwsh" {
                 cmd.arg("-NoLogo");
-            } else if shell_name == "cmd.exe" {
-                // cmd.exe: no special args needed
+            } else if shell_stem == "cmd" {
             } else {
                 cmd.env("VIBEX_TERMINAL", "1");
-                if shell_name == "bash" || shell_name == "zsh" {
+                if shell_stem == "bash" || shell_stem == "zsh" {
                     cmd.arg("-l");
                 }
             }

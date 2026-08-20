@@ -341,6 +341,10 @@ impl DelegationListener {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+        }
         loop {
             match listener.accept().await {
                 Ok((mut conn, _)) => {

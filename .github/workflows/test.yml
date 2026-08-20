@@ -32,6 +32,8 @@ jobs:
     runs-on: *runner_label
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
@@ -66,6 +68,8 @@ jobs:
     runs-on: *runner_label
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
@@ -94,6 +98,8 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Rust
         uses: ./.github/actions/cargo-checks-common-setup
@@ -113,6 +119,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
@@ -135,6 +143,8 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Rust
         uses: ./.github/actions/cargo-checks-common-setup
@@ -157,6 +167,8 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Setup Rust
         uses: ./.github/actions/cargo-checks-common-setup
@@ -169,3 +181,28 @@ jobs:
 
       - name: Run Cargo tests
         run: cargo nextest run --workspace
+
+  backend-platform-check:
+    name: cargo check ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            runner: macos-15
+          - name: windows
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Setup Rust
+        uses: ./.github/actions/cargo-checks-common-setup
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          cache-key: backend-platform-check-${{ matrix.name }}-${{ runner.arch }}
+
+      - name: Check workspace
+        run: cargo check --workspace --all-targets --features qa-mode

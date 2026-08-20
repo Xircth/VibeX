@@ -394,14 +394,52 @@ function replaceExecutable(source, destination) {
   }
 }
 
-function refreshBundleExecutables(paths) {
+function isInterruptedBundleTemp(name) {
+  return name.endsWith('.cstemp') || /\.next-\d+$/.test(name);
+}
+
+function hostSidecarPath(profileDirectory, name) {
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  return path.join(profileDirectory, `${name}${ext}`);
+}
+
+function refreshBundleExecutables(paths, profileDirectory) {
+  removeCodesignTempFiles(paths.appRoot);
   replaceExecutable(paths.sourceAppExecutable, paths.appExecutable);
   for (const helper of paths.helperExecutables) {
     replaceExecutable(paths.sourceHelperExecutable, helper.destination);
   }
+  if (!profileDirectory) {
+    return;
+  }
+  const macosDir = path.dirname(paths.appExecutable);
+  for (const name of ['vibex-mcp', 'vibex-workflow-mcp']) {
+    const source = hostSidecarPath(profileDirectory, name);
+    if (fs.existsSync(source) && fs.statSync(source).size > 0) {
+      replaceExecutable(source, path.join(macosDir, name));
+    }
+  }
+}
+
+function removeCodesignTempFiles(root) {
+  if (!fs.existsSync(root)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      removeCodesignTempFiles(fullPath);
+      continue;
+    }
+    if (isInterruptedBundleTemp(entry.name)) {
+      fs.unlinkSync(fullPath);
+    }
+  }
 }
 
 function signDevBundle(appRoot) {
+  removeCodesignTempFiles(appRoot);
   for (const args of [
     ['--force', '--deep', '--sign', '-', appRoot],
     ['--verify', '--deep', '--strict', appRoot],
@@ -496,6 +534,15 @@ async function run() {
     env,
     trackedPidFile: paths.devCommandPidFile,
   });
+  const mcpBuildArgs = ['build', '-p', 'vibex-mcp', '--bin', 'vibex-mcp'];
+  if (parsed.profile === 'release') {
+    mcpBuildArgs.push('--release');
+  }
+  await runCommand(env.CARGO || 'cargo', mcpBuildArgs, {
+    cwd: workspaceRoot,
+    env,
+    trackedPidFile: paths.devCommandPidFile,
+  });
 
   if (!isStagedBundleReady(paths)) {
     await stageRuntime(
@@ -507,7 +554,7 @@ async function run() {
     );
   }
   terminateTrackedDevApp(paths);
-  refreshBundleExecutables(paths);
+  refreshBundleExecutables(paths, profileDirectory);
   signDevBundle(paths.appRoot);
 
   const child = spawn(paths.appExecutable, parsed.appArgs, {
@@ -533,6 +580,7 @@ module.exports = {
   isStagedBundleReady,
   isTrackedDevAppCommand,
   parseCargoRunArgs,
+  removeCodesignTempFiles,
   replaceExecutable,
   resolveMacosDevPaths,
   signDevBundle,

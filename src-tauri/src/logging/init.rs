@@ -75,10 +75,16 @@ pub fn build_env_filter(settings: &LogSettings) -> EnvFilter {
         }
     }
     if settings.level != LogLevel::Off {
-        directives.push_str(",sqlx::query=warn,vibex::logging=off");
+        directives.push_str(FIREHOSE_BACKSTOPS);
     }
     EnvFilter::builder().parse_lossy(directives)
 }
+
+const FIREHOSE_BACKSTOPS: &str = concat!(
+    ",sqlx::query=warn,hyper=info,hyper_util=info,reqwest=info,h2=info,",
+    "rustls=info,tokio=info,tower=info,want=info,mio=warn,notify=warn,",
+    "tonic=info,h2::codec=warn,vibex::logging=off"
+);
 
 fn init_file_writer(
     dir: &Path,
@@ -113,7 +119,7 @@ pub fn init_logging() -> WorkerGuard {
             let directives = if s.eq_ignore_ascii_case("off") {
                 s
             } else {
-                format!("{s},sqlx::query=warn,vibex::logging=off")
+                format!("{s}{FIREHOSE_BACKSTOPS}")
             };
             EnvFilter::builder().parse_lossy(directives)
         }
@@ -195,5 +201,19 @@ mod tests {
         assert!(s.contains("info"));
         assert!(s.contains("agents=debug"));
         assert!(s.contains("sqlx::query=warn"));
+        assert!(s.contains("reqwest=info"));
+        assert!(s.contains("hyper=info"));
+    }
+
+    #[test]
+    fn trace_still_quiets_http_firehoses() {
+        let filter = build_env_filter(&LogSettings {
+            level: LogLevel::Trace,
+            targets: Vec::new(),
+        });
+        let s = filter.to_string();
+        assert!(s.contains("trace"));
+        assert!(s.contains("reqwest=info"));
+        assert!(s.contains("h2=info"));
     }
 }

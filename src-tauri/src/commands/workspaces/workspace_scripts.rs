@@ -217,51 +217,19 @@ pub async fn gh_cli_setup(
 }
 
 async fn get_gh_cli_setup_action() -> Result<ExecutorAction, AppError> {
-    #[cfg(unix)]
-    {
-        use utils::shell::resolve_executable_path;
-
-        if resolve_executable_path("brew").await.is_none() {
-            return Err(AppError::BadRequest("brew is not available".to_string()));
-        }
-
-        let install_script = r#"#!/bin/bash
-set -e
-if ! command -v gh &> /dev/null; then
-    echo "Installing GitHub CLI..."
-    brew install gh
-    echo "Installation complete!"
-else
-    echo "GitHub CLI already installed"
-fi"#
-        .to_string();
-
-        let auth_script = r#"#!/bin/bash
-set -e
-export GH_PROMPT_DISABLED=1
-gh auth login --web --git-protocol https --skip-ssh-key
-"#
-        .to_string();
-
-        Ok(container_actions::script_action(
-            install_script,
-            ScriptContext::ToolInstallScript,
-            None,
-            Some(container_actions::script_action(
-                auth_script,
-                ScriptContext::ToolInstallScript,
-                None,
-                None,
-            )),
-        ))
-    }
-
-    #[cfg(not(unix))]
-    {
-        Err(AppError::BadRequest(
-            "Setup helper not supported on this platform".to_string(),
-        ))
-    }
+    let gh = crate::commands::github_cli_installer::install()
+        .await
+        .map_err(AppError::BadRequest)?;
+    let quoted = format!("\"{}\"", gh.display().to_string().replace('"', "\\\""));
+    let auth_script = format!(
+        "export GH_PROMPT_DISABLED=1\n{quoted} auth login --web --git-protocol https --skip-ssh-key\n"
+    );
+    Ok(container_actions::script_action(
+        auth_script,
+        ScriptContext::ToolInstallScript,
+        None,
+        None,
+    ))
 }
 
 #[tauri::command]

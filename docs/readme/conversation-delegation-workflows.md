@@ -21,7 +21,7 @@ payload 返回原结果；相同 operation 配不同 payload 会冲突失败。
 CLI 连接已经运行的 VibeX Host：
 
 ```sh
-export VIBEX_URL=http://127.0.0.1:3080
+export VIBEX_URL=http://127.0.0.1:17891
 export VIBEX_TOKEN='replace-with-host-token'
 
 npx vibex conversation create \

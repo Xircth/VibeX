@@ -22,9 +22,9 @@ use services::services::{
     worktree_manager::WorktreeManager,
 };
 use tokio::sync::RwLock;
+use utils::msg_store::MsgStore;
 #[cfg(target_os = "windows")]
 use utils::process::new_hidden_std_command;
-use utils::{assets::asset_dir, msg_store::MsgStore};
 
 use crate::{container::LocalContainerService, pty::PtyService};
 mod command;
@@ -55,7 +55,7 @@ impl LocalDeployment {
     // returns `Self`, which would break the object-safety needed for `Arc<dyn Deployment>`).
     pub async fn new() -> Result<Self, DeploymentError> {
         Self::new_with_settings_paths(
-            asset_dir(),
+            utils::assets::host_data_dir(),
             utils::assets::settings_path(),
             Some(utils::assets::config_path()),
         )

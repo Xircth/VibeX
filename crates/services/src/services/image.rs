@@ -67,7 +67,7 @@ pub struct ImageService {
 
 impl ImageService {
     pub fn new(pool: SqlitePool) -> Result<Self, ImageError> {
-        let cache_dir = utils::cache_dir().join("images");
+        let cache_dir = utils::assets::host_data_dir().join("images");
         fs::create_dir_all(&cache_dir)?;
         Ok(Self {
             cache_dir,

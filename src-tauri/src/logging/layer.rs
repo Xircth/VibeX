@@ -72,6 +72,37 @@ impl Visit for FieldVisitor {
 
 pub struct BufferEmitLayer;
 
+const APP_LOG_PREFIXES: &[&str] = &[
+    "agents",
+    "application",
+    "artifacts",
+    "automation",
+    "browser_cef",
+    "browser_runtime",
+    "conversations",
+    "db",
+    "delegation",
+    "executors",
+    "git",
+    "local_deployment",
+    "plugins",
+    "remote_protocol",
+    "server",
+    "services",
+    "tool_runtime",
+    "utils",
+    "vibex",
+    "workflows",
+];
+
+fn is_app_target(target: &str) -> bool {
+    APP_LOG_PREFIXES.iter().any(|prefix| {
+        target
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
+
 impl<S: Subscriber> Layer<S> for BufferEmitLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let Some(_guard) = LayerGuard::enter() else {
@@ -80,10 +111,13 @@ impl<S: Subscriber> Layer<S> for BufferEmitLayer {
         let Some(hub) = log_hub() else {
             return;
         };
+        let meta = event.metadata();
+        if *meta.level() == tracing::Level::TRACE && !is_app_target(meta.target()) {
+            return;
+        }
 
         let mut visitor = FieldVisitor::default();
         event.record(&mut visitor);
-        let meta = event.metadata();
         hub.record(LogRecord {
             seq: hub.next_seq(),
             timestamp_ms: now_ms(),

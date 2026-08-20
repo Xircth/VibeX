@@ -78,6 +78,9 @@ __pycache__/
 # ===== Tauri =====
 src-tauri/gen/
 src-tauri/tauri.dev.generated.conf.json
+src-tauri/binaries/
+**/.codeg-fs-*.tmp
+**/*.cstemp
 
 # ===== Dev tooling =====
 .dev-ports.json

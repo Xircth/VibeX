@@ -480,6 +480,18 @@
             "type": "string"
           },
           "default": []
+        },
+        "ttl_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "format": "int64"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       }
     },

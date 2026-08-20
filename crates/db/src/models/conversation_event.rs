@@ -322,14 +322,13 @@ mod tests {
             "vibex-conversation-events-{}.sqlite",
             Uuid::new_v4()
         ));
-        let db_path = db_path.to_string_lossy().to_string();
-        let database_url = format!("sqlite://{db_path}");
-        let options = SqliteConnectOptions::from_str(&database_url)
-            .expect("sqlite options")
+        let options = SqliteConnectOptions::new()
+            .filename(&db_path)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .busy_timeout(Duration::from_secs(5))
             .foreign_keys(false);
+        let db_path = db_path.to_string_lossy().to_string();
         let pool = SqlitePoolOptions::new()
             .max_connections(8)
             .after_connect(|conn, _meta| {

@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use agents::{
@@ -20,7 +20,7 @@ use agents::{
     },
     validate_session_defaults,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use db::models::{
     agent_management::SessionDefaultRepository,
     conversation::{
@@ -2176,6 +2176,9 @@ impl ConversationSessionService {
         if !is_in_flight_turn_status(&turn.status) {
             return Ok(false);
         }
+        if !turn_predates_this_host(turn.created_at) {
+            return Ok(false);
+        }
 
         self.interrupt_in_flight_turn(turn.conversation_id, turn.id)
             .await?;
@@ -2286,6 +2289,7 @@ impl ConversationSessionService {
     /// open/send via ACP `session/load` — we deliberately do **not** eagerly reconnect
     /// agents here. Returns the number of turns recovered.
     pub async fn recover_interrupted_turns(&self) -> Result<usize, ConversationServiceError> {
+        note_host_lifetime();
         let pool = &self.ctx.deployment.db().pool;
         let inputs = ConversationInputControl::with_publisher(
             pool.clone(),
@@ -2735,6 +2739,19 @@ async fn ensure_conversation_has_no_in_flight_turn(
 
 fn is_in_flight_turn_status(status: &str) -> bool {
     matches!(status, "pending" | "queued" | "running" | "blocked")
+}
+
+fn host_started_at() -> DateTime<Utc> {
+    static STARTED: OnceLock<DateTime<Utc>> = OnceLock::new();
+    *STARTED.get_or_init(Utc::now)
+}
+
+fn note_host_lifetime() {
+    let _ = host_started_at();
+}
+
+fn turn_predates_this_host(created_at: DateTime<Utc>) -> bool {
+    created_at < host_started_at()
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -3436,8 +3453,8 @@ mod tests {
         AgentPromptOverrides, ConversationServiceError, agent_prompt_overrides_from_profile,
         checkpoint_before_files, checkpoint_file_change_summary, checkpoint_turn_file_changes,
         conversation_input_blocks_with_display_text, diff_to_conversation_file_change,
-        ensure_conversation_has_no_in_flight_turn, known_acp_session_id,
-        merge_user_prompt_overrides,
+        ensure_conversation_has_no_in_flight_turn, host_started_at, known_acp_session_id,
+        merge_user_prompt_overrides, turn_predates_this_host,
     };
 
     async fn migrated_pool() -> SqlitePool {
@@ -3611,6 +3628,18 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn restart_interrupt_only_applies_to_turns_from_the_previous_host() {
+        let started = host_started_at();
+        assert!(!turn_predates_this_host(started));
+        assert!(!turn_predates_this_host(
+            started + chrono::Duration::seconds(1)
+        ));
+        assert!(turn_predates_this_host(
+            started - chrono::Duration::seconds(1)
+        ));
     }
 
     #[test]

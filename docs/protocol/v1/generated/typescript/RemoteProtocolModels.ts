@@ -64,6 +64,7 @@ export interface RemoteEvent {
 export interface CreatePairingRequest {
   preset?: DevicePermissionPreset | JsonValue | null;
   requested_scopes?: string[];
+  ttl_seconds?: number | null;
 }
 
 export type DevicePermissionPreset = "workstation" | "companion";

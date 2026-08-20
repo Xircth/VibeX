@@ -317,10 +317,6 @@ pub async fn conversation_detail(
 ) -> Result<Option<DbConversationDetail>, AppError> {
     let id = Uuid::parse_str(&session_id)
         .map_err(|error| AppError::BadRequest(format!("invalid conversation id: {error}")))?;
-    ConversationSessionService::new(state.conversation_context())
-        .interrupt_orphaned_turn(id)
-        .await
-        .map_err(AppError::from)?;
     conversation_detail_core(&state.deployment.db().pool, id).await
 }
 

@@ -7,14 +7,14 @@ use crate::{
     AcceptWorkflowCandidateRequest, ApplicationCore, CancelConversationInputRequest,
     CancelConversationTurn, CancelWorkflowRequest, CompleteWorkflowStepRequest,
     ConversationRepository, CreateChildConversationRequest, CreateConversation,
-    DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand, ForkWorkflowRequest,
-    ListConversationInputsRequest, ListConversationRelationsRequest, ListConversations,
-    ListRecentConversations, PauseWorkflowRequest, PauseWorkflowStepRequest, Principal,
-    PublishWorkflowRequest, ReorderConversationInputRequest, RespondConversationPermission,
-    RespondConversationQuestion, ResumePausedWorkflowRequest, ResumeWorkflowRequest,
-    StartConversationTurn, StartWorkflowRequest, SteerConversationTurnRequest,
-    SubmitConversationInputRequest, SubmitWorkflowStepInputRequest, UpdateConversationInputRequest,
-    ValidateWorkflowRequest,
+    CreateConversationWorkspace, DebugWorkflowRequest, DecideWorkflowRequest, DomainCommand,
+    ForkWorkflowRequest, ListConversationInputsRequest, ListConversationRelationsRequest,
+    ListConversations, ListRecentConversations, PauseWorkflowRequest, PauseWorkflowStepRequest,
+    Principal, PublishWorkflowRequest, ReorderConversationInputRequest,
+    RespondConversationPermission, RespondConversationQuestion, ResumePausedWorkflowRequest,
+    ResumeWorkflowRequest, StartConversationTurn, StartWorkflowRequest,
+    SteerConversationTurnRequest, SubmitConversationInputRequest, SubmitWorkflowStepInputRequest,
+    UpdateConversationInputRequest, ValidateWorkflowRequest,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,6 +22,16 @@ pub enum RegisteredCommand {
     ConversationList,
     ConversationListRecent,
     ConversationCatalog,
+    ConversationArchive,
+    ConversationSetPinned,
+    ConversationDelete,
+    ConversationRename,
+    ConversationSetStatus,
+    ConversationSetSessionMode,
+    ConversationSetSessionConfig,
+    ConversationWorkspaceCreate,
+    ConversationWorkspaceEntries,
+    ConversationSlashCommands,
     ConversationCreate,
     ConversationChildCreate,
     ConversationOutput,
@@ -65,6 +75,16 @@ impl RegisteredCommand {
             Self::ConversationList => "conversation_list",
             Self::ConversationListRecent => "conversation_list_recent",
             Self::ConversationCatalog => "conversation_catalog",
+            Self::ConversationArchive => "conversation_archive",
+            Self::ConversationSetPinned => "conversation_set_pinned",
+            Self::ConversationDelete => "conversation_delete",
+            Self::ConversationRename => "conversation_rename",
+            Self::ConversationSetStatus => "conversation_set_status",
+            Self::ConversationSetSessionMode => "conversation_set_session_mode",
+            Self::ConversationSetSessionConfig => "conversation_set_session_config_option",
+            Self::ConversationWorkspaceCreate => "conversation_workspace_create",
+            Self::ConversationWorkspaceEntries => "conversation_workspace_entries",
+            Self::ConversationSlashCommands => "conversation_slash_commands",
             Self::ConversationCreate => "conversation_create",
             Self::ConversationChildCreate => "conversation_child_create",
             Self::ConversationOutput => "conversation_output",
@@ -112,6 +132,16 @@ impl FromStr for RegisteredCommand {
             "conversation_list" => Ok(Self::ConversationList),
             "conversation_list_recent" => Ok(Self::ConversationListRecent),
             "conversation_catalog" => Ok(Self::ConversationCatalog),
+            "conversation_archive" => Ok(Self::ConversationArchive),
+            "conversation_set_pinned" => Ok(Self::ConversationSetPinned),
+            "conversation_delete" => Ok(Self::ConversationDelete),
+            "conversation_rename" => Ok(Self::ConversationRename),
+            "conversation_set_status" => Ok(Self::ConversationSetStatus),
+            "conversation_set_session_mode" => Ok(Self::ConversationSetSessionMode),
+            "conversation_set_session_config_option" => Ok(Self::ConversationSetSessionConfig),
+            "conversation_workspace_create" => Ok(Self::ConversationWorkspaceCreate),
+            "conversation_workspace_entries" => Ok(Self::ConversationWorkspaceEntries),
+            "conversation_slash_commands" => Ok(Self::ConversationSlashCommands),
             "conversation_create" => Ok(Self::ConversationCreate),
             "conversation_child_create" => Ok(Self::ConversationChildCreate),
             "conversation_output" => Ok(Self::ConversationOutput),
@@ -175,6 +205,70 @@ struct ConversationCreateArgs {
     agent_id: String,
     title: Option<String>,
     initial_prompt: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationArchiveArgs {
+    conversation_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSetPinnedArgs {
+    conversation_id: uuid::Uuid,
+    pinned: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationRenameArgs {
+    conversation_id: uuid::Uuid,
+    title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSetStatusArgs {
+    conversation_id: uuid::Uuid,
+    status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSetSessionModeArgs {
+    conversation_id: uuid::Uuid,
+    mode_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSetSessionConfigArgs {
+    conversation_id: uuid::Uuid,
+    key: String,
+    value: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationWorkspaceCreateArgs {
+    project_id: uuid::Uuid,
+    name: String,
+    branch: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationWorkspaceEntriesArgs {
+    workspace_id: uuid::Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSlashCommandsArgs {
+    agent_id: String,
+    #[serde(default)]
+    workspace_id: Option<uuid::Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -454,6 +548,174 @@ where
                 let result = self
                     .core
                     .conversation_catalog(principal)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationArchive => {
+                let args =
+                    serde_json::from_value::<ConversationArchiveArgs>(args).map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                self.core
+                    .archive_conversation(principal, args.conversation_id)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationSetPinned => {
+                let args = parse_args::<ConversationSetPinnedArgs>(command, operation_id, args)?;
+                self.core
+                    .set_conversation_pinned(principal, args.conversation_id, args.pinned)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationDelete => {
+                let args =
+                    serde_json::from_value::<ConversationArchiveArgs>(args).map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                self.core
+                    .delete_conversation(principal, args.conversation_id)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationRename => {
+                let args = parse_args::<ConversationRenameArgs>(command, operation_id, args)?;
+                self.core
+                    .rename_conversation(principal, args.conversation_id, args.title)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationSetStatus => {
+                let args = parse_args::<ConversationSetStatusArgs>(command, operation_id, args)?;
+                self.core
+                    .set_conversation_status(principal, args.conversation_id, args.status)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationSetSessionMode => {
+                let args =
+                    parse_args::<ConversationSetSessionModeArgs>(command, operation_id, args)?;
+                self.core
+                    .set_session_mode(principal, args.conversation_id, args.mode_id)
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationSetSessionConfig => {
+                let args =
+                    parse_args::<ConversationSetSessionConfigArgs>(command, operation_id, args)?;
+                self.core
+                    .set_session_config_option(
+                        principal,
+                        args.conversation_id,
+                        args.key,
+                        args.value,
+                    )
+                    .await
+                    .map_err(|error| with_operation_id(error, operation_id))?;
+                serde_json::json!({ "ok": true })
+            }
+            RegisteredCommand::ConversationWorkspaceCreate => {
+                let args = serde_json::from_value::<ConversationWorkspaceCreateArgs>(args)
+                    .map_err(|error| {
+                        ErrorEnvelope::new(
+                            ErrorCode::BadRequest,
+                            format!("invalid arguments for {}: {error}", command.as_str()),
+                            false,
+                            operation_id,
+                        )
+                    })?;
+                let result = self
+                    .core
+                    .create_conversation_workspace(
+                        principal,
+                        CreateConversationWorkspace {
+                            project_id: args.project_id,
+                            name: args.name,
+                            branch: args.branch,
+                        },
+                    )
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationWorkspaceEntries => {
+                let args =
+                    parse_args::<ConversationWorkspaceEntriesArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .conversation_workspace_entries(principal, args.workspace_id)
+                    .await
+                    .map_err(|error| {
+                        let mut envelope = error.into_envelope();
+                        envelope.operation_id = operation_id;
+                        envelope
+                    })?;
+                serde_json::to_value(result).map_err(|error| {
+                    ErrorEnvelope::new(
+                        ErrorCode::Internal,
+                        format!("failed to serialize {} result: {error}", command.as_str()),
+                        false,
+                        operation_id,
+                    )
+                })?
+            }
+            RegisteredCommand::ConversationSlashCommands => {
+                let args =
+                    parse_args::<ConversationSlashCommandsArgs>(command, operation_id, args)?;
+                let result = self
+                    .core
+                    .conversation_slash_commands(principal, args.agent_id, args.workspace_id)
                     .await
                     .map_err(|error| {
                         let mut envelope = error.into_envelope();

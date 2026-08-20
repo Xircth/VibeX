@@ -223,6 +223,29 @@ impl ConversationExecutionPort for ConversationSessionExecutionPort {
     ) -> Result<ConversationInputView, ApplicationError> {
         self.inputs.cancel(request).await.map_err(map_input_error)
     }
+
+    async fn set_session_mode(
+        &self,
+        conversation_id: uuid::Uuid,
+        mode_id: String,
+    ) -> Result<(), ApplicationError> {
+        self.service
+            .set_session_mode(conversation_id, mode_id)
+            .await
+            .map_err(map_service_error)
+    }
+
+    async fn set_session_config_option(
+        &self,
+        conversation_id: uuid::Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<(), ApplicationError> {
+        self.service
+            .set_session_config_option(conversation_id, key, value)
+            .await
+            .map_err(map_service_error)
+    }
 }
 
 fn map_service_error(error: ConversationServiceError) -> ApplicationError {

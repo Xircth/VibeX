@@ -14,13 +14,15 @@ pub use agents::ConversationWorkflowRef;
 pub use command::{CommandRegistry, RegisteredCommand};
 pub use conversation::{
     ApplicationCore, CancelConversationInputRequest, CancelConversationTurn, ConversationCatalog,
-    ConversationCatalogAgent, ConversationCatalogProject, ConversationCatalogWorkspace,
-    ConversationExecutionPort, ConversationOutputView, ConversationRepository,
-    ConversationSubscriptionRegistrar, CreateChildConversationRequest, CreateConversation,
-    ListConversationInputsRequest, ListConversationRelationsRequest, ListConversations,
-    ListRecentConversations, ReorderConversationInputRequest, RespondConversationPermission,
-    RespondConversationQuestion, SqliteConversationRepository, StartConversationTurn,
-    SteerConversationTurnRequest, SubmitConversationInputRequest, UpdateConversationInputRequest,
+    ConversationCatalogAgent, ConversationCatalogProject, ConversationCatalogTag,
+    ConversationCatalogWorkspace, ConversationExecutionPort, ConversationOutputView,
+    ConversationRepository, ConversationSlashCommand, ConversationSubscriptionRegistrar,
+    ConversationWorkspaceEntry, CreateChildConversationRequest, CreateConversation,
+    CreateConversationWorkspace, ListConversationInputsRequest, ListConversationRelationsRequest,
+    ListConversations, ListRecentConversations, ReorderConversationInputRequest,
+    RespondConversationPermission, RespondConversationQuestion, SqliteConversationRepository,
+    StartConversationTurn, SteerConversationTurnRequest, SubmitConversationInputRequest,
+    UpdateConversationInputRequest,
 };
 pub use conversation_artifacts::SqliteConversationArtifactEventSink;
 pub use conversation_execution::ConversationSessionExecutionPort;

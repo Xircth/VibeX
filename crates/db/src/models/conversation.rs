@@ -95,6 +95,7 @@ impl DbConversationSummary {
                 r#"SELECT {SUMMARY_COLUMNS}
                    FROM sessions
                    WHERE deleted_at IS NULL
+                     AND status != 'archived'
                      AND {recency}
                      AND workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)
                    ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
@@ -110,6 +111,7 @@ impl DbConversationSummary {
                 r#"SELECT {SUMMARY_COLUMNS}
                    FROM sessions
                    WHERE deleted_at IS NULL
+                     AND status != 'archived'
                      AND {recency}
                    ORDER BY pinned_at IS NULL, pinned_at DESC, updated_at DESC, created_at DESC
                    LIMIT ?"#

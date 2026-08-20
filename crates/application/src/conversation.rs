@@ -58,6 +58,154 @@ struct WorkspaceCatalogRow {
     branch: String,
 }
 
+#[derive(sqlx::FromRow)]
+struct AgentCatalogRow {
+    agent_id: String,
+    enabled: bool,
+    retained_icon_svg: Option<String>,
+    display_name: Option<String>,
+    lifecycle: Option<String>,
+    authentication: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct AgentBindingConfigRow {
+    config_options_json: Option<String>,
+    modes_json: Option<String>,
+    current_mode: Option<String>,
+}
+
+pub(crate) fn catalog_agent_usable(
+    enabled: bool,
+    lifecycle: Option<&str>,
+    authentication: Option<&str>,
+) -> bool {
+    if !enabled {
+        return false;
+    }
+    let authentication = authentication.unwrap_or("").trim();
+    if matches!(authentication, "not_logged_in" | "multiple_unknown") {
+        return false;
+    }
+    match lifecycle.map(str::trim).filter(|value| !value.is_empty()) {
+        None | Some("ready") => true,
+        Some(_) => false,
+    }
+}
+
+fn catalog_agent_from_row(row: AgentCatalogRow) -> ConversationCatalogAgent {
+    let lifecycle = row.lifecycle.filter(|value| !value.is_empty());
+    let authentication = row.authentication.filter(|value| !value.is_empty());
+    ConversationCatalogAgent {
+        id: row.agent_id,
+        ready: row.enabled,
+        usable: catalog_agent_usable(row.enabled, lifecycle.as_deref(), authentication.as_deref()),
+        lifecycle,
+        authentication,
+        display_name: row.display_name.filter(|value| !value.is_empty()),
+        icon_svg: row.retained_icon_svg.filter(|value| !value.is_empty()),
+        current_mode: None,
+        session_config: None,
+        session_modes: None,
+        session_config_json: None,
+        session_modes_json: None,
+    }
+}
+
+#[cfg(test)]
+mod catalog_agent_usable_tests {
+    use super::catalog_agent_usable;
+
+    #[test]
+    fn ready_account_is_usable() {
+        assert!(catalog_agent_usable(true, Some("ready"), Some("account")));
+        assert!(catalog_agent_usable(true, Some("ready"), Some("api_key")));
+        assert!(catalog_agent_usable(
+            true,
+            Some("ready"),
+            Some("not_required")
+        ));
+    }
+
+    #[test]
+    fn login_and_environment_failures_are_not_usable() {
+        assert!(!catalog_agent_usable(
+            true,
+            Some("ready"),
+            Some("not_logged_in")
+        ));
+        assert!(!catalog_agent_usable(true, Some("needs_auth"), None));
+        assert!(!catalog_agent_usable(
+            true,
+            Some("needs_repair"),
+            Some("api_key")
+        ));
+        assert!(!catalog_agent_usable(true, Some("uninstalled"), None));
+    }
+
+    #[test]
+    fn missing_probe_does_not_block_an_enabled_agent() {
+        assert!(catalog_agent_usable(true, None, None));
+    }
+
+    #[test]
+    fn disabled_is_not_usable() {
+        assert!(!catalog_agent_usable(false, Some("ready"), Some("account")));
+    }
+}
+
+#[cfg(test)]
+mod slash_commands_from_skills_tests {
+    use agents::skills::{AgentSkillItem, AgentSkillScope};
+
+    use super::{ConversationSlashCommand, slash_commands_from_skills};
+
+    #[test]
+    fn maps_skill_id_and_path_to_desktop_slash_value() {
+        let commands = slash_commands_from_skills(&[AgentSkillItem {
+            id: "office-xlsx".into(),
+            scope: AgentSkillScope::Global,
+            path: "/Users/mac/.agents/skills/office-xlsx".into(),
+            description: Some("Excel".into()),
+            read_only: true,
+        }]);
+        assert_eq!(
+            commands,
+            vec![ConversationSlashCommand {
+                name: "office-xlsx".into(),
+                description: Some("Excel".into()),
+                kind: "skill".into(),
+                source_kind: "skill".into(),
+                source_id: "/Users/mac/.agents/skills/office-xlsx".into(),
+                value: "/skill:/Users/mac/.agents/skills/office-xlsx:office-xlsx".into(),
+            }]
+        );
+    }
+}
+
+fn parse_json_value(raw: Option<&str>) -> Option<serde_json::Value> {
+    let text = raw?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    serde_json::from_str(text).ok()
+}
+
+fn builtin_catalog_tags() -> Vec<ConversationCatalogTag> {
+    vec![
+        ConversationCatalogTag {
+            id: "builtin:start-project-dev-server".into(),
+            name: "启动项目开发服务器".into(),
+            content: "分析当前项目并识别正确的开发服务器启动方式；必要时检查或安装依赖并修复基础环境问题；成功启动后验证服务可访问，再把可访问的本地 URL 直接告诉我。".into(),
+        },
+        ConversationCatalogTag {
+            id: "builtin:review-changes".into(),
+            name: "审查变更".into(),
+            content: "请审查当前工作区的所有未提交代码变更。优先指出可能的 Bug、行为回归、可维护性问题、性能问题和测试缺口；按严重程度排序，尽量附上文件和行号。若没有发现问题，请明确说明未发现高风险问题，并列出仍未验证的风险。".into(),
+        },
+    ]
+}
+
 fn require_workflow_run(principal: &Principal) -> Result<(), ApplicationError> {
     if principal.allows("workflow.run") {
         Ok(())
@@ -100,6 +248,81 @@ pub struct ConversationCatalogWorkspace {
 pub struct ConversationCatalogAgent {
     pub id: String,
     pub ready: bool,
+    #[serde(default)]
+    pub usable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_config: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_modes: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_config_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_modes_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCatalogTag {
+    pub id: String,
+    pub name: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationWorkspaceEntry {
+    pub name: String,
+    pub path: String,
+    pub directory: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSlashCommand {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub kind: String,
+    pub source_kind: String,
+    pub source_id: String,
+    pub value: String,
+}
+
+fn slash_commands_from_skills(
+    skills: &[agents::skills::AgentSkillItem],
+) -> Vec<ConversationSlashCommand> {
+    skills
+        .iter()
+        .filter_map(|skill| {
+            let name = skill.id.trim().trim_start_matches('/').to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(ConversationSlashCommand {
+                name: name.clone(),
+                description: skill
+                    .description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
+                kind: "skill".into(),
+                source_kind: "skill".into(),
+                source_id: skill.path.clone(),
+                value: format!("/skill:{}:{}", skill.path, name),
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
@@ -108,6 +331,8 @@ pub struct ConversationCatalog {
     pub projects: Vec<ConversationCatalogProject>,
     pub workspaces: Vec<ConversationCatalogWorkspace>,
     pub agents: Vec<ConversationCatalogAgent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<ConversationCatalogTag>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -116,6 +341,13 @@ pub struct CreateConversation {
     pub agent_id: String,
     pub title: Option<String>,
     pub initial_prompt: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreateConversationWorkspace {
+    pub project_id: Uuid,
+    pub name: String,
+    pub branch: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
@@ -330,6 +562,27 @@ pub trait ConversationExecutionPort: Send + Sync {
             "conversation input cancellation is not configured",
         ))
     }
+
+    async fn set_session_mode(
+        &self,
+        _conversation_id: Uuid,
+        _mode_id: String,
+    ) -> Result<(), ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "session mode is not configured",
+        ))
+    }
+
+    async fn set_session_config_option(
+        &self,
+        _conversation_id: Uuid,
+        _key: String,
+        _value: serde_json::Value,
+    ) -> Result<(), ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "session config is not configured",
+        ))
+    }
 }
 
 struct UnavailableConversationExecution;
@@ -386,6 +639,58 @@ pub trait ConversationRepository: Send + Sync {
 
     async fn catalog(&self) -> Result<ConversationCatalog, ApplicationError> {
         Ok(ConversationCatalog::default())
+    }
+
+    async fn workspace_entries(
+        &self,
+        _workspace_id: Uuid,
+    ) -> Result<Vec<ConversationWorkspaceEntry>, ApplicationError> {
+        Ok(Vec::new())
+    }
+
+    async fn slash_commands(
+        &self,
+        _agent_id: String,
+        _workspace_id: Option<Uuid>,
+    ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
+        Ok(Vec::new())
+    }
+
+    async fn archive(&self, _conversation_id: Uuid) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn set_pinned(
+        &self,
+        _conversation_id: Uuid,
+        _pinned: bool,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn delete(&self, _conversation_id: Uuid) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn rename(&self, _conversation_id: Uuid, _title: String) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn set_status(
+        &self,
+        _conversation_id: Uuid,
+        _status: String,
+    ) -> Result<(), ApplicationError> {
+        Ok(())
+    }
+
+    async fn create_workspace(
+        &self,
+        _request: CreateConversationWorkspace,
+    ) -> Result<ConversationCatalogWorkspace, ApplicationError> {
+        Err(ApplicationError::capability_unavailable(
+            "workspace creation is not configured",
+        ))
     }
 
     async fn create(
@@ -459,6 +764,46 @@ pub struct SqliteConversationRepository {
 impl SqliteConversationRepository {
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+
+    async fn workspace_root(&self, workspace_id: Uuid) -> Result<Option<String>, ApplicationError> {
+        let row = sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+            r#"SELECT w.agent_working_dir,
+                      w.container_ref,
+                      COALESCE(
+                        NULLIF(TRIM(p.default_agent_working_dir), ''),
+                        (
+                          SELECT r.path
+                          FROM project_repos pr
+                          JOIN repos r ON r.id = pr.repo_id
+                          WHERE pr.project_id = p.id
+                          LIMIT 1
+                        ),
+                        ''
+                      ) AS project_path
+               FROM workspaces w
+               JOIN projects p ON p.id = w.project_id
+               WHERE w.id = ?"#,
+        )
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        let Some((working_dir, container_ref, project_path)) = row else {
+            return Ok(None);
+        };
+        let root = [
+            working_dir.as_deref(),
+            container_ref.as_deref(),
+            Some(project_path.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|value| !value.is_empty() && std::path::Path::new(value).is_dir())
+        .unwrap_or(project_path.as_str())
+        .to_string();
+        Ok(Some(root))
     }
 }
 
@@ -535,22 +880,282 @@ impl ConversationRepository for SqliteConversationRepository {
             branch: row.branch,
         })
         .collect();
-        let agents = sqlx::query_scalar::<_, String>(
-            r#"SELECT DISTINCT agent_id
-               FROM sessions
-               WHERE agent_id IS NOT NULL AND TRIM(agent_id) != '' AND deleted_at IS NULL
-               ORDER BY agent_id"#,
+        let mut agents = sqlx::query_as::<_, AgentCatalogRow>(
+            r#"SELECT m.agent_id AS agent_id,
+                      m.enabled AS enabled,
+                      m.retained_icon_svg AS retained_icon_svg,
+                      json_extract(m.retained_metadata_json, '$.name') AS display_name,
+                      i.lifecycle AS lifecycle,
+                      p.authentication AS authentication
+               FROM agent_membership m
+               LEFT JOIN agent_installation i ON i.agent_id = m.agent_id
+               LEFT JOIN agent_probe p ON p.agent_id = m.agent_id
+               WHERE m.retired = 0
+               ORDER BY m.position ASC, m.agent_id ASC"#,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?
         .into_iter()
-        .map(|id| ConversationCatalogAgent { id, ready: true })
-        .collect();
+        .map(catalog_agent_from_row)
+        .collect::<Vec<_>>();
+        if agents.is_empty() {
+            agents = sqlx::query_as::<_, AgentCatalogRow>(
+                r#"SELECT s.agent_id AS agent_id,
+                          1 AS enabled,
+                          NULL AS retained_icon_svg,
+                          NULL AS display_name,
+                          i.lifecycle AS lifecycle,
+                          p.authentication AS authentication
+                   FROM (
+                     SELECT DISTINCT agent_id
+                     FROM sessions
+                     WHERE agent_id IS NOT NULL AND TRIM(agent_id) != '' AND deleted_at IS NULL
+                   ) s
+                   LEFT JOIN agent_installation i ON i.agent_id = s.agent_id
+                   LEFT JOIN agent_probe p ON p.agent_id = s.agent_id
+                   ORDER BY s.agent_id"#,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?
+            .into_iter()
+            .map(catalog_agent_from_row)
+            .collect();
+        }
+        for agent in &mut agents {
+            if let Ok(Some(row)) = sqlx::query_as::<_, AgentBindingConfigRow>(
+                r#"SELECT config_options_json, modes_json, current_mode
+                   FROM conversation_agent_bindings
+                   WHERE agent_id = ?
+                   ORDER BY updated_at DESC
+                   LIMIT 1"#,
+            )
+            .bind(&agent.id)
+            .fetch_optional(&self.pool)
+            .await
+            {
+                agent.current_mode = row.current_mode.filter(|value| !value.is_empty());
+                agent.session_config = parse_json_value(
+                    row.config_options_json
+                        .as_deref()
+                        .filter(|value| !value.is_empty() && *value != "[]"),
+                );
+                agent.session_modes = parse_json_value(
+                    row.modes_json
+                        .as_deref()
+                        .filter(|value| !value.is_empty() && *value != "[]"),
+                );
+                agent.session_config_json = row
+                    .config_options_json
+                    .filter(|value| !value.is_empty() && value != "[]");
+                agent.session_modes_json = row
+                    .modes_json
+                    .filter(|value| !value.is_empty() && value != "[]");
+            }
+            if agent.session_config.is_none() {
+                if let Ok(Some(controls)) = sqlx::query_scalar::<_, String>(
+                    r#"SELECT controls_json
+                       FROM agent_capability_catalog
+                       WHERE agent_type = ?
+                       ORDER BY retrieved_at DESC
+                       LIMIT 1"#,
+                )
+                .bind(&agent.id)
+                .fetch_optional(&self.pool)
+                .await
+                {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&controls) {
+                        let modes = value
+                            .get("modes")
+                            .cloned()
+                            .filter(|item| item != &serde_json::json!([]));
+                        let options = value
+                            .get("config_options")
+                            .cloned()
+                            .filter(|item| item != &serde_json::json!([]));
+                        if agent.session_modes.is_none() {
+                            agent.session_modes = modes;
+                        }
+                        agent.session_config = options;
+                    }
+                }
+            }
+        }
+        let mut tags = builtin_catalog_tags();
+        if let Ok(rows) = db::models::tag::Tag::find_all(&self.pool).await {
+            for row in rows {
+                if tags
+                    .iter()
+                    .any(|tag| tag.name.eq_ignore_ascii_case(&row.tag_name))
+                {
+                    continue;
+                }
+                tags.push(ConversationCatalogTag {
+                    id: row.id.to_string(),
+                    name: row.tag_name,
+                    content: row.content,
+                });
+            }
+        }
         Ok(ConversationCatalog {
             projects,
             workspaces,
             agents,
+            tags,
+        })
+    }
+
+    async fn workspace_entries(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<ConversationWorkspaceEntry>, ApplicationError> {
+        let Some(root) = self.workspace_root(workspace_id).await? else {
+            return Err(ApplicationError::not_found("workspace not found"));
+        };
+        let path = std::path::Path::new(&root);
+        if !path.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut entries = Vec::new();
+        let read = std::fs::read_dir(path).map_err(|error| {
+            ApplicationError::internal(format!("read workspace directory: {error}"))
+        })?;
+        for entry in read.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            let directory = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+            entries.push(ConversationWorkspaceEntry {
+                name: name.clone(),
+                path: name,
+                directory,
+            });
+            if entries.len() >= 200 {
+                break;
+            }
+        }
+        entries.sort_by(|left, right| {
+            right
+                .directory
+                .cmp(&left.directory)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+        });
+        Ok(entries)
+    }
+
+    async fn slash_commands(
+        &self,
+        agent_id: String,
+        workspace_id: Option<Uuid>,
+    ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
+        let workspace_path = match workspace_id {
+            Some(id) => self
+                .workspace_root(id)
+                .await?
+                .filter(|path| !path.is_empty()),
+            None => None,
+        };
+        let listed = agents::skills::list_agent_skills(agent_id, workspace_path)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        Ok(slash_commands_from_skills(&listed.skills))
+    }
+
+    async fn archive(&self, conversation_id: Uuid) -> Result<(), ApplicationError> {
+        db::models::session::Session::update_status(
+            &self.pool,
+            conversation_id,
+            db::models::session::SessionStatus::Archived,
+        )
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn set_pinned(
+        &self,
+        conversation_id: Uuid,
+        pinned: bool,
+    ) -> Result<(), ApplicationError> {
+        DbConversationSummary::set_pinned(&self.pool, conversation_id, pinned)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn delete(&self, conversation_id: Uuid) -> Result<(), ApplicationError> {
+        DbConversationSummary::soft_delete(&self.pool, conversation_id)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn rename(&self, conversation_id: Uuid, title: String) -> Result<(), ApplicationError> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return Err(ApplicationError::bad_request("title is required"));
+        }
+        DbConversationSummary::set_title(&self.pool, conversation_id, trimmed)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn set_status(
+        &self,
+        conversation_id: Uuid,
+        status: String,
+    ) -> Result<(), ApplicationError> {
+        let parsed = status
+            .parse::<db::models::session::SessionStatus>()
+            .map_err(|_| ApplicationError::bad_request(format!("unknown status {status}")))?;
+        db::models::session::Session::update_status(&self.pool, conversation_id, parsed)
+            .await
+            .map_err(|error| ApplicationError::internal(error.to_string()))
+    }
+
+    async fn create_workspace(
+        &self,
+        request: CreateConversationWorkspace,
+    ) -> Result<ConversationCatalogWorkspace, ApplicationError> {
+        let source = sqlx::query_as::<_, WorkspaceCatalogRow>(
+            r#"SELECT id, project_id, name, branch
+               FROM workspaces
+               WHERE archived = 0 AND project_id = ?
+               ORDER BY updated_at DESC
+               LIMIT 1"#,
+        )
+        .bind(request.project_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?
+        .ok_or_else(|| ApplicationError::bad_request("这个项目还没有可复制的工作区"))?;
+        let id = Uuid::new_v4();
+        let branch = request
+            .branch
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(source.branch);
+        let name = request.name.trim().to_string();
+        sqlx::query(
+            r#"INSERT INTO workspaces (
+                   id, project_id, task_id, parent_workspace_id, container_ref, branch,
+                   use_worktree, agent_working_dir, setup_completed_at, name
+               )
+               SELECT ?, project_id, task_id, id, container_ref, ?, use_worktree,
+                      agent_working_dir, setup_completed_at, ?
+               FROM workspaces
+               WHERE id = ?"#,
+        )
+        .bind(id)
+        .bind(&branch)
+        .bind(&name)
+        .bind(source.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|error| ApplicationError::internal(error.to_string()))?;
+        Ok(ConversationCatalogWorkspace {
+            id,
+            project_id: request.project_id,
+            name,
+            branch,
         })
     }
 
@@ -559,6 +1164,10 @@ impl ConversationRepository for SqliteConversationRepository {
         request: CreateConversation,
     ) -> Result<DbConversationSummary, ApplicationError> {
         let conversation_id = Uuid::new_v4();
+        let agent_id = request.agent_id.trim();
+        if agent_id.is_empty() {
+            return Err(ApplicationError::bad_request("agentId is required"));
+        }
         ConversationRecord::create(
             &self.pool,
             conversation_id,
@@ -568,17 +1177,19 @@ impl ConversationRepository for SqliteConversationRepository {
                 title: request.title.as_deref(),
                 initial_prompt: request.initial_prompt.as_deref(),
                 status: None,
-                executor: Some("agent"),
+                executor: Some(agent_id),
             },
         )
         .await
         .map_err(|error| ApplicationError::internal(error.to_string()))?;
         sqlx::query(
             "UPDATE sessions
-             SET agent_type = ?, updated_at = datetime('now', 'subsec')
+             SET agent_id = ?, agent_type = ?, executor = ?, updated_at = datetime('now', 'subsec')
              WHERE id = ?",
         )
-        .bind(request.agent_id)
+        .bind(agent_id)
+        .bind(agent_id)
+        .bind(agent_id)
         .bind(conversation_id)
         .execute(&self.pool)
         .await
@@ -725,12 +1336,7 @@ impl ConversationRepository for SqliteConversationRepository {
         let events = records
             .into_iter()
             .filter(|record| record.sequence <= high_water_mark)
-            .map(|record| RemoteEvent {
-                sequence: record.sequence,
-                kind: record.event_kind,
-                payload: serde_json::from_str(&record.normalized_json)
-                    .unwrap_or_else(|_| serde_json::json!({ "unparsed": record.normalized_json })),
-            })
+            .map(remote_event)
             .collect::<Vec<_>>();
         let delivered_through = events
             .last()
@@ -873,11 +1479,17 @@ impl ConversationRepository for SqliteConversationRepository {
 }
 
 fn remote_event(record: ConversationEventRecord) -> RemoteEvent {
+    let mut payload: serde_json::Value = serde_json::from_str(&record.normalized_json)
+        .unwrap_or_else(|_| serde_json::json!({ "unparsed": record.normalized_json }));
+    if let (Some(object), Some(turn_id)) = (payload.as_object_mut(), record.turn_id) {
+        let turn = serde_json::Value::String(turn_id.to_string());
+        object.entry("turnId").or_insert_with(|| turn.clone());
+        object.entry("turn_id").or_insert(turn);
+    }
     RemoteEvent {
         sequence: record.sequence,
         kind: record.event_kind,
-        payload: serde_json::from_str(&record.normalized_json)
-            .unwrap_or_else(|_| serde_json::json!({ "unparsed": record.normalized_json })),
+        payload,
     }
 }
 
@@ -1333,6 +1945,149 @@ where
             ));
         }
         self.conversations.catalog().await
+    }
+
+    pub async fn conversation_workspace_entries(
+        &self,
+        principal: &Principal,
+        workspace_id: Uuid,
+    ) -> Result<Vec<ConversationWorkspaceEntry>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.conversations.workspace_entries(workspace_id).await
+    }
+
+    pub async fn conversation_slash_commands(
+        &self,
+        principal: &Principal,
+        agent_id: String,
+        workspace_id: Option<Uuid>,
+    ) -> Result<Vec<ConversationSlashCommand>, ApplicationError> {
+        if !principal.allows(READ_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.read",
+            ));
+        }
+        self.conversations
+            .slash_commands(agent_id, workspace_id)
+            .await
+    }
+
+    pub async fn archive_conversation(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.archive(conversation_id).await
+    }
+
+    pub async fn set_conversation_pinned(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+        pinned: bool,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.set_pinned(conversation_id, pinned).await
+    }
+
+    pub async fn delete_conversation(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.delete(conversation_id).await
+    }
+
+    pub async fn rename_conversation(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+        title: String,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.rename(conversation_id, title).await
+    }
+
+    pub async fn set_conversation_status(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+        status: String,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.set_status(conversation_id, status).await
+    }
+
+    pub async fn set_session_mode(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+        mode_id: String,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .set_session_mode(conversation_id, mode_id)
+            .await
+    }
+
+    pub async fn set_session_config_option(
+        &self,
+        principal: &Principal,
+        conversation_id: Uuid,
+        key: String,
+        value: serde_json::Value,
+    ) -> Result<(), ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.execution
+            .set_session_config_option(conversation_id, key, value)
+            .await
+    }
+
+    pub async fn create_conversation_workspace(
+        &self,
+        principal: &Principal,
+        request: CreateConversationWorkspace,
+    ) -> Result<ConversationCatalogWorkspace, ApplicationError> {
+        if !principal.allows(WRITE_CONVERSATIONS_SCOPE) {
+            return Err(ApplicationError::forbidden(
+                "principal lacks conversation.write",
+            ));
+        }
+        self.conversations.create_workspace(request).await
     }
 
     pub async fn create_conversation(

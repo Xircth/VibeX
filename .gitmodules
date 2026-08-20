@@ -4,3 +4,12 @@
 [submodule "assets/plugins/multi-agent"]
 	path = assets/plugins/multi-agent
 	url = https://github.com/Xircth/vibex-plugin-multi-agent.git
+[submodule "assets/plugins/office"]
+	path = assets/plugins/office
+	url = https://github.com/Xircth/vibex-plugin-office.git
+[submodule "assets/plugins/session-enhance"]
+	path = assets/plugins/session-enhance
+	url = https://github.com/Xircth/vibex-plugin-session-enhance.git
+[submodule "assets/plugins/workflow-creator"]
+	path = assets/plugins/workflow-creator
+	url = https://github.com/Xircth/vibex-plugin-workflow-creator.git

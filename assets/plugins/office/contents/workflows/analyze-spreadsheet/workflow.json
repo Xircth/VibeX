@@ -1,7 +1,0 @@
-{
-  "label": "分析 Excel",
-  "entrypoints": ["action", "command"],
-  "promptBlocks": [{ "type": "text", "text": "检查工作表结构和数据质量，分析 XLSX 并给出可追溯结论。" }],
-  "requires": { "skills": ["office-xlsx"], "runtimes": ["officecli"] },
-  "artifactIntent": { "mediaTypes": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], "previewProvider": "office-preview" }
-}

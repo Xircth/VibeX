@@ -1,7 +1,0 @@
-{
-  "label": "生成 Excel",
-  "entrypoints": ["action", "command"],
-  "promptBlocks": [{ "type": "text", "text": "根据用户需求生成 XLSX，校验公式、格式与关键结果。" }],
-  "requires": { "skills": ["office-xlsx"], "runtimes": ["officecli"] },
-  "artifactIntent": { "mediaTypes": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"], "previewProvider": "office-preview" }
-}
